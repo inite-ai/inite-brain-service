@@ -1,7 +1,7 @@
 import type { StartedTestContainer } from 'testcontainers';
 
 declare global {
-  // eslint-disable-next-line no-var
+   
   var __SURREAL_CONTAINER__: StartedTestContainer | undefined;
 }
 

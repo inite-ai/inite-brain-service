@@ -132,6 +132,56 @@ Each company gets its own SurrealDB database (`co_<companyId>`). Cross-tenant qu
 - Hard-forget is synchronous: `POST /v1/entities/:id/forget` cascades through facts, edges, and embeddings, leaving only an HMAC-hash tombstone in `forgotten_entity`.
 - Sensitive predicates are gated by `brain:read_pii` scope — they never appear in MCP results to AI agents without it.
 
+## Operations
+
+### Required env vars
+
+| Var | Notes |
+|---|---|
+| `SURREALDB_URL` | `ws://` / `wss://` (or `http(s)://`) |
+| `SURREALDB_USERNAME` / `SURREALDB_PASSWORD` | root credentials for the DB |
+| `OPENAI_API_KEY` | `sk-...` — used for embeddings + LLM extraction |
+| `BRAIN_API_KEYS` | JSON array of `{ keyHash, companyId, scopes }`. Plaintext keys are NEVER stored — `keyHash` is `sha256:<hex>` of the plaintext you give a caller. |
+| `FORGET_HMAC_KEY` | Secret used to HMAC-hash entity ids in `forgotten_entity` tombstones. **MUST be set in production** — using the default lets anyone forge tombstone hashes. Validation hard-fails the service in `NODE_ENV=production` when missing. |
+
+### Optional env vars
+
+| Var | Default | Notes |
+|---|---|---|
+| `PORT` | `3000` | |
+| `NODE_ENV` | unset | Set `production` to enable strict env checks (FORGET_HMAC_KEY required, empty BRAIN_API_KEYS warned). |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | |
+| `OPENAI_EMBEDDING_DIMENSIONS` | `1536` | Must match the schema's HNSW dim if HNSW is later enabled. |
+| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Used by `ingest-mention` extraction. |
+| `CONFLICT_*` | per spec | Override the resolution weights at runtime; defaults match `core/capabilities/knowledge.yaml`. |
+
+### Boot-time validation
+
+The service runs `validateEnv()` before NestJS starts. Missing or malformed values produce a single multi-line error and exit code 1. This is intentional — better to refuse to start than to dribble out 500s under load.
+
+### Graceful shutdown
+
+`SIGTERM` and `SIGINT` close the SurrealDB connection and drain in-flight requests. A 15s deadline guards against a hung shutdown so docker / fly / k8s don't `SIGKILL` you with no log line.
+
+### Tests
+
+| Command | What it does | When to run |
+|---|---|---|
+| `pnpm test:e2e` | testcontainers SurrealDB + in-process NestJS app + stub embedder/extractor | every commit (CI runs this on push) |
+| `pnpm test:e2e:real` | spawns brain as a separate node process, hits it via `@inite/knowledge` SDK over HTTP, MCP client roundtrip, **real OpenAI** | manual / pre-release; needs `OPENAI_API_KEY` |
+| `pnpm lint` | ESLint flat config | every commit |
+
+### Docker
+
+```bash
+docker compose --env-file .env up -d
+curl http://localhost:${BRAIN_HOST_PORT:-3030}/health
+```
+
+The host port defaults to `3030` to avoid conflict with common dev ports; override with `BRAIN_HOST_PORT`.
+
+The schema is reapplied per request via `DEFINE … IF NOT EXISTS` — restarts and version upgrades are idempotent.
+
 ## License
 
 UNLICENSED — internal INITE ecosystem service.

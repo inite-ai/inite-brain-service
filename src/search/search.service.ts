@@ -111,16 +111,21 @@ export class SearchService {
         .sort((a, b) => b.bestScore - a.bestScore)
         .slice(0, limit);
 
-      // Hydrate entity records for top hits.
-      const entityIds = topEntities.map(e => e.entityId);
-      const entityRows = entityIds.length === 0
+      // Hydrate entity records for top hits. ids are strings like
+      // "knowledge_entity:abc"; we must coerce them to record refs for
+      // SurrealDB to compare against the typed `id` field.
+      const idTails = topEntities.map((e) => {
+        const i = e.entityId.indexOf(':');
+        return i === -1 ? e.entityId : e.entityId.slice(i + 1);
+      });
+      const entityRows = idTails.length === 0
         ? []
-        : (((await db.query<any[]>(
+        : (((await db.query<[any[]]>(
             `SELECT id, type, canonicalName, externalRefs FROM knowledge_entity
-             WHERE id INSIDE $ids`,
-            { ids: entityIds },
+             WHERE meta::id(id) INSIDE $tails`,
+            { tails: idTails },
           ))[0] ?? []) as any[]);
-      const entityMap = new Map(entityRows.map(e => [String(e.id), e]));
+      const entityMap = new Map(entityRows.map((e) => [String(e.id), e]));
 
       const results: SearchHit[] = topEntities
         .filter(e => {

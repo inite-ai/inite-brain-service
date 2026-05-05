@@ -1,6 +1,7 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v2.1.4
+    user: root                              # SurrealDB image needs root to write rocksdb files
     command:
       - start
       - --user=root
@@ -30,8 +31,9 @@ services:
       - SURREALDB_NAMESPACE=brain
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - BRAIN_API_KEYS=${BRAIN_API_KEYS:-[]}
+      - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-}
     ports:
-      - "3000:3000"
+      - "${BRAIN_HOST_PORT:-3030}:3000"
 
 volumes:
   surrealdb-data:

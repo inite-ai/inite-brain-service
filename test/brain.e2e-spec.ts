@@ -235,9 +235,9 @@ describe('Brain Service e2e', () => {
         .some((x: any) => x.factId === factId);
       expect(stillThere).toBe(false);
 
-      // Timeline should still show it (recorded + retracted events).
-      // Look up entityId via the entity profile path.
-      const entityIdRow = ingest.body.factId; // not directly available; use search asOf to hit it
+      // Timeline should still show it (recorded + retracted events). The
+      // exact entity id isn't surfaced by /v1/ingest/fact today; the
+      // dedicated entity-reads test covers timeline-with-retractions.
     });
 
     it('idempotent on already-retracted fact', async () => {

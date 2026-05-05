@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
-import { Surreal } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { policyFor, PREDICATE_POLICIES } from '../ingest/conflict-resolver';

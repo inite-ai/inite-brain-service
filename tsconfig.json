@@ -20,7 +20,8 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@inite/knowledge": ["../inite-shared/packages/knowledge/src/index.ts"]
     }
   },
   "include": ["src/**/*"],

@@ -327,7 +327,7 @@ export class IngestService {
     db: Surreal,
     e: { name: string; type: string; canonical?: string },
     hint: { vertical: string; id: string; role?: string } | undefined,
-    contextRef: { vertical: string },
+    _contextRef: { vertical: string },
   ): Promise<string> {
     // 1. If caller provided an explicit hint, prefer that as the externalRef.
     if (hint) {

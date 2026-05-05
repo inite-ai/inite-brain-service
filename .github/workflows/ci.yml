@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_real_e2e:
+        description: 'Also run the real e2e suite (requires OPENAI_API_KEY secret)'
+        required: false
+        default: 'false'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: In-process e2e (testcontainers + stubs)
+        run: pnpm test:e2e
+
+  real-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_real_e2e == 'true'
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout inite-shared (sibling for SDK source)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/inite-shared
+          path: ../inite-shared
+          token: ${{ secrets.INITE_SHARED_PAT || github.token }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Real e2e (separate process + real OpenAI + SDK + MCP)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pnpm test:e2e:real
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t inite-brain-service:ci .
+
+      - name: Smoke run
+        run: |
+          docker network create brain-ci
+          docker run -d --name surreal --network brain-ci \
+            surrealdb/surrealdb:v2.1.4 \
+            start --user=root --pass=root --bind=0.0.0.0:8000 memory
+          sleep 5
+          docker run -d --name brain --network brain-ci -p 3030:3000 \
+            -e SURREALDB_URL=ws://surreal:8000 \
+            -e SURREALDB_USERNAME=root \
+            -e SURREALDB_PASSWORD=root \
+            -e SURREALDB_NAMESPACE=brain \
+            -e OPENAI_API_KEY=sk-ci-stub \
+            -e BRAIN_API_KEYS='[]' \
+            -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \
+            inite-brain-service:ci
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:3030/health >/dev/null; then
+              echo "service healthy"
+              curl -s http://localhost:3030/health
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "service did not become healthy"
+          docker logs brain
+          exit 1
