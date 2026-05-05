@@ -16,7 +16,9 @@ DEFINE FIELD type            ON knowledge_entity TYPE string
   ASSERT $value INSIDE ['customer','staff','asset','project','topic','location','other'];
 DEFINE FIELD canonicalName   ON knowledge_entity TYPE string;
 DEFINE FIELD aliases         ON knowledge_entity TYPE option<array<string>>;
-DEFINE FIELD externalRefs    ON knowledge_entity TYPE object DEFAULT {};
+-- FLEXIBLE keeps arbitrary dynamic keys (vertical.entityId pairs) on a
+-- SCHEMAFULL table. Without it, SurrealDB drops unknown sub-fields silently.
+DEFINE FIELD externalRefs    ON knowledge_entity FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD createdAt       ON knowledge_entity TYPE datetime DEFAULT time::now();
 DEFINE FIELD mergedAt        ON knowledge_entity TYPE option<datetime>;
 DEFINE FIELD mergedInto      ON knowledge_entity TYPE option<record<knowledge_entity>>;
@@ -24,8 +26,11 @@ DEFINE FIELD embedding       ON knowledge_entity TYPE option<array<float>>;
 
 DEFINE INDEX entity_type_idx        ON knowledge_entity FIELDS type;
 DEFINE INDEX entity_canonical_idx   ON knowledge_entity FIELDS canonicalName;
-DEFINE INDEX entity_embedding_idx   ON knowledge_entity FIELDS embedding
-  HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+-- HNSW vector index is opt-in per tenant once the graph grows past ~50k
+-- active facts. For walking-skeleton scale, full-scan cosine in
+-- SearchService is faster end-to-end (no index build).
+-- DEFINE INDEX entity_embedding_idx ON knowledge_entity FIELDS embedding
+--   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
 
 -- ─── KnowledgeFact ───────────────────────────────────────────────────────
 DEFINE TABLE knowledge_fact SCHEMAFULL;
@@ -33,7 +38,7 @@ DEFINE TABLE knowledge_fact SCHEMAFULL;
 DEFINE FIELD entityId         ON knowledge_fact TYPE record<knowledge_entity>;
 DEFINE FIELD predicate        ON knowledge_fact TYPE string;
 DEFINE FIELD object           ON knowledge_fact TYPE string;
-DEFINE FIELD objectMeta       ON knowledge_fact TYPE option<object>;
+DEFINE FIELD objectMeta       ON knowledge_fact FLEXIBLE TYPE option<object>;
 DEFINE FIELD confidence       ON knowledge_fact TYPE float ASSERT $value >= 0 AND $value <= 1;
 DEFINE FIELD validFrom        ON knowledge_fact TYPE datetime;
 DEFINE FIELD validUntil       ON knowledge_fact TYPE option<datetime>;
@@ -43,7 +48,7 @@ DEFINE FIELD retractionReason ON knowledge_fact TYPE option<string>;
 DEFINE FIELD retractedBy      ON knowledge_fact TYPE option<string>
   ASSERT $value = NONE OR $value INSIDE ['human','system','cascade'];
 DEFINE FIELD supersededBy     ON knowledge_fact TYPE option<record<knowledge_fact>>;
-DEFINE FIELD source           ON knowledge_fact TYPE object;
+DEFINE FIELD source           ON knowledge_fact FLEXIBLE TYPE object;
 DEFINE FIELD derivedFrom      ON knowledge_fact TYPE option<array<record<knowledge_fact>>>;
 DEFINE FIELD status           ON knowledge_fact TYPE string DEFAULT 'active'
   ASSERT $value INSIDE ['active','competing','retracted','superseded','compacted'];
@@ -54,8 +59,9 @@ DEFINE INDEX fact_predicate_idx     ON knowledge_fact FIELDS predicate;
 DEFINE INDEX fact_status_idx        ON knowledge_fact FIELDS status;
 DEFINE INDEX fact_recorded_idx      ON knowledge_fact FIELDS recordedAt;
 DEFINE INDEX fact_entity_pred_idx   ON knowledge_fact FIELDS entityId, predicate, status;
-DEFINE INDEX fact_embedding_idx     ON knowledge_fact FIELDS embedding
-  HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+-- HNSW commented out — see knowledge_entity above.
+-- DEFINE INDEX fact_embedding_idx ON knowledge_fact FIELDS embedding
+--   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
 
 -- ─── KnowledgeEdge ───────────────────────────────────────────────────────
 -- Surreal graph relations are first-class. We model edges as a `RELATE`-able
@@ -66,7 +72,7 @@ DEFINE TABLE knowledge_edge SCHEMAFULL TYPE RELATION
 DEFINE FIELD kind            ON knowledge_edge TYPE string;
 DEFINE FIELD weight          ON knowledge_edge TYPE float DEFAULT 1.0
   ASSERT $value >= 0 AND $value <= 1;
-DEFINE FIELD source          ON knowledge_edge TYPE object;
+DEFINE FIELD source          ON knowledge_edge FLEXIBLE TYPE object;
 DEFINE FIELD createdAt       ON knowledge_edge TYPE datetime DEFAULT time::now();
 DEFINE FIELD invalidatedAt   ON knowledge_edge TYPE option<datetime>;
 

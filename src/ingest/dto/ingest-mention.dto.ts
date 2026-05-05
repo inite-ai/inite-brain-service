@@ -2,39 +2,32 @@ import {
   IsString,
   IsOptional,
   IsArray,
+  IsObject,
   IsISO8601,
-  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
-export class MentionContextRefDto {
-  @IsString()
+export interface MentionContextRef {
   vertical: string;
-
-  @IsOptional() @IsString() conversationId?: string;
-  @IsOptional() @IsString() messageId?: string;
-  @IsOptional() @IsString() eventId?: string;
+  conversationId?: string;
+  messageId?: string;
+  eventId?: string;
 }
 
-export class KnownEntityDto {
-  @IsString() vertical: string;
-  @IsString() id: string;
-  @IsOptional() @IsString() role?: string;
+export interface KnownEntity {
+  vertical: string;
+  id: string;
+  role?: string;
 }
 
 export class IngestMentionDto {
   @IsString()
   text: string;
 
-  @ValidateNested()
-  @Type(() => MentionContextRefDto)
-  contextRef: MentionContextRefDto;
+  @IsObject()
+  contextRef: MentionContextRef;
 
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => KnownEntityDto)
-  knownEntities?: KnownEntityDto[];
+  @IsOptional() @IsArray()
+  knownEntities?: KnownEntity[];
 
   @IsISO8601()
   emittedAt: string;

@@ -4,45 +4,38 @@ import {
   IsObject,
   IsNumber,
   IsISO8601,
-  ValidateNested,
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
-export class EntityRefByVerticalDto {
-  @IsString()
-  vertical: string;
+/**
+ * EntityRef and FactSource are unions / open shapes — class-validator's
+ * @ValidateNested combined with the global `forbidNonWhitelisted: true`
+ * pipe strips union members. We accept them as opaque objects and let
+ * the service do shape checks.
+ */
 
-  @IsString()
-  id: string;
+export interface EntityRef {
+  vertical?: string;
+  id?: string;
+  entityId?: string;
 }
 
-export class EntityRefByIdDto {
-  @IsString()
-  entityId: string;
-}
-
-export class FactSourceDto {
-  @IsString()
+export interface FactSource {
   vertical: string;
-
-  @IsOptional() @IsString() eventId?: string;
-  @IsOptional() @IsString() conversationId?: string;
-  @IsOptional() @IsString() messageId?: string;
-  @IsOptional() @IsString() recorder?: string;
+  eventId?: string;
+  conversationId?: string;
+  messageId?: string;
+  recorder?: string;
 }
 
 export class IngestFactDto {
-  @ValidateNested()
-  @Type(() => Object)
-  entityRef: EntityRefByVerticalDto | EntityRefByIdDto;
+  @IsObject()
+  entityRef: EntityRef;
 
   @IsString()
   predicate: string;
 
-  // String for simple, allow object via class-transformer for richer payloads.
-  // Stored as JSON string in SurrealDB to keep schema uniform.
   @IsString()
   object: string;
 
@@ -54,9 +47,8 @@ export class IngestFactDto {
   @IsOptional() @IsNumber() @Min(0) @Max(1)
   confidence?: number;
 
-  @ValidateNested()
-  @Type(() => FactSourceDto)
-  source: FactSourceDto;
+  @IsObject()
+  source: FactSource;
 
   @IsOptional() @IsObject()
   metadata?: Record<string, unknown>;

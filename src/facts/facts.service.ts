@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import Surreal from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { Surreal } from 'surrealdb';
+import { SurrealService, dbMerge } from '../db/surreal.service';
 import { RetractFactDto } from './dto/retract.dto';
 
 export interface RetractResult {
@@ -43,7 +43,7 @@ export class FactsService {
 
       const cascaded = await this.cascadeRetract(db, String(existing.id), now, dto.reason);
 
-      await db.merge(`knowledge_fact:${ref.id}` as any, {
+      await dbMerge(db, `knowledge_fact:${ref.id}`, {
         status: 'retracted',
         retractedAt: now,
         retractedBy: dto.retractedBy.source,
@@ -90,7 +90,7 @@ export class FactsService {
       const children = (childRows as any[]) ?? [];
       for (const child of children) {
         const childIdStr = String(child.id);
-        await db.merge(child.id, {
+        await dbMerge(db, childIdStr, {
           status: 'retracted',
           retractedAt: now,
           retractedBy: 'cascade',

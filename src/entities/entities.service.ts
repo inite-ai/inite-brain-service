@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
-import Surreal from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { Surreal } from 'surrealdb';
+import { SurrealService, dbCreate } from '../db/surreal.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { policyFor, PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { BrainScope } from '../auth/api-key.types';
@@ -253,7 +253,7 @@ export class EntitiesService {
           .digest('hex');
 
       const forgottenAt = new Date();
-      await db.create('forgotten_entity', {
+      await dbCreate(db, 'forgotten_entity', {
         entityIdHash,
         reason: dto.reason,
         requestId: dto.requestId,

@@ -5,32 +5,25 @@ import {
   IsNumber,
   Min,
   Max,
-  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
-export class LinkRefByVerticalDto {
-  @IsString() vertical: string;
-  @IsString() id: string;
+export interface LinkRef {
+  vertical?: string;
+  id?: string;
+  entityId?: string;
 }
 
-export class LinkRefByIdDto {
-  @IsString() entityId: string;
-}
-
-export class LinkSourceDto {
-  @IsString() vertical: string;
-  @IsOptional() @IsString() eventId?: string;
+export interface LinkSource {
+  vertical: string;
+  eventId?: string;
 }
 
 export class IngestLinkDto {
-  @ValidateNested()
-  @Type(() => Object)
-  from: LinkRefByVerticalDto | LinkRefByIdDto;
+  @IsObject()
+  from: LinkRef;
 
-  @ValidateNested()
-  @Type(() => Object)
-  to: LinkRefByVerticalDto | LinkRefByIdDto;
+  @IsObject()
+  to: LinkRef;
 
   @IsString()
   kind: string;
@@ -38,7 +31,6 @@ export class IngestLinkDto {
   @IsOptional() @IsNumber() @Min(0) @Max(1)
   weight?: number;
 
-  @ValidateNested()
-  @Type(() => LinkSourceDto)
-  source: LinkSourceDto;
+  @IsObject()
+  source: LinkSource;
 }

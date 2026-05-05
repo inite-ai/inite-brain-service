@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Surreal from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { Surreal, StringRecordId } from 'surrealdb';
+import { SurrealService, dbCreate, dbMerge } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ExtractorService } from '../ai/extractor.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
@@ -77,7 +77,7 @@ export class IngestService {
 
       // Reject below threshold (only matters for bitemporal — append-only never rejects)
       if (policy.semantics === 'bitemporal' && newScore < this.conflict.rejectThreshold) {
-        await db.create('ingest_dead_letter', {
+        await dbCreate(db, 'ingest_dead_letter', {
           payload: dto as any,
           reason: `score ${newScore.toFixed(3)} below reject threshold ${this.conflict.rejectThreshold}`,
         });
@@ -85,16 +85,17 @@ export class IngestService {
       }
 
       // 5. Find contradicting active facts (same entity + same predicate)
+      const eIdTail = idTailOf(entityId);
       const contradictsQuery = `
         SELECT id, predicate, object, confidence, recordedAt, source, embedding
         FROM knowledge_fact
-        WHERE entityId = $entityId
+        WHERE entityId = type::thing('knowledge_entity', $eid)
           AND predicate = $predicate
           AND status = 'active'
           AND retractedAt IS NONE
       `;
-      const [existing] = await db.query<any[]>(contradictsQuery, {
-        entityId,
+      const [existing] = await db.query<[any[]]>(contradictsQuery, {
+        eid: eIdTail,
         predicate: dto.predicate,
       });
       const candidates: any[] = (existing as any[]) ?? [];
@@ -115,9 +116,11 @@ export class IngestService {
         });
       }
 
-      // 6. Insert the new fact
+      // 6. Insert the new fact. entityId is wrapped in StringRecordId so
+      // SurrealDB binds it as a record link (record<knowledge_entity>),
+      // not as a plain string — the schema constraint requires this.
       const factPayload = {
-        entityId: entityId as any,
+        entityId: new StringRecordId(entityId),
         predicate: dto.predicate,
         object: typeof dto.object === 'string' ? dto.object : JSON.stringify(dto.object),
         confidence: dto.confidence ?? 0.7,
@@ -127,11 +130,11 @@ export class IngestService {
         embedding,
         status: 'active',
       };
-      const created = await db.create('knowledge_fact', factPayload);
-      const newFactId = (Array.isArray(created) ? created[0]?.id : (created as any)?.id) as string;
+      const created = await dbCreate<any>(db, 'knowledge_fact', factPayload);
+      const newFactId = String(created?.id);
 
       if (competing.length === 0) {
-        return { factId: String(newFactId), outcome: 'INSERTED' };
+        return { factId: newFactId, outcome: 'INSERTED' };
       }
 
       // 7. Score the competition
@@ -156,26 +159,26 @@ export class IngestService {
       ) {
         // SUPERSEDED — retract all competing
         for (const c of competingScored) {
-          await db.merge(c.id as any, {
+          await dbMerge(db, c.id, {
             status: 'superseded',
             retractedAt: new Date(),
             retractionReason: 'superseded',
             retractedBy: 'system',
-            supersededBy: newFactId as any,
+            supersededBy: new StringRecordId(newFactId),
             validUntil: factPayload.validFrom,
           });
         }
         return {
-          factId: String(newFactId),
+          factId: newFactId,
           outcome: 'SUPERSEDED',
           supersededFactIds: competingScored.map(c => c.id),
         };
       }
 
       // COMPETING — both stay active, mark status
-      await db.merge(newFactId as any, { status: 'competing' });
+      await dbMerge(db, newFactId, { status: 'competing' });
       for (const c of competingScored) {
-        await db.merge(c.id as any, { status: 'competing' });
+        await dbMerge(db, c.id, { status: 'competing' });
       }
       return {
         factId: String(newFactId),
@@ -186,27 +189,21 @@ export class IngestService {
   }
 
   private async resolveOrCreateEntity(db: Surreal, dto: IngestFactDto): Promise<string> {
-    if ('entityId' in dto.entityRef) {
+    if ('entityId' in dto.entityRef && dto.entityRef.entityId) {
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
-    const refKey = `${ref.vertical}.${ref.id}`;
-    // Look up by externalRefs[refKey]
-    const [rows] = await db.query<any[][]>(
-      `SELECT id FROM knowledge_entity WHERE externalRefs[$key] = $val LIMIT 1`,
-      { key: refKey, val: ref.id },
-    );
-    if (rows && rows[0]) {
-      return String(rows[0].id);
-    }
+    const refKey = externalRefKey(ref.vertical, ref.id);
+    const found = await lookupByExternalRef(db, refKey, ref.id);
+    if (found) return found;
     // Create stub entity — canonicalName defaulted to ref id; LLM extractor
     // will refine in a future PR.
-    const created = await db.create('knowledge_entity', {
+    const created = await dbCreate<any>(db, 'knowledge_entity', {
       type: 'other',
       canonicalName: ref.id,
       externalRefs: { [refKey]: ref.id },
     });
-    return String(Array.isArray(created) ? created[0]?.id : (created as any)?.id);
+    return String(created?.id);
   }
 
   private sourceTrustFor(source: { vertical: string; eventId?: string; messageId?: string }): number {
@@ -286,8 +283,8 @@ export class IngestService {
   // ── ingestLink: declare an edge between two entities ─────────────────
   async ingestLink(companyId: string, dto: IngestLinkDto) {
     return this.surreal.withCompany(companyId, async (db) => {
-      const fromId = await this.resolveOrCreateBareRef(db, dto.from);
-      const toId = await this.resolveOrCreateBareRef(db, dto.to);
+      const fromId = await this.resolveOrCreateBareRef(db, dto.from as any);
+      const toId = await this.resolveOrCreateBareRef(db, dto.to as any);
 
       // RELATE in SurrealDB graph table
       const [edgeRows] = await db.query<any[][]>(
@@ -311,9 +308,9 @@ export class IngestService {
 
       // Optional: identity merge on kind='identity_of'
       if (dto.kind === 'identity_of') {
-        await db.merge(toId as any, {
+        await dbMerge(db, toId, {
           mergedAt: new Date(),
-          mergedInto: fromId as any,
+          mergedInto: new StringRecordId(fromId),
         });
         this.logger.log(
           `[knowledge.entity.merged] companyId=${companyId} loser=${toId} survivor=${fromId}`,
@@ -334,20 +331,16 @@ export class IngestService {
   ): Promise<string> {
     // 1. If caller provided an explicit hint, prefer that as the externalRef.
     if (hint) {
-      const hintKey = `${hint.vertical}.${hint.id}`;
-      const [hRows] = await db.query<any[][]>(
-        `SELECT id FROM knowledge_entity WHERE externalRefs[$k] = $v LIMIT 1`,
-        { k: hintKey, v: hint.id },
-      );
-      const hRow = ((hRows as any[]) ?? [])[0];
-      if (hRow) return String(hRow.id);
-      const created = await db.create('knowledge_entity', {
+      const hintKey = externalRefKey(hint.vertical, hint.id);
+      const found = await lookupByExternalRef(db, hintKey, hint.id);
+      if (found) return found;
+      const created = await dbCreate<any>(db, 'knowledge_entity', {
         type: this.normalizeEntityType(e.type),
         canonicalName: e.canonical ?? e.name,
         aliases: [e.name],
         externalRefs: { [hintKey]: hint.id },
       });
-      return String(Array.isArray(created) ? created[0]?.id : (created as any)?.id);
+      return String(created?.id);
     }
 
     // 2. Try canonical-name match.
@@ -363,36 +356,33 @@ export class IngestService {
     if (nRow) return String(nRow.id);
 
     // 3. Create new.
-    const created = await db.create('knowledge_entity', {
+    const created = await dbCreate<any>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
       canonicalName: e.canonical ?? e.name,
       aliases: [e.name],
       externalRefs: {},
     });
-    return String(Array.isArray(created) ? created[0]?.id : (created as any)?.id);
+    return String(created?.id);
   }
 
   private async resolveOrCreateBareRef(
     db: Surreal,
     ref: { vertical: string; id: string } | { entityId: string },
   ): Promise<string> {
-    if ('entityId' in ref) {
+    if ('entityId' in ref && ref.entityId) {
       // Accept either short id or full record path.
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
     }
-    const refKey = `${ref.vertical}.${ref.id}`;
-    const [rows] = await db.query<any[][]>(
-      `SELECT id FROM knowledge_entity WHERE externalRefs[$k] = $v LIMIT 1`,
-      { k: refKey, v: ref.id },
-    );
-    const row = ((rows as any[]) ?? [])[0];
-    if (row) return String(row.id);
-    const created = await db.create('knowledge_entity', {
+    const r = ref as { vertical: string; id: string };
+    const refKey = externalRefKey(r.vertical, r.id);
+    const found = await lookupByExternalRef(db, refKey, r.id);
+    if (found) return found;
+    const created = await dbCreate<any>(db, 'knowledge_entity', {
       type: 'other',
-      canonicalName: ref.id,
-      externalRefs: { [refKey]: ref.id },
+      canonicalName: r.id,
+      externalRefs: { [refKey]: r.id },
     });
-    return String(Array.isArray(created) ? created[0]?.id : (created as any)?.id);
+    return String(created?.id);
   }
 
   /**
@@ -411,8 +401,8 @@ export class IngestService {
     source: any,
   ) {
     const embedding = await this.embedder.embed(`${predicate}: ${object}`);
-    const created = await db.create('knowledge_fact', {
-      entityId: entityId as any,
+    const created = await dbCreate<any>(db, 'knowledge_fact', {
+      entityId: new StringRecordId(entityId),
       predicate,
       object,
       confidence,
@@ -421,7 +411,7 @@ export class IngestService {
       embedding,
       status: 'active',
     });
-    const id = Array.isArray(created) ? created[0]?.id : (created as any)?.id;
+    const id = created?.id;
     return { factId: id ? String(id) : null };
   }
 
@@ -440,6 +430,43 @@ export class IngestService {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   }
+}
+
+function idTailOf(rid: string): string {
+  const i = rid.indexOf(':');
+  return i === -1 ? rid : rid.slice(i + 1);
+}
+
+/**
+ * Build a SurrealDB-safe externalRefs key. SurrealQL CONTENT treats dots
+ * inside object keys as nested-path separators, so a key like
+ * "rent.cust_42" silently expands into nested fields and is then dropped
+ * by the schemafull `externalRefs: object` constraint. Replace dots with
+ * a double underscore — the original `vertical.entityId` form is
+ * recoverable but stored unambiguously as a single property.
+ */
+function externalRefKey(vertical: string, id: string): string {
+  const safe = (s: string) => s.replace(/\./g, '__');
+  return `${safe(vertical)}__${safe(id)}`;
+}
+
+/**
+ * Lookup an entity by an externalRefs key. Object-property access with a
+ * parameterized key is awkward in SurrealDB; we read all candidates with
+ * the right value present and filter by exact key in JS. Walking-skeleton
+ * scale is fine; for large tenants we'll add a normalized lookup table.
+ */
+async function lookupByExternalRef(
+  db: Surreal,
+  key: string,
+  val: string,
+): Promise<string | null> {
+  const [rows] = await db.query<[any[]]>(
+    `SELECT id, externalRefs FROM knowledge_entity LIMIT 5000`,
+  );
+  const arr = (rows as any[]) ?? [];
+  const hit = arr.find((e) => e?.externalRefs && e.externalRefs[key] === val);
+  return hit ? String(hit.id) : null;
 }
 
 /**

@@ -43,9 +43,12 @@ export class SearchService {
     const queryEmbedding = await this.embedder.embed(dto.query);
 
     return this.surreal.withCompany(companyId, async (db) => {
-      // Vector search across knowledge_fact embeddings.
-      // SurrealDB HNSW: <|K|> KNN operator returns nearest by cosine.
-      // We over-fetch and then filter by predicate / time / status.
+      // Cosine similarity scan. We deliberately avoid the HNSW <|K|>
+      // KNN operator: it shines at tens-of-thousands+ scale but skips
+      // results on tiny datasets (e.g. fresh tenant, e2e tests).
+      // For per-tenant graphs that rarely exceed millions of facts,
+      // a full scan is acceptable; we can switch to HNSW per-tenant
+      // once any tenant grows past ~50k active facts.
       const vectorK = Math.min(limit * 5, 200);
       const sql = `
         SELECT
@@ -53,11 +56,11 @@ export class SearchService {
           validFrom, validUntil, recordedAt, retractedAt, status, source,
           vector::similarity::cosine(embedding, $q) AS sim
         FROM knowledge_fact
-        WHERE embedding <|${vectorK}|> $q
+        WHERE embedding != NONE
         ORDER BY sim DESC
-        LIMIT $vectorK
+        LIMIT $k
       `;
-      const [factRows] = await db.query<any[]>(sql, { q: queryEmbedding, vectorK });
+      const [factRows] = await db.query<[any[]]>(sql, { q: queryEmbedding, k: vectorK });
       const rows: any[] = (factRows as any[]) ?? [];
 
       const filtered = rows.filter(r => {

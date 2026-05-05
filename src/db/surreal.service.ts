@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Surreal from 'surrealdb';
+import { Surreal } from 'surrealdb';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -98,4 +98,47 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   raw(): Surreal {
     return this.db;
   }
+}
+
+/**
+ * SDK-version-stable helpers for SurrealDB record CRUD. The 2.x JS SDK
+ * replaced the simple `db.create('table', payload)` / `db.merge(id, patch)`
+ * shape with a chained-promise builder; tying every call site to that
+ * shape would couple business code to driver internals. These helpers
+ * wrap the underlying primitives via `db.query()` so we keep one
+ * uniform query form everywhere.
+ */
+export async function dbCreate<T extends Record<string, unknown>>(
+  db: Surreal,
+  table: string,
+  data: Record<string, unknown>,
+): Promise<T> {
+  const [rows] = await db.query<[T[]]>(`CREATE type::table($t) CONTENT $d RETURN AFTER`, {
+    t: table,
+    d: data,
+  });
+  const arr = (rows as any[]) ?? [];
+  return arr[0] as T;
+}
+
+export async function dbMerge<T extends Record<string, unknown>>(
+  db: Surreal,
+  recordId: string,
+  patch: Record<string, unknown>,
+): Promise<T> {
+  const [rows] = await db.query<[T[]]>(
+    `UPDATE type::thing($t, $i) MERGE $p RETURN AFTER`,
+    { t: tableOf(recordId), i: idOf(recordId), p: patch },
+  );
+  const arr = (rows as any[]) ?? [];
+  return arr[0] as T;
+}
+
+function tableOf(rid: string): string {
+  const idx = rid.indexOf(':');
+  return idx === -1 ? rid : rid.slice(0, idx);
+}
+function idOf(rid: string): string {
+  const idx = rid.indexOf(':');
+  return idx === -1 ? rid : rid.slice(idx + 1);
 }
