@@ -8,12 +8,27 @@ const log = new Logger('Request');
  * Includes status, durationMs, and (when authenticated) companyId + a
  * short hash prefix to correlate calls without leaking the key.
  *
- * /health is filtered out — it's hit by load balancers every few seconds
- * and would drown out useful traffic.
+ * Format selection:
+ *   - LOG_FORMAT=json (or NODE_ENV=production) → one JSON object per line,
+ *     friendly for log shippers (Loki, CloudWatch, Datadog).
+ *   - otherwise → human-readable single-line text, friendly for `tail -f`.
+ *
+ * /health and /metrics are filtered out — both get hit on a tight cadence
+ * by infrastructure (load balancer, prom-scraper) and would drown out
+ * useful traffic.
  */
+const SKIP_PATHS = new Set(['/health', '/metrics']);
+
+function useJson(): boolean {
+  if (process.env.LOG_FORMAT === 'json') return true;
+  if (process.env.LOG_FORMAT === 'text') return false;
+  return process.env.NODE_ENV === 'production';
+}
+
 export function requestLogger() {
+  const json = useJson();
   return function (req: Request, res: Response, next: NextFunction) {
-    if (req.path === '/health') return next();
+    if (SKIP_PATHS.has(req.path)) return next();
 
     const start = process.hrtime.bigint();
     const onDone = () => {
@@ -26,11 +41,28 @@ export function requestLogger() {
       }).brainAuth;
       const companyId = auth?.companyId ?? '-';
       const keyTag = auth?.keyHash ? auth.keyHash.slice(7, 15) : '-';
+      const url = req.originalUrl ?? req.url;
 
-      log.log(
-        `${req.method} ${req.originalUrl ?? req.url} → ${res.statusCode} ` +
-          `${durationMs.toFixed(1)}ms company=${companyId} key=${keyTag}`,
-      );
+      if (json) {
+        process.stdout.write(
+          JSON.stringify({
+            ts: new Date().toISOString(),
+            level: 'info',
+            kind: 'request',
+            method: req.method,
+            path: url,
+            status: res.statusCode,
+            durationMs: Number(durationMs.toFixed(1)),
+            companyId,
+            keyTag,
+          }) + '\n',
+        );
+      } else {
+        log.log(
+          `${req.method} ${url} → ${res.statusCode} ` +
+            `${durationMs.toFixed(1)}ms company=${companyId} key=${keyTag}`,
+        );
+      }
     };
     res.once('finish', onDone);
     res.once('close', onDone);

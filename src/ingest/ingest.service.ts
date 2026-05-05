@@ -1,7 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
-import { SurrealService, dbCreate, dbMerge } from '../db/surreal.service';
+import {
+  SurrealService,
+  dbCreate,
+  dbMerge,
+  isUniqueViolation,
+  retryOnUniqueViolation,
+  runTransaction,
+} from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ExtractorService } from '../ai/extractor.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
@@ -54,7 +61,7 @@ export class IngestService {
 
   async ingestFact(companyId: string, dto: IngestFactDto): Promise<IngestResult> {
     return this.surreal.withCompany(companyId, async (db) => {
-      // 1. Resolve entity (create if needed)
+      // 1. Resolve entity (own atomic step — has its own tx with unique-retry)
       const entityId = await this.resolveOrCreateEntity(db, dto);
 
       // 2. Compute embedding from object representation
@@ -75,7 +82,9 @@ export class IngestService {
         this.conflict,
       );
 
-      // Reject below threshold (only matters for bitemporal — append-only never rejects)
+      // Reject below threshold (only matters for bitemporal — append-only never rejects).
+      // Dead-letter insert lives OUTSIDE the conflict tx — we want the rejection
+      // recorded even if downstream logic would otherwise tear down the tx.
       if (policy.semantics === 'bitemporal' && newScore < this.conflict.rejectThreshold) {
         await dbCreate(db, 'ingest_dead_letter', {
           payload: dto as any,
@@ -84,45 +93,49 @@ export class IngestService {
         return { factId: null, outcome: 'REJECTED', reason: 'low_score' };
       }
 
-      // 5. Find contradicting active facts (same entity + same predicate)
+      // 5. Read candidates + cosine-filter + score in JS. SurrealDB's
+      // WebSocket query() scopes each call as its own transaction, so the
+      // JS-side decision (which needs vector math + multi-criterion
+      // scoring) can't itself be wrapped in a tx — but the *write* set
+      // can. Window between this SELECT and the write tx below is a
+      // few ms; concurrent inserts of competing facts on the same
+      // predicate are rare for ingest-fact callers (single_active and
+      // bitemporal predicates are typically not hot paths). Document
+      // the residual race; the proper fix is a server-side
+      // `DEFINE FUNCTION fn::resolve_fact` (B5 in the SOTA roadmap).
       const eIdTail = idTailOf(entityId);
-      const contradictsQuery = `
-        SELECT id, predicate, object, confidence, recordedAt, source, embedding
-        FROM knowledge_fact
-        WHERE entityId = type::thing('knowledge_entity', $eid)
-          AND predicate = $predicate
-          AND status = 'active'
-          AND retractedAt IS NONE
-      `;
-      const [existing] = await db.query<[any[]]>(contradictsQuery, {
-        eid: eIdTail,
-        predicate: dto.predicate,
-      });
+      const [existing] = await db.query<[any[]]>(
+        `SELECT id, predicate, object, confidence, recordedAt, source, embedding
+         FROM knowledge_fact
+         WHERE entityId = type::thing('knowledge_entity', $eid)
+           AND predicate = $predicate
+           AND status = 'active'
+           AND retractedAt IS NONE`,
+        { eid: eIdTail, predicate: dto.predicate },
+      );
       const candidates: any[] = (existing as any[]) ?? [];
 
-      // For append_only — never compete, just insert.
-      // For single_active — every existing wins-or-loses without similarity check.
-      // For bitemporal — only compete when semantically similar.
       let competing: any[];
       if (policy.semantics === 'append_only') {
         competing = [];
       } else if (policy.semantics === 'single_active') {
         competing = candidates;
       } else {
-        // bitemporal — compare via embedding cosine
-        competing = candidates.filter(c => {
+        competing = candidates.filter((c) => {
           if (!c.embedding) return false;
           return cosine(c.embedding, embedding) >= this.conflict.similarityThreshold;
         });
       }
 
-      // 6. Insert the new fact. entityId is wrapped in StringRecordId so
-      // SurrealDB binds it as a record link (record<knowledge_entity>),
-      // not as a plain string — the schema constraint requires this.
-      const factPayload = {
+      // 6. Build the fact payload. Object handling: schema stores
+      // `object` as string for indexing/decay; for non-string DTO
+      // objects we keep the structured form in `objectMeta` so it
+      // round-trips losslessly.
+      const objectIsString = typeof dto.object === 'string';
+      const factPayload: Record<string, unknown> = {
         entityId: new StringRecordId(entityId),
         predicate: dto.predicate,
-        object: typeof dto.object === 'string' ? dto.object : JSON.stringify(dto.object),
+        object: objectIsString ? dto.object : JSON.stringify(dto.object),
         confidence: dto.confidence ?? 0.7,
         validFrom: new Date(dto.validFrom),
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
@@ -130,15 +143,16 @@ export class IngestService {
         embedding,
         status: 'active',
       };
-      const created = await dbCreate<any>(db, 'knowledge_fact', factPayload);
-      const newFactId = String(created?.id);
+      if (!objectIsString) factPayload.objectMeta = dto.object as unknown as object;
 
+      // No competing rows → simple CREATE, no transaction needed.
       if (competing.length === 0) {
-        return { factId: newFactId, outcome: 'INSERTED' };
+        const created = await dbCreate<any>(db, 'knowledge_fact', factPayload);
+        return { factId: String(created?.id), outcome: 'INSERTED' };
       }
 
-      // 7. Score the competition
-      const competingScored = competing.map(c => ({
+      // 7. Score competition.
+      const competingScored = competing.map((c) => ({
         id: String(c.id),
         score: scoreFact(
           {
@@ -151,59 +165,118 @@ export class IngestService {
         ),
       }));
       const bestOpponent = competingScored.reduce((a, b) => (a.score > b.score ? a : b));
-
-      // 8. Decide outcome
-      if (
+      const willSupersede =
         policy.semantics === 'single_active' ||
-        newScore >= bestOpponent.score + this.conflict.marginForSupersede
-      ) {
-        // SUPERSEDED — retract all competing
-        for (const c of competingScored) {
-          await dbMerge(db, c.id, {
-            status: 'superseded',
-            retractedAt: new Date(),
-            retractionReason: 'superseded',
-            retractedBy: 'system',
-            supersededBy: new StringRecordId(newFactId),
-            validUntil: factPayload.validFrom,
-          });
-        }
-        return {
-          factId: newFactId,
-          outcome: 'SUPERSEDED',
-          supersededFactIds: competingScored.map(c => c.id),
-        };
-      }
+        newScore >= bestOpponent.score + this.conflict.marginForSupersede;
 
-      // COMPETING — both stay active, mark status
-      await dbMerge(db, newFactId, { status: 'competing' });
-      for (const c of competingScored) {
-        await dbMerge(db, c.id, { status: 'competing' });
+      // 8. Atomic write set — CREATE new fact + cascading MERGE on
+      // losers/competitors in one multi-statement transaction. If any
+      // statement throws, all roll back.
+      const loserIds = competingScored.map((c) => idTailOf(c.id));
+      const newFactId = await runTransaction<string>(db, (tx) => {
+        tx.bind('payload', factPayload);
+        tx.bind('losers', loserIds);
+        tx.bind('now', new Date());
+        tx.bind('validFrom', factPayload.validFrom);
+        tx.add(`LET $new = (CREATE ONLY knowledge_fact CONTENT $payload)`);
+
+        if (willSupersede) {
+          tx.add(`
+            UPDATE knowledge_fact
+              SET status = 'superseded',
+                  retractedAt = $now,
+                  retractionReason = 'superseded',
+                  retractedBy = 'system',
+                  supersededBy = $new.id,
+                  validUntil = $validFrom
+              WHERE meta::id(id) INSIDE $losers
+          `);
+        } else {
+          // COMPETING: new fact + losers all stay active but flagged.
+          tx.add(`UPDATE $new.id SET status = 'competing'`);
+          tx.add(`UPDATE knowledge_fact SET status = 'competing' WHERE meta::id(id) INSIDE $losers`);
+        }
+        tx.add(`RETURN $new.id`);
+      });
+
+      if (willSupersede) {
+        return {
+          factId: String(newFactId),
+          outcome: 'SUPERSEDED',
+          supersededFactIds: competingScored.map((c) => c.id),
+        };
       }
       return {
         factId: String(newFactId),
         outcome: 'COMPETING',
-        competingFactIds: competingScored.map(c => c.id),
+        competingFactIds: competingScored.map((c) => c.id),
       };
     });
   }
 
+  /**
+   * Resolve an entity by externalRef, creating it if absent. Atomic against
+   * concurrent ingests — relies on UNIQUE on entity_external_ref.key. The
+   * pattern is: indexed read first (the common path), and on miss enter a
+   * transaction that re-reads under tx scope and creates both rows or neither.
+   * On a unique violation (another caller created the same ref between our
+   * read and write) we retry; the next read finds the row.
+   */
   private async resolveOrCreateEntity(db: Surreal, dto: IngestFactDto): Promise<string> {
     if ('entityId' in dto.entityRef && dto.entityRef.entityId) {
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
     const refKey = externalRefKey(ref.vertical, ref.id);
-    const found = await lookupByExternalRef(db, refKey, ref.id);
-    if (found) return found;
-    // Create stub entity — canonicalName defaulted to ref id; LLM extractor
-    // will refine in a future PR.
-    const created = await dbCreate<any>(db, 'knowledge_entity', {
+    return this.upsertEntityByExternalRef(db, refKey, () => ({
       type: 'other',
       canonicalName: ref.id,
       externalRefs: { [refKey]: ref.id },
+    }));
+  }
+
+  private async upsertEntityByExternalRef(
+    db: Surreal,
+    key: string,
+    factory: () => Record<string, unknown>,
+  ): Promise<string> {
+    return retryOnUniqueViolation(async () => {
+      // 1. Fast path — indexed lookup. Replaces the prior LIMIT 5000 + JS
+      // filter, which silently lost entities once a tenant grew past 5000.
+      const fast = await this.lookupExternalRef(db, key);
+      if (fast) return fast;
+
+      // 2. Slow path — atomic CREATE entity + CREATE external_ref in one
+      // multi-statement transaction. The IF block re-checks under tx
+      // scope to handle the race where a concurrent caller landed
+      // between our fast-path SELECT and this transaction. Returning
+      // the id from either branch keeps the call site agnostic.
+      const content = factory();
+      const result = await runTransaction<unknown>(db, (tx) => {
+        tx.bind('key', key);
+        tx.bind('content', content);
+        tx.add(`LET $existing = (SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1)`);
+        tx.add(`
+          IF array::len($existing) > 0 {
+            RETURN $existing[0];
+          } ELSE {
+            LET $new = (CREATE ONLY knowledge_entity CONTENT $content);
+            CREATE entity_external_ref CONTENT { key: $key, entity: $new.id };
+            RETURN $new.id;
+          }
+        `);
+      });
+      return String(result);
     });
-    return String(created?.id);
+  }
+
+  private async lookupExternalRef(db: Surreal, key: string): Promise<string | null> {
+    const [rows] = await db.query<[any[]]>(
+      `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
+      { key },
+    );
+    const arr = (rows as any[]) ?? [];
+    return arr[0] ? String(arr[0]) : null;
   }
 
   private sourceTrustFor(source: { vertical: string; eventId?: string; messageId?: string }): number {
@@ -237,7 +310,6 @@ export class IngestService {
       const entityIds: string[] = [];
       const factIds: string[] = [];
 
-      // 1. Resolve / create entities
       for (let i = 0; i < extraction.entities.length; i++) {
         const e = extraction.entities[i];
         const knownHint = dto.knownEntities?.[i];
@@ -245,11 +317,6 @@ export class IngestService {
         entityIds.push(eid);
       }
 
-      // 2. Add mention edges (entity --mentioned_in--> contextRef topic-entity).
-      //    For 0.1.0 we skip edge creation; we still record source on the facts.
-
-      // 3. Record extracted facts via the same conflict-resolution pipeline
-      //    used by ingest-fact. Reuse ingestFact under the hood.
       for (const f of extraction.facts) {
         const eid = entityIds[f.entityIndex];
         if (!eid) continue;
@@ -259,7 +326,6 @@ export class IngestService {
           conversationId: dto.contextRef.conversationId,
           messageId: dto.contextRef.messageId,
         };
-        // Inline ingest — we're already inside withCompany.
         const result = await this.recordExtractedFact(
           db,
           eid,
@@ -286,20 +352,38 @@ export class IngestService {
       const fromId = await this.resolveOrCreateBareRef(db, dto.from as any);
       const toId = await this.resolveOrCreateBareRef(db, dto.to as any);
 
-      // RELATE in SurrealDB graph table. v2 expects record-link bindings
-      // for the `from` and `to` operands, not raw strings.
-      const [edgeRows] = await db.query<[any[]]>(
-        `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
-        {
-          from: new StringRecordId(fromId),
-          to: new StringRecordId(toId),
-          kind: dto.kind,
-          weight: dto.weight ?? 1.0,
-          source: dto.source,
-        },
-      );
-      const edge = ((edgeRows as any[]) ?? [])[0];
-      const edgeId = edge ? String(edge.id) : null;
+      // Idempotent edge insert. UNIQUE on (in, out, kind) means the second
+      // insert of the same conceptual edge raises a unique violation; we
+      // catch it and return the existing edge so duplicate webhook replays
+      // don't pollute the graph with N copies of the same relationship.
+      const fromRid = new StringRecordId(fromId);
+      const toRid = new StringRecordId(toId);
+      let edgeId: string | null = null;
+      try {
+        const [edgeRows] = await db.query<[any[]]>(
+          `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
+          {
+            from: fromRid,
+            to: toRid,
+            kind: dto.kind,
+            weight: dto.weight ?? 1.0,
+            source: dto.source,
+          },
+        );
+        const edge = ((edgeRows as any[]) ?? [])[0];
+        edgeId = edge ? String(edge.id) : null;
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        const [existingRows] = await db.query<[any[]]>(
+          `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
+          { from: fromRid, to: toRid, kind: dto.kind },
+        );
+        const existing = ((existingRows as any[]) ?? [])[0];
+        edgeId = existing ? String(existing.id) : null;
+        this.logger.debug(
+          `[knowledge.edge.idempotent] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId} (already existed)`,
+        );
+      }
 
       this.logger.log(
         `[knowledge.edge.created] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId}`,
@@ -328,25 +412,28 @@ export class IngestService {
     hint: { vertical: string; id: string; role?: string } | undefined,
     _contextRef: { vertical: string },
   ): Promise<string> {
-    // 1. If caller provided an explicit hint, prefer that as the externalRef.
+    // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
       const hintKey = externalRefKey(hint.vertical, hint.id);
-      const found = await lookupByExternalRef(db, hintKey, hint.id);
-      if (found) return found;
-      const created = await dbCreate<any>(db, 'knowledge_entity', {
+      return this.upsertEntityByExternalRef(db, hintKey, () => ({
         type: this.normalizeEntityType(e.type),
         canonicalName: e.canonical ?? e.name,
         aliases: [e.name],
         externalRefs: { [hintKey]: hint.id },
-      });
-      return String(created?.id);
+      }));
     }
 
-    // 2. Try canonical-name match.
+    // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
+    // via the stored `canonicalNameLc` VALUE field — no per-row
+    // `string::lowercase()` evaluation needed. Two concurrent ingests
+    // of the same name can still both miss and both create; we accept
+    // the rare alias-only dup (same legal entity, two records) since
+    // name canonicalisation is heuristic. Identity merge via
+    // ingestLink consolidates downstream.
     const target = (e.canonical ?? e.name).toLowerCase();
     const [nRows] = await db.query<any[][]>(
-      `SELECT id, canonicalName, aliases FROM knowledge_entity
-       WHERE string::lowercase(canonicalName) = $name
+      `SELECT id FROM knowledge_entity
+       WHERE canonicalNameLc = $name
           OR aliases CONTAINS $rawName
        LIMIT 1`,
       { name: target, rawName: e.name },
@@ -354,7 +441,6 @@ export class IngestService {
     const nRow = ((nRows as any[]) ?? [])[0];
     if (nRow) return String(nRow.id);
 
-    // 3. Create new.
     const created = await dbCreate<any>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
       canonicalName: e.canonical ?? e.name,
@@ -369,19 +455,15 @@ export class IngestService {
     ref: { vertical: string; id: string } | { entityId: string },
   ): Promise<string> {
     if ('entityId' in ref && ref.entityId) {
-      // Accept either short id or full record path.
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
     }
     const r = ref as { vertical: string; id: string };
     const refKey = externalRefKey(r.vertical, r.id);
-    const found = await lookupByExternalRef(db, refKey, r.id);
-    if (found) return found;
-    const created = await dbCreate<any>(db, 'knowledge_entity', {
+    return this.upsertEntityByExternalRef(db, refKey, () => ({
       type: 'other',
       canonicalName: r.id,
       externalRefs: { [refKey]: r.id },
-    });
-    return String(created?.id);
+    }));
   }
 
   /**
@@ -419,10 +501,6 @@ export class IngestService {
     return allowed.includes(t) ? t : 'other';
   }
 
-  private idTail(full: string): string {
-    return full.startsWith('knowledge_entity:') ? full.slice('knowledge_entity:'.length) : full;
-  }
-
   private cfgNum(key: string, fallback: number): number {
     const v = this.configService.get<string>(key);
     if (v === undefined) return fallback;
@@ -447,25 +525,6 @@ function idTailOf(rid: string): string {
 function externalRefKey(vertical: string, id: string): string {
   const safe = (s: string) => s.replace(/\./g, '__');
   return `${safe(vertical)}__${safe(id)}`;
-}
-
-/**
- * Lookup an entity by an externalRefs key. Object-property access with a
- * parameterized key is awkward in SurrealDB; we read all candidates with
- * the right value present and filter by exact key in JS. Walking-skeleton
- * scale is fine; for large tenants we'll add a normalized lookup table.
- */
-async function lookupByExternalRef(
-  db: Surreal,
-  key: string,
-  val: string,
-): Promise<string | null> {
-  const [rows] = await db.query<[any[]]>(
-    `SELECT id, externalRefs FROM knowledge_entity LIMIT 5000`,
-  );
-  const arr = (rows as any[]) ?? [];
-  const hit = arr.find((e) => e?.externalRefs && e.externalRefs[key] === val);
-  return hit ? String(hit.id) : null;
 }
 
 /**

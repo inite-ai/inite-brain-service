@@ -67,6 +67,23 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
     errors.push('OPENAI_EMBEDDING_DIMENSIONS must be an integer ≥ 8');
   }
 
+  // ── Pool size ─────────────────────────────────────────────────────
+  const pool = env.SURREALDB_POOL_SIZE;
+  if (pool && (!/^\d+$/.test(pool) || parseInt(pool, 10) < 1)) {
+    errors.push('SURREALDB_POOL_SIZE must be a positive integer');
+  }
+
+  // ── OpenAI resilience knobs ───────────────────────────────────────
+  positiveInt(env, 'OPENAI_TIMEOUT_MS', errors);
+  positiveInt(env, 'OPENAI_MAX_RETRIES', errors);
+  positiveInt(env, 'OPENAI_CONCURRENCY', errors);
+  positiveInt(env, 'EMBEDDING_CACHE_SIZE', errors);
+
+  // ── Throttling ────────────────────────────────────────────────────
+  positiveInt(env, 'THROTTLE_TTL_MS', errors);
+  positiveInt(env, 'THROTTLE_LIMIT', errors);
+  positiveInt(env, 'COMPACTION_HOT_RETENTION_DAYS', errors);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
@@ -96,5 +113,13 @@ function required(
   }
   if (pattern && !pattern.test(v)) {
     errors.push(`${name} does not match expected pattern ${pattern}`);
+  }
+}
+
+function positiveInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): void {
+  const v = env[name];
+  if (v === undefined) return;
+  if (!/^\d+$/.test(v) || parseInt(v, 10) < 1) {
+    errors.push(`${name} must be a positive integer`);
   }
 }

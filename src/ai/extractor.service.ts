@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { Semaphore } from '../common/semaphore';
 
 export interface ExtractedEntity {
   name: string;
@@ -23,7 +24,7 @@ export interface ExtractionResult {
   facts: ExtractedFact[];
 }
 
-const EXTRACTION_SYSTEM_PROMPT = `You are an entity and fact extractor for a multi-vertical SaaS knowledge graph.
+const DEFAULT_EXTRACTION_PROMPT = `You are an entity and fact extractor for a multi-vertical SaaS knowledge graph.
 
 Given a piece of text (typically a chat message, transcript, or note), extract:
 
@@ -60,28 +61,52 @@ export class ExtractorService {
   private readonly logger = new Logger(ExtractorService.name);
   private readonly openai: OpenAI;
   private readonly model: string;
+  private readonly systemPrompt: string;
+  private readonly limiter: Semaphore;
 
   constructor(private readonly configService: ConfigService) {
+    const timeoutMs = parseInt(
+      this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
+      10,
+    );
+    const maxRetries = parseInt(
+      this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
+      10,
+    );
     this.openai = new OpenAI({
       apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
+      timeout: timeoutMs,
+      maxRetries,
     });
     this.model = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+    // Operators tuning extraction for a vertical (legal-tech wants
+    // different predicates than retail) override via env without a
+    // code redeploy. Falls back to the canonical core vocabulary.
+    this.systemPrompt =
+      this.configService.get<string>('EXTRACTION_SYSTEM_PROMPT') ?? DEFAULT_EXTRACTION_PROMPT;
+    const concurrency = parseInt(
+      this.configService.get<string>('OPENAI_CONCURRENCY', '8'),
+      10,
+    );
+    this.limiter = new Semaphore(concurrency);
   }
 
   async extract(text: string): Promise<ExtractionResult> {
     const trimmed = text.trim();
     if (!trimmed) return { entities: [], facts: [] };
 
-    const res = await this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-        { role: 'user', content: trimmed },
-      ],
-      response_format: { type: 'json_object' },
-      max_completion_tokens: 1500,
-      temperature: 0.1,
-    });
+    const res = await this.limiter.run(() =>
+      this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: this.systemPrompt },
+          { role: 'user', content: trimmed },
+        ],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 1500,
+        temperature: 0.1,
+      }),
+    );
 
     const content = res.choices[0]?.message?.content;
     if (!content) return { entities: [], facts: [] };
@@ -119,9 +144,10 @@ export class ExtractorService {
             entityIndex: f.entityIndex,
             predicate: String(f.predicate).trim(),
             object: String(f.object).trim(),
-            confidence: typeof f.confidence === 'number'
-              ? Math.max(0, Math.min(1, f.confidence))
-              : 0.5,
+            confidence:
+              typeof f.confidence === 'number'
+                ? Math.max(0, Math.min(1, f.confidence))
+                : 0.5,
           }))
       : [];
 

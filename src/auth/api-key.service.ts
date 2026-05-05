@@ -44,4 +44,13 @@ export class ApiKeyService implements OnModuleInit {
     const hash = ApiKeyService.hash(plaintext);
     return this.byHash.get(hash.toLowerCase()) ?? null;
   }
+
+  /**
+   * Distinct companyIds that have at least one registered key. Used by
+   * background jobs (compaction, retention) that need to fan out across
+   * tenants without owning a registry of their own.
+   */
+  knownCompanyIds(): string[] {
+    return [...new Set([...this.byHash.values()].map((r) => r.companyId))];
+  }
 }
