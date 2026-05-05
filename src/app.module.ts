@@ -9,6 +9,8 @@ import { AuthModule } from './auth/auth.module';
 import { AiModule } from './ai/ai.module';
 import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
+import { FactsModule } from './facts/facts.module';
+import { EntitiesModule } from './entities/entities.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { SearchModule } from './search/search.module';
     AiModule,
     IngestModule,
     SearchModule,
+    FactsModule,
+    EntitiesModule,
   ],
   controllers: [HealthController],
   providers: [
