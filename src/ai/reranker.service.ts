@@ -88,9 +88,19 @@ export class RerankerService {
    * different shuffled candidate order, aggregates via Borda count.
    * Falls back to identity on any catastrophic failure.
    *
+   * `hints` is an optional sidecar string surfaced in the user
+   * prompt before the query — typically a type-prior summary or a
+   * predicate-class hint from the upstream router. Lets the
+   * reranker exploit query-level context that doesn't fit on a
+   * per-candidate body.
+   *
    * Skip when ≤1 candidate or query is empty.
    */
-  async rerank(query: string, candidates: RerankCandidate[]): Promise<number[]> {
+  async rerank(
+    query: string,
+    candidates: RerankCandidate[],
+    hints?: string,
+  ): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     if (!this.isEnabled() || candidates.length <= 1 || !query.trim()) {
       return identity;
@@ -98,7 +108,7 @@ export class RerankerService {
 
     if (this.scN === 1) {
       // Single-call path. Identity ordering — no shuffle.
-      return this.singleRerank(query, candidates, identity);
+      return this.singleRerank(query, candidates, identity, hints);
     }
 
     // Permutation self-consistency: run scN calls in parallel with
@@ -110,7 +120,7 @@ export class RerankerService {
       shuffle(candidates.map((_, i) => i)),
     );
     const settled = await Promise.allSettled(
-      orderings.map((ord) => this.singleRerank(query, candidates, ord)),
+      orderings.map((ord) => this.singleRerank(query, candidates, ord, hints)),
     );
     const rankings: number[][] = [];
     for (const s of settled) {
@@ -135,6 +145,7 @@ export class RerankerService {
     query: string,
     candidates: RerankCandidate[],
     presentationOrder: number[],
+    hints?: string,
   ): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     const items = presentationOrder
@@ -143,12 +154,13 @@ export class RerankerService {
         return `[${presIdx}] ${c.label}\n${c.body}`;
       })
       .join('\n\n');
-    const systemPrompt = `You are a relevance ranker for a knowledge-graph search system. Given a user query and a list of candidate entities (each with a label and a short summary of facts), reorder the candidates from MOST to LEAST relevant to the query.
+    const systemPrompt = `You are a relevance ranker for a knowledge-graph search system. Given a user query and a list of candidate entities (each with a label and a short summary of facts and connections), reorder the candidates from MOST to LEAST relevant to the query.
 
-Use the literal text of the facts; don't invent missing context. Prefer candidates whose facts directly answer the query (object terms, predicate semantics, IS-A reasoning). When two candidates are similarly relevant, favour the one with more directly-supporting evidence.
+Use the literal text of the facts; don't invent missing context. Prefer candidates whose facts directly answer the query (object terms, predicate semantics, IS-A reasoning). When the query mentions an event / project / place, prefer the actor (person/customer/staff) who participated, not the event/project entity itself, unless the query explicitly asks for the entity. When two candidates are similarly relevant, favour the one with more directly-supporting evidence.
 
 Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every candidate index from the input exactly once, in the new order.`;
-    const userPrompt = `Query: ${query}\n\nCandidates:\n${items}`;
+    const hintBlock = hints && hints.trim() ? `\n\nHints:\n${hints.trim()}\n` : '';
+    const userPrompt = `Query: ${query}${hintBlock}\n\nCandidates:\n${items}`;
 
     try {
       const res = await this.limiter.run(() =>

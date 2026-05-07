@@ -155,13 +155,19 @@ export class SearchService {
       // returns zero rather than silently demoting.
       const filtered = reattributed.filter((row) => this.passesPolicy(row, dto, callerScopes));
 
-      // Predicate-class router: classify the query into a soft
-      // distribution over predicate classes (`name`, `tier`,
-      // `complained_about`, `intent`, ...) and apply a bounded
-      // multiplicative boost to facts whose predicate falls in
-      // the high-mass classes. Returns null when the router is
-      // disabled or the LLM call fails — boost reduces to 1.0.
-      const predicateDist = await this.predicateRouter.route(dto.query);
+      // Joint predicate + type router: single LLM call classifies
+      // the query into BOTH a predicate-class distribution and a
+      // target-entity-type distribution. Predicate boost applies
+      // per-fact (a fact's predicate matching the query's intent
+      // class). Type boost applies per-entity at the bucket stage
+      // (an entity's type matching the query's target class —
+      // fixes "Project Phoenix kickoff" preferring staff over
+      // the project entity).
+      // Returns null when the router is disabled or the LLM call
+      // fails — both boosts reduce to 1.0.
+      const routerOut = await this.predicateRouter.route(dto.query);
+      const predicateDist = routerOut?.predicates ?? null;
+      const typeDist = routerOut?.types ?? null;
 
       // Decay-weighted final score uses predicate half-life. Vector
       // and lexical fusion give us a normalized retrieval score in
@@ -213,6 +219,12 @@ export class SearchService {
       // near-duplicate complained_about facts from accumulating a
       // boost five times for what is essentially one piece of
       // evidence.
+      //
+      // Note: type-aware boost was tested at this stage and dropped
+      // — the downstream reranker re-orders top-20 anyway, so
+      // pre-rerank type-multiplication just disrupted fusion scores
+      // without net gain. Type-prior is now passed as a hint INSIDE
+      // the reranker prompt instead (see rerank inputs below).
       for (const bucket of byEntity.values()) {
         const sortedFacts = [...bucket.facts].sort((a, b) => b.score - a.score);
         const seenKeys = new Set<string>();
@@ -272,10 +284,24 @@ export class SearchService {
 
       let topEntities = candidatesForRerank;
       if (this.reranker.isEnabled() && candidatesForRerank.length > 1) {
-        // Build compact summaries — best 3 facts per candidate is
-        // enough context for the reranker without bloating prompt.
+        // SubgraphRAG-style 1-hop neighbourhood injection. Fetch
+        // each rerank candidate's outgoing + incoming edges in a
+        // single batched query, then surface them as
+        // "Connected to: …" lines in the candidate body. Lets the
+        // reranker exploit structural context — fixes shared-
+        // firstname disambiguation (e.g. Maya vs Rohit, both have
+        // headphone complaints; whose neighbours match the query?)
+        const neighboursByEntity = await this.fetchNeighbours(
+          db,
+          candidatesForRerank.map((e) => e.entityId),
+        );
+
+        // Build compact summaries — best 3 facts + entity type +
+        // up to 5 1-hop neighbours per candidate. Bounded so the
+        // reranker prompt stays small.
         const rerankInputs = candidatesForRerank.map((e) => {
           const ent = e.facts[0]?.row.entity ?? {
+            type: 'other',
             canonicalName: e.entityId,
           };
           const topFacts = [...e.facts]
@@ -283,12 +309,38 @@ export class SearchService {
             .slice(0, 3)
             .map((sf) => `- ${sf.row.predicate}: ${sf.row.object}`)
             .join('\n');
+          const nbrs = neighboursByEntity.get(e.entityId) ?? [];
+          const nbrLine = nbrs.length
+            ? `\nConnected to: ${nbrs
+                .slice(0, 5)
+                .map((n) => `${n.canonicalName} (${n.type}, ${n.kind})`)
+                .join('; ')}`
+            : '';
           return {
-            label: String(ent.canonicalName),
-            body: topFacts,
+            label: `${ent.canonicalName} [${ent.type}]`,
+            body: `${topFacts}${nbrLine}`,
           };
         });
-        const permutation = await this.reranker.rerank(dto.query, rerankInputs);
+
+        // Type-prior hint from the joint router (if enabled). Keeps
+        // the reranker aware that "Project Phoenix kickoff" likely
+        // targets a staff/customer entity, not the project itself.
+        const hints = typeDist
+          ? `Likely target entity types: ${
+              Object.entries(typeDist.weights)
+                .filter(([, w]) => w >= 0.15)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([t, w]) => `${t}=${w.toFixed(2)}`)
+                .join(', ') || 'unspecified'
+            }.`
+          : undefined;
+
+        const permutation = await this.reranker.rerank(
+          dto.query,
+          rerankInputs,
+          hints,
+        );
         topEntities = permutation.map((i) => candidatesForRerank[i]);
       }
       topEntities = topEntities.slice(0, limit);
@@ -634,6 +686,85 @@ export class SearchService {
           externalRefs: mergedExternalRefs,
         },
       });
+    }
+    return out;
+  }
+
+  /**
+   * Fetch 1-hop neighbours for a set of entity ids in a single
+   * batched query. Returns a map keyed by entity id (string) to
+   * the list of `(canonicalName, type, kind)` triples — both
+   * outgoing and incoming edges, deduped on the (peer, kind) pair.
+   *
+   * Used to inject SubgraphRAG-style structural context into the
+   * reranker prompt. Bounded by the candidate-set size (≤ rerank
+   * window, currently 20), so the query is small and runs in a few
+   * ms even on dense tenants. Returns an empty map on any failure
+   * — the reranker falls back to its non-graph path.
+   */
+  private async fetchNeighbours(
+    db: Surreal,
+    entityIds: string[],
+  ): Promise<
+    Map<
+      string,
+      Array<{ canonicalName: string; type: string; kind: string }>
+    >
+  > {
+    type Neighbour = {
+      canonicalName: string;
+      type: string;
+      kind: string;
+    };
+    const out = new Map<string, Neighbour[]>();
+    if (entityIds.length === 0) return out;
+    const rids = entityIds.map((s) => new StringRecordId(s));
+    type Row = {
+      id: unknown;
+      outNeighbours: Array<{ kind: string; peer: { id: unknown; type: string; canonicalName: string } | null }> | null;
+      inNeighbours: Array<{ kind: string; peer: { id: unknown; type: string; canonicalName: string } | null }> | null;
+    };
+    try {
+      const [rows] = await db.query<[Row[]]>(
+        `SELECT
+           id,
+           ->knowledge_edge.{ kind, peer: out.{id, type, canonicalName} } AS outNeighbours,
+           <-knowledge_edge.{ kind, peer: in.{id, type, canonicalName} } AS inNeighbours
+         FROM $ids`,
+        { ids: rids },
+      );
+      for (const row of (rows as Row[]) ?? []) {
+        const id = String(row.id);
+        const list: Neighbour[] = [];
+        const seen = new Set<string>();
+        const pushSide = (
+          side: Array<{ kind: string; peer: { id: unknown; type: string; canonicalName: string } | null }> | null,
+        ) => {
+          if (!side) return;
+          for (const e of side) {
+            if (!e?.peer) continue;
+            const peerId = String(e.peer.id);
+            // Self-loop guard (identity_of after merge): skip when
+            // the peer is the entity itself.
+            if (peerId === id) continue;
+            const key = `${peerId}|${e.kind}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            list.push({
+              canonicalName: e.peer.canonicalName,
+              type: e.peer.type,
+              kind: e.kind,
+            });
+          }
+        };
+        pushSide(row.outNeighbours);
+        pushSide(row.inNeighbours);
+        out.set(id, list);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `fetchNeighbours failed, reranker falls back without graph context: ${(err as Error).message}`,
+      );
     }
     return out;
   }

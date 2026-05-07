@@ -28,6 +28,16 @@ export interface PredicateDistribution {
   weights: Record<string, number>;
 }
 
+export interface TypeDistribution {
+  /** Entity type → weight in [0, 1]. Sums to ≤1. */
+  weights: Record<string, number>;
+}
+
+export interface RouterClassification {
+  predicates: PredicateDistribution;
+  types: TypeDistribution;
+}
+
 const DEFAULT_VOCABULARY = [
   'name',
   'email',
@@ -43,6 +53,16 @@ const DEFAULT_VOCABULARY = [
   'said',
 ] as const;
 
+const TYPE_VOCABULARY = [
+  'customer',
+  'staff',
+  'asset',
+  'project',
+  'topic',
+  'location',
+  'other',
+] as const;
+
 @Injectable()
 export class PredicateRouterService {
   private readonly logger = new Logger(PredicateRouterService.name);
@@ -50,7 +70,7 @@ export class PredicateRouterService {
   private readonly model: string;
   private readonly enabled: boolean;
   private readonly limiter: Semaphore;
-  private readonly cache: Map<string, PredicateDistribution> = new Map();
+  private readonly cache: Map<string, RouterClassification> = new Map();
   private readonly cacheLimit: number;
 
   constructor(private readonly configService: ConfigService) {
@@ -91,7 +111,7 @@ export class PredicateRouterService {
     return this.enabled && !!this.openai;
   }
 
-  async route(query: string): Promise<PredicateDistribution | null> {
+  async route(query: string): Promise<RouterClassification | null> {
     if (!this.isEnabled() || !query.trim()) return null;
     const key = createHash('sha256').update(query.trim().toLowerCase()).digest('hex');
     const cached = this.cache.get(key);
@@ -115,9 +135,10 @@ export class PredicateRouterService {
     }
   }
 
-  private async classify(query: string): Promise<PredicateDistribution | null> {
-    const sys = `You classify a search query into the predicate-class distribution it most likely targets. The predicates in our knowledge graph:
+  private async classify(query: string): Promise<RouterClassification | null> {
+    const sys = `You classify a search query into TWO joint distributions: the predicate-class it targets, and the entity-type it targets. The single LLM call returns both — they share the same query semantics, so co-classifying is cheaper than two separate calls.
 
+Predicates in our knowledge graph:
 - name: looking up an entity by who they are
 - email, phone, address, dob: contact / identity attributes
 - status: lifecycle state ("active", "churned", "open")
@@ -128,7 +149,21 @@ export class PredicateRouterService {
 - interacted_with: a transaction, attendance, viewing, booking, contact
 - said: a generic utterance (use as residual when nothing more specific fits)
 
-Return a probability distribution over these predicates that sums to 1. Use higher mass (0.5+) for clear matches; spread mass across 2-3 predicates when the query is genuinely multi-class.`;
+Entity types in our knowledge graph:
+- customer: a customer / tenant / lead / patient / attendee
+- staff: an employee / agent / contact at the operator side
+- asset: a unit / property / product / order / ticket
+- project: a campaign / project / event / initiative
+- topic: a theme / category / abstract concept
+- location: a physical place
+- other: residual
+
+Return a probability distribution over predicates AND a probability distribution over entity types. Each should sum to 1. Use higher mass (0.5+) for clear matches.
+
+Examples of joint reasoning:
+- "Project Phoenix kickoff" → predicate=interacted_with (event-attendance) targets a STAFF entity (the person who attended), NOT the project entity. types should give staff high mass, project low.
+- "platinum tier customers" → predicate=tier targets a CUSTOMER entity. types: customer high.
+- "broken washing machine" → predicate=complained_about targets a CUSTOMER entity (the complainer), not the asset. types: customer high.`;
     const user = `Query: ${query}`;
 
     const res = await this.openai.chat.completions.create({
@@ -140,13 +175,13 @@ Return a probability distribution over these predicates that sums to 1. Use high
       response_format: {
         type: 'json_schema',
         json_schema: {
-          name: 'predicate_distribution',
+          name: 'router_classification',
           strict: true,
           schema: {
             type: 'object',
             additionalProperties: false,
             properties: {
-              weights: {
+              predicates: {
                 type: 'object',
                 additionalProperties: false,
                 properties: Object.fromEntries(
@@ -154,12 +189,20 @@ Return a probability distribution over these predicates that sums to 1. Use high
                 ),
                 required: [...DEFAULT_VOCABULARY],
               },
+              types: {
+                type: 'object',
+                additionalProperties: false,
+                properties: Object.fromEntries(
+                  TYPE_VOCABULARY.map((t) => [t, { type: 'number' }]),
+                ),
+                required: [...TYPE_VOCABULARY],
+              },
             },
-            required: ['weights'],
+            required: ['predicates', 'types'],
           },
         },
       },
-      max_completion_tokens: 256,
+      max_completion_tokens: 384,
       temperature: 0,
     });
     const content = res.choices[0]?.message?.content;
@@ -170,23 +213,35 @@ Return a probability distribution over these predicates that sums to 1. Use high
     } catch {
       return null;
     }
-    const raw = parsed?.weights;
-    if (!raw || typeof raw !== 'object') return null;
-    // Normalize defensively — strict schema gives all keys as numbers
-    // but we still want to clamp to [0, 1] and renormalize so the
-    // boost computation downstream stays bounded.
-    const cleaned: Record<string, number> = {};
-    let sum = 0;
-    for (const k of DEFAULT_VOCABULARY) {
-      const v = typeof raw[k] === 'number' ? raw[k] : 0;
-      const w = Math.max(0, Math.min(1, v));
-      cleaned[k] = w;
-      sum += w;
-    }
-    if (sum > 0 && Math.abs(sum - 1) > 0.05) {
-      // Tolerate slight model drift; renormalize.
-      for (const k of DEFAULT_VOCABULARY) cleaned[k] = cleaned[k] / sum;
-    }
-    return { weights: cleaned };
+    const predicates = normalizeDist(parsed?.predicates, DEFAULT_VOCABULARY);
+    const types = normalizeDist(parsed?.types, TYPE_VOCABULARY);
+    if (!predicates || !types) return null;
+    return { predicates: { weights: predicates }, types: { weights: types } };
   }
+}
+
+/**
+ * Defensive distribution normalization. Clamps values to [0, 1] and
+ * renormalises if the sum drifts more than 5% from 1 (LLMs sometimes
+ * emit slightly off-mass distributions even with strict schemas).
+ * Returns null if the raw input isn't an object.
+ */
+function normalizeDist(
+  raw: unknown,
+  vocab: readonly string[],
+): Record<string, number> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const cleaned: Record<string, number> = {};
+  let sum = 0;
+  for (const k of vocab) {
+    const v = typeof r[k] === 'number' ? (r[k] as number) : 0;
+    const w = Math.max(0, Math.min(1, v));
+    cleaned[k] = w;
+    sum += w;
+  }
+  if (sum > 0 && Math.abs(sum - 1) > 0.05) {
+    for (const k of vocab) cleaned[k] = cleaned[k] / sum;
+  }
+  return cleaned;
 }
