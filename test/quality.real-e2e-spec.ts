@@ -52,16 +52,33 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
      
     console.log('\n' + new Reporter().render(report) + '\n');
 
-    const failures = report.overall.filter(
-      (m) =>
-        m.threshold !== undefined &&
-        m.value !== null &&
-        m.value < m.threshold,
-    );
-    expect({
-      failed: failures.map(
-        (m) => `${m.name} ${m.value?.toFixed(2)} < ${m.threshold}`,
+    // Aggregate-level thresholds are necessary but not sufficient: a
+    // vertical with extraction-recall=0.00 can ride below the radar
+    // when other verticals' high scores pull the overall mean above
+    // threshold. Assert per-vertical too — any vertical-level metric
+    // that has a threshold and a non-null value must clear it.
+    const collect = (
+      label: string,
+      metrics: { name: string; value: number | null; threshold?: number }[],
+    ) =>
+      metrics
+        .filter(
+          (m) =>
+            m.threshold !== undefined &&
+            m.value !== null &&
+            m.value < m.threshold,
+        )
+        .map(
+          (m) => `${label}.${m.name} ${m.value?.toFixed(2)} < ${m.threshold}`,
+        );
+
+    const failures = [
+      ...collect('overall', report.overall),
+      ...report.perVertical.flatMap((v) =>
+        collect(v.vertical, v.metrics),
       ),
-    }).toEqual({ failed: [] });
+    ];
+
+    expect({ failed: failures }).toEqual({ failed: [] });
   }, 600_000);
 });

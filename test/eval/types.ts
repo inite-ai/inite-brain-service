@@ -19,6 +19,7 @@ export interface SetupFactStep {
   predicate: string;
   object: string;
   validFrom: string;
+  validUntil?: string;
   confidence?: number;
   source: { vertical: string; messageId?: string; eventId?: string };
 }

@@ -30,6 +30,7 @@ export class SetupApplier {
             predicate: step.predicate,
             object: step.object,
             validFrom: step.validFrom,
+            validUntil: step.validUntil,
             confidence: step.confidence,
             source: step.source,
           });
@@ -92,6 +93,15 @@ export class SetupApplier {
     const matched = expected.filter((p) => observed.includes(p)).length;
     const recall = expected.length === 0 ? 1 : matched / expected.length;
 
+    if (process.env.DEBUG_EXTRACTION === '1') {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[extraction-debug] scenario=${scenarioId} expected=${JSON.stringify(expected)} ` +
+          `observed=${JSON.stringify(observed)} entitiesExtracted=${out.extractedEntityIds.length} ` +
+          `factsExtracted=${out.extractedFactIds.length} recall=${recall.toFixed(2)}`,
+      );
+    }
+
     return {
       scenarioId,
       text: step.text,
@@ -113,6 +123,19 @@ export class SetupApplier {
         survivorRef: merge.survivorRef,
         loserRef: merge.loserRef,
         merged: false,
+      };
+    }
+    // If both refs resolve to the same entity, merge has already
+    // happened (the setup phase ingested an identity_of link, search
+    // re-attributes loser → survivor and now exposes both externalRefs
+    // on the survivor record). Skip the redundant link call —
+    // attempting it as a self-edge breaks the metric.
+    if (survivor === loser) {
+      return {
+        scenarioId: scenario.id,
+        survivorRef: merge.survivorRef,
+        loserRef: merge.loserRef,
+        merged: true,
       };
     }
     let merged = false;

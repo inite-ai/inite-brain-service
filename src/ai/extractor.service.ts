@@ -24,37 +24,60 @@ export interface ExtractionResult {
   facts: ExtractedFact[];
 }
 
+const PREDICATE_VOCABULARY = [
+  'said',
+  'name',
+  'email',
+  'phone',
+  'status',
+  'tier',
+  'intent',
+  'preference',
+  'complained_about',
+  'interacted_with',
+  'address',
+  'dob',
+] as const;
+
+const ENTITY_TYPE_VOCABULARY = [
+  'customer',
+  'staff',
+  'asset',
+  'project',
+  'topic',
+  'location',
+  'other',
+] as const;
+
 const DEFAULT_EXTRACTION_PROMPT = `You are an entity and fact extractor for a multi-vertical SaaS knowledge graph.
 
 Given a piece of text (typically a chat message, transcript, or note), extract:
 
-1. entities: actors mentioned in the text. Type ∈ {customer, staff, asset, project, topic, location, other}.
-2. facts: assertions about those entities, using predicates from this vocabulary:
-   said              — an utterance attributed to the entity
+1. entities: actors mentioned in the text. Type ∈ {${ENTITY_TYPE_VOCABULARY.join(', ')}}.
+2. facts: assertions about those entities, using predicates from a closed vocabulary:
+   said              — an utterance attributed to the entity (use only when no more specific predicate fits)
    name              — the entity's name (single value)
    email             — email address
    phone             — phone number
    status            — current state/lifecycle (e.g. "active", "churned", "open")
    tier              — segmentation tier (e.g. "platinum", "gold")
-   intent            — inferred intent or goal
+   intent            — inferred intent or goal (wants, plans, asks for)
    preference        — stated or inferred preference
-   complained_about  — a complaint subject
-   interacted_with   — generic interaction (booked, viewed, contacted)
+   complained_about  — a complaint subject (problem reports, dissatisfaction)
+   interacted_with   — generic interaction (booked, viewed, contacted, attended, purchased)
    address           — physical address
    dob               — date of birth
 
 Rules:
 - Only extract facts you can support from the text.
-- Use the EXACT predicate strings above. If no listed predicate fits, omit the fact.
+- Prefer the MOST SPECIFIC predicate. If \`complained_about\` or \`intent\`
+  fits a sentence, do NOT also emit \`said\` for the same content —
+  the specific predicate already captures the speech act.
 - entityIndex is the 0-based index into the entities array.
-- confidence is 0..1; reserve >0.8 for facts the text states explicitly.
+- confidence is 0..1; reserve >0.8 for facts the text states explicitly,
+  0.5–0.8 for inferred or implicit facts.
 - Skip entities you cannot characterize beyond a pronoun.
-
-Respond with valid JSON only:
-{
-  "entities": [{"name": "...", "type": "...", "canonical": "..." (optional)}],
-  "facts": [{"entityIndex": 0, "predicate": "...", "object": "...", "confidence": 0.X}]
-}`;
+- Set \`canonical\` to null unless the text explicitly states a canonical/legal form different from \`name\`.`;
 
 @Injectable()
 export class ExtractorService {
@@ -102,7 +125,52 @@ export class ExtractorService {
           { role: 'system', content: this.systemPrompt },
           { role: 'user', content: trimmed },
         ],
-        response_format: { type: 'json_object' },
+        // Strict JSON Schema: predicate is a closed enum, so the
+        // model can no longer hallucinate predicates outside our
+        // vocabulary or skip required fields. Eliminates the main
+        // source of run-to-run jitter we saw on the quality eval
+        // (gpt-4o-mini occasionally producing "wants"/"says"/etc).
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'extraction',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                entities: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      name: { type: 'string' },
+                      type: { type: 'string', enum: [...ENTITY_TYPE_VOCABULARY] },
+                      canonical: { type: ['string', 'null'] },
+                    },
+                    required: ['name', 'type', 'canonical'],
+                  },
+                },
+                facts: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      entityIndex: { type: 'integer', minimum: 0 },
+                      predicate: { type: 'string', enum: [...PREDICATE_VOCABULARY] },
+                      object: { type: 'string' },
+                      confidence: { type: 'number', minimum: 0, maximum: 1 },
+                    },
+                    required: ['entityIndex', 'predicate', 'object', 'confidence'],
+                  },
+                },
+              },
+              required: ['entities', 'facts'],
+            },
+          },
+        },
         max_completion_tokens: 1500,
         temperature: 0.1,
       }),
@@ -125,7 +193,10 @@ export class ExtractorService {
           .map((e: any) => ({
             name: String(e.name).trim(),
             type: this.normalizeType(e.type),
-            canonical: e.canonical ? String(e.canonical).trim() : undefined,
+            canonical:
+              e.canonical && typeof e.canonical === 'string'
+                ? e.canonical.trim()
+                : undefined,
           }))
       : [];
 

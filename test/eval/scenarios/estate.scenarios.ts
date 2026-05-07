@@ -34,7 +34,9 @@ export const estateScenarios: Scenario[] = [
         contextRef: { vertical: 'estate', conversationId: 'conv_lara_offer' },
         knownEntities: [{ vertical: 'estate', id: 'lara', role: 'speaker' }],
         emittedAt: ISO('2026-05-01'),
-        expectedPredicates: ['said', 'intent'],
+        // laraOffer text states intent to offer + reports having
+        // viewed the property. Generic `said` is suppressed.
+        expectedPredicates: ['intent', 'interacted_with'],
       },
       // Distractor — different lead, different price point
       {

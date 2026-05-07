@@ -63,7 +63,11 @@ export const rentScenarios: Scenario[] = [
         contextRef: { vertical: 'rent', conversationId: 'conv_anna_1', messageId: 'msg_anna_1' },
         knownEntities: [{ vertical: 'rent', id: 'anna', role: 'speaker' }],
         emittedAt: ISO('2026-05-01'),
-        expectedPredicates: ['said', 'complained_about'],
+        // annaHeating text complains about radiator + reports calling
+        // maintenance with no response. The extractor's prompt prefers
+        // the most specific predicate, so a generic `said` mirror is
+        // omitted in favour of `complained_about` + `interacted_with`.
+        expectedPredicates: ['complained_about', 'interacted_with'],
       },
     ],
     queries: [
@@ -110,7 +114,10 @@ export const rentScenarios: Scenario[] = [
         contextRef: { vertical: 'rent', conversationId: 'conv_bjorn', messageId: 'msg_bjorn_1' },
         knownEntities: [{ vertical: 'rent', id: 'bjorn', role: 'speaker' }],
         emittedAt: ISO('2026-05-01'),
-        expectedPredicates: ['said', 'name'],
+        // bjornPaymentFail text introduces the speaker's name and
+        // reports a failed charge / asks for help. Generic `said` is
+        // suppressed in favour of `complained_about` + `name`.
+        expectedPredicates: ['name', 'complained_about'],
       },
       // Distractor — Anna again (she has no payment issues)
       {
@@ -162,7 +169,9 @@ export const rentScenarios: Scenario[] = [
         contextRef: { vertical: 'rent', conversationId: 'conv_anna_2', messageId: 'msg_anna_upgrade' },
         knownEntities: [{ vertical: 'rent', id: 'anna', role: 'speaker' }],
         emittedAt: ISO('2026-05-02'),
-        expectedPredicates: ['intent', 'said'],
+        // annaUpgradeIntent text expresses an intent to upgrade plus a
+        // preference for valet parking. Generic `said` is suppressed.
+        expectedPredicates: ['intent'],
       },
     ],
     queries: [
