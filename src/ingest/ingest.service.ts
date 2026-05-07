@@ -11,6 +11,7 @@ import {
 } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ExtractorService } from '../ai/extractor.service';
+import { HypeService } from '../ai/hype.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
@@ -44,6 +45,7 @@ export class IngestService {
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     private readonly extractor: ExtractorService,
+    private readonly hype: HypeService,
     private readonly configService: ConfigService,
   ) {
     this.conflict = {
@@ -61,163 +63,107 @@ export class IngestService {
 
   async ingestFact(companyId: string, dto: IngestFactDto): Promise<IngestResult> {
     return this.surreal.withCompany(companyId, async (db) => {
-      // 1. Resolve entity (own atomic step — has its own tx with unique-retry)
+      // 1. Resolve entity (own atomic step — own tx with unique-retry).
       const entityId = await this.resolveOrCreateEntity(db, dto);
 
-      // 2. Compute embedding from object representation
+      // 2. Compute embedding (cached LRU per process inside EmbedderService).
       const embeddingText = `${dto.predicate}: ${dto.object}`;
       const embedding = await this.embedder.embed(embeddingText);
 
-      // 3. Predicate policy
+      // 3. Read policy from JS — single source of truth. We pass policy
+      //    VALUES (not predicate name) into the server-side function,
+      //    so SurrealQL never has to know about predicate semantics.
       const policy = policyFor(dto.predicate);
+      const sourceTrust = this.sourceTrustFor(dto.source);
 
-      // 4. Score the new fact
-      const newScore = scoreFact(
-        {
-          confidence: dto.confidence ?? 0.7,
-          sourceTrust: this.sourceTrustFor(dto.source),
-          recordedAt: new Date(),
-          authority: 0,
-        },
-        this.conflict,
-      );
-
-      // Reject below threshold (only matters for bitemporal — append-only never rejects).
-      // Dead-letter insert lives OUTSIDE the conflict tx — we want the rejection
-      // recorded even if downstream logic would otherwise tear down the tx.
-      if (policy.semantics === 'bitemporal' && newScore < this.conflict.rejectThreshold) {
-        await dbCreate(db, 'ingest_dead_letter', {
-          payload: dto as any,
-          reason: `score ${newScore.toFixed(3)} below reject threshold ${this.conflict.rejectThreshold}`,
-        });
-        return { factId: null, outcome: 'REJECTED', reason: 'low_score' };
-      }
-
-      // 5. Read candidates + cosine-filter + score in JS. SurrealDB's
-      // WebSocket query() scopes each call as its own transaction, so the
-      // JS-side decision (which needs vector math + multi-criterion
-      // scoring) can't itself be wrapped in a tx — but the *write* set
-      // can. Window between this SELECT and the write tx below is a
-      // few ms; concurrent inserts of competing facts on the same
-      // predicate are rare for ingest-fact callers (single_active and
-      // bitemporal predicates are typically not hot paths). Document
-      // the residual race; the proper fix is a server-side
-      // `DEFINE FUNCTION fn::resolve_fact` (B5 in the SOTA roadmap).
-      const eIdTail = idTailOf(entityId);
-      const [existing] = await db.query<[any[]]>(
-        `SELECT id, predicate, object, confidence, recordedAt, source, embedding
-         FROM knowledge_fact
-         WHERE entityId = type::thing('knowledge_entity', $eid)
-           AND predicate = $predicate
-           AND status = 'active'
-           AND retractedAt IS NONE`,
-        { eid: eIdTail, predicate: dto.predicate },
-      );
-      const candidates: any[] = (existing as any[]) ?? [];
-
-      let competing: any[];
-      if (policy.semantics === 'append_only') {
-        competing = [];
-      } else if (policy.semantics === 'single_active') {
-        competing = candidates;
-      } else {
-        competing = candidates.filter((c) => {
-          if (!c.embedding) return false;
-          return cosine(c.embedding, embedding) >= this.conflict.similarityThreshold;
-        });
-      }
-
-      // 6. Build the fact payload. Object handling: schema stores
-      // `object` as string for indexing/decay; for non-string DTO
-      // objects we keep the structured form in `objectMeta` so it
-      // round-trips losslessly.
+      // 4. Object preservation. Schema stores `object` as string for
+      //    indexing; for non-string DTO objects we additionally keep
+      //    the structured form in `objectMeta`.
       const objectIsString = typeof dto.object === 'string';
-      const factPayload: Record<string, unknown> = {
-        entityId: new StringRecordId(entityId),
-        predicate: dto.predicate,
-        object: objectIsString ? dto.object : JSON.stringify(dto.object),
-        confidence: dto.confidence ?? 0.7,
-        validFrom: new Date(dto.validFrom),
-        validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
-        source: dto.source,
-        embedding,
-        status: 'active',
-      };
-      if (!objectIsString) factPayload.objectMeta = dto.object as unknown as object;
+      const objectStr = objectIsString
+        ? (dto.object as string)
+        : JSON.stringify(dto.object);
+      // SurrealDB option<...> rejects NULL. JS `null` serialises as NULL,
+      // `undefined` is dropped from the payload and treated as NONE — which
+      // is what we want for an optional field.
+      const objectMeta = objectIsString ? undefined : (dto.object as unknown as object);
 
-      // No competing rows → simple CREATE. Wrapped in retry: under
-      // high-fanout concurrent ingest (FANOUT > pool size), SurrealDB's
-      // optimistic-concurrency aborts contending CREATEs with
-      // `Transaction read conflict`. retryOnUniqueViolation also
-      // handles read-conflicts via isReadConflict, so a second attempt
-      // succeeds against the now-committed prior CREATE.
-      if (competing.length === 0) {
-        const created = await retryOnUniqueViolation(() =>
-          dbCreate<any>(db, 'knowledge_fact', factPayload),
-        );
-        return { factId: String(created?.id), outcome: 'INSERTED' };
-      }
-
-      // 7. Score competition.
-      const competingScored = competing.map((c) => ({
-        id: String(c.id),
-        score: scoreFact(
+      // 5. One-RTT server-side resolve. `fn::resolve_fact` (migration
+      //    0006) does: filter by cosine for bitemporal → score → decide
+      //    INSERTED/SUPERSEDED/COMPETING/REJECTED → CREATE + cascade.
+      //    The whole pipeline runs inside SurrealDB's single-statement
+      //    evaluation context: atomic without our hand-rolled tx.
+      //
+      //    Wrapped in retryOnUniqueViolation because the new CREATE
+      //    can still hit a write-set conflict under heavy concurrency
+      //    (multiple FANOUT inserts targeting the same entity+predicate);
+      //    retry sees the racing committer's row and either supersedes
+      //    or competes correctly on the second attempt.
+      const result = await retryOnUniqueViolation(async () => {
+        const [r] = await db.query<[any]>(
+          `RETURN fn::resolve_fact(
+              type::thing('knowledge_entity', $eid),
+              $predicate, $object, $object_meta, $embedding,
+              $confidence, $valid_from, $valid_until, $source,
+              $source_trust, $semantics, $similarity_threshold,
+              $w_confidence, $w_source_trust, $w_recency, $w_authority,
+              $reject_threshold, $margin_for_supersede
+           )`,
           {
-            confidence: c.confidence,
-            sourceTrust: this.sourceTrustFor(c.source),
-            recordedAt: new Date(c.recordedAt),
-            authority: 0,
+            eid: idTailOf(entityId),
+            predicate: dto.predicate,
+            object: objectStr,
+            object_meta: objectMeta,
+            embedding,
+            confidence: dto.confidence ?? 0.7,
+            valid_from: new Date(dto.validFrom),
+            valid_until: dto.validUntil ? new Date(dto.validUntil) : undefined,
+            source: dto.source,
+            source_trust: sourceTrust,
+            semantics: policy.semantics,
+            similarity_threshold: this.conflict.similarityThreshold,
+            w_confidence: this.conflict.weights.confidence,
+            w_source_trust: this.conflict.weights.sourceTrust,
+            w_recency: this.conflict.weights.recency,
+            w_authority: this.conflict.weights.authority,
+            reject_threshold: this.conflict.rejectThreshold,
+            margin_for_supersede: this.conflict.marginForSupersede,
           },
-          this.conflict,
-        ),
-      }));
-      const bestOpponent = competingScored.reduce((a, b) => (a.score > b.score ? a : b));
-      const willSupersede =
-        policy.semantics === 'single_active' ||
-        newScore >= bestOpponent.score + this.conflict.marginForSupersede;
-
-      // 8. Atomic write set — CREATE new fact + cascading MERGE on
-      // losers/competitors in one multi-statement transaction. If any
-      // statement throws, all roll back.
-      const loserIds = competingScored.map((c) => idTailOf(c.id));
-      const newFactId = await runTransaction<string>(db, (tx) => {
-        tx.bind('payload', factPayload);
-        tx.bind('losers', loserIds);
-        tx.bind('now', new Date());
-        tx.bind('validFrom', factPayload.validFrom);
-        tx.add(`LET $new = (CREATE ONLY knowledge_fact CONTENT $payload)`);
-
-        if (willSupersede) {
-          tx.add(`
-            UPDATE knowledge_fact
-              SET status = 'superseded',
-                  retractedAt = $now,
-                  retractionReason = 'superseded',
-                  retractedBy = 'system',
-                  supersededBy = $new.id,
-                  validUntil = $validFrom
-              WHERE meta::id(id) INSIDE $losers
-          `);
-        } else {
-          // COMPETING: new fact + losers all stay active but flagged.
-          tx.add(`UPDATE $new.id SET status = 'competing'`);
-          tx.add(`UPDATE knowledge_fact SET status = 'competing' WHERE meta::id(id) INSIDE $losers`);
-        }
-        tx.add(`RETURN $new.id`);
+        );
+        return r;
       });
 
-      if (willSupersede) {
-        return {
-          factId: String(newFactId),
-          outcome: 'SUPERSEDED',
-          supersededFactIds: competingScored.map((c) => c.id),
-        };
+      const factId = result?.factId ? String(result.factId) : null;
+      const outcome = result?.outcome as IngestOutcome;
+
+      // HyPE: generate a hypothetical-question embedding and write
+      // it onto the new fact. We do this synchronously inside the
+      // ingest flow so the post-condition "fact is searchable with
+      // alt-embedding" holds immediately. When SEARCH_HYPE_ENABLED
+      // is off, hype.generateAltEmbedding returns null and we skip
+      // the UPDATE entirely — no extra latency on ingest.
+      if (factId && this.hype.isEnabled() && outcome === 'INSERTED') {
+        const altEmbedding = await this.hype.generateAltEmbedding(
+          dto.predicate,
+          objectStr,
+        );
+        if (altEmbedding) {
+          await db.query(
+            `UPDATE type::thing('knowledge_fact', $tail) SET altEmbedding = $emb`,
+            { tail: idTailOf(factId), emb: altEmbedding },
+          );
+        }
       }
-      return {
-        factId: String(newFactId),
-        outcome: 'COMPETING',
-        competingFactIds: competingScored.map((c) => c.id),
-      };
+
+      const out: IngestResult = { factId, outcome };
+      if (result?.reason) out.reason = String(result.reason);
+      if (result?.supersededFactIds) {
+        out.supersededFactIds = (result.supersededFactIds as unknown[]).map(String);
+      }
+      if (result?.competingFactIds) {
+        out.competingFactIds = (result.competingFactIds as unknown[]).map(String);
+      }
+      return out;
     });
   }
 
@@ -247,23 +193,14 @@ export class IngestService {
     key: string,
     factory: () => Record<string, unknown>,
   ): Promise<string> {
+    // SurrealDB v2.2.8 surfaces concurrent UNIQUE-key CREATEs as either
+    // a unique-index violation or a commit-time read/write conflict;
+    // both are caught by retryOnUniqueViolation. The retry's second
+    // SELECT picks up the racing committer's row.
     return retryOnUniqueViolation(async () => {
-      // 1. Fast path — indexed lookup. Replaces the prior LIMIT 5000 + JS
-      // filter, which silently lost entities once a tenant grew past 5000.
       const fast = await this.lookupExternalRef(db, key);
       if (fast) return fast;
 
-      // 2. Slow path — atomic CREATE entity + CREATE external_ref in one
-      // multi-statement transaction. Two simple statements; if the second
-      // fails on the UNIQUE index (concurrent caller landed between our
-      // fast-path SELECT and here), the whole tx rolls back including
-      // the orphan entity. retryOnUniqueViolation re-reads on the next
-      // pass and finds the entity created by the racing caller.
-      //
-      // We deliberately avoid `IF ... { ... } ELSE { ... }` blocks
-      // inside multi-statement transactions: SurrealDB v2 sometimes
-      // evaluates them as opaque sub-blocks whose error becomes a
-      // generic `failed transaction` with no actionable detail.
       const content = factory();
       const result = await runTransaction<{ id: unknown } | null>(db, (tx) => {
         tx.bind('content', content);
@@ -531,6 +468,23 @@ function idTailOf(rid: string): string {
 function externalRefKey(vertical: string, id: string): string {
   const safe = (s: string) => s.replace(/\./g, '__');
   return `${safe(vertical)}__${safe(id)}`;
+}
+
+/**
+ * Encode an arbitrary string to a SurrealDB record-id-safe form.
+ * SurrealDB record ids accept alphanumerics, underscore, dash; anything
+ * else has to be quoted as `⟨...⟩`. We hash to keep the id short and
+ * deterministic and avoid quoting subtleties — the original key is
+ * still stored on the row in the `key` field for round-trip lookups.
+ */
+function recordIdSafe(key: string): string {
+  // SHA-1 truncated to 16 hex chars: collision probability ≈ 2^-32 per
+  // tenant, well below the threshold where we'd care for externalRef
+  // de-duplication. Switch to SHA-256 if a tenant ever surfaces a
+  // collision (none observed to date, none expected).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHash } = require('node:crypto') as typeof import('node:crypto');
+  return createHash('sha1').update(key).digest('hex').slice(0, 32);
 }
 
 /**

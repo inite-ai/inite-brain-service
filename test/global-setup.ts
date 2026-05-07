@@ -13,13 +13,17 @@ export default async function setup() {
   }
 
   console.log('[e2e] starting ephemeral SurrealDB container...');
-  const container = await new GenericContainer('surrealdb/surrealdb:v2.1.4')
+  const container = await new GenericContainer('surrealdb/surrealdb:v2.2.8')
+    .withUser('root')
     .withCommand([
       'start',
       '--user=root',
       '--pass=root',
       '--bind=0.0.0.0:8000',
-      'memory',
+      // rocksdb backend mirrors production. The memory backend has
+      // a known weak-isolation window on UNIQUE indexes under
+      // concurrent CREATEs that production never hits.
+      'rocksdb:/tmp/surreal_e2e_db',
     ])
     .withExposedPorts(8000)
     .withWaitStrategy(Wait.forLogMessage(/Started web server/, 1))

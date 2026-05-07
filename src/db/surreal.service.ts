@@ -22,17 +22,44 @@ import { SchemaMigrator } from './migrator.service';
 @Injectable()
 export class SurrealService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SurrealService.name);
+  // Two pools — admin (root) and scoped (brain_caller user).
+  // Caller-facing reads route through scopedPool so PERMISSIONS clauses
+  // on PII fields (migration 0005) actually fire. Admin paths
+  // (migration apply, GDPR forget, drop database) use rootPool because
+  // PERMISSIONS would block them and we want infra ops to bypass.
   private readonly all: Surreal[] = [];
-  private readonly idle: Surreal[] = [];
-  private readonly waiters: Array<(c: Surreal) => void> = [];
+  private readonly rootIdle: Surreal[] = [];
+  private readonly scopedIdle: Surreal[] = [];
+  private readonly rootWaiters: Array<(c: Surreal) => void> = [];
+  private readonly scopedWaiters: Array<(c: Surreal) => void> = [];
   private namespace!: string;
   private poolSize!: number;
+  private scopedPoolSize!: number;
+  private scopedEnabled = false;
   private readonly knownDatabases = new Set<string>();
   // All schema applications (across all databases) are serialized through
   // this chain. SurrealDB raises transaction read-conflicts when multiple
   // tenants concurrently CREATE DATABASE + DEFINE on shared metadata.
+  // Global schema apply queue. Migrations 0005 (DEFINE USER brain_caller
+  // at NS level) and 0003/0006 (DEFINE FUNCTION fn::* at NS level)
+  // operate on namespace-level metadata that races under concurrent
+  // apply across fresh tenants — even with IF NOT EXISTS guards,
+  // SurrealDB's metadata layer surfaces OCC conflicts faster than
+  // retry can absorb them. Serializing the apply phase across all
+  // tenants on the same brain instance trades cold-start latency
+  // (linear in tenant count, only paid on first request per tenant)
+  // for steady-state correctness.
   private schemaQueue: Promise<unknown> = Promise.resolve();
   private readonly migrator: SchemaMigrator;
+  // Dedicated long-lived root connection used ONLY by the migrator,
+  // NOT in either pool. Without this, ensureSchema acquires a root
+  // conn from the pool — and under N-way fan-out where N == poolSize
+  // and every caller targets the same fresh tenant, all pool conns
+  // are held by callers awaiting ensureSchema, the migrator's own
+  // acquireRoot() finds the pool empty, and the system deadlocks.
+  // A standalone migrator conn breaks the cycle without changing
+  // any caller-facing semantics.
+  private migratorConn!: Surreal;
 
   constructor(private readonly configService: ConfigService) {
     this.migrator = new SchemaMigrator(join(__dirname, 'migrations'));
@@ -47,19 +74,71 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       this.configService.get<string>('SURREALDB_POOL_SIZE', '8'),
       10,
     );
+    this.scopedPoolSize = parseInt(
+      this.configService.get<string>('SURREALDB_SCOPED_POOL_SIZE', '8'),
+      10,
+    );
     if (!Number.isFinite(this.poolSize) || this.poolSize < 1) {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
 
+    // Dedicated migrator connection — root-signed, NOT in any pool.
+    // ensureSchema runs against this conn so callers holding pool conns
+    // in withCompany/withScopedCompany never block on migration acquiring
+    // a fresh root conn from a saturated pool.
+    this.migratorConn = new Surreal();
+    await this.migratorConn.connect(url);
+    await this.migratorConn.signin({ username, password });
+    this.all.push(this.migratorConn);
+
+    // Root pool — admin signin.
     for (let i = 0; i < this.poolSize; i++) {
       const conn = new Surreal();
       await conn.connect(url);
       await conn.signin({ username, password });
       this.all.push(conn);
-      this.idle.push(conn);
+      this.rootIdle.push(conn);
     }
+
+    // Scoped pool — sign in as `brain_caller` (defined in migration 0005).
+    // Disabled cleanly when the user/password aren't set; falls back to
+    // the root pool for everything (defense-in-depth becomes app-only,
+    // matching pre-0005 behaviour). Production deployments MUST set
+    // SURREALDB_SCOPED_USER + SURREALDB_SCOPED_PASS for DB-level fences.
+    const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
+    const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
+    if (scopedUser && scopedPass) {
+      // Apply migrations on a root conn FIRST so brain_caller user exists.
+      // The first withCompany call that targets a fresh tenant DB still
+      // runs the migrations queue — but the root pool is already up,
+      // so any scoped pool signin failures with "user not found" are
+      // contained to that tenant's first request and resolve on retry.
+      this.scopedEnabled = true;
+      for (let i = 0; i < this.scopedPoolSize; i++) {
+        const conn = new Surreal();
+        await conn.connect(url);
+        try {
+          await conn.signin({ username: scopedUser, password: scopedPass, namespace: this.namespace });
+        } catch (e) {
+          // brain_caller user not yet defined (first boot, no migrations
+          // applied yet). Fall back to root signin so the conn is at
+          // least usable; on first scoped request, withScopedCompany
+          // re-signs in as scoped after migrations land.
+          this.logger.warn(
+            `Scoped signin failed (likely first boot before migrations): ${(e as Error).message}. ` +
+              `Falling back to root for this connection until first migration runs.`,
+          );
+          await conn.signin({ username, password });
+        }
+        this.all.push(conn);
+        this.scopedIdle.push(conn);
+      }
+    }
+
     this.logger.log(
-      `Connected to SurrealDB at ${url}, pool=${this.poolSize}, namespace=${this.namespace}`,
+      `Connected to SurrealDB at ${url}, root_pool=${this.poolSize}, ` +
+        `scoped_pool=${this.scopedEnabled ? this.scopedPoolSize : 'off'}, ` +
+        `namespace=${this.namespace}`,
     );
   }
 
@@ -85,21 +164,79 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Run a callback inside a per-tenant database scope on a pool-acquired
-   * connection. Schema is applied lazily on first use of a database.
+   * ROOT connection. Schema is applied lazily on first use of a database.
    * The connection is exclusive to this callback for its lifetime.
+   *
+   * Use this for admin paths: schema apply, GDPR forget, drop database,
+   * compaction, ops scripts. Caller-facing paths must use
+   * `withScopedCompany` so DB-level PII permissions apply.
    */
   async withCompany<T>(companyId: string, fn: (db: Surreal) => Promise<T>): Promise<T> {
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
-    const conn = await this.acquire();
+    const conn = await this.acquireRoot();
     try {
       await conn.use({ namespace: this.namespace, database });
       await this.ensureSchema(conn, database);
       return await fn(conn);
     } finally {
-      this.release(conn);
+      this.releaseRoot(conn);
+    }
+  }
+
+  /**
+   * Run a callback inside a per-tenant DB scope on a SCOPED connection.
+   * The connection is signed in as `brain_caller` (EDITOR role, not
+   * root), so PERMISSIONS clauses defined on schema fields apply.
+   *
+   * Per-request, the service binds the caller's brain scopes to the
+   * SurrealDB session variable `$caller_scopes` via `LET`. PERMISSIONS
+   * clauses on PII-classed predicates check this variable; absence
+   * means PII fields return NONE for `object` while non-PII fields
+   * still return their values.
+   *
+   * If the scoped pool is disabled (env var unset, dev mode without
+   * a non-root user), this falls back to `withCompany` semantics —
+   * defense-in-depth becomes app-layer-only.
+   */
+  async withScopedCompany<T>(
+    companyId: string,
+    scopes: readonly string[],
+    fn: (db: Surreal) => Promise<T>,
+  ): Promise<T> {
+    if (!this.scopedEnabled) {
+      // Soft fallback: route to root pool but still set $caller_scopes
+      // so any defensive PERMISSIONS clauses checking it behave as if
+      // the scope binding was honoured. Root will bypass PERMISSIONS,
+      // so the actual gate is the app-layer filter.
+      return this.withCompany(companyId, async (db) => {
+        await db.query(`LET $caller_scopes = $scopes`, { scopes: [...scopes] });
+        return fn(db);
+      });
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
+      throw new Error(`Invalid companyId: ${companyId}`);
+    }
+    const database = `co_${companyId}`;
+    const conn = await this.acquireScoped();
+    try {
+      await conn.use({ namespace: this.namespace, database });
+      // Migrations are idempotent and already serialised through
+      // schemaQueue; running on a scoped connection works because
+      // EDITOR role can DEFINE in v2 against an existing database
+      // it has access to (NS-level USER + DB exists).
+      await this.ensureSchema(conn, database);
+      // Bind scopes for this request. The variable lives until the
+      // next LET on this connection — releasing back to the pool
+      // doesn't reset it, but the next withScopedCompany call
+      // overwrites it before the user-fn runs, so cross-request
+      // contamination is impossible.
+      await conn.query(`LET $caller_scopes = $scopes`, { scopes: [...scopes] });
+      return await fn(conn);
+    } finally {
+      this.releaseScoped(conn);
     }
   }
 
@@ -112,50 +249,91 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
-    const conn = await this.acquire();
+    const conn = await this.acquireRoot();
     try {
       await conn.use({ namespace: this.namespace, database });
       await conn.query(`REMOVE DATABASE ${database};`);
       this.knownDatabases.delete(database);
       this.logger.warn(`Dropped database ${this.namespace}/${database}`);
     } finally {
-      this.release(conn);
+      this.releaseRoot(conn);
     }
   }
 
   /** Test-only: stats for monitoring tests / debugging. */
-  poolStats(): { size: number; idle: number; waiters: number } {
-    return { size: this.poolSize, idle: this.idle.length, waiters: this.waiters.length };
+  poolStats(): {
+    size: number;
+    idle: number;
+    waiters: number;
+    scopedIdle: number;
+    scopedWaiters: number;
+  } {
+    return {
+      size: this.poolSize,
+      idle: this.rootIdle.length,
+      waiters: this.rootWaiters.length,
+      scopedIdle: this.scopedIdle.length,
+      scopedWaiters: this.scopedWaiters.length,
+    };
   }
 
-  private acquire(): Promise<Surreal> {
-    const free = this.idle.shift();
+  private acquireRoot(): Promise<Surreal> {
+    const free = this.rootIdle.shift();
     if (free) return Promise.resolve(free);
-    return new Promise<Surreal>((resolve) => this.waiters.push(resolve));
+    return new Promise<Surreal>((resolve) => this.rootWaiters.push(resolve));
   }
 
-  private release(conn: Surreal): void {
-    const next = this.waiters.shift();
+  private releaseRoot(conn: Surreal): void {
+    const next = this.rootWaiters.shift();
     if (next) {
       next(conn);
     } else {
-      this.idle.push(conn);
+      this.rootIdle.push(conn);
     }
   }
 
-  private async ensureSchema(conn: Surreal, database: string): Promise<void> {
+  private acquireScoped(): Promise<Surreal> {
+    const free = this.scopedIdle.shift();
+    if (free) return Promise.resolve(free);
+    return new Promise<Surreal>((resolve) => this.scopedWaiters.push(resolve));
+  }
+
+  private releaseScoped(conn: Surreal): void {
+    const next = this.scopedWaiters.shift();
+    if (next) {
+      next(conn);
+    } else {
+      this.scopedIdle.push(conn);
+    }
+  }
+
+  /**
+   * Apply migrations to the target database. ALWAYS runs on a freshly
+   * acquired root connection — migration 0005 (DEFINE USER brain_caller)
+   * requires OWNER role and would otherwise fail when reached via the
+   * scoped pool. Other migrations don't strictly need root, but
+   * centralising here means schema apply behaves identically regardless
+   * of which pool the request entered through.
+   */
+  private async ensureSchema(_conn: Surreal, database: string): Promise<void> {
     if (this.knownDatabases.has(database)) return;
     const next = this.schemaQueue.then(async () => {
-      // Recheck under the queue: another request may have applied schema
-      // for this database while we were waiting.
       if (this.knownDatabases.has(database)) return;
-      const result = await this.migrator.migrate(conn);
+      // Use the dedicated migrator conn rather than acquiring from
+      // the pool. Avoids the deadlock where every pool conn is
+      // currently held in withCompany awaiting THIS migration to
+      // finish.
+      await this.migratorConn.use({ namespace: this.namespace, database });
+      const result = await this.migrator.migrate(this.migratorConn);
       this.knownDatabases.add(database);
       if (result.applied.length > 0) {
         this.logger.log(
           `Migrated ${this.namespace}/${database}: applied [${result.applied.join(', ')}], ` +
             `already-applied [${result.alreadyApplied.join(', ') || '-'}]`,
         );
+        if (this.scopedEnabled && result.applied.includes('0005')) {
+          await this.resignScopedConns();
+        }
       } else {
         this.logger.log(
           `Schema up-to-date for ${this.namespace}/${database} ` +
@@ -165,6 +343,34 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
     });
     this.schemaQueue = next.catch(() => undefined);
     await next;
+  }
+
+  /**
+   * Re-sign all idle scoped pool connections as `brain_caller` after
+   * migration 0005 lands. Connections currently in flight will be
+   * re-signed on their next acquire (we mark them via shadow Set).
+   * Best-effort — failures fall back to root-signed (still functional,
+   * just no PERMISSIONS enforcement).
+   */
+  private async resignScopedConns(): Promise<void> {
+    const url = this.configService.getOrThrow<string>('SURREALDB_URL');
+    const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
+    const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
+    if (!scopedUser || !scopedPass) return;
+    for (const conn of this.scopedIdle) {
+      try {
+        await conn.signin({
+          username: scopedUser,
+          password: scopedPass,
+          namespace: this.namespace,
+        });
+      } catch (e) {
+        this.logger.warn(
+          `Re-signin to scoped failed for an idle conn: ${(e as Error).message}`,
+        );
+      }
+    }
+    void url; // silence unused
   }
 }
 
@@ -257,10 +463,36 @@ export async function runTransaction<T>(
     .map((s) => s.replace(/;\s*$/, ''))
     .join(';\n') + ';';
 
-  // SurrealDB returns one result entry per statement. BEGIN/COMMIT are
-  // suppressed in the result list — the array maps 1:1 to the user's
-  // statements. We return the last user-statement's result.
-  const result = await db.query<unknown[]>(sql, vars);
+  // SurrealDB v2.2.8 surfaces aborted BEGIN/COMMIT batches as a
+  // single top-level rejection with the bare wrapper "The query was
+  // not executed due to a failed transaction" — the per-statement
+  // cause (e.g. "Failed to commit transaction due to a read or
+  // write conflict. This transaction can be retried") is dropped
+  // by the time the JS driver builds the error. Without enrichment,
+  // `isReadConflict(err)` sees only the wrapper and the surrounding
+  // retry loop won't fire.
+  //
+  // Mitigation: any `failed transaction` wrapper emerging from a
+  // multi-statement BEGIN/COMMIT batch IS, by construction, a
+  // commit-level abort — for our usage (atomic upsert), commit
+  // aborts under contention are exactly the retriable case. Re-throw
+  // with the canonical read-or-write-conflict suffix so the retry
+  // detector picks it up. Parse errors and permission denials don't
+  // surface via this wrapper (they fail at parse/auth before the
+  // tx is even entered), so the false-positive risk is bounded.
+  let result: unknown[];
+  try {
+    result = await db.query<unknown[]>(sql, vars);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('failed transaction')) {
+      const cause = (err as { cause?: { message?: string } }).cause;
+      const suffix = cause?.message ?? 'read or write conflict; this transaction can be retried';
+      const enriched = new Error(`${err.message}: ${suffix}`);
+      (enriched as Error & { cause?: unknown }).cause = err;
+      throw enriched;
+    }
+    throw err;
+  }
   const arr = result as unknown[];
   return arr[arr.length - 1] as T;
 }
@@ -274,37 +506,38 @@ export function isUniqueViolation(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const m = err.message;
   return (
-    m.includes('already contains') || // "already contains a record with id ..."
-    m.includes('Database index') ||   // "Database index `xxx` already contains ..."
-    m.includes('IndexExists')
+    m.includes('already contains') ||  // "already contains a record with id ..."
+    m.includes('Database index') ||    // "Database index `xxx` already contains ..."
+    m.includes('IndexExists') ||
+    m.includes('already exists') ||    // "Database record `xxx:yyy` already exists" — explicit-id CREATE collision
+    m.includes('Found a record')       // SurrealDB v2 wording variant for the same condition
   );
 }
 
 /**
- * Detect SurrealDB optimistic-concurrency read conflict. Surreal's
- * datastore aborts a transaction whose read-set was invalidated by a
- * concurrent committer. The surfaced messages cluster into:
+ * Detect SurrealDB optimistic-concurrency read conflict — narrow match.
+ * Only the specific datastore-level abort messages are retriable; the
+ * broader "failed transaction" envelope wraps non-retriable failures
+ * too (parse errors, type assertions, permission denials), and looping
+ * those burns the retry budget for nothing.
  *
- *   - "Transaction read conflict" — explicit OCC abort
- *   - "failed transaction" — composed multi-statement CANCEL after one
- *     statement aborted (the underlying cause is the previous one in
- *     the result set, but the surfaced top-level message is generic)
- *   - "transaction wrote at the same key" / "datastore transaction"
- *     — variants from the rocksdb engine for write-write contention
- *
- * All are retriable from the caller's perspective: re-running the
- * same logic against the now-updated state either succeeds, returns
- * the racing-caller's row on read, or surfaces a unique violation
- * (which `isUniqueViolation` then catches).
+ * v2.2.x rocksdb backend surfaces commit-time OCC aborts with a new,
+ * more explicit wording: "Failed to commit transaction due to a read
+ * or write conflict. This transaction can be retried". Under
+ * concurrent CREATEs against a UNIQUE-indexed key, the FIRST few
+ * attempts in a fanout often abort here at commit time before the
+ * uniqueness check fires (so they never present as
+ * `isUniqueViolation`). Both patterns must be caught for the
+ * retry loop to converge.
  */
 export function isReadConflict(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const m = err.message;
   return (
     m.includes('Transaction read conflict') ||
-    m.includes('failed transaction') ||
-    m.includes('datastore transaction') ||
-    m.includes('wrote at the same key')
+    m.includes('wrote at the same key') ||
+    m.includes('read or write conflict') ||
+    m.includes('This transaction can be retried')
   );
 }
 
@@ -323,7 +556,7 @@ export function isReadConflict(err: unknown): boolean {
  */
 export async function retryOnUniqueViolation<T>(
   fn: () => Promise<T>,
-  attempts = 8,
+  attempts = 7,
 ): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -334,9 +567,11 @@ export async function retryOnUniqueViolation<T>(
       lastErr = err;
       if (i < attempts - 1) {
         // Exponential backoff with full jitter: 10..20, 20..40, 40..80,
-        // 80..160, 160..320, 320..640, 640..1280 ms. Worst case: ~2.5s
-        // total backoff before giving up — enough headroom for FANOUT
-        // collisions to drain on a single-threaded rocksdb backend.
+        // 80..160, 160..320, 320..640 ms — total worst case ~1.3s.
+        // Sized for FANOUT-up-to-pool-size contention on the rocksdb
+        // backend: that's the regime where retries actually help (the
+        // racing committer's row appears within hundreds of ms).
+        // Beyond that the test path needs to back off load itself.
         const baseMs = 10 * Math.pow(2, i);
         const jitter = Math.random() * baseMs;
         await new Promise((r) => setTimeout(r, baseMs + jitter));

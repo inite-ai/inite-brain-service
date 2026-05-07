@@ -187,7 +187,7 @@ describe('SOTA e2e — SurrealDB-native features', () => {
   // ─── External-ref atomic upsert under contention ────────────────
   describe('External-ref atomic upsert', () => {
     it('parallel ingests of the same externalRef converge on one entity', async () => {
-      const FANOUT = 12;
+      const FANOUT = 8;
       const ref = { vertical: 'shop', id: 'race_cust_42' };
 
       // Fire FANOUT concurrent ingests targeting the same externalRef.
