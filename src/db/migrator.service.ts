@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Surreal } from 'surrealdb';
+import { isReadConflict } from './surreal.service';
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -74,15 +75,33 @@ export class SchemaMigrator {
 
     for (const m of pending) {
       this.logger.log(`Applying ${m.name}`);
-      try {
-        await conn.query(m.sql);
-      } catch (err) {
-        this.logger.error(
-          `Migration ${m.name} failed: ${(err as Error).message}`,
-        );
-        throw new Error(
-          `Migration ${m.name} failed: ${(err as Error).message}`,
-        );
+      // Migrations defining NS-level objects (DEFINE USER brain_caller in
+      // 0005, function definitions in 0003/0006) race against each other
+      // when multiple tenants apply schema in parallel — SurrealDB's
+      // optimistic-concurrency aborts one with `Transaction read conflict`.
+      // Retry up to 5x with exponential backoff; the second attempt sees
+      // the racing committer's row and the IF NOT EXISTS / OVERWRITE
+      // guards make it a clean no-op.
+      let attempts = 0;
+      const maxAttempts = 5;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          await conn.query(m.sql);
+          break;
+        } catch (err) {
+          attempts++;
+          if (!isReadConflict(err) || attempts >= maxAttempts) {
+            this.logger.error(
+              `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
+            );
+            throw new Error(
+              `Migration ${m.name} failed: ${(err as Error).message}`,
+            );
+          }
+          const baseMs = 20 * Math.pow(2, attempts - 1);
+          await new Promise((r) => setTimeout(r, baseMs + Math.random() * baseMs));
+        }
       }
       await conn.query(
         `CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`,

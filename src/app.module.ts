@@ -12,6 +12,7 @@ import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
 import { FactsModule } from './facts/facts.module';
 import { EntitiesModule } from './entities/entities.module';
+import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
 import { CompactionModule } from './compaction/compaction.module';
 import { MetricsModule } from './metrics/metrics.module';
@@ -41,6 +42,7 @@ import { MetricsModule } from './metrics/metrics.module';
     SearchModule,
     FactsModule,
     EntitiesModule,
+    ArtifactsModule,
     McpModule,
     CompactionModule,
     MetricsModule,

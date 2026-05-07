@@ -19,6 +19,14 @@ export interface AppFixture {
 export async function createApp(opts: {
   companyId?: string;
   scopes?: string[];
+  /**
+   * When true, configure the scoped pool (SURREALDB_SCOPED_USER/PASS).
+   * Migration 0005 defines `brain_caller` user with a known default
+   * password — fixture wires those env vars so the pool boots in
+   * scoped mode. Caller-facing endpoints then route through scoped
+   * connections and DB-level PERMISSIONS apply.
+   */
+  enableScopedPool?: boolean;
 } = {}): Promise<AppFixture> {
   const companyId = opts.companyId ?? `co_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const apiKey = `key_${randomUUID()}`;
@@ -32,6 +40,14 @@ export async function createApp(opts: {
   ]);
   // Bypass real OpenAI calls.
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test-stub';
+  if (opts.enableScopedPool) {
+    process.env.SURREALDB_SCOPED_USER = 'brain_caller';
+    process.env.SURREALDB_SCOPED_PASS =
+      'brain-caller-password-must-be-overridden-via-env';
+  } else {
+    delete process.env.SURREALDB_SCOPED_USER;
+    delete process.env.SURREALDB_SCOPED_PASS;
+  }
 
   const stubExtractor = new StubExtractor();
 

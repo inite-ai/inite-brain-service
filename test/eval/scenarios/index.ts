@@ -7,6 +7,9 @@ import { shopScenarios } from './shop.scenarios';
 import { crossVerticalScenarios } from './cross-vertical.scenarios';
 import { hybridSearchScenarios } from './hybrid-search.scenarios';
 import { adversarialScenarios } from './adversarial.scenarios';
+import { bitemporalScenarios } from './bitemporal.scenarios';
+import { conflictResolutionScenarios } from './conflict-resolution.scenarios';
+import { graphTraversalScenarios } from './graph-traversal.scenarios';
 
 export const allScenarios: Scenario[] = [
   ...rentScenarios,
@@ -17,6 +20,9 @@ export const allScenarios: Scenario[] = [
   ...crossVerticalScenarios,
   ...hybridSearchScenarios,
   ...adversarialScenarios,
+  ...bitemporalScenarios,
+  ...conflictResolutionScenarios,
+  ...graphTraversalScenarios,
 ];
 
 export {
@@ -28,4 +34,7 @@ export {
   crossVerticalScenarios,
   hybridSearchScenarios,
   adversarialScenarios,
+  bitemporalScenarios,
+  conflictResolutionScenarios,
+  graphTraversalScenarios,
 };

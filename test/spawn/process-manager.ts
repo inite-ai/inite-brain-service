@@ -17,10 +17,14 @@ export class ProcessManager {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.proc.stderr?.on('data', (d) => {
-      this.stderr += d.toString();
+      const s = d.toString();
+      this.stderr += s;
+      // Dump stderr to console when DEBUG_SPAWN=1 — useful for
+      // diagnosing 500s coming back from the spawned service.
+      if (process.env.DEBUG_SPAWN === '1') process.stderr.write(s);
     });
-    this.proc.stdout?.on('data', () => {
-      /* swallow */
+    this.proc.stdout?.on('data', (d) => {
+      if (process.env.DEBUG_SPAWN === '1') process.stdout.write(d);
     });
     return this.proc;
   }

@@ -57,7 +57,12 @@ export class EntitiesController {
     @Param('id') id: string,
     @Query('kind') kind?: string,
   ) {
-    return this.entities.getConnections(req.brainAuth.companyId, id, kind);
+    return this.entities.getConnections(
+      req.brainAuth.companyId,
+      id,
+      kind,
+      req.brainAuth.scopes,
+    );
   }
 
   @Post(':id/forget')

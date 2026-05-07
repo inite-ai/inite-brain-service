@@ -82,7 +82,7 @@ export class EntitiesService {
     const ref = this.normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
 
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [entRows] = await db.query<any[][]>(
         `SELECT ${ENTITY_PROFILE_FIELDS}
          FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
@@ -163,7 +163,7 @@ export class EntitiesService {
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
 
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Range pushdown — recordedAt window is part of the WHERE so
       // long-lived entities don't pay for full timeline materialisation
       // on every query. The composite (entityId, status, recordedAt)
@@ -219,50 +219,77 @@ export class EntitiesService {
     companyId: string,
     entityIdRaw: string,
     kind: string | undefined,
+    scopes: BrainScope[] = [],
   ): Promise<{ entityId: string; edges: any[] }> {
     const ref = this.normalizeEntityId(entityIdRaw);
 
-    return this.surreal.withCompany(companyId, async (db) => {
-      // Property-based traversal with inline neighbour hydration via
-      // `in.{...}` / `out.{...}`. The dedicated edge_in_idx / edge_out_idx
-      // serve the WHERE clauses in O(degree). The full native form
-      // `$entity->knowledge_edge[WHERE ...]` would skip the WHERE
-      // negotiation but is more sensitive to driver-side parsing of
-      // chained graph operators in the JS SDK 2.0.x — switching to it
-      // is tracked under research stream B1 (native graph traversal).
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      // Native graph traversal via SurrealDB's `->` / `<-` operators
+      // applied to an inline `type::thing(...)` expression. The graph
+      // operators walk the adjacency list directly — O(degree) — and
+      // the inline `out.{...}` / `in.{...}` projections hydrate the
+      // far entity in the same query. Two parallel reads (outbound +
+      // inbound) hit the dedicated `edge_in_idx` / `edge_out_idx`.
+      //
+      // Earlier attempt used `LET $entity = ...; SELECT FROM $entity->...`
+      // in a multi-statement query and returned 0 rows on the JS SDK
+      // 2.0.x — the multi-statement chain confused the result mapper.
+      // The inline form (no LET) executes cleanly.
       const kindParam = kind ? ' AND kind = $kind' : '';
-      const sql = `
-        SELECT ${EDGE_TRAVERSAL_FIELDS}
-        FROM knowledge_edge
-        WHERE (in = type::thing('knowledge_entity', $rid)
-               OR out = type::thing('knowledge_entity', $rid))
-          AND invalidatedAt IS NONE${kindParam}
+      const outSql = `
+        SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
+               out.{id, type, canonicalName} AS toEntity
+        FROM type::thing('knowledge_entity', $rid)->knowledge_edge
+        WHERE invalidatedAt IS NONE${kindParam}
       `;
-      const [rows] = await db.query<any[][]>(sql, { rid: ref.id, kind });
-      const fullSelf = ref.full;
-      const edges = ((rows as any[]) ?? []).map((e: any) => {
-        const inStr = String(e.in);
-        const outStr = String(e.out);
-        const isOutbound = inStr === fullSelf;
-        const farSide = isOutbound ? e.toEntity : e.fromEntity;
-        return {
+      const inSql = `
+        SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
+               in.{id, type, canonicalName} AS fromEntity
+        FROM type::thing('knowledge_entity', $rid)<-knowledge_edge
+        WHERE invalidatedAt IS NONE${kindParam}
+      `;
+      const [outRowsResult, inRowsResult] = await Promise.all([
+        db.query<any[][]>(outSql, { rid: ref.id, kind }),
+        db.query<any[][]>(inSql, { rid: ref.id, kind }),
+      ]);
+      const outRows = ((outRowsResult[0] as any[]) ?? []) as any[];
+      const inRows = ((inRowsResult[0] as any[]) ?? []) as any[];
+      const edges = [
+        ...outRows.map((e: any) => ({
           edgeId: String(e.id),
-          from: inStr,
-          to: outStr,
+          from: String(e.in),
+          to: String(e.out),
           kind: e.kind,
           weight: e.weight,
           source: e.source,
           createdAt: new Date(e.createdAt).toISOString(),
-          neighbour: farSide
+          neighbour: e.toEntity
             ? {
-                id: String(farSide.id),
-                type: farSide.type,
-                canonicalName: farSide.canonicalName,
+                id: String(e.toEntity.id),
+                type: e.toEntity.type,
+                canonicalName: e.toEntity.canonicalName,
               }
             : undefined,
-          direction: isOutbound ? ('outbound' as const) : ('inbound' as const),
-        };
-      });
+          direction: 'outbound' as const,
+        })),
+        ...inRows.map((e: any) => ({
+          edgeId: String(e.id),
+          from: String(e.in),
+          to: String(e.out),
+          kind: e.kind,
+          weight: e.weight,
+          source: e.source,
+          createdAt: new Date(e.createdAt).toISOString(),
+          neighbour: e.fromEntity
+            ? {
+                id: String(e.fromEntity.id),
+                type: e.fromEntity.type,
+                canonicalName: e.fromEntity.canonicalName,
+              }
+            : undefined,
+          direction: 'inbound' as const,
+        })),
+      ];
       return { entityId: ref.full, edges };
     });
   }
