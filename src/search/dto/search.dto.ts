@@ -77,10 +77,11 @@ export class SearchDto {
   requireProvenance?: boolean;
 
   /**
-   * Approximate response size cap, in tokens. Server trims facts
-   * (top-by-score first) until the projected response fits. Tokens
-   * are estimated as `chars / 4` — a coarse but free heuristic
-   * that matches OpenAI's sub-word tokenizer within ~15%.
+   * Response size cap, in tokens. Server drops entities (lowest-score
+   * first) until the projected JSON-serialised response fits. Counted
+   * exactly via tiktoken's cl100k_base encoding — the same encoding
+   * downstream OpenAI / Anthropic billing uses, so the budget the
+   * caller specifies is the budget they'll actually consume.
    */
   @IsOptional() @IsNumber() @Min(50) @Max(50_000)
   tokenBudget?: number;
