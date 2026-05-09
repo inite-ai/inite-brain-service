@@ -8,6 +8,7 @@ import { SearchDto, SearchMode } from './dto/search.dto';
 import { policyFor } from '../ingest/conflict-resolver';
 import { countJsonTokens } from '../common/token-counter';
 import { MetricsService } from '../metrics/metrics.service';
+import { withSpan } from '../common/tracing';
 
 export interface SearchHit {
   entityId: string;
@@ -162,8 +163,38 @@ export class SearchService {
       const baseWhere = this.buildBaseWhere(dto, asOf, includeRetracted, includeContested);
 
       const [vectorRows, lexicalRows] = await Promise.all([
-        mode === 'lexical' ? Promise.resolve([] as FactRow[]) : this.vectorLeg(db, dto.query, candidateK, baseWhere),
-        mode === 'vector' ? Promise.resolve([] as FactRow[]) : this.lexicalLeg(db, dto.query, candidateK, baseWhere),
+        mode === 'lexical'
+          ? Promise.resolve([] as FactRow[])
+          : withSpan(
+              'search.vector_leg',
+              async (span) => {
+                const rows = await this.vectorLeg(
+                  db,
+                  dto.query,
+                  candidateK,
+                  baseWhere,
+                );
+                span.setAttribute('candidates', rows.length);
+                return rows;
+              },
+              { 'search.k': candidateK },
+            ),
+        mode === 'vector'
+          ? Promise.resolve([] as FactRow[])
+          : withSpan(
+              'search.lexical_leg',
+              async (span) => {
+                const rows = await this.lexicalLeg(
+                  db,
+                  dto.query,
+                  candidateK,
+                  baseWhere,
+                );
+                span.setAttribute('candidates', rows.length);
+                return rows;
+              },
+              { 'search.k': candidateK },
+            ),
       ]);
 
       // Fuse — vector and lexical lists are joined by fact id; the
@@ -197,7 +228,11 @@ export class SearchService {
       // the project entity).
       // Returns null when the router is disabled or the LLM call
       // fails — both boosts reduce to 1.0.
-      const routerOut = await this.predicateRouter.route(dto.query);
+      const routerOut = await withSpan('search.route', async (span) => {
+        const out = await this.predicateRouter.route(dto.query);
+        span.setAttribute('router.hit', out !== null);
+        return out;
+      });
       const predicateDist = routerOut?.predicates ?? null;
       const typeDist = routerOut?.types ?? null;
 
@@ -301,7 +336,11 @@ export class SearchService {
       const pprAuto =
         pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
       if ((pprForced || pprAuto) && byEntity.size > 1) {
-        await this.applyPprPrior(db, byEntity);
+        await withSpan(
+          'search.ppr',
+          () => this.applyPprPrior(db, byEntity),
+          { 'ppr.entities': byEntity.size },
+        );
       }
 
       // Pull a wider rerank window (2× limit) so the LLM-based
@@ -349,9 +388,14 @@ export class SearchService {
         // reranker exploit structural context — fixes shared-
         // firstname disambiguation (e.g. Maya vs Rohit, both have
         // headphone complaints; whose neighbours match the query?)
-        const neighboursByEntity = await this.fetchNeighbours(
-          db,
-          candidatesForRerank.map((e) => e.entityId),
+        const neighboursByEntity = await withSpan(
+          'search.fetch_neighbours',
+          () =>
+            this.fetchNeighbours(
+              db,
+              candidatesForRerank.map((e) => e.entityId),
+            ),
+          { 'neighbours.candidates': candidatesForRerank.length },
         );
 
         // Build compact summaries — best 3 facts + entity type +
@@ -394,10 +438,10 @@ export class SearchService {
             }.`
           : undefined;
 
-        const permutation = await this.reranker.rerank(
-          dto.query,
-          rerankInputs,
-          hints,
+        const permutation = await withSpan(
+          'search.rerank',
+          () => this.reranker.rerank(dto.query, rerankInputs, hints),
+          { 'rerank.candidates': rerankInputs.length },
         );
         topEntities = permutation.map((i) => candidatesForRerank[i]);
         this.metrics?.countRerank('invoked');

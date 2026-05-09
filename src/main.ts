@@ -1,3 +1,10 @@
+// OTel bootstrap MUST run before any code that imports `http`,
+// `express`, or other auto-instrumented modules. The instrumentations
+// patch via require-hooks; late init silently misses every prior
+// require. No-op when OTEL_ENABLED!=1.
+import { initTracing } from './common/tracing';
+initTracing();
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
