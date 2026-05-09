@@ -284,6 +284,22 @@ const score = jointF1(
 
 Hallucinated `factId` citations (the LLM cited an id not in the retrieved set) are filtered before the response leaves the server. The `results` field carries the raw `SearchHit[]` so callers can fall back to manual synthesis when the answer is null.
 
+For continuous quality measurement, score synthesize outputs against the retrieved context with `computeFaithfulness` (RAGAS convention — see `test/eval/metrics/faithfulness.ts`). It decomposes the answer into atomic claims and returns a 0..1 score plus the per-claim verdicts, so a regression report points at *which* sentence hallucinated, not just "this answer was wrong":
+
+```ts
+import OpenAI from 'openai';
+import { computeFaithfulness } from './test/eval/metrics/faithfulness';
+
+const synthRes = await brainClient.synthesize({...});
+const score = await computeFaithfulness(new OpenAI(), {
+  answer: synthRes.answer,
+  sourceFacts: synthRes.results.flatMap((r) =>
+    r.facts.map((f) => ({ factId: f.factId, predicate: f.predicate, object: f.object })),
+  ),
+});
+// → { faithfulness: 0.83, totalClaims: 6, supportedClaims: 4, partialClaims: 1, unsupportedClaims: 1, claims: [...] }
+```
+
 ```bash
 curl -X POST http://localhost:3000/v1/synthesize \
   -H "Authorization: Bearer $KEY" \

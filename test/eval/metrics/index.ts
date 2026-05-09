@@ -13,3 +13,11 @@ export type {
   JointF1Score,
   JointF1Aggregate,
 } from './joint-f1';
+export { computeFaithfulness, meanFaithfulness } from './faithfulness';
+export type {
+  FaithfulnessInput,
+  FaithfulnessScore,
+  FaithfulnessClaim,
+  FaithfulnessSourceFact,
+  OpenAiLike,
+} from './faithfulness';
