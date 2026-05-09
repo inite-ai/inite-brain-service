@@ -28,6 +28,7 @@ Layer 1 — Identity (auth)
 | `POST /v1/search` | ✅ |
 | `POST /v1/synthesize` | ✅ (corrective-RAG, opt-in via `OPENAI_API_KEY`) |
 | `POST /v1/search/multi-hop` | ✅ (chained search via planner-LLM) |
+| `POST /v1/dreams/run` | ✅ (off-hours self-improvement: dedup / resolve / summarize; admin scope) |
 | `POST /v1/ingest/mention` | planned 0.2.0 |
 | `POST /v1/ingest/link` | planned 0.2.0 |
 | `GET /v1/entities/:id` | planned 0.2.0 |
@@ -206,6 +207,29 @@ The directory eval (`pnpm test:eval:directory`) uses a synthetic generator, but 
 
 Seeding cost is dominated by HNSW + BM25 indexing — budget ~1 minute per 5k facts on a single Surreal node, scaling near-linearly. Set Jest timeouts to 30+ minutes for fixtures over 50k rows.
 
+## Dreams (off-hours self-improvement)
+
+A daily cron (04:00 UTC, 43 min after compaction) that walks every tenant and runs three optional sub-passes over the post-compaction state. Each is independently env-gated; `DREAMS_ENABLED=1` is the master switch.
+
+| Sub-op | Env flag | What it does |
+|---|---|---|
+| `summarize` | `DREAMS_LLM_SUMMARY_ENABLED=1` | Replaces the no-LLM concat summarizer in compaction with an LLM-backed version. Produces 1-2 sentence summaries that capture the trajectory ("upgraded from gold to platinum in April") instead of a verbatim concat. Falls back to concat on any LLM error — compaction never breaks. |
+| `dedup` | `DREAMS_DEDUP_ENABLED=1` | Two-stage dedup: (1) cosine-similarity over name embeddings finds suspect pairs (threshold `DREAMS_DEDUP_COSINE_THRESHOLD`, default 0.92); (2) LLM judge with both entities' top facts as context decides `same` / `different` / `unsure`. `same` → emits `identity_of` edge automatically. Bounded by `DREAMS_DEDUP_MAX_PAIRS` per tenant per run. |
+| `resolve` | `DREAMS_RESOLVE_ENABLED=1` | Auto-resolves `competing` fact pairs aged past `DREAMS_RESOLVE_MIN_AGE_DAYS` (default 7). LLM judge picks a winner using surrounding entity context; loser marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — `unsure` verdict leaves both for human review. |
+
+Manual trigger:
+
+```bash
+curl -X POST http://localhost:3000/v1/dreams/run \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "operations": ["dedup", "resolve"] }'
+```
+
+Body shape: `{ "operations"?: ("dedup" | "resolve" | "summarize")[] }`. Empty / unset → uses env-default subset. Scoped to `brain:admin` because the operations mutate state no other v1 endpoint exposes.
+
+Metrics: `brain_dreams_total{outcome=ok|failed}`, `brain_dreams_emitted_total{kind=identity_link|resolution|summary}`. The emitted ratio against ok-runs tells the operator whether dreams is doing useful work or just spinning.
+
 ## Multi-hop search
 
 `POST /v1/search/multi-hop` runs a CHAINED search: a planner LLM decomposes the free-text query into ≤ `maxHops` sub-queries with combination semantics, then the executor runs them in sequence — each later hop optionally anchored to the running entity set so the search engine never wastes work on candidates already disqualified upstream.
@@ -316,6 +340,10 @@ Each company gets its own SurrealDB database (`co_<companyId>`). Cross-tenant qu
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Used by `ingest-mention` extraction. |
 | `CONFLICT_*` | per spec | Override the resolution weights at runtime; defaults match `core/capabilities/knowledge.yaml`. |
 | `MULTI_HOP_PLANNER_MODEL` | `OPENAI_CHAT_MODEL` | Override the chat model for the multi-hop planner LLM call. |
+| `DREAMS_ENABLED` | `0` | Master switch for the daily dreams cron. Each sub-op has its own gate (`DREAMS_DEDUP_ENABLED`, `DREAMS_RESOLVE_ENABLED`, `DREAMS_LLM_SUMMARY_ENABLED`). Manual `POST /v1/dreams/run` works regardless of this flag. |
+| `DREAMS_DEDUP_ENABLED` | `0` | Enable near-duplicate entity finder (cosine + LLM judge). Cost: 1 cosine-kNN per active-named entity (cheap) + 1 LLM call per suspect pair. Bounded by `DREAMS_DEDUP_MAX_PAIRS` (default 50). |
+| `DREAMS_RESOLVE_ENABLED` | `0` | Enable competing-fact auto-resolver. Only resolves pairs aged past `DREAMS_RESOLVE_MIN_AGE_DAYS` (default 7). Bounded by `DREAMS_RESOLVE_MAX_PAIRS` (default 20). |
+| `DREAMS_LLM_SUMMARY_ENABLED` | `0` | Swap the compaction summary generator from concat to LLM-backed. The LlmSummaryGenerator falls back to concat on any LLM error, so flipping the flag is safe (worst case = unchanged behaviour). |
 | `MULTI_HOP_PLANNER_CONCURRENCY` | `4` | Max in-flight planner calls. |
 | `SYNTHESIZE_MODEL` | `OPENAI_CHAT_MODEL` | Override the chat model for `/v1/synthesize` generator + verifier calls. |
 | `SYNTHESIZE_DEFAULT_GUARDRAILS` | `strict` | `strict` / `lenient` / `off`. Caller can override per-request via `synthesisGuardrails`. |

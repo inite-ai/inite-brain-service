@@ -111,6 +111,26 @@ Procedure:
 
 The reranker stays the canonical quality lever — this knob just trades a small precision risk for a large cost reduction on queries that didn't need it anyway.
 
+## Run dreams off-cycle
+
+Dreams is the daily self-improvement pass — auto-dedup (cosine + LLM judge), auto-resolve aged competing pairs (LLM judge), optional LLM-backed compaction summaries. Default cron is 04:00 UTC; force-run for one tenant via the admin endpoint:
+
+```bash
+curl -X POST https://brain.example.com/v1/dreams/run \
+  -H "authorization: Bearer $ADMIN_KEY" \
+  -H "content-type: application/json" \
+  -d '{ "operations": ["dedup", "resolve", "summarize"] }'
+```
+
+Watch for:
+- `brain_dreams_total{outcome="failed"}` — sub-service threw on a tenant. Check logs for the per-tenant error message.
+- `brain_dreams_emitted_total{kind="identity_link"}` rising spike — usually means a recent batch ingest created near-duplicate entities. Healthy signal *if* it's a one-off; recurring spike means upstream extraction is fragmenting identities and needs investigation upstream of brain.
+- `brain_dreams_emitted_total{kind="resolution"}` rising — competing-fact backlog being chewed. Watch the unsure rate (logged at WARN level) — high unsure means the LLM can't actually disambiguate and the operator should clear the backlog manually.
+
+When NOT to enable dreams:
+- Tenants with very few entities (< ~50). The dedup cosine kNN doesn't have enough neighbours to be useful and you pay the LLM judge cost on basically every pair.
+- Workloads where competing facts are intentional (e.g. multi-source CRM where two sources disagree by design until human reconciliation). Run dedup but not resolve.
+
 ## Run compaction off-cycle
 
 The cron runs daily at 03:17 UTC. To force a run for one tenant (e.g. after a bulk import that immediately needs to age out):

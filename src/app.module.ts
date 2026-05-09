@@ -17,6 +17,7 @@ import { EntitiesModule } from './entities/entities.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
 import { CompactionModule } from './compaction/compaction.module';
+import { DreamsModule } from './dreams/dreams.module';
 import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
@@ -49,6 +50,7 @@ import { MetricsModule } from './metrics/metrics.module';
     ArtifactsModule,
     McpModule,
     CompactionModule,
+    DreamsModule,
     MetricsModule,
   ],
   controllers: [HealthController],

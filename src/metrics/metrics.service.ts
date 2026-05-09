@@ -21,6 +21,8 @@ import {
  *   - search_cross_encoder_total{outcome}     — invoked|error|skipped_disabled|skipped_singleton
  *   - synthesize_total{outcome}               — ok|no_results|no_grounded_evidence|verifier_partial|verifier_failed|generator_error|verifier_error
  *   - multi_hop_total{outcome}                — ok|single_hop|chain_empty|no_results|planner_error|hop_error
+ *   - dreams_total{outcome}                   — ok|failed
+ *   - dreams_emitted_total{kind}              — identity_link|resolution|summary
  *   - retract_total / forget_total            — counters
  *   - compaction_facts_total                  — counter, summed across tenants
  *   - openai_tokens_total{kind, type}         — embed|chat × prompt|completion
@@ -67,6 +69,28 @@ export class MetricsService implements OnModuleInit {
     name: 'brain_search_rerank_total',
     help: 'Search reranker invocations by outcome',
     labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  // Dreams outcomes (per-tenant cron + manual trigger):
+  //   ok      — tenant pass completed (may have done zero work; the
+  //             emitted-counter tells you what landed)
+  //   failed  — sub-service threw, tenant skipped
+  // The brain_dreams_emitted counter splits by KIND of artefact
+  // produced (identity_link / resolution / summary). Watch the
+  // ratio against ok-runs to see whether dreams is doing anything
+  // useful or just spinning.
+  readonly dreamsCount = new Counter({
+    name: 'brain_dreams_total',
+    help: 'Dreams pass invocations by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  readonly dreamsEmitted = new Counter({
+    name: 'brain_dreams_emitted_total',
+    help: 'Dreams artefacts emitted by kind',
+    labelNames: ['kind'] as const,
     registers: [this.registry],
   });
 
@@ -194,6 +218,19 @@ export class MetricsService implements OnModuleInit {
       | 'skipped_singleton',
   ): void {
     this.searchCrossEncoderCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countDreams(outcome: 'ok' | 'failed'): void {
+    this.dreamsCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countDreamsEmitted(
+    kind: 'identity_link' | 'resolution' | 'summary',
+    n = 1,
+  ): void {
+    if (n > 0) {
+      this.dreamsEmitted.inc({ kind } as LabelValues<'kind'>, n);
+    }
   }
 
   countMultiHop(
