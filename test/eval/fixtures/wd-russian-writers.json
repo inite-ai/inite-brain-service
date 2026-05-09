@@ -1,0 +1,5753 @@
+{
+  "directoryName": "wd_russian_writers",
+  "description": "Wikidata: writers (Q36180) whose works are in Russian (Q7737). Realistic stress-test for Cyrillic / Latin name aliasing, partial bibliographies, sparse attribute coverage.",
+  "entities": [
+    {
+      "id": "q835",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Bulgakov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1891-05-15",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kyiv",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: theatre director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: satirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: biographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: librettist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: satire",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: supernatural fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q512",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vladimir Vysotsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1938-01-25",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: stage actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: lyricist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: singer-songwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: songwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: singer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: composer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: guitarist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: chanson",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: Russian chanson",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: bard song",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q377",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Yanka Kupala",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1882-07-07",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Viazynka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator of Adam Mickiewicz",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q7200",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Alexander Pushkin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1799-06-06",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator of William Wordsworth",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: bretteur",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator of Adam Mickiewicz",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: dramaturge",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: librettist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: children's writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: book collector",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: verse novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: historical prose literature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: fairy tale",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: criticism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: opinion journalism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: robber novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q6530",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Stanisław Lem",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1921-09-12",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Lviv",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: satirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: researcher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: futurist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: futures studies",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction literature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q24348",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Pyotr Yakubovich",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1860-11-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Valdaysky Uyezd",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: belletristic literature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q23114",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Lu Xun",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1881-09-25",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Shaoxing",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: essay",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q19425",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Pyotr Vyazemsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1792-07-23",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: memoirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Polonophile",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: linguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: biography",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: satire",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: epigram",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q26412",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vasily Belov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1932-10-23",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Тимониха",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: novella",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: pritcha",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q31628",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Sergei Yesenin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1895-10-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Konstantinovo",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: narrative poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: lyric poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q34474",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Aleksandr Solzhenitsyn",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1918-12-11",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kislovodsk",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: public figure",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: school teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: militant",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: essay",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: Крохотки",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: opinion journalism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: lexicography",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: miniature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: novella",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q25997",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Innokenty Annensky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1855-09-01",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Omsk",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pedagogue",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q20732",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ernest Drezen",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1892-11-14",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Liepāja",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: linguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: engineer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: interlinguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q33391",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Leon Trotsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1879-11-07",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Bereslavka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: communist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: diplomat",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: revolutionary",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q27645",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Bakunin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1814-05-30",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Priamukhino",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: revolutionary",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: anarchist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q28614",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Garry Kasparov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1963-04-13",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Baku",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: chess player",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q20887",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vasili Eroshenko",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1890-01-12",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Obukhovka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: musician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pedagogue",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q18809",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Anatoly Lunacharsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1875-11-23",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Poltava",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q65559",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Jan Arnošt Smoler",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1816-03-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Merzdorf",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: linguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: publisher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q5685",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Anton Chekhov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1860-01-29",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Taganrog",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: satirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: literary realism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q862",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Joseph Brodsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1940-05-24",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: lecturer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: dramaturge",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q991",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Fyodor Dostoyevsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1821-11-11",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Mariinsky Hospital for the Poor",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: biographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q70795",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Walter Anderson",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1885-10-10",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Minsk",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: academic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: numismatist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: folklorist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: fairy tale scholar",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q70215",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Wolfgang Leonhard",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1921-04-16",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Vienna",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q2754",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Jaroslav Hašek",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1883-04-30",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Prague",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: author",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: satirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: humorist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q4137",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Elsa Triolet",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1896-09-24",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: French resistance fighter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q71998",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Pavlovich Shishkin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1961-01-18",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q5752",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Peter Kropotkin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1842-12-09",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: zoologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: economist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: activist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: anarchist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: explorer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: propagandist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: geographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q72677",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Sergei Buturlin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1872-09-22",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Montreux",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: zoologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: ornithologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q4864",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Eugene Kaspersky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1965-10-04",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Novorossiysk",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: inventor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: programmer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: businessperson",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: computer scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q69432",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Quirinus Kuhlmann",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1651-02-25",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Wrocław",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: theologian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q7243",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Leo Tolstoy",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1828-09-09",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Yasnaya Polyana",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pacifist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: diarist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pedagogue",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: children's writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: drama",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q12749",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Kazimierz Bein",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1872-02-29",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Sierżnia",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: ophthalmologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q12833",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Boris Kolker",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1939-07-15",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Tiraspol",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: esperantologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q12706",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Maxim Gorky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1868-03-28",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Nizhny Novgorod",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: publisher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: diarist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: dramaturge",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q12823",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Susan Polgar",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1969-04-19",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Budapest",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: chess player",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Esperantist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q7604",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Leonhard Euler",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1707-04-15",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Basel",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: inventor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: mathematician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: astronomer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: executive",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: geographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: music theorist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q36591",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vladimir Nabokov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1899-04-22",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: entomologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: lepidopterist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary scholar",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: man of letters",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: chess composer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: zoologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: chess player",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q35733",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Velimir Khlebnikov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1885-11-09",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Malye Derbety",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: draftsperson",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q36546",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Maria Semyonova",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1958-11-01",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: fantasy",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q41438",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Jan Gajek",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1949-02-08",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Łyszkowice",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Greek-Catholic priest",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Catholic priest",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: theologian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q36878",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Rasul Gamzatov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1923-09-08",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Tsada",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: lyricist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: long poem",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: narrative poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: verse",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q43718",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Nikolai Gogol",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1809-04-01",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Velyki Sorochyntsi",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: drama fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q44695",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Konstantin Simonov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1915-11-28",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: war correspondent",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: verse",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: narrative poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: novella",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: sketch story",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: long poem",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q37217",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Fyodor Tyutchev",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1803-12-05",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Ovstug",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: diplomat",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: lyric poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q42831",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ivan Turgenev",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1818-11-09",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Oryol",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: dramaturge",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: drama",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: elegy",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q42398",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Sholokhov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1905-05-24",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kruzhilin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: sketch story",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q41745",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Aleksandr Nekrasov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1931-07-31",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kyruv",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: school teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q41239",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Konstantin Tsiolkovsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1857-09-17",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Izhevskoe",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: inventor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: mathematician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: astronomer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: cosmologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military flight engineer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q41223",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Boris Pasternak",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1890-02-10",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pianist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator of William Shakespeare",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q38873",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Lou Andreas-Salomé",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1861-02-12",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: psychoanalyst",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: essayist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q52224",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Sergey Lukyanenko",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1968-04-11",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Karatau",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: psychiatrist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: children's writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physician writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: blogger",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction literature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: speculative fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q54828",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ivan Yefremov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1908-04-23",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Vyritsa",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: paleontologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: geologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: scientific non-fiction literature",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q49080",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Isaak Babel",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1894-07-12",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Odesa",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: editing staff",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: war correspondent",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: sketch story",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q49281",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Marina Popovich",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1931-07-20",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Velizhsky District",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: test pilot",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: engineer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: aircraft pilot",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q52488",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ales Adamovich",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1927-09-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kaniuchi",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary scholar",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: opinion journalism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q55195",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vsevolod Pudovkin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1893-02-28",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Penza",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pedagogue",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: live action",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q48037",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Pyotr Koshevoy",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1905-01-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Oleksandriia",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q48624",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Afanasy Nikitin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1500-01-01",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Tver",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: merchant",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: traveler",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: explorer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: travel writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: Khojdenie",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q48053",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Kirill Moskalenko",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1902-05-11",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Hryshyne",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q48102",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Matvei Zakharov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1898-08-17",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Войлово",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q47900",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Nestor Makhno",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1888-11-07",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Huliaipole",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: farmer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: revolutionary",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: anarchist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q47216",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Condoleezza Rice",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1954-11-14",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Birmingham",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: diplomat",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: academic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: autobiographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pedagogue",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pianist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: political scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q49606",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Yury Vlasov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1935-12-05",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Makiivka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: weightlifter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q48067",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Dmitriy Ustinov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1908-10-30",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Samara",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: engineer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q55172",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Alexander Sokurov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1951-06-14",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Podorvikha",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q49509",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Kondraty Ryleyev",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1795-09-29",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Batovo",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q46599",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Lermontov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1814-10-15",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: novelist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: bretteur",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: narrative poetry",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: verse",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q47197",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Tyko Vylka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1886-02-27",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Belushya Guba",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: visual artist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: landscape painting",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q46602",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ivan Bunin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1870-10-22",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Voronezh",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Nobel Prize winner",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q46234",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Elena Lenina",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1971-10-25",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Novosibirsk",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: model",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: personal stylist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q44940",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Yuri Rytkheu",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1930-03-08",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Uelen",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: prose writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q45061",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Nikolai Voronin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1904-12-13",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Vladimir",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: archaeologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q46182",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Zośka Vieras",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1892-09-30",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Medzhybizh",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: children's writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: public figure",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: memoirist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: opinion journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q61699",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Arkady Strugatsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1925-08-28",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Batumi",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: interpreter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q59054",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Boris Strugatsky",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1933-04-15",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Saint Petersburg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: science fiction writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q60903",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "George Yury Right",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1972-10-09",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: computer scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: science fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: fantasy",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: non-fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: speculative fiction",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q60128",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Alexander Fadeyev",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1901-12-24",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kimry",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: short story writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: war correspondent",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: public figure",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: prose",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: short novel",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: sketch story",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: opinion journalism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q60441",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Valeri Brainin",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1948-01-27",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Nizhny Tagil",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: linguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: composer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: musicologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: children's writer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: music theorist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: music educator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q59478",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "George Gamow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1904-03-04",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Odesa",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: inventor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: biochemist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: astronomer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: nuclear physicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: astrophysicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: cosmologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q57358",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Hans Pfitzner",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1869-05-05",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Moscow",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: conductor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: composer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: pianist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: opera",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: classical music",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q58720",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Lomonosov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1711-11-19",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Mishaninskaya",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: inventor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: linguist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: translator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: mathematician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: polymath",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: scientist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: historian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: astronomer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: geologist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: geographer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: university teacher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: chemist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: physicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: mosaicist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q57410",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Shimon Peres",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1923-08-02",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Višnieva",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: minister",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q57399",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Markus Wolf",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1923-01-19",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Hechingen",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: Q127327673",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: intelligence officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q55796",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Peter Ustinov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1921-04-16",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: London Borough of Camden",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: comedian",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: singer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: screenwriter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: film director",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: television presenter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military personnel",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: playwright",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: voice actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q57421",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Tsakhiagiin Elbegdorj",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1963-03-30",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Zereg",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: environmentalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q60084",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Mikhail Katukov",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1900-09-17",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kolomensky Uyezd",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: military officer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q61723",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Gustav Landauer",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1870-04-07",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Karlsruhe",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: publisher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: philosopher",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: theatre critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q232391",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Natalia Goncharova",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1881-07-03",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Nagaevo-Karbonier",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: illustrator",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: sculptor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: painter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: designer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: artist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: graphic artist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: Rayonism",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q237081",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Ani Lorak",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1978-09-27",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Kitsman",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: actor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: singer",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: poet",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: model",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: presenter",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: soul",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: electronic music",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "preference",
+          "object": "genre: pop music",
+          "confidence": 0.8,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "q234980",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Vera Zasulich",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "dob",
+          "object": "1849-08-08",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "address",
+          "object": "birthplace: Mikhaylovka",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: politician",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: journalist",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: editor",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: revolutionary",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        },
+        {
+          "predicate": "interacted_with",
+          "object": "occupation: literary critic",
+          "confidence": 0.85,
+          "validFrom": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

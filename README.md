@@ -151,6 +151,50 @@ OPENAI_API_KEY=sk-... \
 
 The loader cites the offending field and source path on any shape mismatch — operators editing JSON by hand hit "expected string for `id`, got number" instead of a downstream NaN cast. See `test/eval/fixtures/example-directory.json` for a working 3-entity smoke fixture covering update / retract / forget.
 
+### Path A.1 — Wikidata fetcher (real public-domain data)
+
+For "залить настоящий справочник", a built-in fetcher pulls a slice through the public Wikidata Query Service (CC0 data, no API key, rate-limited but free):
+
+```bash
+# Russian writers — Cyrillic / Latin name aliasing, sparse bibliographies
+pnpm directory:fetch:wikidata russian-writers 1000 \
+  --out test/eval/fixtures/wd-russian-writers.json
+
+# Nobel Prize in Literature laureates — multi-locale names, dense biographical data
+pnpm directory:fetch:wikidata nobel-laureates-literature 200 \
+  --out wd-nobel.json
+
+# US software companies — multi-word names, headquarters, founding dates
+pnpm directory:fetch:wikidata tech-companies-us 200 \
+  --out wd-tech.json
+```
+
+The fetcher exits 0 on stderr-logged stats (binding count, unique entities, emitted facts) and writes the `JsonDirectory` to `--out`. Then run the eval against it:
+
+```bash
+OPENAI_API_KEY=sk-... \
+  BRAIN_DIRECTORY_JSON=test/eval/fixtures/wd-russian-writers.json \
+  pnpm test:eval:json
+```
+
+Property mapping (Wikidata → Brain predicates):
+
+| Wikidata | Brain predicate | Notes |
+|---|---|---|
+| `?itemLabel` | `name` | First fact per entity |
+| `?dob` (P569) | `dob` | Trimmed to YYYY-MM-DD; PII-gated (`brain:read_pii`) |
+| `?birthPlaceLabel` (P19) | `address` | Object prefixed `birthplace: …` |
+| `?countryLabel` (P27) | `address` | `country: …` |
+| `?hqLabel` (P159) | `address` | `headquarters: …` |
+| `?occupationLabel` (P106) | `interacted_with` | `occupation: …` |
+| `?genreLabel` (P136) | `preference` | `genre: …` |
+| `?awardLabel` (P166) | `interacted_with` | `received …` |
+| `?inception` (P571) | `interacted_with` | `founded YYYY-MM-DD` |
+
+Adding a new template: declare it in `WIKIDATA_TEMPLATES` (`test/eval/loaders/wikidata-mapper.ts`) — the SPARQL body, the `directoryName`, the description. Variables matching the table above auto-map; new variables need a small extension to the mapper.
+
+The repo ships `test/eval/fixtures/wd-russian-writers.json` (~91 entities, 882 facts, Cyrillic names) as a known-good sample for smoke runs and CI.
+
 ### Path B — programmatic (for non-JSON sources)
 
 The directory eval (`pnpm test:eval:directory`) uses a synthetic generator, but the same pipeline accepts any `Scenario` shape:
