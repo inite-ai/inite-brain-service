@@ -177,9 +177,6 @@ export class MemoryAssertionsChecker {
       (r) => r.externalRefs && r.externalRefs[refTag.refKey] === refTag.id,
     );
     if (!matched) {
-      // The entity wasn't returned at all — the stale object is by
-      // definition not present. That's a stronger guarantee than the
-      // assertion required, so we pass.
       return {
         scenarioId,
         description: a.description,
@@ -188,16 +185,32 @@ export class MemoryAssertionsChecker {
       };
     }
     const needle = a.objectSubstring.toLowerCase();
-    const hasObj = matched.facts.some((f) =>
+    const offending = matched.facts.find((f) =>
       f.object.toLowerCase().includes(needle),
     );
-    if (hasObj) {
+    if (offending) {
+      // DEBUG: dump every fact on the matched entity so we can see
+      // status / validUntil and figure out whether the leak is from
+      // an unfiltered superseded fact or from a setup-step that
+      // never produced the retraction.
+      if (process.env.DEBUG_MEMLC === '1') {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[memlc-debug] scenarioId=${scenarioId} description='${a.description}' query='${a.query}'`,
+        );
+        for (const f of matched.facts) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `  factId=${f.factId} predicate=${f.predicate} object='${f.object}' status=${f.status} validFrom=${f.validFrom} validUntil=${f.validUntil ?? '-'} score=${f.score}`,
+          );
+        }
+      }
       return {
         scenarioId,
         description: a.description,
         kind: a.kind,
         passed: false,
-        detail: `'${a.expectedRefAbsent}' should not have surfaced fact object containing '${a.objectSubstring}', but it did`,
+        detail: `'${a.expectedRefAbsent}' should not have surfaced fact object containing '${a.objectSubstring}', but it did (offending factId=${offending.factId} status=${offending.status})`,
       };
     }
     return {

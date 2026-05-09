@@ -682,6 +682,15 @@ export class SearchService {
     k: number,
     baseWhere: { sql: string; params: Record<string, unknown> },
   ): Promise<FactRow[]> {
+    // Parens around the OR clause are LOAD-BEARING. SurrealQL
+    // evaluates AND with higher precedence than OR (same as SQL),
+    // so without them the WHERE parses as
+    //   searchHaystack @1@ $q  OR  (object @2@ $q AND <baseWhere>)
+    // — meaning a row that matches via the haystack index bypasses
+    // EVERY filter in baseWhere (retractedAt IS NONE, status,
+    // confidence, asOf, predicates, entityIds). Caught by a
+    // memory-lifecycle eval failure where retracted facts surfaced
+    // with status='retracted' on a query that hit searchHaystack.
     const sql = `
       SELECT
         id, entityId, predicate, object, confidence,
@@ -689,7 +698,7 @@ export class SearchService {
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         math::max([search::score(1), search::score(2)]) AS bm25Score
       FROM knowledge_fact
-      WHERE searchHaystack @1@ $query OR object @2@ $query
+      WHERE (searchHaystack @1@ $query OR object @2@ $query)
         ${baseWhere.sql}
       ORDER BY bm25Score DESC
       LIMIT $k
