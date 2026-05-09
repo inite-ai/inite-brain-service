@@ -94,16 +94,73 @@ curl -X POST http://localhost:3000/v1/search \
 
 ## Loading a custom directory for eval
 
-The directory eval (`pnpm test:eval:directory`) defaults to a synthetic 1k-customer fixture generated from `test/eval/fixtures/fat-tenant.generator.ts`. Same pipeline accepts a real-world directory if you give it a `Scenario` shape:
+Two paths depending on what you've got:
 
-1. Read your source (CSV / JSON / API export) into the in-memory `setup: SetupStep[]` array. Each row becomes one `{ kind: 'fact', entityRef, predicate, object, validFrom, source }` step. Map your domain predicates onto brain's vocabulary (`name` / `email` / `tier` / `status` / `complained_about` / `interacted_with` / `address` / …).
+### Path A — JSON file (recommended)
+
+Hand your CRM export through `pnpm test:eval:json`. The loader (`test/eval/loaders/json-directory.loader.ts`) reads a flat JSON shape and feeds it into the same eval runner the synthetic suites use, so retrieval AND memory-lifecycle assertions both apply.
+
+JSON schema:
+
+```json
+{
+  "directoryName": "acme",
+  "description": "ACME CRM export 2026-Q2",
+  "entities": [
+    {
+      "id": "alice_smith",
+      "facts": [
+        { "predicate": "name",  "object": "Alice Smith",       "validFrom": "2026-01-01T00:00:00Z", "confidence": 0.95 },
+        { "predicate": "email", "object": "alice@example.com", "validFrom": "2026-01-01T00:00:00Z" },
+        { "predicate": "tier",  "object": "gold",     "validFrom": "2026-02-01T00:00:00Z", "validUntil": "2026-04-01T00:00:00Z" },
+        { "predicate": "tier",  "object": "platinum", "validFrom": "2026-04-01T00:00:00Z" },
+        { "predicate": "complained_about", "object": "broken washer", "validFrom": "2026-03-15T00:00:00Z", "tag": "alice-complaint-1" }
+      ],
+      "retract": [
+        { "tag": "alice-complaint-1", "reason": "tenant withdrew the report" }
+      ]
+    }
+  ],
+  "forgetEntities": [
+    { "ref": "alice_smith", "reason": "gdpr_request", "requestId": "GDPR-2026-001" }
+  ],
+  "queries": [
+    { "query": "Alice Smith tier", "expectedTopEntityRef": "acme.alice_smith", "expectedFactPredicate": "tier" }
+  ],
+  "memoryAssertions": [
+    { "description": "platinum surfaces", "kind": "search_object_present", "query": "Alice Smith tier", "expectedRefPresent": "acme.alice_smith", "objectSubstring": "platinum" }
+  ]
+}
+```
+
+Schema rules:
+- `directoryName` is the default vertical for entity refs that don't override; surfaces in the scenario id.
+- Every entity needs at least one fact; every fact needs `predicate` + `object` + `validFrom`.
+- `tag` on a fact is the handle a retract step references; tags must be unique within the entity.
+- Retract steps live INSIDE the entity (`entity.retract[]`) — keeps the lifecycle local. Forget steps are top-level (`forgetEntities[]`) because the cascade depends on every fact having been ingested first.
+- `forgetEntities[].ref` accepts either `id` (uses default vertical) or `vertical.id` (explicit).
+- `queries` and `memoryAssertions` are optional but encouraged — without them the run only validates ingest, not whether brain's read side reflects the lifecycle ops.
+
+Run with:
+
+```bash
+OPENAI_API_KEY=sk-... \
+  BRAIN_DIRECTORY_JSON=/path/to/your/customers.json \
+  pnpm test:eval:json
+```
+
+The loader cites the offending field and source path on any shape mismatch — operators editing JSON by hand hit "expected string for `id`, got number" instead of a downstream NaN cast. See `test/eval/fixtures/example-directory.json` for a working 3-entity smoke fixture covering update / retract / forget.
+
+### Path B — programmatic (for non-JSON sources)
+
+The directory eval (`pnpm test:eval:directory`) uses a synthetic generator, but the same pipeline accepts any `Scenario` shape:
+
+1. Read your source (CSV / API / Parquet) into the in-memory `setup: SetupStep[]` array. Each row becomes one `{ kind: 'fact', entityRef, predicate, object, validFrom, source }` step. Map your domain predicates onto brain's vocabulary (`name` / `email` / `tier` / `status` / `complained_about` / `interacted_with` / `address` / …).
 2. Add `tag` to fact steps you intend to retract later, plus a `{ kind: 'retract', tag, reason }` step. Use `{ kind: 'forget', entityRef, reason, requestId }` for GDPR cascades.
-3. Optionally add `memoryAssertions: MemoryAssertion[]` for entities you've retracted/forgotten — the runner will validate that brain's read-side reflects the lifecycle ops.
-4. Drop the resulting `Scenario` into a new spec file modelled on `test/directory.real-e2e-spec.ts`. The runner is the same; only the fixture changes.
+3. Optionally add `memoryAssertions: MemoryAssertion[]` for lifecycle validation.
+4. Drop the resulting `Scenario` into a new spec file modelled on `test/directory.real-e2e-spec.ts`.
 
-Example: a 50k-row CRM export becomes ~50k fact steps. Seeding cost is dominated by HNSW + BM25 indexing — budget ~1 minute per 5k facts on a single Surreal node, scaling near-linearly. Set timeouts and `runInBand` to keep memory pressure low.
-
-The generator's tunables (temporal tier fraction, competing-status fraction, etc.) are env-overridable when running the built-in directory eval — see `BRAIN_DIRECTORY_*` knobs at the top of `test/directory.real-e2e-spec.ts`.
+Seeding cost is dominated by HNSW + BM25 indexing — budget ~1 minute per 5k facts on a single Surreal node, scaling near-linearly. Set Jest timeouts to 30+ minutes for fixtures over 50k rows.
 
 ## Multi-hop search
 
@@ -256,6 +313,7 @@ The service runs `validateEnv()` before NestJS starts. Missing or malformed valu
 | `pnpm test:eval` | multi-vertical retrieval + memory-lifecycle eval; hard-thresholds enforced (recall@1 ≥ 0.6, MRR ≥ 0.5, memory-lifecycle-correctness = 1.0, …) | post-merge to main (CI gates), pre-release |
 | `pnpm test:eval:fat` | spawns a ~500-customer tenant via the generator and asserts retrieval thresholds at scale (FAT_TENANT_RUN=1 implied) | when you've changed retrieval scoring and need to confirm the small-graph regression is gone |
 | `pnpm test:eval:directory` | jumbo eval — 1k customers with retracts, GDPR forgets, temporal tier trajectories, competing status; asserts memory-lifecycle correctness AND recall@3 at scale | when you've touched ingest / lifecycle code; before signing off on a release |
+| `pnpm test:eval:json` | loads a directory from `BRAIN_DIRECTORY_JSON=…/file.json` and runs retrieval + lifecycle assertions; same runner, your data | bringing up brain on a real customer dataset; smoke-testing a CSV→JSON export against the eval harness |
 | `pnpm lint` | ESLint flat config | every commit |
 
 ### Docker

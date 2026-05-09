@@ -1,0 +1,127 @@
+{
+  "directoryName": "example",
+  "description": "Tiny smoke directory — 3 customers covering update / retract / forget across realistic-shape predicates. Drop-in target for `BRAIN_DIRECTORY_JSON=test/eval/fixtures/example-directory.json pnpm test:eval:json`.",
+  "entities": [
+    {
+      "id": "alice_smith",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Alice Smith",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "email",
+          "object": "alice.smith@example.test",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "tier",
+          "object": "gold",
+          "validFrom": "2026-02-01T00:00:00Z",
+          "validUntil": "2026-04-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "tier",
+          "object": "platinum",
+          "validFrom": "2026-04-01T00:00:00Z",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "bob_jones",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Bob Jones",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "complained_about",
+          "object": "exampledir distinctive complaint about parking",
+          "validFrom": "2026-03-01T00:00:00Z",
+          "confidence": 0.9,
+          "tag": "bob-parking"
+        }
+      ],
+      "retract": [
+        { "tag": "bob-parking", "reason": "tenant withdrew the report" }
+      ]
+    },
+    {
+      "id": "carol_lee",
+      "facts": [
+        {
+          "predicate": "name",
+          "object": "Carol Lee Uniquename",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "email",
+          "object": "carol.lee.unique@example.test",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        }
+      ]
+    }
+  ],
+  "forgetEntities": [
+    {
+      "ref": "carol_lee",
+      "reason": "gdpr_request",
+      "requestId": "GDPR-EXAMPLE-001"
+    }
+  ],
+  "queries": [
+    {
+      "query": "Alice Smith tier",
+      "expectedTopEntityRef": "example.alice_smith",
+      "expectedFactPredicate": "tier"
+    },
+    {
+      "query": "Bob Jones",
+      "expectedTopEntityRef": "example.bob_jones"
+    }
+  ],
+  "memoryAssertions": [
+    {
+      "description": "alice's platinum tier surfaces on default search",
+      "kind": "search_object_present",
+      "query": "Alice Smith tier",
+      "expectedRefPresent": "example.alice_smith",
+      "objectSubstring": "platinum"
+    },
+    {
+      "description": "alice's gold tier no longer surfaces (superseded)",
+      "kind": "search_object_absent",
+      "query": "Alice Smith tier",
+      "expectedRefAbsent": "example.alice_smith",
+      "objectSubstring": "gold"
+    },
+    {
+      "description": "bob's retracted parking complaint is gone from default search",
+      "kind": "search_object_absent",
+      "query": "exampledir distinctive complaint about parking",
+      "expectedRefAbsent": "example.bob_jones",
+      "objectSubstring": "exampledir distinctive complaint"
+    },
+    {
+      "description": "forgotten carol no longer surfaces by name",
+      "kind": "no_search_match",
+      "query": "Carol Lee Uniquename",
+      "expectedRefAbsent": "example.carol_lee"
+    },
+    {
+      "description": "forgotten carol no longer surfaces by email",
+      "kind": "no_search_match",
+      "query": "carol.lee.unique@example.test",
+      "expectedRefAbsent": "example.carol_lee"
+    }
+  ]
+}
