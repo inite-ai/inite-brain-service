@@ -56,6 +56,7 @@ export class QueryExecutor {
       topEntityRef,
       factPredicateMatched,
       piiGatedCorrectly,
+      temporal: expectation.asOf !== undefined,
     };
   }
 

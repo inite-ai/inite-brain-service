@@ -201,6 +201,14 @@ export interface QueryResult {
   topEntityRef: string | null;
   factPredicateMatched: boolean | null; // null if not asserted
   piiGatedCorrectly: boolean | null;
+  /**
+   * True when the query carried an `asOf` (bitemporal/historical
+   * intent). Aggregator splits the metric set by this flag — a 0.88
+   * recall@1 averaged over both partitions can hide that the
+   * as-of-T slice is silently 0.50 (typical regression mode for a
+   * non-bitemporal retrieval rewrite).
+   */
+  temporal: boolean;
 }
 
 export interface ExtractionResult {

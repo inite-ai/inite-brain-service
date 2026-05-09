@@ -13,6 +13,7 @@ import {
   identityResolutionRate,
   piiGatingCorrectness,
   memoryLifecycleCorrectness,
+  ndcgAtK,
 } from '../metrics';
 
 /**
@@ -52,10 +53,44 @@ export class Aggregator {
       .filter((r): r is NonNullable<typeof r> => r !== undefined);
     const memAssertions = group.flatMap((o) => o.memoryAssertionResults);
 
+    // Temporal split: queries carrying an asOf are bitemporal /
+    // historical-intent; the rest are current-state. A SOTA-claim
+    // requires both partitions to be measured separately — a
+    // 0.88 mean recall@1 can hide a 0.50 as-of-T slice if the
+    // current slice is dominant.
+    const temporalQueries = queries.filter((q) => q.temporal);
+    const currentQueries = queries.filter((q) => !q.temporal);
+
     return [
       { name: 'recall@1', value: recallAtK(queries, 1), threshold: 0.6 },
       { name: 'recall@3', value: recallAtK(queries, 3), threshold: 0.8 },
       { name: 'MRR', value: meanReciprocalRank(queries), threshold: 0.5 },
+      // NDCG@10 — canonical retrieval metric on BEIR/MTEB/MS MARCO.
+      // Standard reporting unit for embedding-model papers; lets our
+      // numbers be directly compared to published baselines.
+      // No threshold here because the ground-truth distribution in
+      // our scenarios is single-relevant — NDCG@10 mirrors recall@1
+      // when k≥rank, so threshold pressure is already on recall@k.
+      { name: 'NDCG@10', value: ndcgAtK(queries, 10) },
+      // Temporal split. Reported alongside the aggregate so a
+      // regression in either partition is loud. null when the
+      // partition is empty (e.g. retrieval-only scenarios).
+      {
+        name: 'recall@1:temporal',
+        value: recallAtK(temporalQueries, 1),
+      },
+      {
+        name: 'recall@1:current',
+        value: recallAtK(currentQueries, 1),
+      },
+      {
+        name: 'MRR:temporal',
+        value: meanReciprocalRank(temporalQueries),
+      },
+      {
+        name: 'MRR:current',
+        value: meanReciprocalRank(currentQueries),
+      },
       {
         name: 'extraction-predicate-recall',
         value: extractionRecall(extractions),
