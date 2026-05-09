@@ -50,6 +50,26 @@ export class SearchDto {
   includeRetracted?: boolean;
 
   /**
+   * Bitemporal escape hatch. When true, default search returns ALL
+   * facts brain knows about regardless of validity-window position
+   * (still excludes retracted unless `includeRetracted` is also set).
+   *
+   * Brain's default-search semantics is Datomic-style "actual now":
+   * we return only facts whose validity interval contains the query
+   * moment AND whose status is one of {active, competing}. That's
+   * what 95% of agentic / customer-data callers want — "tell me
+   * what's true right now".
+   *
+   * `includeStale: true` reverts to the audit shape — every active-
+   * status fact ever ingested, including ones whose validUntil has
+   * passed and ones that have been superseded. Pair with `asOf`
+   * for explicit historical / reasoning-trail queries when you
+   * need a bounded window. Most callers should use `asOf` instead.
+   */
+  @IsOptional() @IsBoolean()
+  includeStale?: boolean;
+
+  /**
    * Retrieval strategy. `hybrid` (default) runs vector + BM25 in
    * parallel and fuses via reciprocal-rank fusion. `vector` is
    * embedding-only — best for paraphrastic / cross-lingual queries.

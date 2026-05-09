@@ -1092,25 +1092,68 @@ export class SearchService {
         return new StringRecordId(`knowledge_entity:${id}`);
       });
     }
+
+    // ── Bitemporal "actual now" default ────────────────────────────
+    // Datomic / Graphiti / Zep convention. When the caller provides
+    // no `asOf` and doesn't opt into stale, default search returns
+    // only facts whose validity interval contains query-time AND
+    // that haven't been superseded / compacted out. Reasoning:
+    //
+    //   95% of memory-layer callers want "what's true RIGHT NOW".
+    //   Bitemporal access ("what was true on date X") is the
+    //   exception, served by the `asOf` parameter or the entity
+    //   timeline endpoint.
+    //
+    // Three filters compose the closure:
+    //
+    //   - validFrom <= now()              — facts dated to the future
+    //                                       (e.g. ingested today with
+    //                                       validFrom=tomorrow) don't
+    //                                       leak into present-tense
+    //                                       answers
+    //   - validUntil IS NONE OR
+    //     validUntil > now()              — expired-validity facts
+    //                                       drop out the moment their
+    //                                       window closes, no need to
+    //                                       wait for compaction
+    //   - status NOT IN [superseded,
+    //     compacted]                      — superseded ≡ "we know it's
+    //                                       no longer the truth";
+    //                                       compacted has no embedding
+    //                                       in search anyway, defence-
+    //                                       in-depth
+    //
+    // Audit / historical access:
+    //   - asOf=date              → see below; full bitemporal cut
+    //   - includeStale=true      → return everything (debug / batch
+    //                                jobs that need the audit shape)
     if (asOf) {
-      // Search asOf = "what was factually true at that date".
-      // Filter on the validity axis (validFrom/validUntil) only;
-      // do NOT gate on recordedAt — search shouldn't disappear a
-      // fact just because brain learned it after the asOf cutoff
-      // (e.g. a tier change reported in May about a January state).
-      // The retractedAt guard stays: a fact retracted before asOf
-      // wasn't true at that date.
-      //
-      // Knowledge-axis "as we knew it on date X" semantics live on
-      // the entity-timeline endpoint (entities.service.ts), which
-      // does gate on recordedAt — that's the audit shape.
+      // Explicit historical asOf — point-in-time view.
+      // Filter on the VALIDITY axis (validFrom/validUntil); do NOT
+      // gate on recordedAt — search shouldn't disappear a fact just
+      // because brain learned it after the asOf cutoff (e.g. a
+      // January tier change reported in May).
+      // status='compacted' is excluded because compacted facts have
+      // their embedding stripped — they can't surface anyway. Other
+      // statuses are kept because asOf-historical might want to see
+      // the competing-pair state that existed on that date.
       clauses.push(
         `AND (retractedAt IS NONE OR retractedAt > $asOf)
          AND validFrom <= $asOf
-         AND (validUntil IS NONE OR validUntil > $asOf)`,
+         AND (validUntil IS NONE OR validUntil > $asOf)
+         AND status != 'compacted'`,
       );
       params.asOf = asOf;
+    } else if (!dto.includeStale) {
+      // Default "actual now" — current truth.
+      clauses.push(
+        `AND validFrom <= time::now()
+         AND (validUntil IS NONE OR validUntil > time::now())
+         AND status NOT IN ['superseded', 'compacted']`,
+      );
     }
+    // else: includeStale=true and no asOf → audit shape, no temporal
+    // closure beyond the retractedAt / competing gates above.
 
     return { sql: clauses.join('\n        '), params };
   }
