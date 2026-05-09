@@ -256,7 +256,23 @@ curl -X POST http://localhost:3000/v1/search/multi-hop \
   }'
 ```
 
-Response carries `hops[]` (per-hop sub-query + entity-id list) so callers can audit how the planner decomposed their question.
+Response carries `hops[]` (per-hop sub-query + entity-id list + supportingFactIds) plus an aggregated top-level `supportingFactIds` (de-duped, in execution order). The supporting-facts shape is what HotpotQA-style **Joint F1** scoring compares against the gold evidence chain — see `test/eval/metrics/joint-f1.ts`. Use it to catch the failure mode end-to-end recall@k cannot see: a system that produces the right answer via the wrong reasoning chain.
+
+```ts
+import { jointF1 } from './test/eval/metrics/joint-f1';
+
+const score = jointF1(
+  {
+    answerEntityRefs: response.finalEntityIds,
+    supportingFactIds: response.supportingFactIds,
+  },
+  {
+    answerEntityRefs: ['acme.alice'],
+    supportingFactIds: ['gold_fact_1', 'gold_fact_2'],
+  },
+);
+// → { answerF1, supportF1, jointF1, answerEM, supportEM, jointEM, ... }
+```
 
 ## Synthesize (corrective-RAG)
 

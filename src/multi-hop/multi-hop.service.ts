@@ -21,6 +21,13 @@ export interface HopOutcome {
   /** Running entity set AFTER applying combination with the prior hop. */
   runningEntityIds: string[];
   hits: SearchHit[];
+  /**
+   * factIds the hop pulled (top facts from each hop hit). Aggregated
+   * here so a downstream scorer (HotpotQA-style Joint F1) doesn't
+   * need to walk hits[].facts[]. Includes only the SCORED facts the
+   * hop returned — same shape the response body carries.
+   */
+  supportingFactIds: string[];
 }
 
 export interface MultiHopResult {
@@ -28,6 +35,14 @@ export interface MultiHopResult {
   hops: HopOutcome[];
   finalEntityIds: string[];
   finalHits: SearchHit[];
+  /**
+   * Union of supportingFactIds across all hops in execution order,
+   * de-duplicated. This is the "evidence chain" — what we'd compare
+   * against gold supporting facts in a HotpotQA-style Joint F1
+   * evaluation, and what a synthesizer would cite from when grounding
+   * the chained-search answer.
+   */
+  supportingFactIds: string[];
   /** Set when synthesize=true was requested. */
   synthesis?: {
     answer: string | null;
@@ -59,6 +74,26 @@ export interface MultiHopResult {
  * outcome=planner_error in the metric. Hop-search exception → stop
  * the chain, return what we have, mark outcome=hop_error.
  */
+/**
+ * De-duped union of factIds across a hop's hits, preserving
+ * original order so a downstream scorer can reason about ranking
+ * if it cares to. Pure helper — extracted so single-hop and multi-
+ * hop branches share the same shape.
+ */
+function collectFactIds(hits: SearchHit[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const h of hits) {
+    for (const f of h.facts) {
+      if (!seen.has(f.factId)) {
+        seen.add(f.factId);
+        out.push(f.factId);
+      }
+    }
+  }
+  return out;
+}
+
 @Injectable()
 export class MultiHopService {
   private readonly logger = new Logger(MultiHopService.name);
@@ -96,6 +131,7 @@ export class MultiHopService {
         hops: [],
         finalEntityIds: ids,
         finalHits: single.results,
+        supportingFactIds: collectFactIds(single.results),
       };
     }
 
@@ -109,6 +145,7 @@ export class MultiHopService {
       };
       const hopRes = await this.runHop(companyId, dto, callerScopes, hop, []);
       this.metrics?.countMultiHop('single_hop');
+      const factIds = collectFactIds(hopRes.hits);
       return {
         isMultiHop: false,
         hops: [
@@ -117,10 +154,12 @@ export class MultiHopService {
             hopEntityIds: hopRes.hits.map((h) => h.entityId),
             runningEntityIds: hopRes.hits.map((h) => h.entityId),
             hits: hopRes.hits,
+            supportingFactIds: factIds,
           },
         ],
         finalEntityIds: hopRes.hits.map((h) => h.entityId),
         finalHits: hopRes.hits,
+        supportingFactIds: factIds,
       };
     }
 
@@ -159,6 +198,7 @@ export class MultiHopService {
           hopEntityIds: hopIds,
           runningEntityIds: next.ids,
           hits: hopRes.hits,
+          supportingFactIds: collectFactIds(hopRes.hits),
         });
         runningIds = next.ids;
         runningHitsByEntity = next.byEntity;
@@ -188,11 +228,28 @@ export class MultiHopService {
       .map((id) => runningHitsByEntity.get(id))
       .filter((h): h is SearchHit => !!h);
 
+    // Aggregate supporting evidence across all hops, in execution
+    // order, deduped. This is the "reasoning chain" — what a
+    // HotpotQA-style Joint-F1 scorer compares against the gold
+    // supporting set, and what a synthesizer would cite from when
+    // grounding the chained-search answer.
+    const aggregatedSupport: string[] = [];
+    const seenSupport = new Set<string>();
+    for (const o of outcomes) {
+      for (const fid of o.supportingFactIds) {
+        if (!seenSupport.has(fid)) {
+          seenSupport.add(fid);
+          aggregatedSupport.push(fid);
+        }
+      }
+    }
+
     const result: MultiHopResult = {
       isMultiHop: true,
       hops: outcomes,
       finalEntityIds: runningIds,
       finalHits,
+      supportingFactIds: aggregatedSupport,
     };
 
     if (dto.synthesize && this.synthesizer && finalHits.length > 0) {
