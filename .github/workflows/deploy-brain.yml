@@ -1,0 +1,207 @@
+name: Deploy brain.inite.ai
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'deploy | restart | logs'
+        required: false
+        default: 'deploy'
+
+env:
+  PROJECT_NAME: inite-brain-service
+  DOMAIN: brain.inite.ai
+  PORT: 3000
+
+jobs:
+  build-and-push:
+    if: github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs'
+    runs-on: [self-hosted, sfo]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout inite-shared (SDK source for build)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/inite-shared
+          path: ../inite-shared
+          token: ${{ secrets.INITE_SHARED_PAT || github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:buildcache,mode=max
+          platforms: linux/amd64
+
+      - name: Build info
+        run: |
+          echo "[ok] Image pushed: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:${{ github.sha }}"
+
+  deploy:
+    needs: build-and-push
+    if: always() && (needs.build-and-push.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs')
+    runs-on: [self-hosted, sfo]
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: github.event.inputs.action != 'logs'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Logs
+        if: github.event.inputs.action == 'logs'
+        run: |
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+          docker-compose logs --tail=200 ${{ env.PROJECT_NAME }}
+
+      - name: Deploy to server
+        if: github.event.inputs.action != 'logs'
+        run: |
+          mkdir -p /opt/projects/${{ env.PROJECT_NAME }}
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+
+          # Brain talks to the SHARED inite-surrealdb container that lives in
+          # the temporal stack (inite-temporal/docker-compose). Brain owns
+          # NS=brain (separate from gateway's NS=inite); per-tenant DBs are
+          # co_<companyId> created on first request via ensureSchema.
+          # Migration 0005 creates the brain_caller editor user — first
+          # ensureSchema run on a fresh tenant boots it before the scoped
+          # pool tries to sign in.
+          tee docker-compose.yml > /dev/null << EOF
+          services:
+            ${{ env.PROJECT_NAME }}:
+              image: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
+              container_name: ${{ env.PROJECT_NAME }}
+              restart: unless-stopped
+              expose:
+                - "${{ env.PORT }}"
+              environment:
+                - NODE_ENV=production
+                - PORT=${{ env.PORT }}
+                - LOG_FORMAT=json
+                # Shared SurrealDB — same instance gateway uses.
+                # NS=brain isolates data; root pool for migrations,
+                # scoped pool for caller-facing reads (DB-level PII fence).
+                - SURREALDB_URL=ws://inite-surrealdb:8000
+                - SURREALDB_USERNAME=${{ secrets.GATEWAY_SURREAL_USER }}
+                - SURREALDB_PASSWORD=${{ secrets.GATEWAY_SURREAL_PASS }}
+                - SURREALDB_NAMESPACE=brain
+                - SURREALDB_POOL_SIZE=8
+                - SURREALDB_SCOPED_POOL_SIZE=8
+                - SURREALDB_SCOPED_USER=brain_caller
+                - SURREALDB_SCOPED_PASS=${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
+                # OpenAI for embeddings + extraction + faithfulness verifier.
+                - OPENAI_API_KEY=${{ secrets.BRAIN_OPENAI_API_KEY }}
+                - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+                - OPENAI_EMBEDDING_DIMENSIONS=1536
+                - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
+                - OPENAI_TIMEOUT_MS=30000
+                - OPENAI_MAX_RETRIES=3
+                - OPENAI_CONCURRENCY=8
+                # Auth — JWKS via auth.inite.ai. NODE_ENV=production +
+                # JWKS enabled ⇒ static BRAIN_API_KEYS is REJECTED, JWT only.
+                - AUTH_SERVICE_URL=https://auth.inite.ai
+                - AUTH_SERVICE_JWKS_URL=https://auth.inite.ai/.well-known/jwks.json
+                - AUTH_SERVICE_AUDIENCE=brain
+                # GDPR forget HMAC — opaque tombstone marker.
+                - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
+                # Search retrieval features — see README/.env.example for
+                # cost/latency tradeoffs. Conservative production defaults:
+                # router + reranker + SC=3 ON (eval-validated win), HyPE
+                # OFF (neutral standalone), PPR OFF (hub amplification on
+                # mid-scale tenants, opt-in via SEARCH_PPR_AUTO_THRESHOLD).
+                - SEARCH_PREDICATE_ROUTER_ENABLED=1
+                - SEARCH_RERANKER_ENABLED=1
+                - SEARCH_RERANKER_SC_N=3
+                - SEARCH_HYPE_ENABLED=0
+                - SEARCH_PPR_ENABLED=0
+                - SEARCH_PPR_AUTO_THRESHOLD=100
+              labels:
+                - "traefik.enable=true"
+                - "traefik.docker.network=traefik-global"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`)"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.entrypoints=websecure"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls=true"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls.certresolver=letsencrypt"
+                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.server.port=${{ env.PORT }}"
+                - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.responseForwarding.flushInterval=-1"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`)"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.entrypoints=web"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.middlewares=redirect-to-https"
+                - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+                - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+              healthcheck:
+                test: ["CMD", "wget", "-qO-", "http://localhost:${{ env.PORT }}/health"]
+                interval: 15s
+                timeout: 5s
+                retries: 5
+                start_period: 30s
+              networks:
+                - traefik-global
+                - default
+
+          networks:
+            traefik-global:
+              external: true
+          EOF
+
+          if [ "${{ github.event.inputs.action }}" = "restart" ]; then
+            echo "[deploy] restart only"
+            docker-compose restart ${{ env.PROJECT_NAME }}
+          else
+            echo "[deploy] pulling image..."
+            docker-compose pull ${{ env.PROJECT_NAME }}
+            echo "[deploy] up -d"
+            docker-compose up -d --remove-orphans
+          fi
+
+          sleep 25
+
+          if docker-compose ps | grep -q "Up"; then
+            echo "[ok] ${{ env.DOMAIN }} container is up"
+          else
+            echo "[err] container failed to start"
+            docker-compose logs --tail=100 ${{ env.PROJECT_NAME }}
+            exit 1
+          fi
+
+      - name: Health probe
+        if: github.event.inputs.action != 'logs'
+        run: |
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+          # External probe through Traefik (cert may take ~30s on first deploy).
+          for i in $(seq 1 12); do
+            if curl -fs https://${{ env.DOMAIN }}/health > /dev/null 2>&1; then
+              echo "[ok] https://${{ env.DOMAIN }}/health responds"
+              curl -s https://${{ env.DOMAIN }}/health | head -c 500
+              exit 0
+            fi
+            echo "[info] waiting for cert / health... ($i/12)"
+            sleep 10
+          done
+          echo "[err] health probe never responded"
+          docker-compose logs --tail=80 ${{ env.PROJECT_NAME }}
+          exit 1
+
+      - name: Cleanup
+        if: always() && github.event.inputs.action != 'logs'
+        run: docker system prune -f
