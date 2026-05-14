@@ -140,7 +140,9 @@ export class PredicateRouterService {
 
 Predicates in our knowledge graph:
 - name: looking up an entity by who they are
-- email, phone, address, dob: contact / identity attributes
+- email, phone: contact channels
+- address: physical location, residence, "from <place>", birthplace, "lives in", headquarters
+- dob: date of birth — triggered by "born YYYY", "birthday", "birth date", "age", "date of birth", or any year that reads as a birth year
 - status: lifecycle state ("active", "churned", "open")
 - tier: segmentation tier ("platinum", "gold")
 - intent: what someone wants, plans, asks for
@@ -163,7 +165,10 @@ Return a probability distribution over predicates AND a probability distribution
 Examples of joint reasoning:
 - "Project Phoenix kickoff" → predicate=interacted_with (event-attendance) targets a STAFF entity (the person who attended), NOT the project entity. types should give staff high mass, project low.
 - "platinum tier customers" → predicate=tier targets a CUSTOMER entity. types: customer high.
-- "broken washing machine" → predicate=complained_about targets a CUSTOMER entity (the complainer), not the asset. types: customer high.`;
+- "broken washing machine" → predicate=complained_about targets a CUSTOMER entity (the complainer), not the asset. types: customer high.
+- "Anton Chekhov born 1860" → name AND dob both carry mass (≈0.45 each). The query intent is identity verification by birth year — the dob predicate is what discriminates among same-name persons. types: customer (or other-person) high.
+- "Mikhail Bulgakov from Kyiv" → address dominates (≈0.6) with name secondary (≈0.3). "from <place>" is the canonical address-lookup phrasing. types: customer / location both relevant.
+- "Maya age 34" → dob dominates. Age expressions imply a birth-year window.`;
     const user = `Query: ${query}`;
 
     const res = await this.openai.chat.completions.create({
