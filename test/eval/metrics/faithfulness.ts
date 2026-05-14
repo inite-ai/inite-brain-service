@@ -58,6 +58,17 @@ export interface FaithfulnessScore {
   unsupportedClaims: number;
   /** Per-claim verdicts. Useful for surfacing which claim hallucinated. */
   claims: FaithfulnessClaim[];
+  /**
+   * Set when the verifier returned fewer (or differently-shaped) verdicts
+   * than there were claims, or threw. The aggregator surfaces this as a
+   * failure so a half-broken LLM call cannot masquerade as a low score.
+   */
+  verifierFailure?: {
+    kind: 'length_mismatch' | 'invalid_verdicts' | 'exception';
+    received: number;
+    expected: number;
+    detail?: string;
+  };
 }
 
 /**
@@ -117,12 +128,13 @@ export async function computeFaithfulness(
   const claims = await decomposeClaims(client, input.answer, model);
   if (claims.length === 0) return empty;
 
-  const verdicts = await verifyClaims(
+  const verifyResult = await verifyClaims(
     client,
     claims,
     input.sourceFacts,
     model,
   );
+  const verdicts = verifyResult.verdicts;
 
   const annotated: FaithfulnessClaim[] = claims.map((c, i) => ({
     claim: c,
@@ -147,6 +159,7 @@ export async function computeFaithfulness(
     partialClaims: partial,
     unsupportedClaims: unsupported,
     claims: annotated,
+    ...(verifyResult.failure ? { verifierFailure: verifyResult.failure } : {}),
   };
 }
 
@@ -209,13 +222,18 @@ async function decomposeClaims(
   }
 }
 
+interface VerifyClaimsOutcome {
+  verdicts: Array<'supported' | 'partial' | 'not_supported'>;
+  failure?: NonNullable<FaithfulnessScore['verifierFailure']>;
+}
+
 async function verifyClaims(
   client: OpenAiLike,
   claims: string[],
   sourceFacts: FaithfulnessSourceFact[],
   model: string,
-): Promise<Array<'supported' | 'partial' | 'not_supported'>> {
-  if (claims.length === 0) return [];
+): Promise<VerifyClaimsOutcome> {
+  if (claims.length === 0) return { verdicts: [] };
   const factLines =
     sourceFacts.length > 0
       ? sourceFacts
@@ -260,24 +278,71 @@ async function verifyClaims(
       temperature: 0,
     });
     const content = res.choices?.[0]?.message?.content;
-    if (!content) return claims.map(() => 'not_supported');
+    if (!content) {
+      return {
+        verdicts: claims.map(() => 'not_supported'),
+        failure: {
+          kind: 'invalid_verdicts',
+          received: 0,
+          expected: claims.length,
+          detail: 'empty completion content',
+        },
+      };
+    }
     const parsed = JSON.parse(content) as { verdicts?: unknown };
     if (!Array.isArray(parsed.verdicts)) {
-      return claims.map(() => 'not_supported');
+      return {
+        verdicts: claims.map(() => 'not_supported'),
+        failure: {
+          kind: 'invalid_verdicts',
+          received: 0,
+          expected: claims.length,
+          detail: `verdicts not an array: ${typeof parsed.verdicts}`,
+        },
+      };
     }
-    // Length mismatch is a model error; pad with not_supported so we
-    // don't silently inflate faithfulness on a partial response.
+    // Length mismatch / invalid value: pad with not_supported AND record
+    // the failure so the aggregator can surface it. Padding alone would
+    // let a half-broken LLM call masquerade as a low-faithfulness answer.
     const out: Array<'supported' | 'partial' | 'not_supported'> = [];
+    let invalidCount = 0;
     for (let i = 0; i < claims.length; i++) {
       const v = parsed.verdicts[i];
       if (v === 'supported' || v === 'partial' || v === 'not_supported') {
         out.push(v);
       } else {
         out.push('not_supported');
+        invalidCount++;
       }
     }
-    return out;
-  } catch {
-    return claims.map(() => 'not_supported');
+    if (parsed.verdicts.length !== claims.length || invalidCount > 0) {
+      const detail =
+        parsed.verdicts.length !== claims.length
+          ? `verdicts length ${parsed.verdicts.length} != claims ${claims.length}`
+          : `${invalidCount} verdict(s) outside enum`;
+      return {
+        verdicts: out,
+        failure: {
+          kind:
+            parsed.verdicts.length !== claims.length
+              ? 'length_mismatch'
+              : 'invalid_verdicts',
+          received: parsed.verdicts.length,
+          expected: claims.length,
+          detail,
+        },
+      };
+    }
+    return { verdicts: out };
+  } catch (err) {
+    return {
+      verdicts: claims.map(() => 'not_supported'),
+      failure: {
+        kind: 'exception',
+        received: 0,
+        expected: claims.length,
+        detail: (err as Error).message,
+      },
+    };
   }
 }
