@@ -1,5 +1,7 @@
-export { recallAtK } from './recall-at-k';
-export { meanReciprocalRank } from './mrr';
+export { recallAtK, recallAtKVector } from './recall-at-k';
+export { meanReciprocalRank, reciprocalRankVector } from './mrr';
+export { bootstrapMeanCI } from './bootstrap';
+export type { BootstrapCI, BootstrapOptions } from './bootstrap';
 export { extractionRecall, entityExtractionRate } from './extraction-recall';
 export {
   identityResolutionRate,
@@ -8,7 +10,7 @@ export {
 export type { IdentityResolutionMetrics } from './identity-resolution';
 export { piiGatingCorrectness } from './pii-gating';
 export { memoryLifecycleCorrectness } from './memory-lifecycle';
-export { ndcgAtK } from './ndcg';
+export { ndcgAtK, ndcgAtKVector } from './ndcg';
 export { miaAuc } from './mia-auc';
 export { jointF1, meanJointF1 } from './joint-f1';
 export type {

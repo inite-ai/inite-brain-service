@@ -237,6 +237,12 @@ export interface QueryResult {
    * non-bitemporal retrieval rewrite).
    */
   temporal: boolean;
+  /**
+   * The expectedFactPredicate that was asserted (if any). Carried on
+   * the result so the reporter can group queries by predicate and
+   * surface "router weak on dob" without re-walking the scenarios.
+   */
+  expectedFactPredicate?: string;
 }
 
 export interface ExtractionResult {
@@ -332,6 +338,16 @@ export interface AggregateMetric {
   value: number | null;
   threshold?: number;
   unit?: string;
+  /**
+   * Optional 95% bootstrap CI for sample-mean metrics (recall@k, MRR,
+   * NDCG). null bounds when N<2 or no resamples done. Surfaced by
+   * Reporter as "0.949 [0.91-0.98]" so a 1pp delta on N=5 reads as
+   * "well within CI" instead of "regression".
+   */
+  ciLower?: number | null;
+  ciUpper?: number | null;
+  /** Sample size — N for the metric. Reported alongside CI for honesty. */
+  n?: number;
 }
 
 export interface VerticalReport {

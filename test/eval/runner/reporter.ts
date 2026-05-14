@@ -7,15 +7,23 @@ import type { EvalReport, AggregateMetric } from '../types';
  * version lets the diff script reject unknown shapes loudly instead of
  * silently treating them as a regression.
  */
+interface SerializedMetric {
+  name: string;
+  value: number | null;
+  threshold?: number;
+  ciLower?: number | null;
+  ciUpper?: number | null;
+  n?: number;
+}
 export interface SerializedReport {
   schemaVersion: 1;
   generatedAt: string;
   perVertical: Array<{
     vertical: string;
     scenarios: number;
-    metrics: Array<{ name: string; value: number | null; threshold?: number }>;
+    metrics: SerializedMetric[];
   }>;
-  overall: Array<{ name: string; value: number | null; threshold?: number }>;
+  overall: SerializedMetric[];
 }
 
 /**
@@ -33,6 +41,9 @@ export class Reporter {
       name: m.name,
       value: m.value,
       ...(m.threshold !== undefined ? { threshold: m.threshold } : {}),
+      ...(m.ciLower !== undefined ? { ciLower: m.ciLower } : {}),
+      ...(m.ciUpper !== undefined ? { ciUpper: m.ciUpper } : {}),
+      ...(m.n !== undefined ? { n: m.n } : {}),
     });
     return {
       schemaVersion: 1,
@@ -76,6 +87,35 @@ export class Reporter {
             q.topEntityRef ?? '—',
           )} | ${pm} |`,
         );
+      }
+    }
+
+    // Per-predicate diagnostics — recall@1 grouped by the asserted
+    // expectedFactPredicate. Surfaces router weakness that overall
+    // recall@1=0.95 hides ("router can't route 'born YYYY' to dob").
+    // Only queries that declared an expectedFactPredicate count;
+    // bare "find this entity" queries are excluded.
+    const predicateBuckets = new Map<string, { hits: number; n: number; matched: number }>();
+    for (const o of report.outcomes) {
+      for (const q of o.queryResults) {
+        const p = q.expectedFactPredicate;
+        if (!p) continue;
+        const bucket = predicateBuckets.get(p) ?? { hits: 0, n: 0, matched: 0 };
+        bucket.n++;
+        if (q.rankOfExpected === 1) bucket.hits++;
+        if (q.factPredicateMatched === true) bucket.matched++;
+        predicateBuckets.set(p, bucket);
+      }
+    }
+    if (predicateBuckets.size > 0) {
+      lines.push('', '### Per-predicate diagnostics', '');
+      lines.push('| predicate | n | recall@1 | predicate-match-rate |');
+      lines.push('|---|---|---|---|');
+      const sorted = [...predicateBuckets.entries()].sort((a, b) => b[1].n - a[1].n);
+      for (const [predicate, b] of sorted) {
+        const r = b.n === 0 ? '—' : (b.hits / b.n).toFixed(2);
+        const m = b.n === 0 ? '—' : (b.matched / b.n).toFixed(2);
+        lines.push(`| ${predicate} | ${b.n} | ${r} | ${m} |`);
       }
     }
 
@@ -127,9 +167,20 @@ export class Reporter {
     const cells = metrics.map((m) => {
       if (m.value === null) return '—';
       const formatted = m.value.toFixed(2);
-      if (m.threshold === undefined) return formatted;
+      // Bootstrap CI rendered inline so a 1pp delta on N=5 reads as
+      // "well within CI" instead of a regression. Width on N is the
+      // honesty signal — N=5 commands a wider bar than N=90.
+      const ci =
+        m.ciLower !== undefined &&
+        m.ciUpper !== undefined &&
+        m.ciLower !== null &&
+        m.ciUpper !== null
+          ? ` [${m.ciLower.toFixed(2)}–${m.ciUpper.toFixed(2)}]`
+          : '';
+      const nTag = m.n !== undefined && m.n > 0 ? ` n=${m.n}` : '';
+      if (m.threshold === undefined) return `${formatted}${ci}${nTag}`;
       const ok = m.value >= m.threshold ? '✓' : '✗';
-      return `${formatted} ${ok}`;
+      return `${formatted} ${ok}${ci}${nTag}`;
     });
     return `| ${label} | ${cells.join(' | ')} |`;
   }

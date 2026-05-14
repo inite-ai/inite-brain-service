@@ -58,6 +58,9 @@ export class QueryExecutor {
       factPredicateMatched,
       piiGatedCorrectly,
       temporal: expectation.asOf !== undefined,
+      ...(expectation.expectedFactPredicate
+        ? { expectedFactPredicate: expectation.expectedFactPredicate }
+        : {}),
     };
   }
 

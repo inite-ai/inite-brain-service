@@ -6,14 +6,15 @@ import type {
   VerticalReport,
 } from '../types';
 import {
-  recallAtK,
-  meanReciprocalRank,
+  recallAtKVector,
+  reciprocalRankVector,
   extractionRecall,
   entityExtractionRate,
   identityResolutionMetrics,
   piiGatingCorrectness,
   memoryLifecycleCorrectness,
-  ndcgAtK,
+  ndcgAtKVector,
+  bootstrapMeanCI,
 } from '../metrics';
 
 /**
@@ -62,36 +63,48 @@ export class Aggregator {
     const temporalQueries = queries.filter((q) => q.temporal);
     const currentQueries = queries.filter((q) => !q.temporal);
 
+    // Bootstrap-CI helper. Vector → AggregateMetric with mean, CI,
+    // and N attached. 1000 resamples is enough for ±0.005 stability
+    // on N≥10 (Efron 1979, conventional choice for sample-mean CI).
+    // null vector → null bounds; reporter renders "—".
+    const bootstrap = (
+      name: string,
+      vector: number[],
+      threshold?: number,
+    ) => {
+      if (vector.length === 0) {
+        return { name, value: null, ...(threshold !== undefined ? { threshold } : {}), n: 0 };
+      }
+      const mean = vector.reduce((a, b) => a + b, 0) / vector.length;
+      const ci = bootstrapMeanCI(vector, { B: 1000 });
+      return {
+        name,
+        value: mean,
+        ...(threshold !== undefined ? { threshold } : {}),
+        ciLower: ci.lower,
+        ciUpper: ci.upper,
+        n: vector.length,
+      };
+    };
+
     return [
-      { name: 'recall@1', value: recallAtK(queries, 1), threshold: 0.6 },
-      { name: 'recall@3', value: recallAtK(queries, 3), threshold: 0.8 },
-      { name: 'MRR', value: meanReciprocalRank(queries), threshold: 0.5 },
+      bootstrap('recall@1', recallAtKVector(queries, 1), 0.6),
+      bootstrap('recall@3', recallAtKVector(queries, 3), 0.8),
+      bootstrap('MRR', reciprocalRankVector(queries), 0.5),
       // NDCG@10 — canonical retrieval metric on BEIR/MTEB/MS MARCO.
       // Standard reporting unit for embedding-model papers; lets our
       // numbers be directly compared to published baselines.
       // No threshold here because the ground-truth distribution in
       // our scenarios is single-relevant — NDCG@10 mirrors recall@1
       // when k≥rank, so threshold pressure is already on recall@k.
-      { name: 'NDCG@10', value: ndcgAtK(queries, 10) },
+      bootstrap('NDCG@10', ndcgAtKVector(queries, 10)),
       // Temporal split. Reported alongside the aggregate so a
       // regression in either partition is loud. null when the
       // partition is empty (e.g. retrieval-only scenarios).
-      {
-        name: 'recall@1:temporal',
-        value: recallAtK(temporalQueries, 1),
-      },
-      {
-        name: 'recall@1:current',
-        value: recallAtK(currentQueries, 1),
-      },
-      {
-        name: 'MRR:temporal',
-        value: meanReciprocalRank(temporalQueries),
-      },
-      {
-        name: 'MRR:current',
-        value: meanReciprocalRank(currentQueries),
-      },
+      bootstrap('recall@1:temporal', recallAtKVector(temporalQueries, 1)),
+      bootstrap('recall@1:current', recallAtKVector(currentQueries, 1)),
+      bootstrap('MRR:temporal', reciprocalRankVector(temporalQueries)),
+      bootstrap('MRR:current', reciprocalRankVector(currentQueries)),
       {
         name: 'extraction-predicate-recall',
         value: extractionRecall(extractions),
