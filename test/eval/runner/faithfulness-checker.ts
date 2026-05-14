@@ -55,11 +55,36 @@ export class FaithfulnessChecker {
           continue;
         }
 
-        const sourceFacts: FaithfulnessSourceFact[] = res.citations.map((c) => ({
+        // RAGAS faithfulness is measured against the retrieved CONTEXT
+        // available to the generator, not against the citations the
+        // generator chose to emit. gpt-4o-mini occasionally inlines
+        // [fact_xxx] tags in the answer but leaves citedFactIds=[],
+        // which would starve the verifier and produce a false-zero
+        // score (every claim "not_supported" despite being grounded).
+        // Pull the full result.facts as fallback when citations are
+        // thin — this matches the verifier's actual semantics.
+        const fromCitations: FaithfulnessSourceFact[] = res.citations.map((c) => ({
           factId: c.factId,
           predicate: c.predicate,
           object: c.object,
         }));
+        const fromResults: FaithfulnessSourceFact[] = (res.results ?? []).flatMap(
+          (r) =>
+            (r.facts ?? []).map((f) => ({
+              factId: f.factId,
+              predicate: f.predicate,
+              object: f.object,
+            })),
+        );
+        // Merge: citations first (explicit), then any result-fact not
+        // already in citations. Dedup by factId.
+        const seen = new Set<string>();
+        const sourceFacts: FaithfulnessSourceFact[] = [];
+        for (const f of [...fromCitations, ...fromResults]) {
+          if (seen.has(f.factId)) continue;
+          seen.add(f.factId);
+          sourceFacts.push(f);
+        }
 
         const score = await computeFaithfulness(this.openai, {
           answer,
@@ -71,6 +96,29 @@ export class FaithfulnessChecker {
           score.faithfulness !== null &&
           score.faithfulness >= floor &&
           !score.verifierFailure;
+
+        // Diagnostic dump on failure — answer + citations + per-claim
+        // verdicts. Default-on (LLM-driven verifier is hard to debug
+        // without it); silenceable via FAITHFULNESS_DEBUG=0.
+        if (
+          !passed &&
+          score.faithfulness !== null &&
+          process.env.FAITHFULNESS_DEBUG !== '0'
+        ) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[faithfulness-debug] ${scenario.id} q="${e.query}" score=${score.faithfulness.toFixed(2)} ` +
+              `claims=${score.totalClaims} answer="${answer.slice(0, 200)}"`,
+          );
+          // eslint-disable-next-line no-console
+          console.log(
+            `[faithfulness-debug] sourceFacts: ${sourceFacts.map((f) => `[${f.factId.slice(-8)}] ${f.predicate}=${f.object.slice(0, 60)}`).join(' | ')}`,
+          );
+          for (const c of score.claims) {
+            // eslint-disable-next-line no-console
+            console.log(`[faithfulness-debug]   ${c.verdict.padEnd(14)} :: ${c.claim}`);
+          }
+        }
 
         outcomes.push({
           scenarioId: scenario.id,
