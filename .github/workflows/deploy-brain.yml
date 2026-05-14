@@ -99,12 +99,13 @@ jobs:
                 - PORT=${{ env.PORT }}
                 - LOG_FORMAT=json
                 # Shared SurrealDB — same instance gateway uses.
-                # NS=brain isolates data; root pool for migrations,
-                # scoped pool for caller-facing reads (DB-level PII fence).
+                # NS=inite (shared namespace; brain's tables knowledge_*
+                # don't collide with gateway's). Per-tenant DBs are
+                # co_<companyId> created on first request via ensureSchema.
                 - SURREALDB_URL=ws://inite-surrealdb:8000
-                - SURREALDB_USERNAME=${{ secrets.GATEWAY_SURREAL_USER }}
-                - SURREALDB_PASSWORD=${{ secrets.GATEWAY_SURREAL_PASS }}
-                - SURREALDB_NAMESPACE=brain
+                - SURREALDB_USERNAME=${{ secrets.BRAIN_SURREAL_USER }}
+                - SURREALDB_PASSWORD=${{ secrets.BRAIN_SURREAL_PASS }}
+                - SURREALDB_NAMESPACE=inite
                 - SURREALDB_POOL_SIZE=8
                 - SURREALDB_SCOPED_POOL_SIZE=8
                 - SURREALDB_SCOPED_USER=brain_caller

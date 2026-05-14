@@ -16,9 +16,9 @@ Workflow: `.github/workflows/deploy-brain.yml` (manual dispatch)
                        ▼ ws
               inite-surrealdb:8000       ← shared with gateway / orchestrator
                        │
-                       └── NS=brain, DBs=co_<companyId>
-                       │
-                       └── (other namespaces owned by gateway, etc — isolated)
+                       └── NS=inite, DBs=co_<companyId>
+                                  ↑ per-tenant; brain creates each on first request via ensureSchema
+                                  ↑ knowledge_* tables are brain-owned and don't collide with gateway's tables in the same NS
                        
                        │ JWT
                        ▼
@@ -46,8 +46,8 @@ deploy:
 | `DOCKERHUB_USERNAME` | docker login | shared with other inite services |
 | `DOCKERHUB_TOKEN` | docker login | — |
 | `INITE_SHARED_PAT` | second checkout | optional — falls back to `github.token` if same-org |
-| `GATEWAY_SURREAL_USER` | brain SURREALDB_USERNAME | reuses gateway's root creds (same SurrealDB instance) |
-| `GATEWAY_SURREAL_PASS` | brain SURREALDB_PASSWORD | — |
+| `BRAIN_SURREAL_USER` | brain SURREALDB_USERNAME | root user for the shared inite-surrealdb |
+| `BRAIN_SURREAL_PASS` | brain SURREALDB_PASSWORD | — |
 | `BRAIN_SURREAL_SCOPED_PASS` | brain SURREALDB_SCOPED_PASS | password for `brain_caller` user. Brain auto-overwrites the placeholder password from migration 0005 with this secret on each ensureSchema cycle. |
 | `BRAIN_OPENAI_API_KEY` | OPENAI_API_KEY | embeddings + extraction + faithfulness verifier |
 | `BRAIN_FORGET_HMAC_KEY` | FORGET_HMAC_KEY | ≥32 chars; used to mint opaque tombstone markers on GDPR forget |
