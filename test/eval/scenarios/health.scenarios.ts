@@ -139,5 +139,14 @@ export const healthScenarios: Scenario[] = [
         expectedFactPredicate: 'phone',
       },
     ],
+    // Synthesize smoke for health vertical. Patient has reported_symptom
+    // + interacted_with (follow-up); the answer should describe both
+    // without inventing diagnoses or dates.
+    synthesizeQueries: [
+      {
+        query: 'tell me about Tomás Iglesias condition and follow-up',
+        faithfulnessFloor: 0.85,
+      },
+    ],
   },
 ];

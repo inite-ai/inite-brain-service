@@ -366,7 +366,7 @@ export const adversarialScenarios: Scenario[] = [
       {
         kind: 'fact',
         entityRef: { vertical: 'health', id: 'patient_88' },
-        predicate: 'date_of_birth',
+        predicate: 'dob',
         object: '1981-07-12',
         validFrom: ISO('2026-04-01'),
         source: { vertical: 'health' },
@@ -407,7 +407,7 @@ export const adversarialScenarios: Scenario[] = [
         query: 'patient with persistent dry cough',
         expectedTopEntityRef: 'health.patient_88',
         callerScopes: ['brain:read'],
-        mustNotLeakPredicate: 'date_of_birth',
+        mustNotLeakPredicate: 'dob',
       },
     ],
   },

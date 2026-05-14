@@ -141,5 +141,14 @@ export const eventsScenarios: Scenario[] = [
         expectedFactPredicate: 'email',
       },
     ],
+    // Synthesize smoke for the events vertical. Noah has interacted_with
+    // (purchase) + intent (refund) facts; the answer should ground in
+    // both without inventing details.
+    synthesizeQueries: [
+      {
+        query: 'what did Noah Berggren request after the Veranda show',
+        faithfulnessFloor: 0.85,
+      },
+    ],
   },
 ];

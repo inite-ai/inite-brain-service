@@ -46,7 +46,11 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
   });
 
   it('meets quality thresholds across verticals', async () => {
-    const sdkOpts = { baseUrl: svc.baseUrl, timeoutMs: 60_000 };
+    // 180s per request — synthesize fans out 3 LLM calls (generator,
+    // verifier, often a retry on rate limit). 60s was tripping under
+    // the larger query set (~250 retrieval queries + 3 synthesize +
+    // their decompose/verify legs). Per-request budget, not total run.
+    const sdkOpts = { baseUrl: svc.baseUrl, timeoutMs: 180_000 };
     const fullClient = new BrainClient({ ...sdkOpts, apiKey: svc.primary.plaintext });
     const limitedClient = new BrainClient({ ...sdkOpts, apiKey: svc.extras[0].plaintext });
 
