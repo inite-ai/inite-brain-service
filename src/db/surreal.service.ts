@@ -36,6 +36,12 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   private poolSize!: number;
   private scopedPoolSize!: number;
   private scopedEnabled = false;
+  // Track whether we've already overwritten brain_caller's password
+  // this process boot for an existing-tenant case. Migrations only
+  // re-run on fresh DBs; on re-deploys we still need to sync the
+  // declared password with whatever SURREALDB_SCOPED_PASS now holds.
+  // One-shot per process — cheap NS-level DDL but no need to repeat.
+  private scopedPasswordSynced = false;
   private readonly knownDatabases = new Set<string>();
   // All schema applications (across all databases) are serialized through
   // this chain. SurrealDB raises transaction read-conflicts when multiple
@@ -332,8 +338,29 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
             `already-applied [${result.alreadyApplied.join(', ') || '-'}]`,
         );
         if (this.scopedEnabled && result.applied.includes('0005')) {
+          // Migration 0005 hardcodes a placeholder password
+          // ('brain-caller-password-must-be-overridden-via-env'). Brain
+          // owns the real password via SURREALDB_SCOPED_PASS — overwrite
+          // the user immediately after the migration lands so the scoped
+          // pool can sign in with the operator's secret. Idempotent
+          // (DEFINE USER OVERWRITE replaces in place).
+          await this.overwriteScopedUserPassword();
           await this.resignScopedConns();
         }
+      } else if (
+        this.scopedEnabled &&
+        result.alreadyApplied.includes('0005') &&
+        !this.scopedPasswordSynced
+      ) {
+        // Existing tenant DBs (0005 already applied) on a brain process
+        // that just rotated its SURREALDB_SCOPED_PASS — the migration
+        // won't re-run, but the secret may have changed since the user
+        // was created. Re-overwrite once per process boot to keep
+        // declared password in sync with what the scoped pool will
+        // sign in as. Cheap idempotent NS-level DDL.
+        await this.overwriteScopedUserPassword();
+        await this.resignScopedConns();
+        this.scopedPasswordSynced = true;
       } else {
         this.logger.log(
           `Schema up-to-date for ${this.namespace}/${database} ` +
@@ -343,6 +370,42 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
     });
     this.schemaQueue = next.catch(() => undefined);
     await next;
+  }
+
+  /**
+   * Replace the brain_caller user's password with the operator's
+   * SURREALDB_SCOPED_PASS. Migration 0005 ships a hardcoded placeholder
+   * (it has to — DDL does not bind to runtime variables); brain
+   * overwrites here. NS-level user definition reuses the migrator
+   * connection's namespace context.
+   */
+  private async overwriteScopedUserPassword(): Promise<void> {
+    const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
+    const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
+    if (!scopedUser || !scopedPass) return;
+    // Validate user identifier — SurrealDB DDL doesn't bind identifiers,
+    // and we splice this into the query directly. Defend against anything
+    // that isn't a plain ASCII identifier.
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(scopedUser)) {
+      this.logger.error(
+        `Refusing to overwrite scoped user with non-identifier name: '${scopedUser}'`,
+      );
+      return;
+    }
+    try {
+      await this.migratorConn.query(
+        `DEFINE USER OVERWRITE ${scopedUser} ON NAMESPACE PASSWORD $pass ROLES EDITOR`,
+        { pass: scopedPass },
+      );
+      this.logger.log(`Reset password for scoped user '${scopedUser}'`);
+    } catch (err) {
+      // Non-fatal — scoped pool will degrade to root signin (still
+      // app-layer policy), but DB-level fence won't enforce.
+      this.logger.warn(
+        `Failed to overwrite scoped user password: ${(err as Error).message}. ` +
+          `Scoped pool will fall back to root.`,
+      );
+    }
   }
 
   /**
