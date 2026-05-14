@@ -521,6 +521,32 @@ export class SearchService {
       }
       topEntities = topEntities.slice(0, limit);
 
+      // ── Entity-fact backfill ──────────────────────────────────────
+      // The leg queries return at most candidateK=min(limit*5, 200)
+      // facts. With a few-thousand-fact tenant, a "born 1860" search
+      // returns the entity by its strong-BM25 name match but the dob
+      // fact for that same entity loses out to other entities' dob
+      // facts and never reaches the bucket. Per-predicate eval surfaced
+      // this: dob predicate-match-rate held at ~0.4 even after the
+      // P0.8 router prompt patch and P1.3 boost α=1.5 — neither helps
+      // when the fact isn't in the candidate set.
+      //
+      // Fix: once topEntities is decided, fetch every active fact for
+      // those entities in one batched query under the same bitemporal
+      // closure (asOf / validFrom / validUntil / retractedAt), and
+      // merge into the bucket. Matched facts keep their scored
+      // position; backfilled facts ride along with score=0 and are
+      // sorted after matched ones in the response. PII PERMISSIONS
+      // and scoped-company isolation apply automatically through the
+      // already-scoped connection.
+      const backfillByEntity = await this.backfillEntityFacts(
+        db,
+        topEntities.map((e) => e.entityId),
+        baseWhere,
+        dto,
+        callerScopes,
+      );
+
       const fullResults: SearchHit[] = topEntities
         .filter((e) => {
           if (!dto.entityTypes) return true;
@@ -545,24 +571,65 @@ export class SearchService {
             const refs = sf.row.entity?.externalRefs;
             if (refs) Object.assign(mergedRefs, refs);
           }
+          // Merge bucket (matched) facts with backfill (active facts
+          // not in the candidate set). Two-stage selection:
+          //   1. Matched facts first, sorted by score (existing behaviour).
+          //   2. Backfill — pick at most ONE fact per NEW predicate
+          //      that isn't already represented in matched. Uses
+          //      recency to break per-predicate ties. Predicate-
+          //      diverse instead of pure recency because the per-
+          //      predicate eval surfaced that recency-only order
+          //      buries dob/address under repeated occupation/genre
+          //      facts on wikidata-shape entities (~10 facts/entity,
+          //      most sharing predicate=interacted_with).
+          // Cap at 5 — unchanged. The diversity step is what makes
+          // the cap useful: a query for "Anton Chekhov born 1860"
+          // gets {name, dob, address, occupation, genre} instead of
+          // {name, occupation×4} and the eval-side fact-predicate
+          // assertion passes.
+          const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
+          const matchedRender = e.facts
+            .sort((a, b) => b.score - a.score)
+            .map(({ row, score }) => ({
+              factId: String(row.id),
+              predicate: row.predicate,
+              object: row.object,
+              confidence: row.confidence,
+              validFrom: row.validFrom,
+              validUntil: row.validUntil ?? undefined,
+              status: row.status,
+              score,
+            }));
+          const matchedPredicates = new Set(matchedRender.map((f) => f.predicate));
+          const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
+            .filter((r) => !matchedFactIds.has(String(r.id)))
+            .sort(
+              (a, b) =>
+                new Date(b.recordedAt).getTime() -
+                new Date(a.recordedAt).getTime(),
+            );
+          const backfillRender: typeof matchedRender = [];
+          const seenPredicates = new Set(matchedPredicates);
+          for (const row of backfillRows) {
+            if (seenPredicates.has(row.predicate)) continue;
+            seenPredicates.add(row.predicate);
+            backfillRender.push({
+              factId: String(row.id),
+              predicate: row.predicate,
+              object: row.object,
+              confidence: row.confidence,
+              validFrom: row.validFrom,
+              validUntil: row.validUntil ?? undefined,
+              status: row.status,
+              score: 0,
+            });
+          }
           return {
             entityId: e.entityId,
             entityType: ent.type,
             canonicalName: ent.canonicalName,
             externalRefs: mergedRefs,
-            facts: e.facts
-              .sort((a, b) => b.score - a.score)
-              .slice(0, 5)
-              .map(({ row, score }) => ({
-                factId: String(row.id),
-                predicate: row.predicate,
-                object: row.object,
-                confidence: row.confidence,
-                validFrom: row.validFrom,
-                validUntil: row.validUntil ?? undefined,
-                status: row.status,
-                score,
-              })),
+            facts: [...matchedRender, ...backfillRender].slice(0, 5),
             score: e.bestScore,
           };
         });
@@ -645,6 +712,87 @@ export class SearchService {
    * The inline-projection form keeps `entityId` as a record link
    * AND surfaces `entity` as a hydrated record.
    */
+  /**
+   * Backfill: for each top-K entity, fetch its top-N predicate-diverse
+   * active facts via a SurrealDB inline subquery — one query, one
+   * round trip, transactional snapshot. Solves the "router routes
+   * the right class but the fact never reached the candidate set"
+   * miss mode per-predicate eval surfaced for dob queries on
+   * few-thousand-fact tenants.
+   *
+   * Implementation: SELECT FROM knowledge_entity WHERE id INSIDE [...]
+   * with an inline (SELECT FROM knowledge_fact WHERE entityId =
+   * $parent.id ...) AS facts subquery. The subquery inherits the
+   * scoped DB connection, so DB-level PII PERMISSIONS strip gated
+   * fields for non-PII callers automatically. We still apply
+   * passesPolicy on the JS side because the row + predicate still
+   * surfaces (only `object` is null'd by PERMISSIONS) and the
+   * mustNotLeakPredicate check on the eval-side reads predicate.
+   *
+   * Per-entity LIMIT pushed into DB: no JS-side dedup needed, no
+   * over-fetch.
+   */
+  private async backfillEntityFacts(
+    db: Surreal,
+    entityIds: string[],
+    baseWhere: { sql: string; params: Record<string, unknown> },
+    dto: SearchDto,
+    callerScopes: string[],
+  ): Promise<Map<string, FactRow[]>> {
+    const out = new Map<string, FactRow[]>();
+    if (entityIds.length === 0) return out;
+    const ids = entityIds.map((raw) => {
+      const id = raw.startsWith('knowledge_fact:')
+        ? raw // defensive — fact ids should not appear here
+        : raw.startsWith('knowledge_entity:')
+          ? raw.slice('knowledge_entity:'.length)
+          : raw;
+      return new StringRecordId(`knowledge_entity:${id}`);
+    });
+    // Inline subquery references $parent.id (the outer entity row).
+    // baseWhere.sql comes pre-formatted with leading "AND <clauses>" —
+    // splice it directly into the subquery WHERE so bitemporal cutoff,
+    // status filters, and predicate filters compose naturally.
+    const sql = `
+      SELECT
+        id,
+        (
+          SELECT
+            id, entityId, predicate, object, confidence,
+            validFrom, validUntil, recordedAt, retractedAt, status, source
+          FROM knowledge_fact
+          WHERE entityId = $parent.id
+            ${baseWhere.sql}
+          ORDER BY recordedAt DESC
+          LIMIT 50
+        ) AS facts
+      FROM knowledge_entity WHERE id INSIDE $entityIds
+    `;
+    try {
+      const [rows] = await db.query<
+        [Array<{ id: unknown; facts: FactRow[] }>]
+      >(sql, {
+        ...baseWhere.params,
+        entityIds: ids,
+      });
+      for (const r of (rows as Array<{ id: unknown; facts: FactRow[] }>) ?? []) {
+        const key = String(r.id);
+        const facts: FactRow[] = [];
+        for (const row of r.facts ?? []) {
+          // Same JS-level policy gate the leg results pass through.
+          if (!this.passesPolicy(row, dto, callerScopes)) continue;
+          facts.push(row);
+        }
+        out.set(key, facts);
+      }
+    } catch (err) {
+      // Backfill is best-effort — a failed query degrades to "matched
+      // facts only", the pre-backfill behaviour. Log and continue.
+      this.logger.warn(`Entity-fact backfill fell back to empty: ${(err as Error).message}`);
+    }
+    return out;
+  }
+
   private async vectorLeg(
     db: Surreal,
     query: string,
