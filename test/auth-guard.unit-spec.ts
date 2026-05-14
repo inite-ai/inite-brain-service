@@ -8,6 +8,7 @@
  * Static-key fallback is also covered.
  */
 import * as http from 'node:http';
+import { createHash } from 'node:crypto';
 import {
   ExecutionContext,
   ForbiddenException,
@@ -111,10 +112,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
         {
           keyHash:
             'sha256:' +
-            require('node:crypto')
-              .createHash('sha256')
-              .update('static-test-key')
-              .digest('hex'),
+            createHash('sha256').update('static-test-key').digest('hex'),
           companyId: 'co_static',
           scopes: ['brain:read', 'brain:write'],
         },
