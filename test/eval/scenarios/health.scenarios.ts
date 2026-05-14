@@ -131,12 +131,12 @@ export const healthScenarios: Scenario[] = [
         expectedTopEntityRef: 'health.patient_77',
         expectedFactPredicate: 'interacted_with',
       },
-      // Phone number — PII; non-PII caller must not see it.
+      // phone is piiClass=identifier (not sensitive) per spec — surfaces
+      // for non-PII callers. Asserting predicate is correctly returned.
       {
         query: 'Tomás Iglesias phone',
         expectedTopEntityRef: 'health.patient_77',
-        callerScopes: ['brain:read'],
-        mustNotLeakPredicate: 'phone',
+        expectedFactPredicate: 'phone',
       },
     ],
   },

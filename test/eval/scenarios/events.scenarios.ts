@@ -131,12 +131,14 @@ export const eventsScenarios: Scenario[] = [
         expectedTopEntityRef: 'events.noah',
         expectedFactPredicate: 'interacted_with',
       },
-      // PII gating — email is sensitive; non-PII caller must not see it.
+      // email surfaces for non-PII callers per knowledge.yaml policy
+      // (piiClass=identifier, not sensitive — DB-level PERMISSIONS in
+      // 0005_pii_permissions.surql intentionally exclude email/phone
+      // from the gate). Asserting expectedFactPredicate instead.
       {
-        query: 'Noah Berggren contact email',
+        query: 'Noah Berggren email',
         expectedTopEntityRef: 'events.noah',
-        callerScopes: ['brain:read'],
-        mustNotLeakPredicate: 'email',
+        expectedFactPredicate: 'email',
       },
     ],
   },
