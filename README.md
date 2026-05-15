@@ -2,7 +2,25 @@
 
 Cross-vertical knowledge layer for the INITE ecosystem. **System of insight, not system of record.**
 
+Production: **https://brain.inite.ai** · auto-deploy on push to `main` via `[self-hosted, sfo]` · runbook in [`docs/DEPLOY.md`](docs/DEPLOY.md)
+
 Implements [`inite.service.brain`](https://github.com/inite/inite-ecosystem/blob/main/core/services/brain.yaml) and the [`knowledge`](https://github.com/inite/inite-ecosystem/blob/main/core/capabilities/knowledge.yaml) capability bundle from `inite-ecosystem` v0.2.0-rc.4.
+
+```
+recall@1   0.965  [0.94–0.98]  n=255   ← multi-vertical quality eval, latest gate run
+MRR        0.979  [0.97–0.99]  n=255
+NDCG@10    0.979
+identity-resolution-f1   1.000
+pii-gating-correctness   1.000
+memory-lifecycle         1.000
+faithfulness pass-rate   1.000  n=3
+```
+
+CI gate floors: recall@1 ≥ 0.6, recall@3 ≥ 0.8, MRR ≥ 0.5, identity-F1 ≥ 0.8,
+pii-gating = 1.0, memory-lifecycle = 1.0, faithfulness pass-rate ≥ 0.8.
+Bootstrap-CI on every retrieval metric; per-predicate breakdown + per-vertical
+split + temporal/current partition all in the report. Numbers from the
+multi-vertical scenario suite plus 180 wikidata queries (90 Latin + 90 Cyrillic).
 
 ## What it is
 
@@ -19,30 +37,39 @@ Layer 2 — Horizontal services  ← inite.service.brain (this service)
 Layer 1 — Identity (auth)
 ```
 
-## Status — 0.1.0 walking skeleton
+## Endpoints
 
-| Endpoint | Status |
+All v1 endpoints are live; MCP transport is mounted per tenant.
+
+| Endpoint | Notes |
 |---|---|
-| `GET /health` | ✅ |
-| `POST /v1/ingest/fact` | ✅ |
-| `POST /v1/search` | ✅ |
-| `POST /v1/synthesize` | ✅ (corrective-RAG, opt-in via `OPENAI_API_KEY`) |
-| `POST /v1/search/multi-hop` | ✅ (chained search via planner-LLM) |
-| `POST /v1/dreams/run` | ✅ (off-hours self-improvement: dedup / resolve / summarize; admin scope) |
-| `POST /v1/ingest/mention` | planned 0.2.0 |
-| `POST /v1/ingest/link` | planned 0.2.0 |
-| `GET /v1/entities/:id` | planned 0.2.0 |
-| `GET /v1/entities/:id/timeline` | planned 0.2.0 |
-| `POST /v1/facts/:id/retract` | planned 0.2.0 |
-| `POST /v1/entities/:id/forget` | planned 0.2.0 |
-| `POST /mcp/:companyId` (Streamable HTTP) | planned 0.3.0 |
+| `GET /health` | container + SurrealDB readiness |
+| `GET /metrics` | Prometheus exposition (in-cluster scrape) |
+| `POST /v1/ingest/fact` | declared structured fact ingest |
+| `POST /v1/ingest/mention` | NLU extraction → entities + facts |
+| `POST /v1/ingest/link` | typed edge between entities (incl. `identity_of` for cross-vertical merge) |
+| `POST /v1/search` | hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill |
+| `POST /v1/synthesize` | corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer |
+| `POST /v1/search/multi-hop` | planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval |
+| `GET /v1/entities/:id` | entity profile + active facts (PII-gated by scope) |
+| `GET /v1/entities/:id/timeline` | bitemporal sweep — all facts ever known, with validFrom / validUntil / recordedAt / retractedAt |
+| `GET /v1/entities/:id/connections` | typed edges + direct neighbours |
+| `POST /v1/facts/:id/retract` | mark a fact retracted with reason; survives in audit trail |
+| `POST /v1/entities/:id/forget` | hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained |
+| `GET /v1/artifacts/:type/:entityId` | derived artifacts (profile / digest / etc) with manual `recompile` POST |
+| `POST /v1/dreams/run` | off-hours self-improvement: dedup / resolve / summarize (admin scope) |
+| `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant |
 
 ## Tech stack
 
-- **NestJS 11** + TypeScript
-- **SurrealDB 2** with HNSW vector index (`text-embedding-3-small`, 1536 dims)
-  - Tenancy: namespace `brain`, database `co_<companyId>` per tenant
-- **OpenAI** for embeddings (chat extraction lands in 0.2.0)
+- **NestJS 11** + TypeScript on Node 22-alpine; OTel auto-instrumentation
+- **SurrealDB 2.3.10** with HNSW vector index + BM25 search analyzer + bitemporal model
+  - Tenancy: namespace `inite`, database `co_<companyId>` per tenant (per-tenant data isolation, single `REMOVE DATABASE` to forget)
+  - DB-level PII fence via PERMISSIONS + `$caller_scopes`, scoped pool signs in as `brain_caller` editor user
+- **OpenAI** `gpt-4o-mini-2024-07-18` (snapshot-pinned) for extraction / synthesize / faithfulness verifier; `text-embedding-3-small` (1536d) for vectors
+- **Cohere Rerank v3.5** optional cross-encoder between fusion and the LLM stage
+- Deployment: Docker Hub image, Traefik routing on the inite-temporal droplet, Let's Encrypt cert auto-provision
+- Auth: JWKS via `auth.inite.ai` (audience `brain`); static `BRAIN_API_KEYS` map as fallback for dev only
 
 ## Local development
 
@@ -207,6 +234,62 @@ The directory eval (`pnpm test:eval:directory`) uses a synthetic generator, but 
 
 Seeding cost is dominated by HNSW + BM25 indexing — budget ~1 minute per 5k facts on a single Surreal node, scaling near-linearly. Set Jest timeouts to 30+ minutes for fixtures over 50k rows.
 
+## Retrieval pipeline
+
+`POST /v1/search` runs a layered pipeline. Each stage is optional / env-flagged
+and tracked in metrics so an operator can A/B per-tenant impact without
+redeploying. Default-prod config in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+```
+                   query
+                     │
+                     ▼
+       ┌─────────────────────────────┐
+       │ predicate + type router     │  joint LLM call → soft distribution
+       │ (LRU-cached per query hash) │  over predicates + entity types
+       └─────────────────────────────┘
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+  vector leg   lexical leg   (HyPE alt-emb leg)
+  (HNSW cos)   (BM25)        max(cos_main, cos_alt)
+       │             │             │
+       └─────────────┼─────────────┘
+                     ▼
+       convex-fusion (CombMNZ-flavoured w=0.5)
+                     │
+                     ▼
+       decay × confidence × predicate-boost-α (per class; PII discriminators α=1.5)
+                     │
+                     ▼
+       group-by-entity ──→  PPR prior (HippoRAG, opt-in, gated by candidate-set size)
+                     │
+                     ▼
+       cross-encoder (Cohere Rerank v3.5, opt-in, identity-fallback on error)
+                     │
+                     ▼
+       listwise LLM reranker  ──→  permutation self-consistency (N=3 default; Borda count)
+       (RankGPT-style + 1-hop SubgraphRAG neighbour context + type-prior hint)
+                     │
+                     ▼
+       entity-fact backfill (native Surreal inline subquery via $parent.id;
+       per-entity LIMIT 50; predicate-diverse top-N merge with matched facts)
+                     │
+                     ▼
+       identity-merge re-attribution
+                     │
+                     ▼
+                  results
+```
+
+Notable design points:
+- **Backfill is a single SurrealDB SELECT with inline subquery** — not a second round-trip. Solves the "leg returned the right entity but the matching dob/address fact wasn't in top-K candidates" mode that buried predicate-match-rate at 0.4 before.
+- **Per-class boost α** — most predicates get 0.5 (soft); PII discriminators (`dob`, `email`, `phone`) get 1.5 because a router call "this is a dob lookup" should reliably win against a same-entity name fact.
+- **Bitemporal cutoff is in WHERE** — `validFrom <= asOf < validUntil` and `retractedAt IS NONE OR retractedAt > asOf` push down into the leg query, no JS post-filter.
+- **PII gating** — DB-level via `PERMISSIONS WHERE $caller_scopes CONTAINS 'brain:read_pii'` on the `object` field of `address`/`dob`. Scoped pool signs in as a non-root editor; scope-less callers get NONE for the value but still see the predicate exists.
+
+Full feature-flag matrix in the `Operations` section.
+
 ## Dreams (off-hours self-improvement)
 
 A daily cron (04:00 UTC, 43 min after compaction) that walks every tenant and runs three optional sub-passes over the post-compaction state. Each is independently env-gated; `DREAMS_ENABLED=1` is the master switch.
@@ -341,7 +424,11 @@ New fact wins over best contradicting fact only if it beats it by ≥ 0.15. Belo
 
 ## Tenancy + data isolation
 
-Each company gets its own SurrealDB database (`co_<companyId>`). Cross-tenant queries are physically impossible at the storage layer — there is no shared table with row-level security. Forgetting a tenant is `REMOVE DATABASE` (single statement).
+Each company gets its own SurrealDB database `co_<companyId>` inside the
+shared `inite` namespace. Cross-tenant queries are physically impossible at
+the storage layer — there is no shared table with row-level security.
+Forgetting a tenant is `REMOVE DATABASE` (single statement). Migrations
+apply per tenant on first request via `ensureSchema` (idempotent).
 
 ## Privacy + GDPR
 
@@ -430,6 +517,57 @@ curl http://localhost:${BRAIN_HOST_PORT:-3030}/health
 The host port defaults to `3030` to avoid conflict with common dev ports; override with `BRAIN_HOST_PORT`.
 
 The schema is reapplied per request via `DEFINE … IF NOT EXISTS` — restarts and version upgrades are idempotent.
+
+## Eval harness
+
+`test/eval/` is the production gate, not a smoke folder. It runs against a
+spawned brain process with real OpenAI, against ~250 retrieval queries plus
+3 synthesize scenarios, and asserts hard thresholds per vertical AND overall.
+
+Layout:
+
+```
+test/eval/
+├── scenarios/        # 11 declarative .scenarios.ts files + Allen-relation matrix
+├── fixtures/         # fat-tenant generator + wikidata Russian-writers (Latin + Cyrillic)
+├── loaders/          # JsonDirectory loader + Wikidata SPARQL mapper + query-bank generator
+├── metrics/          # recall@k, MRR, NDCG, joint-F1, faithfulness, MIA-AUC,
+│                     #   identity-resolution (B³), bootstrap CI
+├── runner/           # SetupApplier, QueryExecutor, MemoryAssertions,
+│                     #   MiaChecker, FaithfulnessChecker, Aggregator, Reporter
+└── types.ts
+```
+
+Reported per-run:
+
+- **Per-vertical + overall** for recall@1/3, MRR, NDCG@10
+- **Bootstrap 95% CI** on every retrieval metric (1000 resamples, seeded mulberry32 — CI itself is reproducible)
+- **Per-predicate breakdown** — surfaces "router weak on dob" that overall=0.95 hides
+- **Temporal / current split** — partitioned by whether the query carried `asOf`; null on empty partition (not 0)
+- **Identity-resolution F1 / precision / recall** (B³-style with declared distractors; placebo `rate(merged)` retired)
+- **Faithfulness mean + pass-rate + verifier-failures** — RAGAS claim-decomposition; sourceFacts fall back to retrieved-context when emitted citations are thin
+- **MIA-AUC** with underpowered guard — auto-bypasses gate when N_pos+N_neg < 30 (default `MIA_MIN_N`)
+- **Memory-lifecycle correctness** — update / supersede / retract / forget assertions; threshold = 1.0
+- **PII-gating correctness** — fact-level absence assertions; threshold = 1.0
+
+Wired into CI via `actions/cache@v4` baseline. Each green push to main writes
+a fresh `.eval-baseline/main.json`; PR / dispatch runs diff against the most
+recent baseline and fail on regression beyond per-metric tolerance
+(`scripts/eval-baseline-diff.ts`):
+
+```
+recall/MRR/NDCG/F1     >3pp drop  → block
+extraction-*           >5pp drop  → block
+identity / pii-gating  >1pp drop  → block
+memory-lifecycle       any drop   → block (must equal 1.0)
+MIA-AUC                >5pp rise  → block (lower is better)
+others                 >5pp drop  → block
+```
+
+`pnpm test:eval` runs the full suite locally. Set `BRAIN_EVAL_DIRECTORY_DISABLE=1`
+to skip the wikidata legs for fast-iteration loops; default behaviour pulls in
+`wd-russian-writers.json` + `wd-russian-writers-ru.json` and samples 30 entities
+(seed=42, deterministic) × 3 query templates per directory.
 
 ## License
 
