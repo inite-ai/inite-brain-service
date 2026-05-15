@@ -137,14 +137,14 @@ jobs:
                 - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
                 - OPENAI_EMBEDDING_DIMENSIONS=1536
                 - OPENAI_CHAT_MODEL=gpt-4o-mini-2024-07-18
-                # Aggressive timeouts in prod: a hung OpenAI call should
-                # fail-open quickly, not stack 90s × N legs. Eval ran on
-                # 30000/3; production sees real rate-limit pressure that
-                # eval doesn't, so trim. Surfaces backpressure as 5xx
-                # instead of 240s hangs the caller has to time out.
-                - OPENAI_TIMEOUT_MS=12000
-                - OPENAI_MAX_RETRIES=1
-                - OPENAI_CONCURRENCY=4
+                # OpenAI client budget — same as eval. Per-stage budgets
+                # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
+                # end-to-end pipeline regardless of what individual calls
+                # take, so we don't need OPENAI_TIMEOUT_MS to be the
+                # circuit breaker.
+                - OPENAI_TIMEOUT_MS=30000
+                - OPENAI_MAX_RETRIES=3
+                - OPENAI_CONCURRENCY=8
                 # Auth — JWKS via auth.inite.ai. NODE_ENV=production +
                 # JWKS enabled ⇒ static BRAIN_API_KEYS is REJECTED, JWT only.
                 - AUTH_SERVICE_URL=https://auth.inite.ai
@@ -152,21 +152,26 @@ jobs:
                 - AUTH_SERVICE_AUDIENCE=brain
                 # GDPR forget HMAC — opaque tombstone marker.
                 - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
-                # Search retrieval features. Eval-validated ON config
-                # (router + reranker + SC=3) was producing 240s hangs in
-                # prod under real rate-limit pressure — every search
-                # made up to 5 sequential LLM calls (router + 3 SC
-                # rerank shuffles + cohere) and any one stalled tail-
-                # latency the entire request. Reverting to "vector +
-                # lexical + backfill only" until the LLM-stage gets a
-                # per-stage budget + circuit breaker. Lose ~5pp recall@1,
-                # gain p99 < 5s.
-                - SEARCH_PREDICATE_ROUTER_ENABLED=0
-                - SEARCH_RERANKER_ENABLED=0
-                - SEARCH_RERANKER_SC_N=1
+                # Search retrieval features — eval-validated ON config.
+                # Now safe to keep on because each LLM stage runs under
+                # its own withStageBudget wrapper (search.service.ts):
+                # router=2s, reranker=4s (parallel SC), cross-encoder=2s,
+                # backfill=2s. A stalled LLM fail-opens with the previous
+                # stage's result; the request still completes inside the
+                # overall pipeline budget instead of stacking 90s × N.
+                - SEARCH_PREDICATE_ROUTER_ENABLED=1
+                - SEARCH_RERANKER_ENABLED=1
+                - SEARCH_RERANKER_SC_N=3
                 - SEARCH_HYPE_ENABLED=0
                 - SEARCH_PPR_ENABLED=0
                 - SEARCH_PPR_AUTO_THRESHOLD=100
+                # Per-stage budgets (ms). Tunable without redeploy of
+                # search.service.ts. Defaults match the constants there;
+                # overrides only when prod traffic shape changes.
+                - SEARCH_STAGE_BUDGET_ROUTER_MS=2000
+                - SEARCH_STAGE_BUDGET_RERANK_MS=4000
+                - SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS=2000
+                - SEARCH_STAGE_BUDGET_BACKFILL_MS=2000
               labels:
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"

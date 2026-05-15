@@ -73,6 +73,64 @@ interface FactRow {
 const HYBRID_VECTOR_WEIGHT = 0.5;
 
 /**
+ * Per-stage soft budgets for the optional LLM legs of the search
+ * pipeline. A stage that exceeds its budget fails open with the
+ * provided fallback (typically the upstream stage's result), so a
+ * stalled OpenAI / Cohere / SurrealDB call cannot stack 30s × N
+ * tail latency on a /v1/search request.
+ *
+ * Budgets are tunable via env (SEARCH_STAGE_BUDGET_*_MS) without
+ * a code change; the constants below are the defaults the deploy
+ * workflow encodes. Numbers are derived from p50 stage latency on
+ * the eval — a 4s reranker budget covers SC=3 parallel calls at
+ * ~700ms each plus headroom; 2s router budget covers a cached miss
+ * with one round trip; 2s backfill budget covers the inline subquery
+ * on a few-thousand-fact tenant.
+ */
+const DEFAULT_STAGE_BUDGET_MS = {
+  router: 2000,
+  rerank: 4000,
+  crossEncoder: 2000,
+  backfill: 2000,
+} as const;
+
+/**
+ * Race a promise against a per-stage deadline; on timeout return the
+ * fallback and log a warning. Pure helper — no metric coupling so it
+ * stays mockable. Caller is responsible for wiring metrics if it
+ * cares about per-stage timeout counts.
+ *
+ * The original promise keeps running in the background after timeout
+ * (we cannot synchronously cancel an arbitrary Promise) — that is
+ * fine, the result is dropped on the floor. Memory pressure is bounded
+ * by OPENAI_CONCURRENCY / per-stage limiters upstream.
+ */
+async function withStageBudget<T>(
+  stage: keyof typeof DEFAULT_STAGE_BUDGET_MS,
+  budgetMs: number,
+  fn: () => Promise<T>,
+  fallback: T,
+  logger?: { warn: (msg: string) => void },
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ __timedOut: true }>((resolve) => {
+    timer = setTimeout(() => resolve({ __timedOut: true }), budgetMs);
+  });
+  try {
+    const winner = await Promise.race([fn().then((v) => ({ ok: v })), timeout]);
+    if ('__timedOut' in winner) {
+      logger?.warn(
+        `Search stage '${stage}' exceeded ${budgetMs}ms budget — falling back`,
+      );
+      return fallback;
+    }
+    return winner.ok;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Diversity-bucket key for the degree boost. Two facts collapse
  * to the same key when they have the same predicate AND their
  * normalized leading 3 tokens overlap — close enough to treat
@@ -100,6 +158,9 @@ function diversityKey(predicate: string, object: string): string {
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
+  // Per-stage budgets resolved from env once at construction. Tunable
+  // without redeploy via SEARCH_STAGE_BUDGET_*_MS; unset → defaults.
+  private readonly budgets: Record<keyof typeof DEFAULT_STAGE_BUDGET_MS, number>;
 
   constructor(
     private readonly surreal: SurrealService,
@@ -108,7 +169,23 @@ export class SearchService {
     private readonly predicateRouter: PredicateRouterService,
     private readonly crossEncoder: CrossEncoderService,
     @Optional() private readonly metrics?: MetricsService,
-  ) {}
+  ) {
+    const fromEnv = (key: string, fallback: number): number => {
+      const raw = process.env[key];
+      if (!raw) return fallback;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    this.budgets = {
+      router: fromEnv('SEARCH_STAGE_BUDGET_ROUTER_MS', DEFAULT_STAGE_BUDGET_MS.router),
+      rerank: fromEnv('SEARCH_STAGE_BUDGET_RERANK_MS', DEFAULT_STAGE_BUDGET_MS.rerank),
+      crossEncoder: fromEnv(
+        'SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS',
+        DEFAULT_STAGE_BUDGET_MS.crossEncoder,
+      ),
+      backfill: fromEnv('SEARCH_STAGE_BUDGET_BACKFILL_MS', DEFAULT_STAGE_BUDGET_MS.backfill),
+    };
+  }
 
   /**
    * Decide whether the LLM reranker can be skipped based on the
@@ -231,7 +308,13 @@ export class SearchService {
       // Returns null when the router is disabled or the LLM call
       // fails — both boosts reduce to 1.0.
       const routerOut = await withSpan('search.route', async (span) => {
-        const out = await this.predicateRouter.route(dto.query);
+        const out = await withStageBudget(
+          'router',
+          this.budgets.router,
+          () => this.predicateRouter.route(dto.query),
+          null,
+          this.logger,
+        );
         span.setAttribute('router.hit', out !== null);
         return out;
       });
@@ -408,13 +491,24 @@ export class SearchService {
             body: topFacts,
           };
         });
+        // Identity-permutation fallback if the stage exceeds its
+        // budget — keeps wideCandidates' fusion order, no reorder.
+        const identityPerm = xInputs.map((_, i) => i);
         const xPerm = await withSpan(
           'search.cross_encoder',
-          () => this.crossEncoder.rerank(dto.query, xInputs),
+          () =>
+            withStageBudget(
+              'crossEncoder',
+              this.budgets.crossEncoder,
+              () => this.crossEncoder.rerank(dto.query, xInputs),
+              identityPerm,
+              this.logger,
+            ),
           { 'cross_encoder.candidates': xInputs.length },
         );
-        // Detect identity fallback (transport / parse failure) so the
-        // metric distinguishes real lift from no-op error paths.
+        // Detect identity fallback (transport / parse failure OR our
+        // budget timeout) so the metric distinguishes real lift from
+        // no-op error paths.
         const isIdentity = xPerm.every((idx, i) => idx === i);
         this.metrics?.countCrossEncoder(isIdentity ? 'error' : 'invoked');
         candidatesForRerank = xPerm
@@ -511,13 +605,25 @@ export class SearchService {
             }.`
           : undefined;
 
+        // Identity permutation = no reorder. Used as fail-open when
+        // the LLM reranker exceeds its budget; the cross-encoder /
+        // fusion ordering survives.
+        const identityPerm = rerankInputs.map((_, i) => i);
         const permutation = await withSpan(
           'search.rerank',
-          () => this.reranker.rerank(dto.query, rerankInputs, hints),
+          () =>
+            withStageBudget(
+              'rerank',
+              this.budgets.rerank,
+              () => this.reranker.rerank(dto.query, rerankInputs, hints),
+              identityPerm,
+              this.logger,
+            ),
           { 'rerank.candidates': rerankInputs.length },
         );
         topEntities = permutation.map((i) => candidatesForRerank[i]);
-        this.metrics?.countRerank('invoked');
+        const isIdentity = permutation.every((idx, i) => idx === i);
+        this.metrics?.countRerank(isIdentity ? 'skipped_disabled' : 'invoked');
       }
       topEntities = topEntities.slice(0, limit);
 
@@ -539,12 +645,19 @@ export class SearchService {
       // sorted after matched ones in the response. PII PERMISSIONS
       // and scoped-company isolation apply automatically through the
       // already-scoped connection.
-      const backfillByEntity = await this.backfillEntityFacts(
-        db,
-        topEntities.map((e) => e.entityId),
-        baseWhere,
-        dto,
-        callerScopes,
+      const backfillByEntity = await withStageBudget(
+        'backfill',
+        this.budgets.backfill,
+        () =>
+          this.backfillEntityFacts(
+            db,
+            topEntities.map((e) => e.entityId),
+            baseWhere,
+            dto,
+            callerScopes,
+          ),
+        new Map<string, FactRow[]>(),
+        this.logger,
       );
 
       const fullResults: SearchHit[] = topEntities
