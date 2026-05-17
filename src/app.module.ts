@@ -27,12 +27,42 @@ import { MetricsModule } from './metrics/metrics.module';
       envFilePath: ['.env.local', '.env'],
     }),
 
+    // Per-tenant throttling buckets. The default bucket is the
+    // catch-all for unannotated routes. Each destructive / expensive
+    // endpoint gets its own named bucket so a misbehaving tenant
+    // can't starve cheap reads when their forget calls hit the
+    // limit, and vice-versa.
+    //
+    // forget:    5/min   — leaked admin JWT blast radius
+    // synthesize: 30/min  — gpt-4o-mini + Cohere costs
+    // search:    60/min  — vector + BM25 hot path
+    // ingest:    200/min — typical chat / check-in burst
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
           ttl: parseInt(config.get<string>('THROTTLE_TTL_MS', '60000'), 10),
           limit: parseInt(config.get<string>('THROTTLE_LIMIT', '120'), 10),
+        },
+        {
+          name: 'forget',
+          ttl: parseInt(config.get<string>('THROTTLE_FORGET_TTL_MS', '60000'), 10),
+          limit: parseInt(config.get<string>('THROTTLE_FORGET_LIMIT', '5'), 10),
+        },
+        {
+          name: 'synthesize',
+          ttl: parseInt(config.get<string>('THROTTLE_SYNTHESIZE_TTL_MS', '60000'), 10),
+          limit: parseInt(config.get<string>('THROTTLE_SYNTHESIZE_LIMIT', '30'), 10),
+        },
+        {
+          name: 'search',
+          ttl: parseInt(config.get<string>('THROTTLE_SEARCH_TTL_MS', '60000'), 10),
+          limit: parseInt(config.get<string>('THROTTLE_SEARCH_LIMIT', '60'), 10),
+        },
+        {
+          name: 'ingest',
+          ttl: parseInt(config.get<string>('THROTTLE_INGEST_TTL_MS', '60000'), 10),
+          limit: parseInt(config.get<string>('THROTTLE_INGEST_LIMIT', '200'), 10),
         },
       ],
     }),

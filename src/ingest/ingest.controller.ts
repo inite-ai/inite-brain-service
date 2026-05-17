@@ -5,6 +5,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { IngestService } from './ingest.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
@@ -19,6 +20,7 @@ export class IngestController {
 
   @Post('fact')
   @RequireScopes('brain:write')
+  @Throttle({ ingest: { limit: 200, ttl: 60_000 } })
   async ingestFact(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestFactDto,
@@ -28,6 +30,7 @@ export class IngestController {
 
   @Post('mention')
   @RequireScopes('brain:write')
+  @Throttle({ ingest: { limit: 200, ttl: 60_000 } })
   async ingestMention(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestMentionDto,
@@ -37,6 +40,7 @@ export class IngestController {
 
   @Post('link')
   @RequireScopes('brain:write')
+  @Throttle({ ingest: { limit: 200, ttl: 60_000 } })
   async ingestLink(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestLinkDto,

@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { EntitiesService } from './entities.service';
 import { ForgetEntityDto } from './dto/forget.dto';
@@ -67,6 +68,7 @@ export class EntitiesController {
 
   @Post(':id/forget')
   @RequireScopes('brain:admin')
+  @Throttle({ forget: { limit: 5, ttl: 60_000 } })
   async forget(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
