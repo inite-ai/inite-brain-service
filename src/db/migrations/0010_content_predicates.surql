@@ -1,0 +1,44 @@
+-- 0010_content_predicates — content-domain predicate vocabulary extension.
+--
+-- This migration has NO procedural SurrealQL to apply. Its purpose is:
+--   1. Record in schema_migrations that the content vocabulary was declared
+--      (migrationId = '0010') so per-tenant bootstrap knows this vocabulary
+--      was active when the tenant's schema was last advanced.
+--   2. Serve as the authoritative comment block listing the 10 predicates,
+--      their cardinality, decay values, and char-limits for ops / DBA
+--      inspection without reading TypeScript source.
+--
+-- All policy data lives in src/ingest/conflict-resolver.ts (JS source of
+-- truth). SurrealDB's fn::resolve_fact (0009) accepts $semantics as a
+-- parameter from the JS caller and already handles both single_active
+-- (brand_voice, brand_archetype, tone_of_voice, product_description) and
+-- append_only (target_audience_segment, content_guideline, tension_point,
+-- reference_example, narrative_pillar, forbidden_pattern) without changes.
+--
+-- New predicates (piiClass=none for all — no PII gate change needed):
+--
+--   Singletons (single_active — newer validFrom supersedes older):
+--     brand_voice            single_active  decayHalfLifeDays=180   ≤500 chars
+--     brand_archetype        single_active  decayHalfLifeDays=null  enum of 12 Jungian archetypes
+--     tone_of_voice          single_active  decayHalfLifeDays=180   ≤500 chars
+--     product_description    single_active  decayHalfLifeDays=180   ≤1000 chars
+--
+--   Multi-valued (append_only — every fact accumulates; no supersede):
+--     target_audience_segment  append_only  decayHalfLifeDays=90    ≤300 chars; dedupe by object hash
+--     content_guideline        append_only  decayHalfLifeDays=365   ≤500 chars
+--     tension_point            append_only  decayHalfLifeDays=90    ≤500 chars
+--     reference_example        append_only  decayHalfLifeDays=null  URL or quote ≤1000 chars; dedupe by (entityId, object) hash
+--     narrative_pillar         append_only  decayHalfLifeDays=365   ≤300 chars
+--     forbidden_pattern        append_only  decayHalfLifeDays=null  ≤300 chars; dedupe by (entityId, object) hash
+--
+-- Why no DDL:
+--   knowledge_fact.predicate is TYPE string (schema.surql) with no CHECK
+--   constraint — free-text predicates are already supported. Adding DEFINE
+--   statements here would duplicate the JS source-of-truth and create drift
+--   risk (RESEARCH § 4 / 0009 design rationale). Additive only; no existing
+--   DDL modified.
+--
+-- Backward compatibility:
+--   Existing CRM predicates (said, name, email, phone, status, tier, intent,
+--   preference, complained_about, interacted_with, address, dob) are
+--   unchanged. This vocabulary extension is purely additive.
