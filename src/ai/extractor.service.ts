@@ -25,6 +25,7 @@ export interface ExtractionResult {
 }
 
 const PREDICATE_VOCABULARY = [
+  // CRM predicates (unchanged)
   'said',
   'name',
   'email',
@@ -37,6 +38,17 @@ const PREDICATE_VOCABULARY = [
   'interacted_with',
   'address',
   'dob',
+  // Content-domain predicates (v1.1)
+  'brand_voice',
+  'brand_archetype',
+  'tone_of_voice',
+  'product_description',
+  'target_audience_segment',
+  'content_guideline',
+  'tension_point',
+  'reference_example',
+  'narrative_pillar',
+  'forbidden_pattern',
 ] as const;
 
 const ENTITY_TYPE_VOCABULARY = [
@@ -77,7 +89,57 @@ Rules:
 - confidence is 0..1; reserve >0.8 for facts the text states explicitly,
   0.5–0.8 for inferred or implicit facts.
 - Skip entities you cannot characterize beyond a pronoun.
-- Set \`canonical\` to null unless the text explicitly states a canonical/legal form different from \`name\`.`;
+- Set \`canonical\` to null unless the text explicitly states a canonical/legal form different from \`name\`.
+
+Content-domain predicates (for marketing / brand / editorial mentions):
+   brand_voice          — how the brand SOUNDS (single description, ≤500 chars).
+                          SINGLETON: newer supersedes older. Extract the full
+                          style description as one fact, not word-by-word.
+   brand_archetype      — Jungian archetype. SINGLETON. One of: Hero, Sage,
+                          Outlaw, Explorer, Magician, Lover, Jester, Caregiver,
+                          Creator, Ruler, Innocent, Everyman.
+   tone_of_voice        — style attributes (e.g. "confident, conversational,
+                          no jargon"). SINGLETON.
+   product_description  — short product summary (≤1000 chars). SINGLETON.
+   target_audience_segment — one segment description. MULTI-VALUED: each
+                          distinct segment becomes its own fact. Example:
+                          "indie SaaS founders in EU/NA" → one fact;
+                          "content creators on LinkedIn" → a second fact.
+   content_guideline    — one editorial rule. MULTI-VALUED. Example:
+                          "Always lead with a customer result" → one fact.
+   tension_point        — one customer pain or contradiction the content
+                          addresses. MULTI-VALUED.
+   reference_example    — one URL or short quote of an exemplar piece.
+                          MULTI-VALUED.
+   narrative_pillar     — one theme the brand returns to. MULTI-VALUED.
+   forbidden_pattern    — one anti-pattern (e.g. "Never use the word
+                          'revolutionary'"). MULTI-VALUED.
+
+SINGLETON vs MULTI-VALUED rule: for singleton predicates (brand_voice,
+brand_archetype, tone_of_voice, product_description) emit EXACTLY ONE fact
+per entity even if the text mentions multiple drafts — pick the most recent
+or most specific. For multi-valued predicates, emit ONE fact per distinct
+item; do not concatenate multiple items into one object string. Always prefer
+a content-domain predicate when the brand itself is the subject — do NOT
+fall back to \`said\` or \`intent\` when a content-domain predicate fits better.
+
+Few-shot examples:
+  Input: "Our brand voice is confident, witty, and never apologetic.
+          We target indie SaaS founders in EU/NA and content creators
+          who build on LinkedIn. Never say 'revolutionary'."
+  Output facts (for entity: the brand):
+    { predicate: "brand_voice", object: "confident, witty, never apologetic", confidence: 0.92 }
+    { predicate: "target_audience_segment", object: "indie SaaS founders in EU/NA", confidence: 0.88 }
+    { predicate: "target_audience_segment", object: "content creators who build on LinkedIn", confidence: 0.88 }
+    { predicate: "forbidden_pattern", object: "Never say 'revolutionary'", confidence: 0.90 }
+
+  Input: "Acme's Outlaw archetype shows up in every headline. Their tone
+          is irreverent and warmly human, never corporate. Editorial rule:
+          always lead with a customer quote."
+  Output facts:
+    { predicate: "brand_archetype", object: "Outlaw", confidence: 0.90 }
+    { predicate: "tone_of_voice", object: "irreverent and warmly human, never corporate", confidence: 0.88 }
+    { predicate: "content_guideline", object: "always lead with a customer quote", confidence: 0.87 }`;
 
 @Injectable()
 export class ExtractorService {

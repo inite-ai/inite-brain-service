@@ -29,6 +29,20 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = {
   interacted_with:  { semantics: 'append_only',  decayHalfLifeDays: 30,   piiClass: 'behavioral' },
   address:          { semantics: 'bitemporal',   decayHalfLifeDays: 90,   piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
   dob:              { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
+
+  // Content-domain predicates (v1.1)
+  // Singletons: only one canonical value per entity at a time; newer validFrom supersedes older.
+  brand_voice:             { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
+  brand_archetype:         { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'none' },
+  tone_of_voice:           { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
+  product_description:     { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
+  // Multi-valued: each fact accumulates; no supersede occurs.
+  target_audience_segment: { semantics: 'append_only',   decayHalfLifeDays: 90,   piiClass: 'none' },
+  content_guideline:       { semantics: 'append_only',   decayHalfLifeDays: 365,  piiClass: 'none' },
+  tension_point:           { semantics: 'append_only',   decayHalfLifeDays: 90,   piiClass: 'none' },
+  reference_example:       { semantics: 'append_only',   decayHalfLifeDays: null, piiClass: 'none' },
+  narrative_pillar:        { semantics: 'append_only',   decayHalfLifeDays: 365,  piiClass: 'none' },
+  forbidden_pattern:       { semantics: 'append_only',   decayHalfLifeDays: null, piiClass: 'none' },
 };
 
 export const DEFAULT_POLICY: PredicatePolicy = {

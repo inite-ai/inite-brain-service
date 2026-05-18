@@ -39,6 +39,7 @@ export interface RouterClassification {
 }
 
 const DEFAULT_VOCABULARY = [
+  // CRM (unchanged)
   'name',
   'email',
   'phone',
@@ -51,6 +52,17 @@ const DEFAULT_VOCABULARY = [
   'address',
   'dob',
   'said',
+  // Content-domain (v1.1)
+  'brand_voice',
+  'brand_archetype',
+  'tone_of_voice',
+  'product_description',
+  'target_audience_segment',
+  'content_guideline',
+  'tension_point',
+  'reference_example',
+  'narrative_pillar',
+  'forbidden_pattern',
 ] as const;
 
 const TYPE_VOCABULARY = [
@@ -150,6 +162,16 @@ Predicates in our knowledge graph:
 - complained_about: complaint / problem report / dissatisfaction
 - interacted_with: a transaction, attendance, viewing, booking, contact
 - said: a generic utterance (use as residual when nothing more specific fits)
+- brand_voice: the brand's overall sound / personality description
+- brand_archetype: Jungian archetype (Hero, Sage, Outlaw, Explorer, Magician, Lover, Jester, Caregiver, Creator, Ruler, Innocent, Everyman)
+- tone_of_voice: writing-style attributes (e.g. "conversational, punchy, no jargon")
+- product_description: short product or service summary
+- target_audience_segment: a specific audience group the brand targets
+- content_guideline: one editorial rule or content standard
+- tension_point: customer pain or contradiction the content addresses
+- reference_example: an example URL or quote of an exemplar content piece
+- narrative_pillar: a recurring brand theme or strategic narrative
+- forbidden_pattern: a writing anti-pattern or phrase the brand avoids
 
 Entity types in our knowledge graph:
 - customer: a customer / tenant / lead / patient / attendee
