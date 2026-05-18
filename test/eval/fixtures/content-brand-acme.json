@@ -1,0 +1,176 @@
+{
+  "directoryName": "content",
+  "description": "Acme Beverages brand briefing — full content-predicate lifecycle: ingest singletons + multi-valued facts, supersede singleton (brand_voice v1 → v2), accumulate multi-valued, retract one tension_point, verify search surface. Exercises all 10 v1.1 predicates across 15 facts.",
+  "entities": [
+    {
+      "id": "acme_beverages",
+      "vertical": "content",
+      "facts": [
+        {
+          "predicate": "brand_voice",
+          "object": "Confident, witty, never apologetic. Direct tone that respects the reader's intelligence.",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95,
+          "tag": "bv-v1"
+        },
+        {
+          "predicate": "brand_voice",
+          "object": "Bold, irreverent, and warmly human. Never corporate.",
+          "validFrom": "2026-02-01T00:00:00Z",
+          "confidence": 0.95,
+          "tag": "bv-v2"
+        },
+        {
+          "predicate": "brand_archetype",
+          "object": "Outlaw",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "tone_of_voice",
+          "object": "Conversational, punchy, no jargon, avoids passive voice",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "product_description",
+          "object": "Acme Beverages makes small-batch functional drinks targeting indie creators and SaaS founders. No artificial sweeteners.",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "target_audience_segment",
+          "object": "Indie SaaS founders aged 25-40 in EU and North America",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.85
+        },
+        {
+          "predicate": "target_audience_segment",
+          "object": "Content creators building audiences on LinkedIn and YouTube",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.85
+        },
+        {
+          "predicate": "content_guideline",
+          "object": "Always lead with a customer result or data point, not a feature.",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "content_guideline",
+          "object": "Use second-person address. Speak directly to the reader.",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "tension_point",
+          "object": "Founders want sustained focus without the jitteriness of high-caffeine drinks",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.85,
+          "tag": "tp-focus"
+        },
+        {
+          "predicate": "tension_point",
+          "object": "Creators distrust brands that talk about community but feel corporate",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.85
+        },
+        {
+          "predicate": "narrative_pillar",
+          "object": "Built by builders, for builders",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9,
+          "source": { "vertical": "content", "eventId": "kb.acme.briefing.2026-01" }
+        },
+        {
+          "predicate": "forbidden_pattern",
+          "object": "Never use the word 'revolutionary' or 'game-changing'",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.95
+        },
+        {
+          "predicate": "forbidden_pattern",
+          "object": "Do not claim health benefits without citing a study",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.9
+        },
+        {
+          "predicate": "reference_example",
+          "object": "https://acmebev.com/story/founder-fuel",
+          "validFrom": "2026-01-01T00:00:00Z",
+          "confidence": 0.8
+        }
+      ],
+      "retract": [
+        { "tag": "tp-focus", "reason": "messaging pivot: tension_point superseded by new positioning doc" }
+      ]
+    }
+  ],
+  "forgetEntities": [],
+  "queries": [
+    {
+      "query": "acme target audience",
+      "expectedTopEntityRef": "content.acme_beverages",
+      "expectedFactPredicate": "target_audience_segment"
+    },
+    {
+      "query": "acme brand voice",
+      "expectedTopEntityRef": "content.acme_beverages",
+      "expectedFactPredicate": "brand_voice"
+    },
+    {
+      "query": "acme tension points customer pain",
+      "expectedTopEntityRef": "content.acme_beverages",
+      "expectedFactPredicate": "tension_point"
+    },
+    {
+      "query": "acme forbidden words content rules",
+      "expectedTopEntityRef": "content.acme_beverages",
+      "expectedFactPredicate": "forbidden_pattern"
+    }
+  ],
+  "memoryAssertions": [
+    {
+      "description": "updated brand_voice (v2) surfaces; original v1 is superseded",
+      "kind": "search_object_present",
+      "query": "acme brand voice",
+      "expectedRefPresent": "content.acme_beverages",
+      "objectSubstring": "Bold, irreverent"
+    },
+    {
+      "description": "original brand_voice v1 no longer surfaces (superseded)",
+      "kind": "search_object_absent",
+      "query": "acme brand voice",
+      "expectedRefAbsent": "content.acme_beverages",
+      "objectSubstring": "Confident, witty, never apologetic"
+    },
+    {
+      "description": "retracted tension_point (focus/jitteriness) is gone from default search",
+      "kind": "search_object_absent",
+      "query": "acme tension points customer pain",
+      "expectedRefAbsent": "content.acme_beverages",
+      "objectSubstring": "jitteriness"
+    },
+    {
+      "description": "non-retracted tension_point (corporate distrust) still present",
+      "kind": "search_object_present",
+      "query": "acme tension points customer pain",
+      "expectedRefPresent": "content.acme_beverages",
+      "objectSubstring": "corporate"
+    },
+    {
+      "description": "narrative_pillar accumulates (not superseded)",
+      "kind": "search_object_present",
+      "query": "acme narrative pillar brand theme",
+      "expectedRefPresent": "content.acme_beverages",
+      "objectSubstring": "Built by builders"
+    },
+    {
+      "description": "forbidden_pattern: revolutionary rule present",
+      "kind": "search_object_present",
+      "query": "acme forbidden words content rules",
+      "expectedRefPresent": "content.acme_beverages",
+      "objectSubstring": "revolutionary"
+    }
+  ]
+}
