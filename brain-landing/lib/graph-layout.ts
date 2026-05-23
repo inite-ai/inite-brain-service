@@ -9,7 +9,12 @@ import { Position, type Node, type Edge } from 'reactflow'
  *
  * `direction='LR'` (left-to-right) reads like a timeline / lineage.
  * `'TB'` (top-bottom) is denser; the toolbar exposes both.
+ *
+ * The third mode — `'force'` — is NOT computed here. Force-directed
+ * physics lives in `hooks/useForceLayout.ts` because it ticks over
+ * time and must integrate with reactflow's setNodes.
  */
+export type LayoutMode = 'force' | 'LR' | 'TB'
 export type LayoutDirection = 'LR' | 'TB'
 
 const NODE_WIDTH = 220

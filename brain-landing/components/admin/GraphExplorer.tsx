@@ -6,8 +6,13 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  ReactFlowProvider,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Edge,
   type Node,
+  type NodeChange,
+  type EdgeChange,
   type NodeMouseHandler,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
@@ -17,7 +22,12 @@ import { EntitySearch, type SearchHit } from './EntitySearch'
 import { EntityPanel } from './EntityPanel'
 import { PredicateFilter } from './PredicateFilter'
 import { AsOfSlider } from './AsOfSlider'
-import { applyDagreLayout, type LayoutDirection } from '../../lib/graph-layout'
+import {
+  applyDagreLayout,
+  type LayoutDirection,
+  type LayoutMode,
+} from '../../lib/graph-layout'
+import { useForceLayout } from '../../hooks/useForceLayout'
 
 const NODE_TYPES = { entity: EntityNode }
 const EDGE_TYPES = { kind: KindEdge }
@@ -39,16 +49,21 @@ interface ConnectionsResponse {
   }>
 }
 
-/**
- * Interactive entity-graph explorer. Seeds from EntitySearch hit,
- * grows by recursive /v1/entities/:id/connections calls. Layout via
- * dagre after every change so the graph never looks like spaghetti.
- */
 export function GraphExplorer() {
+  // ReactFlowProvider gives `useReactFlow` (used by useForceLayout) a
+  // context to attach to.
+  return (
+    <ReactFlowProvider>
+      <GraphExplorerInner />
+    </ReactFlowProvider>
+  )
+}
+
+function GraphExplorerInner() {
   const [nodes, setNodes] = useState<Node<EntityNodeData>[]>([])
   const [edges, setEdges] = useState<Edge<KindEdgeData>[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [layout, setLayout] = useState<LayoutDirection>('LR')
+  const [layout, setLayout] = useState<LayoutMode>('force')
   const [predicateFilter, setPredicateFilter] = useState<Set<string>>(new Set())
   const [asOf, setAsOf] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -68,11 +83,20 @@ export function GraphExplorer() {
     return edges.filter((e) => predicateFilter.has(e.data?.kind ?? ''))
   }, [edges, predicateFilter])
 
-  const relayout = useCallback(
+  // Spin up d3-force simulation when layout='force'. Hook is a no-op
+  // when disabled; it stops the simulation on cleanup.
+  const force = useForceLayout(nodes as Node[], visibleEdges as Edge[], {
+    enabled: layout === 'force',
+  })
+
+  // Apply dagre once when entering hierarchical layout or when nodes
+  // change in hierarchical mode. Force mode handles positions in the
+  // simulation tick.
+  const applyHierarchical = useCallback(
     (
       nextNodes: Node<EntityNodeData>[],
       nextEdges: Edge<KindEdgeData>[],
-      direction = layout,
+      direction: LayoutDirection,
     ) => {
       const { nodes: laidOut } = applyDagreLayout(
         nextNodes as Node[],
@@ -82,7 +106,42 @@ export function GraphExplorer() {
       setNodes(laidOut as Node<EntityNodeData>[])
       setEdges(nextEdges)
     },
-    [layout],
+    [],
+  )
+
+  const updateGraph = useCallback(
+    (
+      nextNodes: Node<EntityNodeData>[],
+      nextEdges: Edge<KindEdgeData>[],
+    ) => {
+      if (layout === 'force') {
+        // Seed brand-new nodes near (0,0) — let physics scatter them.
+        // Existing nodes keep their position so the graph doesn't jolt.
+        const known = new Map(nodes.map((n) => [n.id, n]))
+        setNodes(
+          nextNodes.map((n) => {
+            const prev = known.get(n.id)
+            if (prev) return prev
+            // Tiny random offset so co-located new nodes don't get the same
+            // initial velocity vector and shoot off in identical directions.
+            const jitter = 30
+            return {
+              ...n,
+              position: {
+                x: (Math.random() - 0.5) * jitter,
+                y: (Math.random() - 0.5) * jitter,
+              },
+            }
+          }),
+        )
+        setEdges(nextEdges)
+        // Re-heat so newly-added nodes find their place.
+        force.reheat()
+      } else {
+        applyHierarchical(nextNodes, nextEdges, layout)
+      }
+    },
+    [layout, nodes, force, applyHierarchical],
   )
 
   const addSeed = useCallback(
@@ -102,11 +161,10 @@ export function GraphExplorer() {
           seed: true,
         },
       }
-      const next = [...nodes, seedNode]
-      relayout(next, edges)
+      updateGraph([...nodes, seedNode], edges)
       setSelectedId(hit.entityId)
     },
-    [nodes, edges, relayout],
+    [nodes, edges, updateGraph],
   )
 
   const expand = useCallback(
@@ -118,9 +176,13 @@ export function GraphExplorer() {
         const res = await fetch(
           `/api/admin/proxy/v1/entities/${encodeURIComponent(entityId)}/connections${qs}`,
         )
-        const data = (await res.json()) as ConnectionsResponse | { error?: string }
+        const data = (await res.json()) as
+          | ConnectionsResponse
+          | { error?: string }
         if (!res.ok) {
-          setError((data as { error?: string })?.error ?? `Expand failed (${res.status})`)
+          setError(
+            (data as { error?: string })?.error ?? `Expand failed (${res.status})`,
+          )
           return
         }
         const conn = data as ConnectionsResponse
@@ -153,15 +215,26 @@ export function GraphExplorer() {
             nextEdgeIds.add(e.edgeId)
           }
         }
-        relayout(nextNodes, nextEdges)
+        updateGraph(nextNodes, nextEdges)
       } catch (e) {
         setError((e as Error).message)
       } finally {
         setExpanding(false)
       }
     },
-    [nodes, edges, relayout, asOf],
+    [nodes, edges, updateGraph, asOf],
   )
+
+  // Wire reactflow's own change-pipeline so drag motion is rendered.
+  // In force mode the simulation will overwrite positions on its next
+  // tick — but the user's drag is pinned via onNodeDrag* below so the
+  // pin wins.
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((prev) => applyNodeChanges(changes, prev))
+  }, [])
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((prev) => applyEdgeChanges(changes, prev))
+  }, [])
 
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
     setSelectedId(node.id)
@@ -182,6 +255,15 @@ export function GraphExplorer() {
       return next
     })
   }, [])
+
+  const cycleLayout = useCallback(() => {
+    const next: LayoutMode =
+      layout === 'force' ? 'LR' : layout === 'LR' ? 'TB' : 'force'
+    setLayout(next)
+    if (next !== 'force') {
+      applyHierarchical(nodes, edges, next)
+    }
+  }, [layout, nodes, edges, applyHierarchical])
 
   const reset = useCallback(() => {
     setNodes([])
@@ -210,16 +292,22 @@ export function GraphExplorer() {
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={() => {
-              const next: LayoutDirection = layout === 'LR' ? 'TB' : 'LR'
-              setLayout(next)
-              relayout(nodes, edges, next)
-            }}
+            onClick={cycleLayout}
             className="px-2 h-8 rounded border border-[var(--border)] text-[11px] font-mono text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)]"
-            title="Switch layout"
+            title="Cycle layout: force → LR → TB → force"
           >
             layout: {layout}
           </button>
+          {layout === 'force' && nodes.length > 0 && (
+            <button
+              type="button"
+              onClick={force.reheat}
+              className="px-2 h-8 rounded border border-[var(--border)] text-[11px] font-mono text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)]"
+              title="Re-heat physics — knock loose stuck clusters"
+            >
+              reheat
+            </button>
+          )}
           <button
             type="button"
             onClick={reset}
@@ -233,7 +321,7 @@ export function GraphExplorer() {
 
       {/* Error toast */}
       {error && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded bg-[var(--danger)] text-white text-xs font-mono">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded bg-[var(--danger)] text-white text-xs font-mono max-w-[60vw]">
           {error}
         </div>
       )}
@@ -244,8 +332,9 @@ export function GraphExplorer() {
           <div className="text-center text-[var(--text-muted)] max-w-md px-4">
             <div className="text-sm">Start with a search above.</div>
             <div className="mt-1 text-xs text-[var(--text-faint)]">
-              Click a hit to seed the graph. Then click a node for its profile,
-              double-click to expand neighbours.
+              Click a hit to seed the graph. Then click a node for its
+              profile, double-click to expand neighbours. Drag any node —
+              physics will rearrange the rest.
             </div>
           </div>
         </div>
@@ -256,11 +345,17 @@ export function GraphExplorer() {
         edges={visibleEdges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeDragStart={layout === 'force' ? force.onNodeDragStart : undefined}
+        onNodeDrag={layout === 'force' ? force.onNodeDrag : undefined}
+        onNodeDragStop={layout === 'force' ? force.onNodeDragStop : undefined}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
+        nodesDraggable
       >
         <Background
           variant={BackgroundVariant.Dots}
