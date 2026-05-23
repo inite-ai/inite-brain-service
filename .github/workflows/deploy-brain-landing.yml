@@ -134,6 +134,12 @@ jobs:
                 - NODE_ENV=production
                 - PORT=${{ env.PORT }}
                 - HOSTNAME=0.0.0.0
+                # Public origin — used to build absolute URLs for redirects
+                # (login → callback → return_url). Without this, Next.js
+                # resolves request.url against the internal HOSTNAME and
+                # bounces users to https://localhost:3030/...
+                - APP_URL=https://${{ env.DOMAIN }}
+                - NEXT_PUBLIC_APP_URL=https://${{ env.DOMAIN }}
                 - NEXT_PUBLIC_BRAIN_API_URL=https://${{ env.DOMAIN }}
                 # Server-to-server brain calls bypass Traefik — go straight to
                 # the backend container on the shared docker network so the

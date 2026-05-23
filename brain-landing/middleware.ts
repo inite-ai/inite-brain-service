@@ -27,9 +27,17 @@ const EXPECTED_AUDIENCE =
 
 const JWKS = createRemoteJWKSet(new URL('/.well-known/jwks.json', AUTH_DOMAIN))
 
+function appOrigin(req: NextRequest): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+  const host =
+    req.headers.get('x-forwarded-host') || req.headers.get('host')
+  const proto = req.headers.get('x-forwarded-proto') || 'https'
+  return host ? `${proto}://${host}` : 'https://brain.inite.ai'
+}
+
 function loginRedirect(req: NextRequest): NextResponse {
   const returnUrl = `${req.nextUrl.pathname}${req.nextUrl.search}`
-  const url = new URL('/api/auth/login', req.url)
+  const url = new URL('/api/auth/login', appOrigin(req))
   url.searchParams.set('return_url', returnUrl)
   return NextResponse.redirect(url)
 }

@@ -21,18 +21,19 @@ const CLIENT_ID =
 
 const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || ''
 
-function fail(request: NextRequest, message: string, status = 400) {
-  const url = new URL('/auth/error', request.url)
-  url.searchParams.set('reason', message)
-  return NextResponse.redirect(url, status === 400 ? 302 : status)
-}
-
 function appOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
+  const host =
+    request.headers.get('x-forwarded-host') || request.headers.get('host')
   const proto = request.headers.get('x-forwarded-proto') || 'https'
   if (!host) throw new Error('Cannot derive app origin: no host header')
   return `${proto}://${host}`
+}
+
+function fail(request: NextRequest, message: string, status = 400) {
+  const url = new URL('/auth/error', appOrigin(request))
+  url.searchParams.set('reason', message)
+  return NextResponse.redirect(url, status === 400 ? 302 : status)
 }
 
 export async function GET(request: NextRequest) {
@@ -89,9 +90,10 @@ export async function GET(request: NextRequest) {
     expires_in?: number
   }
 
+  const origin = appOrigin(request)
   const dest = returnUrl.startsWith('/')
-    ? new URL(returnUrl, request.url)
-    : new URL('/en/admin/graph', request.url)
+    ? new URL(returnUrl, origin)
+    : new URL('/en/admin/graph', origin)
   const res = NextResponse.redirect(dest)
 
   res.cookies.set('access_token', tokens.access_token, {
