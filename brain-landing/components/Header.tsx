@@ -1,6 +1,9 @@
+'use client'
+
 import Link from 'next/link'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { getMessages, type Lang } from '../lib/i18n'
+import { useAuth } from '../hooks/useAuth'
 
 interface Props {
   lang: Lang
@@ -9,12 +12,13 @@ interface Props {
 }
 
 /**
- * Sticky 1px-border header. Mirrors inite-auth's AppHeader chrome
- * without the user-menu (brain-landing is a public marketing surface,
- * no signed-in state). Locale switcher lives here.
+ * Sticky 1px-border header. Mirrors inite-auth's AppHeader chrome.
+ * "Admin" nav link appears only for sessions that pass
+ * `/api/auth/me` as admin — useAuth handles the fetch.
  */
 export function Header({ lang, context }: Props) {
   const t = getMessages(lang)
+  const auth = useAuth()
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur supports-[backdrop-filter]:bg-[var(--bg)]/60">
       <div className="max-w-6xl mx-auto h-12 px-4 flex items-center justify-between gap-4">
@@ -59,6 +63,14 @@ export function Header({ lang, context }: Props) {
           >
             {t.nav.github}
           </a>
+          {auth.isAdmin && (
+            <Link
+              href={`/${lang}/admin/graph`}
+              className="h-8 px-2.5 inline-flex items-center gap-1 rounded-md text-[var(--accent)] hover:bg-[var(--accent-faint)] text-sm font-medium"
+            >
+              Admin
+            </Link>
+          )}
           <LanguageSwitcher current={lang} />
         </nav>
       </div>
