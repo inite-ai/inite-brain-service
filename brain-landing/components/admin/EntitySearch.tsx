@@ -46,12 +46,18 @@ export function EntitySearch({ onSelect }: Props) {
           setErr(data?.error || `Search failed (${res.status})`)
           setResults([])
         } else {
-          // Brain /v1/search returns { hits: [{ entity, facts, score }] }
-          const hits: SearchHit[] = (data?.hits ?? [])
+          // Brain /v1/search returns
+          //   { results: [{ entityId, entityType, canonicalName, facts, score }] }
+          // (flat, not wrapped under `.entity`)
+          const hits: SearchHit[] = (data?.results ?? data?.hits ?? [])
             .map((h: any) => ({
-              entityId: h.entity?.id,
-              name: h.entity?.canonicalName || h.entity?.name || h.entity?.id,
-              type: h.entity?.type ?? 'other',
+              entityId: h.entityId ?? h.entity?.id,
+              name:
+                h.canonicalName ??
+                h.entity?.canonicalName ??
+                h.name ??
+                h.entityId,
+              type: h.entityType ?? h.entity?.type ?? 'other',
               score: h.score,
             }))
             .filter((h: SearchHit) => h.entityId)

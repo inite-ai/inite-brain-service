@@ -3,6 +3,23 @@
 import { useEffect, useState } from 'react'
 import { X, ExternalLink, Clock } from 'lucide-react'
 
+/**
+ * Brain returns externalRefs in two shapes depending on the path:
+ *   - search hit:   { vertical__id: 'id' }  (object-flat, double-underscore key)
+ *   - timeline row: [{vertical, id}]
+ * Normalise to a single array shape for rendering.
+ */
+function normalizeExternalRefs(
+  raw: Record<string, string> | Array<{ vertical: string; id: string }> | undefined | null,
+): Array<{ vertical: string; id: string }> {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  return Object.entries(raw).map(([k, v]) => {
+    const [vertical, ...rest] = k.split('__')
+    return { vertical: vertical ?? 'unknown', id: rest.join('__') || String(v) }
+  })
+}
+
 interface Props {
   entityId: string | null
   asOf?: string | null
@@ -11,13 +28,13 @@ interface Props {
 }
 
 interface EntityProfile {
-  entity: {
-    id: string
-    canonicalName?: string
-    name?: string
-    type: string
-    externalRefs?: Array<{ vertical: string; id: string }>
-  }
+  // Brain /v1/entities/:id returns flat shape — entityId/type at top level,
+  // externalRefs as a Record<string, string> not an array of {vertical,id}.
+  entityId: string
+  type: string
+  canonicalName?: string
+  name?: string
+  externalRefs?: Record<string, string> | Array<{ vertical: string; id: string }>
   facts: Array<{
     factId: string
     predicate: string
@@ -87,9 +104,7 @@ export function EntityPanel({ entityId, asOf, onClose, onExpand }: Props) {
             entity
           </div>
           <div className="text-sm font-medium text-[var(--text)] truncate">
-            {profile?.entity?.canonicalName ??
-              profile?.entity?.name ??
-              entityId}
+            {profile?.canonicalName ?? profile?.name ?? entityId}
           </div>
         </div>
         <button
@@ -115,31 +130,35 @@ export function EntityPanel({ entityId, asOf, onClose, onExpand }: Props) {
                 type
               </div>
               <div className="text-sm text-[var(--text)] font-mono">
-                {profile.entity.type}
+                {profile.type}
               </div>
             </section>
 
-            {profile.entity.externalRefs?.length ? (
-              <section>
-                <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  external refs
-                </div>
-                <ul className="space-y-1">
-                  {profile.entity.externalRefs.map((r, i) => (
-                    <li
-                      key={`${r.vertical}.${r.id}.${i}`}
-                      className="text-xs font-mono text-[var(--text)] flex items-center gap-1"
-                    >
-                      <ExternalLink className="w-3 h-3 text-[var(--text-faint)]" />
-                      <span className="text-[var(--text-muted)]">
-                        {r.vertical}.
-                      </span>
-                      {r.id}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+            {(() => {
+              const refs = normalizeExternalRefs(profile.externalRefs)
+              if (refs.length === 0) return null
+              return (
+                <section>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    external refs
+                  </div>
+                  <ul className="space-y-1">
+                    {refs.map((r, i) => (
+                      <li
+                        key={`${r.vertical}.${r.id}.${i}`}
+                        className="text-xs font-mono text-[var(--text)] flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3 text-[var(--text-faint)]" />
+                        <span className="text-[var(--text-muted)]">
+                          {r.vertical}.
+                        </span>
+                        {r.id}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            })()}
 
             <section>
               <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
