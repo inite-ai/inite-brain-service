@@ -1,0 +1,75 @@
+export const metadata = {
+  title: 'Bitemporal model · INITE Brain Docs',
+  description: 'Two time axes per fact, asOf queries, retracted-row semantics.',
+}
+
+# Bitemporal model
+
+Brain stores every fact along two independent time axes. Together they answer two different questions:
+
+| Axis | Field pair | Answers |
+| --- | --- | --- |
+| Valid time | `validFrom` / `validUntil` | "When was this true in the real world?" |
+| Transaction time | `recordedAt` / `retractedAt` | "When did brain know about it / when did brain learn it was wrong?" |
+
+Both are first-class. You can ask "what was Alice's tier on March 15" (valid time) AND "what did brain believe on April 1" (transaction time). The default search treats now as both axes.
+
+## Default = "actual now"
+
+Without `asOf`, every read returns only facts whose valid window contains *now* AND that brain currently believes:
+
+```
+validFrom <= now AND (validUntil IS NULL OR validUntil > now)
+AND status NOT IN ('superseded', 'retracted', 'compacted')
+AND (retractedAt IS NULL OR retractedAt > now)
+```
+
+Matches Datomic / Zep convention. This is what callers want ~95% of the time.
+
+## Passing `asOf`
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Alice tier",
+    "asOf": "2026-03-15T00:00:00Z"
+  }'
+```
+
+Pushes the cutoff into the leg-level WHERE clause — no JS post-filter. Cheap.
+
+## Allen-interval algebra
+
+When two ingests overlap, the conflict resolver classifies their relation:
+
+```
+A:  [─────────]
+B:        [─────────]   → overlap          → resolve by score
+A:  [─────────]
+B:              [───]   → before / after   → both valid, no conflict
+A:  [─────────]
+B:   [───]              → contains         → resolve by score
+```
+
+`single_active` predicates (e.g. `name`, `email`) force non-overlap — a new value supersedes the old one's `validUntil`. `bitemporal` predicates (e.g. `status`, `address`) allow overlap and route through the scorer. `append_only` predicates (e.g. `said`) never conflict.
+
+## Reading retracted rows
+
+`get_entity_timeline` and `GET /v1/entities/:id/timeline` return retracted facts too — `status: 'retracted'` with a `retractedAt` and `retractionReason`. By default search hides them; ask explicitly for "what changed" / "history" to expose them.
+
+Never delete-claim a retracted fact. Brain keeps the audit trail so the user can see "we used to believe X, then learned otherwise."
+
+## Pitfalls
+
+- **Sticky `asOf`** — drop it on follow-up turns unless the user says "still as of X".
+- **Treating `validUntil` as expiry** — a fact with `validUntil = 2026-04-01` was true *up to* that moment. Bitemporally correct, not stale.
+- **Confusing the axes** — "what was true in March" (valid time) ≠ "what brain knew in March" (transaction time). For transaction-time-only queries, pull the full timeline and filter client-side.
+
+## Related
+
+- [Conflict resolution](/en/docs/concepts/conflict-resolution) — the scoring formula
+- [Predicate vocabulary](/en/docs/concepts/predicates) — single_active vs bitemporal vs append_only
+- [POST /v1/search](/en/docs/api/search) — `asOf` parameter
+- The `brain-bitemporal` skill (`~/.claude/skills/brain-bitemporal/`) — agent how-to-use brief

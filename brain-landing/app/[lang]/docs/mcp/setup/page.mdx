@@ -1,0 +1,111 @@
+export const metadata = {
+  title: 'MCP setup · INITE Brain Docs',
+  description: 'Connect Claude Desktop, Cursor, Goose, or n8n to a per-tenant brain MCP endpoint.',
+}
+
+# MCP setup
+
+Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has its own URL, scoped by API key.
+
+## What you need
+
+1. A brain **API key** (format `brain_<base64>`). Generate at `https://brain.inite.ai/admin/keys`.
+2. The **companyId** the key was issued for (visible in the same screen).
+3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>`.
+
+Brain refuses anonymous MCP traffic. There is no shared-secret mode.
+
+## Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
+Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel with six tools (or four if the key only has `brain:read`).
+
+## Cursor
+
+`.cursor/mcp.json` in the workspace (or `~/.cursor/mcp.json` for global):
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
+Reload the workspace. Brain tools become available as `@brain.<tool>` in the chat panel.
+
+## Goose
+
+`~/.config/goose/config.yaml`:
+
+```yaml
+extensions:
+  brain:
+    type: streamable_http
+    uri: https://brain.inite.ai/mcp/<companyId>
+    headers:
+      Authorization: Bearer <api-key>
+    enabled: true
+```
+
+`goose session start` loads brain tools.
+
+## n8n
+
+In the **MCP Client** node:
+
+- URL: `https://brain.inite.ai/mcp/<companyId>`
+- Transport: HTTP (Streamable)
+- Header: `Authorization: Bearer <api-key>`
+
+Pin a credential so it's reusable across workflows.
+
+## Smoke test
+
+Once connected, ask the assistant:
+
+> List available brain tools and call `search_knowledge` with query `"hello"` limit 1.
+
+You should see either four or six tools (depending on scope) and a `search_knowledge` result that is either empty (fresh tenant) or one hit (seed data).
+
+If you get a 401, the bearer token is malformed or the key is invalid. If you get `400: MCP path companyId (...) does not match ApiKey companyId`, you've pasted the wrong companyId for this key.
+
+## Scope matrix
+
+| Scope | Tools visible |
+| --- | --- |
+| `brain:read` (always) | `search_knowledge`, `get_entity_profile`, `get_entity_timeline`, `find_related_entities` |
+| `brain:write` (extra) | also `record_fact`, `retract_fact` |
+| `brain:read_pii` (extra) | unlocks `email` / `phone` / `dob` / `address` object values in results |
+
+A key with only `brain:read` sees four tools, not six. That's the security invariant, not a bug.
+
+## Stateless mode
+
+Brain runs MCP stateless: one McpServer per request, no session id. MCP clients that need long-running sessions should call once per tool use — there's no setup cost on brain's side. Stateful sessions can be added via `sessionIdGenerator` if a use case appears.
+
+## Related
+
+- [MCP tools reference](/en/docs/mcp/tools) — full schemas for the six tools
+- [Skills bundle](/en/docs/skills) — agent how-to-use briefs (Anthropic Skills format)

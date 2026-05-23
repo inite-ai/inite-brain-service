@@ -1,0 +1,90 @@
+export const metadata = {
+  title: 'Security model · INITE Brain Docs',
+  description: 'JWT auth, scope-based authorization, per-tenant isolation, GDPR forget, PII gating.',
+}
+
+# Security model
+
+Layer-by-layer guarantees, in the order a request travels them.
+
+## 1. Authentication
+
+Brain accepts two auth primitives, both JWT-shaped:
+
+- **JWKS-verified user / service tokens** — issued by `auth.inite.ai`, audience `brain`. Brain pulls JWKS at boot and on rotation events.
+- **Static `BRAIN_API_KEYS`** — JSON-array of `{keyHash, companyId, scopes}` in env. `keyHash` is `sha256:<hex>` of the plaintext. Plaintext is never stored.
+
+Production runs JWT-only. Static keys are a dev fallback; `validateEnv()` warns when they're set in `NODE_ENV=production`.
+
+## 2. Authorization (scopes)
+
+Every endpoint declares its required scope. Mismatch = 403, before any business logic.
+
+| Scope | Required by |
+| --- | --- |
+| `brain:read` | All `/v1/search*`, `/v1/entities/:id` (non-PII fields), MCP read tools |
+| `brain:write` | `/v1/ingest/*`, `/v1/facts/:id/retract`, MCP `record_fact` + `retract_fact` |
+| `brain:read_pii` | Unlocks sensitive predicate object values (`email`, `phone`, `dob`, `address`) |
+| `brain:forget` | `/v1/entities/:id/forget` — must be paired with `brain:write` |
+| `brain:admin` | `/v1/dreams/run` |
+
+The scope check is also enforced at the **DB layer** via SurrealDB `PERMISSIONS WHERE $caller_scopes CONTAINS 'brain:read_pii'`. A bug in the controller can't accidentally leak — the database refuses to return the value.
+
+## 3. Per-tenant isolation
+
+Each company gets its own SurrealDB database `co_<companyId>` inside the shared `inite` namespace. There is **no shared table with row-level security** — cross-tenant queries are physically impossible at the storage layer.
+
+The scoped DB connection signs in as `brain_caller`, a non-root editor user. Root credentials are reserved for `DEFINE` / `REMOVE`. Schema migrations apply per tenant on first request via idempotent `DEFINE … IF NOT EXISTS`.
+
+## 4. MCP companyId binding
+
+Every MCP request includes the companyId in the URL path. Brain's controller checks `pathCompanyId === auth.companyId` and returns `400` on mismatch. An API key issued for `co_demo` cannot be used against `/mcp/co_other`.
+
+## 5. PII gating
+
+The DB-layer `PERMISSIONS` clause guards the `object` field of sensitive predicates:
+
+```sql
+DEFINE FIELD object ON TABLE knowledge_fact
+  PERMISSIONS FOR select
+  WHERE predicate NOT IN ['email', 'phone', 'dob', 'address']
+     OR $caller_scopes CONTAINS 'brain:read_pii';
+```
+
+A scope-less caller still sees the row exists — `predicate`, `validFrom`, `factId` all visible. The `object` is `null`. This is the "we have this data, you don't have rights" surface.
+
+CI runs a PII-gating eval with threshold 1.0 — any leak blocks the release.
+
+## 6. GDPR forget
+
+`POST /v1/entities/:id/forget` cascades through facts, edges, embeddings, derived artifacts. Synchronous. Leaves an `HMAC(forgetHmacKey, entityId)` tombstone in `forgotten_entity`. The HMAC proves the request was honored without keeping the entity id in plaintext.
+
+`FORGET_HMAC_KEY` is a required env var in production — `validateEnv()` hard-fails the service if it's missing or default. Using the default lets an attacker forge tombstones.
+
+## 7. Audit trail
+
+Every retract / forget / dreams-run lands in an audit table with caller identity, timestamp, reason. Audit rows are immutable (DB-level — no UPDATE / DELETE grant). Retract-cascade lists every derivative.
+
+## 8. Rate limiting
+
+Per-tenant per-endpoint via `@nestjs/throttler`. Defaults:
+- `/v1/ingest/*` — 100 req/min
+- `/v1/search` — 600 req/min
+- `/v1/synthesize` — 60 req/min (LLM cost)
+- `/v1/dreams/run` — 1 req/hour
+
+Override per tenant via the admin API. Headers include `X-RateLimit-Remaining`.
+
+## 9. Boot-time validation
+
+`validateEnv()` runs before NestJS starts. Missing or malformed values produce a single multi-line error and exit code 1. Better to refuse to start than dribble out 500s under load.
+
+## 10. Graceful shutdown
+
+`SIGTERM` / `SIGINT` close the SurrealDB connection and drain in-flight requests. 15s deadline so docker / fly / k8s don't `SIGKILL` mid-request.
+
+## Related
+
+- [Operator playbook](/en/docs/operator-playbook) — key issuance, scope assignment
+- [POST /v1/entities/:id/forget](/en/docs/api/entities) — the forget cascade
+- [Predicate vocabulary](/en/docs/concepts/predicates) — PII classes per predicate

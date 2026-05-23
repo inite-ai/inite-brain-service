@@ -1,0 +1,87 @@
+export const metadata = {
+  title: 'POST /v1/synthesize · INITE Brain Docs',
+  description: 'Corrective-RAG with strict / lenient / off guardrails plus claim-level faithfulness scorer.',
+}
+
+# POST /v1/synthesize
+
+`/v1/search` + a generator LLM + a verifier LLM. The generator produces a grounded answer with `[factId]` citations; the verifier scores whether each claim is supported by the source facts. Three guardrail modes; `strict` is fail-closed and the default.
+
+## Request
+
+```ts
+{
+  query: string
+  synthesisGuardrails?: 'strict' | 'lenient' | 'off'  // default 'strict'
+  limit?: number       // candidate facts forwarded to generator
+  predicates?: string[]
+  asOf?: string
+}
+```
+
+## Response
+
+```ts
+{
+  answer: string | null   // null when verifier rejects in strict mode
+  reason?: string         // verifier verdict / fallback message
+  citations: string[]     // factIds the generator cited (post-filter for hallucinated IDs)
+  results: SearchHit[]    // raw retrieval; lets the caller do their own synthesis
+  faithfulness?: {
+    supportedClaims: number
+    partialClaims: number
+    unsupportedClaims: number
+    score: number         // 0..1
+  }
+}
+```
+
+## Three modes
+
+| Mode | Verifier runs? | Returned answer | Use when |
+| --- | --- | --- | --- |
+| `strict` (default) | yes | `null` if not `supported` | Customer-facing assistant answers |
+| `lenient` | yes | always returned; `reason` carries verdict | Internal review surfaces |
+| `off` | no | always returned | Caller does its own grounding |
+
+Verifier outage → fail-closed in `strict`, fail-open in the others.
+
+## Hallucinated citations
+
+The generator sometimes invents `factId` values. Before the response leaves the server, brain filters out any citation that isn't in the retrieved set. Verifier sees the filtered set, so a "made up an ID" hallucination becomes "claim has no citation" → `partial`/`unsupported` in faithfulness.
+
+## Faithfulness scoring
+
+RAGAS convention. The verifier decomposes the answer into atomic claims and judges each against the source facts:
+
+```ts
+import { computeFaithfulness } from '@inite/knowledge/eval'
+
+const synthRes = await brain.synthesize({ query: '…' })
+const score = await computeFaithfulness(openai, {
+  answer: synthRes.answer,
+  sourceFacts: synthRes.results.flatMap(r => r.facts),
+})
+// → { faithfulness: 0.83, supportedClaims: 4, partialClaims: 1, unsupportedClaims: 1, claims: [...] }
+```
+
+CI runs faithfulness on every synthesize scenario in the eval suite. Hard floor: pass-rate ≥ 0.8 across 3 scenarios.
+
+## Example
+
+```bash
+curl -X POST "$BRAIN_URL/v1/synthesize" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "who reported maintenance issues last month?",
+    "synthesisGuardrails": "strict"
+  }'
+```
+
+Strict mode → either a verified answer or `null` with an explanation. Never a half-true paragraph.
+
+## Related
+
+- [POST /v1/search](/en/docs/api/search) — the retrieval side without synthesis
+- [POST /v1/search/multi-hop](/en/docs/api/multi-hop) — synthesize over chained reasoning

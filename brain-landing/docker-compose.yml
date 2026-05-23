@@ -1,0 +1,13 @@
+# Local-test compose. Build context = this dir.
+# Run: from inite-brain-service root: `pnpm skills:pack && cd brain-landing && docker compose up --build`
+services:
+  brain-landing:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_BRAIN_API_URL: ${NEXT_PUBLIC_BRAIN_API_URL:-https://brain.inite.ai}
+    image: inite/brain-landing:latest
+    container_name: brain-landing-local
+    ports:
+      - "${LANDING_HOST_PORT:-3030}:3030"
+    restart: unless-stopped

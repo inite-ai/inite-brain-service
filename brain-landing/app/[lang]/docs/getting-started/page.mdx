@@ -1,0 +1,76 @@
+export const metadata = {
+  title: 'Getting started · INITE Brain Docs',
+  description: 'Auth, your first ingest, your first search. About five minutes.',
+}
+
+# Getting started
+
+Five minutes from "I have an API key" to "I can search what I just ingested."
+
+## Prerequisite — an API key
+
+Brain refuses anonymous traffic. Two paths to a key:
+
+- **Self-hosted dev** — set `BRAIN_API_KEYS` in `.env` per the local-dev recipe in [`inite-brain-service/README.md`](https://github.com/inite/inite-brain-service).
+- **Hosted** — generate at `https://brain.inite.ai/admin/keys`. You'll get a string shaped `brain_<base64>` and a `companyId`. Keep them paired — the MCP path is per-tenant.
+
+The examples below assume:
+
+```bash
+export BRAIN_KEY="brain_..."
+export BRAIN_URL="https://brain.inite.ai"
+```
+
+## 1. Ingest one fact
+
+```bash
+curl -X POST "$BRAIN_URL/v1/ingest/fact" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityRef": { "vertical": "rent", "id": "cust_42" },
+    "predicate": "complained_about",
+    "object": "late maintenance response",
+    "validFrom": "2026-05-05T10:00:00Z",
+    "source": { "vertical": "rent", "messageId": "msg_1" }
+  }'
+```
+
+Response carries the `factId` and the conflict-resolver outcome (`INSERTED` on first ingest).
+
+## 2. Search for it
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "maintenance issues", "limit": 5 }'
+```
+
+Returns ranked entity-hits with their matching facts and per-leg score breakdown.
+
+## 3. Stand up an MCP client
+
+Once the REST side works, point an MCP client at the same key. See [MCP setup](/en/docs/mcp/setup) for the per-client config snippets.
+
+Three-line summary for Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "transport": "http",
+      "headers": { "Authorization": "Bearer <api-key>" }
+    }
+  }
+}
+```
+
+## What to read next
+
+- [Bitemporal model](/en/docs/concepts/bitemporal) — why every fact has two time axes
+- [Predicate vocabulary](/en/docs/concepts/predicates) — the building blocks of facts
+- [Conflict resolution](/en/docs/concepts/conflict-resolution) — what happens when two ingests fight
+- [POST /v1/search](/en/docs/api/search) — full request / response shape
+- [MCP tools reference](/en/docs/mcp/tools) — six tools and their Zod schemas

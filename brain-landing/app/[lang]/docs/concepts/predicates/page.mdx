@@ -1,0 +1,78 @@
+export const metadata = {
+  title: 'Predicate vocabulary · INITE Brain Docs',
+  description: 'Predicate semantics, decay half-life, PII class, v1.1 content predicates.',
+}
+
+# Predicate vocabulary
+
+A predicate is the verb of a fact — `name`, `email`, `tier`, `complained_about`. Brain governs how facts are merged via per-predicate policies declared up front, not inferred at ingest time. The vocabulary is defined in `inite-ecosystem/core/capabilities/knowledge.yaml`.
+
+## Three semantic modes
+
+| Semantic | Behaviour | Examples |
+| --- | --- | --- |
+| `single_active` | Only one value active at a time. New ingest supersedes the prior. | `name`, `email`, `phone`, `dob` |
+| `bitemporal` | Values carry explicit windows; overlap routes through conflict resolver. | `status`, `intent`, `address`, `tier` |
+| `append_only` | Never conflicts; every ingest is additive. | `said`, `mentioned_in`, `tag` |
+
+`single_active` is the simplest read model: take the row with the highest `validFrom`. `bitemporal` is the most expressive — the same predicate can be true over multiple disjoint windows. `append_only` is for utterance / tagging predicates where there is no notion of "the" value.
+
+## Decay half-life
+
+Each predicate carries a `decay_halflife_days`. The retrieval score multiplier:
+
+```
+decay = 0.5 ^ (age_days / halflife_days)
+```
+
+Short half-life predicates (e.g. `status: 7d`) fade fast — last week's status matters less than today's. Long half-life (`address: 90d`, `dob: never`) keeps weight indefinitely.
+
+## PII class
+
+Per-predicate scope gating. The DB-layer `PERMISSIONS` clause checks `$caller_scopes`:
+
+| PII class | Predicates | Required scope |
+| --- | --- | --- |
+| `none` | `status`, `intent`, `tier`, `tag` | `brain:read` |
+| `text` | `said`, `comment`, `review` | `brain:read` |
+| `behavioral` | `intent`, `preference`, `interacted_with` | `brain:read` |
+| `identifier` | `name`, `phone-public` | `brain:read` |
+| `sensitive` | `email`, `phone`, `address`, `dob` | `brain:read_pii` |
+
+A scope-less caller still sees the predicate exists; the `object` field comes back `null`. This avoids leaking even the *shape* of PII to non-PII callers.
+
+## v1.1 content predicates
+
+Added in `feat/v1.1-content-predicates`. First-class semantics for content-domain knowledge:
+
+| Predicate | Semantic | Decay | PII |
+| --- | --- | --- | --- |
+| `comment` | `append_only` | 30d | text |
+| `review` | `bitemporal` | 90d | text |
+| `tag` | `append_only` | never | none |
+| `brand` | `single_active` | never | none |
+| `category` | `bitemporal` | 60d | none |
+| `rating` | `bitemporal` | 30d | none |
+
+The conflict resolver, NLU extractor, and predicate router all know about these — see the [v1.1 content-predicate vocabulary ledger entry](https://github.com/inite/inite-brain-service/blob/feat/v1.1-content-predicates/src/db/migrations/0010-content-predicates.sql) (comment-only DDL, no migration cost).
+
+## Reading the full table
+
+Brain's resolver loads the vocabulary at boot. Override per-tenant via the spec's `inheritance` mechanism if a vertical needs custom semantics — but the default vocabulary covers the cross-vertical surface.
+
+```ts
+import { vocabulary } from '@inite/knowledge/vocabulary'
+console.log(vocabulary.predicates.tier)
+// {
+//   semantic: 'bitemporal',
+//   decayHalflifeDays: 30,
+//   piiClass: 'none',
+//   sourceTrust: { rent: 0.9, inbox: 0.4 }
+// }
+```
+
+## Related
+
+- [Conflict resolution](/en/docs/concepts/conflict-resolution) — how the resolver scores
+- [Bitemporal model](/en/docs/concepts/bitemporal) — Allen-interval semantics
+- [POST /v1/ingest](/en/docs/api/ingest) — what gets routed through the resolver

@@ -1,0 +1,112 @@
+export const metadata = {
+  title: 'Operator playbook · INITE Brain Docs',
+  description: 'Day-2 ops — keys, scopes, feature flags, dreams cron, eval baselines.',
+}
+
+# Operator playbook
+
+What the on-call holds in their head when brain is live. The detailed runbook in [`docs/operator-playbook.md`](https://github.com/inite/inite-brain-service/blob/main/docs/operator-playbook.md) covers more; this is the abridged tour.
+
+## Issue an API key for a tenant
+
+```sh
+# Generate plaintext + hash it
+KEY=$(openssl rand -base64 32 | tr -d '=' | tr '+' '-' | tr '/' '_' )
+HASH="sha256:$(printf %s "$KEY" | sha256sum | cut -d' ' -f1)"
+
+# Update BRAIN_API_KEYS env (JSON array)
+echo '{"keyHash":"'$HASH'","companyId":"co_demo","scopes":["brain:read","brain:write"]}'
+
+# Hand the plaintext KEY to the caller. Brain never stores it.
+```
+
+Plaintext is never persisted. If a key is lost, issue a new one and remove the old hash from `BRAIN_API_KEYS`.
+
+## Scope model
+
+| Scope | Effect |
+| --- | --- |
+| `brain:read` | Read-only — search, profile, timeline, connections. Sensitive PII redacted. |
+| `brain:write` | Adds `record_fact`, `retract_fact`. |
+| `brain:read_pii` | Unlocks `email` / `phone` / `dob` / `address` object values in reads. |
+| `brain:forget` | Required (with `brain:write`) for hard `forget` cascade. |
+| `brain:admin` | Required for `/v1/dreams/run` manual trigger. |
+
+Least-privilege by default — keys for agent surfaces should be `brain:read` only unless you have a specific write use case.
+
+## Retrieval feature flags
+
+The pipeline ships every feature OFF. Flip them per tenant after measuring impact. Restart service to apply.
+
+| Flag | Effect | Enable when |
+| --- | --- | --- |
+| `SEARCH_HYPE_ENABLED` | Hypothetical-question embeddings on the read path | Question-shaped queries dominate |
+| `SEARCH_PREDICATE_ROUTER_ENABLED` | Joint LLM call → soft distribution over predicates + types | Predicate-class confusion in eval |
+| `SEARCH_CROSS_ENCODER_ENABLED` | Cohere Rerank v3.5 between fusion and LLM stage | Recall@1 plateau / LLM rerank too expensive |
+| `SEARCH_RERANKER_ENABLED` | Listwise LLM reranker (RankGPT-style) over top-20 | Recall@1 plateau — the biggest dial |
+| `SEARCH_RERANKER_SC_N` | Permutation self-consistency N | Run-to-run jitter |
+| `SEARCH_RERANK_SKIP_MARGIN` | Skip reranker when top1−top2 gap is wide | After enabling reranker, when invoked rate is high |
+| `SEARCH_PPR_ENABLED` | Personalized PageRank prior (HippoRAG-style) | Fat tenants (~100+ entities) |
+| `COMPACTION_SUMMARIES` | LLM summary per (entity, predicate) cluster on compaction | Long-history tenants needing warm-tier search |
+
+Per-flag metric: `brain_search_<feature>_total{outcome=...}`. Watch and tune.
+
+## Dreams cron
+
+Daily at 04:00 UTC (43 min after compaction). Three sub-passes, each individually flagged.
+
+| Sub-pass | Env flag | What |
+| --- | --- | --- |
+| `summarize` | `DREAMS_LLM_SUMMARY_ENABLED` | LLM-backed compaction summaries (falls back to concat on error) |
+| `dedup` | `DREAMS_DEDUP_ENABLED` | Two-stage near-duplicate finder (cosine + LLM judge → `identity_of` edge) |
+| `resolve` | `DREAMS_RESOLVE_ENABLED` | Auto-resolves `COMPETING` pairs older than `DREAMS_RESOLVE_MIN_AGE_DAYS` |
+
+Manual trigger:
+
+```bash
+curl -X POST "$BRAIN_URL/v1/dreams/run" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{ "operations": ["dedup", "resolve"] }'
+```
+
+Metric: `brain_dreams_emitted_total{kind=...}`. Ratio against ok-runs tells you if dreams is doing useful work or just spinning.
+
+## Eval baselines
+
+Every green push to main writes `.eval-baseline/main.json`. PRs diff against it (`pnpm eval:diff`). Per-metric tolerances:
+
+```
+recall / MRR / NDCG / F1     >3pp drop  → block
+extraction-*                 >5pp drop  → block
+identity / pii-gating        >1pp drop  → block
+memory-lifecycle             any drop   → block (must equal 1.0)
+MIA-AUC                      >5pp rise  → block (lower is better)
+others                       >5pp drop  → block
+```
+
+If a CI run blocks: read the per-vertical breakdown first — usually one vertical regressed, not the whole suite. Fix or revert.
+
+## Dead-letter triage
+
+Periodic check: `SELECT count(*) FROM dead_letter_fact WHERE createdAt > now() - 7d GROUP BY sourceVertical`. A vertical that suddenly spikes is shipping bad data — alert their on-call.
+
+## OTel tracing
+
+`OTEL_ENABLED=1` ships traces via OTLP/HTTP. Auto-instruments `http` (so OpenAI + JWKS calls appear) + `express`. Brain emits explicit child spans under `search`: `vector_leg`, `lexical_leg`, `route`, `ppr`, `fetch_neighbours`, `rerank` — each with candidate counts.
+
+Backend agnostic — Jaeger, Grafana Tempo, Datadog, Honeycomb all speak OTLP.
+
+## Forget a tenant
+
+```sql
+-- Brain runs in namespace `inite`, database `co_<companyId>` per tenant.
+REMOVE DATABASE co_<companyId>;
+```
+
+That's it. No row-level cleanup, no cross-table reference walk — per-tenant isolation is physical, not logical.
+
+## Related
+
+- [Security model](/en/docs/security) — what's enforced where
+- [Predicate vocabulary](/en/docs/concepts/predicates) — source_trust tuning
+- [Conflict resolution](/en/docs/concepts/conflict-resolution) — dead-letter origin

@@ -1,0 +1,99 @@
+export const metadata = {
+  title: 'Skills bundle · INITE Brain Docs',
+  description: 'Four Anthropic-format skills. One-line installer. Bundle versioned via skills/VERSION.',
+}
+
+# Skills bundle
+
+Brain ships four Anthropic Skills that teach an AI agent how to use the MCP surface. They're plain markdown — `SKILL.md` with YAML frontmatter — and Claude reads them natively when they land in `~/.claude/skills/`.
+
+## One-line install
+
+```sh
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+Optional flags:
+
+- `--target project` — install into `$PWD/.claude/skills/` instead of `$HOME`
+- `--key <api-key>` — ping a probe so the dashboard marks "skills installed" complete
+
+The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skills/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
+
+## The four skills
+
+| Skill | Activates when… | What it teaches |
+| --- | --- | --- |
+| `brain-search` | The user asks to find / look up / search knowledge | How to call `search_knowledge` with predicate hints and asOf semantics |
+| `brain-recall` | The user names an entity and asks for the full picture | How to combine `get_entity_profile` + `get_entity_timeline` + `find_related_entities` |
+| `brain-bitemporal` | The user has a temporal question ("on X date", "before Y") | asOf semantics, validFrom / validUntil, retracted-row handling |
+| `brain-mcp-setup` | The user is wiring brain MCP into a new client | Step-by-step config for Claude Desktop, Cursor, Goose, n8n |
+
+## Format
+
+Each `SKILL.md` is:
+
+```yaml
+---
+name: brain-search
+description: One-line summary the agent reads before deciding to activate this skill.
+---
+
+# Heading and instructions follow — pure markdown.
+```
+
+No JS runtime, no MCP wiring inside the skill itself. The wire-up lives in brain-service; the skill is the agent's how-to-use brief.
+
+## Versioning model
+
+Single semver in `skills/VERSION`. No per-skill semvers. The whole bundle ships as one versioned unit.
+
+```bash
+cat ~/.claude/skills/VERSION.brain
+# → 0.1.0
+```
+
+Bumped automatically by `pnpm skills:bump --staged` on pre-commit when any file under `skills/<name>/**` changes. Patch-bump only — manual minor / major: edit `skills/VERSION`, then `pnpm skills:build`.
+
+## Updating
+
+```sh
+# Re-run the installer at any time — it overwrites in place.
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+The installer is idempotent. It replaces the contents of `~/.claude/skills/brain-*` and refreshes `VERSION.brain`.
+
+## Layout
+
+```
+~/.claude/skills/
+├── VERSION.brain             ← bundle version, single source of truth
+├── CHANGELOG.brain.md
+├── brain-search/SKILL.md
+├── brain-recall/SKILL.md
+├── brain-bitemporal/SKILL.md
+└── brain-mcp-setup/SKILL.md
+```
+
+## Authoring a custom skill
+
+The bundle is open — add your own `brain-*` skill if you need a workflow brain doesn't ship. Layout:
+
+```
+skills/brain-mycustom/SKILL.md
+```
+
+Frontmatter must have `name` (= folder name) and `description`. Body is plain markdown. After editing:
+
+```sh
+pnpm skills:bump --note "feat(brain-mycustom): teach the agent <thing>"
+pnpm skills:pack
+```
+
+This patch-bumps `VERSION`, appends a CHANGELOG entry, and produces `brain-landing/public/skills.tar.gz` for the next deploy.
+
+## Related
+
+- [MCP setup](/en/docs/mcp/setup) — wire a client first
+- [MCP tools reference](/en/docs/mcp/tools) — what the skills actually call

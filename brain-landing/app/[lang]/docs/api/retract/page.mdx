@@ -1,0 +1,78 @@
+export const metadata = {
+  title: 'POST /v1/facts/:id/retract · INITE Brain Docs',
+  description: 'Mark a fact retracted. Survives in audit trail with reason.',
+}
+
+# POST /v1/facts/:id/retract
+
+Mark a fact as no longer believed. Different from forget — retract is a transaction-time operation that stays auditable. The fact stays in the timeline with `status: 'retracted'` and a `retractedAt` timestamp.
+
+## Request
+
+```http
+POST /v1/facts/<factId>/retract
+Authorization: Bearer <api-key>
+Content-Type: application/json
+```
+
+```ts
+{
+  reason: string                         // required — surfaces in audit + timeline
+  retractedBy?: { source: 'system' | 'human', operatorId?: string }
+  cascade?: boolean                      // also retract facts derived from this one; default true
+}
+```
+
+## Response
+
+```ts
+{
+  factId: string
+  retractedAt: string
+  cascaded: string[]   // factIds also retracted because they derived from this fact
+}
+```
+
+## What "retract" actually does
+
+- Sets `retractedAt = now()` on the row.
+- Sets `status = 'retracted'`.
+- Stores `retractionReason` and `retractedBy`.
+- Walks `derivedFrom[]` chains and cascades unless `cascade: false`.
+- Removes the fact from active search results (`asOf <= retractedAt` queries still see it).
+
+The original row is NOT deleted. That's the audit invariant — "brain used to believe X" stays answerable forever.
+
+## When to retract vs forget
+
+| Action | Use when |
+| --- | --- |
+| **Retract** | The fact was wrong. You want the audit trail to show "we believed this, then we didn't". The entity remains. |
+| **Forget** | GDPR / right-to-erasure on the *entity*. Everything about the person is hard-deleted, only an HMAC tombstone remains. |
+
+If unsure, retract. Forget is one-way and reserved for genuine erasure requests.
+
+## Bulk retract
+
+```bash
+# Retract every fact derived from a bad ingest
+curl -X POST "$BRAIN_URL/v1/facts/$ROOT_FACT/retract" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -d '{ "reason": "source vertical reported wrong message", "cascade": true }'
+```
+
+The `cascade: true` (default) walks the dependency chain. For a single ingest that emitted 14 facts via NLU extraction, this is one call.
+
+## Reading retracted in timeline
+
+`GET /v1/entities/:id/timeline` returns retracted rows. Filter to them when investigating "what walked back":
+
+```ts
+const tl = await brain.entityTimeline(entityId)
+const retracted = tl.facts.filter(f => f.status === 'retracted')
+```
+
+## Related
+
+- [Bitemporal model](/en/docs/concepts/bitemporal) — why retracted ≠ deleted
+- [POST /v1/entities/:id/forget](/en/docs/api/entities) — the hard-erase counterpart

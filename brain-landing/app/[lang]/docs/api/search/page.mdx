@@ -1,0 +1,131 @@
+export const metadata = {
+  title: 'POST /v1/search · INITE Brain Docs',
+  description: 'Hybrid retrieval pipeline, request / response shapes, per-leg CI metrics.',
+}
+
+# POST /v1/search
+
+Hybrid retrieval over a per-tenant knowledge graph. Vector + BM25 + optional HyPE legs → convex fusion → predicate-router boost → optional cross-encoder → listwise LLM rerank with self-consistency → entity-fact backfill.
+
+## Request
+
+```http
+POST /v1/search
+Authorization: Bearer <api-key>
+Content-Type: application/json
+```
+
+```ts
+{
+  query: string                    // natural language
+  limit?: number                   // 1..50, default 10
+  predicates?: string[]            // optional filter — restrict to these predicates
+  asOf?: string                    // ISO 8601 — historical cutoff
+  minConfidence?: number           // 0..1 — drop facts below this confidence
+  includeStale?: boolean           // include retracted / superseded; default false
+  legs?: ('vector' | 'lexical')[]  // override default leg set (debug)
+}
+```
+
+## Response
+
+```ts
+{
+  hits: Array<{
+    entity: {
+      id: string
+      name: string
+      type: string
+      externalRefs: Array<{ vertical: string, id: string }>
+    }
+    facts: Array<{
+      factId: string
+      predicate: string
+      object: string | null  // null when PII-gated
+      validFrom: string
+      validUntil: string | null
+      confidence: number
+      status: 'active' | 'superseded' | 'retracted'
+      sourceVertical?: string
+    }>
+    score: number          // post-rerank fused score
+    legScores: {           // per-leg contribution; useful for debugging
+      vector?: number
+      lexical?: number
+      hype?: number
+    }
+  }>
+  diagnostics?: {
+    router?: { predicates: Record<string, number>, types: Record<string, number> }
+    rerank?: { invoked: boolean, n: number, skippedReason?: string }
+    cacheHit?: boolean
+  }
+}
+```
+
+## Pipeline stages
+
+The pipeline runs in one HTTP call. Each stage is feature-flagged at the service level — operators flip them per tenant.
+
+```
+                   query
+                     │
+                     ▼
+       ┌─────────────────────────────┐
+       │ predicate + type router     │  joint LLM call → soft distribution
+       │ (LRU-cached per query hash) │
+       └─────────────────────────────┘
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+  vector leg   lexical leg   (HyPE alt-emb leg)
+  (HNSW cos)   (BM25)        max(cos_main, cos_alt)
+       │             │             │
+       └─────────────┼─────────────┘
+                     ▼
+       convex-fusion (CombMNZ-flavoured w=0.5)
+                     │
+                     ▼
+       decay × confidence × predicate-boost-α
+                     │
+                     ▼
+       group-by-entity ──→  PPR prior (HippoRAG, opt-in)
+                     │
+                     ▼
+       cross-encoder (Cohere Rerank v3.5, opt-in)
+                     │
+                     ▼
+       listwise LLM reranker (RankGPT-style + self-consistency)
+                     │
+                     ▼
+       entity-fact backfill (native Surreal inline subquery)
+                     │
+                     ▼
+                  results
+```
+
+## Bitemporal cutoff
+
+`asOf` pushes into the WHERE clause at the leg level:
+
+```sql
+WHERE validFrom <= $asOf
+  AND (validUntil IS NULL OR validUntil > $asOf)
+  AND (retractedAt IS NULL OR retractedAt > $asOf)
+```
+
+No JS post-filter, no double round-trip.
+
+## PII gating
+
+If the caller's API key lacks `brain:read_pii`, sensitive predicates (`email`, `phone`, `dob`, `address`) return with `object: null`. The predicate is still visible — that's the "we have this data, you don't have rights" signal. Tighter than 403 because you can still rank entities by the *presence* of identifying facts.
+
+## Per-leg CI
+
+Every release runs `pnpm test:eval` which bootstraps a 95% CI over each leg's recall@1, MRR, NDCG@10. Numbers are written to `.eval-baseline/main.json`. Drop more than 3pp = CI block.
+
+## Related
+
+- [POST /v1/synthesize](/en/docs/api/synthesize) — search + grounded answer + faithfulness verifier
+- [POST /v1/search/multi-hop](/en/docs/api/multi-hop) — chained reasoning with supportingFactIds
+- [Operator playbook](/en/docs/operator-playbook) — feature flags for the pipeline

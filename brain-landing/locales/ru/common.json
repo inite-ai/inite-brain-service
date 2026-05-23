@@ -1,0 +1,156 @@
+{
+  "nav": {
+    "docs": "Документация",
+    "github": "GitHub",
+    "status": "Статус",
+    "skills": "Скиллы"
+  },
+  "hero": {
+    "badge": "Brain Service · v1.1",
+    "title": "Битемпоральный граф знаний для AI-агентов.",
+    "subtitle": "INITE Brain — это слой семантической памяти на тенанта. Гибридный поиск, ingest с разрешением конфликтов, retract / forget — всё через REST и MCP-эндпоинт, к которому агенты подключаются нативно.",
+    "ctaPrimary": "Начать",
+    "ctaSecondary": "Подключить MCP"
+  },
+  "stats": {
+    "title": "Продакшен-гейты, не цифры для красоты.",
+    "subtitle": "Каждый push прогоняет multi-vertical eval по retrieval + memory-lifecycle. Числа ниже — это CI-полы; уйти под них = заблокированный релиз.",
+    "items": [
+      { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
+      { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
+      { "label": "identity-F1", "value": "1.000", "floor": "≥ 0.8" },
+      { "label": "memory-lifecycle", "value": "1.000", "floor": "= 1.0" }
+    ]
+  },
+  "features": {
+    "title": "Что Brain реально умеет.",
+    "items": [
+      {
+        "title": "Битемпоральные факты",
+        "desc": "Две оси у каждого факта — валидность (когда правда в мире) и транзакционная (когда Brain узнал). По умолчанию — «сейчас актуально»; для исторических запросов передаётся asOf."
+      },
+      {
+        "title": "Контент-предикаты (v1.1)",
+        "desc": "Первоклассный словарь для контента — комментарии, отзывы, теги, бренды, категории. У каждого предиката заранее заданы семантика, decay и PII-класс."
+      },
+      {
+        "title": "Lifecycle correctness = 1.0",
+        "desc": "Update, supersede, retract, forget. Eval-гейт не пропускает ничего меньше 1.0. GDPR-forget синхронный, оставляет только HMAC-tombstone."
+      },
+      {
+        "title": "Разрешение конфликтов",
+        "desc": "Два ingest на один и тот же факт идут через scoring-лестницу (confidence × source-trust × recency × authority). При узких маржах факт получает статус COMPETING, а не молча перезаписывается."
+      },
+      {
+        "title": "Нативный MCP",
+        "desc": "Streamable HTTP-эндпоинт на тенанта с шестью scope-aware инструментами. Claude Desktop, Cursor, Goose, n8n — один URL, один заголовок, ноль glue-кода."
+      },
+      {
+        "title": "Гибридный поиск",
+        "desc": "Vector + BM25 + опциональный HyPE + cross-encoder + listwise LLM rerank с self-consistency. Каждая стадия — фичефлаг с per-tenant метриками."
+      }
+    ]
+  },
+  "quickstart": {
+    "title": "Три способа поговорить с Brain.",
+    "subtitle": "Выбери тот, что подходит твоему runtime."
+  },
+  "mcpBlock": {
+    "title": "Подключить Claude к графу знаний — одной строкой.",
+    "subtitle": "Per-tenant MCP URL, scope-aware. Одни и те же шесть инструментов в каждом клиенте.",
+    "linkLabel": "Гайд по настройке MCP"
+  },
+  "skillsBlock": {
+    "title": "Скиллы для агента, не только провода.",
+    "subtitle": "Четыре Anthropic-skill: search, recall, bitemporal и сама пошаговая настройка. Учат агента, как пользоваться Brain.",
+    "linkLabel": "Все скиллы",
+    "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
+  },
+  "footer": {
+    "tagline": "INITE Brain Service · v1.1",
+    "links": {
+      "docs": "Docs",
+      "openapi": "OpenAPI",
+      "status": "Status",
+      "github": "GitHub"
+    }
+  },
+  "docs": {
+    "indexTitle": "Документация",
+    "indexSubtitle": "Концепции, REST API, настройка MCP, оператор-плейбук.",
+    "groups": {
+      "start": "С чего начать",
+      "concepts": "Концепции",
+      "rest": "REST API",
+      "mcp": "MCP",
+      "ops": "Эксплуатация"
+    },
+    "pages": {
+      "getting-started": {
+        "title": "Getting started",
+        "description": "Авторизация, первый ingest, первый search. ~5 минут."
+      },
+      "bitemporal": {
+        "title": "Битемпоральная модель",
+        "description": "Две оси времени у факта. Семантика asOf и Allen-interval примеры."
+      },
+      "predicates": {
+        "title": "Словарь предикатов",
+        "description": "single_active vs bitemporal vs append_only. Decay, PII, v1.1 контент-предикаты."
+      },
+      "conflict-resolution": {
+        "title": "Разрешение конфликтов",
+        "description": "Формула скоринга, исходы COMPETING / SUPERSEDED / REJECTED, dead-letter."
+      },
+      "search": {
+        "title": "POST /v1/search",
+        "description": "Гибридный pipeline поиска, форма запроса/ответа, per-leg CI."
+      },
+      "synthesize": {
+        "title": "POST /v1/synthesize",
+        "description": "Corrective-RAG со строгими/мягкими/выключенными guardrails + claim-level faithfulness."
+      },
+      "ingest": {
+        "title": "POST /v1/ingest/*",
+        "description": "Структурированный ingest, NLU mention extraction, типизированные ребра."
+      },
+      "multi-hop": {
+        "title": "POST /v1/search/multi-hop",
+        "description": "Planner LLM раскладывает запрос на под-запросы, joint-F1 evaluable supporting facts."
+      },
+      "entities": {
+        "title": "GET /v1/entities/*",
+        "description": "Профиль + timeline + connections + forget."
+      },
+      "retract": {
+        "title": "POST /v1/facts/:id/retract",
+        "description": "Пометить факт retracted. Остаётся в audit trail с причиной."
+      },
+      "mcp-setup": {
+        "title": "Настройка MCP",
+        "description": "Конфиги для Claude Desktop, Cursor, Goose, n8n."
+      },
+      "mcp-tools": {
+        "title": "MCP инструменты",
+        "description": "Шесть scope-aware инструментов с полными Zod-схемами."
+      },
+      "skills": {
+        "title": "Бандл скиллов",
+        "description": "Четыре Anthropic-skill, install.sh, модель версионирования."
+      },
+      "operator-playbook": {
+        "title": "Оператор-плейбук",
+        "description": "Day-2 операции — ключи, скоупы, dreams cron, baseline diffs."
+      },
+      "security": {
+        "title": "Модель безопасности",
+        "description": "JWT, скоупы, per-tenant изоляция, GDPR forget, PII gating."
+      }
+    },
+    "prev": "Назад",
+    "next": "Дальше",
+    "rev": {
+      "ru-pending": "Перевод готовится — показываем английскую версию."
+    }
+  }
+}

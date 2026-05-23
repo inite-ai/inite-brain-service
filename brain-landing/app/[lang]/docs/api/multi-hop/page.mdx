@@ -1,0 +1,94 @@
+export const metadata = {
+  title: 'POST /v1/search/multi-hop · INITE Brain Docs',
+  description: 'Planner LLM decomposes the query; carries supportingFactIds for HotpotQA-style joint-F1 eval.',
+}
+
+# POST /v1/search/multi-hop
+
+A planner LLM decomposes a free-text query into ≤ `maxHops` sub-queries with explicit combination semantics. The executor runs them in sequence, optionally anchored to the running entity set so each hop builds on the last.
+
+## When to reach for multi-hop
+
+- "Tenants who complained in April **and** upgraded to platinum after."
+- "Companies founded by ex-Stripe engineers **and** headquartered in EU."
+- Any question containing **and**, **then**, **who also**, **from those that**.
+
+If the question is single-shot, the planner reports `isMultiHop: false` and the executor falls back to `/v1/search`. Same shape, no extra cost.
+
+## Request
+
+```ts
+{
+  query: string
+  maxHops?: number          // 1..5, default 3
+  synthesize?: boolean      // pipe final entity set into /v1/synthesize
+  asOf?: string
+  hints?: {                 // bias the planner
+    requirePredicates?: string[]
+  }
+}
+```
+
+## Response
+
+```ts
+{
+  isMultiHop: boolean
+  hops: Array<{
+    subQuery: string
+    combine: 'seed' | 'subset_of_previous' | 'intersect' | 'union'
+    predicates?: string[]
+    asOf?: string
+    entityIds: string[]               // result of this hop
+    supportingFactIds: string[]       // the gold-evidence chain for this hop
+  }>
+  finalEntityIds: string[]
+  supportingFactIds: string[]         // de-duped union across hops, in execution order
+  answer?: string                     // only when synthesize: true
+}
+```
+
+## Combination modes
+
+| Mode | Behaviour |
+| --- | --- |
+| `seed` | First hop, no prior set |
+| `subset_of_previous` | Hop runs anchored to running entityIds. Strict subset. Most chained reasoning. |
+| `intersect` | Hop runs unconstrained, intersect after. Higher recall when prior set is small. |
+| `union` | Hop runs unconstrained, union after. Rare; included for completeness. |
+
+The planner picks the mode per hop based on phrasing — "from those that" → `subset_of_previous`, "who also" → `intersect`.
+
+## Joint-F1 scoring
+
+For evaluation: the `supportingFactIds` array is the system's claim about the evidence chain. Score it against gold:
+
+```ts
+import { jointF1 } from '@inite/knowledge/eval'
+
+const score = jointF1(
+  { answerEntityRefs: response.finalEntityIds, supportingFactIds: response.supportingFactIds },
+  { answerEntityRefs: ['acme.alice'], supportingFactIds: ['gold_fact_1', 'gold_fact_2'] },
+)
+// → { answerF1, supportF1, jointF1, answerEM, supportEM, jointEM, ... }
+```
+
+Joint-F1 catches the failure mode end-to-end recall@k can't see: right answer via wrong reasoning chain.
+
+## Example
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search/multi-hop" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "tenants who complained in April and upgraded to platinum after",
+    "maxHops": 3,
+    "synthesize": true
+  }'
+```
+
+## Related
+
+- [POST /v1/search](/en/docs/api/search) — the single-shot version
+- [POST /v1/synthesize](/en/docs/api/synthesize) — what `synthesize: true` plugs into

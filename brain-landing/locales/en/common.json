@@ -1,0 +1,156 @@
+{
+  "nav": {
+    "docs": "Docs",
+    "github": "GitHub",
+    "status": "Status",
+    "skills": "Skills"
+  },
+  "hero": {
+    "badge": "Brain Service · v1.1",
+    "title": "Bitemporal knowledge graph for AI agents.",
+    "subtitle": "INITE Brain is a per-tenant semantic memory layer. Hybrid search, conflict-aware ingest, retract / forget that actually works — exposed through REST and an MCP endpoint your agents speak natively.",
+    "ctaPrimary": "Get started",
+    "ctaSecondary": "Connect via MCP"
+  },
+  "stats": {
+    "title": "Production gates, not vanity numbers.",
+    "subtitle": "Every push runs the multi-vertical retrieval + memory-lifecycle eval. The bars below are CI floors — drop under and a release blocks.",
+    "items": [
+      { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
+      { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
+      { "label": "identity-F1", "value": "1.000", "floor": "≥ 0.8" },
+      { "label": "memory-lifecycle", "value": "1.000", "floor": "= 1.0" }
+    ]
+  },
+  "features": {
+    "title": "What brain actually does.",
+    "items": [
+      {
+        "title": "Bitemporal facts",
+        "desc": "Two axes per fact — valid time (real world) and transaction time (what brain knew when). Default queries answer 'actual now'; pass asOf for historical investigations."
+      },
+      {
+        "title": "Content predicates (v1.1)",
+        "desc": "First-class vocabulary for content-domain knowledge — comments, reviews, tags, brands, categories. Each predicate carries semantics, decay, and PII class up front."
+      },
+      {
+        "title": "Lifecycle correctness = 1.0",
+        "desc": "Update, supersede, retract, forget. The eval gate refuses anything under 1.0. GDPR forget is synchronous and leaves only an HMAC tombstone."
+      },
+      {
+        "title": "Conflict resolution",
+        "desc": "Two ingests for the same fact go through a scored ladder (confidence × source-trust × recency × authority). Margins matter — close calls land as COMPETING, not silent overwrites."
+      },
+      {
+        "title": "MCP, native",
+        "desc": "Per-tenant Streamable HTTP endpoint with six scope-aware tools. Claude Desktop, Cursor, Goose, n8n — same URL, same auth header, no glue code."
+      },
+      {
+        "title": "Hybrid retrieval",
+        "desc": "Vector + BM25 + optional HyPE + cross-encoder + listwise LLM rerank with self-consistency. Every stage is a feature flag with per-tenant metrics."
+      }
+    ]
+  },
+  "quickstart": {
+    "title": "Three ways to talk to brain.",
+    "subtitle": "Pick the one that matches your runtime."
+  },
+  "mcpBlock": {
+    "title": "Plug a Claude into your knowledge graph in one line.",
+    "subtitle": "Per-tenant MCP URL, scope-aware. The same six tools across every client.",
+    "linkLabel": "MCP setup guide"
+  },
+  "skillsBlock": {
+    "title": "Skills for the agent, not just the wire.",
+    "subtitle": "Four Anthropic-format skills that teach the agent how to use brain — search, recall, bitemporal, and the setup walkthrough itself.",
+    "linkLabel": "All skills",
+    "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
+  },
+  "footer": {
+    "tagline": "INITE Brain Service · v1.1",
+    "links": {
+      "docs": "Docs",
+      "openapi": "OpenAPI",
+      "status": "Status",
+      "github": "GitHub"
+    }
+  },
+  "docs": {
+    "indexTitle": "Documentation",
+    "indexSubtitle": "Concepts, REST API, MCP setup, operator runbook.",
+    "groups": {
+      "start": "Start here",
+      "concepts": "Concepts",
+      "rest": "REST API",
+      "mcp": "MCP",
+      "ops": "Operations"
+    },
+    "pages": {
+      "getting-started": {
+        "title": "Getting started",
+        "description": "Auth, your first ingest, your first search. ~5 minutes."
+      },
+      "bitemporal": {
+        "title": "Bitemporal model",
+        "description": "Two time axes per fact. asOf semantics with Allen-interval examples."
+      },
+      "predicates": {
+        "title": "Predicate vocabulary",
+        "description": "Single-active vs bitemporal vs append-only. Decay, PII class, v1.1 content predicates."
+      },
+      "conflict-resolution": {
+        "title": "Conflict resolution",
+        "description": "Scoring formula, COMPETING / SUPERSEDED / REJECTED outcomes, dead-letter."
+      },
+      "search": {
+        "title": "POST /v1/search",
+        "description": "Hybrid retrieval pipeline, request / response shapes, per-leg CI."
+      },
+      "synthesize": {
+        "title": "POST /v1/synthesize",
+        "description": "Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer."
+      },
+      "ingest": {
+        "title": "POST /v1/ingest/*",
+        "description": "Structured fact ingest, NLU mention extraction, typed edges."
+      },
+      "multi-hop": {
+        "title": "POST /v1/search/multi-hop",
+        "description": "Planner LLM decomposes the query, joint-F1 evaluable supporting facts."
+      },
+      "entities": {
+        "title": "GET /v1/entities/*",
+        "description": "Profile + timeline + connections + forget."
+      },
+      "retract": {
+        "title": "POST /v1/facts/:id/retract",
+        "description": "Mark a fact retracted. Survives in audit trail with reason."
+      },
+      "mcp-setup": {
+        "title": "MCP setup",
+        "description": "Claude Desktop, Cursor, Goose, n8n configs."
+      },
+      "mcp-tools": {
+        "title": "MCP tools reference",
+        "description": "Six scope-aware tools with their full Zod schemas."
+      },
+      "skills": {
+        "title": "Skills bundle",
+        "description": "Four Anthropic-format skills, install.sh, versioning model."
+      },
+      "operator-playbook": {
+        "title": "Operator playbook",
+        "description": "Day-2 ops — keys, scopes, dreams cron, baseline diffs."
+      },
+      "security": {
+        "title": "Security model",
+        "description": "JWT, scopes, per-tenant isolation, GDPR forget, PII gating."
+      }
+    },
+    "prev": "Previous",
+    "next": "Next",
+    "rev": {
+      "ru-pending": "Translation pending — showing English."
+    }
+  }
+}

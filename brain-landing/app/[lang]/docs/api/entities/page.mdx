@@ -1,0 +1,116 @@
+export const metadata = {
+  title: 'GET /v1/entities/* · INITE Brain Docs',
+  description: 'Profile, timeline, connections, forget — everything per-entity.',
+}
+
+# GET /v1/entities/*
+
+Four endpoints, one entity. Profile is the now-snapshot; timeline is the bitemporal sweep; connections is the graph walk; forget is the GDPR cascade.
+
+## GET /v1/entities/:id
+
+```http
+GET /v1/entities/knowledge_entity:01HXYZ...?asOf=2026-04-01T00:00:00Z
+Authorization: Bearer <api-key>
+```
+
+Returns the canonical entity plus all **active** facts (or active as-of the supplied moment).
+
+```ts
+{
+  entity: {
+    id: string
+    name: string
+    type: string  // 'person' | 'company' | 'place' | ...
+    externalRefs: Array<{ vertical: string, id: string }>
+  }
+  facts: Fact[]   // active only — superseded / retracted hidden by default
+}
+```
+
+`:id` accepts:
+- A brain entity id (`knowledge_entity:01HXYZ...`)
+- An external ref shorthand (`rent.cust_42`)
+
+## GET /v1/entities/:id/timeline
+
+```http
+GET /v1/entities/<id>/timeline?since=2026-01-01T00:00:00Z
+```
+
+Every fact ever recorded — including superseded, retracted, compacted. Each row carries `status` + `validFrom` + `validUntil` + `recordedAt` + `retractedAt`. Use for "what changed" / audit investigations.
+
+```ts
+{
+  facts: Array<Fact & {
+    status: 'active' | 'superseded' | 'retracted' | 'compacted'
+    retractedAt?: string
+    retractionReason?: string
+    supersededBy?: string  // factId of the winner
+  }>
+}
+```
+
+Optional `since` / `until` (ISO 8601) bound the result. For long-lived entities ALWAYS window; the response can be megabytes.
+
+## GET /v1/entities/:id/connections
+
+```http
+GET /v1/entities/<id>/connections?kind=paid_for
+```
+
+1-hop graph walk. Returns typed edges and the entities on the other side.
+
+```ts
+{
+  edges: Array<{
+    kind: string             // 'identity_of' | 'paid_for' | 'mentioned_in' | ...
+    from: { id: string, name: string }
+    to:   { id: string, name: string }
+    validFrom?: string
+    sourceVertical?: string
+  }>
+}
+```
+
+Optional `kind` filters by edge type. Multi-hop walks: call again recursively, cap at 3 hops.
+
+## POST /v1/entities/:id/forget
+
+```http
+POST /v1/entities/<id>/forget
+Content-Type: application/json
+{ "reason": "gdpr_request", "requestId": "GDPR-2026-001" }
+```
+
+Hard cascade. Synchronous. Deletes:
+- Every fact for this entity (and any derived facts)
+- Every edge touching this entity
+- Every embedding row (vector + HyPE alt-embedding)
+- Every artifact (profile, digest)
+
+Leaves only an HMAC-hash tombstone in `forgotten_entity`. The tombstone proves "we honored the request" without keeping the entity id in plaintext.
+
+**Requires `brain:write` AND a separately-granted forget permission.** Audited per-call.
+
+```ts
+{
+  factsDeleted: number
+  edgesDeleted: number
+  embeddingsDeleted: number
+  tombstoneId: string
+}
+```
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `404` | Entity not found (or already forgotten — same surface) |
+| `403` | Caller scope insufficient. Forget needs both `brain:write` and `brain:forget`. |
+| `409` | A forget is already in flight for this entity |
+
+## Related
+
+- [Bitemporal model](/en/docs/concepts/bitemporal) — what timeline rows mean
+- [Security model](/en/docs/security) — forget tombstone, per-tenant isolation

@@ -1,0 +1,130 @@
+export const metadata = {
+  title: 'MCP tools reference · INITE Brain Docs',
+  description: 'Six scope-aware MCP tools with their input shapes.',
+}
+
+# MCP tools reference
+
+Six tools registered against `McpServer({ name: 'inite-brain-service' })`. Four are always visible; two require `brain:write`. Sensitive PII values require an additional `brain:read_pii` scope.
+
+## search_knowledge
+
+> Semantic search over the company knowledge graph. Returns entities with their top facts and external references back to the originating verticals. Apply `asOf` for historical "what did we know on X" queries.
+
+**Required scope:** `brain:read`
+
+```ts
+{
+  query: string                  // required — natural language
+  limit?: number                 // 1..50, default 10
+  predicates?: string[]          // restrict to these predicates
+  asOf?: string                  // ISO 8601 — bitemporal cutoff
+  minConfidence?: number         // 0..1 — drop low-confidence facts
+}
+```
+
+Pairs with the `brain-search` skill at `~/.claude/skills/brain-search/`.
+
+## get_entity_profile
+
+> Full profile of one entity: canonical name, type, externalRefs, and active facts. Use `externalRefs` to rehydrate fresh state from the originating vertical via `@inite/api-kit`.
+
+**Required scope:** `brain:read`
+
+```ts
+{
+  entityId: string               // brain id or `vertical.id` shorthand
+  asOf?: string
+}
+```
+
+## get_entity_timeline
+
+> Chronological audit of all facts brain has learned about this entity, including retracted ones. Useful for "what did we know when" investigations.
+
+**Required scope:** `brain:read`
+
+```ts
+{
+  entityId: string
+  since?: string
+  until?: string
+}
+```
+
+Returns retracted rows too — the audit invariant.
+
+## find_related_entities
+
+> Entities connected to the given one via the knowledge graph. 1-hop only — call recursively for multi-hop walks.
+
+**Required scope:** `brain:read`
+
+```ts
+{
+  entityId: string
+  kind?: string                  // edge filter, e.g. 'paid_for', 'mentioned_in', 'identity_of'
+}
+```
+
+## record_fact
+
+> Insert a fact about an entity. Triggers brain's conflict resolution (`INSERTED` / `SUPERSEDED` / `COMPETING` / `REJECTED`). Use sparingly from agents — most facts should come from event ingestion.
+
+**Required scope:** `brain:write`
+
+```ts
+{
+  entityRef:
+    | { vertical: string, id: string }
+    | { entityId: string }
+  predicate: string
+  object: string
+  validFrom: string              // ISO 8601 — required
+  validUntil?: string
+  confidence?: number            // 0..1
+  sourceVertical: string         // attributed source vertical
+}
+```
+
+## retract_fact
+
+> Mark a fact as no longer believed. Cascades to facts derived from this one. Does not delete; the row remains for audit.
+
+**Required scope:** `brain:write`
+
+```ts
+{
+  factId: string
+  reason: string                 // required
+}
+```
+
+## Common response shape
+
+Every tool returns:
+
+```ts
+{
+  content: [{ type: 'text', text: <JSON string> }],
+  structuredContent: <typed object>
+}
+```
+
+The `structuredContent` is what clients should parse. The `text` mirror is for clients that don't honor `structuredContent` yet.
+
+## Errors
+
+Tool calls return MCP error frames with these patterns:
+
+| Pattern | Cause |
+| --- | --- |
+| `"scope brain:write required"` | Tool needs a scope the key lacks |
+| `"MCP path companyId (...) does not match ApiKey companyId"` | URL companyId ≠ key's companyId |
+| `"unknown predicate '<x>'"` | Vocabulary refused the predicate — register or use a standard one |
+| `"validFrom must be ISO 8601"` | Format mismatch in `record_fact` |
+
+## Related
+
+- [MCP setup](/en/docs/mcp/setup) — wire a client to these tools
+- [Skills bundle](/en/docs/skills) — the agent-side how-to-use briefs

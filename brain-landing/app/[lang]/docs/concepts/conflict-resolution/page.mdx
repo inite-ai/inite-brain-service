@@ -1,0 +1,85 @@
+export const metadata = {
+  title: 'Conflict resolution · INITE Brain Docs',
+  description: 'Scoring formula, COMPETING / SUPERSEDED / REJECTED outcomes, dead-letter table.',
+}
+
+# Conflict resolution
+
+When two ingests claim contradicting values for the same `(entity, predicate, valid-window)` triple, brain scores both and decides one of four outcomes. The scoring is declarative, not learned — operators tune the weights, not the model.
+
+## Scoring formula
+
+```
+score = 0.30 · confidence
+      + 0.40 · source_trust
+      + 0.20 · recency
+      + 0.10 · authority
+```
+
+Each term in `[0, 1]`:
+
+- **confidence** — per-fact value set by the ingester (NLU extractor emits 0.5–0.8; structured ingest defaults 0.95).
+- **source_trust** — per-vertical per-predicate. `rent` is highly trusted for `address`; `inbox` less so. Lives in the vocabulary YAML.
+- **recency** — `0.5 ^ (age_days / decay_halflife)`, computed off `validFrom`.
+- **authority** — explicit override for human-curated facts. Defaults 0.
+
+Override the weights per tenant via env: `CONFLICT_W_CONFIDENCE=0.35`, etc. Validated at boot.
+
+## The four outcomes
+
+| Margin = score(new) − score(best contradicting) | Outcome | What happens |
+| --- | --- | --- |
+| `margin ≥ 0.15` | **INSERTED** (new wins) | Old fact supersedes — its `validUntil` collapses to the new fact's `validFrom`. Status `superseded`. |
+| `0 < margin < 0.15` | **COMPETING** | Both stay active. Brain emits an event for human resolution. |
+| `−0.30 < margin ≤ 0` | **SUPERSEDED** (old wins) | New fact stored but immediately `superseded`. Visible in timeline. |
+| `margin ≤ −0.30` | **REJECTED** | New fact routed to `dead_letter_fact` for operator review. Audit trail intact, but the fact doesn't enter the searchable graph. |
+
+Thresholds tunable via `CONFLICT_MARGIN_INSERT`, `CONFLICT_MARGIN_REJECT`. Defaults match the spec.
+
+## A worked example
+
+Tenant: `co_demo`. Predicate: `tier` (bitemporal, decay 30d, PII none).
+
+Existing fact:
+```
+predicate: tier, object: gold, validFrom: 2026-02-01, confidence: 0.92, source: rent (trust 0.9)
+```
+
+New ingest at 2026-04-01:
+```
+predicate: tier, object: platinum, validFrom: 2026-04-01, confidence: 0.88, source: inbox (trust 0.4)
+```
+
+Scoring at ingest time:
+
+```
+new = 0.30·0.88 + 0.40·0.40 + 0.20·1.0  + 0.10·0  = 0.624
+old = 0.30·0.92 + 0.40·0.90 + 0.20·0.21 + 0.10·0  = 0.678
+margin = -0.054  → SUPERSEDED (old wins, new stored superseded)
+```
+
+Result: the user sees `tier=gold` as the active fact. The inbox-source platinum is in the timeline with `status: 'superseded'` — brain didn't trust the noisy source enough to flip the tier.
+
+If the inbox source had `confidence: 0.95` and recent enough, margin would have tipped positive — `INSERTED` outcome.
+
+## Dreams resolver
+
+Off-hours, `dreams_resolve` re-scores `COMPETING` pairs aged > 7 days. An LLM judge picks a winner using surrounding entity context; the loser is marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — `unsure` verdict leaves both for human review.
+
+Enable via `DREAMS_RESOLVE_ENABLED=1`. Bounded by `DREAMS_RESOLVE_MAX_PAIRS` (default 20).
+
+## Dead-letter
+
+`REJECTED` facts land in `dead_letter_fact` with the score, the contradicting fact id, and the rejection reason. Operators query it via:
+
+```sql
+SELECT * FROM dead_letter_fact WHERE companyId = 'co_demo' AND createdAt > '2026-05-01';
+```
+
+Use it to find systematic source-trust mismatches — when a vertical is shipping bad data, the dead-letter shows it before users complain.
+
+## Related
+
+- [Predicate vocabulary](/en/docs/concepts/predicates) — where source_trust and decay live
+- [POST /v1/ingest](/en/docs/api/ingest) — every ingest goes through this resolver
+- [Operator playbook](/en/docs/operator-playbook) — re-scoring dead-letter, tuning weights

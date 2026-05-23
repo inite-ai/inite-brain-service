@@ -1,0 +1,35 @@
+{
+  "name": "inite-brain-landing",
+  "version": "0.1.0",
+  "description": "INITE Brain Service — marketing landing + MDX docs + skills downloader.",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3030 --turbopack",
+    "build": "next build",
+    "start": "next start -p 3030",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@mdx-js/loader": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@next/mdx": "^16.2.6",
+    "@types/mdx": "^2.0.13",
+    "framer-motion": "^12.23.26",
+    "lucide-react": "^0.562.0",
+    "next": "^16.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,20 @@
+const createMDX = require('@next/mdx')
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+  // .mdx files act as page sources so app/[lang]/docs/<slug>/page.mdx
+  // works without a wrapper component per page.
+  pageExtensions: ['ts', 'tsx', 'mdx'],
+  env: {
+    NEXT_PUBLIC_BRAIN_API_URL:
+      process.env.NEXT_PUBLIC_BRAIN_API_URL || 'https://brain.inite.ai',
+  },
+}
+
+const withMDX = createMDX({
+  // No remark/rehype plugins yet — start with raw markdown + code fences.
+  // Add `remark-gfm` for GFM tables / strikethrough if a page needs it.
+})
+
+module.exports = withMDX(nextConfig)

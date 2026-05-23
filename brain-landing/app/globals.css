@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+/* Linear-style design tokens. Mirrors inite-auth's frontend palette so
+ * the two surfaces feel like the same product. Dark-by-default, single
+ * violet accent; light-mode kept for users who prefer it. */
+:root {
+  --bg: #08090a;
+  --bg-elevated: #0e0f11;
+  --bg-overlay: #14161a;
+  --border: #1f2226;
+  --border-strong: #2a2e34;
+  --text: #e6e7e9;
+  --text-muted: #9ba0a8;
+  --text-faint: #6b7079;
+  --accent: #8b5cf6;
+  --accent-hover: #a78bfa;
+  --accent-faint: rgba(139, 92, 246, 0.12);
+  --accent-ring: rgba(139, 92, 246, 0.35);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --bg-elevated: #ffffff;
+    --bg-overlay: #f4f4f5;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --text-muted: #52525b;
+    --text-faint: #a1a1aa;
+    --accent: #7c3aed;
+    --accent-hover: #6d28d9;
+    --accent-faint: rgba(124, 58, 237, 0.08);
+    --accent-ring: rgba(124, 58, 237, 0.35);
+  }
+}
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+::selection {
+  background: var(--accent-faint);
+  color: var(--text);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+/* Gradient hairline under hero — Linear's signature. */
+.accent-underline {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 30%,
+    var(--accent) 70%,
+    transparent
+  );
+  opacity: 0.4;
+}

@@ -1,0 +1,11 @@
+node_modules
+.next
+.turbo
+.env*.local
+*.log
+# skills.tar.gz + install.sh are build artifacts produced by
+# `pnpm skills:pack` from the parent repo. They live in public/
+# so Next.js serves them at /skills.tar.gz + /install.sh, but they
+# don't belong in git — regenerate per build.
+public/skills.tar.gz
+public/install.sh
