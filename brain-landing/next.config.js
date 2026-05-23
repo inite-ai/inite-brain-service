@@ -13,8 +13,12 @@ const nextConfig = {
 }
 
 const withMDX = createMDX({
-  // No remark/rehype plugins yet — start with raw markdown + code fences.
-  // Add `remark-gfm` for GFM tables / strikethrough if a page needs it.
+  options: {
+    // GFM tables + strikethrough + task lists. CommonMark alone leaves
+    // pipe tables as raw text — every docs page leans on tables, so this
+    // plugin is load-bearing.
+    remarkPlugins: [['remark-gfm']],
+  },
 })
 
 module.exports = withMDX(nextConfig)
