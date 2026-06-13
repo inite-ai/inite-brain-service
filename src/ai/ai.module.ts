@@ -5,6 +5,7 @@ import { RerankerService } from './reranker.service';
 import { HypeService } from './hype.service';
 import { PredicateRouterService } from './predicate-router.service';
 import { CrossEncoderService } from './cross-encoder.service';
+import { PredicateRegistryService } from './predicate-registry.service';
 
 @Global()
 @Module({
@@ -15,6 +16,7 @@ import { CrossEncoderService } from './cross-encoder.service';
     HypeService,
     PredicateRouterService,
     CrossEncoderService,
+    PredicateRegistryService,
   ],
   exports: [
     EmbedderService,
@@ -23,6 +25,7 @@ import { CrossEncoderService } from './cross-encoder.service';
     HypeService,
     PredicateRouterService,
     CrossEncoderService,
+    PredicateRegistryService,
   ],
 })
 export class AiModule {}

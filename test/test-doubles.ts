@@ -35,7 +35,10 @@ export class StubExtractor implements Pick<ExtractorService, 'extract'> {
     this.script = result;
   }
 
-  async extract(text: string): Promise<ExtractionResult> {
+  async extract(
+    text: string,
+    _companyId?: string,
+  ): Promise<ExtractionResult> {
     if (this.script) return this.script;
     if (!text.trim()) return { entities: [], facts: [] };
     return {

@@ -1,5 +1,13 @@
 /**
- * Conflict resolution scoring per inite-ecosystem/core/capabilities/knowledge.yaml
+ * Conflict resolution scoring + predicate-policy TYPE definitions.
+ *
+ * Historical note: this file used to host a hardcoded PREDICATE_POLICIES
+ * table. That table has moved to the per-tenant SurrealDB registry
+ * (see src/ai/predicate-registry.service.ts and migration 0011) so
+ * operators can extend the ontology without code changes. What stays
+ * here is the TYPE definitions, the DEFAULT fallback policy, and the
+ * conflict-resolution math (scoring, recency decay) — those are
+ * codebase-wide invariants, not per-tenant ontology data.
  *
  * Predicate semantics — four classes, two axes (cardinality × time-behavior):
  *
@@ -36,6 +44,8 @@
  * when scoring competitors, but does NOT change the auto-close behavior.
  */
 
+import { CORE_PREDICATES } from '../ai/predicate-registry.service';
+
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 
 export interface PredicatePolicy {
@@ -45,59 +55,56 @@ export interface PredicatePolicy {
   requiresScope?: 'brain:read_pii';
 }
 
-export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = {
-  // ── EVENT / utterance (append_only — history matters, no overlap) ──
-  said:             { semantics: 'append_only',  decayHalfLifeDays: 30,   piiClass: 'text' },
-
-  // ── IDENTITY (single_active — functional, lifetime-stable) ──
-  name:             { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
-  email:            { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
-  phone:            { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
-  dob:              { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
-
-  // ── SINGLE-STATE (single_active — functional, time-varying). On a new
-  //    overlapping fact, fn::resolve_fact auto-closes the prior via
-  //    validUntil = newFact.validFrom (SQL:2011 sequenced semantic). Future-
-  //    dated facts schedule the transition cleanly. This is what makes
-  //    "address was Berlin in Feb, Dublin from July" work — both facts
-  //    coexist on the timeline, asOf picks the right one. ──
-  status:           { semantics: 'single_active', decayHalfLifeDays: 7,    piiClass: 'none' },
-  tier:             { semantics: 'single_active', decayHalfLifeDays: 30,   piiClass: 'none' },
-  address:          { semantics: 'single_active', decayHalfLifeDays: 90,   piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
-
-  // ── BEHAVIORAL history (append_only — non-functional, decay-weighted).
-  //    Multiple facts coexist; read-time picks the live value by
-  //    recency × decayHalfLifeDays. Don't auto-close — taste evolution and
-  //    plan histories are valuable signal. ──
-  intent:           { semantics: 'append_only',  decayHalfLifeDays: 60,   piiClass: 'behavioral' },
-  preference:       { semantics: 'append_only',  decayHalfLifeDays: 90,   piiClass: 'behavioral' },
-  complained_about: { semantics: 'append_only',  decayHalfLifeDays: 90,   piiClass: 'text' },
-  interacted_with:  { semantics: 'append_only',  decayHalfLifeDays: 30,   piiClass: 'behavioral' },
-
-  // Content-domain predicates (v1.1)
-  // Singletons: only one canonical value per entity at a time; newer validFrom supersedes older.
-  brand_voice:             { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
-  brand_archetype:         { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'none' },
-  tone_of_voice:           { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
-  product_description:     { semantics: 'single_active', decayHalfLifeDays: 180,  piiClass: 'none' },
-  // Multi-valued: each fact accumulates; no supersede occurs.
-  target_audience_segment: { semantics: 'append_only',   decayHalfLifeDays: 90,   piiClass: 'none' },
-  content_guideline:       { semantics: 'append_only',   decayHalfLifeDays: 365,  piiClass: 'none' },
-  tension_point:           { semantics: 'append_only',   decayHalfLifeDays: 90,   piiClass: 'none' },
-  reference_example:       { semantics: 'append_only',   decayHalfLifeDays: null, piiClass: 'none' },
-  narrative_pillar:        { semantics: 'append_only',   decayHalfLifeDays: 365,  piiClass: 'none' },
-  forbidden_pattern:       { semantics: 'append_only',   decayHalfLifeDays: null, piiClass: 'none' },
-};
-
 export const DEFAULT_POLICY: PredicatePolicy = {
   semantics: 'bitemporal',
   decayHalfLifeDays: 60,
   piiClass: 'none',
 };
 
+/**
+ * Legacy non-tenant-aware policy lookup, kept for display-only consumers
+ * (search result enrichment, artifact rendering, admin UI). The runtime
+ * source of truth is the per-tenant `knowledge_predicate` registry via
+ * PredicateRegistryService. This function falls back to the JS seed
+ * (CORE_PREDICATES) so consumers that don't have a companyId in hand
+ * still get sane defaults — they just won't see tenant-added predicates.
+ *
+ * Hot ingest / extraction paths SHOULD use PredicateRegistryService
+ * .policyFor(companyId, predicate) instead.
+ */
 export function policyFor(predicate: string): PredicatePolicy {
-  return PREDICATE_POLICIES[predicate] ?? DEFAULT_POLICY;
+  const seed = CORE_PREDICATES.find((p) => p.predicateId === predicate);
+  if (!seed) return DEFAULT_POLICY;
+  return {
+    semantics: seed.semantics,
+    decayHalfLifeDays: seed.decayHalfLifeDays,
+    piiClass: seed.piiClass,
+    ...(seed.requiresScope
+      ? { requiresScope: seed.requiresScope as 'brain:read_pii' }
+      : {}),
+  };
 }
+
+/**
+ * Re-exported alias of the JS seed table for legacy consumers (e.g.
+ * entities.service that iterates known predicates for display). The
+ * canonical, tenant-aware list comes from
+ * PredicateRegistryService.getSnapshot().
+ */
+export const PREDICATE_POLICIES: Record<string, PredicatePolicy> =
+  Object.fromEntries(
+    CORE_PREDICATES.map((p) => [
+      p.predicateId,
+      {
+        semantics: p.semantics,
+        decayHalfLifeDays: p.decayHalfLifeDays,
+        piiClass: p.piiClass,
+        ...(p.requiresScope
+          ? { requiresScope: p.requiresScope as 'brain:read_pii' }
+          : {}),
+      } as PredicatePolicy,
+    ]),
+  );
 
 // ── Conflict resolution weights ──────────────────────────────────────────
 // Mirror of conflict_resolution.scoring in the spec. Tunable via env.

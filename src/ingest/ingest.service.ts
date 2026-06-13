@@ -12,15 +12,11 @@ import {
 import { EmbedderService } from '../ai/embedder.service';
 import { ExtractorService } from '../ai/extractor.service';
 import { HypeService } from '../ai/hype.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
-import {
-  ConflictConfig,
-  policyFor,
-  scoreFact,
-  SOURCE_TRUST,
-} from './conflict-resolver';
+import { ConflictConfig, SOURCE_TRUST } from './conflict-resolver';
 import { traceSpan, traceArtifact } from '../common/debug-trace';
 
 export type IngestOutcome =
@@ -48,6 +44,7 @@ export class IngestService {
     private readonly extractor: ExtractorService,
     private readonly hype: HypeService,
     private readonly configService: ConfigService,
+    private readonly predicateRegistry: PredicateRegistryService,
   ) {
     this.conflict = {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
@@ -71,10 +68,11 @@ export class IngestService {
       const embeddingText = `${dto.predicate}: ${dto.object}`;
       const embedding = await this.embedder.embed(embeddingText);
 
-      // 3. Read policy from JS — single source of truth. We pass policy
-      //    VALUES (not predicate name) into the server-side function,
-      //    so SurrealQL never has to know about predicate semantics.
-      const policy = policyFor(dto.predicate);
+      // 3. Read policy from the per-tenant registry. Pre-warm the snapshot
+      //    so the cache is populated before the synchronous policyFor()
+      //    lookup inside fn::resolve_fact param assembly.
+      await this.predicateRegistry.getSnapshot(companyId);
+      const policy = this.predicateRegistry.policyFor(companyId, dto.predicate);
       const sourceTrust = this.sourceTrustFor(dto.source);
 
       // 4. Object preservation. Schema stores `object` as string for
@@ -247,7 +245,7 @@ export class IngestService {
       }
 
       const extraction = await traceSpan('ingest.nlu.extract', () =>
-        this.extractor.extract(text),
+        this.extractor.extract(text, companyId),
       );
       traceArtifact('ingest.nlu.extracted', extraction);
 
@@ -295,6 +293,7 @@ export class IngestService {
             () =>
               this.recordExtractedFact(
                 db,
+                companyId,
                 eid,
                 f.predicate,
                 f.object,
@@ -445,6 +444,7 @@ export class IngestService {
    */
   private async recordExtractedFact(
     db: Surreal,
+    companyId: string,
     entityId: string,
     predicate: string,
     object: string,
@@ -476,7 +476,11 @@ export class IngestService {
     //  - append_only: no conflict possible, the new fact is inserted.
     //  - bitemporal: Allen's-overlap + cosine-similarity gated supersede
     //    or compete.
-    const policy = policyFor(predicate);
+    // Pre-warm the per-tenant snapshot before the synchronous policyFor()
+    // — covers the early-boot case where the mention path is the first
+    // touch on this tenant.
+    await this.predicateRegistry.getSnapshot(companyId);
+    const policy = this.predicateRegistry.policyFor(companyId, predicate);
     const sourceTrust = this.sourceTrustFor(source);
     const result = await retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(

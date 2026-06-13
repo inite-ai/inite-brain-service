@@ -334,6 +334,7 @@ export class AdminController {
       const knownNames = await this.fetchKnownEntityNames();
       const route: ChatRoute = await this.chatRouter.route(body.message, {
         knownNames,
+        companyId: DEMO_LIVE_COMPANY,
       });
       const ingestText = route.normalizedMessage ?? body.message;
       if (route.intent === 'tell') {

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
-import { PREDICATE_VOCABULARY } from '../ai/extractor.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 
 /**
  * Classifies a free-form message into an ingest / search intent and pulls
@@ -62,7 +62,10 @@ export class ChatRouterService {
   private readonly openai: OpenAI;
   private readonly model: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly registry: PredicateRegistryService,
+  ) {
     this.openai = new OpenAI({
       apiKey: this.config.getOrThrow<string>('OPENAI_API_KEY'),
       timeout: 15_000,
@@ -73,10 +76,16 @@ export class ChatRouterService {
 
   async route(
     message: string,
-    options: { knownNames?: string[]; now?: Date } = {},
+    options: { knownNames?: string[]; now?: Date; companyId: string },
   ): Promise<ChatRoute> {
     const nowIso = (options.now ?? new Date()).toISOString();
     const knownNames = options.knownNames ?? [];
+    // Per-tenant predicate vocabulary for the predicateHints enum. Snapshot
+    // is cached in the registry; reading is sub-millisecond after the first
+    // call. The versionHash is pinned so the trace ties this route to the
+    // exact registry state.
+    const snapshot = await this.registry.getSnapshot(options.companyId);
+    const predicateVocab = snapshot.active.map((p) => p.predicateId);
     const system = `You route a free-form chat message to a knowledge-graph backend.
 
 Decide intent:
@@ -224,7 +233,13 @@ known canonical names: ${JSON.stringify(knownNames)}
 message: ${message}`;
 
     return traceSpan('demo.chat.route', async () => {
-      traceArtifact('demo.chat.prompt', { system, user, model: this.model });
+      traceArtifact('demo.chat.prompt', {
+        system,
+        user,
+        model: this.model,
+        registryVersionHash: snapshot.versionHash,
+        predicateCount: predicateVocab.length,
+      });
       const res = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
@@ -246,7 +261,7 @@ message: ${message}`;
                 entityRefs: { type: 'array', items: { type: 'string' } },
                 predicateHints: {
                   type: 'array',
-                  items: { type: 'string', enum: [...PREDICATE_VOCABULARY] },
+                  items: { type: 'string', enum: predicateVocab },
                   description:
                     'Closed-vocab predicates the question is asking about. Used as a hard AND-filter in graph retrieval so we do not dump every fact of the subject. Empty for general/unknown questions and ALWAYS empty for intent=tell.',
                 },
@@ -358,7 +373,7 @@ message: ${message}`;
         Array.isArray(parsed.predicateHints) &&
         parsed.predicateHints.length > 0
       ) {
-        const vocab = new Set<string>(PREDICATE_VOCABULARY);
+        const vocab = new Set<string>(predicateVocab);
         const filtered = Array.from(
           new Set(parsed.predicateHints.filter((p) => vocab.has(p))),
         );

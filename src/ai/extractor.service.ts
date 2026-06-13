@@ -3,6 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
 import { traceArtifact } from '../common/debug-trace';
+import {
+  PredicateRegistryService,
+  CORE_PREDICATES,
+  PredicateDefinition,
+} from './predicate-registry.service';
 
 /**
  * Closed-vocabulary, span-grounded entity-and-fact extractor.
@@ -64,32 +69,16 @@ export interface ExtractionResult {
   facts: ExtractedFact[];
 }
 
-export const PREDICATE_VOCABULARY = [
-  // Core CRM predicates
-  'said',
-  'name',
-  'email',
-  'phone',
-  'status',
-  'tier',
-  'intent',
-  'preference',
-  'complained_about',
-  'interacted_with',
-  'address',
-  'dob',
-  // Content-domain predicates (v1.1)
-  'brand_voice',
-  'brand_archetype',
-  'tone_of_voice',
-  'product_description',
-  'target_audience_segment',
-  'content_guideline',
-  'tension_point',
-  'reference_example',
-  'narrative_pillar',
-  'forbidden_pattern',
-] as const;
+/**
+ * Bootstrap-time predicate id list, derived from the JS seed. Kept as a
+ * legacy export for callers that don't have a tenant context (e.g. the
+ * chat router building a base JSON schema before any tenant is known).
+ * The runtime per-tenant vocabulary comes from PredicateRegistryService
+ * snapshots and may include additional tenant-specific predicates.
+ */
+export const PREDICATE_VOCABULARY = CORE_PREDICATES.map(
+  (p) => p.predicateId,
+);
 
 const ENTITY_TYPE_VOCABULARY = [
   'customer',
@@ -101,7 +90,13 @@ const ENTITY_TYPE_VOCABULARY = [
   'other',
 ] as const;
 
-const DEFAULT_EXTRACTION_PROMPT = `You are an entity-and-fact extractor for a knowledge graph.
+/**
+ * Static header — the structural / verbatim-rule / decompose-then-extract
+ * contract. Predicate cards are appended dynamically per call from the
+ * tenant's predicate registry snapshot, so adding a new predicate in the
+ * registry immediately propagates to the prompt without code changes.
+ */
+const EXTRACTION_PROMPT_HEADER = `You are an entity-and-fact extractor for a knowledge graph.
 
 OUTPUT CONTRACT
 You output JSON with three top-level fields, in this order:
@@ -136,153 +131,46 @@ THE VERBATIM RULE (most important):
 
 PREDICATE SELECTION
 For each clause, pick the SINGLE most specific predicate from the vocabulary
-below. Each predicate is defined by:
-  TYPE      — what kind of subject / value-shape it represents
-  ADMIT     — when to emit this predicate
-  NOT FOR   — what to use a NEIGHBOUR predicate for instead (the explicit
-              negative disambiguation — read this; it is how you avoid the
-              common confusion between adjacent predicates)
-  VALUE     — what shape valueSpan should take (a noun, a noun phrase, a
-              span containing the literal address, etc.)
-
-— IDENTITY group —
-
-name
-  TYPE     subject is any entity; value is the proper noun naming it
-  ADMIT    text introduces or names the entity ("Maria Petrov", "Acme Corp")
-  NOT FOR  a pronoun reference alone — skip the fact (and probably the entity)
-  VALUE    a proper-noun span from the input
-
-email
-  TYPE     subject is a person/org; value is an email address
-  ADMIT    a literal email address appears, attributed to this subject
-  VALUE    the literal email-address span ("foo@bar.com")
-
-phone
-  TYPE     subject is a person/org; value is a phone number
-  ADMIT    a literal phone-number span appears, attributed to this subject
-  VALUE    the literal phone-number span
-
-address
-  TYPE     subject is a person/org; value is a physical location
-  ADMIT    text states where the subject is, lives, is based, is located, or
-           moved from/to as a place of residence/operation
-  NOT FOR  a one-off visit ("she visited Paris last week") → interacted_with
-           a brand's target market segmentation → target_audience_segment
-  VALUE    the place-name or address span from the input
-
-dob
-  TYPE     subject is a person; value is a date of birth
-  ADMIT    text states when the subject was born
-  VALUE    the date span from the input
-
-— STATE group —
-
-status
-  TYPE     subject is any entity; value is a role / lifecycle stage /
-           membership label that the subject CURRENTLY holds
-  ADMIT    text asserts a current role ("CTO", "trial member", "head of …")
-           or lifecycle state ("active", "churned", "open", "trialing")
-  NOT FOR  a future plan to acquire a role → intent
-           a one-off action → interacted_with
-  VALUE    the noun naming the role/state — verbatim span. The example words
-           shown in this paragraph are SHAPE HINTS describing the kind of
-           noun expected; never copy them into valueSpan when the input
-           uses a different word. The valueSpan is whatever the INPUT says.
-
-tier
-  TYPE     subject is a customer/account; value is a segmentation tier label
-  ADMIT    text assigns a segmentation tier ("platinum", "gold", "free", etc.)
-  NOT FOR  a generic status → status
-  VALUE    the tier-label span from the input
-
-— BEHAVIORAL group —
-
-preference
-  TYPE     subject is a person/customer; value is a thing/style/category
-           preferred or disliked as a STABLE, RECURRING trait
-  ADMIT    text asserts a stable like / dislike / favourite ("prefers X",
-           "likes X", "favours X", "hates X", "is into X") expressing an
-           ongoing taste, not a one-off plan
-  NOT FOR  a forward-looking plan or wish ("wants to upgrade") → intent
-           a one-off action ("bought X today") → interacted_with
-           a complaint ("hated their support last week") → complained_about
-  VALUE    ONLY the noun phrase naming the preferred thing — the verb
-           ("prefers"/"likes"/"hates") is NOT part of the value. If the
-           input says "prefers vegan lunch", valueSpan is the substring
-           "vegan lunch", not "prefers vegan lunch".
-
-intent
-  TYPE     subject is a person/customer; value is a forward-looking plan,
-           wish, or expressed need
-  ADMIT    text asserts a future-tense plan, wish, or stated need ("wants
-           to X", "plans to X", "is looking for X", "needs X")
-  NOT FOR  a stable taste → preference
-           a completed action → interacted_with
-           a current role → status
-  VALUE    the noun phrase or verb-phrase naming the planned thing or goal
-
-complained_about
-  TYPE     subject is a person/customer; value is the subject of a complaint
-  ADMIT    text reports a complaint, dissatisfaction, or problem report
-  NOT FOR  a generic mention without negative sentiment → interacted_with
-  VALUE    the noun phrase naming the thing/topic complained about
-
-interacted_with
-  TYPE     subject is a person/customer; value is a thing they touched
-  ADMIT    text states a one-off generic interaction (booked, viewed,
-           contacted, attended, purchased, downloaded) without complaint,
-           without it being a long-term preference, and without a future
-           plan
-  VALUE    the noun phrase naming the thing interacted with
-
-said
-  TYPE     subject is anyone; value is an attributed utterance
-  ADMIT    text directly attributes an utterance to the subject AND none of
-           the more specific predicates above admit the clause. This is the
-           fallback — prefer any specific predicate that fits.
-  VALUE    the utterance span (may be a quoted string)
-
-— CONTENT-DOMAIN group (marketing / brand / editorial inputs) —
-
-brand_voice            SINGLETON   how the brand sounds (≤500 chars)
-brand_archetype        SINGLETON   archetype label (Hero/Sage/Outlaw/…/Everyman)
-tone_of_voice          SINGLETON   style attributes (e.g. tonality descriptors)
-product_description    SINGLETON   short product summary (≤1000 chars)
-target_audience_segment MULTI       one segment description per fact
-content_guideline      MULTI       one editorial rule per fact
-tension_point          MULTI       one customer pain or contradiction per fact
-reference_example      MULTI       one URL or exemplar quote per fact
-narrative_pillar       MULTI       one recurring theme per fact
-forbidden_pattern      MULTI       one anti-pattern per fact
-
-  SINGLETON predicates: emit at most ONE fact per entity even if the input
-  mentions multiple drafts (pick the most recent / most specific).
-  MULTI predicates: emit ONE fact per distinct item — do not concatenate
-  multiple items into one valueSpan.
-  When the subject is a brand/product and a content-domain predicate fits,
-  prefer it over the CRM fallbacks (\`said\`, \`intent\`).
+below. Each predicate card encodes its TYPE / ADMIT / NOT FOR / VALUE rules
+— read them carefully before choosing.
 
 GENERAL RULES
   • Each clause produces zero or more facts. A clause that asserts no
-    extractable predicate (e.g., a greeting) produces zero.
+    extractable predicate (e.g. a greeting) produces zero.
   • Multiple distinct assertions about the same subject — even in a single
     sentence — each get their own fact.
   • Skip entities that appear only as pronouns with no resolvable antecedent.
   • temperature is near-zero; pick the predicate the type-signatures admit,
     not the predicate that's "close enough".
   • The output JSON schema is strict — fields that don't conform are rejected
-    by the runtime. valueSpan grounding is enforced server-side.`;
+    by the runtime. valueSpan grounding is enforced server-side.
+
+PREDICATE VOCABULARY
+`;
+
+function renderPredicateCard(p: PredicateDefinition): string {
+  return `\n${p.predicateId} [${p.semantics}]\n${p.description.trim()}\n`;
+}
+
+function buildSystemPrompt(predicates: PredicateDefinition[]): string {
+  return (
+    EXTRACTION_PROMPT_HEADER +
+    predicates.map(renderPredicateCard).join('\n')
+  );
+}
 
 @Injectable()
 export class ExtractorService {
   private readonly logger = new Logger(ExtractorService.name);
   private readonly openai: OpenAI;
   private readonly model: string;
-  private readonly systemPrompt: string;
+  private readonly systemPromptHeader: string;
   private readonly limiter: Semaphore;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly registry: PredicateRegistryService,
+  ) {
     const timeoutMs = parseInt(
       this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
       10,
@@ -297,11 +185,12 @@ export class ExtractorService {
       maxRetries,
     });
     this.model = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
-    // Operators tuning extraction for a vertical (legal-tech wants
-    // different predicates than retail) override via env without a
-    // code redeploy. Falls back to the canonical core vocabulary.
-    this.systemPrompt =
-      this.configService.get<string>('EXTRACTION_SYSTEM_PROMPT') ?? DEFAULT_EXTRACTION_PROMPT;
+    // The static EXTRACTION_SYSTEM_PROMPT override is no longer the source
+    // of truth for vocabulary — that's the registry. The env var stays as
+    // an escape hatch for operators who want to fully replace the prompt
+    // header (everything before the dynamically-rendered predicate cards).
+    this.systemPromptHeader =
+      this.configService.get<string>('EXTRACTION_SYSTEM_PROMPT') ?? EXTRACTION_PROMPT_HEADER;
     const concurrency = parseInt(
       this.configService.get<string>('OPENAI_CONCURRENCY', '8'),
       10,
@@ -309,21 +198,43 @@ export class ExtractorService {
     this.limiter = new Semaphore(concurrency);
   }
 
-  async extract(text: string): Promise<ExtractionResult> {
+  async extract(
+    text: string,
+    companyId: string,
+  ): Promise<ExtractionResult> {
     const trimmed = text.trim();
     if (!trimmed) return { entities: [], facts: [] };
+
+    // Resolve the per-tenant active predicate set. Snapshot is TTL-cached
+    // in the registry; the versionHash gets pinned in the trace so a
+    // downstream audit can correlate an extraction with the registry
+    // state it was made against.
+    const snapshot = await this.registry.getSnapshot(companyId);
+    const systemPrompt =
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
+        ? buildSystemPrompt(snapshot.active)
+        : // Operator gave a custom header — render cards after their text.
+          this.systemPromptHeader +
+          snapshot.active.map(renderPredicateCard).join('\n');
+    const vocab = snapshot.active.map((p) => p.predicateId);
+    traceArtifact('extractor.vocab', {
+      versionHash: snapshot.versionHash,
+      predicateCount: vocab.length,
+      predicateIds: vocab,
+    });
 
     const res = await this.limiter.run(() =>
       this.openai.chat.completions.create({
         model: this.model,
         messages: [
-          { role: 'system', content: this.systemPrompt },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: trimmed },
         ],
         // Strict JSON Schema with span-grounded objects. predicate is a
-        // closed enum so the model cannot hallucinate predicates outside
-        // our vocabulary; valueSpan is constrained to a string but
-        // grounded server-side (substring containment in the input).
+        // closed enum BUILT PER-CALL FROM THE TENANT REGISTRY so adding a
+        // new predicate via admin propagates without code changes. valueSpan
+        // is constrained to a string but grounded server-side (substring
+        // containment in the input).
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -360,7 +271,7 @@ export class ExtractorService {
                     properties: {
                       entityIndex: { type: 'integer', minimum: 0 },
                       clauseIndex: { type: 'integer', minimum: 0 },
-                      predicate: { type: 'string', enum: [...PREDICATE_VOCABULARY] },
+                      predicate: { type: 'string', enum: vocab },
                       valueSpan: {
                         type: 'string',
                         description:
