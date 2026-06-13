@@ -5,6 +5,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -51,6 +52,7 @@ const DEMO_LIVE_COMPANY = 'demo_live';
 @Controller('v1/admin')
 @UseGuards(ApiKeyGuard)
 export class AdminController {
+  private readonly logger = new Logger(AdminController.name);
   constructor(
     private readonly admin: AdminService,
     private readonly dreams: DreamsService,
@@ -704,97 +706,104 @@ export class AdminController {
         if (!targetLc && (!entityRefs || entityRefs.length === 0)) {
           return { results: [] };
         }
-        // Resolve entities by (a) explicit names the router identified as
-        // subjects, then (b) substring fallback where any known canonical
-        // name appears INSIDE the question text. The substring direction
-        // matters: "what does Maria eat" must find the entity "Maria" —
-        // NOT entities whose name contains the whole question.
-        let entities: any[] = [];
+
+        // Predicate filtering: when the router slotted the question into a
+        // specific subset of the closed vocabulary ("where lives" →
+        // ["address"]), AND-filter so the graph returns ONLY the relevant
+        // facts instead of dumping every fact about the subject. Empty →
+        // recency top-N fallback (mem0 / generative-agents default).
+        const hasHints = !!(predicateHints && predicateHints.length > 0);
+
+        // Bitemporal closure mirrors search.service.ts's "present truth".
+        // asOf swaps it for a historical slice. The same WHERE is used
+        // for both the entityRefs path and the substring-fallback path —
+        // built once and embedded in the subselect for the one-query
+        // collapse. (Sprint 1 follow-up: when migration 0013 ships
+        // fn::active_window, this WHERE becomes one function call.)
+        const factsWhere = asOf
+          ? `entityId = $parent.id
+             AND (retractedAt IS NONE OR retractedAt > $asOf)
+             AND validFrom <= $asOf
+             AND (validUntil IS NONE OR validUntil > $asOf)
+             AND status != 'compacted'`
+          : `entityId = $parent.id
+             AND retractedAt IS NONE
+             AND validFrom <= time::now()
+             AND (validUntil IS NONE OR validUntil > time::now())
+             AND status NOT IN ['superseded', 'compacted']`;
+        const predicateClause = hasHints ? ' AND predicate IN $hints' : '';
+        const factSubselect = `(
+            SELECT id, predicate, object, confidence, validFrom, validUntil,
+                   recordedAt, retractedAt, status, source
+              FROM knowledge_fact
+             WHERE ${factsWhere}${predicateClause}
+             ORDER BY recordedAt DESC
+             LIMIT 8
+          ) AS facts`;
+        const sharedParams: Record<string, unknown> = {
+          ...(asOf ? { asOf: new Date(asOf) } : {}),
+          ...(hasHints ? { hints: predicateHints } : {}),
+        };
+
+        // Entity resolution + facts in ONE query each path:
+        //   1. entityRefs (router pinned canonical names) → IN-filter
+        //      with inline fact subselect.
+        //   2. Substring fallback — pull bounded candidates, JS-filter
+        //      to names occurring INSIDE the question, then ONE follow-up
+        //      query with IN-filter + fact subselect.
+        // The substring filter is JS-side until migration 0013 ships
+        // entity_fuzzy_idx (Sprint 1 #3); after that this whole block
+        // collapses to a single `@@`-driven query.
+        let results: any[] = [];
         if (entityRefs && entityRefs.length > 0) {
           const refsLc = entityRefs.map((n) => n.toLowerCase());
           const [eRows] = await db.query<any[][]>(
-            `SELECT id, type, canonicalName, externalRefs, aliases
+            `SELECT id, type, canonicalName, externalRefs, aliases,
+                    ${factSubselect}
                FROM knowledge_entity
               WHERE mergedInto IS NONE
                 AND canonicalNameLc IN $refs
               LIMIT 10`,
-            { refs: refsLc },
+            { ...sharedParams, refs: refsLc },
           );
-          entities = (eRows as any[]) ?? [];
+          results = (eRows as any[]) ?? [];
         }
-        if (entities.length === 0 && targetLc) {
-          // Substring fallback — pull a bounded candidate set and pick names
-          // that occur INSIDE the question text. Cheap for demo-scale
-          // tenants and avoids cardinality issues from a global string
-          // search. The TOP-N here matches the demo tenant cap.
-          const [allRows] = await db.query<any[][]>(
-            `SELECT id, type, canonicalName, canonicalNameLc, externalRefs, aliases
-               FROM knowledge_entity
-              WHERE mergedInto IS NONE AND canonicalNameLc IS NOT NONE
-              LIMIT 200`,
-          );
-          const candidates = (allRows as any[]) ?? [];
-          entities = candidates
-            .filter((c: any) => {
-              const nameLc = c.canonicalNameLc;
-              if (typeof nameLc !== 'string' || nameLc.length < 2) return false;
-              return targetLc.includes(nameLc);
-            })
-            // Prefer longer names so "Maria Petrov" beats "Maria" when both
-            // are present.
-            .sort(
-              (a: any, b: any) =>
-                String(b.canonicalNameLc).length -
-                String(a.canonicalNameLc).length,
-            )
-            .slice(0, 5);
+        if (results.length === 0 && targetLc) {
+          // Fuzzy fallback via the `prefix` analyzer index (migration
+          // 0013). BM25 over edgengram(2..15) handles typos / partials /
+          // case variations without the JS substring filter that used to
+          // live here. Falls back gracefully when the index isn't
+          // available (older tenant DBs not yet migrated): on error we
+          // return empty graph results and the vector path handles it.
+          try {
+            const [eRows] = await db.query<any[][]>(
+              `SELECT id, type, canonicalName, externalRefs, aliases,
+                      search::score(1) AS nameScore,
+                      ${factSubselect}
+                 FROM knowledge_entity
+                WHERE mergedInto IS NONE
+                  AND canonicalName @1@ $q
+                ORDER BY nameScore DESC
+                LIMIT 5`,
+              { ...sharedParams, q: targetLc },
+            );
+            results = (eRows as any[]) ?? [];
+          } catch (e) {
+            this.logger.warn(
+              `fuzzy entity match failed (likely pre-0013 schema): ${(e as Error).message}`,
+            );
+          }
         }
-        if (entities.length === 0) return { results: [] };
-        // Active-now bitemporal closure mirrors search.service.ts's
-        // default 'present truth' shape. asOf swaps it for a historical
-        // slice.
-        //
-        // Predicate filtering: when the router slotted the question into a
-        // specific subset of the closed vocabulary ("where lives" →
-        // ["address"]), AND-filter so the graph returns ONLY the relevant
-        // facts instead of dumping every fact about the subject. When
-        // hints are empty we fall back to top-N recency on the full set
-        // (mem0 / generative-agents default for general questions). The
-        // tighter LIMIT — 8 vs 10 — keeps the synthesis prompt small.
-        const hasHints = !!(predicateHints && predicateHints.length > 0);
-        const predicateClause = hasHints ? ' AND predicate IN $hints' : '';
-        const factsByEntity = new Map<string, any[]>();
-        const preFilterCounts = new Map<string, number>();
-        for (const ent of entities) {
-          const where = asOf
-            ? `entityId = $eid
-               AND (retractedAt IS NONE OR retractedAt > $asOf)
-               AND validFrom <= $asOf
-               AND (validUntil IS NONE OR validUntil > $asOf)
-               AND status != 'compacted'`
-            : `entityId = $eid
-               AND retractedAt IS NONE
-               AND validFrom <= time::now()
-               AND (validUntil IS NONE OR validUntil > time::now())
-               AND status NOT IN ['superseded', 'compacted']`;
-          const params: Record<string, unknown> = {
-            eid: ent.id,
-            ...(asOf ? { asOf: new Date(asOf) } : {}),
-            ...(hasHints ? { hints: predicateHints } : {}),
-          };
-          const [fRows] = await db.query<any[][]>(
-            `SELECT id, predicate, object, confidence, validFrom, validUntil,
-                    recordedAt, retractedAt, status, source
-               FROM knowledge_fact
-              WHERE ${where}${predicateClause}
-              ORDER BY recordedAt DESC
-              LIMIT 8`,
-            params,
-          );
-          const rows = (fRows as any[]) ?? [];
-          factsByEntity.set(String(ent.id), rows);
-          preFilterCounts.set(String(ent.id), rows.length);
-        }
+        if (results.length === 0) return { results: [] };
+
+        // Convenience map of per-entity fact counts for the trace
+        // artifact — same shape the previous N-query path produced.
+        const preFilterCounts = new Map<string, number>(
+          results.map((ent: any) => [
+            String(ent.id),
+            Array.isArray(ent.facts) ? ent.facts.length : 0,
+          ]),
+        );
         traceArtifact('demo.predicate_filter', {
           hints: predicateHints ?? [],
           mode: hasHints ? 'and_filter' : 'recency_topN_fallback',
@@ -803,8 +812,8 @@ export class AdminController {
           ),
         });
         return {
-          results: entities.map((ent: any) => {
-            const raw = factsByEntity.get(String(ent.id)) ?? [];
+          results: results.map((ent: any) => {
+            const raw: any[] = Array.isArray(ent.facts) ? ent.facts : [];
             // Collapse identical-shape active facts (same predicate+object).
             // Fact-level dedup is a runtime concern of dreams.dedup but the
             // demo can't wait for the sweep — for an entity that's been
