@@ -26,6 +26,7 @@ import { runWithDebugTrace, TraceBufferService } from '../common/debug-trace';
 import { SurrealService } from '../db/surreal.service';
 import { IngestService } from '../ingest/ingest.service';
 import { SearchService } from '../search/search.service';
+import { ChatRouterService, ChatRoute } from './chat-router.service';
 
 /**
  * Shared tenant for the live demo slide. Single shared key so any admin
@@ -48,6 +49,7 @@ export class AdminController {
     private readonly surreal: SurrealService,
     private readonly ingest: IngestService,
     private readonly search: SearchService,
+    private readonly chatRouter: ChatRouterService,
   ) {}
 
   @Get('overview')
@@ -291,6 +293,56 @@ export class AdminController {
         requestId: captured.trace.requestId,
         totalMs: captured.trace.totalMs,
         spans: captured.trace.spans,
+      },
+    };
+  }
+
+  /**
+   * Chat-shaped one-shot endpoint. The operator types a free-form line, the
+   * router decides ingest-vs-search and pulls any natural temporal anchor
+   * ("yesterday", "вчера", "в марте"...) out of it, and the right brain
+   * pipeline runs. Returned to the UI as a single timeline turn so the
+   * audience sees the route the LLM picked.
+   */
+  @Post('demo/chat')
+  @RequireScopes('brain:admin')
+  async demoChat(
+    @Body() body: { message: string; includePii?: boolean },
+  ) {
+    if (!body?.message?.trim()) {
+      throw new BadRequestException('message is required');
+    }
+    const captured = await runWithDebugTrace(async () => {
+      const route: ChatRoute = await this.chatRouter.route(body.message);
+      if (route.intent === 'tell') {
+        const ingest = await this.ingest.ingestMention(DEMO_LIVE_COMPANY, {
+          text: body.message,
+          contextRef: { vertical: 'shop' },
+          emittedAt: new Date().toISOString(),
+        } as any);
+        return { route, ingest };
+      }
+      const scopes = body.includePii
+        ? ['brain:read', 'brain:read_pii']
+        : ['brain:read'];
+      const search = await this.search.search(
+        DEMO_LIVE_COMPANY,
+        {
+          query: route.cleanedQuery ?? body.message,
+          limit: 5,
+          asOf: route.asOf,
+        } as any,
+        scopes as any,
+      );
+      return { route, search };
+    });
+    return {
+      ...captured.result,
+      trace: {
+        requestId: captured.trace.requestId,
+        totalMs: captured.trace.totalMs,
+        spans: captured.trace.spans,
+        artifacts: captured.trace.artifacts,
       },
     };
   }

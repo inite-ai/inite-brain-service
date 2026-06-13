@@ -9,6 +9,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
+import { ChatRouterService } from './chat-router.service';
 
 @Module({
   imports: [
@@ -20,6 +21,11 @@ import { BaselineService } from './baseline.service';
     EntitiesModule,
   ],
   controllers: [AdminController],
-  providers: [AdminService, ScenarioRunnerService, BaselineService],
+  providers: [
+    AdminService,
+    ScenarioRunnerService,
+    BaselineService,
+    ChatRouterService,
+  ],
 })
 export class AdminModule {}
