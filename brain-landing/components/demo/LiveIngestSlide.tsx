@@ -50,6 +50,7 @@ interface SearchHit {
 interface ChatResp {
   route: {
     intent: 'tell' | 'ask'
+    normalizedMessage?: string
     cleanedQuery?: string
     asOf?: string
     reason?: string
@@ -330,6 +331,15 @@ function TurnCard({ turn }: { turn: Turn }) {
             asOf {asOf.slice(0, 16)}
           </span>
         )}
+        {turn.chat?.route?.normalizedMessage &&
+          turn.chat.route.normalizedMessage !== turn.prompt && (
+            <span
+              className="text-[10px] font-mono text-[var(--accent)] truncate max-w-xs"
+              title={turn.chat.route.normalizedMessage}
+            >
+              → “{turn.chat.route.normalizedMessage}”
+            </span>
+          )}
         {turn.chat?.route?.cleanedQuery &&
           turn.chat.route.cleanedQuery !== turn.prompt && (
             <span

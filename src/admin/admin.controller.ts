@@ -313,10 +313,19 @@ export class AdminController {
       throw new BadRequestException('message is required');
     }
     const captured = await runWithDebugTrace(async () => {
-      const route: ChatRoute = await this.chatRouter.route(body.message);
+      // Pull current canonical names so the router can rewrite short
+      // references ("Maria") into their canonical form ("Maria Petrov")
+      // before NLU runs. This is the cheap fix for cross-message identity
+      // drift — the long-term answer is fuzzy entity resolution at ingest,
+      // but for the demo a router-side rewrite is enough.
+      const knownNames = await this.fetchKnownEntityNames();
+      const route: ChatRoute = await this.chatRouter.route(body.message, {
+        knownNames,
+      });
+      const ingestText = route.normalizedMessage ?? body.message;
       if (route.intent === 'tell') {
         const ingest = await this.ingest.ingestMention(DEMO_LIVE_COMPANY, {
-          text: body.message,
+          text: ingestText,
           contextRef: { vertical: 'shop' },
           emittedAt: new Date().toISOString(),
         } as any);
@@ -383,6 +392,29 @@ export class AdminController {
         spans: captured.trace.spans,
       },
     };
+  }
+
+  private async fetchKnownEntityNames(): Promise<string[]> {
+    // Top 25 canonical names from the demo tenant — bounded so the router
+    // prompt doesn't bloat. Best-effort: if the tenant is empty / the read
+    // fails, return [] and the router just won't canonicalise this turn.
+    try {
+      return await this.surreal.withCompany(
+        DEMO_LIVE_COMPANY,
+        async (db) => {
+          const [rows] = await db.query<[Array<{ canonicalName: string }>]>(
+            `SELECT canonicalName FROM knowledge_entity ` +
+              `WHERE mergedInto IS NONE AND canonicalName IS NOT NONE ` +
+              `LIMIT 25`,
+          );
+          return ((rows as Array<{ canonicalName: string }>) ?? [])
+            .map((r) => r.canonicalName)
+            .filter(Boolean);
+        },
+      );
+    } catch {
+      return [];
+    }
   }
 
   @Post('demo/reset')

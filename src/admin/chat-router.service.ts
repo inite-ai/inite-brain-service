@@ -15,9 +15,17 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 export interface ChatRoute {
   /** 'tell' = statement to ingest as a mention. 'ask' = question to search. */
   intent: 'tell' | 'ask';
+  /**
+   * Message rewritten with short references resolved to canonical entity
+   * names from `knownNames`. Used as the actual ingest text for 'tell'
+   * intents — fixes the "Maria" vs "Maria Petrov" duplicate problem where
+   * the second mention used a first-name-only reference and NLU created
+   * a fresh entity.
+   */
+  normalizedMessage?: string;
   /** Normalised query for search (only set when intent='ask'). Temporal
-   *  hints are stripped so the lexical/vector retrieval doesn't match on
-   *  "yesterday" itself. */
+   *  hints are stripped AND short references are canonicalised so the
+   *  retrieval lands on the known entity. */
   cleanedQuery?: string;
   /** ISO timestamp extracted from temporal phrases ("yesterday", "last
    *  month", "вчера", "в марте"). When set with intent='ask', the caller
@@ -42,30 +50,52 @@ export class ChatRouterService {
     this.model = this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
   }
 
-  async route(message: string, now: Date = new Date()): Promise<ChatRoute> {
-    const nowIso = now.toISOString();
+  async route(
+    message: string,
+    options: { knownNames?: string[]; now?: Date } = {},
+  ): Promise<ChatRoute> {
+    const nowIso = (options.now ?? new Date()).toISOString();
+    const knownNames = options.knownNames ?? [];
     const system = `You route a free-form chat message to a knowledge-graph backend.
+
 Decide intent:
   - "tell" — the user is stating a fact or asserting new information (declarative).
   - "ask" — the user is querying existing knowledge (interrogative or imperative search).
 
-When intent="ask", extract any temporal anchor present in the message ("yesterday",
-"last month", "in March", "вчера", "на прошлой неделе", etc.) and return it as an
-ISO 8601 asOf timestamp computed relative to "now". Strip the temporal phrase
-from cleanedQuery so the search runs on the topical content alone.
+Entity canonicalisation (CRITICAL — this is what keeps the graph from accumulating
+duplicate people / orgs across mentions):
+  The graph already knows the entities listed under "known canonical names".
+  If the user uses a short reference (first name, alias, possessive pronoun chain
+  that resolves to one of them) that UNAMBIGUOUSLY matches exactly one known
+  name, rewrite the message to use the full canonical form.
 
-When intent="tell", do NOT compute asOf — let the ingest pipeline use emittedAt=now.
-You may still leave cleanedQuery empty for tell.
+  Example: known names = ["Maria Petrov", "Acme"], message = "Maria switched to keto"
+    → normalizedMessage = "Maria Petrov switched to keto"
+    → cleanedQuery     = "Maria Petrov diet" (for ask intent)
+
+  If the short reference matches MORE than one known name, do NOT rewrite —
+  leave the original message in place and let the operator clarify.
+
+Temporal handling:
+  When intent="ask", extract any temporal anchor ("yesterday", "last month",
+  "in March", "вчера", "на прошлой неделе") and return it as an ISO 8601 asOf
+  timestamp computed relative to "now". Strip the temporal phrase from
+  cleanedQuery so retrieval runs on the topical content alone.
+
+When intent="tell", do NOT compute asOf — emittedAt=now is correct.
 
 Rules:
-  - Always pick one of the two intents. Default to "ask" if a sentence is
-    ambiguous and ends with a question word.
-  - asOf must be either a valid ISO 8601 timestamp (UTC) or omitted.
-  - Be conservative — only set asOf when a temporal phrase is explicitly present.
+  - Always pick one of the two intents.
+  - asOf must be a valid ISO 8601 timestamp or null.
+  - normalizedMessage falls back to the original message when no canonicalisation
+    applies.
+  - cleanedQuery is only set for ask intent.
 
 Reply with strict JSON.`;
 
-    const user = `now: ${nowIso}\nmessage: ${message}`;
+    const user = `now: ${nowIso}
+known canonical names: ${JSON.stringify(knownNames)}
+message: ${message}`;
 
     return traceSpan('demo.chat.route', async () => {
       traceArtifact('demo.chat.prompt', { system, user, model: this.model });
@@ -85,11 +115,18 @@ Reply with strict JSON.`;
               additionalProperties: false,
               properties: {
                 intent: { type: 'string', enum: ['tell', 'ask'] },
+                normalizedMessage: { type: ['string', 'null'] },
                 cleanedQuery: { type: ['string', 'null'] },
                 asOf: { type: ['string', 'null'] },
                 reason: { type: ['string', 'null'] },
               },
-              required: ['intent', 'cleanedQuery', 'asOf', 'reason'],
+              required: [
+                'intent',
+                'normalizedMessage',
+                'cleanedQuery',
+                'asOf',
+                'reason',
+              ],
             },
           },
         },
@@ -100,11 +137,19 @@ Reply with strict JSON.`;
       if (!content) throw new Error('router returned empty response');
       const parsed = JSON.parse(content) as {
         intent: 'tell' | 'ask';
+        normalizedMessage: string | null;
         cleanedQuery: string | null;
         asOf: string | null;
         reason: string | null;
       };
       const out: ChatRoute = { intent: parsed.intent };
+      if (
+        parsed.normalizedMessage &&
+        parsed.normalizedMessage.trim() &&
+        parsed.normalizedMessage !== message
+      ) {
+        out.normalizedMessage = parsed.normalizedMessage;
+      }
       if (parsed.cleanedQuery) out.cleanedQuery = parsed.cleanedQuery;
       if (parsed.asOf && isValidIso(parsed.asOf)) out.asOf = parsed.asOf;
       if (parsed.reason) out.reason = parsed.reason;
