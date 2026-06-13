@@ -129,10 +129,24 @@ THE VERBATIM RULE (most important):
   • If you cannot find a substring of the input that names the value, do not
     emit the fact.
 
-PREDICATE SELECTION
+PREDICATE SELECTION (closed-preferred, open-coined)
 For each clause, pick the SINGLE most specific predicate from the vocabulary
 below. Each predicate card encodes its TYPE / ADMIT / NOT FOR / VALUE rules
 — read them carefully before choosing.
+
+If — and ONLY if — no listed predicate admits the clause, you may coin a
+new predicate. Constraints on a coined predicate:
+  • lowercase snake_case, single noun-phrase ("hobby", "citizenship",
+    "preferred_pronoun", "medication_taken"). NOT verb phrases.
+  • Must describe the SHAPE of the assertion, not a specific value.
+  • Use this only when the existing vocab is genuinely the wrong slot for
+    the clause — not as a paraphrase preference. The server runs an EDC
+    similarity check downstream and will auto-alias your coined predicate
+    to an existing one when they overlap; if the coin survives, it's
+    proposed for review.
+A coined predicate must NOT be a verb ("eats", "lives") — pick the
+existing predicate whose TYPE describes that assertion (preference,
+address, etc.) instead.
 
 GENERAL RULES
   • Each clause produces zero or more facts. A clause that asserts no
@@ -271,7 +285,18 @@ export class ExtractorService {
                     properties: {
                       entityIndex: { type: 'integer', minimum: 0 },
                       clauseIndex: { type: 'integer', minimum: 0 },
-                      predicate: { type: 'string', enum: vocab },
+                      // Open vocabulary (EDC pattern) — model is told via
+                      // prompt that the listed predicates are the known
+                      // vocab and should be preferred when one fits, but
+                      // is allowed to coin a novel predicate when none do.
+                      // The server runs predicate-registry.canonicalize
+                      // downstream which either matches, auto-aliases, or
+                      // proposes the novel predicate for review.
+                      predicate: {
+                        type: 'string',
+                        description:
+                          'Prefer a predicate from the listed vocabulary. Coin a new lowercase snake_case predicate ONLY when no listed one admits the clause — the server will canonicalize it via EDC similarity search downstream.',
+                      },
                       valueSpan: {
                         type: 'string',
                         description:
@@ -391,15 +416,16 @@ export class ExtractorService {
         });
         continue;
       }
+      const clauseText =
+        rf.clauseIndex !== undefined && rf.clauseIndex < clauses.length
+          ? clauses[rf.clauseIndex]
+          : undefined;
       facts.push({
         entityIndex: rf.entityIndex,
         predicate: rf.predicate,
         object: rf.valueSpan,
         confidence: rf.confidence,
-        clause:
-          rf.clauseIndex !== undefined && rf.clauseIndex < clauses.length
-            ? clauses[rf.clauseIndex]
-            : undefined,
+        clause: clauseText,
       });
     }
 
@@ -419,6 +445,67 @@ export class ExtractorService {
     }
     if (clauses.length > 0) {
       traceArtifact('extractor.clauses', clauses);
+    }
+
+    // EDC canonicalization pass. For each fact, ask the registry to
+    // resolve the (possibly-novel) predicate to its canonical id —
+    // either matching an existing predicate, auto-aliasing a similar
+    // novel one, or inserting it as proposed. The fact's predicate
+    // field is rewritten to the canonical id before returning so
+    // downstream (conflict resolver, fact upsert) treats it uniformly.
+    if (facts.length > 0) {
+      const decisions: Array<{
+        original: string;
+        canonical: string;
+        kind: 'matched' | 'aliased' | 'proposed';
+        similarity?: number;
+        bestMatchId?: string;
+      }> = [];
+      for (const f of facts) {
+        const contextText = `${f.predicate}: ${f.object}${
+          f.clause ? ` (clause: ${f.clause})` : ''
+        }`;
+        try {
+          const decision = await this.registry.canonicalize(
+            companyId,
+            f.predicate,
+            contextText,
+          );
+          if (decision.canonicalId !== f.predicate) {
+            decisions.push({
+              original: f.predicate,
+              canonical: decision.canonicalId,
+              kind: decision.kind,
+              ...(decision.kind === 'aliased'
+                ? { similarity: decision.similarity }
+                : {}),
+              ...(decision.kind === 'proposed' && decision.bestMatch
+                ? {
+                    similarity: decision.bestMatch.similarity,
+                    bestMatchId: decision.bestMatch.predicateId,
+                  }
+                : {}),
+            });
+            f.predicate = decision.canonicalId;
+          } else if (decision.kind !== 'matched') {
+            decisions.push({
+              original: f.predicate,
+              canonical: decision.canonicalId,
+              kind: decision.kind,
+              ...(decision.kind === 'aliased'
+                ? { similarity: decision.similarity }
+                : {}),
+            });
+          }
+        } catch (e) {
+          this.logger.warn(
+            `canonicalize failed for predicate '${f.predicate}': ${(e as Error).message}`,
+          );
+        }
+      }
+      if (decisions.length > 0) {
+        traceArtifact('extractor.canonicalize', decisions);
+      }
     }
 
     return { entities, facts };

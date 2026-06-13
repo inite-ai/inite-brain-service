@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { SurrealService } from '../db/surreal.service';
+import { EmbedderService } from './embedder.service';
 
 /**
  * Per-tenant predicate ontology registry.
@@ -71,9 +72,41 @@ export interface PredicateSnapshot {
   active: PredicateDefinition[];
   /** Quick lookup by predicateId (active only). */
   byId: Map<string, PredicateDefinition>;
+  /** Resolved aliases. Maps any (aliased / active / proposed) predicate
+   *  id to its CANONICAL active predicate id by following aliasedTo
+   *  chains. Drives canonicalize() and read-time predicate normalization. */
+  aliasMap: Map<string, string>;
+  /** Embedding lookup for active predicates — drives EDC similarity search
+   *  on canonicalize(). Predicates without an embedding are skipped during
+   *  similarity scoring (older rows from before 0012 migration). */
+  embeddings: Map<string, number[]>;
 }
 
+export type CanonicalizeDecision =
+  | { kind: 'matched'; canonicalId: string }
+  | {
+      kind: 'aliased';
+      canonicalId: string;
+      similarity: number;
+      novelPredicateId: string;
+    }
+  | {
+      kind: 'proposed';
+      canonicalId: string;
+      novelPredicateId: string;
+      bestMatch?: { predicateId: string; similarity: number };
+    };
+
 const SNAPSHOT_TTL_MS = 60_000;
+/** EDC similarity threshold for auto-alias. Above → alias the novel
+ *  predicate to the existing canonical id. Below → INSERT as proposed
+ *  for human/agent review. Threshold chosen per Mem0g / EDC paper
+ *  recommendations (0.85 is conservative; rare false-merges). */
+const CANONICALIZE_AUTO_ALIAS_THRESHOLD = 0.85;
+/** Floor for "any meaningful match" — used purely to report bestMatch on
+ *  the proposed outcome so an operator reviewing the queue sees what the
+ *  closest existing predicate was. */
+const CANONICALIZE_REPORT_FLOOR = 0.6;
 const DEFAULT_FALLBACK: PredicateDefinition = {
   predicateId: '__default__',
   displayLabel: 'default',
@@ -444,7 +477,10 @@ export class PredicateRegistryService {
   /** Per-tenant bootstrap flag — ensureBootstrap runs once per process per tenant. */
   private readonly bootstrapped = new Set<string>();
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly embedder: EmbedderService,
+  ) {}
 
   /**
    * Idempotently INSERT every CORE_PREDICATE that isn't already in the
@@ -455,27 +491,79 @@ export class PredicateRegistryService {
   private async ensureBootstrap(companyId: string): Promise<void> {
     if (this.bootstrapped.has(companyId)) return;
     await this.surreal.withCompany(companyId, async (db) => {
-      const [existingRows] = await db.query<[Array<{ predicateId: string }>]>(
-        `SELECT predicateId FROM knowledge_predicate`,
-      );
-      const existing = new Set(
-        ((existingRows as Array<{ predicateId: string }>) ?? []).map(
-          (r) => r.predicateId,
-        ),
-      );
+      const [existingRows] = await db.query<
+        [Array<{ predicateId: string; embedding?: number[] | null }>]
+      >(`SELECT predicateId, embedding FROM knowledge_predicate`);
+      const existing = (existingRows as Array<{
+        predicateId: string;
+        embedding?: number[] | null;
+      }>) ?? [];
+      const existingIds = new Set(existing.map((r) => r.predicateId));
       const missing = CORE_PREDICATES.filter(
-        (p) => !existing.has(p.predicateId),
+        (p) => !existingIds.has(p.predicateId),
       );
-      if (missing.length === 0) return;
-      this.logger.log(
-        `Seeding ${missing.length} core predicate(s) into ${companyId}: ` +
-          missing.map((p) => p.predicateId).join(', '),
-      );
-      for (const p of missing) {
-        await db.query(
-          `CREATE knowledge_predicate CONTENT $content`,
-          { content: serializeForInsert(p) },
+      if (missing.length > 0) {
+        this.logger.log(
+          `Seeding ${missing.length} core predicate(s) into ${companyId}: ` +
+            missing.map((p) => p.predicateId).join(', '),
         );
+        // Embed the predicate "card" (id + description) so EDC similarity
+        // search has something to match against. Done at bootstrap so
+        // first-extraction latency stays predictable.
+        const embeddings = await Promise.all(
+          missing.map((p) =>
+            this.embedder.embed(embeddingTextFor(p)).catch((e) => {
+              this.logger.warn(
+                `Failed to embed predicate ${p.predicateId}: ${(e as Error).message}`,
+              );
+              return null;
+            }),
+          ),
+        );
+        for (let i = 0; i < missing.length; i++) {
+          await db.query(`CREATE knowledge_predicate CONTENT $content`, {
+            content: {
+              ...serializeForInsert(missing[i]),
+              ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
+            },
+          });
+        }
+      }
+
+      // Backfill embeddings for any pre-existing row that's missing one
+      // (rows seeded before migration 0012 landed).
+      const needBackfill = existing.filter(
+        (r) =>
+          !Array.isArray(r.embedding) || (r.embedding as number[]).length === 0,
+      );
+      if (needBackfill.length > 0) {
+        this.logger.log(
+          `Backfilling embeddings for ${needBackfill.length} predicate(s) in ${companyId}`,
+        );
+        for (const row of needBackfill) {
+          const seed = CORE_PREDICATES.find(
+            (p) => p.predicateId === row.predicateId,
+          );
+          // Use seed description when available; otherwise fall back to the
+          // bare predicateId so similarity at least lands on the lexical
+          // surface form.
+          const text = seed
+            ? embeddingTextFor(seed)
+            : row.predicateId.replace(/_/g, ' ');
+          try {
+            const emb = await this.embedder.embed(text);
+            await db.query(
+              `UPDATE knowledge_predicate
+                 SET embedding = $emb, updatedAt = time::now()
+               WHERE predicateId = $pid`,
+              { emb, pid: row.predicateId },
+            );
+          } catch (e) {
+            this.logger.warn(
+              `Skipped embedding backfill for ${row.predicateId}: ${(e as Error).message}`,
+            );
+          }
+        }
       }
     });
     this.bootstrapped.add(companyId);
@@ -526,20 +614,363 @@ export class PredicateRegistryService {
     this.cache.delete(companyId);
   }
 
+  // ── Admin CRUD ────────────────────────────────────────────────────────
+
+  /**
+   * List ALL predicates for a tenant — active + proposed + aliased +
+   * deprecated. Operators reviewing the queue need the full picture.
+   * Phase 2 of the registry; see Phase 2 in the file header.
+   */
+  async listAll(companyId: string): Promise<PredicateDefinition[]> {
+    await this.ensureBootstrap(companyId);
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT * FROM knowledge_predicate ORDER BY status, predicateId`,
+      );
+      return ((rows as Array<Record<string, unknown>>) ?? []).map(
+        (r) => deserializeFromRow(r),
+      );
+    });
+  }
+
+  async create(
+    companyId: string,
+    input: Partial<PredicateDefinition> & {
+      predicateId: string;
+      semantics: Semantics;
+      piiClass: PiiClass;
+    },
+  ): Promise<PredicateDefinition> {
+    await this.ensureBootstrap(companyId);
+    const def: PredicateDefinition = {
+      predicateId: input.predicateId,
+      displayLabel:
+        input.displayLabel ?? input.predicateId.replace(/_/g, ' '),
+      description: input.description ?? '',
+      datatype: input.datatype ?? 'string',
+      semantics: input.semantics,
+      decayHalfLifeDays: input.decayHalfLifeDays ?? null,
+      piiClass: input.piiClass,
+      ...(input.requiresScope ? { requiresScope: input.requiresScope } : {}),
+      ...(input.parentPredicateId
+        ? { parentPredicateId: input.parentPredicateId }
+        : {}),
+      ...(input.subjectClasses ? { subjectClasses: input.subjectClasses } : {}),
+      ...(input.allowedValues ? { allowedValues: input.allowedValues } : {}),
+      status: input.status ?? 'active',
+      ...(input.aliasedTo ? { aliasedTo: input.aliasedTo } : {}),
+      createdBy: input.createdBy ?? 'admin',
+    };
+    let embedding: number[] | null = null;
+    try {
+      embedding = await this.embedder.embed(embeddingTextFor(def));
+    } catch (e) {
+      this.logger.warn(
+        `Failed to embed new predicate ${def.predicateId}: ${(e as Error).message}`,
+      );
+    }
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`CREATE knowledge_predicate CONTENT $content`, {
+        content: {
+          ...serializeForInsert(def),
+          ...(embedding ? { embedding } : {}),
+        },
+      });
+    });
+    this.invalidate(companyId);
+    return def;
+  }
+
+  async update(
+    companyId: string,
+    predicateId: string,
+    patch: Partial<
+      Omit<PredicateDefinition, 'predicateId' | 'createdBy'>
+    >,
+  ): Promise<PredicateDefinition | null> {
+    await this.ensureBootstrap(companyId);
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [existingRows] = await db.query<[Array<Record<string, unknown>>]>(
+        `SELECT * FROM knowledge_predicate WHERE predicateId = $pid LIMIT 1`,
+        { pid: predicateId },
+      );
+      const existing = (existingRows as Array<Record<string, unknown>>) ?? [];
+      if (existing.length === 0) return null;
+      const current = deserializeFromRow(existing[0]);
+      const next: PredicateDefinition = { ...current, ...patch };
+      // Re-embed when text fields changed — keeps similarity search aligned
+      // with operator-authored descriptions.
+      let embedding: number[] | null = null;
+      const textChanged =
+        patch.description !== undefined ||
+        patch.displayLabel !== undefined;
+      if (textChanged) {
+        try {
+          embedding = await this.embedder.embed(embeddingTextFor(next));
+        } catch (e) {
+          this.logger.warn(
+            `Failed to re-embed ${predicateId}: ${(e as Error).message}`,
+          );
+        }
+      }
+      const setFields: string[] = [];
+      const params: Record<string, unknown> = { pid: predicateId };
+      const addSet = (col: string, val: unknown, paramKey: string) => {
+        setFields.push(`${col} = $${paramKey}`);
+        params[paramKey] = val;
+      };
+      if (patch.displayLabel !== undefined)
+        addSet('displayLabel', next.displayLabel, 'displayLabel');
+      if (patch.description !== undefined)
+        addSet('description', next.description, 'description');
+      if (patch.datatype !== undefined)
+        addSet('datatype', next.datatype, 'datatype');
+      if (patch.semantics !== undefined)
+        addSet('semantics', next.semantics, 'semantics');
+      if (patch.decayHalfLifeDays !== undefined)
+        addSet(
+          'decayHalfLifeDays',
+          next.decayHalfLifeDays,
+          'decayHalfLifeDays',
+        );
+      if (patch.piiClass !== undefined)
+        addSet('piiClass', next.piiClass, 'piiClass');
+      if (patch.requiresScope !== undefined)
+        addSet(
+          'requiresScope',
+          next.requiresScope ?? null,
+          'requiresScope',
+        );
+      if (patch.status !== undefined)
+        addSet('status', next.status, 'status');
+      if (patch.aliasedTo !== undefined)
+        addSet('aliasedTo', next.aliasedTo ?? null, 'aliasedTo');
+      if (embedding) addSet('embedding', embedding, 'embedding');
+      if (setFields.length === 0) return current;
+      setFields.push(`updatedAt = time::now()`);
+      setFields.push(`version = version + 1`);
+      await db.query(
+        `UPDATE knowledge_predicate SET ${setFields.join(', ')} WHERE predicateId = $pid`,
+        params,
+      );
+      this.invalidate(companyId);
+      return next;
+    });
+  }
+
+  /** Soft-delete — sets status='deprecated'. Existing facts retain the
+   *  predicate id; new ingests no longer admit it (active set drops it). */
+  async deprecate(
+    companyId: string,
+    predicateId: string,
+  ): Promise<boolean> {
+    const result = await this.update(companyId, predicateId, {
+      status: 'deprecated',
+    });
+    return result !== null;
+  }
+
+  async promote(
+    companyId: string,
+    predicateId: string,
+  ): Promise<PredicateDefinition | null> {
+    return this.update(companyId, predicateId, { status: 'active' });
+  }
+
+  async alias(
+    companyId: string,
+    predicateId: string,
+    canonicalId: string,
+  ): Promise<PredicateDefinition | null> {
+    return this.update(companyId, predicateId, {
+      status: 'aliased',
+      aliasedTo: canonicalId,
+    });
+  }
+
   private async loadFresh(
     companyId: string,
   ): Promise<PredicateSnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
+      // We need ALL rows (not just active) so we can chain through
+      // 'aliased' rows to their canonical id when a fact's predicate
+      // points at an alias.
       const [rows] = await db.query<[Array<Record<string, unknown>>]>(
-        `SELECT * FROM knowledge_predicate WHERE status = 'active'`,
+        `SELECT * FROM knowledge_predicate`,
       );
-      const active = ((rows as Array<Record<string, unknown>>) ?? []).map(
-        (r) => deserializeFromRow(r),
+      const all = ((rows as Array<Record<string, unknown>>) ?? []).map(
+        (r) => ({
+          row: r,
+          def: deserializeFromRow(r),
+        }),
       );
+      const active = all
+        .filter(({ def }) => def.status === 'active')
+        .map(({ def }) => def);
       const byId = new Map(active.map((p) => [p.predicateId, p]));
+
+      // Build aliasMap: for each row, follow aliasedTo chains until we
+      // land on an active predicate (or give up). Length-capped to defend
+      // against accidental loops in the registry data.
+      const aliasMap = new Map<string, string>();
+      const allById = new Map(all.map(({ def }) => [def.predicateId, def]));
+      const MAX_CHAIN = 8;
+      for (const { def } of all) {
+        let cursor: PredicateDefinition | undefined = def;
+        let hops = 0;
+        while (
+          cursor &&
+          cursor.status === 'aliased' &&
+          cursor.aliasedTo &&
+          hops < MAX_CHAIN
+        ) {
+          cursor = allById.get(cursor.aliasedTo);
+          hops++;
+        }
+        if (cursor && cursor.status === 'active') {
+          aliasMap.set(def.predicateId, cursor.predicateId);
+        }
+      }
+
+      // Embedding lookup for active predicates only (no point matching
+      // against deprecated rows). Skip any active row whose embedding
+      // never got populated — they're harmless but invisible to
+      // similarity search.
+      const embeddings = new Map<string, number[]>();
+      for (const { row, def } of all) {
+        if (def.status !== 'active') continue;
+        const emb = row.embedding;
+        if (Array.isArray(emb) && emb.length > 0) {
+          embeddings.set(def.predicateId, emb as number[]);
+        }
+      }
+
       const versionHash = computeHash(active);
-      return { versionHash, active, byId };
+      return { versionHash, active, byId, aliasMap, embeddings };
     });
+  }
+
+  /**
+   * EDC canonicalization. Given a predicate the extractor emitted, return
+   * the canonical predicateId the fact should be stored under, plus the
+   * decision shape for the trace.
+   *
+   *   - 'matched'  — predicate is already active (or chains through an
+   *                  alias to an active predicate). No write.
+   *   - 'aliased'  — predicate is novel but similar enough to an existing
+   *                  active predicate (cosine ≥ 0.85). Auto-INSERT a new
+   *                  row with status='aliased', aliasedTo=canonical, so a
+   *                  future occurrence skips the LLM and resolves
+   *                  in-cache. Fact lands under the canonical id.
+   *   - 'proposed' — predicate is novel and dissimilar from anything
+   *                  active. INSERT as status='proposed' inheriting the
+   *                  DEFAULT policy. Fact lands under the novel id. An
+   *                  operator review queue can later promote / alias /
+   *                  deprecate.
+   *
+   * The contextText is what we embed for similarity scoring — predicate
+   * id + the clause / valueSpan that warranted this fact. That carries
+   * far more signal than the predicate id alone ("hobby" alone is
+   * ambiguous; "hobby: photography" is clearly preference-shaped).
+   */
+  async canonicalize(
+    companyId: string,
+    predicate: string,
+    contextText: string,
+  ): Promise<CanonicalizeDecision> {
+    const snapshot = await this.getSnapshot(companyId);
+
+    // Direct hit on an active predicate or a known alias chain.
+    const aliasResolved = snapshot.aliasMap.get(predicate);
+    if (aliasResolved && snapshot.byId.has(aliasResolved)) {
+      return { kind: 'matched', canonicalId: aliasResolved };
+    }
+    if (snapshot.byId.has(predicate)) {
+      return { kind: 'matched', canonicalId: predicate };
+    }
+
+    // EDC similarity search over active predicates' embeddings.
+    let queryEmb: number[] | null = null;
+    try {
+      queryEmb = await this.embedder.embed(contextText);
+    } catch (e) {
+      this.logger.warn(
+        `canonicalize: failed to embed novel predicate '${predicate}': ${(e as Error).message}`,
+      );
+    }
+
+    let best: { predicateId: string; similarity: number } | undefined;
+    if (queryEmb) {
+      for (const [pid, emb] of snapshot.embeddings) {
+        const sim = cosineSimilarity(queryEmb, emb);
+        if (!best || sim > best.similarity) {
+          best = { predicateId: pid, similarity: sim };
+        }
+      }
+    }
+
+    if (best && best.similarity >= CANONICALIZE_AUTO_ALIAS_THRESHOLD) {
+      // Insert as aliased — next time the same novel predicate appears,
+      // the snapshot's aliasMap returns the canonical without an LLM
+      // round-trip.
+      await this.surreal.withCompany(companyId, async (db) => {
+        await db.query(`CREATE knowledge_predicate CONTENT $content`, {
+          content: {
+            predicateId: predicate,
+            displayLabel: predicate.replace(/_/g, ' '),
+            description: `(auto-aliased to ${best!.predicateId} at cosine ${best!.similarity.toFixed(3)})`,
+            datatype: 'string',
+            semantics: snapshot.byId.get(best!.predicateId)!.semantics,
+            decayHalfLifeDays:
+              snapshot.byId.get(best!.predicateId)!.decayHalfLifeDays,
+            piiClass: snapshot.byId.get(best!.predicateId)!.piiClass,
+            ...(queryEmb ? { embedding: queryEmb } : {}),
+            status: 'aliased',
+            aliasedTo: best!.predicateId,
+            createdBy: 'llm_auto',
+          },
+        });
+      });
+      this.invalidate(companyId);
+      return {
+        kind: 'aliased',
+        canonicalId: best.predicateId,
+        similarity: best.similarity,
+        novelPredicateId: predicate,
+      };
+    }
+
+    // Below threshold — propose. Inherits DEFAULT policy until an
+    // operator (or a future LLM-classify pass) sets the proper one.
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`CREATE knowledge_predicate CONTENT $content`, {
+        content: {
+          predicateId: predicate,
+          displayLabel: predicate.replace(/_/g, ' '),
+          description: `(auto-proposed; awaiting review. Closest existing: ${
+            best
+              ? `${best.predicateId} @ cosine ${best.similarity.toFixed(3)}`
+              : 'none'
+          })`,
+          datatype: 'string',
+          semantics: DEFAULT_FALLBACK.semantics,
+          decayHalfLifeDays: DEFAULT_FALLBACK.decayHalfLifeDays,
+          piiClass: DEFAULT_FALLBACK.piiClass,
+          ...(queryEmb ? { embedding: queryEmb } : {}),
+          status: 'proposed',
+          createdBy: 'llm_auto',
+        },
+      });
+    });
+    this.invalidate(companyId);
+    return {
+      kind: 'proposed',
+      canonicalId: predicate,
+      novelPredicateId: predicate,
+      ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR
+        ? { bestMatch: best }
+        : {}),
+    };
   }
 }
 
@@ -595,6 +1026,29 @@ function deserializeFromRow(row: Record<string, unknown>): PredicateDefinition {
     createdBy:
       (row.createdBy as PredicateDefinition['createdBy']) ?? 'system',
   };
+}
+
+function embeddingTextFor(p: PredicateDefinition): string {
+  // What we embed for similarity search. predicate id (lexical surface)
+  // plus the description (semantic content). Description carries the
+  // bulk of the signal — "preference: TYPE behavioral... ADMIT stable
+  // taste..." matches "hobby: enjoys photography" much better than the
+  // bare id "preference" alone.
+  return `${p.predicateId.replace(/_/g, ' ')}: ${p.description}`;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 function computeHash(rows: PredicateDefinition[]): string {

@@ -7,6 +7,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -32,6 +33,10 @@ import { SurrealService } from '../db/surreal.service';
 import { IngestService } from '../ingest/ingest.service';
 import { SearchService } from '../search/search.service';
 import { ChatRouterService, ChatRoute } from './chat-router.service';
+import {
+  PredicateRegistryService,
+  PredicateDefinition,
+} from '../ai/predicate-registry.service';
 import { policyFor } from '../ingest/conflict-resolver';
 
 /**
@@ -56,6 +61,7 @@ export class AdminController {
     private readonly ingest: IngestService,
     private readonly search: SearchService,
     private readonly chatRouter: ChatRouterService,
+    private readonly predicateRegistry: PredicateRegistryService,
   ) {}
 
   @Get('overview')
@@ -220,6 +226,120 @@ export class AdminController {
     const t = this.traces.get(requestId, req.brainAuth.companyId);
     if (!t) throw new NotFoundException(`Trace ${requestId} not found`);
     return t;
+  }
+
+  // ── Predicate ontology registry ─────────────────────────────────────
+  // Operator-facing CRUD for the per-tenant predicate vocabulary. Adding a
+  // predicate here makes the extractor admit it on the next call (60s TTL
+  // on the snapshot cache, invalidated on every write below). This is how
+  // a new vertical onboards without code changes — see the EDC
+  // auto-classification path inside the extractor for the LLM-driven side.
+
+  @Get('predicates')
+  @RequireScopes('brain:admin')
+  async listPredicates(@Req() req: AuthenticatedRequest) {
+    const predicates = await this.predicateRegistry.listAll(
+      req.brainAuth.companyId,
+    );
+    return { predicates };
+  }
+
+  @Post('predicates')
+  @RequireScopes('brain:admin')
+  async createPredicate(
+    @Req() req: AuthenticatedRequest,
+    @Body()
+    body: Partial<PredicateDefinition> & {
+      predicateId: string;
+      semantics: 'append_only' | 'single_active' | 'bitemporal';
+      piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+    },
+  ) {
+    if (!body?.predicateId?.trim()) {
+      throw new BadRequestException('predicateId is required');
+    }
+    if (!/^[a-z][a-z0-9_]*$/.test(body.predicateId)) {
+      throw new BadRequestException(
+        'predicateId must be lowercase snake_case (e.g. medical_diagnosis)',
+      );
+    }
+    const created = await this.predicateRegistry.create(
+      req.brainAuth.companyId,
+      body,
+    );
+    return { predicate: created };
+  }
+
+  @Patch('predicates/:predicateId')
+  @RequireScopes('brain:admin')
+  async updatePredicate(
+    @Req() req: AuthenticatedRequest,
+    @Param('predicateId') predicateId: string,
+    @Body()
+    patch: Partial<Omit<PredicateDefinition, 'predicateId' | 'createdBy'>>,
+  ) {
+    const updated = await this.predicateRegistry.update(
+      req.brainAuth.companyId,
+      predicateId,
+      patch,
+    );
+    if (!updated) {
+      throw new NotFoundException(`Predicate ${predicateId} not found`);
+    }
+    return { predicate: updated };
+  }
+
+  @Delete('predicates/:predicateId')
+  @RequireScopes('brain:admin')
+  async deprecatePredicate(
+    @Req() req: AuthenticatedRequest,
+    @Param('predicateId') predicateId: string,
+  ) {
+    const ok = await this.predicateRegistry.deprecate(
+      req.brainAuth.companyId,
+      predicateId,
+    );
+    if (!ok) {
+      throw new NotFoundException(`Predicate ${predicateId} not found`);
+    }
+    return { deprecated: predicateId };
+  }
+
+  @Post('predicates/:predicateId/promote')
+  @RequireScopes('brain:admin')
+  async promotePredicate(
+    @Req() req: AuthenticatedRequest,
+    @Param('predicateId') predicateId: string,
+  ) {
+    const result = await this.predicateRegistry.promote(
+      req.brainAuth.companyId,
+      predicateId,
+    );
+    if (!result) {
+      throw new NotFoundException(`Predicate ${predicateId} not found`);
+    }
+    return { predicate: result };
+  }
+
+  @Post('predicates/:predicateId/alias')
+  @RequireScopes('brain:admin')
+  async aliasPredicate(
+    @Req() req: AuthenticatedRequest,
+    @Param('predicateId') predicateId: string,
+    @Body() body: { canonicalId: string },
+  ) {
+    if (!body?.canonicalId?.trim()) {
+      throw new BadRequestException('canonicalId is required');
+    }
+    const result = await this.predicateRegistry.alias(
+      req.brainAuth.companyId,
+      predicateId,
+      body.canonicalId,
+    );
+    if (!result) {
+      throw new NotFoundException(`Predicate ${predicateId} not found`);
+    }
+    return { predicate: result };
   }
 
   // ── Tenants ────────────────────────────────────────────────────────
