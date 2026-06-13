@@ -80,6 +80,7 @@ interface ChatResp {
     asOf?: string
     reason?: string
   }
+  mode?: 'vector' | 'graph'
   ingest?: IngestResult
   /** Lazy fast-path dedup result that ran inline right after ingest.
    *  Mirrors how a brain works in production — cheap merge in the moment,
@@ -105,6 +106,7 @@ interface Turn {
   /** Kind drives the renderer. 'chat' for user messages, 'dreams' for the
    *  identity-resolve sweep. */
   kind: 'chat' | 'dreams'
+  mode?: 'vector' | 'graph'
 }
 
 const STARTERS = [
@@ -124,6 +126,7 @@ interface TenantState {
 export function LiveIngestSlide() {
   const [message, setMessage] = useState(STARTERS[0])
   const [includePii, setIncludePii] = useState(false)
+  const [mode, setMode] = useState<'vector' | 'graph'>('vector')
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const [tenantState, setTenantState] = useState<TenantState | null>(null)
@@ -148,13 +151,16 @@ export function LiveIngestSlide() {
     if (!message.trim() || busy) return
     const id = crypto.randomUUID()
     const prompt = message
-    setTurns((t) => [...t, { id, prompt, pending: true, kind: 'chat' }])
+    setTurns((t) => [
+      ...t,
+      { id, prompt, pending: true, kind: 'chat', mode },
+    ])
     setBusy(true)
     try {
       const res = await fetch('/api/admin/proxy/v1/admin/demo/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: prompt, includePii }),
+        body: JSON.stringify({ message: prompt, includePii, mode }),
       })
       const data = await res.json()
       setTurns((t) =>
@@ -286,6 +292,33 @@ export function LiveIngestSlide() {
           />
           read_pii
         </label>
+        <div className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
+          mode
+          <div className="inline-flex rounded-md border border-[var(--border)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setMode('vector')}
+              className={`px-2 py-0.5 text-xs ${
+                mode === 'vector'
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              vector
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('graph')}
+              className={`px-2 py-0.5 text-xs ${
+                mode === 'graph'
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              graph
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           onClick={runDreams}
@@ -404,7 +437,11 @@ function TurnCard({ turn }: { turn: Turn }) {
             }`}
           >
             <ArrowRight className="w-3 h-3 inline mr-0.5" />
-            {intent === 'tell' ? 'tell · ingest' : 'ask · search'}
+            {intent === 'tell'
+              ? 'tell · ingest'
+              : turn.mode === 'graph'
+                ? 'ask · graph'
+                : 'ask · vector'}
           </span>
         )}
         {asOf && (

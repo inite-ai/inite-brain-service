@@ -311,11 +311,20 @@ export class AdminController {
   @Post('demo/chat')
   @RequireScopes('brain:admin')
   async demoChat(
-    @Body() body: { message: string; includePii?: boolean },
+    @Body()
+    body: {
+      message: string;
+      includePii?: boolean;
+      /** 'vector' = current pipeline (vector/lexical fusion + rerank).
+       *  'graph'  = resolve entity by name and fetch its facts directly.
+       *             Best when the query names a subject. */
+      mode?: 'vector' | 'graph';
+    },
   ) {
     if (!body?.message?.trim()) {
       throw new BadRequestException('message is required');
     }
+    const mode = body.mode ?? 'vector';
     const captured = await runWithDebugTrace(async () => {
       // Pull current canonical names so the router can rewrite short
       // references ("Maria") into their canonical form ("Maria Petrov")
@@ -357,17 +366,22 @@ export class AdminController {
       const scopes = body.includePii
         ? ['brain:read', 'brain:read_pii']
         : ['brain:read'];
-      const search = await this.search.search(
-        DEMO_LIVE_COMPANY,
-        {
-          query: route.cleanedQuery ?? body.message,
-          limit: 5,
-          asOf: route.asOf,
-        } as any,
-        scopes as any,
-      );
+      const queryText = route.cleanedQuery ?? body.message;
+      const search =
+        mode === 'graph'
+          ? await this.graphSearch(queryText, route.asOf, scopes)
+          : await this.search.search(
+              DEMO_LIVE_COMPANY,
+              {
+                query: queryText,
+                limit: 5,
+                asOf: route.asOf,
+              } as any,
+              scopes as any,
+            );
       return {
         route,
+        mode,
         search: { results: search.results },
       };
     });
@@ -468,6 +482,91 @@ export class AdminController {
         };
       }),
     }));
+  }
+
+  /**
+   * Graph-first retrieval for the demo. Resolves the query to an entity
+   * by canonical name / alias, then SELECTs the entity's facts under the
+   * same bitemporal + scope policy the search service uses. No vector
+   * leg, no lexical leg — pure governed-graph lookup. This is what brain
+   * SHOULD do when the agent already named the subject; vector/lexical
+   * are only valuable when the subject is implicit.
+   *
+   * Returns the same shape as SearchService.search so the demo UI can
+   * render either response with one component.
+   */
+  private async graphSearch(
+    queryText: string,
+    asOf: string | undefined,
+    callerScopes: string[],
+  ): Promise<{ results: any[] }> {
+    return this.surreal.withScopedCompany(
+      DEMO_LIVE_COMPANY,
+      callerScopes,
+      async (db) => {
+        const target = queryText.trim().toLowerCase();
+        if (!target) return { results: [] };
+        // Resolve entity by canonicalNameLc / aliases / substring on
+        // canonicalName so 'maria diet' still finds 'Maria Petrov'.
+        const [eRows] = await db.query<any[][]>(
+          `SELECT id, type, canonicalName, externalRefs, aliases
+             FROM knowledge_entity
+            WHERE mergedInto IS NONE
+              AND (canonicalNameLc CONTAINS $target
+                   OR canonicalNameLc = $target
+                   OR aliases CONTAINSANY [$target])
+            LIMIT 5`,
+          { target },
+        );
+        const entities = (eRows as any[]) ?? [];
+        if (entities.length === 0) return { results: [] };
+        // Active-now bitemporal closure mirrors search.service.ts's
+        // default 'present truth' shape. asOf swaps it for a historical
+        // slice.
+        const factsByEntity = new Map<string, any[]>();
+        for (const ent of entities) {
+          const where = asOf
+            ? `entityId = $eid
+               AND (retractedAt IS NONE OR retractedAt > $asOf)
+               AND validFrom <= $asOf
+               AND (validUntil IS NONE OR validUntil > $asOf)
+               AND status != 'compacted'`
+            : `entityId = $eid
+               AND retractedAt IS NONE
+               AND validFrom <= time::now()
+               AND (validUntil IS NONE OR validUntil > time::now())
+               AND status NOT IN ['superseded', 'compacted']`;
+          const [fRows] = await db.query<any[][]>(
+            `SELECT id, predicate, object, confidence, validFrom, validUntil,
+                    recordedAt, retractedAt, status, source
+               FROM knowledge_fact
+              WHERE ${where}
+              ORDER BY recordedAt DESC
+              LIMIT 10`,
+            { eid: ent.id, ...(asOf ? { asOf: new Date(asOf) } : {}) },
+          );
+          factsByEntity.set(String(ent.id), (fRows as any[]) ?? []);
+        }
+        return {
+          results: entities.map((ent: any) => ({
+            entityId: String(ent.id),
+            canonicalName: ent.canonicalName,
+            entityType: ent.type,
+            externalRefs: ent.externalRefs ?? {},
+            score: 1,
+            facts: (factsByEntity.get(String(ent.id)) ?? []).map((f: any) => ({
+              factId: String(f.id),
+              predicate: f.predicate,
+              object: f.object,
+              confidence: f.confidence,
+              status: f.status,
+              validFrom: f.validFrom,
+              ...(f.validUntil ? { validUntil: f.validUntil } : {}),
+            })),
+          })),
+        };
+      },
+    );
   }
 
   private async fetchKnownEntityNames(): Promise<string[]> {
