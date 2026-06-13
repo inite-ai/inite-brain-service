@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
+import { PREDICATE_VOCABULARY } from '../ai/extractor.service';
 
 /**
  * Classifies a free-form message into an ingest / search intent and pulls
@@ -43,6 +44,14 @@ export interface ChatRoute {
    *  directly look up the named entities the operator is asking about.
    *  Empty when the query is topical with no named subject. */
   entityRefs?: string[];
+  /** Closed-vocab predicates the question is asking about. Drives
+   *  predicate-aware retrieval: "where lives" → ["address"]; "what eats" →
+   *  ["preference"]; "where lives and what eats" → ["address","preference"].
+   *  Empty when the question is general ("tell me about X") — the graph
+   *  query then falls back to top-N recency + confidence so we don't dump
+   *  the entire subject into context. This is the same single-call pattern
+   *  Haystack's QueryMetadataExtractor and mem0's filter-builder use. */
+  predicateHints?: string[];
   /** Free-text rationale the LLM gave — surfaced only for the debug trace. */
   reason?: string;
 }
@@ -126,6 +135,45 @@ Entity references (CRITICAL for retrieval):
   graph-first lookup — without it the backend has to fall back to vector
   search every time. If no known name is referenced, return [].
 
+Predicate hints (only for intent="ask" — slot the question into the graph):
+  The knowledge graph stores facts under a closed predicate vocabulary.
+  When intent="ask", return predicateHints — the subset of predicates the
+  question is asking about. The retriever uses this as a hard AND-filter
+  so the graph doesn't dump every fact about the subject into the LLM
+  context window.
+
+  Mapping intent → predicate (best effort; pick predicates that admit the
+  question, multilingual phrasing is fine):
+    "where does X live / where is X based / куда переехал / адрес"
+        → ["address"]
+    "what does X eat / prefer / like / favourite / любимое"
+        → ["preference"]
+    "what does X want / plan / need / planning to"
+        → ["intent"]
+    "what is X's role / position / status / title / должность"
+        → ["status"]
+    "what is X's tier / plan / segment"
+        → ["tier"]
+    "what's X's email / phone / contact / contact info"
+        → ["email", "phone"]
+    "what's X's brand voice / tone / archetype / target audience /
+        editorial guidelines"
+        → one or more of the content-domain predicates that admit it
+    "where lives AND what eats" (compound)
+        → ["address", "preference"] — union, both slots get fetched
+    "tell me about X" / "what do we know about X" / general / unknown
+        → [] — empty hints, retriever falls back to top-N recency
+
+  Rules:
+   - Only emit predicates from the closed vocabulary above. Anything else
+     is dropped server-side.
+   - For intent="tell", predicateHints MUST be []. The extractor picks
+     predicates during ingest, not the router.
+   - When you can't pin a specific predicate confidently, return []. The
+     retriever's recency fallback returns a sensible top-N for the subject
+     — that's better than guessing wrong and silently dropping the
+     relevant fact.
+
 Temporal handling:
   When intent="ask", extract any temporal anchor ("yesterday", "last month",
   "in March", "вчера", "на прошлой неделе") and return it as an ISO 8601 asOf
@@ -176,6 +224,12 @@ message: ${message}`;
                 normalizedMessage: { type: ['string', 'null'] },
                 cleanedQuery: { type: ['string', 'null'] },
                 entityRefs: { type: 'array', items: { type: 'string' } },
+                predicateHints: {
+                  type: 'array',
+                  items: { type: 'string', enum: [...PREDICATE_VOCABULARY] },
+                  description:
+                    'Closed-vocab predicates the question is asking about. Used as a hard AND-filter in graph retrieval so we do not dump every fact of the subject. Empty for general/unknown questions and ALWAYS empty for intent=tell.',
+                },
                 asOf: { type: ['string', 'null'] },
                 validFrom: { type: ['string', 'null'] },
                 reason: { type: ['string', 'null'] },
@@ -185,6 +239,7 @@ message: ${message}`;
                 'normalizedMessage',
                 'cleanedQuery',
                 'entityRefs',
+                'predicateHints',
                 'asOf',
                 'validFrom',
                 'reason',
@@ -214,6 +269,7 @@ message: ${message}`;
         normalizedMessage: string | null;
         cleanedQuery: string | null;
         entityRefs?: string[];
+        predicateHints?: string[];
         asOf: string | null;
         validFrom: string | null;
         reason: string | null;
@@ -273,6 +329,20 @@ message: ${message}`;
         const known = new Set(knownNames);
         const filtered = parsed.entityRefs.filter((n) => known.has(n));
         if (filtered.length > 0) out.entityRefs = filtered;
+      }
+      // predicateHints already constrained by the json_schema enum, but
+      // belt-and-suspenders: filter to known vocab + drop on tell intent
+      // (the extractor picks predicates at ingest, not the router).
+      if (
+        parsed.intent === 'ask' &&
+        Array.isArray(parsed.predicateHints) &&
+        parsed.predicateHints.length > 0
+      ) {
+        const vocab = new Set<string>(PREDICATE_VOCABULARY);
+        const filtered = Array.from(
+          new Set(parsed.predicateHints.filter((p) => vocab.has(p))),
+        );
+        if (filtered.length > 0) out.predicateHints = filtered;
       }
       if (parsed.asOf && isValidIso(parsed.asOf)) out.asOf = parsed.asOf;
       if (parsed.validFrom && isValidIso(parsed.validFrom)) {

@@ -64,7 +64,7 @@ export interface ExtractionResult {
   facts: ExtractedFact[];
 }
 
-const PREDICATE_VOCABULARY = [
+export const PREDICATE_VOCABULARY = [
   // Core CRM predicates
   'said',
   'name',

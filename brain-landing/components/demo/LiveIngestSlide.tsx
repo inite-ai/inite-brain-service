@@ -85,6 +85,10 @@ interface ChatResp {
     asOf?: string
     validFrom?: string
     entityRefs?: string[]
+    /** Closed-vocab predicates the router slotted the question into. When
+     *  set, the graph AND-filters facts by predicate so we don't dump the
+     *  whole subject into the LLM context. Empty → recency top-N fallback. */
+    predicateHints?: string[]
     reason?: string
   }
   /** Retrieval strategy brain actually picked. graph = subject resolved by
@@ -471,6 +475,14 @@ function TurnCard({ turn }: { turn: Turn }) {
             title="canonical entities the router pinned as subjects — graph-first looks them up directly"
           >
             subj: {turn.chat.route.entityRefs.join(', ')}
+          </span>
+        ) : null}
+        {turn.chat?.route?.predicateHints?.length ? (
+          <span
+            className="text-[10px] font-mono text-[var(--accent)]"
+            title="closed-vocab predicates the router slotted the question into — graph AND-filters facts to just these instead of dumping the whole subject into context"
+          >
+            slot: {turn.chat.route.predicateHints.join(', ')}
           </span>
         ) : null}
         {turn.pending && (

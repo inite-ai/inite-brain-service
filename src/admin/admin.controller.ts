@@ -379,7 +379,13 @@ export class AdminController {
       // and lexical are fallback signals for queries where the subject
       // isn't explicit, not the primary retrieval.
       const graph = await traceSpan('demo.graph_first', () =>
-        this.graphSearch(queryText, route.asOf, scopes, route.entityRefs),
+        this.graphSearch(
+          queryText,
+          route.asOf,
+          scopes,
+          route.entityRefs,
+          route.predicateHints,
+        ),
       );
       const graphHasFacts = graph.results.some(
         (r: any) => Array.isArray(r.facts) && r.facts.length > 0,
@@ -390,6 +396,7 @@ export class AdminController {
           picked: 'graph',
           graphHits: graph.results.length,
           entityRefs: route.entityRefs ?? [],
+          predicateHints: route.predicateHints ?? [],
         });
         return {
           route,
@@ -406,6 +413,7 @@ export class AdminController {
         picked: 'graph→vector',
         graphHits: 0,
         entityRefs: route.entityRefs ?? [],
+        predicateHints: route.predicateHints ?? [],
         reason: route.entityRefs?.length
           ? 'named subject(s) had no matching facts in window'
           : 'no named subject — topical query',
@@ -565,6 +573,7 @@ export class AdminController {
     asOf: string | undefined,
     callerScopes: string[],
     entityRefs?: string[],
+    predicateHints?: string[],
   ): Promise<{ results: any[] }> {
     return this.surreal.withScopedCompany(
       DEMO_LIVE_COMPANY,
@@ -623,7 +632,18 @@ export class AdminController {
         // Active-now bitemporal closure mirrors search.service.ts's
         // default 'present truth' shape. asOf swaps it for a historical
         // slice.
+        //
+        // Predicate filtering: when the router slotted the question into a
+        // specific subset of the closed vocabulary ("where lives" →
+        // ["address"]), AND-filter so the graph returns ONLY the relevant
+        // facts instead of dumping every fact about the subject. When
+        // hints are empty we fall back to top-N recency on the full set
+        // (mem0 / generative-agents default for general questions). The
+        // tighter LIMIT — 8 vs 10 — keeps the synthesis prompt small.
+        const hasHints = !!(predicateHints && predicateHints.length > 0);
+        const predicateClause = hasHints ? ' AND predicate IN $hints' : '';
         const factsByEntity = new Map<string, any[]>();
+        const preFilterCounts = new Map<string, number>();
         for (const ent of entities) {
           const where = asOf
             ? `entityId = $eid
@@ -636,17 +656,31 @@ export class AdminController {
                AND validFrom <= time::now()
                AND (validUntil IS NONE OR validUntil > time::now())
                AND status NOT IN ['superseded', 'compacted']`;
+          const params: Record<string, unknown> = {
+            eid: ent.id,
+            ...(asOf ? { asOf: new Date(asOf) } : {}),
+            ...(hasHints ? { hints: predicateHints } : {}),
+          };
           const [fRows] = await db.query<any[][]>(
             `SELECT id, predicate, object, confidence, validFrom, validUntil,
                     recordedAt, retractedAt, status, source
                FROM knowledge_fact
-              WHERE ${where}
+              WHERE ${where}${predicateClause}
               ORDER BY recordedAt DESC
-              LIMIT 10`,
-            { eid: ent.id, ...(asOf ? { asOf: new Date(asOf) } : {}) },
+              LIMIT 8`,
+            params,
           );
-          factsByEntity.set(String(ent.id), (fRows as any[]) ?? []);
+          const rows = (fRows as any[]) ?? [];
+          factsByEntity.set(String(ent.id), rows);
+          preFilterCounts.set(String(ent.id), rows.length);
         }
+        traceArtifact('demo.predicate_filter', {
+          hints: predicateHints ?? [],
+          mode: hasHints ? 'and_filter' : 'recency_topN_fallback',
+          factsByEntity: Object.fromEntries(
+            Array.from(preFilterCounts.entries()),
+          ),
+        });
         return {
           results: entities.map((ent: any) => {
             const raw = factsByEntity.get(String(ent.id)) ?? [];
