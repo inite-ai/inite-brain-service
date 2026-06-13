@@ -27,6 +27,7 @@ import { SurrealService } from '../db/surreal.service';
 import { IngestService } from '../ingest/ingest.service';
 import { SearchService } from '../search/search.service';
 import { ChatRouterService, ChatRoute } from './chat-router.service';
+import { policyFor } from '../ingest/conflict-resolver';
 
 /**
  * Shared tenant for the live demo slide. Single shared key so any admin
@@ -288,7 +289,7 @@ export class AdminController {
       ),
     );
     return {
-      results: captured.result.results,
+      results: this.enrichResults(captured.result.results),
       trace: {
         requestId: captured.trace.requestId,
         totalMs: captured.trace.totalMs,
@@ -362,7 +363,10 @@ export class AdminController {
         } as any,
         scopes as any,
       );
-      return { route, search };
+      return {
+        route,
+        search: { results: this.enrichResults(search.results) },
+      };
     });
     return {
       ...captured.result,
@@ -392,6 +396,30 @@ export class AdminController {
         spans: captured.trace.spans,
       },
     };
+  }
+
+  /**
+   * Enrich every fact on a brain search-hit with its predicate policy
+   * (piiClass / semantics / decay / requiresScope). The demo deck renders
+   * these as the four "axes of a fact" the talk's anatomy slide promises
+   * — the search response itself stays untouched for non-demo callers.
+   */
+  private enrichResults(results: any[]): any[] {
+    return results.map((r) => ({
+      ...r,
+      facts: r.facts.map((f: any) => {
+        const policy = policyFor(f.predicate);
+        return {
+          ...f,
+          policy: {
+            piiClass: policy.piiClass,
+            semantics: policy.semantics,
+            decayHalfLifeDays: policy.decayHalfLifeDays,
+            requiresScope: policy.requiresScope ?? null,
+          },
+        };
+      }),
+    }));
   }
 
   private async fetchKnownEntityNames(): Promise<string[]> {

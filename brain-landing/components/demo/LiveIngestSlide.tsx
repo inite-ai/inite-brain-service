@@ -30,21 +30,38 @@ interface IngestResult {
   extractedFactIds?: string[]
 }
 
+type PiiClass = 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive'
+type Semantics =
+  | 'single_active'
+  | 'append_only'
+  | 'bitemporal'
+  | 'singleton_per_kind'
+
+interface FactPolicy {
+  piiClass: PiiClass
+  semantics: Semantics
+  decayHalfLifeDays: number | null
+  requiresScope: string | null
+}
+
+interface BrainFact {
+  factId: string
+  predicate: string
+  object: string
+  confidence: number
+  status: string
+  validFrom: string
+  validUntil?: string
+  policy?: FactPolicy
+}
+
 interface SearchHit {
   entityId: string
   canonicalName: string
   entityType: string
   score: number
   externalRefs?: Record<string, string>
-  facts: Array<{
-    factId: string
-    predicate: string
-    object: string
-    confidence: number
-    status: string
-    validFrom: string
-    validUntil?: string
-  }>
+  facts: BrainFact[]
 }
 
 interface ChatResp {
@@ -474,10 +491,13 @@ function SearchBody({
     )
   }
   return (
-    <div className="space-y-2">
-      <ul className="space-y-2">
+    <div className="space-y-3">
+      <ul className="space-y-3">
         {results.map((r, i) => (
-          <li key={r.entityId}>
+          <li
+            key={r.entityId}
+            className="border border-[var(--border)] rounded p-2"
+          >
             <div className="flex items-baseline gap-2 text-sm">
               <span className="font-mono text-[var(--text-faint)] w-5">
                 #{i + 1}
@@ -492,30 +512,9 @@ function SearchBody({
                 {r.score.toFixed(3)}
               </span>
             </div>
-            <ul className="mt-1 ml-7 space-y-0.5">
+            <ul className="mt-2 space-y-1.5">
               {r.facts.slice(0, 5).map((f) => (
-                <li
-                  key={f.factId}
-                  className="flex items-baseline gap-2 text-xs font-mono"
-                >
-                  <span className="text-[var(--text-faint)] uppercase tracking-wider text-[10px] w-16">
-                    {f.predicate}
-                  </span>
-                  <span className="text-[var(--text)] flex-1 truncate">
-                    {f.object}
-                  </span>
-                  {f.status !== 'active' && (
-                    <span
-                      className={`text-[10px] uppercase tracking-wider ${
-                        f.status === 'retracted'
-                          ? 'text-[var(--danger)]'
-                          : 'text-[var(--text-faint)]'
-                      }`}
-                    >
-                      {f.status}
-                    </span>
-                  )}
-                </li>
+                <FactRow key={f.factId} fact={f} />
               ))}
             </ul>
           </li>
@@ -524,6 +523,93 @@ function SearchBody({
       <DemoEngineView trace={trace} />
     </div>
   )
+}
+
+function FactRow({ fact }: { fact: BrainFact }) {
+  const status = fact.status ?? 'active'
+  return (
+    <li className="text-xs">
+      <div className="flex items-baseline gap-2 font-mono">
+        <span className="text-[var(--text-faint)] uppercase tracking-wider text-[10px] min-w-[6rem]">
+          {fact.predicate}
+        </span>
+        <span className="text-[var(--text)] flex-1 break-words">
+          {fact.object}
+        </span>
+        {fact.policy && <PiiBadge piiClass={fact.policy.piiClass} />}
+        <StatusBadge status={status} />
+      </div>
+      <div className="flex items-baseline gap-2 mt-0.5 ml-[6rem] text-[10px] font-mono text-[var(--text-faint)] flex-wrap">
+        <span>
+          valid {ymd(fact.validFrom)}
+          {' → '}
+          {fact.validUntil ? ymd(fact.validUntil) : 'now'}
+        </span>
+        {fact.policy && (
+          <span title="how brain treats updates to this predicate">
+            · {fact.policy.semantics}
+          </span>
+        )}
+        {fact.policy?.decayHalfLifeDays != null && (
+          <span title="half-life: how fast confidence decays over time">
+            · ½‑life {fact.policy.decayHalfLifeDays}d
+          </span>
+        )}
+        <span title="brain's confidence in this fact">
+          · conf {fact.confidence.toFixed(2)}
+        </span>
+      </div>
+    </li>
+  )
+}
+
+function PiiBadge({ piiClass }: { piiClass: PiiClass }) {
+  const tone: Record<PiiClass, string> = {
+    none: 'bg-[var(--bg-overlay)] text-[var(--text-faint)]',
+    identifier: 'bg-[var(--warning)]/15 text-[var(--warning)]',
+    behavioral: 'bg-[var(--accent)]/15 text-[var(--accent)]',
+    text: 'bg-[var(--bg-overlay)] text-[var(--text-muted)]',
+    sensitive: 'bg-[var(--danger)]/15 text-[var(--danger)]',
+  }
+  return (
+    <span
+      title={`piiClass · ${piiClass}`}
+      className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded ${tone[piiClass]}`}
+    >
+      {piiClass}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === 'active') {
+    return (
+      <span
+        className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--accent)]/15 text-[var(--accent)]"
+        title="status · active"
+      >
+        active
+      </span>
+    )
+  }
+  const tone =
+    status === 'retracted'
+      ? 'bg-[var(--danger)]/15 text-[var(--danger)] line-through'
+      : status === 'competing'
+        ? 'bg-[var(--warning)]/15 text-[var(--warning)]'
+        : 'bg-[var(--bg-overlay)] text-[var(--text-faint)]'
+  return (
+    <span
+      className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded ${tone}`}
+      title={`status · ${status}`}
+    >
+      {status}
+    </span>
+  )
+}
+
+function ymd(iso: string): string {
+  return iso.slice(0, 10)
 }
 
 function DreamsBody({ data }: { data: DreamsResp }) {
