@@ -258,20 +258,23 @@ const forgetGdpr: Scenario = {
 /**
  * SLIDE 6 / SLIDE 14 — scopes.
  *
- * A support agent asks "what's Acme's contact email?" with a non-PII
- * scope. Brain returns the entity (so the agent isn't blind to the
- * customer existing) but strips the email fact — the PII predicate
- * is gated server-side.
+ * A support agent asks for the contact info on Acme. The setup loads
+ * three facts: name + email (identifier-class, visible to any caller)
+ * + address (sensitive-class, gated behind brain:read_pii via
+ * migration 0005). A non-PII caller sees the first two but the
+ * address fact never leaves the server — the gate runs per-predicate
+ * inside SurrealDB PERMISSIONS.
  *
- * This is the most visceral demo of "не объясняет источник / не отвечает
- * за доступ" failure of plain RAG — embeddings have no idea which fact
- * is PII; brain knows because every fact carries a scope.
+ * The dramatic point on stage: brain doesn't gate the whole entity
+ * (the agent isn't blind), and it doesn't gate the whole record —
+ * just the gated facts. Plain RAG has no concept of fact-level
+ * scope at all.
  */
 const piiGatingSupport: Scenario = {
   id: 'demo-pii-gating',
   vertical: 'shop',
   description:
-    'Slide 6 / 14 demo (SCOPES). Acme has a contact email on file (PII). A non-PII caller searches and gets the entity back, but the email fact never leaves the server. RAG cannot do this — brain can because every fact carries its own access rule.',
+    'Slide 6 / 14 demo (SCOPES). Acme has email (identifier-class) and headquarters address (sensitive-class, gated). A non-PII caller searches and gets back the entity + email — but address never leaves the server. Per-predicate gating.',
   setup: [
     {
       kind: 'fact',
@@ -285,7 +288,15 @@ const piiGatingSupport: Scenario = {
       kind: 'fact',
       entityRef: { vertical: 'shop', id: 'acme' },
       predicate: 'email',
-      object: 'ceo@acme.example',
+      object: 'hello@acme.example',
+      validFrom: ISO('2026-01-15'),
+      source: { vertical: 'shop', eventId: 'crm.profile_update' },
+    },
+    {
+      kind: 'fact',
+      entityRef: { vertical: 'shop', id: 'acme' },
+      predicate: 'address',
+      object: '1 Market St, San Francisco',
       validFrom: ISO('2026-01-15'),
       source: { vertical: 'shop', eventId: 'crm.profile_update' },
     },
@@ -299,14 +310,16 @@ const piiGatingSupport: Scenario = {
     },
   ],
   queries: [
-    // Non-PII caller. Entity still surfaces because plan is non-PII; the
-    // gated email fact must NOT come back. The runner enforces this by
-    // dropping brain:read_pii from the caller scope set automatically
-    // when mustNotLeakPredicate is set.
+    // Non-PII caller. Entity surfaces (search routes on name + plan,
+    // which are non-sensitive), and identifier-class facts like email
+    // pass through. But `address` is sensitive-class, so SurrealDB's
+    // PERMISSIONS clause strips its object server-side. The runner
+    // enforces this by dropping brain:read_pii from the caller scope
+    // set whenever mustNotLeakPredicate is set.
     {
-      query: 'Acme contact email',
+      query: 'Acme office address',
       expectedTopEntityRef: 'shop.acme',
-      mustNotLeakPredicate: 'email',
+      mustNotLeakPredicate: 'address',
     },
   ],
 };
