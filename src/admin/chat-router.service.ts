@@ -216,30 +216,40 @@ Predicate hints (only for intent="ask" — slot the question into the graph):
      — that's better than guessing wrong and silently dropping the
      relevant fact.
 
-Temporal handling:
-  When intent="ask" AND the question contains an EXPLICIT temporal anchor
-  ("yesterday", "last month", "in March", "next week", "вчера",
-  "на прошлой неделе"), extract it and return it as an ISO 8601 asOf
-  timestamp computed relative to "now". Strip the temporal phrase from
-  cleanedQuery so retrieval runs on the topical content alone.
+Temporal handling (span-grounded — the architectural rule):
+  asOf and validFrom are paired with anchors — asOfAnchor / validFromAnchor —
+  which MUST be a VERBATIM substring of the input naming the temporal phrase
+  that warranted the timestamp. The server validates anchor grounding and
+  drops any (asOf, validFrom) whose anchor isn't found in the input. This
+  prevents the failure mode where the model "defaults" a timestamp when the
+  user named no temporal anchor at all.
 
-  CRITICAL — when intent="ask" and the question contains NO temporal
-  anchor (just "where does X live?", "what does X prefer?", "tell me
-  about X"), asOf MUST be null. Do NOT default to today, do NOT default
-  to "now", do NOT pick midnight of today — null means "current truth"
-  to the retriever and is what makes the most-recently-ingested fact
-  show up. Picking today-midnight is the WRONG behavior: facts
-  ingested later on the same day will appear "not yet valid" and
-  retrieval returns empty.
+  Rule of thumb: if you cannot quote the exact words of the input that point
+  at the time, return null for BOTH the timestamp AND the anchor. Picking
+  "today", "now", or any current-time value when the user said neither is
+  WRONG — it produces midnight-of-today queries that filter out
+  recently-ingested facts.
 
-  When intent="tell" AND the message carries a temporal anchor indicating WHEN
-  the asserted fact became true ("switched to keto LAST MONTH", "joined in
-  MARCH", "moved YESTERDAY", "next month moves to Dublin"), return that
-  as validFrom (ISO 8601). This makes bitemporal facts work from chat —
-  without it every chat-ingested fact would land with validFrom=now and
-  an as-of-past or as-of-future search would miss it.
-  When the tell has no temporal anchor, leave validFrom null and the
-  ingest will default to now.
+  intent="ask":
+    - Question contains a clear temporal anchor ("yesterday", "in March",
+      "next month", "вчера", "на прошлой неделе") →
+        asOf       = ISO 8601 computed relative to "now"
+        asOfAnchor = the literal substring of input (e.g. "yesterday",
+                     "last month", "in March")
+        Strip the phrase from cleanedQuery.
+    - No temporal anchor →
+        asOf = null, asOfAnchor = null.
+        ("current truth" — the retriever uses time::now() server-side.)
+
+  intent="tell":
+    - Message carries an anchor for WHEN the fact became true
+      ("switched to keto LAST MONTH", "next month moves to Dublin",
+       "joined in MARCH", "moved YESTERDAY") →
+        validFrom       = ISO 8601 computed relative to "now"
+        validFromAnchor = the literal substring of input
+    - No anchor →
+        validFrom = null, validFromAnchor = null.
+        (Ingest defaults validFrom to "now".)
 
 Rules:
   - Always pick one of the two intents.
@@ -293,7 +303,17 @@ message: ${message}`;
                     'Closed-vocab predicates the question is asking about. Used as a hard AND-filter in graph retrieval so we do not dump every fact of the subject. Empty for general/unknown questions and ALWAYS empty for intent=tell.',
                 },
                 asOf: { type: ['string', 'null'] },
+                asOfAnchor: {
+                  type: ['string', 'null'],
+                  description:
+                    'The VERBATIM substring of the input that anchored asOf ("yesterday", "next month", "в марте"). Server validates this is a substring of the input — without grounding the asOf is dropped. NULL when no temporal anchor.',
+                },
                 validFrom: { type: ['string', 'null'] },
+                validFromAnchor: {
+                  type: ['string', 'null'],
+                  description:
+                    'The VERBATIM substring of the input that anchored validFrom. Same span-grounding rule as asOfAnchor.',
+                },
                 reason: { type: ['string', 'null'] },
               },
               required: [
@@ -303,7 +323,9 @@ message: ${message}`;
                 'entityRefs',
                 'predicateHints',
                 'asOf',
+                'asOfAnchor',
                 'validFrom',
+                'validFromAnchor',
                 'reason',
               ],
             },
@@ -333,7 +355,9 @@ message: ${message}`;
         entityRefs?: string[];
         predicateHints?: string[];
         asOf: string | null;
+        asOfAnchor: string | null;
         validFrom: string | null;
+        validFromAnchor: string | null;
         reason: string | null;
       };
       try {
@@ -406,32 +430,38 @@ message: ${message}`;
         );
         if (filtered.length > 0) out.predicateHints = filtered;
       }
-      if (parsed.asOf && isValidIso(parsed.asOf)) {
-        // Guard against the LLM defaulting "no temporal anchor" to today's
-        // date string. JS parses bare "2026-06-13" as 2026-06-13T00:00:00Z
-        // — midnight UTC — and querying with that asOf makes facts
-        // ingested LATER on the same day appear "not yet valid", returning
-        // empty results. If the asOf is exactly at 00:00:00.000 of the
-        // current UTC day, treat as null (= "current truth", which is
-        // what the user actually meant by "no anchor").
-        const asOfDate = new Date(parsed.asOf);
-        const todayMidnightMs = new Date(
-          Date.UTC(
-            options.now?.getUTCFullYear() ?? new Date().getUTCFullYear(),
-            options.now?.getUTCMonth() ?? new Date().getUTCMonth(),
-            options.now?.getUTCDate() ?? new Date().getUTCDate(),
-          ),
-        ).getTime();
-        if (asOfDate.getTime() !== todayMidnightMs) {
-          out.asOf = parsed.asOf;
-        } else {
-          this.logger.warn(
-            `chat router: dropping asOf=${parsed.asOf} (today-midnight default from LLM with no real temporal anchor)`,
-          );
-        }
+      // Span-grounded temporal anchors. Both asOf and validFrom only
+      // survive when the LLM ALSO points at the literal substring of the
+      // input that anchored them — same architectural pattern as the
+      // extractor's valueSpan grounding. A bare ISO timestamp without a
+      // source-text anchor is treated as "model defaulted" (the failure
+      // mode we hit on /demo/chat: model returned today-midnight UTC
+      // for "where does X live", no real anchor in the question).
+      const askAnchorOk =
+        typeof parsed.asOfAnchor === 'string' &&
+        parsed.asOfAnchor.trim().length > 0 &&
+        normalizeForGrounding(message).includes(
+          normalizeForGrounding(parsed.asOfAnchor),
+        );
+      const tellAnchorOk =
+        typeof parsed.validFromAnchor === 'string' &&
+        parsed.validFromAnchor.trim().length > 0 &&
+        normalizeForGrounding(message).includes(
+          normalizeForGrounding(parsed.validFromAnchor),
+        );
+      if (parsed.asOf && isValidIso(parsed.asOf) && askAnchorOk) {
+        out.asOf = parsed.asOf;
+      } else if (parsed.asOf) {
+        this.logger.warn(
+          `chat router: dropping asOf=${parsed.asOf} — anchor "${parsed.asOfAnchor}" not grounded in input`,
+        );
       }
-      if (parsed.validFrom && isValidIso(parsed.validFrom)) {
+      if (parsed.validFrom && isValidIso(parsed.validFrom) && tellAnchorOk) {
         out.validFrom = parsed.validFrom;
+      } else if (parsed.validFrom) {
+        this.logger.warn(
+          `chat router: dropping validFrom=${parsed.validFrom} — anchor "${parsed.validFromAnchor}" not grounded in input`,
+        );
       }
       if (parsed.reason) out.reason = parsed.reason;
       traceArtifact('demo.chat.route', out);
@@ -443,6 +473,17 @@ message: ${message}`;
 function isValidIso(s: string): boolean {
   const d = new Date(s);
   return !Number.isNaN(d.getTime());
+}
+
+/**
+ * Whitespace-collapsed, lower-cased view used for substring containment
+ * checks in temporal-anchor grounding. Same transformation applied to
+ * both the input and the claimed anchor before comparison, so the model
+ * doesn't have to mirror exact whitespace / casing — but it still has
+ * to point at words that actually appear in the source.
+ */
+function normalizeForGrounding(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
