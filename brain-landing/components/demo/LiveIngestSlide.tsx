@@ -54,6 +54,10 @@ interface ChatResp {
     reason?: string
   }
   ingest?: IngestResult
+  /** Lazy fast-path dedup result that ran inline right after ingest.
+   *  Mirrors how a brain works in production — cheap merge in the moment,
+   *  deep semantic resolve at night. */
+  autoDedup?: { identityLinksCreated?: number }
   search?: { results: SearchHit[] }
   trace?: TracePayload
 }
@@ -185,7 +189,7 @@ export function LiveIngestSlide() {
       slideNumber="01a"
       eyebrow="ingest · chat"
       title="Скажите brain. Спросите brain. Без переключения режимов."
-      subtitle="Один чат сбоку у LLM. Brain сам решает: утверждение — извлекаю факты, вопрос — ищу. «Вчера / yesterday / в марте» автоматом превращаются в asOf — никакой ручной настройки. Демо рядом — это то, что делает любой агент с brain’ом за поясом."
+      subtitle="Один чат сбоку у LLM. Brain сам решает: утверждение — извлекаю факты, вопрос — ищу. «Вчера / yesterday / в марте» автоматом превращаются в asOf. Lazy identity-резолвинг происходит в моменте по сильному сигналу — как у человека. Deep resolve остаётся на фон/ночь, вот он рядом кнопкой."
     >
       <div className="flex items-center gap-4 mb-6">
         <span className="text-xs font-mono text-[var(--text-faint)]">
@@ -203,11 +207,11 @@ export function LiveIngestSlide() {
           type="button"
           onClick={runDreams}
           disabled={busy || turns.length === 0}
-          title="dedup + identity-resolve background sweep"
+          title="deep dedup + identity-resolve — ночной фон, здесь руками для наглядности"
           className="inline-flex items-center gap-1.5 text-xs text-[var(--accent)] hover:text-[var(--accent-hover)] disabled:opacity-40"
         >
           <Sparkles className="w-3.5 h-3.5" />
-          run dreams
+          deep resolve (nightly)
         </button>
         <button
           type="button"
@@ -270,9 +274,13 @@ export function LiveIngestSlide() {
               </li>
             ))}
           </ol>
-          <div className="text-[10px] text-[var(--text-faint)] mt-2">
-            если NLU породил дубль (опечатка) — жми run dreams, brain
-            склеит сущности через identity_of-связку.
+          <div className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
+            <strong className="text-[var(--text)]">lazy resolve</strong>{' '}
+            (опечатка ~ опечатка) идёт автоматом после каждого tell — это
+            быстрый «связал в моменте» уровень.{' '}
+            <strong className="text-[var(--text)]">deep resolve</strong> —
+            ночной/фоновый sweep на embeddings и identity-cluster’ы; здесь
+            это кнопка наверху для наглядности.
           </div>
         </div>
 
@@ -345,7 +353,11 @@ function TurnCard({ turn }: { turn: Turn }) {
       )}
 
       {turn.kind === 'chat' && turn.chat?.ingest && (
-        <IngestBody data={turn.chat.ingest} trace={turn.chat.trace} />
+        <IngestBody
+          data={turn.chat.ingest}
+          autoDedup={turn.chat.autoDedup}
+          trace={turn.chat.trace}
+        />
       )}
       {turn.kind === 'chat' && turn.chat?.search && (
         <SearchBody results={turn.chat.search.results} trace={turn.chat.trace} />
@@ -357,9 +369,11 @@ function TurnCard({ turn }: { turn: Turn }) {
 
 function IngestBody({
   data,
+  autoDedup,
   trace,
 }: {
   data: IngestResult
+  autoDedup?: { identityLinksCreated?: number }
   trace?: TracePayload
 }) {
   const nluArt = trace?.artifacts?.find(
@@ -386,11 +400,20 @@ function IngestBody({
     )
   }
 
+  const merged = autoDedup?.identityLinksCreated ?? 0
   return (
     <div className="space-y-3">
-      <div className="text-xs text-[var(--text-muted)]">
-        {data.extractedEntityIds?.length ?? 0} entities ·{' '}
-        {data.extractedFactIds?.length ?? 0} facts
+      <div className="text-xs text-[var(--text-muted)] flex items-center gap-2 flex-wrap">
+        <span>
+          {data.extractedEntityIds?.length ?? 0} entities ·{' '}
+          {data.extractedFactIds?.length ?? 0} facts
+        </span>
+        {merged > 0 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)] text-[10px] uppercase tracking-wider">
+            <Sparkles className="w-3 h-3" />
+            lazy merge · {merged} identity_of
+          </span>
+        )}
       </div>
 
       {extracted && extracted.facts.length > 0 && (

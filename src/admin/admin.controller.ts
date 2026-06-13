@@ -320,7 +320,26 @@ export class AdminController {
           contextRef: { vertical: 'shop' },
           emittedAt: new Date().toISOString(),
         } as any);
-        return { route, ingest };
+        // Lazy fast-path identity resolution. Mirrors how a brain SHOULD
+        // behave in production: cheap inline dedup runs in the moment so
+        // an obvious dupe (typo, alias) gets stitched immediately and the
+        // next query sees the merged shape. Heavy semantic resolution still
+        // belongs to the background dream sweep that the operator can fire
+        // manually from the UI (or schedule nightly out-of-band).
+        let autoDedup: { identityLinksCreated?: number } | undefined;
+        try {
+          const r = await this.dreams.runForTenant(DEMO_LIVE_COMPANY, [
+            'dedup',
+          ]);
+          autoDedup = r.dedup
+            ? { identityLinksCreated: r.dedup.identityLinksCreated }
+            : undefined;
+        } catch (e) {
+          // Auto-dedup is best-effort; an error here MUST NOT fail the
+          // ingest. The deep sweep button will still pick it up later.
+          autoDedup = undefined;
+        }
+        return { route, ingest, autoDedup };
       }
       const scopes = body.includePii
         ? ['brain:read', 'brain:read_pii']
