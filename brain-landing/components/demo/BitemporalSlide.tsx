@@ -40,12 +40,14 @@ export function BitemporalSlide() {
           caption="дефолтный поиск — без asOf"
           result={current}
           placeholder="growth"
+          highlightPredicate="plan"
         />
         <DemoQueryCard
           title="как было в феврале"
           caption="asOf 2026-02-01 — историческая правда заморожена"
           result={historical}
           placeholder="starter"
+          highlightPredicate="plan"
         />
       </div>
 

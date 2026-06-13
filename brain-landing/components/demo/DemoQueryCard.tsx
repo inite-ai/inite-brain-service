@@ -1,6 +1,16 @@
 'use client'
 
 import { Check, X } from 'lucide-react'
+import { DemoTraceStrip, TracePayload } from './DemoTraceStrip'
+
+interface FactRow {
+  factId: string
+  predicate: string
+  object: string
+  status: string
+  validFrom: string
+  validUntil?: string
+}
 
 interface QueryResult {
   query: string
@@ -13,30 +23,33 @@ interface QueryResult {
     canonicalName: string
     score: number
     externalRefs: Record<string, string>
+    facts: FactRow[]
   }>
+  trace?: TracePayload
 }
 
 interface Props {
   title: string
-  /** Optional caption above the query — e.g. "asOf 2026-02-01 — historical view". */
   caption?: string
   result: QueryResult | null
-  /** Render this when no run has happened yet. */
   placeholder?: string
-  /** Optional override of what to show as the "answer" — for retract/forget
-   * we want to display fact objects (plan / industry) instead of just entity. */
-  highlightFactPredicate?: string
-  /** Fact objects to surface beside the entity name. */
-  highlightFromOutcome?: {
-    factsByPredicate: Record<string, string | null>
-  }
+  /**
+   * Predicate to render as the BIG answer. The card finds the first fact
+   * with this predicate on the top hit and surfaces its object large.
+   * Falls back to the first fact of any predicate if absent.
+   */
+  highlightPredicate?: string
 }
 
-/**
- * Large 1-question, 1-answer card for the projector. The card has three
- * visual states: placeholder (no run), running (skeleton), result (filled).
- */
-export function DemoQueryCard({ title, caption, result, placeholder }: Props) {
+const ISO_DAY = (iso: string) => iso.slice(0, 10)
+
+export function DemoQueryCard({
+  title,
+  caption,
+  result,
+  placeholder,
+  highlightPredicate,
+}: Props) {
   if (!result) {
     return (
       <div className="border border-[var(--border)] rounded-lg p-6 md:p-8 bg-[var(--bg-elevated)]">
@@ -54,12 +67,15 @@ export function DemoQueryCard({ title, caption, result, placeholder }: Props) {
   }
 
   const top = result.topHits[0]
+  const fact = top
+    ? top.facts.find((f) => f.predicate === highlightPredicate) ??
+      top.facts[0]
+    : null
+
   return (
     <div
       className={`border rounded-lg p-6 md:p-8 bg-[var(--bg-elevated)] ${
-        result.passed
-          ? 'border-[var(--border)]'
-          : 'border-[var(--danger)]/40'
+        result.passed ? 'border-[var(--border)]' : 'border-[var(--danger)]/40'
       }`}
     >
       <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -75,26 +91,64 @@ export function DemoQueryCard({ title, caption, result, placeholder }: Props) {
       {caption && (
         <div className="text-sm text-[var(--text-muted)] mb-3">{caption}</div>
       )}
-      <div className="font-mono text-xs text-[var(--text-muted)] mb-2">
+      <div className="font-mono text-xs text-[var(--text-muted)] mb-3">
         “{result.query}”
         {result.asOf && (
-          <span className="text-[var(--text-faint)]"> · asOf {result.asOf.slice(0, 10)}</span>
+          <span className="text-[var(--text-faint)]">
+            {' '}
+            · asOf {ISO_DAY(result.asOf)}
+          </span>
         )}
       </div>
-      {top ? (
+
+      {fact ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)] mb-1">
+            {fact.predicate}
+          </div>
+          <div className="text-4xl md:text-5xl font-semibold text-[var(--text)] leading-none mb-2">
+            {fact.object}
+          </div>
+          <div className="text-xs text-[var(--text-muted)] flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span>
+              entity{' '}
+              <span className="text-[var(--text)] font-mono">
+                {top?.canonicalName}
+              </span>
+            </span>
+            <span className="text-[var(--text-faint)]">
+              valid {ISO_DAY(fact.validFrom)}
+              {fact.validUntil ? ` → ${ISO_DAY(fact.validUntil)}` : ' → now'}
+            </span>
+            {fact.status !== 'active' && (
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-mono ${
+                  fact.status === 'retracted'
+                    ? 'bg-[var(--danger)]/15 text-[var(--danger)]'
+                    : 'bg-[var(--bg-overlay)] text-[var(--text-muted)]'
+                }`}
+              >
+                {fact.status}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : top ? (
         <div className="mt-4">
           <div className="text-2xl md:text-3xl font-semibold text-[var(--text)]">
             {top.canonicalName}
           </div>
-          <div className="text-xs font-mono text-[var(--text-faint)] mt-1">
-            rank #{result.rankOfExpected || '∞'} · score {top.score.toFixed(3)}
+          <div className="text-xs text-[var(--text-muted)] mt-1 italic">
+            entity surfaced but no facts came back (e.g. PII-gated predicate)
           </div>
         </div>
       ) : (
         <div className="mt-4 text-xl text-[var(--text-muted)] italic">
-          no result — brain returned no hits
+          ∅ no result — brain returned no hits
         </div>
       )}
+
+      <DemoTraceStrip trace={result.trace} />
     </div>
   )
 }

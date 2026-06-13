@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { runWithDebugTrace } from '../common/debug-trace';
 import { IngestService } from '../ingest/ingest.service';
 import { FactsService } from '../facts/facts.service';
 import { EntitiesService } from '../entities/entities.service';
@@ -42,6 +43,19 @@ export interface ScenarioQueryResult {
     canonicalName: string;
     score: number;
     externalRefs: Record<string, string>;
+    /**
+     * Facts brain surfaced for this entity at the asOf cursor. The demo
+     * deck shows these as the actual answer (eg. plan=growth) — the
+     * canonicalName is only the entity that carries the fact.
+     */
+    facts: Array<{
+      factId: string;
+      predicate: string;
+      object: string;
+      status: string;
+      validFrom: string;
+      validUntil?: string;
+    }>;
   }>;
   passed: boolean;
   /**
@@ -54,6 +68,23 @@ export interface ScenarioQueryResult {
   mustNotLeakPredicate?: string;
   /** Set when the search call itself threw — diagnostic context for passed:false. */
   error?: string;
+  /**
+   * Per-stage trace from the in-process debug-trace ALS. Surfaced for the
+   * demo deck so the presenter can show the retrieval pipeline (vector
+   * leg / lexical leg / fusion / reranker) as bars on a waterfall.
+   */
+  trace?: {
+    requestId: string;
+    totalMs: number;
+    spans: Array<{
+      id: string;
+      parentId?: string;
+      name: string;
+      startedAt: number;
+      durationMs?: number;
+      error?: string;
+    }>;
+  };
 }
 
 export interface MemoryAssertionResult {
@@ -415,18 +446,37 @@ export class ScenarioRunnerService {
 
     let hits: SearchHit[] = [];
     let error: string | undefined;
+    let traceCapture:
+      | { requestId: string; totalMs: number; spans: any[] }
+      | undefined;
     try {
-      const res = await this.search.search(
-        companyId,
-        {
-          query: expectation.query,
-          limit: 10,
-          asOf: expectation.asOf,
-          ...(expectation.predicates ? { predicates: expectation.predicates } : {}),
-        } as any,
-        callerScopes as any,
+      // Capture the in-process debug trace so the demo deck can render
+      // the per-stage waterfall (vector / lexical / fusion / reranker).
+      const captured = await runWithDebugTrace(() =>
+        this.search.search(
+          companyId,
+          {
+            query: expectation.query,
+            limit: 10,
+            asOf: expectation.asOf,
+            ...(expectation.predicates ? { predicates: expectation.predicates } : {}),
+          } as any,
+          callerScopes as any,
+        ),
       );
-      hits = res.results;
+      hits = captured.result.results;
+      traceCapture = {
+        requestId: captured.trace.requestId,
+        totalMs: captured.trace.totalMs,
+        spans: captured.trace.spans.map((s) => ({
+          id: s.id,
+          parentId: s.parentId,
+          name: s.name,
+          startedAt: s.startedAt,
+          durationMs: s.durationMs,
+          ...(s.error ? { error: s.error } : {}),
+        })),
+      };
     } catch (e) {
       error = (e as Error).message;
     }
@@ -479,6 +529,14 @@ export class ScenarioRunnerService {
         canonicalName: h.canonicalName,
         score: h.score,
         externalRefs: h.externalRefs ?? {},
+        facts: (h.facts ?? []).slice(0, 5).map((f) => ({
+          factId: f.factId,
+          predicate: f.predicate,
+          object: f.object,
+          status: f.status,
+          validFrom: f.validFrom,
+          ...(f.validUntil ? { validUntil: f.validUntil } : {}),
+        })),
       })),
       passed,
       piiGatedCorrectly,
@@ -486,6 +544,7 @@ export class ScenarioRunnerService {
         ? { mustNotLeakPredicate: expectation.mustNotLeakPredicate }
         : {}),
       ...(error ? { error } : {}),
+      ...(traceCapture ? { trace: traceCapture } : {}),
     };
   }
 

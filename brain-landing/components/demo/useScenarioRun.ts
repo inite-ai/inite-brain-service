@@ -40,7 +40,27 @@ export interface ScenarioRunResult {
       canonicalName: string
       score: number
       externalRefs: Record<string, string>
+      facts: Array<{
+        factId: string
+        predicate: string
+        object: string
+        status: string
+        validFrom: string
+        validUntil?: string
+      }>
     }>
+    trace?: {
+      requestId: string
+      totalMs: number
+      spans: Array<{
+        id: string
+        parentId?: string
+        name: string
+        startedAt: number
+        durationMs?: number
+        error?: string
+      }>
+    }
     error?: string
   }>
   memoryAssertionResults: Array<{

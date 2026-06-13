@@ -59,6 +59,42 @@ export function getDebugContext(): DebugContext | undefined {
   return requestAls.getStore();
 }
 
+/**
+ * Run `fn` inside a fresh DebugContext and return both the result and the
+ * captured trace. Used by callers that aren't reached via the HTTP
+ * middleware (notably the in-process scenario runner) but still want a
+ * per-call waterfall.
+ */
+export async function runWithDebugTrace<T>(fn: () => Promise<T>): Promise<{
+  result: T;
+  trace: {
+    requestId: string;
+    totalMs: number;
+    spans: DebugSpan[];
+    artifacts: DebugArtifact[];
+    artifactsDropped: number;
+  };
+}> {
+  const ctx: DebugContext = {
+    requestId: randomUUID(),
+    startedAt: Date.now(),
+    spans: [],
+    artifacts: [],
+    artifactsDropped: 0,
+  };
+  const result = await requestAls.run(ctx, () => fn());
+  return {
+    result,
+    trace: {
+      requestId: ctx.requestId,
+      totalMs: Date.now() - ctx.startedAt,
+      spans: ctx.spans,
+      artifacts: ctx.artifacts,
+      artifactsDropped: ctx.artifactsDropped,
+    },
+  };
+}
+
 const MAX_ARTIFACT_SIZE = 32 * 1024;
 const MAX_ARTIFACTS_PER_REQUEST = 200;
 
