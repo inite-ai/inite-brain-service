@@ -2,6 +2,38 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
+import { traceArtifact } from '../common/debug-trace';
+
+/**
+ * Closed-vocabulary, span-grounded entity-and-fact extractor.
+ *
+ * The design follows the 2025-era SOTA for LLM-based information extraction:
+ *   1. Span grounding — the model returns a verbatim substring of the input as
+ *      the object value. The server validates the span actually occurs in the
+ *      source and drops any fact that doesn't ground. The model literally
+ *      cannot invent values (no more "object=active" when the text says
+ *      "CTO"). References: LangExtract (Google), Anthropic Citations API,
+ *      Deterministic Quoting (Yeung 2024), AFEV (Fact in Fragments,
+ *      arXiv:2506.07446).
+ *
+ *   2. Decompose-then-extract — the model first lists `clauses[]` — verbatim
+ *      sub-spans of the input, each one an independent assertion — and then
+ *      assigns one or more facts per clause. Eliminates the "multi-clause
+ *      collapse" failure mode where a 3-fact sentence yields 1 fact.
+ *      References: FactScore, AFEV, RexUIE.
+ *
+ *   3. Predicate definitions are TYPE SIGNATURES, not example values. Each
+ *      predicate is described by (subject domain, object range, admission
+ *      criteria, negative disambiguation against near-neighbour predicates,
+ *      value-span shape). No sample values from any specific vertical appear
+ *      in the prompt — this is what stops the model from copying example
+ *      words verbatim into outputs ("status=active" failure). References:
+ *      RexUIE, ODKE+ (arXiv:2509.04696), PARSE (arXiv:2510.08623).
+ *
+ * One LLM call per ingest, json_schema strict, no retry loop in the hot path
+ * — server-side validation drops malformed facts and traces them for offline
+ * schema iteration (PARSE recommendation).
+ */
 
 export interface ExtractedEntity {
   name: string;
@@ -14,9 +46,17 @@ export interface ExtractedFact {
   /** Index into the entities array — which entity this fact is about. */
   entityIndex: number;
   predicate: string;
+  /** The validated object value — guaranteed to be a verbatim substring of
+   *  the source text after span-grounding validation. Downstream stages
+   *  (conflict resolver, fact upsert) consume this as the fact's object. */
   object: string;
   /** 0..1 — extractor's confidence. Source trust is applied later. */
   confidence: number;
+  /** The clause this fact was anchored to (verbatim sub-span from input).
+   *  Surfaced in the debug trace so the operator can see the
+   *  decompose-then-extract reasoning. Internal-only — not consumed by
+   *  downstream pipeline. */
+  clause?: string;
 }
 
 export interface ExtractionResult {
@@ -25,7 +65,7 @@ export interface ExtractionResult {
 }
 
 const PREDICATE_VOCABULARY = [
-  // CRM predicates (unchanged)
+  // Core CRM predicates
   'said',
   'name',
   'email',
@@ -61,104 +101,178 @@ const ENTITY_TYPE_VOCABULARY = [
   'other',
 ] as const;
 
-const DEFAULT_EXTRACTION_PROMPT = `You are an entity and fact extractor for a multi-vertical SaaS knowledge graph.
+const DEFAULT_EXTRACTION_PROMPT = `You are an entity-and-fact extractor for a knowledge graph.
 
-Given a piece of text (typically a chat message, transcript, or note), extract:
+OUTPUT CONTRACT
+You output JSON with three top-level fields, in this order:
 
-1. entities: actors mentioned in the text. Type ∈ {${ENTITY_TYPE_VOCABULARY.join(', ')}}.
-2. facts: assertions about those entities, using predicates from a closed vocabulary:
-   said              — an utterance attributed to the entity (use only when no more specific predicate fits)
-   name              — the entity's name (single value)
-   email             — email address
-   phone             — phone number
-   status            — current state/lifecycle (e.g. "active", "churned", "open")
-   tier              — segmentation tier (e.g. "platinum", "gold")
-   intent            — inferred intent or goal (wants, plans, asks for)
-   preference        — stated or inferred preference
-   complained_about  — a complaint subject (problem reports, dissatisfaction)
-   interacted_with   — generic interaction (booked, viewed, contacted, attended, purchased)
-   address           — physical address
-   dob               — date of birth
+  1. clauses[] — verbatim sub-spans of the input. Each entry is ONE independent
+     assertion. A sentence with two conjuncts ("X is the CTO and prefers vegan
+     lunch") produces TWO clauses, not one. A two-sentence input produces at
+     least two clauses. Copy each clause verbatim from the input — never
+     summarise or rephrase.
 
-Rules:
-- Only extract facts you can support from the text.
-- Prefer the MOST SPECIFIC predicate. If \`complained_about\` or \`intent\`
-  fits a sentence, do NOT also emit \`said\` for the same content —
-  the specific predicate already captures the speech act.
-- entityIndex is the 0-based index into the entities array.
-- confidence is 0..1; reserve >0.8 for facts the text states explicitly,
-  0.5–0.8 for inferred or implicit facts.
-- Skip entities you cannot characterize beyond a pronoun.
-- Set \`canonical\` to null unless the text explicitly states a canonical/legal form different from \`name\`.
+  2. entities[] — actors named in the input. Each entry has name (verbatim
+     mention), type (closed enum: ${ENTITY_TYPE_VOCABULARY.join(', ')}), and
+     canonical (the canonical/legal form ONLY when the text states it
+     explicitly, otherwise null).
 
-Object-value rules (read carefully — these are the common predicates that
-get mis-extracted):
-- \`status\`: object is the LITERAL role/state word from the source text.
-  The example values listed for \`status\` above ("active", "churned",
-  "open") are SHAPE hints, not canonical answers — never substitute
-  one of them when the text uses a different word. If the text says
-  the entity is a "CTO", "Head of Sales", "trial", "lapsed", or
-  "VIP", the object is exactly that.
-- \`preference\`: when the verb is prefers / likes / wants / favours /
-  enjoys / dislikes / hates AND the object is a noun phrase (food,
-  brand, tool, schedule, style, vendor), emit predicate="preference"
-  with object = ONLY the noun phrase. Strip the verb. Use \`intent\`
-  ONLY for forward-looking plans ("wants to upgrade", "plans to
-  migrate") — not for ongoing tastes.
-- Multi-clause sentences: each independent clause that asserts a fact
-  produces its OWN extraction. Do not collapse multiple distinct
-  assertions about the same subject into a single fact, and do not
-  drop clauses for brevity.
+  3. facts[] — assertions about the entities. Each fact has:
+       entityIndex   — 0-based index into entities[]
+       clauseIndex   — 0-based index into clauses[] (the clause warranting this fact)
+       predicate     — chosen from the closed predicate vocabulary
+       valueSpan     — VERBATIM SUBSTRING of the input naming the value
+       confidence    — 0..1, reserve >0.8 for explicit assertions, 0.5–0.8 for inferred
 
-Content-domain predicates (for marketing / brand / editorial mentions):
-   brand_voice          — how the brand SOUNDS (single description, ≤500 chars).
-                          SINGLETON: newer supersedes older. Extract the full
-                          style description as one fact, not word-by-word.
-   brand_archetype      — Jungian archetype. SINGLETON. One of: Hero, Sage,
-                          Outlaw, Explorer, Magician, Lover, Jester, Caregiver,
-                          Creator, Ruler, Innocent, Everyman.
-   tone_of_voice        — style attributes (e.g. "confident, conversational,
-                          no jargon"). SINGLETON.
-   product_description  — short product summary (≤1000 chars). SINGLETON.
-   target_audience_segment — one segment description. MULTI-VALUED: each
-                          distinct segment becomes its own fact. Example:
-                          "indie SaaS founders in EU/NA" → one fact;
-                          "content creators on LinkedIn" → a second fact.
-   content_guideline    — one editorial rule. MULTI-VALUED. Example:
-                          "Always lead with a customer result" → one fact.
-   tension_point        — one customer pain or contradiction the content
-                          addresses. MULTI-VALUED.
-   reference_example    — one URL or short quote of an exemplar piece.
-                          MULTI-VALUED.
-   narrative_pillar     — one theme the brand returns to. MULTI-VALUED.
-   forbidden_pattern    — one anti-pattern (e.g. "Never use the word
-                          'revolutionary'"). MULTI-VALUED.
+THE VERBATIM RULE (most important):
+  valueSpan MUST appear character-for-character somewhere in the input.
+  • Copy from the source. Do not paraphrase.
+  • Do not substitute a synonym, a normalised form, or a canonical label.
+  • Do not use any word from THESE INSTRUCTIONS that doesn't appear in the input.
+  • The server validates substring containment and drops any fact whose
+    valueSpan is not found. A dropped fact is worse than a missing fact.
+  • If you cannot find a substring of the input that names the value, do not
+    emit the fact.
 
-SINGLETON vs MULTI-VALUED rule: for singleton predicates (brand_voice,
-brand_archetype, tone_of_voice, product_description) emit EXACTLY ONE fact
-per entity even if the text mentions multiple drafts — pick the most recent
-or most specific. For multi-valued predicates, emit ONE fact per distinct
-item; do not concatenate multiple items into one object string. Always prefer
-a content-domain predicate when the brand itself is the subject — do NOT
-fall back to \`said\` or \`intent\` when a content-domain predicate fits better.
+PREDICATE SELECTION
+For each clause, pick the SINGLE most specific predicate from the vocabulary
+below. Each predicate is defined by:
+  TYPE      — what kind of subject / value-shape it represents
+  ADMIT     — when to emit this predicate
+  NOT FOR   — what to use a NEIGHBOUR predicate for instead (the explicit
+              negative disambiguation — read this; it is how you avoid the
+              common confusion between adjacent predicates)
+  VALUE     — what shape valueSpan should take (a noun, a noun phrase, a
+              span containing the literal address, etc.)
 
-Few-shot examples:
-  Input: "Our brand voice is confident, witty, and never apologetic.
-          We target indie SaaS founders in EU/NA and content creators
-          who build on LinkedIn. Never say 'revolutionary'."
-  Output facts (for entity: the brand):
-    { predicate: "brand_voice", object: "confident, witty, never apologetic", confidence: 0.92 }
-    { predicate: "target_audience_segment", object: "indie SaaS founders in EU/NA", confidence: 0.88 }
-    { predicate: "target_audience_segment", object: "content creators who build on LinkedIn", confidence: 0.88 }
-    { predicate: "forbidden_pattern", object: "Never say 'revolutionary'", confidence: 0.90 }
+— IDENTITY group —
 
-  Input: "Acme's Outlaw archetype shows up in every headline. Their tone
-          is irreverent and warmly human, never corporate. Editorial rule:
-          always lead with a customer quote."
-  Output facts:
-    { predicate: "brand_archetype", object: "Outlaw", confidence: 0.90 }
-    { predicate: "tone_of_voice", object: "irreverent and warmly human, never corporate", confidence: 0.88 }
-    { predicate: "content_guideline", object: "always lead with a customer quote", confidence: 0.87 }`;
+name
+  TYPE     subject is any entity; value is the proper noun naming it
+  ADMIT    text introduces or names the entity ("Maria Petrov", "Acme Corp")
+  NOT FOR  a pronoun reference alone — skip the fact (and probably the entity)
+  VALUE    a proper-noun span from the input
+
+email
+  TYPE     subject is a person/org; value is an email address
+  ADMIT    a literal email address appears, attributed to this subject
+  VALUE    the literal email-address span ("foo@bar.com")
+
+phone
+  TYPE     subject is a person/org; value is a phone number
+  ADMIT    a literal phone-number span appears, attributed to this subject
+  VALUE    the literal phone-number span
+
+address
+  TYPE     subject is a person/org; value is a physical location
+  ADMIT    text states where the subject is, lives, is based, is located, or
+           moved from/to as a place of residence/operation
+  NOT FOR  a one-off visit ("she visited Paris last week") → interacted_with
+           a brand's target market segmentation → target_audience_segment
+  VALUE    the place-name or address span from the input
+
+dob
+  TYPE     subject is a person; value is a date of birth
+  ADMIT    text states when the subject was born
+  VALUE    the date span from the input
+
+— STATE group —
+
+status
+  TYPE     subject is any entity; value is a role / lifecycle stage /
+           membership label that the subject CURRENTLY holds
+  ADMIT    text asserts a current role ("CTO", "trial member", "head of …")
+           or lifecycle state ("active", "churned", "open", "trialing")
+  NOT FOR  a future plan to acquire a role → intent
+           a one-off action → interacted_with
+  VALUE    the noun naming the role/state — verbatim span. The example words
+           shown in this paragraph are SHAPE HINTS describing the kind of
+           noun expected; never copy them into valueSpan when the input
+           uses a different word. The valueSpan is whatever the INPUT says.
+
+tier
+  TYPE     subject is a customer/account; value is a segmentation tier label
+  ADMIT    text assigns a segmentation tier ("platinum", "gold", "free", etc.)
+  NOT FOR  a generic status → status
+  VALUE    the tier-label span from the input
+
+— BEHAVIORAL group —
+
+preference
+  TYPE     subject is a person/customer; value is a thing/style/category
+           preferred or disliked as a STABLE, RECURRING trait
+  ADMIT    text asserts a stable like / dislike / favourite ("prefers X",
+           "likes X", "favours X", "hates X", "is into X") expressing an
+           ongoing taste, not a one-off plan
+  NOT FOR  a forward-looking plan or wish ("wants to upgrade") → intent
+           a one-off action ("bought X today") → interacted_with
+           a complaint ("hated their support last week") → complained_about
+  VALUE    ONLY the noun phrase naming the preferred thing — the verb
+           ("prefers"/"likes"/"hates") is NOT part of the value. If the
+           input says "prefers vegan lunch", valueSpan is the substring
+           "vegan lunch", not "prefers vegan lunch".
+
+intent
+  TYPE     subject is a person/customer; value is a forward-looking plan,
+           wish, or expressed need
+  ADMIT    text asserts a future-tense plan, wish, or stated need ("wants
+           to X", "plans to X", "is looking for X", "needs X")
+  NOT FOR  a stable taste → preference
+           a completed action → interacted_with
+           a current role → status
+  VALUE    the noun phrase or verb-phrase naming the planned thing or goal
+
+complained_about
+  TYPE     subject is a person/customer; value is the subject of a complaint
+  ADMIT    text reports a complaint, dissatisfaction, or problem report
+  NOT FOR  a generic mention without negative sentiment → interacted_with
+  VALUE    the noun phrase naming the thing/topic complained about
+
+interacted_with
+  TYPE     subject is a person/customer; value is a thing they touched
+  ADMIT    text states a one-off generic interaction (booked, viewed,
+           contacted, attended, purchased, downloaded) without complaint,
+           without it being a long-term preference, and without a future
+           plan
+  VALUE    the noun phrase naming the thing interacted with
+
+said
+  TYPE     subject is anyone; value is an attributed utterance
+  ADMIT    text directly attributes an utterance to the subject AND none of
+           the more specific predicates above admit the clause. This is the
+           fallback — prefer any specific predicate that fits.
+  VALUE    the utterance span (may be a quoted string)
+
+— CONTENT-DOMAIN group (marketing / brand / editorial inputs) —
+
+brand_voice            SINGLETON   how the brand sounds (≤500 chars)
+brand_archetype        SINGLETON   archetype label (Hero/Sage/Outlaw/…/Everyman)
+tone_of_voice          SINGLETON   style attributes (e.g. tonality descriptors)
+product_description    SINGLETON   short product summary (≤1000 chars)
+target_audience_segment MULTI       one segment description per fact
+content_guideline      MULTI       one editorial rule per fact
+tension_point          MULTI       one customer pain or contradiction per fact
+reference_example      MULTI       one URL or exemplar quote per fact
+narrative_pillar       MULTI       one recurring theme per fact
+forbidden_pattern      MULTI       one anti-pattern per fact
+
+  SINGLETON predicates: emit at most ONE fact per entity even if the input
+  mentions multiple drafts (pick the most recent / most specific).
+  MULTI predicates: emit ONE fact per distinct item — do not concatenate
+  multiple items into one valueSpan.
+  When the subject is a brand/product and a content-domain predicate fits,
+  prefer it over the CRM fallbacks (\`said\`, \`intent\`).
+
+GENERAL RULES
+  • Each clause produces zero or more facts. A clause that asserts no
+    extractable predicate (e.g., a greeting) produces zero.
+  • Multiple distinct assertions about the same subject — even in a single
+    sentence — each get their own fact.
+  • Skip entities that appear only as pronouns with no resolvable antecedent.
+  • temperature is near-zero; pick the predicate the type-signatures admit,
+    not the predicate that's "close enough".
+  • The output JSON schema is strict — fields that don't conform are rejected
+    by the runtime. valueSpan grounding is enforced server-side.`;
 
 @Injectable()
 export class ExtractorService {
@@ -206,11 +320,10 @@ export class ExtractorService {
           { role: 'system', content: this.systemPrompt },
           { role: 'user', content: trimmed },
         ],
-        // Strict JSON Schema: predicate is a closed enum, so the
-        // model can no longer hallucinate predicates outside our
-        // vocabulary or skip required fields. Eliminates the main
-        // source of run-to-run jitter we saw on the quality eval
-        // (gpt-4o-mini occasionally producing "wants"/"says"/etc).
+        // Strict JSON Schema with span-grounded objects. predicate is a
+        // closed enum so the model cannot hallucinate predicates outside
+        // our vocabulary; valueSpan is constrained to a string but
+        // grounded server-side (substring containment in the input).
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -220,6 +333,12 @@ export class ExtractorService {
               type: 'object',
               additionalProperties: false,
               properties: {
+                clauses: {
+                  type: 'array',
+                  description:
+                    'Verbatim sub-spans of the input, each one independent assertion. Decompose-then-extract step.',
+                  items: { type: 'string' },
+                },
                 entities: {
                   type: 'array',
                   items: {
@@ -240,18 +359,31 @@ export class ExtractorService {
                     additionalProperties: false,
                     properties: {
                       entityIndex: { type: 'integer', minimum: 0 },
+                      clauseIndex: { type: 'integer', minimum: 0 },
                       predicate: { type: 'string', enum: [...PREDICATE_VOCABULARY] },
-                      object: { type: 'string' },
+                      valueSpan: {
+                        type: 'string',
+                        description:
+                          'VERBATIM substring of the input naming the object value. Server validates substring containment; ungrounded facts are dropped.',
+                      },
                       confidence: { type: 'number', minimum: 0, maximum: 1 },
                     },
-                    required: ['entityIndex', 'predicate', 'object', 'confidence'],
+                    required: [
+                      'entityIndex',
+                      'clauseIndex',
+                      'predicate',
+                      'valueSpan',
+                      'confidence',
+                    ],
                   },
                 },
               },
-              required: ['entities', 'facts'],
+              required: ['clauses', 'entities', 'facts'],
             },
           },
         },
+        // Clauses[] adds ~5-10% tokens vs the old schema; 1500 still covers
+        // the long content-domain inputs comfortably.
         max_completion_tokens: 1500,
         temperature: 0.1,
       }),
@@ -268,6 +400,10 @@ export class ExtractorService {
       return { entities: [], facts: [] };
     }
 
+    const clauses: string[] = Array.isArray(parsed.clauses)
+      ? parsed.clauses.filter((c: unknown) => typeof c === 'string')
+      : [];
+
     const entities: ExtractedEntity[] = Array.isArray(parsed.entities)
       ? parsed.entities
           .filter((e: any) => e && typeof e.name === 'string')
@@ -281,7 +417,19 @@ export class ExtractorService {
           }))
       : [];
 
-    const facts: ExtractedFact[] = Array.isArray(parsed.facts)
+    // Span-grounding: a fact survives ONLY if its valueSpan appears as a
+    // substring of the original input (after whitespace + case normalization).
+    // This is the architectural defence against the value-invention failure
+    // mode — the model can no longer emit object="active" when the source
+    // text says "CTO", because "active" isn't a substring of the source.
+    const normalizedInput = normalizeForGrounding(trimmed);
+    const rawFacts: Array<{
+      entityIndex: number;
+      clauseIndex: number | undefined;
+      predicate: string;
+      valueSpan: string;
+      confidence: number;
+    }> = Array.isArray(parsed.facts)
       ? parsed.facts
           .filter(
             (f: any) =>
@@ -290,18 +438,77 @@ export class ExtractorService {
               f.entityIndex >= 0 &&
               f.entityIndex < entities.length &&
               typeof f.predicate === 'string' &&
-              typeof f.object === 'string',
+              typeof f.valueSpan === 'string',
           )
           .map((f: any) => ({
             entityIndex: f.entityIndex,
+            clauseIndex:
+              Number.isInteger(f.clauseIndex) && f.clauseIndex >= 0
+                ? f.clauseIndex
+                : undefined,
             predicate: String(f.predicate).trim(),
-            object: String(f.object).trim(),
+            valueSpan: String(f.valueSpan).trim(),
             confidence:
               typeof f.confidence === 'number'
                 ? Math.max(0, Math.min(1, f.confidence))
                 : 0.5,
           }))
       : [];
+
+    const facts: ExtractedFact[] = [];
+    const dropped: Array<{
+      predicate: string;
+      claimedValueSpan: string;
+      reason: 'not_grounded' | 'empty';
+    }> = [];
+
+    for (const rf of rawFacts) {
+      if (!rf.valueSpan) {
+        dropped.push({
+          predicate: rf.predicate,
+          claimedValueSpan: rf.valueSpan,
+          reason: 'empty',
+        });
+        continue;
+      }
+      const normalizedSpan = normalizeForGrounding(rf.valueSpan);
+      if (!normalizedInput.includes(normalizedSpan)) {
+        dropped.push({
+          predicate: rf.predicate,
+          claimedValueSpan: rf.valueSpan,
+          reason: 'not_grounded',
+        });
+        continue;
+      }
+      facts.push({
+        entityIndex: rf.entityIndex,
+        predicate: rf.predicate,
+        object: rf.valueSpan,
+        confidence: rf.confidence,
+        clause:
+          rf.clauseIndex !== undefined && rf.clauseIndex < clauses.length
+            ? clauses[rf.clauseIndex]
+            : undefined,
+      });
+    }
+
+    if (dropped.length > 0) {
+      this.logger.warn(
+        `extractor dropped ${dropped.length} fact(s) that failed span-grounding: ${dropped
+          .map((d) => `${d.predicate}="${d.claimedValueSpan}" (${d.reason})`)
+          .join('; ')}`,
+      );
+      traceArtifact('extractor.invalid_value_span', {
+        droppedCount: dropped.length,
+        dropped,
+        // Snippet of the normalized input the model was supposed to ground
+        // against — useful for offline schema iteration (PARSE pattern).
+        normalizedInputPreview: normalizedInput.slice(0, 200),
+      });
+    }
+    if (clauses.length > 0) {
+      traceArtifact('extractor.clauses', clauses);
+    }
 
     return { entities, facts };
   }
@@ -311,4 +518,15 @@ export class ExtractorService {
     if (typeof t === 'string' && allowed.includes(t)) return t as ExtractedEntity['type'];
     return 'other';
   }
+}
+
+/**
+ * Whitespace-collapsed, lower-cased view of a string used for substring
+ * containment checks in span grounding. The same transformation is applied to
+ * both the input and the claimed valueSpan before comparison so the model
+ * doesn't have to match the EXACT whitespace / casing of the source — but it
+ * still has to choose tokens that actually appeared in the source.
+ */
+function normalizeForGrounding(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
