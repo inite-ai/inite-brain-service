@@ -147,11 +147,23 @@ message: ${message}`;
           },
         },
         temperature: 0,
-        max_completion_tokens: 200,
+        max_completion_tokens: 400,
       });
       const content = res.choices[0]?.message?.content;
-      if (!content) throw new Error('router returned empty response');
-      const parsed = JSON.parse(content) as {
+      const finish = res.choices[0]?.finish_reason;
+      traceArtifact('demo.chat.raw', { content, finish_reason: finish });
+      if (!content) {
+        this.logger.warn(
+          `chat router returned empty content (finish=${finish}) — falling back to safe default`,
+        );
+        const fallback: ChatRoute = {
+          intent: 'tell',
+          reason: 'router-empty-fallback',
+        };
+        traceArtifact('demo.chat.route', fallback);
+        return fallback;
+      }
+      let parsed: {
         intent: 'tell' | 'ask';
         normalizedMessage: string | null;
         cleanedQuery: string | null;
@@ -159,6 +171,23 @@ message: ${message}`;
         validFrom: string | null;
         reason: string | null;
       };
+      try {
+        parsed = JSON.parse(extractJsonObject(content));
+      } catch (err) {
+        // Defensive: LLMs occasionally emit leading nulls / partial trailing
+        // tokens / unexpected markdown fences even in strict json_schema mode.
+        // Better to fall back to a safe default than to crash the whole chat
+        // turn — the demo MUST be live-presentable.
+        this.logger.warn(
+          `chat router JSON parse failed (finish=${finish}): ${(err as Error).message}; raw="${content.slice(0, 200)}" — using fallback route`,
+        );
+        const fallback: ChatRoute = {
+          intent: 'tell',
+          reason: `router-parse-fallback: ${(err as Error).message}`,
+        };
+        traceArtifact('demo.chat.route', fallback);
+        return fallback;
+      }
       const out: ChatRoute = { intent: parsed.intent };
       if (
         parsed.normalizedMessage &&
@@ -182,4 +211,45 @@ message: ${message}`;
 function isValidIso(s: string): boolean {
   const d = new Date(s);
   return !Number.isNaN(d.getTime());
+}
+
+/**
+ * Extracts the first balanced top-level JSON object from a possibly noisy
+ * LLM output. Handles the failure modes we've actually seen in production:
+ *   - leading `null` or `true` token before the real object
+ *   - markdown code fences (```json ... ```)
+ *   - trailing prose after the closing brace
+ * Throws if no balanced object is found.
+ */
+function extractJsonObject(raw: string): string {
+  const trimmed = raw.trim();
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const inner = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  const start = inner.indexOf('{');
+  if (start < 0) throw new Error('no JSON object found in router response');
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  for (let i = start; i < inner.length; i++) {
+    const c = inner[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c === '\\') {
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return inner.slice(start, i + 1);
+    }
+  }
+  throw new Error('unterminated JSON object in router response');
 }
