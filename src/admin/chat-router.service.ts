@@ -5,56 +5,131 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 
 /**
- * Classifies a free-form message into an ingest / search intent and pulls
- * any natural-language temporal anchors out of it. Lets the demo slide
- * behave like a real chat — "what did the CTO eat yesterday" routes to
- * search with asOf computed for yesterday automatically.
+ * Grounded chat router for the brain demo.
  *
- * One LLM call. JSON-schema strict output so the response shape is
- * stable enough to drive both branches without parsing prose.
+ * Architectural rule of this service: every output field that drives
+ * downstream behaviour MUST be grounded in the user message via deterministic
+ * server-side validation. The LLM never emits a free-text rewrite or a
+ * "default" timestamp — instead it returns STRUCTURED EDIT OPERATIONS and
+ * SPAN-ANCHORED slots, all of which the server validates by checking that
+ * the claimed substring actually appears in the input.
+ *
+ * The pattern follows 2025-26 SOTA practice for grounded LLM routers /
+ * extractors:
+ *   • LangExtract (Google) — character-offset spans + fuzzy alignment
+ *   • Anthropic Citations API — cited_text + char range validated server-side
+ *   • 5IDER / R-Bot — predict EDIT operations, not strings
+ *   • EDC / ODKE+ — provenance per transform
+ *   • PARSE (arXiv:2510.08623) — offline schema iteration, not online retry
+ *
+ * Output contract:
+ *   intent          — closed enum
+ *   edits[]         — structured edit script. Server applies in order to
+ *                     produce normalizedMessage and cleanedQuery. Killing the
+ *                     free-text rewrite is what removes the "silently drops a
+ *                     clause" failure mode by construction.
+ *   mentions[]      — entities the message names, each with a Span pointing
+ *                     into the original message.
+ *   predicateHints[]— predicate IDs the question targets, each with a Span
+ *                     showing WHICH words in the input warranted the hint.
+ *   asOf?           — { iso, anchorSpan } — only kept when the anchor is
+ *                     grounded. No anchor → null.
+ *   validFrom?      — same shape as asOf.
+ *   reason          — free text for trace; never consumed downstream.
+ *
+ * Server-side validation pipeline (degrade-on-fail per slot, never reject
+ * the whole route):
+ *   1. JSON parse (strict mode in LLM API)
+ *   2. NFC-normalize input + every Span.text
+ *   3. Per-Span: input.slice(start,end) === text? If not, attempt repair via
+ *      first-substring-match. If still no, drop the field.
+ *   4. Vocab filter: predicateHints[].predicateId ∈ registry snapshot;
+ *      mentions[].canonical ∈ knownNames or null.
+ *   5. Cross-field consistency: intent='tell' ⇒ predicateHints empty +
+ *      asOf null; intent='ask' ⇒ validFrom null.
+ *   6. Apply edits[] right-to-left to original message → normalizedMessage.
+ *      Apply edits[] minus canonicalize → cleanedQuery (ask only).
+ *   7. Emit ChatRoute + ValidationReport trace artifact.
  */
+
+/** Character-offset span pointing into the original user message. */
+export interface Span {
+  /** Verbatim text at [start, end). Survives NFC normalization round-trip. */
+  text: string;
+  /** Inclusive UTF-16 code-unit offset into the original message. */
+  start: number;
+  /** Exclusive UTF-16 code-unit offset. */
+  end: number;
+}
+
+/**
+ * Structured edit operations the LLM emits. The server applies them
+ * deterministically to the original message — the LLM never emits the
+ * rewritten message itself, so the "silently drops a clause" failure mode
+ * is impossible by construction.
+ */
+export type EditOp =
+  | {
+      op: 'canonicalize_mention';
+      /** Where in the input the short reference appears. */
+      sourceSpan: Span;
+      /** Replacement canonical name. Must be one of knownNames. */
+      canonical: string;
+    }
+  | {
+      op: 'collapse_state_change';
+      /** State-change verb phrase that should collapse to its result state. */
+      sourceSpan: Span;
+      /** Present-tense resulting-state phrase. */
+      replacement: string;
+    }
+  | {
+      op: 'strip_temporal';
+      /** Temporal anchor span (paired with a corresponding asOf/validFrom). */
+      sourceSpan: Span;
+    };
+
+export interface TemporalAnchor {
+  iso: string;
+  anchorSpan: Span;
+}
+
 export interface ChatRoute {
-  /** 'tell' = statement to ingest as a mention. 'ask' = question to search. */
   intent: 'tell' | 'ask';
-  /**
-   * Message rewritten with short references resolved to canonical entity
-   * names from `knownNames`. Used as the actual ingest text for 'tell'
-   * intents — fixes the "Maria" vs "Maria Petrov" duplicate problem where
-   * the second mention used a first-name-only reference and NLU created
-   * a fresh entity.
-   */
-  normalizedMessage?: string;
-  /** Normalised query for search (only set when intent='ask'). Temporal
-   *  hints are stripped AND short references are canonicalised so the
-   *  retrieval lands on the known entity. */
+  /** Result of applying validated edits[] to the original message. Always
+   *  populated — falls back to the original when no edits applied. */
+  normalizedMessage: string;
+  /** Ask-only: edits[] minus canonicalize_mention applied. The query for
+   *  retrieval — temporal anchor stripped, state-change verbs collapsed,
+   *  but entity NAMES untouched so the retrieval lexical match still sees
+   *  the user's exact wording. */
   cleanedQuery?: string;
-  /** ISO timestamp extracted from temporal phrases ("yesterday", "last
-   *  month", "вчера", "в марте"). When set with intent='ask', the caller
-   *  should pass it through to search as asOf. */
-  asOf?: string;
-  /** ISO timestamp for when the asserted fact became true. Set when
-   *  intent='tell' and the message carries a temporal anchor that should
-   *  shift validFrom OFF "now" — e.g. "switched to keto last month"
-   *  should land facts with validFrom one month earlier so as-of-now
-   *  search sees keto and as-of-two-months-ago sees vegan. */
-  validFrom?: string;
-  /** Known canonical names that the LLM identifies as the SUBJECT(s) of the
-   *  question. Drives graph-first retrieval: instead of trying to substring
-   *  match the full sentence against entity names (which never works), we
-   *  directly look up the named entities the operator is asking about.
-   *  Empty when the query is topical with no named subject. */
-  entityRefs?: string[];
-  /** Closed-vocab predicates the question is asking about. Drives
-   *  predicate-aware retrieval: "where lives" → ["address"]; "what eats" →
-   *  ["preference"]; "where lives and what eats" → ["address","preference"].
-   *  Empty when the question is general ("tell me about X") — the graph
-   *  query then falls back to top-N recency + confidence so we don't dump
-   *  the entire subject into context. This is the same single-call pattern
-   *  Haystack's QueryMetadataExtractor and mem0's filter-builder use. */
-  predicateHints?: string[];
-  /** Free-text rationale the LLM gave — surfaced only for the debug trace. */
+  /** Grounded entity references. canonical is always in knownNames; span
+   *  is the substring of input that pointed at the entity. */
+  mentions: Array<{ canonical: string; span: Span }>;
+  /** Grounded predicate hints. predicateId is always in the registry
+   *  snapshot; triggerSpan is the substring that warranted the hint. */
+  predicateHints: Array<{ predicateId: string; triggerSpan: Span }>;
+  /** Ask-only. Only set when the LLM produced a grounded anchor span. */
+  asOf?: TemporalAnchor;
+  /** Tell-only. Only set when the LLM produced a grounded anchor span. */
+  validFrom?: TemporalAnchor;
+  /** Free-text rationale the LLM gave — debug trace only. */
   reason?: string;
 }
+
+export interface ValidationReport {
+  acceptedEdits: number;
+  droppedEdits: Array<{ op: string; reason: string; span?: Span }>;
+  acceptedMentions: number;
+  droppedMentions: Array<{ canonical?: string; reason: string; span?: Span }>;
+  acceptedHints: number;
+  droppedHints: Array<{ predicateId?: string; reason: string; span?: Span }>;
+  asOfStatus: 'grounded' | 'ungrounded' | 'absent';
+  validFromStatus: 'grounded' | 'ungrounded' | 'absent';
+}
+
+const ASK_INTENT_VOCAB = ['tell', 'ask'] as const;
 
 @Injectable()
 export class ChatRouterService {
@@ -80,13 +155,9 @@ export class ChatRouterService {
   ): Promise<ChatRoute> {
     const nowIso = (options.now ?? new Date()).toISOString();
     const knownNames = options.knownNames ?? [];
-    // Per-tenant predicate vocabulary for the predicateHints enum. Snapshot
-    // is cached in the registry; reading is sub-millisecond after the first
-    // call. The versionHash is pinned so the trace ties this route to the
-    // exact registry state. Defensive: a registry failure (bootstrap
-    // problem, migration not yet applied, embedder hiccup) MUST NOT 500
-    // the chat — fall back to an empty vocab so the JSON-schema enum is
-    // permissive and the request still goes through.
+    // Per-tenant predicate vocab for the LLM-side enum constraint.
+    // Defensive: registry failure degrades to permissive — the strict-mode
+    // enum drops to free string in that case (handled below).
     let snapshot:
       | { versionHash: string; active: { predicateId: string }[] }
       | null = null;
@@ -99,171 +170,9 @@ export class ChatRouterService {
     }
     const predicateVocab =
       snapshot?.active.map((p) => p.predicateId) ?? [];
-    const system = `You route a free-form chat message to a knowledge-graph backend.
 
-Decide intent:
-  - "tell" — the user is stating a fact or asserting new information (declarative).
-  - "ask" — the user is querying existing knowledge (interrogative or imperative search).
-
-Entity canonicalisation (CRITICAL — this is what keeps the graph from accumulating
-duplicate people / orgs across mentions):
-  The graph already knows the entities listed under "known canonical names".
-  If the user uses a short reference (first name, alias, possessive pronoun chain
-  that resolves to one of them) that UNAMBIGUOUSLY matches exactly one known
-  name, rewrite the message to use the full canonical form.
-
-  HARD RULE — normalizedMessage MUST preserve every clause / fact in the original
-  message. Substitute names only. DO NOT drop clauses. DO NOT summarise. DO NOT
-  collapse a multi-fact sentence into one fact. Word count should stay within
-  ±25% of the original. If you find yourself shortening, you are doing it wrong.
-
-  Allowed transformations on normalizedMessage:
-    1. Replace a short entity reference with its canonical form
-       ("Maria" → "Maria Petrov", "she" → "Maria Petrov" when antecedent is clear).
-    2. Replace state-change verbs with a present-tense predicate noun that
-       names the RESULTING STATE — but ONLY the verb phrase; every other
-       clause stays verbatim. The rewrite is TENSE-AGNOSTIC: past, present
-       and future-tense state changes all collapse to present-state form,
-       because validFrom (returned separately) is what dates the state.
-         "switched to keto"            → "now prefers keto"
-         "moved to Berlin"             → "now lives in Berlin"
-         "moves to Dublin" (future)    → "lives in Dublin"
-         "will move to Paris"          → "lives in Paris"
-         "becomes the new CTO"         → "is the CTO"
-         "started using Stripe"        → "uses Stripe"
-       This helps the downstream extractor classify the fact as a stable
-       state predicate (address / preference / status / interacted_with)
-       rather than a transient "intent". When the verb names a change
-       toward a stable resulting state, the resulting state is the fact.
-    3. Strip ANY temporal anchor ("since February", "last month", "next
-       month", "yesterday", "tomorrow", "в марте", "через неделю") from
-       normalizedMessage when you have returned it as validFrom. The
-       timestamp is captured separately and repeating it bloats the
-       extractor input and confuses tense classification.
-
-  IMPORTANT INTERACTION between #2 and #3: when a tell carries BOTH a
-  state-change verb AND a temporal anchor (e.g. "next month Maria moves to
-  Dublin"), apply #3 first to remove the anchor and #2 to collapse the
-  state-change verb. The output normalizedMessage should look like a clean
-  present-tense assertion of the resulting state ("Maria Petrov lives in
-  Dublin"), with validFrom holding the temporal anchor. This is what makes
-  bitemporal extraction work end-to-end through chat — the extractor sees
-  the state predicate, validFrom records when the state begins, and a
-  later asOf query correctly returns the right slice.
-
-  Example (multi-fact):
-    known = ["Maria Petrov"], message =
-      "since February Maria is our new CTO at Acme. She moved from Berlin and prefers vegan lunch."
-    →
-      normalizedMessage = "Maria Petrov is our new CTO at Acme. Maria Petrov lives in Berlin and prefers vegan lunch."
-      validFrom         = <Feb 1 ISO>
-    Note: three facts in the original — CTO@Acme, lives-in Berlin, prefers vegan
-    lunch. THREE facts in the normalized form. None dropped.
-
-  Example (short ref + change of state, single fact):
-    known = ["Maria Petrov"], message = "Maria switched to keto last month"
-    →
-      normalizedMessage = "Maria Petrov now prefers keto"
-      validFrom         = <1 month ago ISO>
-
-  If a short reference matches MORE than one known name, leave the original
-  message in place and let the operator clarify.
-
-Entity references (CRITICAL for retrieval):
-  Return entityRefs — the subset of "known canonical names" that the
-  message is ABOUT. For "what does Maria eat" with known=["Maria Petrov"],
-  return ["Maria Petrov"]. For "what does Maria eat in Berlin" return
-  ["Maria Petrov", "Berlin"] only if Berlin is in known. This drives
-  graph-first lookup — without it the backend has to fall back to vector
-  search every time. If no known name is referenced, return [].
-
-Predicate hints (only for intent="ask" — slot the question into the graph):
-  The knowledge graph stores facts under a closed predicate vocabulary.
-  When intent="ask", return predicateHints — the subset of predicates the
-  question is asking about. The retriever uses this as a hard AND-filter
-  so the graph doesn't dump every fact about the subject into the LLM
-  context window.
-
-  Mapping intent → predicate (best effort; pick predicates that admit the
-  question, multilingual phrasing is fine):
-    "where does X live / where is X based / куда переехал / адрес"
-        → ["address"]
-    "what does X eat / prefer / like / favourite / любимое"
-        → ["preference"]
-    "what does X want / plan / need / planning to"
-        → ["intent"]
-    "what is X's role / position / status / title / должность"
-        → ["status"]
-    "what is X's tier / plan / segment"
-        → ["tier"]
-    "what's X's email / phone / contact / contact info"
-        → ["email", "phone"]
-    "what's X's brand voice / tone / archetype / target audience /
-        editorial guidelines"
-        → one or more of the content-domain predicates that admit it
-    "where lives AND what eats" (compound)
-        → ["address", "preference"] — union, both slots get fetched
-    "tell me about X" / "what do we know about X" / general / unknown
-        → [] — empty hints, retriever falls back to top-N recency
-
-  Rules:
-   - Only emit predicates from the closed vocabulary above. Anything else
-     is dropped server-side.
-   - For intent="tell", predicateHints MUST be []. The extractor picks
-     predicates during ingest, not the router.
-   - When you can't pin a specific predicate confidently, return []. The
-     retriever's recency fallback returns a sensible top-N for the subject
-     — that's better than guessing wrong and silently dropping the
-     relevant fact.
-
-Temporal handling (span-grounded — the architectural rule):
-  asOf and validFrom are paired with anchors — asOfAnchor / validFromAnchor —
-  which MUST be a VERBATIM substring of the input naming the temporal phrase
-  that warranted the timestamp. The server validates anchor grounding and
-  drops any (asOf, validFrom) whose anchor isn't found in the input. This
-  prevents the failure mode where the model "defaults" a timestamp when the
-  user named no temporal anchor at all.
-
-  Rule of thumb: if you cannot quote the exact words of the input that point
-  at the time, return null for BOTH the timestamp AND the anchor. Picking
-  "today", "now", or any current-time value when the user said neither is
-  WRONG — it produces midnight-of-today queries that filter out
-  recently-ingested facts.
-
-  intent="ask":
-    - Question contains a clear temporal anchor ("yesterday", "in March",
-      "next month", "вчера", "на прошлой неделе") →
-        asOf       = ISO 8601 computed relative to "now"
-        asOfAnchor = the literal substring of input (e.g. "yesterday",
-                     "last month", "in March")
-        Strip the phrase from cleanedQuery.
-    - No temporal anchor →
-        asOf = null, asOfAnchor = null.
-        ("current truth" — the retriever uses time::now() server-side.)
-
-  intent="tell":
-    - Message carries an anchor for WHEN the fact became true
-      ("switched to keto LAST MONTH", "next month moves to Dublin",
-       "joined in MARCH", "moved YESTERDAY") →
-        validFrom       = ISO 8601 computed relative to "now"
-        validFromAnchor = the literal substring of input
-    - No anchor →
-        validFrom = null, validFromAnchor = null.
-        (Ingest defaults validFrom to "now".)
-
-Rules:
-  - Always pick one of the two intents.
-  - asOf and validFrom must each be a valid ISO 8601 timestamp or null.
-  - normalizedMessage falls back to the original message when no canonicalisation
-    applies.
-  - cleanedQuery is only set for ask intent.
-  - For "tell" intents asOf must always be null. For "ask" intents validFrom
-    must always be null.
-
-Reply with strict JSON.`;
-
+    const system = buildSystemPrompt(predicateVocab, knownNames);
     const user = `now: ${nowIso}
-known canonical names: ${JSON.stringify(knownNames)}
 message: ${message}`;
 
     return traceSpan('demo.chat.route', async () => {
@@ -273,6 +182,7 @@ message: ${message}`;
         model: this.model,
         registryVersionHash: snapshot?.versionHash ?? 'unavailable',
         predicateCount: predicateVocab.length,
+        knownNamesCount: knownNames.length,
       });
       const res = await this.openai.chat.completions.create({
         model: this.model,
@@ -285,189 +195,546 @@ message: ${message}`;
           json_schema: {
             name: 'chat_route',
             strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                intent: { type: 'string', enum: ['tell', 'ask'] },
-                normalizedMessage: { type: ['string', 'null'] },
-                cleanedQuery: { type: ['string', 'null'] },
-                entityRefs: { type: 'array', items: { type: 'string' } },
-                predicateHints: {
-                  type: 'array',
-                  items:
-                    predicateVocab.length > 0
-                      ? { type: 'string', enum: predicateVocab }
-                      : { type: 'string' },
-                  description:
-                    'Closed-vocab predicates the question is asking about. Used as a hard AND-filter in graph retrieval so we do not dump every fact of the subject. Empty for general/unknown questions and ALWAYS empty for intent=tell.',
-                },
-                asOf: { type: ['string', 'null'] },
-                asOfAnchor: {
-                  type: ['string', 'null'],
-                  description:
-                    'The VERBATIM substring of the input that anchored asOf ("yesterday", "next month", "в марте"). Server validates this is a substring of the input — without grounding the asOf is dropped. NULL when no temporal anchor.',
-                },
-                validFrom: { type: ['string', 'null'] },
-                validFromAnchor: {
-                  type: ['string', 'null'],
-                  description:
-                    'The VERBATIM substring of the input that anchored validFrom. Same span-grounding rule as asOfAnchor.',
-                },
-                reason: { type: ['string', 'null'] },
-              },
-              required: [
-                'intent',
-                'normalizedMessage',
-                'cleanedQuery',
-                'entityRefs',
-                'predicateHints',
-                'asOf',
-                'asOfAnchor',
-                'validFrom',
-                'validFromAnchor',
-                'reason',
-              ],
-            },
+            schema: buildSchema(predicateVocab),
           },
         },
         temperature: 0,
-        max_completion_tokens: 400,
+        max_completion_tokens: 800,
       });
       const content = res.choices[0]?.message?.content;
       const finish = res.choices[0]?.finish_reason;
       traceArtifact('demo.chat.raw', { content, finish_reason: finish });
       if (!content) {
-        this.logger.warn(
-          `chat router returned empty content (finish=${finish}) — falling back to safe default`,
+        return this.safeDefault(
+          message,
+          `router-empty (finish=${finish ?? 'unknown'})`,
         );
-        const fallback: ChatRoute = {
-          intent: 'tell',
-          reason: 'router-empty-fallback',
-        };
-        traceArtifact('demo.chat.route', fallback);
-        return fallback;
       }
-      let parsed: {
-        intent: 'tell' | 'ask';
-        normalizedMessage: string | null;
-        cleanedQuery: string | null;
-        entityRefs?: string[];
-        predicateHints?: string[];
-        asOf: string | null;
-        asOfAnchor: string | null;
-        validFrom: string | null;
-        validFromAnchor: string | null;
-        reason: string | null;
-      };
+      let parsed: RawRouteOutput;
       try {
-        parsed = JSON.parse(extractJsonObject(content));
-      } catch (err) {
-        // Defensive: LLMs occasionally emit leading nulls / partial trailing
-        // tokens / unexpected markdown fences even in strict json_schema mode.
-        // Better to fall back to a safe default than to crash the whole chat
-        // turn — the demo MUST be live-presentable.
+        parsed = JSON.parse(extractJsonObject(content)) as RawRouteOutput;
+      } catch (e) {
         this.logger.warn(
-          `chat router JSON parse failed (finish=${finish}): ${(err as Error).message}; raw="${content.slice(0, 200)}" — using fallback route`,
+          `chat router parse failed: ${(e as Error).message}; raw="${content.slice(0, 200)}"`,
         );
-        const fallback: ChatRoute = {
-          intent: 'tell',
-          reason: `router-parse-fallback: ${(err as Error).message}`,
-        };
-        traceArtifact('demo.chat.route', fallback);
-        return fallback;
+        return this.safeDefault(message, `router-parse: ${(e as Error).message}`);
       }
-      const out: ChatRoute = { intent: parsed.intent };
-      if (
-        parsed.normalizedMessage &&
-        parsed.normalizedMessage.trim() &&
-        parsed.normalizedMessage !== message
-      ) {
-        // Guardrail: an over-eager LLM has been observed turning multi-fact
-        // tells like "Maria is CTO. She moved from Berlin and prefers vegan
-        // lunch." into a single-clause "Maria now serves as CTO" — silently
-        // dropping facts. Reject any rewrite that compresses the original
-        // by more than 40% of word count and fall back to the original
-        // message. The validFrom / entityRefs fields are still trusted.
-        const origWords = message.trim().split(/\s+/).filter(Boolean).length;
-        const normWords = parsed.normalizedMessage
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean).length;
-        if (origWords >= 8 && normWords < origWords * 0.6) {
-          this.logger.warn(
-            `chat router rewrite dropped too many words ` +
-              `(${origWords}→${normWords}); falling back to original`,
-          );
-          traceArtifact('demo.chat.rewrite_rejected', {
-            origWords,
-            normWords,
-            normalized: parsed.normalizedMessage,
-          });
-        } else {
-          out.normalizedMessage = parsed.normalizedMessage;
-        }
-      }
-      if (parsed.cleanedQuery) out.cleanedQuery = parsed.cleanedQuery;
-      // Only keep entityRefs that are actually in the known list — guard
-      // against hallucinated names that wouldn't resolve anyway.
-      if (Array.isArray(parsed.entityRefs) && parsed.entityRefs.length > 0) {
-        const known = new Set(knownNames);
-        const filtered = parsed.entityRefs.filter((n) => known.has(n));
-        if (filtered.length > 0) out.entityRefs = filtered;
-      }
-      // predicateHints already constrained by the json_schema enum, but
-      // belt-and-suspenders: filter to known vocab + drop on tell intent
-      // (the extractor picks predicates at ingest, not the router).
-      if (
-        parsed.intent === 'ask' &&
-        Array.isArray(parsed.predicateHints) &&
-        parsed.predicateHints.length > 0
-      ) {
-        const vocab = new Set<string>(predicateVocab);
-        const filtered = Array.from(
-          new Set(parsed.predicateHints.filter((p) => vocab.has(p))),
-        );
-        if (filtered.length > 0) out.predicateHints = filtered;
-      }
-      // Span-grounded temporal anchors. Both asOf and validFrom only
-      // survive when the LLM ALSO points at the literal substring of the
-      // input that anchored them — same architectural pattern as the
-      // extractor's valueSpan grounding. A bare ISO timestamp without a
-      // source-text anchor is treated as "model defaulted" (the failure
-      // mode we hit on /demo/chat: model returned today-midnight UTC
-      // for "where does X live", no real anchor in the question).
-      const askAnchorOk =
-        typeof parsed.asOfAnchor === 'string' &&
-        parsed.asOfAnchor.trim().length > 0 &&
-        normalizeForGrounding(message).includes(
-          normalizeForGrounding(parsed.asOfAnchor),
-        );
-      const tellAnchorOk =
-        typeof parsed.validFromAnchor === 'string' &&
-        parsed.validFromAnchor.trim().length > 0 &&
-        normalizeForGrounding(message).includes(
-          normalizeForGrounding(parsed.validFromAnchor),
-        );
-      if (parsed.asOf && isValidIso(parsed.asOf) && askAnchorOk) {
-        out.asOf = parsed.asOf;
-      } else if (parsed.asOf) {
-        this.logger.warn(
-          `chat router: dropping asOf=${parsed.asOf} — anchor "${parsed.asOfAnchor}" not grounded in input`,
-        );
-      }
-      if (parsed.validFrom && isValidIso(parsed.validFrom) && tellAnchorOk) {
-        out.validFrom = parsed.validFrom;
-      } else if (parsed.validFrom) {
-        this.logger.warn(
-          `chat router: dropping validFrom=${parsed.validFrom} — anchor "${parsed.validFromAnchor}" not grounded in input`,
-        );
-      }
-      if (parsed.reason) out.reason = parsed.reason;
-      traceArtifact('demo.chat.route', out);
-      return out;
+      return this.validateAndAssemble(
+        message,
+        parsed,
+        new Set(predicateVocab),
+        new Set(knownNames),
+      );
     });
   }
+
+  /**
+   * Server-side validation pipeline. Each slot degrades independently — a
+   * failed asOf becomes absent, a failed mention is dropped, a failed edit
+   * is skipped. The route ALWAYS returns SOMETHING; downstream never 500s
+   * on a partial validation failure.
+   */
+  private validateAndAssemble(
+    message: string,
+    parsed: RawRouteOutput,
+    vocab: Set<string>,
+    knownNames: Set<string>,
+  ): ChatRoute {
+    const normalizedInput = nfc(message);
+    const report: ValidationReport = {
+      acceptedEdits: 0,
+      droppedEdits: [],
+      acceptedMentions: 0,
+      droppedMentions: [],
+      acceptedHints: 0,
+      droppedHints: [],
+      asOfStatus: 'absent',
+      validFromStatus: 'absent',
+    };
+
+    // 1. Mentions — every mention's nameSpan must ground; canonical must
+    //    be in knownNames (or null = unrecognised entity, dropped).
+    const mentions: Array<{ canonical: string; span: Span }> = [];
+    for (const m of parsed.mentions ?? []) {
+      const span = validateSpan(message, normalizedInput, m.nameSpan);
+      if (!span) {
+        report.droppedMentions.push({
+          canonical: m.canonical ?? undefined,
+          reason: 'ungrounded',
+          span: m.nameSpan,
+        });
+        continue;
+      }
+      if (!m.canonical || !knownNames.has(m.canonical)) {
+        report.droppedMentions.push({
+          canonical: m.canonical ?? undefined,
+          reason: 'not_in_known_names',
+          span,
+        });
+        continue;
+      }
+      mentions.push({ canonical: m.canonical, span });
+      report.acceptedMentions++;
+    }
+
+    // 2. Predicate hints — triggerSpan grounds + predicateId ∈ vocab.
+    const predicateHints: Array<{ predicateId: string; triggerSpan: Span }> = [];
+    if (parsed.intent === 'ask') {
+      for (const h of parsed.predicateHints ?? []) {
+        const span = validateSpan(message, normalizedInput, h.triggerSpan);
+        if (!span) {
+          report.droppedHints.push({
+            predicateId: h.predicateId,
+            reason: 'ungrounded',
+            span: h.triggerSpan,
+          });
+          continue;
+        }
+        if (vocab.size > 0 && !vocab.has(h.predicateId)) {
+          report.droppedHints.push({
+            predicateId: h.predicateId,
+            reason: 'not_in_vocab',
+            span,
+          });
+          continue;
+        }
+        predicateHints.push({
+          predicateId: h.predicateId,
+          triggerSpan: span,
+        });
+        report.acceptedHints++;
+      }
+    }
+
+    // 3. Temporal anchors — both asOf and validFrom must have a grounded
+    //    anchor span AND a valid ISO timestamp to survive. Cross-field
+    //    consistency: tell carries validFrom only; ask carries asOf only.
+    let asOf: TemporalAnchor | undefined;
+    if (parsed.intent === 'ask' && parsed.asOf) {
+      const span = validateSpan(
+        message,
+        normalizedInput,
+        parsed.asOf.anchorSpan,
+      );
+      if (span && isValidIso(parsed.asOf.iso)) {
+        asOf = { iso: parsed.asOf.iso, anchorSpan: span };
+        report.asOfStatus = 'grounded';
+      } else {
+        report.asOfStatus = 'ungrounded';
+      }
+    }
+    let validFrom: TemporalAnchor | undefined;
+    if (parsed.intent === 'tell' && parsed.validFrom) {
+      const span = validateSpan(
+        message,
+        normalizedInput,
+        parsed.validFrom.anchorSpan,
+      );
+      if (span && isValidIso(parsed.validFrom.iso)) {
+        validFrom = { iso: parsed.validFrom.iso, anchorSpan: span };
+        report.validFromStatus = 'grounded';
+      } else {
+        report.validFromStatus = 'ungrounded';
+      }
+    }
+
+    // 4. Edits — each edit's sourceSpan must ground; canonicalize edits
+    //    must have canonical ∈ knownNames. Edits whose sourceSpan overlaps
+    //    another accepted edit are dropped (right-to-left application
+    //    can't handle overlapping ranges cleanly).
+    const candidateEdits: Array<{ edit: EditOp; span: Span }> = [];
+    for (const e of parsed.edits ?? []) {
+      const span = validateSpan(message, normalizedInput, e.sourceSpan);
+      if (!span) {
+        report.droppedEdits.push({
+          op: e.op,
+          reason: 'ungrounded',
+          span: e.sourceSpan,
+        });
+        continue;
+      }
+      if (e.op === 'canonicalize_mention') {
+        if (!knownNames.has(e.canonical)) {
+          report.droppedEdits.push({
+            op: e.op,
+            reason: 'canonical_not_in_known_names',
+            span,
+          });
+          continue;
+        }
+      }
+      candidateEdits.push({ edit: { ...e, sourceSpan: span }, span });
+    }
+    // Drop overlap: keep the first, drop any subsequent edit that overlaps.
+    candidateEdits.sort((a, b) => a.span.start - b.span.start);
+    const acceptedEdits: typeof candidateEdits = [];
+    let lastEnd = -1;
+    for (const c of candidateEdits) {
+      if (c.span.start < lastEnd) {
+        report.droppedEdits.push({
+          op: c.edit.op,
+          reason: 'overlaps_prior_edit',
+          span: c.span,
+        });
+        continue;
+      }
+      acceptedEdits.push(c);
+      lastEnd = c.span.end;
+    }
+    report.acceptedEdits = acceptedEdits.length;
+
+    // 5. Apply edits right-to-left so earlier offsets stay valid as we
+    //    splice. Produces normalizedMessage (all edits) and cleanedQuery
+    //    (skip canonicalize_mention so retrieval lexical match keeps the
+    //    user's wording).
+    const normalizedMessage = applyEdits(
+      message,
+      acceptedEdits.map((c) => c.edit),
+      () => true,
+    );
+    const cleanedQuery =
+      parsed.intent === 'ask'
+        ? applyEdits(
+            message,
+            acceptedEdits.map((c) => c.edit),
+            (op) => op !== 'canonicalize_mention',
+          )
+        : undefined;
+
+    traceArtifact('demo.chat.validation', report);
+
+    return {
+      intent: parsed.intent,
+      normalizedMessage,
+      ...(cleanedQuery !== undefined && cleanedQuery !== message
+        ? { cleanedQuery }
+        : {}),
+      mentions,
+      predicateHints,
+      ...(asOf ? { asOf } : {}),
+      ...(validFrom ? { validFrom } : {}),
+      ...(parsed.reason ? { reason: parsed.reason } : {}),
+    };
+  }
+
+  /** Safe default when the LLM gave us nothing usable. Treat as a tell of
+   *  the original message — ingest still happens, downstream pipeline
+   *  doesn't 500. */
+  private safeDefault(message: string, reason: string): ChatRoute {
+    this.logger.warn(`chat router defaulting: ${reason}`);
+    const fallback: ChatRoute = {
+      intent: 'tell',
+      normalizedMessage: message,
+      mentions: [],
+      predicateHints: [],
+      reason,
+    };
+    traceArtifact('demo.chat.route', fallback);
+    return fallback;
+  }
+}
+
+// ── Prompt + schema builders ─────────────────────────────────────────────
+
+function buildSystemPrompt(
+  predicateVocab: string[],
+  knownNames: string[],
+): string {
+  return `You route a free-form chat message to a knowledge-graph backend.
+
+THE GROUNDING RULE (most important):
+  Every field you return that points into the user's message — every span
+  (mentions, predicate-hint triggers, edit source-spans, temporal anchors)
+  — MUST be a VERBATIM substring of the message. Each span is an object
+  { "text": "...", "start": N, "end": N } where text equals
+  message.slice(start, end) character-for-character. The server validates
+  every span and DROPS any field whose span doesn't ground.
+
+  If you cannot quote the words of the input that warrant a slot, return
+  null / empty for that slot. Do NOT default. Do NOT paraphrase. Do NOT
+  rewrite the message into a free-text string anywhere in your output —
+  rewrites are expressed as structured edit operations applied
+  deterministically by the server.
+
+OUTPUT CONTRACT (strict JSON schema enforces shape):
+
+  intent: "tell" | "ask"
+    tell  = the user is asserting a fact (declarative).
+    ask   = the user is asking a question (interrogative or imperative search).
+
+  mentions[]: entities the message names that match a known canonical name.
+    { canonical: <one of knownNames>, nameSpan: <Span pointing at the short
+                                                  reference in the input> }
+    Use this for "Maria" → "Maria Petrov" (when Maria Petrov is in knownNames).
+    canonical=null when the entity isn't in knownNames — the server drops
+    those.
+
+  predicateHints[] (ask only — empty array on tell): closed-vocab predicates
+    the question targets, each with the trigger phrase from the input.
+      { predicateId: <one of registered predicates>,
+        triggerSpan: <Span at "where lives", "what does X eat", etc.> }
+    Common mappings:
+      "where lives", "address", "лицо живёт", "где живёт"   → predicate: address
+      "what eats", "preference", "что предпочитает"          → predicate: preference
+      "what role", "is X the ...", "должность"               → predicate: status
+      "what plans to", "wants to"                            → predicate: intent
+      "email of"                                             → predicate: email
+
+  edits[]: structured edit operations that the SERVER applies to the input
+    message to produce the rewritten form. The model NEVER emits the rewritten
+    string itself — only the edit ops.
+      canonicalize_mention: replace a short reference with its canonical name.
+        sourceSpan = short reference; canonical = canonical name.
+        Example: input "Maria switched to keto" → edit
+          { op: "canonicalize_mention", sourceSpan: { text: "Maria", start: 0, end: 5 },
+            canonical: "Maria Petrov" }
+      collapse_state_change: replace a change-of-state verb phrase with the
+        present-tense resulting-state form. TENSE-AGNOSTIC — covers past,
+        present, future.
+        Examples: "switched to keto" → replacement "now prefers keto"
+                  "moves to Dublin"  → replacement "lives in Dublin"
+                  "joined as CTO"    → replacement "is the CTO"
+                  "moved from Berlin"→ replacement "lives in Berlin"
+      strip_temporal: remove a temporal anchor phrase (always paired with an
+        asOf/validFrom emission so the timestamp is captured separately).
+        sourceSpan = the phrase ("next month", "last week", "в марте",
+        "since February").
+
+    Apply edits ONLY when they are warranted by the input. Do not invent
+    edits to make the message "cleaner" — every edit must point at a real
+    substring AND have a clear purpose. Overlapping edits are dropped by
+    the server.
+
+  asOf (ask only, optional): { iso: <ISO 8601 relative to "now">,
+                               anchorSpan: <Span at the temporal phrase> }
+    Emit ONLY when the ask carries an explicit temporal anchor ("yesterday",
+    "next month", "вчера", "in March"). NO ANCHOR → set asOf to null.
+    Do NOT default to today or now.
+
+  validFrom (tell only, optional): same shape as asOf.
+    Emit when a tell carries an anchor for WHEN the fact became true
+    ("switched to keto LAST MONTH", "next month moves to Dublin"). NO
+    ANCHOR → null. Bare "now" is null.
+
+  reason (optional): one-sentence rationale for the trace.
+
+KNOWN CANONICAL NAMES in the graph:
+${JSON.stringify(knownNames)}
+
+REGISTERED PREDICATES in the vocabulary:
+${JSON.stringify(predicateVocab)}
+`;
+}
+
+function buildSchema(predicateVocab: string[]): Record<string, unknown> {
+  const spanSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      text: { type: 'string' },
+      start: { type: 'integer', minimum: 0 },
+      end: { type: 'integer', minimum: 0 },
+    },
+    required: ['text', 'start', 'end'],
+  };
+  const predicateField =
+    predicateVocab.length > 0
+      ? { type: 'string', enum: predicateVocab }
+      : { type: 'string' };
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      intent: { type: 'string', enum: [...ASK_INTENT_VOCAB] },
+      mentions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            canonical: { type: ['string', 'null'] },
+            nameSpan: spanSchema,
+          },
+          required: ['canonical', 'nameSpan'],
+        },
+      },
+      predicateHints: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            predicateId: predicateField,
+            triggerSpan: spanSchema,
+          },
+          required: ['predicateId', 'triggerSpan'],
+        },
+      },
+      edits: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            op: {
+              type: 'string',
+              enum: [
+                'canonicalize_mention',
+                'collapse_state_change',
+                'strip_temporal',
+              ],
+            },
+            sourceSpan: spanSchema,
+            canonical: { type: ['string', 'null'] },
+            replacement: { type: ['string', 'null'] },
+          },
+          required: ['op', 'sourceSpan', 'canonical', 'replacement'],
+        },
+      },
+      asOf: {
+        anyOf: [
+          { type: 'null' },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              iso: { type: 'string' },
+              anchorSpan: spanSchema,
+            },
+            required: ['iso', 'anchorSpan'],
+          },
+        ],
+      },
+      validFrom: {
+        anyOf: [
+          { type: 'null' },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              iso: { type: 'string' },
+              anchorSpan: spanSchema,
+            },
+            required: ['iso', 'anchorSpan'],
+          },
+        ],
+      },
+      reason: { type: ['string', 'null'] },
+    },
+    required: [
+      'intent',
+      'mentions',
+      'predicateHints',
+      'edits',
+      'asOf',
+      'validFrom',
+      'reason',
+    ],
+  };
+}
+
+// ── Validation helpers ──────────────────────────────────────────────────
+
+interface RawSpan {
+  text: string;
+  start: number;
+  end: number;
+}
+
+interface RawRouteOutput {
+  intent: 'tell' | 'ask';
+  mentions?: Array<{ canonical: string | null; nameSpan: RawSpan }>;
+  predicateHints?: Array<{ predicateId: string; triggerSpan: RawSpan }>;
+  edits?: Array<{
+    op: 'canonicalize_mention' | 'collapse_state_change' | 'strip_temporal';
+    sourceSpan: RawSpan;
+    canonical: string | null;
+    replacement: string | null;
+  }>;
+  asOf: { iso: string; anchorSpan: RawSpan } | null;
+  validFrom: { iso: string; anchorSpan: RawSpan } | null;
+  reason: string | null;
+}
+
+/** NFC normalization — keeps the multi-byte cases (Cyrillic combining
+ *  marks, EN-vs-RU quotes) from breaking offset arithmetic. */
+function nfc(s: string): string {
+  return s.normalize('NFC');
+}
+
+/**
+ * Validate a span against the input. Three levels:
+ *   1. Exact: original.slice(start,end) === text
+ *   2. NFC-equivalent: nfc(original).slice(start,end) === nfc(text)
+ *   3. Repair: find the first occurrence of nfc(text) in nfc(original),
+ *      synthesize offsets. Logs but accepts.
+ *
+ * Returns the validated Span with possibly-repaired offsets, or null if
+ * no level matched.
+ */
+function validateSpan(
+  original: string,
+  normalizedOriginal: string,
+  raw: RawSpan | undefined | null,
+): Span | null {
+  if (!raw || typeof raw.text !== 'string') return null;
+  if (raw.text.trim().length === 0) return null;
+  const { text, start, end } = raw;
+  if (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 0 &&
+    end <= original.length &&
+    start < end &&
+    original.slice(start, end) === text
+  ) {
+    return { text, start, end };
+  }
+  const normalizedText = nfc(text);
+  if (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 0 &&
+    end <= normalizedOriginal.length &&
+    start < end &&
+    normalizedOriginal.slice(start, end) === normalizedText
+  ) {
+    return { text, start, end };
+  }
+  const idx = normalizedOriginal.indexOf(normalizedText);
+  if (idx >= 0) {
+    return { text, start: idx, end: idx + normalizedText.length };
+  }
+  return null;
+}
+
+/**
+ * Apply edits[] right-to-left so earlier offsets remain valid as we splice.
+ * filterOp selects which edits to apply — used to derive cleanedQuery by
+ * skipping canonicalize_mention edits.
+ */
+function applyEdits(
+  original: string,
+  edits: EditOp[],
+  filterOp: (op: EditOp['op']) => boolean,
+): string {
+  const applicable = edits
+    .filter((e) => filterOp(e.op))
+    .sort((a, b) => b.sourceSpan.start - a.sourceSpan.start);
+  let working = original;
+  for (const e of applicable) {
+    const { start, end } = e.sourceSpan;
+    const replacement =
+      e.op === 'canonicalize_mention'
+        ? e.canonical
+        : e.op === 'collapse_state_change'
+          ? e.replacement
+          : ''; // strip_temporal
+    working =
+      working.slice(0, start) + replacement + working.slice(end);
+  }
+  // Collapse any double-spaces strip_temporal left behind.
+  return working.replace(/\s+/g, ' ').trim();
 }
 
 function isValidIso(s: string): boolean {
@@ -476,23 +743,9 @@ function isValidIso(s: string): boolean {
 }
 
 /**
- * Whitespace-collapsed, lower-cased view used for substring containment
- * checks in temporal-anchor grounding. Same transformation applied to
- * both the input and the claimed anchor before comparison, so the model
- * doesn't have to mirror exact whitespace / casing — but it still has
- * to point at words that actually appear in the source.
- */
-function normalizeForGrounding(s: string): string {
-  return s.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-/**
  * Extracts the first balanced top-level JSON object from a possibly noisy
- * LLM output. Handles the failure modes we've actually seen in production:
- *   - leading `null` or `true` token before the real object
- *   - markdown code fences (```json ... ```)
- *   - trailing prose after the closing brace
- * Throws if no balanced object is found.
+ * LLM output. Handles leading sentinel tokens, markdown code fences,
+ * trailing prose.
  */
 function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();

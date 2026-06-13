@@ -458,13 +458,14 @@ export class AdminController {
         knownNames,
         companyId: DEMO_LIVE_COMPANY,
       });
-      const ingestText = route.normalizedMessage ?? body.message;
+      const ingestText = route.normalizedMessage;
       if (route.intent === 'tell') {
-        // When the router extracted validFrom ("last month", "in March"),
-        // pass it as emittedAt so brain's mention pipeline lands each fact
-        // with validFrom = that anchor instead of "now". This is what makes
-        // bitemporal demos work end-to-end through chat ingestion.
-        const emittedAt = route.validFrom ?? new Date().toISOString();
+        // When the router extracted a grounded validFrom anchor
+        // ("last month", "in March"), pass its ISO as emittedAt so
+        // brain's mention pipeline lands each fact with validFrom =
+        // that anchor instead of "now". The grounding guarantee means
+        // we never use an LLM-defaulted timestamp.
+        const emittedAt = route.validFrom?.iso ?? new Date().toISOString();
         const ingest = await this.ingest.ingestMention(DEMO_LIVE_COMPANY, {
           text: ingestText,
           contextRef: { vertical: 'shop' },
@@ -495,6 +496,12 @@ export class AdminController {
         ? ['brain:read', 'brain:read_pii']
         : ['brain:read'];
       const queryText = route.cleanedQuery ?? body.message;
+      // Materialize the grounded slots into the shape graphSearch expects.
+      // entityRefs = canonical names from validated mentions; hints = ids
+      // from validated predicateHints; asOf = the grounded ISO or undefined.
+      const entityRefs = route.mentions.map((m) => m.canonical);
+      const predicateHints = route.predicateHints.map((h) => h.predicateId);
+      const asOf = route.asOf?.iso;
 
       // Graph-first: try to resolve a named entity and fetch its facts
       // straight from SurrealDB. Cheap, deterministic, no embeddings.
@@ -502,13 +509,7 @@ export class AdminController {
       // and lexical are fallback signals for queries where the subject
       // isn't explicit, not the primary retrieval.
       const graph = await traceSpan('demo.graph_first', () =>
-        this.graphSearch(
-          queryText,
-          route.asOf,
-          scopes,
-          route.entityRefs,
-          route.predicateHints,
-        ),
+        this.graphSearch(queryText, asOf, scopes, entityRefs, predicateHints),
       );
       const graphHasFacts = graph.results.some(
         (r: any) => Array.isArray(r.facts) && r.facts.length > 0,
@@ -518,8 +519,8 @@ export class AdminController {
         traceArtifact('demo.strategy', {
           picked: 'graph',
           graphHits: graph.results.length,
-          entityRefs: route.entityRefs ?? [],
-          predicateHints: route.predicateHints ?? [],
+          entityRefs,
+          predicateHints,
         });
         return {
           route,
@@ -535,9 +536,9 @@ export class AdminController {
       traceArtifact('demo.strategy', {
         picked: 'graph→vector',
         graphHits: 0,
-        entityRefs: route.entityRefs ?? [],
-        predicateHints: route.predicateHints ?? [],
-        reason: route.entityRefs?.length
+        entityRefs,
+        predicateHints,
+        reason: entityRefs.length
           ? 'named subject(s) had no matching facts in window'
           : 'no named subject — topical query',
       });
@@ -546,7 +547,7 @@ export class AdminController {
         {
           query: queryText,
           limit: 5,
-          asOf: route.asOf,
+          asOf,
         } as any,
         scopes as any,
       );

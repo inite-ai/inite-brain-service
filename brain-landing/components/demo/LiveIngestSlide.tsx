@@ -80,15 +80,19 @@ interface SearchHit {
 interface ChatResp {
   route: {
     intent: 'tell' | 'ask'
-    normalizedMessage?: string
+    /** Result of applying validated edit ops to the original message. */
+    normalizedMessage: string
+    /** Ask only: query with temporal phrases stripped (entity names kept
+     *  so lexical retrieval still sees the user's wording). */
     cleanedQuery?: string
-    asOf?: string
-    validFrom?: string
-    entityRefs?: string[]
-    /** Closed-vocab predicates the router slotted the question into. When
-     *  set, the graph AND-filters facts by predicate so we don't dump the
-     *  whole subject into the LLM context. Empty → recency top-N fallback. */
-    predicateHints?: string[]
+    /** Grounded entity references — each pointing at a substring of input. */
+    mentions: Array<{ canonical: string; span: { text: string; start: number; end: number } }>
+    /** Grounded predicate hints — each with the trigger phrase from input. */
+    predicateHints: Array<{ predicateId: string; triggerSpan: { text: string; start: number; end: number } }>
+    /** Grounded as-of: ISO + anchor phrase. */
+    asOf?: { iso: string; anchorSpan: { text: string; start: number; end: number } }
+    /** Grounded validFrom: ISO + anchor phrase. */
+    validFrom?: { iso: string; anchorSpan: { text: string; start: number; end: number } }
     reason?: string
   }
   /** Retrieval strategy brain actually picked. graph = subject resolved by
@@ -404,6 +408,9 @@ export function LiveIngestSlide() {
 function TurnCard({ turn }: { turn: Turn }) {
   const intent = turn.chat?.route?.intent
   const asOf = turn.chat?.route?.asOf
+  const validFrom = turn.chat?.route?.validFrom
+  const mentions = turn.chat?.route?.mentions ?? []
+  const predicateHints = turn.chat?.route?.predicateHints ?? []
   return (
     <div className="border border-[var(--border)] rounded-lg p-4 bg-[var(--bg-elevated)]">
       <div className="flex items-baseline gap-2 mb-2 flex-wrap">
@@ -439,16 +446,19 @@ function TurnCard({ turn }: { turn: Turn }) {
           </span>
         )}
         {asOf && (
-          <span className="text-[10px] font-mono text-[var(--text-faint)]">
-            asOf {asOf.slice(0, 16)}
+          <span
+            className="text-[10px] font-mono text-[var(--text-faint)]"
+            title={`anchor: "${asOf.anchorSpan.text}" — span-grounded to the input`}
+          >
+            asOf {asOf.iso.slice(0, 16)} (“{asOf.anchorSpan.text}”)
           </span>
         )}
-        {turn.chat?.route?.validFrom && (
+        {validFrom && (
           <span
             className="text-[10px] font-mono text-[var(--accent)]"
-            title="router extracted validFrom from a temporal phrase in the tell — fact lands with this validity start"
+            title={`anchor: "${validFrom.anchorSpan.text}" — span-grounded to the input`}
           >
-            validFrom {turn.chat.route.validFrom.slice(0, 16)}
+            validFrom {validFrom.iso.slice(0, 16)} (“{validFrom.anchorSpan.text}”)
           </span>
         )}
         {turn.chat?.route?.normalizedMessage &&
@@ -469,20 +479,22 @@ function TurnCard({ turn }: { turn: Turn }) {
               q: “{turn.chat.route.cleanedQuery}”
             </span>
           )}
-        {turn.chat?.route?.entityRefs?.length ? (
+        {mentions.length ? (
           <span
             className="text-[10px] font-mono text-[var(--accent)]"
-            title="canonical entities the router pinned as subjects — graph-first looks them up directly"
+            title="canonical entities the router pinned, each grounded to a substring of the input"
           >
-            subj: {turn.chat.route.entityRefs.join(', ')}
+            subj: {mentions.map((m) => m.canonical).join(', ')}
           </span>
         ) : null}
-        {turn.chat?.route?.predicateHints?.length ? (
+        {predicateHints.length ? (
           <span
             className="text-[10px] font-mono text-[var(--accent)]"
-            title="closed-vocab predicates the router slotted the question into — graph AND-filters facts to just these instead of dumping the whole subject into context"
+            title={`closed-vocab predicates the router slotted, grounded to: ${predicateHints
+              .map((h) => `"${h.triggerSpan.text}"→${h.predicateId}`)
+              .join(', ')}`}
           >
-            slot: {turn.chat.route.predicateHints.join(', ')}
+            slot: {predicateHints.map((h) => h.predicateId).join(', ')}
           </span>
         ) : null}
         {turn.pending && (
