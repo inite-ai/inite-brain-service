@@ -1,10 +1,39 @@
 /**
  * Conflict resolution scoring per inite-ecosystem/core/capabilities/knowledge.yaml
  *
- * Predicate semantics:
- *   - append_only:  every fact stays active. No conflicts possible.
- *   - single_active: latest active wins. New supersedes old without scoring.
- *   - bitemporal:   new facts compete via weighted score; ties leave both active.
+ * Predicate semantics — four classes, two axes (cardinality × time-behavior):
+ *
+ *   - `single_active` — functional (one true value at a time), time-varying.
+ *     On overlap with a new fact, the prior is closed via `validUntil =
+ *     newFact.validFrom`, `status = superseded`. The two facts then sit on a
+ *     sequenced timeline: an asOf-query within the prior interval returns the
+ *     prior; an asOf-query within the new interval returns the new. This is
+ *     the SQL:2011 FOR PORTION OF semantic and what Wikidata, XTDB and
+ *     Graphiti all implement for state predicates (address, status, tier,
+ *     brand_voice, ...). Future-dated facts are first-class: a new fact with
+ *     validFrom > now schedules the transition and the prior's validUntil is
+ *     set to that future date.
+ *
+ *   - `append_only` — non-functional (history matters), event- or
+ *     preference-shaped. Multiple facts coexist. No conflict possible at
+ *     ingest; the resolver picks at READ time via decayHalfLifeDays applied
+ *     against the predicate's age. Used for behavioral history (preference,
+ *     intent), complaints, registered events, and content-domain multi-valued
+ *     fields (target_audience_segment, content_guideline, …).
+ *
+ *   - `bitemporal` — non-functional but cosine-similar facts may compete.
+ *     If a new fact overlaps in valid-time AND is similar in object
+ *     embedding (≥ similarity_threshold), it's scored against the prior and
+ *     either supersedes (score gap > margin) or competes (both stay active
+ *     with status='competing'). Allen's overlap predicate gates the
+ *     comparison so sequential intervals don't trigger conflicts.
+ *     Distinct from `single_active`: `bitemporal` admits NON-overlapping
+ *     same-predicate facts; `single_active` doesn't.
+ *
+ * decayHalfLifeDays is the orthogonal axis — READ-time relevance decay, not
+ * the on-ingest conflict policy. A `single_active` predicate can still have a
+ * half-life: it affects how confidently the resolver picks the live value
+ * when scoring competitors, but does NOT change the auto-close behavior.
  */
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
@@ -17,18 +46,33 @@ export interface PredicatePolicy {
 }
 
 export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = {
+  // ── EVENT / utterance (append_only — history matters, no overlap) ──
   said:             { semantics: 'append_only',  decayHalfLifeDays: 30,   piiClass: 'text' },
+
+  // ── IDENTITY (single_active — functional, lifetime-stable) ──
   name:             { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
   email:            { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
   phone:            { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'identifier' },
-  status:           { semantics: 'bitemporal',   decayHalfLifeDays: 7,    piiClass: 'none' },
-  tier:             { semantics: 'bitemporal',   decayHalfLifeDays: 30,   piiClass: 'none' },
-  intent:           { semantics: 'bitemporal',   decayHalfLifeDays: 60,   piiClass: 'behavioral' },
-  preference:       { semantics: 'bitemporal',   decayHalfLifeDays: 90,   piiClass: 'behavioral' },
+  dob:              { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
+
+  // ── SINGLE-STATE (single_active — functional, time-varying). On a new
+  //    overlapping fact, fn::resolve_fact auto-closes the prior via
+  //    validUntil = newFact.validFrom (SQL:2011 sequenced semantic). Future-
+  //    dated facts schedule the transition cleanly. This is what makes
+  //    "address was Berlin in Feb, Dublin from July" work — both facts
+  //    coexist on the timeline, asOf picks the right one. ──
+  status:           { semantics: 'single_active', decayHalfLifeDays: 7,    piiClass: 'none' },
+  tier:             { semantics: 'single_active', decayHalfLifeDays: 30,   piiClass: 'none' },
+  address:          { semantics: 'single_active', decayHalfLifeDays: 90,   piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
+
+  // ── BEHAVIORAL history (append_only — non-functional, decay-weighted).
+  //    Multiple facts coexist; read-time picks the live value by
+  //    recency × decayHalfLifeDays. Don't auto-close — taste evolution and
+  //    plan histories are valuable signal. ──
+  intent:           { semantics: 'append_only',  decayHalfLifeDays: 60,   piiClass: 'behavioral' },
+  preference:       { semantics: 'append_only',  decayHalfLifeDays: 90,   piiClass: 'behavioral' },
   complained_about: { semantics: 'append_only',  decayHalfLifeDays: 90,   piiClass: 'text' },
   interacted_with:  { semantics: 'append_only',  decayHalfLifeDays: 30,   piiClass: 'behavioral' },
-  address:          { semantics: 'bitemporal',   decayHalfLifeDays: 90,   piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
-  dob:              { semantics: 'single_active', decayHalfLifeDays: null, piiClass: 'sensitive', requiresScope: 'brain:read_pii' },
 
   // Content-domain predicates (v1.1)
   // Singletons: only one canonical value per entity at a time; newer validFrom supersedes older.

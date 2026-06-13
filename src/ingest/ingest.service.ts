@@ -451,20 +451,112 @@ export class IngestService {
     confidence: number,
     validFrom: Date,
     source: any,
-  ) {
+  ): Promise<{
+    factId: string | null;
+    outcome?: IngestOutcome;
+    supersededFactIds?: string[];
+    competingFactIds?: string[];
+  }> {
     const embedding = await this.embedder.embed(`${predicate}: ${object}`);
-    const created = await dbCreate<any>(db, 'knowledge_fact', {
-      entityId: new StringRecordId(entityId),
+
+    // Route through fn::resolve_fact so chat-extracted facts get the
+    // same conflict-resolution treatment as directly-ingested ones.
+    // Before this fix the mention path did a plain CREATE — every fact
+    // landed as active regardless of predicate semantics, so
+    // single_active predicates (name / email / address / status / tier)
+    // never closed prior values via validUntil chaining. Bitemporal
+    // demos through chat consequently couldn't show the "address was
+    // Berlin in Feb, became Dublin in July" timeline; both rows just
+    // coexisted with validUntil=NONE forever.
+    //
+    // fn::resolve_fact (migration 0009) handles all three semantics:
+    //  - single_active: every prior active is closed (validUntil =
+    //    newFact.validFrom, status = superseded) — SQL:2011 sequenced
+    //    semantic.
+    //  - append_only: no conflict possible, the new fact is inserted.
+    //  - bitemporal: Allen's-overlap + cosine-similarity gated supersede
+    //    or compete.
+    const policy = policyFor(predicate);
+    const sourceTrust = this.sourceTrustFor(source);
+    const result = await retryOnUniqueViolation(async () => {
+      const [r] = await db.query<[any]>(
+        `RETURN fn::resolve_fact(
+            type::thing('knowledge_entity', $eid),
+            $predicate, $object, $object_meta, $embedding,
+            $confidence, $valid_from, $valid_until, $source,
+            $source_trust, $semantics, $similarity_threshold,
+            $w_confidence, $w_source_trust, $w_recency, $w_authority,
+            $reject_threshold, $margin_for_supersede
+         )`,
+        {
+          eid: idTailOf(entityId),
+          predicate,
+          object,
+          object_meta: undefined,
+          embedding,
+          confidence,
+          valid_from: validFrom,
+          valid_until: undefined,
+          source,
+          source_trust: sourceTrust,
+          semantics: policy.semantics,
+          similarity_threshold: this.conflict.similarityThreshold,
+          w_confidence: this.conflict.weights.confidence,
+          w_source_trust: this.conflict.weights.sourceTrust,
+          w_recency: this.conflict.weights.recency,
+          w_authority: this.conflict.weights.authority,
+          reject_threshold: this.conflict.rejectThreshold,
+          margin_for_supersede: this.conflict.marginForSupersede,
+        },
+      );
+      return r;
+    });
+
+    const factId = result?.factId ? String(result.factId) : null;
+    const outcome = result?.outcome as IngestOutcome | undefined;
+
+    // Surface supersede / compete outcomes in the trace so the demo can
+    // show "Berlin fact closed at July 1, Dublin became current" —
+    // otherwise the chain is invisible to the operator.
+    traceArtifact('ingest.fact.outcome', {
       predicate,
       object,
-      confidence,
-      validFrom,
-      source,
-      embedding,
-      status: 'active',
+      outcome,
+      semantics: policy.semantics,
+      ...(result?.supersededFactIds
+        ? {
+            supersededFactIds: (result.supersededFactIds as unknown[]).map(
+              String,
+            ),
+          }
+        : {}),
+      ...(result?.competingFactIds
+        ? {
+            competingFactIds: (result.competingFactIds as unknown[]).map(
+              String,
+            ),
+          }
+        : {}),
     });
-    const id = created?.id;
-    return { factId: id ? String(id) : null };
+
+    return {
+      factId,
+      outcome,
+      ...(result?.supersededFactIds
+        ? {
+            supersededFactIds: (result.supersededFactIds as unknown[]).map(
+              String,
+            ),
+          }
+        : {}),
+      ...(result?.competingFactIds
+        ? {
+            competingFactIds: (result.competingFactIds as unknown[]).map(
+              String,
+            ),
+          }
+        : {}),
+    };
   }
 
   private normalizeEntityType(t: string): string {
