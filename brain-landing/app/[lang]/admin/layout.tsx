@@ -8,6 +8,7 @@ import {
   FlaskConical,
   ListChecks,
   Network,
+  Presentation,
   Waypoints,
 } from 'lucide-react'
 import { Header } from '../../../components/Header'
@@ -19,6 +20,7 @@ interface Props {
 }
 
 const SECTIONS = [
+  { slug: 'demo', title: 'Live demo deck', icon: Presentation },
   { slug: 'playground', title: 'Playground', icon: FlaskConical },
   { slug: 'scenarios', title: 'Scenarios', icon: ListChecks },
   { slug: 'traces', title: 'Traces', icon: Waypoints },

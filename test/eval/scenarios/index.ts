@@ -12,8 +12,10 @@ import { conflictResolutionScenarios } from './conflict-resolution.scenarios';
 import { graphTraversalScenarios } from './graph-traversal.scenarios';
 import { memoryLifecycleScenarios } from './memory-lifecycle.scenarios';
 import { contentScenarios } from './content.scenarios';
+import { demoTalkScenarios } from './demo-talk.scenarios';
 
 export const allScenarios: Scenario[] = [
+  ...demoTalkScenarios,
   ...rentScenarios,
   ...estateScenarios,
   ...eventsScenarios,
@@ -30,6 +32,7 @@ export const allScenarios: Scenario[] = [
 ];
 
 export {
+  demoTalkScenarios,
   rentScenarios,
   estateScenarios,
   eventsScenarios,
