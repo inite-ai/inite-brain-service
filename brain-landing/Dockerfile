@@ -57,4 +57,9 @@ ENV NODE_ENV=production
 ENV PORT=3030
 ENV HOSTNAME=0.0.0.0
 
-CMD ["pnpm", "start"]
+# Invoke next directly — `pnpm start` runs runDepsStatusCheck on every
+# boot, which in pnpm 11.6 tries to purge node_modules without a TTY
+# (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) and aborts. The runtime
+# image's deps are already frozen from the install step above; no
+# integrity re-check is needed.
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-p", "3030"]
