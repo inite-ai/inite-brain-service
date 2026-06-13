@@ -1,20 +1,15 @@
--- 0013_active_window_fn — fuzzy entity-name search index.
+-- 0013_active_window_fn — temporarily NOOP.
 --
--- Sprint 1 of the SurrealDB feature audit. Originally bundled with
--- fn::active_window, but that function was unused by any caller at
--- ship time AND the migration runner rejects the whole file on any
--- syntax error — so a parser quirk in the function body would brick
--- every withCompany call for tenants that haven't applied 0013 yet.
--- The function is removed until a caller is wired up and the syntax
--- can be exercised end-to-end. The index — narrow, additive, no
--- dependency on any new construct — ships now.
+-- Bundled the fuzzy entity-name index here originally, but the SAME
+-- SurrealDB feature audit-pass shipped behaviour changes in admin
+-- graph-search code AND ontology bootstrap that ALSO ran for the
+-- first time. A user-reported 500 on /demo/chat couldn't be triaged
+-- without log access, so the migration was trimmed to a NOOP to
+-- eliminate it as a suspect. The fuzzy-index DDL will return in a
+-- later migration once the chat path is verified green again.
 --
--- entity_fuzzy_idx — the `prefix` analyzer (edgengram 2..15 +
--- lowercase + ascii) was declared in migration 0002 but never indexed
--- against a field. Indexed here on knowledge_entity.canonicalName with
--- BM25 so `@@`-driven fuzzy match handles typos / partials /
--- multilingual ("Marya" → "Maria Petrov") without the substring JS
--- filter that used to live in graphSearch.
-
-DEFINE INDEX IF NOT EXISTS entity_fuzzy_idx ON knowledge_entity
-  FIELDS canonicalName SEARCH ANALYZER prefix BM25;
+-- This file still needs to exist (an empty surql is fine) so the
+-- migration-runner's manifest stays sequential — schema_migrations
+-- already records this id on tenants that previously applied the
+-- earlier 0013 version.
+SELECT 1;
