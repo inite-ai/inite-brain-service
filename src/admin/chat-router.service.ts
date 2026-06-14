@@ -383,20 +383,37 @@ message: ${message}`;
     }
     report.acceptedEdits = acceptedEdits.length;
 
-    // 5. Apply edits right-to-left so earlier offsets stay valid as we
+    // 5. Auto-derive strip_temporal edits from grounded asOf/validFrom
+    //    anchors. The LLM is supposed to emit these explicitly but is
+    //    inconsistent — and the rule is mechanical anyway: if we captured
+    //    the timestamp from a span, that span should be stripped from
+    //    the message that flows downstream. Skip if the anchor would
+    //    overlap a prior accepted edit.
+    const autoStripEdits: EditOp[] = [];
+    for (const anchor of [asOf?.anchorSpan, validFrom?.anchorSpan]) {
+      if (!anchor) continue;
+      const overlaps = acceptedEdits.some(
+        (c) =>
+          !(c.span.end <= anchor.start || c.span.start >= anchor.end),
+      );
+      if (overlaps) continue;
+      autoStripEdits.push({ op: 'strip_temporal', sourceSpan: anchor });
+    }
+    const allEdits = [
+      ...acceptedEdits.map((c) => c.edit),
+      ...autoStripEdits,
+    ];
+
+    // 6. Apply edits right-to-left so earlier offsets stay valid as we
     //    splice. Produces normalizedMessage (all edits) and cleanedQuery
     //    (skip canonicalize_mention so retrieval lexical match keeps the
     //    user's wording).
-    const normalizedMessage = applyEdits(
-      message,
-      acceptedEdits.map((c) => c.edit),
-      () => true,
-    );
+    const normalizedMessage = applyEdits(message, allEdits, () => true);
     const cleanedQuery =
       parsed.intent === 'ask'
         ? applyEdits(
             message,
-            acceptedEdits.map((c) => c.edit),
+            allEdits,
             (op) => op !== 'canonicalize_mention',
           )
         : undefined;

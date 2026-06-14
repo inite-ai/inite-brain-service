@@ -756,6 +756,12 @@ export class AdminController {
         const factsByEntity = new Map<string, any[]>();
         const preFilterCounts = new Map<string, number>();
         for (const ent of entities) {
+          // Bitemporal slice: a fact is visible at $effective when it
+          // wasn't retracted by then AND its validity window covers it.
+          // status='superseded' is INFORMATIONAL — a natural state
+          // change closes the prior with validUntil = newFact.validFrom,
+          // but the prior IS the truth in its window. Only 'compacted'
+          // is unconditionally hidden (it's been replaced by a summary).
           const where = asOf
             ? `entityId = $eid
                AND (retractedAt IS NONE OR retractedAt > $asOf)
@@ -766,7 +772,7 @@ export class AdminController {
                AND retractedAt IS NONE
                AND validFrom <= time::now()
                AND (validUntil IS NONE OR validUntil > time::now())
-               AND status NOT IN ['superseded', 'compacted']`;
+               AND status != 'compacted'`;
           const params: Record<string, unknown> = {
             eid: ent.id,
             ...(asOf ? { asOf: new Date(asOf) } : {}),
