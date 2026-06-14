@@ -66,33 +66,61 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   // A standalone migrator conn breaks the cycle without changing
   // any caller-facing semantics.
   private migratorConn!: Surreal;
-  /** Cached root credentials so we can re-sign a conn after a websocket
-   *  drop / idle expiry. Empirically: the SurrealDB driver auto-reconnects
-   *  the underlying ws after a disconnect, but does NOT re-authenticate —
-   *  the conn becomes anonymous and the next DDL emits "IAM error". */
+  /** Cached root credentials + URL so a connection can be fully rebuilt
+   *  on auth failure. surrealdb-js v2.0.3 has multiple long-running
+   *  failure modes (zombie websockets per gh#618; session timer bugs)
+   *  where the auto-reconnect doesn't fire OR fires without preserving
+   *  auth, leaving queries to fail with "IAM error". The robust fix is
+   *  to drop the conn entirely and create a fresh one on failure. */
   private rootCreds!: { username: string; password: string };
+  private surrealUrl!: string;
 
   constructor(private readonly configService: ConfigService) {
     this.migrator = new SchemaMigrator(join(__dirname, 'migrations'));
   }
 
   /**
-   * Re-signin the conn unconditionally. surrealdb-js auto-reconnects the
-   * underlying websocket after an idle drop but does NOT re-authenticate —
-   * the conn becomes anonymous and a probe like `RETURN $auth` returns
-   * NULL without erroring. Issuing signin unconditionally is the only
-   * safe move: it's idempotent (already-signed conns accept a second
-   * signin as a no-op) AND it restores auth on a reconnected conn.
-   * Net cost: one RTT per acquire.
+   * Test conn liveness with a bounded-time signin. On failure (timeout
+   * or rejection), tear the conn down and rebuild it fresh.
+   *
+   * Why signin specifically: surrealdb-js v2.0.3 known issues —
+   *   - gh#618 (zombie ws): conn.status stays "connected" forever after
+   *     a half-open TCP drop; no reconnect event fires.
+   *   - sessions less-than-60s and bearer-greater-than-24.8d cases
+   *     silently invalidate the session timer, so queries succeed with
+   *     no auth (IAM error).
+   * Issuing signin actually exercises the auth path AND is idempotent
+   * for a healthy conn. With a 3s timeout the call cannot wedge.
+   *
+   * Returns the original conn when signin succeeded; returns a brand-new
+   * authenticated conn when signin had to be rebuilt. Caller MUST use
+   * the returned reference (we replace the pool slot with the new conn
+   * since the old one's lifecycle is now this function's problem).
    */
-  private async ensureRootSession(conn: Surreal): Promise<void> {
+  private async ensureRootSession(conn: Surreal): Promise<Surreal> {
     try {
-      await conn.signin(this.rootCreds);
+      await withTimeout(conn.signin(this.rootCreds), 3000, 'signin');
+      return conn;
     } catch (e) {
       this.logger.warn(
-        `Root re-signin failed: ${(e as Error).message?.slice(0, 200)}`,
+        `Root signin failed (${(e as Error).message?.slice(0, 120)}) — rebuilding conn`,
       );
-      throw e;
+      try {
+        await withTimeout(conn.close(), 1000, 'close').catch(() => undefined);
+      } catch {
+        // Closing a dead conn can throw — ignored intentionally.
+      }
+      const fresh = new Surreal();
+      await withTimeout(
+        fresh.connect(this.surrealUrl),
+        5000,
+        'connect',
+      );
+      await withTimeout(fresh.signin(this.rootCreds), 3000, 'signin');
+      // Swap the conn in `all` so process shutdown closes the new one.
+      const oldIdx = this.all.indexOf(conn);
+      if (oldIdx >= 0) this.all[oldIdx] = fresh;
+      return fresh;
     }
   }
 
@@ -113,9 +141,9 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
 
-    // Cache for re-signin after long-idle ws disconnects (see
-    // ensureRootSession).
+    // Cache for re-signin / rebuild on ws drops (see ensureRootSession).
     this.rootCreds = { username, password };
+    this.surrealUrl = url;
 
     // Dedicated migrator connection — root-signed, NOT in any pool.
     // ensureSchema runs against this conn so callers holding pool conns
@@ -211,11 +239,13 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
     const database = `co_${companyId}`;
-    const conn = await this.acquireRoot();
+    let conn = await this.acquireRoot();
     try {
-      // Pool conns can lose auth on long-idle ws drop the same way the
-      // migrator conn can — re-signin defensively before use(). Cheap.
-      await this.ensureRootSession(conn);
+      // Pool conns can lose auth (zombie ws, session-timer bugs in
+      // surrealdb-js v2.0.3) — ensureRootSession either re-signs the
+      // existing conn or hands back a freshly-built one. Always use
+      // the returned reference.
+      conn = await this.ensureRootSession(conn);
       await conn.use({ namespace: this.namespace, database });
       await this.ensureSchema(conn, database);
       return await fn(conn);
@@ -360,10 +390,9 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       // Use the dedicated migrator conn rather than acquiring from
       // the pool. Avoids the deadlock where every pool conn is
       // currently held in withCompany awaiting THIS migration to
-      // finish. ensureRootSession guards against the long-idle
-      // websocket-drop failure where the conn becomes anonymous and
-      // DDL fails with "IAM error".
-      await this.ensureRootSession(this.migratorConn);
+      // finish. ensureRootSession may return a rebuilt conn — track
+      // the swap so future migrations use the live reference.
+      this.migratorConn = await this.ensureRootSession(this.migratorConn);
       await this.migratorConn.use({ namespace: this.namespace, database });
       const result = await this.migrator.migrate(this.migratorConn);
       this.knownDatabases.add(database);
@@ -677,4 +706,35 @@ export async function retryOnUniqueViolation<T>(
     }
   }
   throw lastErr;
+}
+
+/**
+ * Race a promise against a timer; reject if the timer wins. Used to guard
+ * surrealdb-js calls against zombie-websocket hangs (gh#618) where the
+ * underlying socket is half-open and queries / signin never get a
+ * response. Without this, ensureRootSession could wedge a request for
+ * minutes before the OS reaps the TCP connection.
+ */
+async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`SurrealDB ${label} timed out after ${ms}ms`),
+            ),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
