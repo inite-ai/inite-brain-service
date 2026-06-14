@@ -77,33 +77,22 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Lightweight liveness probe + re-signin. If the conn is alive AND
-   * authenticated (root context resolves), the INFO query returns; otherwise
-   * we re-issue signin with the cached credentials. Cheap enough to call on
-   * every migrate(); guards against the long-idle "IAM error" failure mode.
+   * Re-signin the conn unconditionally. surrealdb-js auto-reconnects the
+   * underlying websocket after an idle drop but does NOT re-authenticate —
+   * the conn becomes anonymous and a probe like `RETURN $auth` returns
+   * NULL without erroring. Issuing signin unconditionally is the only
+   * safe move: it's idempotent (already-signed conns accept a second
+   * signin as a no-op) AND it restores auth on a reconnected conn.
+   * Net cost: one RTT per acquire.
    */
   private async ensureRootSession(conn: Surreal): Promise<void> {
     try {
-      await conn.query(`RETURN $auth`);
-      return;
-    } catch (e) {
-      const msg = (e as Error).message || '';
-      // IAM / authentication / connection errors all mean "re-signin and
-      // see if it works". The signin itself either succeeds (we recover)
-      // or throws (we surface a real error to the caller).
-      if (
-        !msg.includes('IAM') &&
-        !msg.includes('authentication') &&
-        !msg.includes('not connected') &&
-        !msg.includes('connection')
-      ) {
-        // A query failure unrelated to auth — propagate as-is.
-        throw e;
-      }
-      this.logger.warn(
-        `Root conn lost auth — re-signing (cause: ${msg.slice(0, 120)})`,
-      );
       await conn.signin(this.rootCreds);
+    } catch (e) {
+      this.logger.warn(
+        `Root re-signin failed: ${(e as Error).message?.slice(0, 200)}`,
+      );
+      throw e;
     }
   }
 
