@@ -66,9 +66,45 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   // A standalone migrator conn breaks the cycle without changing
   // any caller-facing semantics.
   private migratorConn!: Surreal;
+  /** Cached root credentials so we can re-sign a conn after a websocket
+   *  drop / idle expiry. Empirically: the SurrealDB driver auto-reconnects
+   *  the underlying ws after a disconnect, but does NOT re-authenticate —
+   *  the conn becomes anonymous and the next DDL emits "IAM error". */
+  private rootCreds!: { username: string; password: string };
 
   constructor(private readonly configService: ConfigService) {
     this.migrator = new SchemaMigrator(join(__dirname, 'migrations'));
+  }
+
+  /**
+   * Lightweight liveness probe + re-signin. If the conn is alive AND
+   * authenticated (root context resolves), the INFO query returns; otherwise
+   * we re-issue signin with the cached credentials. Cheap enough to call on
+   * every migrate(); guards against the long-idle "IAM error" failure mode.
+   */
+  private async ensureRootSession(conn: Surreal): Promise<void> {
+    try {
+      await conn.query(`RETURN $auth`);
+      return;
+    } catch (e) {
+      const msg = (e as Error).message || '';
+      // IAM / authentication / connection errors all mean "re-signin and
+      // see if it works". The signin itself either succeeds (we recover)
+      // or throws (we surface a real error to the caller).
+      if (
+        !msg.includes('IAM') &&
+        !msg.includes('authentication') &&
+        !msg.includes('not connected') &&
+        !msg.includes('connection')
+      ) {
+        // A query failure unrelated to auth — propagate as-is.
+        throw e;
+      }
+      this.logger.warn(
+        `Root conn lost auth — re-signing (cause: ${msg.slice(0, 120)})`,
+      );
+      await conn.signin(this.rootCreds);
+    }
   }
 
   async onModuleInit() {
@@ -87,6 +123,10 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isFinite(this.poolSize) || this.poolSize < 1) {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
+
+    // Cache for re-signin after long-idle ws disconnects (see
+    // ensureRootSession).
+    this.rootCreds = { username, password };
 
     // Dedicated migrator connection — root-signed, NOT in any pool.
     // ensureSchema runs against this conn so callers holding pool conns
@@ -184,6 +224,9 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
     const database = `co_${companyId}`;
     const conn = await this.acquireRoot();
     try {
+      // Pool conns can lose auth on long-idle ws drop the same way the
+      // migrator conn can — re-signin defensively before use(). Cheap.
+      await this.ensureRootSession(conn);
       await conn.use({ namespace: this.namespace, database });
       await this.ensureSchema(conn, database);
       return await fn(conn);
@@ -328,7 +371,10 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       // Use the dedicated migrator conn rather than acquiring from
       // the pool. Avoids the deadlock where every pool conn is
       // currently held in withCompany awaiting THIS migration to
-      // finish.
+      // finish. ensureRootSession guards against the long-idle
+      // websocket-drop failure where the conn becomes anonymous and
+      // DDL fails with "IAM error".
+      await this.ensureRootSession(this.migratorConn);
       await this.migratorConn.use({ namespace: this.namespace, database });
       const result = await this.migrator.migrate(this.migratorConn);
       this.knownDatabases.add(database);
