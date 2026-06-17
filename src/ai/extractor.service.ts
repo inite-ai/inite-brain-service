@@ -10,6 +10,7 @@ import {
 } from './predicate-registry.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
+import { splitClauses } from './clause-splitter';
 
 /**
  * Closed-vocabulary, span-grounded entity-and-fact extractor.
@@ -318,6 +319,17 @@ export class ExtractorService {
       hit: false,
       key: cacheKey,
       registryVersionHash: snapshot.versionHash,
+    });
+
+    // Local clause split — observability foundation for the skip-LLM
+    // path. Subsequent sprints (E3 local NER, E6 pattern cache, E7
+    // skip gate) consume these clauses; today we only emit them as a
+    // trace artifact so the operator can compare local vs LLM-emitted
+    // clauses while tuning.
+    const localClauses = splitClauses(trimmed);
+    traceArtifact('extractor.local_clauses', {
+      count: localClauses.length,
+      clauses: localClauses,
     });
 
     traceArtifact('extractor.vocab', {
