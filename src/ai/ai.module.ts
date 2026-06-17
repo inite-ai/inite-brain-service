@@ -9,6 +9,7 @@ import { PredicateRegistryService } from './predicate-registry.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
 import { LocalNerService } from './local-ner.service';
+import { ExtractionPatternService } from './extraction-pattern.service';
 
 @Global()
 @Module({
@@ -23,6 +24,7 @@ import { LocalNerService } from './local-ner.service';
     LocalPredicateSelectorService,
     ExtractorCacheService,
     LocalNerService,
+    ExtractionPatternService,
   ],
   exports: [
     EmbedderService,
@@ -35,6 +37,7 @@ import { LocalNerService } from './local-ner.service';
     LocalPredicateSelectorService,
     ExtractorCacheService,
     LocalNerService,
+    ExtractionPatternService,
   ],
 })
 export class AiModule {}

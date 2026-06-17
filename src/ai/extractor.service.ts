@@ -12,6 +12,10 @@ import { LocalPredicateSelectorService } from './local-predicate-selector.servic
 import { ExtractorCacheService } from './extractor-cache.service';
 import { splitClauses } from './clause-splitter';
 import { LocalNerService } from './local-ner.service';
+import {
+  ExtractionPatternService,
+  type ExtractionPatternEntry,
+} from './extraction-pattern.service';
 
 /**
  * Closed-vocabulary, span-grounded entity-and-fact extractor.
@@ -237,6 +241,7 @@ export class ExtractorService {
     private readonly localPredicates: LocalPredicateSelectorService,
     private readonly extractionCache: ExtractorCacheService,
     private readonly localNer: LocalNerService,
+    private readonly extractionPatterns: ExtractionPatternService,
   ) {
     const timeoutMs = parseInt(
       this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
@@ -787,6 +792,60 @@ export class ExtractorService {
 
     const result: ExtractionResult = { entities, facts, edges };
     this.extractionCache.set(cacheKey, result);
+
+    // Persist per-clause extraction patterns so future ingests can
+    // replay them locally. Grouped by the LLM-emitted clauseIndex
+    // (which the LLM also returned in clauses[]). Fire-and-forget —
+    // failure here does not affect the current extraction.
+    const patternEntries: ExtractionPatternEntry[] = [];
+    const factsByClause = new Map<number, typeof rawFacts>();
+    for (const rf of rawFacts) {
+      if (rf.clauseIndex === undefined) continue;
+      const list = factsByClause.get(rf.clauseIndex) ?? [];
+      list.push(rf);
+      factsByClause.set(rf.clauseIndex, list);
+    }
+    for (let i = 0; i < clauses.length; i++) {
+      const clauseText = clauses[i];
+      const clauseFacts = (factsByClause.get(i) ?? []).map((f) => ({
+        // Predicate at this point is the FINAL canonical id (after
+        // local-override + EDC canonicalize), so the cache stores the
+        // canonical form rather than the LLM-coined name.
+        predicate:
+          facts.find(
+            (ff) =>
+              ff.entityIndex === f.entityIndex &&
+              ff.object === f.valueSpan &&
+              ff.clause === clauseText,
+          )?.predicate ?? f.predicate,
+        valueSpan: f.valueSpan,
+        confidence: f.confidence,
+      }));
+      const clauseEdges = edges
+        .filter((e) => e.clause === clauseText)
+        .map((e) => ({
+          kind: e.kind,
+          fromEntityIndex: e.fromEntityIndex,
+          toEntityIndex: e.toEntityIndex,
+          confidence: e.confidence,
+        }));
+      if (clauseFacts.length === 0 && clauseEdges.length === 0) continue;
+      patternEntries.push({
+        clauseText,
+        facts: clauseFacts,
+        edges: clauseEdges,
+      });
+    }
+    if (patternEntries.length > 0) {
+      void this.extractionPatterns
+        .record(companyId, patternEntries)
+        .catch((e) =>
+          this.logger.warn(
+            `extraction pattern record failed for ${companyId}: ${(e as Error).message}`,
+          ),
+        );
+    }
+
     return result;
   }
 
