@@ -11,6 +11,7 @@ import {
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
 import { splitClauses } from './clause-splitter';
+import { LocalNerService } from './local-ner.service';
 
 /**
  * Closed-vocabulary, span-grounded entity-and-fact extractor.
@@ -235,6 +236,7 @@ export class ExtractorService {
     private readonly registry: PredicateRegistryService,
     private readonly localPredicates: LocalPredicateSelectorService,
     private readonly extractionCache: ExtractorCacheService,
+    private readonly localNer: LocalNerService,
   ) {
     const timeoutMs = parseInt(
       this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
@@ -331,6 +333,21 @@ export class ExtractorService {
       count: localClauses.length,
       clauses: localClauses,
     });
+
+    // Local NER. Disabled by default — operators opt in via
+    // EXTRACTOR_LOCAL_NER_ENABLED=true. When ready, emit the
+    // extractor.local_entities trace artifact for comparison with
+    // LLM-emitted entities[]. E7 (skip gate) consumes this output
+    // as the fast-path entity source.
+    if (this.localNer.isReady()) {
+      const localEntities = await this.localNer.extract(trimmed);
+      if (localEntities.length > 0) {
+        traceArtifact('extractor.local_entities', {
+          count: localEntities.length,
+          entities: localEntities,
+        });
+      }
+    }
 
     traceArtifact('extractor.vocab', {
       versionHash: snapshot.versionHash,

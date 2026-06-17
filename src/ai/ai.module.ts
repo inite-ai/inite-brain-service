@@ -8,6 +8,7 @@ import { CrossEncoderService } from './cross-encoder.service';
 import { PredicateRegistryService } from './predicate-registry.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
+import { LocalNerService } from './local-ner.service';
 
 @Global()
 @Module({
@@ -21,6 +22,7 @@ import { ExtractorCacheService } from './extractor-cache.service';
     PredicateRegistryService,
     LocalPredicateSelectorService,
     ExtractorCacheService,
+    LocalNerService,
   ],
   exports: [
     EmbedderService,
@@ -32,6 +34,7 @@ import { ExtractorCacheService } from './extractor-cache.service';
     PredicateRegistryService,
     LocalPredicateSelectorService,
     ExtractorCacheService,
+    LocalNerService,
   ],
 })
 export class AiModule {}
