@@ -84,7 +84,7 @@ export class SchemaMigrator {
       // guards make it a clean no-op.
       let attempts = 0;
       const maxAttempts = 5;
-      // eslint-disable-next-line no-constant-condition
+       
       while (true) {
         try {
           await conn.query(m.sql);

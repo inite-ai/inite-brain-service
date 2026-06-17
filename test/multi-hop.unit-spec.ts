@@ -40,8 +40,10 @@ describe('MultiHopService', () => {
 
   function makeSearch(
     perCallResults: Array<SearchHit[]>,
-  ): { svc: SearchService; calls: Array<unknown> } {
+    expandedIds?: string[],
+  ): { svc: SearchService; calls: Array<unknown>; expandCalls: Array<unknown> } {
     const calls: Array<unknown> = [];
+    const expandCalls: Array<unknown> = [];
     let i = 0;
     const svc = {
       search: async (_company: string, dto: unknown) => {
@@ -50,8 +52,15 @@ describe('MultiHopService', () => {
         i++;
         return { results: out };
       },
+      expandEntityIdsViaEdges: async (
+        _company: string,
+        ids: string[],
+      ): Promise<string[]> => {
+        expandCalls.push(ids);
+        return expandedIds ?? ids;
+      },
     } as unknown as SearchService;
-    return { svc, calls };
+    return { svc, calls, expandCalls };
   }
 
   function makePlanner(
@@ -436,5 +445,121 @@ describe('MultiHopService', () => {
     expect(out.synthesis).toBeUndefined();
     // synth.synthesize must NOT have been called on an empty set.
     expect((synth.synthesize as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  describe('MULTI_HOP_EDGE_EXPANSION_ENABLED — subset_of_previous via graph', () => {
+    const ENV_KEY = 'MULTI_HOP_EDGE_EXPANSION_ENABLED';
+    afterEach(() => {
+      delete process.env[ENV_KEY];
+    });
+
+    it('expands prior entity set via 1-hop edges before anchoring hop 2', async () => {
+      process.env[ENV_KEY] = '1';
+      // Hop 1 returns {e1}. expandEntityIdsViaEdges → {e1, n_a, n_b}.
+      // Hop 2 returns {n_a} which IS in the expanded anchor set.
+      const { svc: search, calls, expandCalls } = makeSearch(
+        [[hit('e1')], [hit('n_a')]],
+        ['e1', 'n_a', 'n_b'],
+      );
+      const plan: MultiHopPlan = {
+        isMultiHop: true,
+        hops: [
+          {
+            subQuery: 'complained',
+            combination: 'seed',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+          {
+            subQuery: 'linked asset',
+            combination: 'subset_of_previous',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+        ],
+      };
+      const svc = makeSvc(search, makePlanner(plan));
+      const out = await svc.run('co_x', baseDto, scopes);
+      // Expansion called once for hop 2's prior set.
+      expect(expandCalls.length).toBe(1);
+      expect(expandCalls[0]).toEqual(['e1']);
+      // Hop 2 anchored on EXPANDED set, not bare {e1}.
+      const hop2Dto = calls[1] as { entityIds?: string[] };
+      expect(hop2Dto.entityIds).toEqual(['e1', 'n_a', 'n_b']);
+      // n_a is in the expanded anchor — it survives the intersect.
+      expect(out.finalEntityIds).toEqual(['n_a']);
+    });
+
+    it('default OFF: anchor stays as bare prior set, no expansion call', async () => {
+      // ENV_KEY intentionally not set.
+      const { svc: search, calls, expandCalls } = makeSearch(
+        [[hit('e1'), hit('e2')], [hit('e2')]],
+        ['e1', 'e2', 'n_x'], // would be the expanded set if asked
+      );
+      const plan: MultiHopPlan = {
+        isMultiHop: true,
+        hops: [
+          {
+            subQuery: 'a',
+            combination: 'seed',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+          {
+            subQuery: 'b',
+            combination: 'subset_of_previous',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+        ],
+      };
+      const svc = makeSvc(search, makePlanner(plan));
+      await svc.run('co_x', baseDto, scopes);
+      expect(expandCalls.length).toBe(0);
+      const hop2Dto = calls[1] as { entityIds?: string[] };
+      expect(hop2Dto.entityIds).toEqual(['e1', 'e2']);
+    });
+
+    it('falls back to bare prior set if expansion throws', async () => {
+      process.env[ENV_KEY] = '1';
+      const { svc: search, calls } = makeSearch([[hit('e1')], [hit('e1')]]);
+      // Patch the throwing expansion onto the stub.
+      (search as unknown as {
+        expandEntityIdsViaEdges: (
+          c: string,
+          ids: string[],
+        ) => Promise<string[]>;
+      }).expandEntityIdsViaEdges = async () => {
+        throw new Error('boom');
+      };
+      const plan: MultiHopPlan = {
+        isMultiHop: true,
+        hops: [
+          {
+            subQuery: 'a',
+            combination: 'seed',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+          {
+            subQuery: 'b',
+            combination: 'subset_of_previous',
+            predicates: null,
+            asOf: null,
+            rationale: null,
+          },
+        ],
+      };
+      const svc = makeSvc(search, makePlanner(plan));
+      await svc.run('co_x', baseDto, scopes);
+      const hop2Dto = calls[1] as { entityIds?: string[] };
+      // Bare prior set — no expansion applied.
+      expect(hop2Dto.entityIds).toEqual(['e1']);
+    });
   });
 });

@@ -6,6 +6,9 @@ import { SearchModule } from '../search/search.module';
 import { FactsModule } from '../facts/facts.module';
 import { EntitiesModule } from '../entities/entities.module';
 import { AdminController } from './admin.controller';
+import { AdminDemoController } from './admin-demo.controller';
+import { AdminEvalController } from './admin-eval.controller';
+import { AdminPredicatesController } from './admin-predicates.controller';
 import { AdminService } from './admin.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
@@ -23,7 +26,12 @@ import { IntentClassifierService } from './intent-classifier.service';
     FactsModule,
     EntitiesModule,
   ],
-  controllers: [AdminController],
+  controllers: [
+    AdminController,
+    AdminDemoController,
+    AdminEvalController,
+    AdminPredicatesController,
+  ],
   providers: [
     AdminService,
     ScenarioRunnerService,

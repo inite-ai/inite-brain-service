@@ -22,11 +22,6 @@ const FACT_TIMELINE_FIELDS =
   'recordedAt, retractedAt, retractedBy, retractionReason, ' +
   'supersededBy, source, status';
 
-const EDGE_TRAVERSAL_FIELDS =
-  'id, kind, weight, source, createdAt, invalidatedAt, in, out, ' +
-  'out.{id, type, canonicalName} AS toEntity, ' +
-  'in.{id, type, canonicalName} AS fromEntity';
-
 export interface EntityProfile {
   entityId: string;
   type: string;

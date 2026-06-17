@@ -137,7 +137,7 @@ describe('Hybrid router perf gate', () => {
         localCollapses: collapses,
       });
     });
-    // eslint-disable-next-line no-console
+     
     console.log(`Combined local path: ${t.toFixed(2)}µs/call`);
     expect(t).toBeLessThan(2000);
   });

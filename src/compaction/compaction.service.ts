@@ -173,7 +173,7 @@ export class CompactionService {
    * summaries created.
    */
   private async createSummaries(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     db: any,
     candidates: CandidateFactRow[],
   ): Promise<number> {

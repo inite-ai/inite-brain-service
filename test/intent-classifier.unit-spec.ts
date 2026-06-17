@@ -16,7 +16,7 @@ function mkConfig(over: Record<string, string> = {}): ConfigService {
   } as unknown as ConfigService;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type MockPipeline = jest.Mock<any, any>;
 
 function mkPipeline(qScore: number, sScore = 1 - qScore): MockPipeline {

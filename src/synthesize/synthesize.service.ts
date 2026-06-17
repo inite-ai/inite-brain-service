@@ -285,43 +285,43 @@ export class SynthesizeService {
       };
     }
 
-    if (verdict.verdict === 'supported') {
-      this.metrics?.countSynthesize('ok');
-      return {
-        answer: generated.answer,
-        citations,
-        results,
-      };
-    }
-
-    if (guardrails === 'lenient') {
-      this.metrics?.countSynthesize(
-        verdict.verdict === 'partial' ? 'verifier_partial' : 'verifier_failed',
-      );
-      return {
-        answer: generated.answer,
-        reason:
-          verdict.verdict === 'partial'
-            ? 'verifier_partial'
-            : 'verifier_failed',
-        citations,
-        results,
-      };
-    }
-
-    // strict mode + non-supported verdict → fail closed.
-    this.metrics?.countSynthesize(
-      verdict.verdict === 'partial' ? 'verifier_partial' : 'verifier_failed',
-    );
-    return {
-      answer: null,
-      reason:
-        verdict.verdict === 'partial'
-          ? 'verifier_partial'
-          : 'verifier_failed',
-      citations: [],
+    return this.finalizeVerdict(
+      verdict.verdict,
+      generated.answer,
+      citations,
       results,
-    };
+      guardrails,
+    );
+  }
+
+  /**
+   * Verdict → response shape. Extracted out of `synthesize()` to keep
+   * its cyclomatic complexity under the gate: the synthesize method is
+   * a long happy-path / error-path ladder; folding the verifier-decision
+   * matrix here collapses 12 branches into a 3-state switch.
+   *
+   * Strict + non-supported → answer dropped (fail-closed). Lenient
+   * surfaces the answer with a reason tag. Supported is the ok path.
+   */
+  private finalizeVerdict(
+    verdict: VerifierOutput['verdict'],
+    answer: string,
+    citations: Citation[],
+    results: SynthesizeResult['results'],
+    guardrails: SynthesisGuardrails,
+  ): SynthesizeResult {
+    if (verdict === 'supported') {
+      this.metrics?.countSynthesize('ok');
+      return { answer, citations, results };
+    }
+    const reason: SynthesisReason =
+      verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
+    this.metrics?.countSynthesize(reason);
+    if (guardrails === 'lenient') {
+      return { answer, reason, citations, results };
+    }
+    // strict — fail closed.
+    return { answer: null, reason, citations: [], results };
   }
 
   private async callGenerator(

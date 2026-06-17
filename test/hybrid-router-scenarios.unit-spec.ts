@@ -371,7 +371,7 @@ describe('Hybrid router scenarios — aggregate skip rate', () => {
     // explicit acknowledgement instead of silent drift.
     expect(rate).toBeGreaterThanOrEqual(0.25);
     // Surface the breakdown via console so a CI run preserves it.
-    // eslint-disable-next-line no-console
+     
     console.log(
       `Hybrid router scenario skip-rate: ${(rate * 100).toFixed(1)}%  breakdown=${JSON.stringify(breakdown)}`,
     );

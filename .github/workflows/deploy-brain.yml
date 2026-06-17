@@ -168,9 +168,39 @@ jobs:
                 - SEARCH_PREDICATE_ROUTER_ENABLED=1
                 - SEARCH_RERANKER_ENABLED=1
                 - SEARCH_RERANKER_SC_N=3
-                - SEARCH_HYPE_ENABLED=0
+                # HyPE alt-embedding (migration 0008): hypothetical-question
+                # embedding written at ingest so a question→statement query
+                # pair surfaces via max(cos_main, cos_alt) in the vector leg.
+                # Was off — turning on as part of the graph-layer activation
+                # so the question-shaped chat queries hit fact statements
+                # without an LLM rewrite.
+                - SEARCH_HYPE_ENABLED=1
+                # PPR over the candidate subgraph (HippoRAG-style). Auto
+                # threshold lowered from 100 → 25 so the typical per-tenant
+                # graph (~30-80 candidates) actually triggers it. Hub-effect
+                # pathology on truly small graphs is bounded by the edge
+                # expansion below capping new buckets — neighbour fan-out
+                # was the real source of the 30-entity recall@1 regression
+                # in the original PPR rollout.
                 - SEARCH_PPR_ENABLED=0
-                - SEARCH_PPR_AUTO_THRESHOLD=100
+                - SEARCH_PPR_AUTO_THRESHOLD=25
+                # Edge-based candidate expansion. Top-3 entities by post-
+                # bucketing rankScore seed a 1-hop walk over knowledge_edge;
+                # neighbours not retrieved by vector/BM25 enter the candidate
+                # set with inherited rankScore = α × seed × edge_weight.
+                # α=0.4 by default — inherited score never beats a direct
+                # retrieval hit; only competes with weak fusion candidates.
+                - SEARCH_EDGE_EXPANSION_ENABLED=1
+                - SEARCH_EDGE_EXPANSION_TOP_SEEDS=3
+                - SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS=5
+                - SEARCH_EDGE_EXPANSION_ALPHA=0.4
+                # Multi-hop edge expansion: when a hop's combination is
+                # subset_of_previous, expand the prior entity set to
+                # include 1-hop neighbours over knowledge_edge before
+                # anchoring. Turns the chain into a true graph-walk
+                # instead of pure set-membership. Off by default — opt
+                # in once the eval baseline is rerun and accepted.
+                - MULTI_HOP_EDGE_EXPANSION_ENABLED=0
                 # Per-stage budgets (ms). Tunable without redeploy of
                 # search.service.ts. Defaults match the constants there;
                 # overrides only when prod traffic shape changes.

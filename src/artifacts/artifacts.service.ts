@@ -331,8 +331,7 @@ export class ArtifactsService {
         // by scope before compile, so a fresh-built artifact is already
         // clean. Cached artifacts, however, may have been built with a
         // higher-scope caller — re-check on every read.
-        const restricted = cites.some((c) => {
-          const factId = c.factId;
+        const restricted = cites.some(() => {
           // Citations carry only id/conf/source — not the predicate
           // directly. Field name === predicate for canonical templates,
           // so we use the field name as the policy key. For composed

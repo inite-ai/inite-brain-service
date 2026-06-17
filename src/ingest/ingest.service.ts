@@ -18,7 +18,6 @@ import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
 import { ConflictConfig, SOURCE_TRUST } from './conflict-resolver';
 import { traceSpan, traceArtifact } from '../common/debug-trace';
-import { cosineSimilarity as cosine } from '../common/vector-math';
 
 export type IngestOutcome =
   | 'INSERTED'
@@ -683,23 +682,6 @@ function idTailOf(rid: string): string {
 function externalRefKey(vertical: string, id: string): string {
   const safe = (s: string) => s.replace(/\./g, '__');
   return `${safe(vertical)}__${safe(id)}`;
-}
-
-/**
- * Encode an arbitrary string to a SurrealDB record-id-safe form.
- * SurrealDB record ids accept alphanumerics, underscore, dash; anything
- * else has to be quoted as `⟨...⟩`. We hash to keep the id short and
- * deterministic and avoid quoting subtleties — the original key is
- * still stored on the row in the `key` field for round-trip lookups.
- */
-function recordIdSafe(key: string): string {
-  // SHA-1 truncated to 16 hex chars: collision probability ≈ 2^-32 per
-  // tenant, well below the threshold where we'd care for externalRef
-  // de-duplication. Switch to SHA-256 if a tenant ever surfaces a
-  // collision (none observed to date, none expected).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createHash } = require('node:crypto') as typeof import('node:crypto');
-  return createHash('sha1').update(key).digest('hex').slice(0, 32);
 }
 
 /**

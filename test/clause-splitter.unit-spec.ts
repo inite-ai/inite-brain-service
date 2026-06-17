@@ -4,8 +4,6 @@
  */
 import { splitClauses } from '../src/ai/clause-splitter';
 
-const text = (s: string) => s.trim();
-
 describe('splitClauses', () => {
   it('empty input → []', () => {
     expect(splitClauses('')).toEqual([]);

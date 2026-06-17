@@ -292,6 +292,36 @@ export class MultiHopService {
     // Build a per-hop SearchDto that inherits the caller's broad
     // intent (limit, mode, includeContested, ...) and overlays the
     // hop's local refinements.
+    //
+    // Edge-aware subset_of_previous: when MULTI_HOP_EDGE_EXPANSION_ENABLED
+    // is set, expand priorEntityIds by their 1-hop neighbourhood over
+    // knowledge_edge before anchoring. This turns "FROM the previous
+    // result, KEEP those that ALSO …" into "FROM the previous result
+    // OR THEIR DIRECT NEIGHBOURS, KEEP those that ALSO …" — letting
+    // the chain reach an entity whose own facts don't repeat the
+    // anchor's terms but which is graph-linked (e.g. an asset linked
+    // to a complaining customer's project). Default OFF so the
+    // existing eval baseline doesn't shift; operator-tunable.
+    let anchorIds: string[] | undefined;
+    if (
+      hop.combination === 'subset_of_previous' &&
+      priorEntityIds.length > 0
+    ) {
+      anchorIds = priorEntityIds;
+      if (process.env.MULTI_HOP_EDGE_EXPANSION_ENABLED === '1') {
+        try {
+          anchorIds = await this.search.expandEntityIdsViaEdges(
+            companyId,
+            priorEntityIds,
+            callerScopes,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `multi-hop edge-expansion failed, anchoring to bare prior set: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
     const hopDto = {
       ...dto,
       query: hop.subQuery,
@@ -305,10 +335,7 @@ export class MultiHopService {
       // Anchor only when explicitly requested — for 'intersect' /
       // 'union' the search runs unconstrained and combination
       // happens after the fact.
-      entityIds:
-        hop.combination === 'subset_of_previous' && priorEntityIds.length > 0
-          ? priorEntityIds
-          : undefined,
+      entityIds: anchorIds,
       // Drop multi-hop-specific keys so they don't accidentally trip
       // the SearchDto whitelist when re-validated downstream.
       maxHops: undefined,
@@ -353,7 +380,19 @@ export class MultiHopService {
       return { ids: [...out.keys()], byEntity: out };
     }
 
-    // intersect / subset_of_previous
+    if (combination === 'subset_of_previous') {
+      // SQL anchored the search already (entityIds INSIDE anchor set),
+      // so hopHits ⊆ anchor set by construction. With pure
+      // set-membership chaining (no edge expansion) anchor == priorIds,
+      // and the JS-side intersect with priorIds is a no-op. With edge
+      // expansion ON, anchor == priorIds ∪ 1-hop neighbours — applying
+      // intersect(hopIds, priorIds) here would clip the result back to
+      // the bare prior set and silently undo the expansion. Skip the
+      // JS-side intersect: trust the SQL anchor.
+      return { ids: hopIds, byEntity: hopByEntity };
+    }
+
+    // intersect (post-hoc, search ran unconstrained)
     const priorSet = new Set(priorIds);
     const ids = hopIds.filter((id) => priorSet.has(id));
     const byEntity = new Map<string, SearchHit>();

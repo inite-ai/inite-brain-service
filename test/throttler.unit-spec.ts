@@ -14,7 +14,7 @@ describe('TenantThrottlerGuard.getTracker', () => {
   // ThrottlerGuard's constructor is invoked via DI in production. For unit
   // tests we only exercise getTracker, which doesn't read any of the
   // injected fields, so dummy args are safe.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const guard = new TestableGuard({} as any, {} as any, {} as any);
 
   it('hashes Bearer token to produce a stable per-key tracker', async () => {

@@ -11,7 +11,6 @@ import * as http from 'node:http';
 import { createHash } from 'node:crypto';
 import {
   ExecutionContext,
-  ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
