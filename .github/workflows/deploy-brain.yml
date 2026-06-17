@@ -178,6 +178,36 @@ jobs:
                 - SEARCH_STAGE_BUDGET_RERANK_MS=4000
                 - SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS=2000
                 - SEARCH_STAGE_BUDGET_BACKFILL_MS=2000
+                # ── Hybrid pipeline knobs ────────────────────────────────
+                # Chat router (Sprints 1-4.5): cache, embedding hints,
+                # collapse cache, intent classification, skip gate.
+                - CHAT_ROUTE_CACHE_ENABLED=true
+                - CHAT_ROUTE_CACHE_SIZE=2000
+                - CHAT_ROUTE_HINT_SIMILARITY=0.4
+                - CHAT_ROUTE_HINT_MAX=3
+                - CHAT_ROUTE_INTENT_CONFIDENCE_FLOOR=0.85
+                - CHAT_ROUTE_NLI_ENABLED=true
+                - CHAT_ROUTE_NLI_ASK_THRESHOLD=0.6
+                # Extractor (Sprints E1-E7): cache, local predicate select,
+                # local NER, learned pattern cache, skip gate.
+                - EXTRACTOR_CACHE_ENABLED=true
+                - EXTRACTOR_CACHE_SIZE=500
+                # text-embedding-3-small + verbose predicate cards rarely
+                # hit 0.85 even on semantic match; 0.55 keeps alias
+                # precision high while catching the common cases the
+                # academic threshold misses ("job_title"→"status",
+                # "preferred_food"→"preference").
+                - PREDICATE_CANONICALIZE_THRESHOLD=0.55
+                - EXTRACTOR_LOCAL_PREDICATE_THRESHOLD=0.45
+                # Opt-in: downloads ~135MB ONNX on first ingest. Required
+                # for the E7 skip gate to fire.
+                - EXTRACTOR_LOCAL_NER_ENABLED=true
+                - EXTRACTOR_LOCAL_NER_MIN_SCORE=0.7
+                # Opt-in: synthesises ExtractionResult from local clauses
+                # + NER + pattern cache when every check passes. Pattern
+                # cache populates as LLM extractions land, so the gate
+                # starts cold and warms with usage.
+                - EXTRACTOR_SKIP_LLM_ENABLED=true
                 # Eval baselines — persisted to a host bind-mount so they
                 # survive container recreate (compose pull + up = new
                 # container; an in-image var/ would evaporate on every
