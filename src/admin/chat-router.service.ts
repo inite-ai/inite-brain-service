@@ -279,6 +279,9 @@ export class ChatRouterService {
     if (llmOut.kind === 'parse_error') {
       return this.safeDefault(message, `router-parse: ${llmOut.message}`);
     }
+    if (llmOut.kind === 'llm_error') {
+      return this.safeDefault(message, `router-llm: ${llmOut.message}`);
+    }
 
     const merged = this.mergeLlmWithLocals(llmOut.parsed, ctx);
     const route = validateAndAssemble(
@@ -334,6 +337,7 @@ export class ChatRouterService {
   ): Promise<
     | { kind: 'parsed'; parsed: RawRouteOutput }
     | { kind: 'parse_error'; message: string }
+    | { kind: 'llm_error'; message: string }
     | null
   > {
     const system = buildSystemPrompt(ctx.predicateVocab, ctx.knownNames);
@@ -347,23 +351,40 @@ message: ${message}`;
       predicateCount: ctx.predicateVocab.length,
       knownNamesCount: ctx.knownNames.length,
     });
-    const res = await this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'chat_route',
-          strict: true,
-          schema: buildSchema(ctx.predicateVocab),
+    let res: Awaited<
+      ReturnType<typeof this.openai.chat.completions.create>
+    >;
+    try {
+      res = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'chat_route',
+            strict: true,
+            schema: buildSchema(ctx.predicateVocab),
+          },
         },
-      },
-      temperature: 0,
-      max_completion_tokens: 800,
-    });
+        temperature: 0,
+        max_completion_tokens: 800,
+      });
+    } catch (e) {
+      // OpenAI network glitch (Premature close, ETIMEDOUT, 5xx after
+      // SDK retries exhausted) MUST NOT bubble up as a 500 to the
+      // demo client. The caller checks `kind: 'llm_error'` and falls
+      // back to a safeDefault route — the chat UI still gets a
+      // response, the trace records why we degraded.
+      const msg = (e as Error).message;
+      this.logger.warn(
+        `chat router LLM call failed: ${msg}; falling back to safeDefault`,
+      );
+      traceArtifact('demo.chat.llm_error', { message: msg });
+      return { kind: 'llm_error', message: msg };
+    }
     const content = res.choices[0]?.message?.content;
     const finish = res.choices[0]?.finish_reason;
     traceArtifact('demo.chat.raw', { content, finish_reason: finish });

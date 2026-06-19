@@ -1,0 +1,809 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-19T16:45:24.109Z",
+  "perVertical": [
+    {
+      "vertical": "shop",
+      "scenarios": 8,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 0.8333333333333334,
+          "threshold": 0.6,
+          "ciLower": 0.5833333333333334,
+          "ciUpper": 1,
+          "n": 12
+        },
+        {
+          "name": "recall@3",
+          "value": 0.9166666666666666,
+          "threshold": 0.8,
+          "ciLower": 0.75,
+          "ciUpper": 1,
+          "n": 12
+        },
+        {
+          "name": "MRR",
+          "value": 0.8916666666666666,
+          "threshold": 0.5,
+          "ciLower": 0.7583333333333332,
+          "ciUpper": 1,
+          "n": 12
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.9244448123696922,
+          "ciLower": 0.8204996057833428,
+          "ciUpper": 1,
+          "n": 13
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 2
+        },
+        {
+          "name": "recall@1:current",
+          "value": 0.8,
+          "ciLower": 0.5,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "MRR:temporal",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 2
+        },
+        {
+          "name": "MRR:current",
+          "value": 0.8699999999999999,
+          "ciLower": 0.7100000000000001,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": null,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": null,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": null,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": null
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": null
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": 1,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": 1,
+          "threshold": 0.8,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": 0,
+          "n": 1
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    },
+    {
+      "vertical": "rent",
+      "scenarios": 15,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 0.9393939393939394,
+          "threshold": 0.6,
+          "ciLower": 0.8484848484848485,
+          "ciUpper": 1,
+          "n": 33
+        },
+        {
+          "name": "recall@3",
+          "value": 1,
+          "threshold": 0.8,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 33
+        },
+        {
+          "name": "MRR",
+          "value": 0.9696969696969697,
+          "threshold": 0.5,
+          "ciLower": 0.9242424242424242,
+          "ciUpper": 1,
+          "n": 33
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.9776321062770581,
+          "ciLower": 0.9440802656926451,
+          "ciUpper": 1,
+          "n": 33
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 19
+        },
+        {
+          "name": "recall@1:current",
+          "value": 0.8571428571428571,
+          "ciLower": 0.6428571428571429,
+          "ciUpper": 1,
+          "n": 14
+        },
+        {
+          "name": "MRR:temporal",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 19
+        },
+        {
+          "name": "MRR:current",
+          "value": 0.9285714285714286,
+          "ciLower": 0.8214285714285714,
+          "ciUpper": 1,
+          "n": 14
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": 0.8333333333333334,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": 1,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": null,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": null
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": null
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": null,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    },
+    {
+      "vertical": "estate",
+      "scenarios": 4,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 0.8,
+          "threshold": 0.6,
+          "ciLower": 0.5,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "recall@3",
+          "value": 1,
+          "threshold": 0.8,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "MRR",
+          "value": 0.9,
+          "threshold": 0.5,
+          "ciLower": 0.75,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.9261859507142916,
+          "ciLower": 0.8154648767857289,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "recall@1:current",
+          "value": 0.8,
+          "ciLower": 0.5,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "MRR:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "MRR:current",
+          "value": 0.9,
+          "ciLower": 0.75,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": 1,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": 1,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": null,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": null
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": null
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": null,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    },
+    {
+      "vertical": "events",
+      "scenarios": 3,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 0.7777777777777778,
+          "threshold": 0.6,
+          "ciLower": 0.4444444444444444,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "recall@3",
+          "value": 1,
+          "threshold": 0.8,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "MRR",
+          "value": 0.8888888888888888,
+          "threshold": 0.5,
+          "ciLower": 0.7222222222222222,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.9179843896825461,
+          "ciLower": 0.7949609742063655,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "recall@1:current",
+          "value": 0.7777777777777778,
+          "ciLower": 0.4444444444444444,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "MRR:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "MRR:current",
+          "value": 0.8888888888888888,
+          "ciLower": 0.7222222222222222,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": 0.5,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": 1,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": null,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": null
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": null
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": null,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": 1,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": 1,
+          "threshold": 0.8,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": 0,
+          "n": 1
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    },
+    {
+      "vertical": "health",
+      "scenarios": 3,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 1,
+          "threshold": 0.6,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 6
+        },
+        {
+          "name": "recall@3",
+          "value": 1,
+          "threshold": 0.8,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 6
+        },
+        {
+          "name": "MRR",
+          "value": 1,
+          "threshold": 0.5,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 6
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.7777777777777778,
+          "ciLower": 0.4444444444444444,
+          "ciUpper": 1,
+          "n": 9
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "recall@1:current",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 6
+        },
+        {
+          "name": "MRR:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "MRR:current",
+          "value": 1,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 6
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": null,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": null,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": null,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": null
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": null
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": null,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": 1,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": 1,
+          "threshold": 0.8,
+          "n": 1
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": 0,
+          "n": 1
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    },
+    {
+      "vertical": "cross",
+      "scenarios": 16,
+      "metrics": [
+        {
+          "name": "recall@1",
+          "value": 0.9895833333333334,
+          "threshold": 0.6,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "recall@3",
+          "value": 0.9895833333333334,
+          "threshold": 0.8,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "MRR",
+          "value": 0.9895833333333334,
+          "threshold": 0.5,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "NDCG@10",
+          "value": 0.9895833333333334,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "recall@1:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "recall@1:current",
+          "value": 0.9895833333333334,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "MRR:temporal",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "MRR:current",
+          "value": 0.9895833333333334,
+          "ciLower": 0.9739583333333334,
+          "ciUpper": 1,
+          "n": 192
+        },
+        {
+          "name": "extraction-predicate-recall",
+          "value": 0.5714285714285714,
+          "threshold": 0.5
+        },
+        {
+          "name": "entity-extraction-rate",
+          "value": 1,
+          "threshold": 0.7
+        },
+        {
+          "name": "identity-resolution-f1",
+          "value": 1,
+          "threshold": 0.8
+        },
+        {
+          "name": "identity-resolution-precision",
+          "value": 1
+        },
+        {
+          "name": "identity-resolution-recall",
+          "value": 1
+        },
+        {
+          "name": "pii-gating-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "memory-lifecycle-correctness",
+          "value": 1,
+          "threshold": 1
+        },
+        {
+          "name": "faithfulness:mean",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:pass-rate",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "faithfulness:verifier-failures",
+          "value": null,
+          "n": 0
+        },
+        {
+          "name": "privacy-leakage-mia-auc",
+          "value": null
+        }
+      ]
+    }
+  ],
+  "overall": [
+    {
+      "name": "recall@1",
+      "value": 0.9618320610687023,
+      "threshold": 0.6,
+      "ciLower": 0.9389312977099237,
+      "ciUpper": 0.9847328244274809,
+      "n": 262
+    },
+    {
+      "name": "recall@3",
+      "value": 0.9885496183206107,
+      "threshold": 0.8,
+      "ciLower": 0.9732824427480916,
+      "ciUpper": 1,
+      "n": 262
+    },
+    {
+      "name": "MRR",
+      "value": 0.9759541984732824,
+      "threshold": 0.5,
+      "ciLower": 0.9587786259541984,
+      "ciUpper": 0.9904580152671756,
+      "n": 262
+    },
+    {
+      "name": "NDCG@10",
+      "value": 0.9729449664745667,
+      "ciLower": 0.9556469428437177,
+      "ciUpper": 0.9879157087271756,
+      "n": 266
+    },
+    {
+      "name": "recall@1:temporal",
+      "value": 1,
+      "ciLower": 1,
+      "ciUpper": 1,
+      "n": 21
+    },
+    {
+      "name": "recall@1:current",
+      "value": 0.9585062240663901,
+      "ciLower": 0.9336099585062241,
+      "ciUpper": 0.979253112033195,
+      "n": 241
+    },
+    {
+      "name": "MRR:temporal",
+      "value": 1,
+      "ciLower": 1,
+      "ciUpper": 1,
+      "n": 21
+    },
+    {
+      "name": "MRR:current",
+      "value": 0.9738589211618257,
+      "ciLower": 0.9560165975103734,
+      "ciUpper": 0.9875518672199171,
+      "n": 241
+    },
+    {
+      "name": "extraction-predicate-recall",
+      "value": 0.7619047619047619,
+      "threshold": 0.5
+    },
+    {
+      "name": "entity-extraction-rate",
+      "value": 1,
+      "threshold": 0.7
+    },
+    {
+      "name": "identity-resolution-f1",
+      "value": 1,
+      "threshold": 0.8
+    },
+    {
+      "name": "identity-resolution-precision",
+      "value": 1
+    },
+    {
+      "name": "identity-resolution-recall",
+      "value": 1
+    },
+    {
+      "name": "pii-gating-correctness",
+      "value": 1,
+      "threshold": 1
+    },
+    {
+      "name": "memory-lifecycle-correctness",
+      "value": 1,
+      "threshold": 1
+    },
+    {
+      "name": "faithfulness:mean",
+      "value": 1,
+      "n": 3
+    },
+    {
+      "name": "faithfulness:pass-rate",
+      "value": 1,
+      "threshold": 0.8,
+      "n": 3
+    },
+    {
+      "name": "faithfulness:verifier-failures",
+      "value": 0,
+      "n": 3
+    },
+    {
+      "name": "privacy-leakage-mia-auc",
+      "value": null
+    }
+  ]
+}

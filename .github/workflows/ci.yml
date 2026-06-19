@@ -103,13 +103,6 @@ jobs:
   quality-eval:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Quality eval surfaces a real semantic regression
-    # (memlc.cycle.update-then-retract: facts.service.ts:retract does
-    # NOT revive a previously-superseded sibling when the superseder
-    # itself is retracted). This is a separate fix-it, not a release
-    # blocker — the report runs and prints, but a failing scenario
-    # doesn't block the deploy gate.
-    continue-on-error: true
     # Workflow_dispatch always honours the run_eval input. The auto-on-
     # main branch runs only when OPENAI_API_KEY is configured (org
     # secret) — without the key the eval has nothing to score, so a
