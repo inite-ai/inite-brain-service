@@ -153,14 +153,23 @@ jobs:
             eval-baseline-main-
 
       - name: Quality eval (multi-vertical, real OpenAI)
+        id: eval
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Tells the spec to write a machine-readable JSON report
           # alongside the human markdown — consumed by the diff step.
           BRAIN_EVAL_REPORT_OUT: .eval-current/report.json
-        run: pnpm test:eval
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "[skip] OPENAI_API_KEY not configured for this repo — eval cannot score against the real extractor / faithfulness verifier, skipping cleanly."
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ran=true" >> "$GITHUB_OUTPUT"
+          pnpm test:eval
 
       - name: Compare to baseline (delta-gate)
+        if: steps.eval.outputs.ran == 'true'
         run: |
           if [ -f .eval-baseline/main.json ]; then
             pnpm eval:diff .eval-baseline/main.json .eval-current/report.json
@@ -170,10 +179,14 @@ jobs:
           fi
 
       # Promote current to baseline for next run, but ONLY on a green
-      # push to main. Workflow_dispatch runs (manual / branch) still
-      # diff against main but don't pollute the baseline cache.
+      # push to main AND only when the eval actually ran. Workflow_dispatch
+      # runs (manual / branch) still diff against main but don't pollute
+      # the baseline cache.
       - name: Promote current to baseline
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: |
+          steps.eval.outputs.ran == 'true' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
         run: |
           mkdir -p .eval-baseline
           cp .eval-current/report.json .eval-baseline/main.json
