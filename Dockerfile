@@ -20,7 +20,12 @@ FROM node:22-slim AS builder
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml* ./
-RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts
+# NO --ignore-scripts: native deps (sharp, onnxruntime-node) need
+# their postinstall to materialise platform-specific .node binaries.
+# pnpm's `onlyBuiltDependencies` allowlist in package.json restricts
+# which packages may actually run scripts, so we keep the security
+# posture while letting the natives compile.
+RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY tsconfig.json nest-cli.json ./
 COPY src ./src
@@ -37,7 +42,9 @@ FROM node:22-slim
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml* ./
-RUN corepack enable && pnpm install --frozen-lockfile --prod --ignore-scripts
+# Runtime stage: same allowlist semantics as the builder — the prod
+# install still needs sharp + onnxruntime-node native binaries.
+RUN corepack enable && pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
 
