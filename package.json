@@ -95,7 +95,10 @@
       "protobufjs",
       "sharp",
       "onnxruntime-node"
-    ]
+    ],
+    "overrides": {
+      "sharp": "^0.34.4"
+    }
   },
   "jest": {
     "moduleFileExtensions": [
