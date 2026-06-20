@@ -14,6 +14,10 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest, BrainScope } from '../auth/api-key.types';
+import { DemoChatDto } from './dto/demo-chat.dto';
+import { DemoDreamsDto } from './dto/demo-dreams.dto';
+import { DemoIngestMentionDto } from './dto/demo-ingest-mention.dto';
+import { DemoSearchDto } from './dto/demo-search.dto';
 import {
   runWithDebugTrace,
   traceArtifact,
@@ -101,7 +105,7 @@ export class AdminDemoController {
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestMention(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { text: string; vertical?: string },
+    @Body() body: DemoIngestMentionDto,
   ) {
     if (!body?.text?.trim()) {
       throw new BadRequestException('text is required');
@@ -129,13 +133,7 @@ export class AdminDemoController {
   @RequireScopes('brain:admin')
   async demoSearch(
     @Req() req: AuthenticatedRequest,
-    @Body()
-    body: {
-      query: string;
-      limit?: number;
-      asOf?: string;
-      includePii?: boolean;
-    },
+    @Body() body: DemoSearchDto,
   ) {
     if (!body?.query?.trim()) {
       throw new BadRequestException('query is required');
@@ -178,11 +176,7 @@ export class AdminDemoController {
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async demoChat(
     @Req() req: AuthenticatedRequest,
-    @Body()
-    body: {
-      message: string;
-      includePii?: boolean;
-    },
+    @Body() body: DemoChatDto,
   ) {
     if (!body?.message?.trim()) {
       throw new BadRequestException('message is required');
@@ -346,7 +340,7 @@ export class AdminDemoController {
   @RequireScopes('brain:admin')
   async demoDreams(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { operations?: ('dedup' | 'resolve')[] },
+    @Body() body: DemoDreamsDto,
   ) {
     const tenant = demoTenantFor(req);
     const captured = await runWithDebugTrace(() =>
