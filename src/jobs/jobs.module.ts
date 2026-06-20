@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { JobRunService } from './job-run.service';
+import { LeaderLeaseService } from './leader-lease.service';
+import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 
 /**
  * JobsModule — exports the generic JobRunService used by every long-
@@ -12,7 +14,7 @@ import { JobRunService } from './job-run.service';
 @Global()
 @Module({
   imports: [AuthModule],
-  providers: [JobRunService],
-  exports: [JobRunService],
+  providers: [JobRunService, LeaderLeaseService, DistributedLeaseGuard],
+  exports: [JobRunService, LeaderLeaseService, DistributedLeaseGuard],
 })
 export class JobsModule {}

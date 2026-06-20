@@ -266,6 +266,32 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Run a callback inside the system database — the home for global,
+   * tenant-agnostic state: `leader_lease` (cron leader election),
+   * `job_run` rows for cross-tenant jobs, future operator-action
+   * audit-of-audit etc.
+   *
+   * Same root pool + ensureSchema as withCompany, but with the fixed
+   * database name `system` (no `co_` prefix) so it's clearly distinct
+   * from tenant data. Migrations 0028+ that DEFINE these tables apply
+   * to every database including this one — the tenant-side copies sit
+   * unused, the system-side copy is the active one. Cheap, idempotent,
+   * avoids a parallel migrator just for two tables.
+   */
+  async withAdminDb<T>(fn: (db: Surreal) => Promise<T>): Promise<T> {
+    const database = 'system';
+    let conn = await this.acquireRoot();
+    try {
+      conn = await this.ensureRootSession(conn);
+      await conn.use({ namespace: this.namespace, database });
+      await this.ensureSchema(conn, database);
+      return await fn(conn);
+    } finally {
+      this.releaseRoot(conn);
+    }
+  }
+
+  /**
    * Run a callback inside a per-tenant DB scope on a SCOPED connection.
    * The connection is signed in as `brain_caller` (EDITOR role, not
    * root), so PERMISSIONS clauses defined on schema fields apply.

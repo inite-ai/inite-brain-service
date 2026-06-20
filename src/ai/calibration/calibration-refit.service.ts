@@ -10,7 +10,7 @@ import {
 } from './isotonic';
 import { CalibrationService } from './calibration.service';
 import { JobRunService } from '../../jobs/job-run.service';
-import { InFlightGuard } from '../../common/in-flight-guard';
+import { DistributedLeaseGuard } from '../../common/distributed-lease.guard';
 
 /**
  * Phase 3.5 — nightly refit + source-trust recalculation.
@@ -52,7 +52,7 @@ export class CalibrationRefitService {
    * draining a huge tenant — and the manual trigger from
    * /admin/maintenance/calibration-refit can't overlap with either.
    */
-  private readonly guard = new InFlightGuard();
+  private readonly guard = new DistributedLeaseGuard();
 
   constructor(
     private readonly surreal: SurrealService,
@@ -92,7 +92,7 @@ export class CalibrationRefitService {
       triggeredByActor?: string;
     },
   ): Promise<number> {
-    const guarded = await this.guard.run('source_trust', () =>
+    const guarded = await this.guard.run('refit_source_trust', () =>
       this.refitSourceTrustInner(trigger),
     );
     if (guarded === null) {
@@ -229,7 +229,7 @@ export class CalibrationRefitService {
       triggeredByActor?: string;
     },
   ): Promise<number> {
-    const guarded = await this.guard.run('calibration', () =>
+    const guarded = await this.guard.run('refit_calibration', () =>
       this.refitCalibrationInner(trigger),
     );
     if (guarded === null) {

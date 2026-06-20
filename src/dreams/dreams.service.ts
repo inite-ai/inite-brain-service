@@ -10,7 +10,7 @@ import { DreamsResolverService, ResolverResult } from './resolver.service';
 import { CompactionService } from '../compaction/compaction.service';
 import { DreamsOperation } from './dto/run-dreams.dto';
 import { JobRunService, JobRunRow } from '../jobs/job-run.service';
-import { InFlightGuard } from '../common/in-flight-guard';
+import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 
 export interface DreamsTenantStats {
   companyId: string;
@@ -55,12 +55,13 @@ export class DreamsService {
   private readonly enabled: boolean;
   private readonly defaultOps: ReadonlySet<DreamsOperation>;
   /**
-   * Reentrancy guard. Keys: 'all' for the cross-tenant runAll path,
-   * `tenant:${companyId}` for per-tenant runs. A long-running runAll
-   * cannot overlap with a manual runForTenant on the same tenant —
-   * that would race RELATE writes in dedup/resolver.
+   * Reentrancy guard. Keys: 'dreams_all' for the cross-tenant runAll
+   * path, `dreams_tenant:${companyId}` for per-tenant runs. Distributed
+   * via leader_lease so a multi-pod deploy elects ONE pod to run the
+   * cron — the others see "lease held" and skip. Local in-flight
+   * defence inside the guard still protects same-pod overlap (cron +
+   * manual landing simultaneously).
    */
-  private readonly guard = new InFlightGuard();
 
   constructor(
     private readonly surreal: SurrealService,
@@ -71,6 +72,7 @@ export class DreamsService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly jobs?: JobRunService,
+    @Optional() private readonly guard: DistributedLeaseGuard = new DistributedLeaseGuard(),
   ) {
     this.enabled =
       this.configService.get<string>('DREAMS_ENABLED', '0') === '1';
@@ -98,7 +100,7 @@ export class DreamsService {
   @Cron('0 4 * * *', { timeZone: 'UTC' })
   async runDaily(): Promise<DreamsTenantStats[]> {
     if (!this.enabled) return [];
-    const result = await this.guard.run('all', () => this.runAll());
+    const result = await this.guard.run('dreams_all', () => this.runAll());
     if (result === null) {
       this.logger.warn(
         'dreams cron skipped — previous runAll still in flight',
@@ -167,7 +169,7 @@ export class DreamsService {
       triggeredByActor?: string;
     },
   ): Promise<DreamsTenantStats> {
-    const guarded = await this.guard.run(`tenant:${companyId}`, () =>
+    const guarded = await this.guard.run(`dreams_tenant_${companyId}`, () =>
       this.runForTenantInner(companyId, operations, triggered),
     );
     if (guarded !== null) return guarded;
