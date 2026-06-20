@@ -5,6 +5,64 @@ import {
   type FaithfulnessSourceFact,
   type OpenAiLike,
 } from '../metrics/faithfulness';
+import { detectLanguage } from '../../../src/ai/locale/language-detector';
+
+/**
+ * Helper — extract diagnostic side-channels from the live brain
+ * response. These are best-effort: missing fields silently produce
+ * undefined / null, which the aggregator handles.
+ */
+function extractDiagnostics(
+  answer: string | null,
+  res: { citations: ReadonlyArray<unknown>; results?: ReadonlyArray<unknown> },
+  expectedLang: string | undefined,
+): {
+  answerLangDetected: string | null;
+  answerLangCorrect: boolean | undefined;
+  decisionLogCitationCount: number;
+  avgExtractionEntropy: number | null;
+} {
+  let answerLangDetected: string | null = null;
+  let answerLangCorrect: boolean | undefined;
+  if (answer && answer.trim()) {
+    const det = detectLanguage(answer);
+    answerLangDetected = det.language === 'und' ? null : det.language;
+    if (expectedLang) {
+      answerLangCorrect = answerLangDetected === expectedLang;
+    }
+  } else if (expectedLang) {
+    answerLangCorrect = false;
+  }
+
+  const decisionLogCitationCount = res.citations.length;
+
+  // SearchHit.facts.breakdown.extractionEntropy is opt-in (only
+  // populated when EXTRACTOR_SC_PASSES > 1). We tolerate absence.
+  let entropySum = 0;
+  let entropyCount = 0;
+  for (const hit of (res.results ?? []) as Array<{
+    facts?: ReadonlyArray<{
+      breakdown?: { extractionEntropy?: number };
+    }>;
+  }>) {
+    for (const fact of hit.facts ?? []) {
+      const h = fact.breakdown?.extractionEntropy;
+      if (typeof h === 'number' && Number.isFinite(h)) {
+        entropySum += h;
+        entropyCount += 1;
+      }
+    }
+  }
+  const avgExtractionEntropy =
+    entropyCount === 0 ? null : entropySum / entropyCount;
+
+  return {
+    answerLangDetected,
+    answerLangCorrect,
+    decisionLogCitationCount,
+    avgExtractionEntropy,
+  };
+}
 
 /**
  * Runs each scenario's synthesizeQueries via brain's /v1/synthesize
@@ -38,6 +96,7 @@ export class FaithfulnessChecker {
         });
 
         const answer = res.answer;
+        const diag = extractDiagnostics(answer, res, e.expectedAnswerLang);
         if (!answer || !answer.trim()) {
           // Synthesizer rejected — guardrail engaged. Pass when the
           // scenario explicitly tolerates this (allowEmptyAnswer); fail
@@ -51,6 +110,10 @@ export class FaithfulnessChecker {
             totalClaims: 0,
             passed: !!e.allowEmptyAnswer,
             faithfulnessFloor: floor,
+            answerLangDetected: diag.answerLangDetected,
+            answerLangCorrect: diag.answerLangCorrect,
+            decisionLogCitationCount: diag.decisionLogCitationCount,
+            avgExtractionEntropy: diag.avgExtractionEntropy,
           });
           continue;
         }
@@ -131,6 +194,10 @@ export class FaithfulnessChecker {
             : {}),
           passed,
           faithfulnessFloor: floor,
+          answerLangDetected: diag.answerLangDetected,
+          answerLangCorrect: diag.answerLangCorrect,
+          decisionLogCitationCount: diag.decisionLogCitationCount,
+          avgExtractionEntropy: diag.avgExtractionEntropy,
         });
       } catch {
         outcomes.push({

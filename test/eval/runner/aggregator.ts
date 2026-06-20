@@ -242,6 +242,7 @@ export class Aggregator {
         threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
         n: synthOutcomes.length,
       },
+      ...phase4Metrics(synthOutcomes),
       {
         name: 'privacy-leakage-mia-auc',
         value: maxMiaAuc(miaResults),
@@ -261,6 +262,74 @@ function maxMiaAuc(results: import('../../../src/eval/types').MiaTestResult[]): 
   let max = 0;
   for (const r of results) if (r.auc > max) max = r.auc;
   return max;
+}
+
+/**
+ * Phase 4.C / Phase 2 / Phase 3.B aggregate gates. Computed from the
+ * diagnostic fields the FaithfulnessChecker now populates on every
+ * SynthesizeOutcome. Kept as a small helper so the main metric block
+ * stays readable.
+ */
+function phase4Metrics(
+  outcomes: import('../../../src/eval/types').SynthesizeOutcome[],
+): import('../../../src/eval/types').AggregateMetric[] {
+  // answer-language-correctness — fraction of synthesize calls whose
+  // detected answer language matched the SynthesizeExpectation's
+  // expectedAnswerLang. Outcomes without an expectation are excluded
+  // so locale-agnostic scenarios don't dilute the rate. Threshold
+  // 0.95 — a single English answer to a Russian-expected query
+  // shouldn't sneak past, but the embedded language detector has
+  // false-negatives on very short answers, hence not 1.0.
+  const langGated = outcomes.filter(
+    (o) => typeof o.answerLangCorrect === 'boolean',
+  );
+  const langCorrect = langGated.filter((o) => o.answerLangCorrect === true)
+    .length;
+
+  // decision-log-citation-rate — fraction of synthesize calls where
+  // the generator emitted at least one citation. 0-citation answers
+  // are the soft-fail mode (the audit's "ALCE inline citations"
+  // partial). Threshold 0.8 — most answers should ground, but a
+  // long-tail of trivial yes/no responses may not.
+  const synthWithAnswer = outcomes.filter((o) => o.answer && o.answer.trim());
+  const citedAnswers = synthWithAnswer.filter(
+    (o) => (o.decisionLogCitationCount ?? 0) > 0,
+  ).length;
+
+  // mean-extraction-entropy — diagnostic only, no threshold. Reported
+  // so a Phase 3.B re-roll regression (entropy collapses to ~0 across
+  // the suite = scN driver dead) surfaces in the report even when no
+  // operator pre-declared an entropy expectation.
+  const entropyValues = outcomes
+    .map((o) => o.avgExtractionEntropy)
+    .filter((v): v is number => typeof v === 'number');
+  const meanEntropy =
+    entropyValues.length === 0
+      ? null
+      : entropyValues.reduce((a, b) => a + b, 0) / entropyValues.length;
+
+  return [
+    {
+      name: 'answer-language-correctness',
+      value: langGated.length === 0 ? null : langCorrect / langGated.length,
+      threshold: langGated.length > 0 ? 0.95 : undefined,
+      n: langGated.length,
+    },
+    {
+      name: 'decision-log-citation-rate',
+      value:
+        synthWithAnswer.length === 0
+          ? null
+          : citedAnswers / synthWithAnswer.length,
+      threshold: synthWithAnswer.length > 0 ? 0.8 : undefined,
+      n: synthWithAnswer.length,
+    },
+    {
+      name: 'mean-extraction-entropy',
+      value: meanEntropy,
+      n: entropyValues.length,
+    },
+  ];
 }
 
 /**

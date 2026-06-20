@@ -171,6 +171,15 @@ export interface SynthesizeExpectation {
    * is reserved for future use.
    */
   callerScopes?: Array<'brain:read' | 'brain:write' | 'brain:read_pii' | 'brain:admin'>;
+  /**
+   * Phase 4.C locale-pinning gate. When set, the answer's detected
+   * language MUST equal this ISO 639-1 code. The aggregator surfaces
+   * `answer-language-correctness` as a hard threshold (1.0 — any
+   * single mismatch fails the gate). When omitted no language
+   * assertion runs and the per-query result carries null for the
+   * fidelity flag, which the aggregator drops from the average.
+   */
+  expectedAnswerLang?: string;
 }
 
 export interface SynthesizeOutcome {
@@ -198,6 +207,33 @@ export interface SynthesizeOutcome {
   passed: boolean;
   /** Floor that was applied — surfaced for the report. */
   faithfulnessFloor: number;
+  /**
+   * Phase 4.C — language detected on the synthesized answer (ISO
+   * 639-1). null when the answer was empty or detection returned
+   * 'und'. Compared by the aggregator against
+   * SynthesizeExpectation.expectedAnswerLang when that's set.
+   */
+  answerLangDetected?: string | null;
+  /**
+   * Per-query language fidelity flag. true when expectedAnswerLang
+   * is set AND answerLangDetected matches; false on mismatch;
+   * undefined when no expectation was declared (drops from the
+   * aggregate, so locale-agnostic scenarios don't dilute the
+   * mismatch rate).
+   */
+  answerLangCorrect?: boolean;
+  /**
+   * Phase 2 (DecisionLog) — number of citations the generator emitted
+   * inline. 0 means the answer was un-cited; this is a soft signal —
+   * aggregated as a rate, not gated per-query.
+   */
+  decisionLogCitationCount?: number;
+  /**
+   * Phase 3.B — mean extractionEntropy across the SearchHit facts the
+   * generator was given as context. null when no fact carried an
+   * entropy field (i.e. when EXTRACTOR_SC_PASSES=1 in the corpus).
+   */
+  avgExtractionEntropy?: number | null;
 }
 
 // ── Memory-lifecycle assertions ───────────────────────────────────────
