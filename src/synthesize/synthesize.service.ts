@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
+import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 import { MetricsService } from '../metrics/metrics.service';
 import {
@@ -141,6 +142,17 @@ export class SynthesizeService {
     dto: SynthesizeDto,
     callerScopes: string[],
   ): Promise<SynthesizeResult> {
+    // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
+    // covers HTTP callers, but multi-hop and admin-demo drive
+    // synthesize() with bodies that bypass class-validator. Clamp here
+    // so the generator prompt size is bounded regardless of caller.
+    const clamped = clampLlmInputText(dto.query ?? '', 'query');
+    if (clamped.truncated) {
+      this.logger.warn(
+        `synthesize: query truncated to ${clamped.value.length} chars (companyId=${companyId})`,
+      );
+    }
+    dto = { ...dto, query: clamped.value };
     const guardrails: SynthesisGuardrails =
       dto.synthesisGuardrails ?? this.defaultGuardrails;
     const model = dto.synthesisModel ?? this.defaultModel;

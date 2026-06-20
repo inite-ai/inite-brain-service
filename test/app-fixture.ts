@@ -40,6 +40,12 @@ export async function createApp(opts: {
   ]);
   // Bypass real OpenAI calls.
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test-stub';
+  // Disable throttling in e2e — the test suites fire FANOUT bursts of
+  // ingest/search per spec to exercise concurrency invariants, and the
+  // prod-default 120/60s + expensive 10/60s caps trip them at 429.
+  // The throttler itself is covered by `test/throttler.unit-spec.ts`.
+  process.env.THROTTLE_LIMIT = '1000000';
+  process.env.THROTTLE_EXPENSIVE_LIMIT = '1000000';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
     process.env.SURREALDB_SCOPED_PASS =

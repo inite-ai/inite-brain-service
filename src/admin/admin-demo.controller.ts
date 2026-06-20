@@ -9,6 +9,7 @@ import {
   ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import {
   runWithDebugTrace,
@@ -56,6 +57,8 @@ export class AdminDemoController {
 
   @Post('ingest-mention')
   @RequireScopes('brain:admin')
+  // Runs the LLM extractor end-to-end on demo state; cap aggressively.
+  @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestMention(@Body() body: { text: string; vertical?: string }) {
     if (!body?.text?.trim()) {
       throw new BadRequestException('text is required');
@@ -127,6 +130,8 @@ export class AdminDemoController {
    */
   @Post('chat')
   @RequireScopes('brain:admin')
+  // Router-LLM + extractor (tell) OR router-LLM + synthesize (ask).
+  @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async demoChat(
     @Body()
     body: {

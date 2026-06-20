@@ -5,6 +5,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { IngestService } from './ingest.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
@@ -28,6 +29,8 @@ export class IngestController {
 
   @Post('mention')
   @RequireScopes('brain:write')
+  // Mention ingest runs the LLM extractor; cap per-credential rate.
+  @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestMention(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestMentionDto,

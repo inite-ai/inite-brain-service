@@ -8,12 +8,19 @@ import {
   IsIn,
   Min,
   Max,
+  MaxLength,
 } from 'class-validator';
 
 export type SearchMode = 'vector' | 'lexical' | 'hybrid';
 
 export class SearchDto {
+  // Realistic queries fit in a few hundred chars; cap at 8 KB so a
+  // malicious caller can't fan a multi-MB string into the BM25 leg,
+  // embedding call, and synthesize prompt. SearchService also clamps
+  // server-side as defence-in-depth in case a future endpoint accepts
+  // a body shape that bypasses this DTO.
   @IsString()
+  @MaxLength(8_000)
   query: string;
 
   @IsOptional() @IsNumber() @Min(1) @Max(100)

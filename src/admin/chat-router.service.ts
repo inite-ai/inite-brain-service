@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
+import { clampLlmInputText } from '../common/input-limits';
 import {
   PredicateRegistryService,
   type PredicateSnapshot,
@@ -108,6 +109,17 @@ export class ChatRouterService {
     message: string,
     options: { knownNames?: string[]; now?: Date; companyId: string },
   ): Promise<ChatRoute> {
+    // Defence-in-depth clamp — admin-demo body shapes bypass the
+    // DTO-level @MaxLength. Chat-router fans out to both the
+    // extractor (16K cap) and search (8K cap); use the tighter of
+    // the two since `message` is conversational.
+    const clamped = clampLlmInputText(message ?? '', 'query');
+    if (clamped.truncated) {
+      this.logger.warn(
+        `chat-router: message truncated to ${clamped.value.length} chars (companyId=${options.companyId})`,
+      );
+    }
+    message = clamped.value;
     const ctx = await this.buildRouteContext(message, options);
 
     // Cache hit: replay a validated route with byte-identical spans.

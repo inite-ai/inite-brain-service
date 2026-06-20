@@ -28,12 +28,34 @@ import { AdminModule } from './admin/admin.module';
       envFilePath: ['.env.local', '.env'],
     }),
 
+    // Two named throttlers:
+    //   default   — every route. Generous cap for cheap reads / writes.
+    //   expensive — opt-in via @Throttle({ expensive: { … } }) on routes
+    //               that fan out to OpenAI (synthesize, multi-hop, ingest-
+    //               mention, demo-chat, dreams). Tight cap so a single
+    //               compromised tenant can't drain the shared OpenAI
+    //               token budget.
+    // Both buckets key by Bearer token (see TenantThrottlerGuard), so the
+    // expensive limit is per-credential, not per-IP — NAT'd tenants don't
+    // shadow each other.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
+          name: 'default',
           ttl: parseInt(config.get<string>('THROTTLE_TTL_MS', '60000'), 10),
           limit: parseInt(config.get<string>('THROTTLE_LIMIT', '120'), 10),
+        },
+        {
+          name: 'expensive',
+          ttl: parseInt(
+            config.get<string>('THROTTLE_EXPENSIVE_TTL_MS', '60000'),
+            10,
+          ),
+          limit: parseInt(
+            config.get<string>('THROTTLE_EXPENSIVE_LIMIT', '10'),
+            10,
+          ),
         },
       ],
     }),

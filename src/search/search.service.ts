@@ -10,6 +10,7 @@ import { detectLanguage } from '../ai/locale/language-detector';
 import { SearchDto, SearchMode } from './dto/search.dto';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
+import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 
 import type { SearchHit } from './search.types';
@@ -202,6 +203,18 @@ export class SearchService {
     dto: SearchDto,
     callerScopes: string[],
   ): Promise<{ results: SearchHit[] }> {
+    // Defence-in-depth clamp. SearchDto.@MaxLength catches caller-direct
+    // requests, but multi-hop / synthesize / admin-demo / mcp call this
+    // method with raw shapes that may bypass class-validator. Clamping
+    // here keeps the embedding + LLM-rerank + synthesize prompt sizes
+    // bounded regardless of caller.
+    const clamped = clampLlmInputText(dto.query ?? '', 'query');
+    if (clamped.truncated) {
+      this.logger.warn(
+        `search: query truncated to ${clamped.value.length} chars (companyId=${companyId})`,
+      );
+    }
+    dto = { ...dto, query: clamped.value };
     const limit = dto.limit ?? 10;
     const asOf = dto.asOf ? new Date(dto.asOf) : null;
     const includeRetracted = dto.includeRetracted ?? false;

@@ -7,6 +7,7 @@ import {
   IsISO8601,
   Min,
   Max,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -36,9 +37,14 @@ export class IngestFactDto {
   entityRef: EntityRef;
 
   @IsString()
+  @MaxLength(256)
   predicate: string;
 
+  // Object is a single fact value (price, address, name…); 2 KB covers
+  // any realistic structured value. Anything longer is almost certainly
+  // a misuse of the fact model — open prose belongs in mention text.
   @IsString()
+  @MaxLength(2_000)
   object: string;
 
   @IsISO8601()

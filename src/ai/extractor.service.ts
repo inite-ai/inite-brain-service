@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
+import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 import {
   PredicateRegistryService,
@@ -120,8 +121,23 @@ export class ExtractorService {
     text: string,
     companyId: string,
   ): Promise<ExtractionResult> {
-    const trimmed = text.trim();
+    // Defence in depth — DTOs already cap at 16K, but MCP and the
+    // admin-demo inline body shapes don't pass through class-validator.
+    // The cap MUST hold here too, otherwise a single rogue ingest can
+    // burn the shared OpenAI budget. See common/input-limits.ts.
+    const { value: trimmed, truncated } = clampLlmInputText(
+      text,
+      'mentionText',
+    );
     if (!trimmed) return { entities: [], facts: [], edges: [] };
+    if (truncated) {
+      this.logger.warn(
+        `extractor: input truncated to ${trimmed.length} chars (companyId=${companyId})`,
+      );
+      traceArtifact('extractor.input_truncated', {
+        finalLength: trimmed.length,
+      });
+    }
 
     const snapshot = await this.loadSnapshot(companyId);
     const systemPrompt = this.composeSystemPrompt(snapshot);

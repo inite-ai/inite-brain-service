@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
+import { clampLlmInputText } from '../common/input-limits';
 
 /**
  * One step in a multi-hop search plan. Produced by the planner LLM
@@ -131,9 +132,10 @@ export class MultiHopPlannerService {
   }
 
   async plan(query: string, maxHops: number): Promise<MultiHopPlan | null> {
-    if (!query.trim()) return null;
+    const { value: clamped } = clampLlmInputText(query ?? '', 'query');
+    if (!clamped) return null;
     const today = new Date().toISOString().slice(0, 10);
-    const user = `Today: ${today}\nMax hops: ${maxHops}\nQuery: ${query}`;
+    const user = `Today: ${today}\nMax hops: ${maxHops}\nQuery: ${clamped}`;
     try {
       return await this.limiter.run(() => this.callLLM(user, maxHops));
     } catch (err) {
