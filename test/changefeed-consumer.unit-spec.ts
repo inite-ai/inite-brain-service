@@ -93,8 +93,16 @@ describe('ChangefeedConsumerService', () => {
     const advance = calls.find((c) => c.sql.startsWith('UPSERT changefeed_state'));
     expect(advance).toBeTruthy();
     expect(advance!.params?.vs).toBe(12);
-    const created = calls.filter((c) => c.sql.startsWith('CREATE audit_event'));
-    expect(created).toHaveLength(2);
+    // Consumer batches via `INSERT INTO audit_event $events` now —
+    // one round-trip per (tenant × source). The two emit rows ride
+    // in the same params.events array.
+    const inserts = calls.filter((c) =>
+      c.sql.startsWith('INSERT INTO audit_event'),
+    );
+    expect(inserts).toHaveLength(1);
+    expect(
+      ((inserts[0].params?.events ?? []) as unknown[]).length,
+    ).toBe(2);
   });
 
   it('caps batch size and reports pendingRemaining for the trailing slice', async () => {
@@ -114,7 +122,9 @@ describe('ChangefeedConsumerService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
-    const created = calls.filter((c) => c.sql.startsWith('CREATE audit_event'));
-    expect(created).toHaveLength(0);
+    const inserts = calls.filter((c) =>
+      c.sql.startsWith('INSERT INTO audit_event'),
+    );
+    expect(inserts).toHaveLength(0);
   });
 });

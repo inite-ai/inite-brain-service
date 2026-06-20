@@ -39,7 +39,17 @@ export type TraceListItem = Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>;
 export class TraceBufferService {
   private readonly logger = new Logger(TraceBufferService.name);
   private buffer: DebugTraceSnapshot[] = [];
+  /**
+   * Hard cap on the trace ring buffer. Two limits:
+   *   - capacity: count cap (default 100). Cheap, deterministic.
+   *   - byteBudget: rough bytes-in-flight cap (default 64MB) computed
+   *     by estimating each snapshot's size from spans + artifacts.
+   *     Without this an op with 200 hot artifacts × 32KB each could
+   *     hold 6.4MB per trace × 100 = 640MB heap in worst case.
+   */
   private readonly capacity = 100;
+  private readonly byteBudget: number;
+  private bufferBytes = 0;
   private readonly dbCapacity: number;
   private readonly persistEnabled: boolean;
   /** Fan-out for SSE subscribers — keyed-by-companyId filter applied in the controller. */
@@ -57,12 +67,31 @@ export class TraceBufferService {
       10,
     );
     this.dbCapacity = Number.isFinite(cap) && cap > 0 ? cap : 1000;
+    const byteCap = parseInt(
+      this.config?.get<string>(
+        'DEBUG_TRACE_MEM_BYTE_BUDGET',
+        String(64 * 1024 * 1024),
+      ) ?? String(64 * 1024 * 1024),
+      10,
+    );
+    this.byteBudget =
+      Number.isFinite(byteCap) && byteCap > 0 ? byteCap : 64 * 1024 * 1024;
   }
 
   add(snapshot: DebugTraceSnapshot): void {
+    const size = estimateSnapshotBytes(snapshot);
     this.buffer.unshift(snapshot);
-    if (this.buffer.length > this.capacity) {
-      this.buffer.length = this.capacity;
+    this.bufferBytes += size;
+    // Evict by count THEN by bytes. The count cap stays the primary
+    // bound for typical traces; the bytes-cap kicks in when an op
+    // produced an outsized artifact dump (200 artifacts × 32KB each).
+    while (this.buffer.length > this.capacity) {
+      const dropped = this.buffer.pop();
+      if (dropped) this.bufferBytes -= estimateSnapshotBytes(dropped);
+    }
+    while (this.bufferBytes > this.byteBudget && this.buffer.length > 1) {
+      const dropped = this.buffer.pop();
+      if (dropped) this.bufferBytes -= estimateSnapshotBytes(dropped);
     }
     const { spans: _s, artifacts: _a, ...meta } = snapshot;
     this.stream.next(meta);
@@ -187,4 +216,32 @@ export class TraceBufferService {
       );
     });
   }
+}
+
+/**
+ * Cheap-and-conservative byte estimator for a trace snapshot. We avoid
+ * full JSON.stringify on the hot path (the snapshot can already be
+ * 6MB) — instead approximate from span count + artifact lengths. The
+ * estimate doesn't have to be exact; the budget is a safety valve,
+ * not an accounting line item.
+ */
+function estimateSnapshotBytes(s: DebugTraceSnapshot): number {
+  const base = 256; // request meta + small fields
+  const spans = (s.spans?.length ?? 0) * 256;
+  let artifactBytes = 0;
+  for (const a of s.artifacts ?? []) {
+    const v = a.value as unknown;
+    if (typeof v === 'string') {
+      artifactBytes += v.length;
+    } else if (v && typeof v === 'object') {
+      // 2 bytes per key+value entry is a wild underestimate, but only
+      // by a constant factor. The 32KB artifact cap upstream is what
+      // really bounds the worst case.
+      artifactBytes +=
+        Object.keys(v as Record<string, unknown>).length * 64 + 64;
+    } else {
+      artifactBytes += 32;
+    }
+  }
+  return base + spans + artifactBytes;
 }

@@ -257,8 +257,17 @@ export class ChangefeedConsumerService {
         const trailing = sorted.length - batch.length;
         pendingRemaining += trailing;
 
-        for (const change of batch) {
-          await this.emitAuditEvent(db, source, change);
+        // Bulk-insert the whole batch in one round-trip. Sequential
+        // CREATE was the bottleneck under load: 500 changes × 3 sources
+        // × 50 tenants = 75K serial round-trips per tick, easily
+        // overflowing the EVERY_MINUTE budget. INSERT INTO ... [..]
+        // takes one RTT per source instead.
+        const events = this.buildAuditEventBatch(source, batch);
+        if (events.length > 0) {
+          await db.query(
+            `INSERT INTO audit_event $events`,
+            { events },
+          );
         }
         await this.advanceCursor(
           db,
@@ -308,48 +317,47 @@ export class ChangefeedConsumerService {
     return (rows as Array<Record<string, unknown>>) ?? [];
   }
 
-  private async emitAuditEvent(
-    db: any,
+  /**
+   * Flatten a batch of SHOW CHANGES rows into the audit_event shape.
+   *
+   * Each `change` row carries one or more items (`update` / `delete` /
+   * `define_table`); each item becomes one audit_event. We compute
+   * the array once so the consumer can submit them in a single
+   * `INSERT INTO audit_event [..]` round-trip instead of N serial
+   * CREATEs. Returning the array (not awaiting per-row) is what makes
+   * the operation bulk-able.
+   */
+  private buildAuditEventBatch(
     source: string,
-    change: Record<string, unknown>,
-  ): Promise<void> {
-    // SHOW CHANGES rows shape (SurrealDB 2.2.x):
-    //   { versionstamp, changes: [ { update?: <row>, delete?: <id>,
-    //                                define_table?: <obj> } ] }
-    // For our purposes we collapse each change item into one audit
-    // row, tagged with the recoverable recordId + a normalised op
-    // label.
-    const versionstamp = change.versionstamp as number;
-    const items =
-      (change.changes as Array<Record<string, unknown>> | undefined) ?? [];
-    for (const item of items) {
-      const op = Object.keys(item)[0] ?? 'unknown';
-      const payload = (item as Record<string, unknown>)[op] as
-        | Record<string, unknown>
-        | string
-        | undefined;
-      const recordId =
-        op === 'delete'
-          ? String(payload)
-          : (payload as { id?: unknown } | undefined)?.id?.toString() ?? '';
-      const after = typeof payload === 'object' ? (payload as object) : undefined;
-      await db.query(
-        `CREATE audit_event CONTENT {
-            source: $source,
-            recordId: $recordId,
-            op: $op,
-            versionstamp: $versionstamp,
-            after: $after
-         }`,
-        {
+    changes: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const change of changes) {
+      const versionstamp = change.versionstamp as number;
+      const items =
+        (change.changes as Array<Record<string, unknown>> | undefined) ?? [];
+      for (const item of items) {
+        const op = Object.keys(item)[0] ?? 'unknown';
+        const payload = (item as Record<string, unknown>)[op] as
+          | Record<string, unknown>
+          | string
+          | undefined;
+        const recordId =
+          op === 'delete'
+            ? String(payload)
+            : (payload as { id?: unknown } | undefined)?.id?.toString() ?? '';
+        const after =
+          typeof payload === 'object' ? (payload as object) : undefined;
+        out.push({
           source,
           recordId,
           op,
           versionstamp,
           after,
-        },
-      );
+        });
+      }
     }
+    return out;
   }
 
   private async advanceCursor(

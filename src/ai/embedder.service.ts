@@ -248,6 +248,11 @@ export class EmbedderService implements OnModuleInit {
         this.configService.get<string>('BGE_M3_CONCURRENCY', '4'),
         10,
       ),
+      // Off-by-default for now (1) tests assume in-thread; (2) the
+      // worker bootstraps @xenova/transformers fresh per worker which
+      // doubles peak memory during warmup. Operators flip
+      // BGE_M3_WORKER=1 to run inference off the main event loop.
+      useWorker: this.configService.get<string>('BGE_M3_WORKER', '0') === '1',
     });
   }
 
