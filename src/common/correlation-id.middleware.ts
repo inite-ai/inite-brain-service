@@ -29,6 +29,29 @@ export function correlationIdMiddleware() {
       128,
     );
     res.setHeader('x-request-id', correlationId);
-    runWithRequestContext({ correlationId }, () => next());
+    // Bind an AbortController to the underlying socket. The controller
+    // fires when the request closes BEFORE the response finishes —
+    // covers browser-tab-close / curl-Ctrl-C / proxy timeout. Long
+    // pipelines (extractor, synthesize) consume getAbortSignal() and
+    // forward into OpenAI / fetch so cancelled requests stop burning
+    // tokens. The listener self-removes on response 'finish' (normal
+    // path) to avoid leaking when the response completes normally.
+    const controller = new AbortController();
+    // Defensive: unit tests mock req/res as plain objects without
+    // EventEmitter wiring. Skip the listener install when on() is
+    // missing — production Express requests always have it.
+    if (typeof (req as { on?: unknown }).on === 'function') {
+      const onClose = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      req.on('close', onClose);
+      if (typeof (res as { on?: unknown }).on === 'function') {
+        res.on('finish', () => req.removeListener('close', onClose));
+      }
+    }
+    runWithRequestContext(
+      { correlationId, abortSignal: controller.signal },
+      () => next(),
+    );
   };
 }

@@ -7,6 +7,7 @@ import { withSpan } from '../common/tracing';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
+import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import {
   SynthesisGuardrails,
@@ -387,7 +388,8 @@ export class SynthesizeService {
         attrs: { 'brain.synthesize.answer_lang': answerLang ?? 'auto' },
       },
       this.metrics,
-      () => this.openai.chat.completions.create({
+      () => this.openai.chat.completions.create(
+      {
       model,
       messages: [
         { role: 'system', content: GENERATOR_SYSTEM },
@@ -411,7 +413,7 @@ export class SynthesizeService {
       },
       max_completion_tokens: 512,
       temperature: 0,
-    }),
+    }, { signal: getAbortSignal() }),
     );
     const content = res.choices[0]?.message?.content;
     if (!content) throw new Error('empty generator response');
@@ -446,7 +448,8 @@ export class SynthesizeService {
         model,
       },
       this.metrics,
-      () => this.openai.chat.completions.create({
+      () => this.openai.chat.completions.create(
+      {
       model,
       messages: [
         { role: 'system', content: VERIFIER_SYSTEM },
@@ -476,7 +479,7 @@ export class SynthesizeService {
       },
       max_completion_tokens: 256,
       temperature: 0,
-    }),
+    }, { signal: getAbortSignal() }),
     );
     const content = res.choices[0]?.message?.content;
     if (!content) throw new Error('empty verifier response');

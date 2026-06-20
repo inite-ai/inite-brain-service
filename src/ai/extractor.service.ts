@@ -5,6 +5,7 @@ import { Semaphore } from '../common/semaphore';
 import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import {
   clusterKey,
@@ -436,23 +437,26 @@ export class ExtractorService {
         },
         this.metrics,
         () =>
-          this.openai.chat.completions.create({
-            model: this.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: trimmed },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'extraction',
-                strict: true,
-                schema: buildExtractionSchema(),
+          this.openai.chat.completions.create(
+            {
+              model: this.model,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: trimmed },
+              ],
+              response_format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'extraction',
+                  strict: true,
+                  schema: buildExtractionSchema(),
+                },
               },
+              max_completion_tokens: 1500,
+              temperature,
             },
-            max_completion_tokens: 1500,
-            temperature,
-          }),
+            { signal: getAbortSignal() },
+          ),
       ),
     );
     const content = res.choices[0]?.message?.content;

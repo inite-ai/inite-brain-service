@@ -23,6 +23,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface RequestContext {
   correlationId: string;
+  /**
+   * AbortSignal that fires when the underlying HTTP request closes
+   * (client disconnect, request timeout). Long-running pipelines
+   * (extractor, synthesize, multi-hop, search) thread this into
+   * their OpenAI / fetch calls so a cancelled request stops burning
+   * tokens. Undefined for background contexts (cron, startup).
+   */
+  abortSignal?: AbortSignal;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -49,4 +57,13 @@ export function getCorrelationId(): string | undefined {
  */
 export function getRequestContext(): RequestContext | undefined {
   return storage.getStore();
+}
+
+/**
+ * Current request's abort signal, or undefined when outside a
+ * request. Service-level code uses this to pass through to OpenAI /
+ * fetch / Surreal — no signature changes needed.
+ */
+export function getAbortSignal(): AbortSignal | undefined {
+  return storage.getStore()?.abortSignal;
 }

@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
 import { clampLlmInputText } from '../common/input-limits';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 
 /**
@@ -162,7 +163,8 @@ export class MultiHopPlannerService {
         attrs: { 'brain.multi_hop.max_hops': maxHops },
       },
       this.metrics,
-      () => this.openai.chat.completions.create({
+      () => this.openai.chat.completions.create(
+      {
       model: this.model,
       messages: [
         { role: 'system', content: PLANNER_SYSTEM },
@@ -217,7 +219,7 @@ export class MultiHopPlannerService {
       },
       max_completion_tokens: 768,
       temperature: 0,
-    }),
+    }, { signal: getAbortSignal() }),
     );
     const content = res.choices[0]?.message?.content;
     if (!content) return null;

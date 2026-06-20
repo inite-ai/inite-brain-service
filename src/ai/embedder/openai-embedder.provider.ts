@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { Semaphore } from '../../common/semaphore';
+import { getAbortSignal } from '../../common/request-context';
 import type { EmbedderProvider } from './embedder-provider.interface';
 
 export interface OpenAIEmbedderConfig {
@@ -53,11 +54,14 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
     const trimmed = text.trim();
     if (!trimmed) return new Array(this.dimensions).fill(0);
     return this.limiter.run(async () => {
-      const res = await this.openai.embeddings.create({
-        model: this.model,
-        input: trimmed,
-        dimensions: this.dimensions,
-      });
+      const res = await this.openai.embeddings.create(
+        {
+          model: this.model,
+          input: trimmed,
+          dimensions: this.dimensions,
+        },
+        { signal: getAbortSignal() },
+      );
       return res.data[0].embedding;
     });
   }
@@ -90,11 +94,14 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
       const slice = inputs.slice(start, start + CHUNK);
       const sliceIdx = indices.slice(start, start + CHUNK);
       const res = await this.limiter.run(() =>
-        this.openai.embeddings.create({
-          model: this.model,
-          input: slice,
-          dimensions: this.dimensions,
-        }),
+        this.openai.embeddings.create(
+          {
+            model: this.model,
+            input: slice,
+            dimensions: this.dimensions,
+          },
+          { signal: getAbortSignal() },
+        ),
       );
       for (let j = 0; j < res.data.length; j++) {
         out[sliceIdx[j]] = res.data[j].embedding;

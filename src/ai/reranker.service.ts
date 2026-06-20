@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 
 export interface RerankCandidate {
@@ -178,7 +179,8 @@ Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every
             attrs: { 'brain.rerank.candidates': candidates.length },
           },
           this.metrics,
-          () => this.openai.chat.completions.create({
+          () => this.openai.chat.completions.create(
+          {
           model: this.model,
           messages: [
             { role: 'system', content: systemPrompt },
@@ -204,7 +206,7 @@ Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every
           },
           max_completion_tokens: 256,
           temperature: 0,
-        })),
+        }, { signal: getAbortSignal() })),
       );
 
       const content = res.choices[0]?.message?.content;

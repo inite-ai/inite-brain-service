@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { Semaphore } from '../common/semaphore';
 import { createHash } from 'node:crypto';
 import { withGenAiCall } from '../common/gen-ai-observability';
+import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 
 /**
@@ -206,7 +207,8 @@ Examples of joint reasoning:
         model: this.model,
       },
       this.metrics,
-      () => this.openai.chat.completions.create({
+      () => this.openai.chat.completions.create(
+      {
       model: this.model,
       messages: [
         { role: 'system', content: sys },
@@ -244,7 +246,7 @@ Examples of joint reasoning:
       },
       max_completion_tokens: 384,
       temperature: 0,
-    }),
+    }, { signal: getAbortSignal() }),
     );
     const content = res.choices[0]?.message?.content;
     if (!content) return null;
