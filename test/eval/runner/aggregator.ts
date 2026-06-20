@@ -182,6 +182,66 @@ export class Aggregator {
         value: synthOutcomes.length === 0 ? null : synthVerifierFailures,
         n: synthOutcomes.length,
       },
+      // ── Phase 3 recent-additions gates ────────────────────────────
+      // These three are computable from the existing SynthesizeOutcome
+      // shape without touching the harness. Together they're the
+      // smoke test that the Phase 3.A (calibration) + 3.C (ConU
+      // conformal guardrail) infrastructure is live in eval, not
+      // just declared:
+      //   1. conformal-active-rate — fraction of synthesize calls
+      //      where SYNTHESIZE_MIN_CONFIDENCE > 0 was active. With the
+      //      0.30 default flipped on in deploy-brain.yml (commit
+      //      91f0239) we expect this near 1.0 across the suite.
+      //      A drop here means the guardrail silently regressed
+      //      to identity.
+      //   2. synthesize-abstain-rate — fraction of synthesize calls
+      //      with answer === null. If the conformal floor is too
+      //      aggressive OR the corpus is wrong this spikes. Pass
+      //      gate ≤ 0.30 — anything higher and we're abstaining on
+      //      a third of queries, which is the failure mode the
+      //      audit flagged ("ConU short-circuit means the eval
+      //      can't measure abstain quality").
+      //   3. verifier-failure-rate — same data as the existing
+      //      faithfulness:verifier-failures count, but rendered as
+      //      a fraction with a hard threshold so a wave of malformed
+      //      verifier responses (the audit's "LLM rerolls" failure
+      //      mode) trips the gate instead of just being a diagnostic.
+      {
+        name: 'conformal-active-rate',
+        value:
+          synthOutcomes.length === 0
+            ? null
+            : synthOutcomes.filter((o) => o.faithfulnessFloor > 0).length /
+              synthOutcomes.length,
+        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+        n: synthOutcomes.length,
+      },
+      {
+        name: 'synthesize-abstain-rate',
+        // Pass condition is value < threshold (the gate is "low is
+        // good"). Express as `1 - abstainRate` so the >= comparator
+        // does the right thing without changing the harness.
+        value:
+          synthOutcomes.length === 0
+            ? null
+            : 1 -
+              synthOutcomes.filter((o) => o.answer === null).length /
+                synthOutcomes.length,
+        threshold: synthOutcomes.length > 0 ? 0.7 : undefined,
+        n: synthOutcomes.length,
+      },
+      {
+        name: 'verifier-failure-rate',
+        // Same flip — value is 1 - failure-rate so the gate reads
+        // "at least 95% of synthesize calls had a clean verifier
+        // response". Equivalent to failure-rate ≤ 0.05.
+        value:
+          synthOutcomes.length === 0
+            ? null
+            : 1 - synthVerifierFailures / synthOutcomes.length,
+        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+        n: synthOutcomes.length,
+      },
       {
         name: 'privacy-leakage-mia-auc',
         value: maxMiaAuc(miaResults),
