@@ -50,36 +50,40 @@ export async function resolveSeedEntities(
     if (seeds.length > 0) return seeds;
   }
   if (!targetLc) return [];
+  // BM25 SEARCH fallback. Pre-fix this branch did a `SELECT … LIMIT
+  // 200` full-table scan and a JS-side substring filter — linear in
+  // tenant entity count per ask, hot-path. We have `entity_name_search_idx`
+  // (BM25 SEARCH ANALYZER content, migration 0002) defined for exactly
+  // this purpose. Route through it and let SurrealDB score + rank;
+  // returned `score` lets us prefer better matches without the
+  // length-sort heuristic.
+  //
+  // Notes on the syntax:
+  //   - `canonicalName @1@ $q` means "matcher 1 against the BM25 index"
+  //   - `search::score(1)` reads the score for that matcher
+  //   - We keep `mergedInto IS NONE` so identity-merged entities don't
+  //     resurface.
   const [allRows] = await db.query<
     [
       Array<{
         id: unknown;
         type: string;
         canonicalName: string;
-        canonicalNameLc?: string;
         externalRefs?: Record<string, string>;
+        bm25?: number;
       }>,
     ]
   >(
-    `SELECT id, type, canonicalName, canonicalNameLc, externalRefs
+    `SELECT id, type, canonicalName, externalRefs,
+            search::score(1) AS bm25
        FROM knowledge_entity
-      WHERE mergedInto IS NONE AND canonicalNameLc IS NOT NONE
-      LIMIT 200`,
+      WHERE mergedInto IS NONE
+        AND canonicalName @1@ $q
+      ORDER BY bm25 DESC
+      LIMIT 5`,
+    { q: targetLc },
   );
-  const candidates = allRows ?? [];
-  return candidates
-    .filter((c) => {
-      const nameLc = c.canonicalNameLc;
-      if (typeof nameLc !== 'string' || nameLc.length < 2) return false;
-      return targetLc.includes(nameLc);
-    })
-    .sort(
-      (a, b) =>
-        String(b.canonicalNameLc).length -
-        String(a.canonicalNameLc).length,
-    )
-    .slice(0, 5)
-    .map(toGraphEntity);
+  return (allRows ?? []).map(toGraphEntity);
 }
 
 /**
