@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Nightly schedule runs the real-LLM quality eval against main once
+  # per day at 05:00 UTC (08:00 MSK). We deliberately keep the eval
+  # OFF the per-push critical path: a 17-min run against the live
+  # OpenAI API is too slow, too expensive in tokens, and too
+  # non-deterministic (±5–15pp recall@k drift run-to-run on temp=0.1)
+  # to block merges on. Absolute floors still catch hard regressions
+  # via the unit/e2e suites; the eval here catches slow quality drift
+  # at a cadence where a flake doesn't ruin somebody's afternoon.
+  schedule:
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       run_real_e2e:
@@ -88,25 +98,25 @@ jobs:
   # because the eval depends on production-shape extraction +
   # embedding behaviour, not stubs.
   #
-  # Trigger surface:
-  #   - push to main (post-merge gate; long-running, ~5-10 min)
+  # Trigger surface — deliberately OFF push-to-main:
+  #   - schedule (nightly 05:00 UTC) — slow-drift watchdog
   #   - workflow_dispatch with run_eval=true (manual, any branch)
-  # We deliberately DO NOT run on every PR — secrets aren't
-  # available to forks and the run cost (OpenAI tokens × scenarios)
-  # is non-trivial. PRs are gated on lint + build + in-process e2e
-  # via build-test; eval drift is caught at the merge boundary and
-  # by the manual dispatch button.
+  #
+  # Why not on push to main? The live-OpenAI eval is ~17 min, non-
+  # deterministic (±5–15pp recall@k drift on temp=0.1), and burns
+  # tokens. Putting it on the merge critical path means every push
+  # is a coin flip — see history before this change: 16/20 main
+  # runs failed, almost all on eval flake or SDK-epoch drift after
+  # the v4→v5 upgrade. Per-push protection is the unit/e2e suites
+  # plus docker smoke; the eval is a daily watchdog, not a gate.
   quality-eval:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Workflow_dispatch always honours the run_eval input. The auto-on-
-    # main branch runs only when OPENAI_API_KEY is configured (org
-    # secret) — without the key the eval has nothing to score, so a
-    # missing secret is "skip", not "fail". Repository policy attaches
-    # OPENAI_API_KEY to the production deploy env; PRs from forks have
-    # no access regardless.
+    # Schedule and manual dispatch only. PR/push events skip this job.
+    # (For dispatch the run_eval input still has to be true so an ad-
+    # hoc dispatch of CI doesn't spend tokens unexpectedly.)
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_eval == 'true')
     needs: build-test
 
@@ -176,10 +186,11 @@ jobs:
           fi
 
       # Promote current to baseline for next run, but ONLY on a green
-      # push to main. Workflow_dispatch runs (manual / branch) still
-      # diff against main but don't pollute the baseline cache.
+      # nightly schedule run. Workflow_dispatch runs (manual / branch)
+      # still diff against the cached baseline but don't pollute it,
+      # so an ad-hoc dispatch can't lock in a flaky number as truth.
       - name: Promote current to baseline
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule'
         run: |
           mkdir -p .eval-baseline
           cp .eval-current/report.json .eval-baseline/main.json
