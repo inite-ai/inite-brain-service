@@ -1,8 +1,36 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { SurrealService, dbMerge } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { RetractFactDto } from './dto/retract.dto';
+import { BrainScope } from '../auth/api-key.types';
+
+/**
+ * Predicate-class allowlist that requires `brain:admin` for retract,
+ * not just `brain:write`. Retracting a fact in any of these classes
+ * cascades — `billing_event` rows reach downstream invoicing audits,
+ * `human_declared` rows represent operator-attested ground truth, and
+ * anything emitted by `source.kind === 'legal'` is regulator-visible.
+ * A leaked write-only key shouldn't be able to delete-by-cascade
+ * across those surfaces.
+ */
+const RETRACT_ADMIN_PREDICATES = new Set<string>([
+  'billing_event',
+  'human_declared',
+]);
+
+function retractRequiresAdmin(fact: {
+  predicate?: unknown;
+  source?: unknown;
+}): boolean {
+  const predicate = typeof fact.predicate === 'string' ? fact.predicate : '';
+  if (RETRACT_ADMIN_PREDICATES.has(predicate)) return true;
+  const source = fact.source as { kind?: unknown } | undefined;
+  if (source && typeof source.kind === 'string' && source.kind === 'legal') {
+    return true;
+  }
+  return false;
+}
 
 export interface RetractResult {
   factId: string;
@@ -31,19 +59,34 @@ export class FactsService {
     companyId: string,
     factId: string,
     dto: RetractFactDto,
+    callerScopes?: ReadonlyArray<BrainScope>,
   ): Promise<RetractResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const ref = this.normalizeFactId(factId);
       const now = new Date();
 
-      // Verify the fact exists and is currently active.
+      // Verify the fact exists and is currently active. SELECT extra
+      // predicate + source so the admin-scope gate below can read them.
       const [existingRows] = await db.query<any[][]>(
-        `SELECT id, status, retractedAt, validFrom FROM type::thing('knowledge_fact', $rid) LIMIT 1`,
+        `SELECT id, status, retractedAt, validFrom, predicate, source
+           FROM type::thing('knowledge_fact', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       const existing = (existingRows as any[])?.[0];
       if (!existing) {
         throw new NotFoundException(`Fact ${factId} not found`);
+      }
+
+      // Predicate-class authorization: billing_event / human_declared /
+      // legal-source facts need brain:admin. brain:write alone OK for
+      // the rest. callerScopes is optional (legacy in-process callers
+      // skip the check) — but the HTTP path always supplies it.
+      if (callerScopes && retractRequiresAdmin(existing)) {
+        if (!callerScopes.includes('brain:admin')) {
+          throw new ForbiddenException(
+            `retract of predicate='${existing.predicate}' (or legal source) requires brain:admin`,
+          );
+        }
       }
       if (existing.retractedAt) {
         return {
