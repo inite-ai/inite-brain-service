@@ -134,6 +134,54 @@ export class EmbedderService implements OnModuleInit {
   }
 
   /**
+   * Batched embed. Used by ingest / predicate-registry bootstrap /
+   * dreams dedup / reindex — anywhere we'd otherwise N×embed() in a
+   * loop. Caches per-text the same way as embed(); the underlying
+   * provider's `embedMany` is invoked only for the cache-missed
+   * subset, then the results are stitched back together in original
+   * order.
+   */
+  async embedMany(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const provider = this.activeProvider();
+    const out: number[][] = new Array(texts.length);
+    const missIdx: number[] = [];
+    const missTexts: string[] = [];
+    for (let i = 0; i < texts.length; i++) {
+      const trimmed = texts[i]?.trim() ?? '';
+      if (!trimmed) {
+        out[i] = new Array(this.getDimensions()).fill(0);
+        continue;
+      }
+      const k = this.cacheKey(provider.providerId, trimmed);
+      const hit = this.cache.get(k);
+      if (hit) {
+        out[i] = hit;
+      } else {
+        missIdx.push(i);
+        missTexts.push(trimmed);
+      }
+    }
+    if (missTexts.length > 0) {
+      // Use the provider's batched endpoint when available; fall back
+      // to per-text embed() otherwise. The fallback keeps the API
+      // safe for providers that haven't implemented embedMany yet
+      // (e.g. third-party plugins).
+      const vecs = provider.embedMany
+        ? await provider.embedMany(missTexts)
+        : await Promise.all(missTexts.map((t) => provider.embed(t)));
+      for (let j = 0; j < missTexts.length; j++) {
+        const text = missTexts[j];
+        const vec = vecs[j];
+        const k = this.cacheKey(provider.providerId, text);
+        this.cache.set(k, vec);
+        out[missIdx[j]] = vec;
+      }
+    }
+    return out;
+  }
+
+  /**
    * Test/diagnostic surface — no business code should depend on cache
    * shape. The `inFlight` + `waiting` fields are kept at 0 for back-
    * compat with admin /v1/admin/router-stats consumers; concurrency

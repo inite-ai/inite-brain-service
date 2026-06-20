@@ -31,4 +31,14 @@ export interface EmbedderProvider {
 
   /** Embed a single string. Empty / whitespace → zero vector. */
   embed(text: string): Promise<number[]>;
+
+  /**
+   * Optional batched API. Providers that support it return one vector
+   * per input in the same order. Implementations that don't override
+   * fall back to N sequential `embed()` calls via the default in
+   * EmbedderService — correct but pays N round-trips. OpenAI's
+   * `/embeddings` endpoint accepts arrays up to 2048; BGE-M3 can
+   * compute a batch in one pass.
+   */
+  embedMany?(texts: string[]): Promise<number[][]>;
 }
