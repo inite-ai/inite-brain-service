@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import {
@@ -7,6 +7,8 @@ import {
   type CalibrationMap,
 } from './isotonic';
 import { BOOTSTRAP_GOLD_SET } from './gold-set';
+import { SurrealService } from '../../db/surreal.service';
+import { ApiKeyService } from '../../auth/api-key.service';
 
 /**
  * CalibrationService — owns the (extractorModel, promptHash) →
@@ -30,14 +32,21 @@ import { BOOTSTRAP_GOLD_SET } from './gold-set';
  * documented in arXiv:2502.11028 (66.7% of errors at >0.80 raw).
  */
 @Injectable()
-export class CalibrationService {
+export class CalibrationService implements OnModuleInit {
   private readonly logger = new Logger(CalibrationService.name);
   private readonly cache = new Map<string, CalibrationMap>();
   private readonly disabled: boolean;
   private readonly extractorModel: string;
-  private readonly bootstrapMap: CalibrationMap;
+  // Mutable so onModuleInit can replace the synthetic fit with a
+  // persisted calibration_table row when one is available.
+  private bootstrapMap: CalibrationMap;
+  private bootstrapSource: 'synthetic' | 'persisted' = 'synthetic';
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly surreal?: SurrealService,
+    @Optional() private readonly apiKeys?: ApiKeyService,
+  ) {
     this.disabled =
       this.configService.get<string>('CALIBRATION_USE_GOLD_SET', '1') === '0';
     this.extractorModel = this.configService.get<string>(
@@ -47,9 +56,91 @@ export class CalibrationService {
     this.bootstrapMap = fitIsotonic(BOOTSTRAP_GOLD_SET);
     if (!this.disabled) {
       this.logger.log(
-        `Calibration bootstrap fitted: model=${this.extractorModel} samples=${this.bootstrapMap.sampleCount} bins=${this.bootstrapMap.thresholds.length}`,
+        `Calibration bootstrap fitted: model=${this.extractorModel} samples=${this.bootstrapMap.sampleCount} bins=${this.bootstrapMap.thresholds.length} source=${this.bootstrapSource}`,
       );
     }
+  }
+
+  /**
+   * Replace the synthetic bootstrap with the latest persisted
+   * calibration_table row when one is available AND its sampleCount
+   * crosses the 40-pair floor that the refit-service also enforces.
+   *
+   * Why: the synthetic gold set was a fixture for the cold-start case.
+   * Once the nightly refit (calibration-refit.service.ts) has run at
+   * least once on real data, that persisted row is a strictly better
+   * prior than the hand-curated bootstrap. Lifting it on boot also
+   * eliminates the audit's "tenants <40 pairs stay on synthetic
+   * forever" failure mode — even fresh tenants in a multi-tenant
+   * deploy inherit the operator-wide calibration immediately.
+   */
+  async onModuleInit(): Promise<void> {
+    if (this.disabled || !this.surreal || !this.apiKeys) return;
+    const tenants = this.apiKeys.knownCompanyIds();
+    if (tenants.length === 0) return;
+    const host = tenants[0];
+    try {
+      const map = await this.loadPersistedBootstrap(host);
+      if (map) {
+        this.bootstrapMap = map;
+        this.bootstrapSource = 'persisted';
+        this.logger.log(
+          `Calibration bootstrap replaced from calibration_table: model=${this.extractorModel} samples=${map.sampleCount} bins=${map.thresholds.length}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Calibration persisted-bootstrap probe failed (${(e as Error).message}); ` +
+          `staying on synthetic gold set`,
+      );
+    }
+  }
+
+  private async loadPersistedBootstrap(
+    host: string,
+  ): Promise<CalibrationMap | null> {
+    if (!this.surreal) return null;
+    return this.surreal.withCompany(host, async (db) => {
+      const [rows] = await db.query<
+        [
+          Array<{
+            thresholds: number[];
+            values: number[];
+            sampleCount: number;
+          }>,
+        ]
+      >(
+        `SELECT thresholds, values, sampleCount
+           FROM calibration_table
+           WHERE extractorModel = $m AND promptHash = $p
+           ORDER BY version DESC LIMIT 1`,
+        { m: this.extractorModel, p: promptHashOf('bootstrap') },
+      );
+      const row = (rows as Array<{
+        thresholds: number[];
+        values: number[];
+        sampleCount: number;
+      }>)?.[0];
+      if (!row || !Array.isArray(row.thresholds) || !Array.isArray(row.values)) {
+        return null;
+      }
+      if (row.sampleCount < 40) return null;
+      if (row.thresholds.length !== row.values.length) return null;
+      return {
+        thresholds: row.thresholds,
+        values: row.values,
+        sampleCount: row.sampleCount,
+      };
+    });
+  }
+
+  /**
+   * Source of the currently-active bootstrap map. Exposed primarily for
+   * the metrics dashboard / debug endpoints — a tenant freshly onboarded
+   * after the nightly refit should see `'persisted'`.
+   */
+  getBootstrapSource(): 'synthetic' | 'persisted' {
+    return this.bootstrapSource;
   }
 
   /**
