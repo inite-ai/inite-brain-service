@@ -370,16 +370,14 @@ export class IngestService {
           const result = await traceSpan(
             'ingest.fact.upsert',
             () =>
-              this.recordExtractedFact(
-                db,
-                companyId,
-                eid,
-                f.predicate,
-                f.object,
-                f.confidence,
-                new Date(dto.emittedAt),
-                sourceFromContext,
-              ),
+              this.recordExtractedFact(db, companyId, eid, {
+                predicate: f.predicate,
+                object: f.object,
+                confidence: f.confidence,
+                validFrom: new Date(dto.emittedAt),
+                source: sourceFromContext,
+                extractionEntropy: f.extractionEntropy,
+              }),
             { predicate: f.predicate, entityId: eid },
           );
           if (result.factId) factIds.push(result.factId);
@@ -599,17 +597,21 @@ export class IngestService {
     db: Surreal,
     companyId: string,
     entityId: string,
-    predicate: string,
-    object: string,
-    confidence: number,
-    validFrom: Date,
-    source: any,
+    factPayload: {
+      predicate: string;
+      object: string;
+      confidence: number;
+      validFrom: Date;
+      source: any;
+      extractionEntropy?: number;
+    },
   ): Promise<{
     factId: string | null;
     outcome?: IngestOutcome;
     supersededFactIds?: string[];
     competingFactIds?: string[];
   }> {
+    const { predicate, object, confidence, validFrom, source } = factPayload;
     const embedding = await this.embedder.embed(`${predicate}: ${object}`);
 
     // Route through fn::resolve_fact so chat-extracted facts get the
@@ -722,6 +724,20 @@ export class IngestService {
           { tail: idTailOf(factId), emb: altEmbedding },
         );
       }
+    }
+
+    // Phase 3.B — persist self-consistency entropy on INSERTED rows.
+    // Only fires when EXTRACTOR_SC_PASSES > 1 produced a value;
+    // single-pass extractions leave the column NONE.
+    if (
+      factId &&
+      outcome === 'INSERTED' &&
+      typeof factPayload.extractionEntropy === 'number'
+    ) {
+      await db.query(
+        `UPDATE type::thing('knowledge_fact', $tail) SET extractionEntropy = $h`,
+        { tail: idTailOf(factId), h: factPayload.extractionEntropy },
+      );
     }
 
     // Surface supersede / compete outcomes in the trace so the demo can

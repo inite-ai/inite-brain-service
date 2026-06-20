@@ -24,6 +24,20 @@ export interface ExtractedFact {
   confidence: number;
   /** The clause this fact was anchored to (verbatim sub-span). */
   clause?: string;
+  /**
+   * Semantic entropy across the N stochastic re-rolls (Farquhar et al.,
+   * Nature 2024). Only populated when EXTRACTOR_SC_PASSES > 1; absent
+   * on single-pass extractions. The value is the cluster entropy (nats)
+   * over the per-fact clustering; a single dominant cluster collapses
+   * to ~0, an even spread approaches log(N).
+   */
+  extractionEntropy?: number;
+  /**
+   * Fraction of passes that surfaced this fact's cluster ∈ [0, 1] (CISC,
+   * ACL findings 2025). 1 means every pass agreed; 1/N means the cluster
+   * only appeared once. Same emission gate as extractionEntropy.
+   */
+  extractionAgreement?: number;
 }
 
 export interface ExtractedEdge {

@@ -7,6 +7,10 @@ import { traceArtifact } from '../common/debug-trace';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import {
+  clusterKey,
+  selfConsistencyByFact,
+} from './extractor-internals/semantic-entropy';
+import {
   PredicateRegistryService,
   CORE_PREDICATES,
   PredicateDefinition,
@@ -80,6 +84,7 @@ export class ExtractorService {
   private readonly model: string;
   private readonly systemPromptHeader: string;
   private readonly limiter: Semaphore;
+  private readonly scPasses: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -117,6 +122,16 @@ export class ExtractorService {
       EXTRACTION_PROMPT_HEADER;
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
+    );
+    // Self-consistency / N-pass driver. Default 1 = single-pass (the
+    // historical single LLM call). When EXTRACTOR_SC_PASSES > 1 the
+    // extractor fans N stochastic re-rolls in parallel and emits the
+    // dominant-cluster facts annotated with semantic entropy + cluster
+    // agreement (Farquhar Nature 2024, Nikitin NeurIPS 2024). Cost
+    // scales linearly with N — kept opt-in for that reason.
+    this.scPasses = Math.max(
+      1,
+      parseInt(this.configService.get<string>('EXTRACTOR_SC_PASSES', '1'), 10),
     );
   }
 
@@ -173,7 +188,27 @@ export class ExtractorService {
       predicateIds: snapshot.active.map((p) => p.predicateId),
     });
 
-    const rawJson = await this.callLlm(trimmed, systemPrompt);
+    // N-pass self-consistency driver. When EXTRACTOR_SC_PASSES > 1 we
+    // run the same prompt N times with varied temperature (stochastic
+    // re-rolls), assemble per-pass extractions, then cluster facts
+    // across passes by canonical predicate + normalised object span
+    // (semantic-entropy.ts). The returned facts come from the dominant
+    // cluster of each canonical (predicate, object) tuple and carry
+    // per-fact `extractionEntropy` + `extractionAgreement` — a hallu-
+    // cinated low-agreement fact lands in a singleton cluster and
+    // gets a high-entropy tag so downstream confidence calibration
+    // can discount it.
+    if (this.scPasses > 1) {
+      return this.runMultiPassExtract({
+        companyId,
+        trimmed,
+        cacheKey,
+        snapshot,
+        systemPrompt,
+      });
+    }
+
+    const rawJson = await this.callLlm(trimmed, systemPrompt, 0.1);
     if (!rawJson) return { entities: [], facts: [], edges: [] };
 
     return this.assembleResult({
@@ -183,6 +218,120 @@ export class ExtractorService {
       snapshot,
       rawJson,
     });
+  }
+
+  /**
+   * Run the extraction prompt N times in parallel with stepped
+   * temperatures (more variance at higher T to seed cluster spread),
+   * cluster the resulting facts, and emit a merged ExtractionResult
+   * with each surviving fact tagged by its cluster's semantic entropy
+   * + agreement rate.
+   *
+   * Entities and edges: merged across passes by dedupe-on-content (no
+   * cluster math — they're far less prone to LLM variance than the
+   * predicate/value pair, and the ingest side resolves entity
+   * identity downstream anyway via externalRefs + identity links).
+   */
+  private async runMultiPassExtract(args: {
+    companyId: string;
+    trimmed: string;
+    cacheKey: string;
+    snapshot: { versionHash: string; active: PredicateDefinition[] };
+    systemPrompt: string;
+  }): Promise<ExtractionResult> {
+    const N = this.scPasses;
+    // Even temperature spread across [0.1, 0.7]. T=0.1 is the existing
+    // single-pass setting (reproducibility anchor); the spread above it
+    // produces the variance that surfaces a hallucination as a singleton
+    // cluster. Bounded above at 0.7 — past that the LLM emits genuine
+    // schema violations the grounding gate then has to drop anyway.
+    const temperatures = Array.from(
+      { length: N },
+      (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1),
+    );
+
+    const rawJsons = await Promise.all(
+      temperatures.map((t) =>
+        this.callLlm(args.trimmed, args.systemPrompt, t).catch((e) => {
+          this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
+          return null;
+        }),
+      ),
+    );
+    const results = await Promise.all(
+      rawJsons.map((rj) =>
+        rj
+          ? this.assembleResult({
+              companyId: args.companyId,
+              trimmed: args.trimmed,
+              cacheKey: args.cacheKey,
+              snapshot: args.snapshot,
+              rawJson: rj,
+            })
+          : null,
+      ),
+    );
+    const surviving = results.filter((r): r is ExtractionResult => !!r);
+    if (surviving.length === 0) return { entities: [], facts: [], edges: [] };
+
+    // Cluster facts across passes.
+    const passFacts = surviving.map((r) =>
+      r.facts.map((f) => ({ predicate: f.predicate, object: f.object })),
+    );
+    const sc = selfConsistencyByFact(passFacts);
+
+    // Dedupe entities by canonical-or-name; merge edges by triple.
+    const entityKey = (e: { name: string; type: string }) =>
+      `${e.type}:${e.name.toLowerCase().trim()}`;
+    const entityMap = new Map<string, ExtractionResult['entities'][number]>();
+    for (const r of surviving) {
+      for (const e of r.entities) {
+        const k = entityKey(e);
+        if (!entityMap.has(k)) entityMap.set(k, e);
+      }
+    }
+    const entities = [...entityMap.values()];
+
+    const edgeMap = new Map<string, ExtractionResult['edges'][number]>();
+    for (const r of surviving) {
+      for (const ed of r.edges) {
+        const k = `${ed.fromEntityIndex}-${ed.kind}-${ed.toEntityIndex}`;
+        if (!edgeMap.has(k)) edgeMap.set(k, ed);
+      }
+    }
+    const edges = [...edgeMap.values()];
+
+    // Dedupe facts: one entry per (predicate, normalisedObject) cluster.
+    // Pick the first pass's variant as the exemplar so the verbatim
+    // span survives. Attach entropy + agreement.
+    const seenClusters = new Set<string>();
+    const facts: ExtractionResult['facts'] = [];
+    for (const r of surviving) {
+      for (const f of r.facts) {
+        const k = clusterKey({ predicate: f.predicate, object: f.object });
+        if (seenClusters.has(k)) continue;
+        seenClusters.add(k);
+        const stats = sc.get(k);
+        facts.push({
+          ...f,
+          ...(stats
+            ? {
+                extractionEntropy: stats.entropy,
+                extractionAgreement: stats.agreement,
+              }
+            : {}),
+        });
+      }
+    }
+
+    traceArtifact('extractor.sc_passes', {
+      passes: surviving.length,
+      temperatures,
+      clusterCount: sc.size,
+      clusterEntropy: facts[0]?.extractionEntropy ?? 0,
+    });
+
+    return { entities, facts, edges };
   }
 
   // ── Pre-LLM stages ────────────────────────────────────────────────
@@ -271,7 +420,11 @@ export class ExtractorService {
 
   // ── LLM call + response assembly ──────────────────────────────────
 
-  private async callLlm(trimmed: string, systemPrompt: string): Promise<any> {
+  private async callLlm(
+    trimmed: string,
+    systemPrompt: string,
+    temperature = 0.1,
+  ): Promise<any> {
     const res = await this.limiter.run(() =>
       withGenAiCall(
         {
@@ -279,6 +432,7 @@ export class ExtractorService {
           spanName: 'gen_ai.chat.extractor',
           system: 'openai',
           model: this.model,
+          attrs: { 'gen_ai.request.temperature': temperature },
         },
         this.metrics,
         () =>
@@ -297,7 +451,7 @@ export class ExtractorService {
               },
             },
             max_completion_tokens: 1500,
-            temperature: 0.1,
+            temperature,
           }),
       ),
     );
