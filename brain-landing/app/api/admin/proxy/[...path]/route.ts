@@ -16,12 +16,16 @@ import { brainFetch } from '@/lib/brain-api'
 const ALLOWED_PREFIXES = [
   // Admin
   'v1/admin/overview',
+  'v1/admin/audit',
   'v1/admin/dreams/run',
   'v1/admin/scenarios',
   'v1/admin/baselines',
   'v1/admin/traces',
   'v1/admin/tenants/',
   'v1/admin/demo/',
+  'v1/admin/predicates',
+  'v1/admin/router/stats',
+  'v1/admin/reindex/',
   // Brain user-facing endpoints used by the Playground tabs
   'v1/search',
   'v1/synthesize',

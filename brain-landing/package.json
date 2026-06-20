@@ -14,9 +14,11 @@
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^16.2.6",
+    "@tanstack/react-virtual": "^3.14.3",
     "@types/d3-force": "^3.0.10",
     "@types/mdx": "^2.0.13",
     "chrono-node": "^2.9.1",
+    "cmdk": "^1.1.1",
     "d3-force": "^3.0.0",
     "framer-motion": "^12.23.26",
     "jose": "^6.2.3",
@@ -25,6 +27,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "reactflow": "^11.11.4",
+    "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

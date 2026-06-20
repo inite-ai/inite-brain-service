@@ -58,6 +58,35 @@ export interface AdminOverview {
   recentForgotten: AdminForgottenRow[];
 }
 
+export interface AuditEventRow {
+  id: string;
+  companyId: string;
+  source: string;
+  recordId: string;
+  op: 'create' | 'update' | 'delete' | 'define' | string;
+  ts: string;
+  versionstamp: number;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  consumedBy: string;
+}
+
+export interface AuditQuery {
+  companyId?: string;
+  source?: string;
+  op?: string;
+  since?: string;
+  before?: string;
+  limit?: number;
+}
+
+export interface AuditPage {
+  events: AuditEventRow[];
+  totalsBySource: Record<string, number>;
+  totalsByOp: Record<string, number>;
+  hourly: Array<{ hour: string; count: number }>;
+}
+
 /**
  * Cross-tenant read-only fan-out for the admin dashboard.
  *
@@ -183,6 +212,96 @@ export class AdminService {
       forgetsTotal: sumBuckets('brain_forget_total'),
       openaiCallsTotal: sumBuckets('brain_openai_calls_total'),
       openaiTokensTotal: sumBuckets('brain_openai_tokens_total'),
+    };
+  }
+
+  /**
+   * Cross-tenant read of `audit_event` (migration 0023). Per-tenant
+   * iteration mirrors `buildOverview` — the consumer writes events
+   * inside each tenant DB, so this fans out the same way.
+   *
+   * Filters: optional companyId pin, source ('knowledge_fact' etc.),
+   * op ('create' | 'update' | 'delete' | 'define'), [since,before)
+   * window, hard limit (capped at 500). Always returns events sorted
+   * desc by ts. Also returns aggregate totals for chart drawing.
+   */
+  async listAuditEvents(q: AuditQuery): Promise<AuditPage> {
+    const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
+    const tenants = q.companyId
+      ? [q.companyId]
+      : this.apiKeys.knownCompanyIds();
+    const events: AuditEventRow[] = [];
+    const totalsBySource: Record<string, number> = {};
+    const totalsByOp: Record<string, number> = {};
+    const hourlyBuckets = new Map<string, number>();
+
+    const whereClauses: string[] = [];
+    const bindings: Record<string, unknown> = {};
+    if (q.source) {
+      whereClauses.push('source = $source');
+      bindings.source = q.source;
+    }
+    if (q.op) {
+      whereClauses.push('op = $op');
+      bindings.op = q.op;
+    }
+    if (q.since) {
+      whereClauses.push('ts >= type::datetime($since)');
+      bindings.since = q.since;
+    }
+    if (q.before) {
+      whereClauses.push('ts < type::datetime($before)');
+      bindings.before = q.before;
+    }
+    const whereSql = whereClauses.length
+      ? `WHERE ${whereClauses.join(' AND ')}`
+      : '';
+
+    for (const companyId of tenants) {
+      try {
+        const rows = await this.surreal.withCompany(companyId, async (db) => {
+          const sql = `
+            SELECT id, source, recordId, op, ts, versionstamp, before, after, consumedBy
+              FROM audit_event ${whereSql}
+              ORDER BY ts DESC LIMIT ${limit};
+          `;
+          const out = (await db.query<any[]>(sql, bindings)) as any[];
+          return (out[0] ?? []) as any[];
+        });
+        for (const r of rows) {
+          const ts = new Date(r.ts).toISOString();
+          events.push({
+            id: String(r.id),
+            companyId,
+            source: r.source,
+            recordId: r.recordId,
+            op: r.op,
+            ts,
+            versionstamp: Number(r.versionstamp ?? 0),
+            before: r.before ?? null,
+            after: r.after ?? null,
+            consumedBy: r.consumedBy ?? 'changefeed-consumer',
+          });
+          totalsBySource[r.source] = (totalsBySource[r.source] ?? 0) + 1;
+          totalsByOp[r.op] = (totalsByOp[r.op] ?? 0) + 1;
+          const hour = ts.slice(0, 13);
+          hourlyBuckets.set(hour, (hourlyBuckets.get(hour) ?? 0) + 1);
+        }
+      } catch (e) {
+        this.logger.warn(
+          `listAuditEvents failed for ${companyId}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    events.sort((a, b) => b.ts.localeCompare(a.ts));
+    return {
+      events: events.slice(0, limit),
+      totalsBySource,
+      totalsByOp,
+      hourly: [...hourlyBuckets.entries()]
+        .map(([hour, count]) => ({ hour, count }))
+        .sort((a, b) => a.hour.localeCompare(b.hour)),
     };
   }
 

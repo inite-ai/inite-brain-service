@@ -58,6 +58,39 @@ export class AdminController {
   }
 
   /**
+   * Read-side of the `audit_event` table (migration 0023). Operator
+   * view of the CHANGEFEED tail — who created / updated / deleted /
+   * defined what, when, with before/after payloads.
+   *
+   * Filters: companyId, source, op, since (ISO), before (ISO), limit
+   * (capped at 500). Returns aggregate totals and hourly buckets so
+   * the UI can render charts without a second round-trip.
+   */
+  @Get('audit')
+  @RequireScopes('brain:admin')
+  async audit(
+    @Query('companyId') companyId?: string,
+    @Query('source') source?: string,
+    @Query('op') op?: string,
+    @Query('since') since?: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : undefined;
+    return this.admin.listAuditEvents({
+      companyId: companyId?.trim() || undefined,
+      source: source?.trim() || undefined,
+      op: op?.trim() || undefined,
+      since: since?.trim() || undefined,
+      before: before?.trim() || undefined,
+      limit:
+        parsedLimit !== undefined && Number.isFinite(parsedLimit)
+          ? parsedLimit
+          : undefined,
+    });
+  }
+
+  /**
    * Hybrid chat-router observability — surfaces the local-pre-pass
    * cache and gate state so an operator can chart the LLM-skip rate
    * and warmup status without scraping trace artifacts.

@@ -8,5 +8,5 @@ interface Props {
 export default async function AdminIndex({ params }: Props) {
   const { lang: raw } = await params
   const lang = normalizeLang(raw)
-  redirect(`/${lang}/admin/playground`)
+  redirect(`/${lang}/admin/explore/overview`)
 }
