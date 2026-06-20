@@ -13,6 +13,7 @@ import { AppModule } from './app.module';
 import { validateEnv } from './common/env-validation';
 import { requestLogger } from './common/request-logger';
 import { debugTraceMiddleware } from './common/debug-trace';
+import { correlationIdMiddleware } from './common/correlation-id.middleware';
 
 async function bootstrap() {
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
@@ -28,6 +29,11 @@ async function bootstrap() {
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
   }));
 
+  // correlationIdMiddleware runs FIRST so the ALS store is set before
+  // any other middleware (request-logger, debug-trace) reads it. The
+  // emitted x-request-id header lets the caller quote the id when
+  // filing a bug.
+  app.use(correlationIdMiddleware());
   app.use(debugTraceMiddleware());
   app.use(requestLogger());
 

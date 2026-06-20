@@ -28,6 +28,18 @@ import { traceSpan as debugTraceSpan } from './debug-trace';
 
 const TRACER_NAME = 'inite-brain-service';
 
+// Lazy import — request-context has no runtime deps. We re-export the
+// reader as a small wrapper so a test that mocks the module's getter
+// can do so without touching tracing.ts internals.
+import { getCorrelationId } from './request-context';
+function getCorrelationIdSafe(): string | undefined {
+  try {
+    return getCorrelationId();
+  } catch {
+    return undefined;
+  }
+}
+
 let sdk: NodeSDK | null = null;
 
 export function initTracing(): void {
@@ -82,6 +94,12 @@ export async function withSpan<T>(
 ): Promise<T> {
   const tracer = trace.getTracer(TRACER_NAME);
   return tracer.startActiveSpan(name, async (span) => {
+    // Tag every span with the active request id so OTel viewers can
+    // pivot from a single log line to its full waterfall. Reads from
+    // the request-context ALS store; undefined outside a request
+    // (background cron, boot) — those spans omit the attr.
+    const correlationId = getCorrelationIdSafe();
+    if (correlationId) span.setAttribute('request.id', correlationId);
     if (attrs) {
       for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
     }

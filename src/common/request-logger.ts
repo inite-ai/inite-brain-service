@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
+import { getCorrelationId } from './request-context';
 
 const log = new Logger('Request');
 
@@ -42,6 +43,7 @@ export function requestLogger() {
       const companyId = auth?.companyId ?? '-';
       const keyTag = auth?.keyHash ? auth.keyHash.slice(7, 15) : '-';
       const url = req.originalUrl ?? req.url;
+      const requestId = getCorrelationId() ?? '-';
 
       if (json) {
         process.stdout.write(
@@ -49,6 +51,7 @@ export function requestLogger() {
             ts: new Date().toISOString(),
             level: 'info',
             kind: 'request',
+            requestId,
             method: req.method,
             path: url,
             status: res.statusCode,
@@ -59,7 +62,7 @@ export function requestLogger() {
         );
       } else {
         log.log(
-          `${req.method} ${url} → ${res.statusCode} ` +
+          `[${requestId}] ${req.method} ${url} → ${res.statusCode} ` +
             `${durationMs.toFixed(1)}ms company=${companyId} key=${keyTag}`,
         );
       }
