@@ -254,6 +254,28 @@ jobs:
                 # standard env var alongside this flag when wiring up
                 # a backend (Langfuse, Phoenix, Tempo, …).
                 - OTEL_ENABLED=1
+                # ── Multilingual embedder (Phase 4.D) ───────────────────
+                # BGE-M3 via @xenova/transformers, local CPU inference.
+                # 1024-dim multilingual cross-lingual recall vs OpenAI's
+                # text-embedding-3-small (1536-dim, English-biased).
+                #
+                # ROLLOUT MUST follow the reindex playbook:
+                #   1. Deploy this commit so the BGE-M3 provider is
+                #      preferred. Warmup is now non-blocking (commit
+                #      0cde424), so the container goes /health=ok
+                #      immediately and serves search/synthesize on the
+                #      openai fallback during the ~10s ONNX load.
+                #   2. After /ready returns 200 (model warm), an
+                #      operator runs:
+                #        curl -X POST -H 'Authorization: Bearer <admin>' \
+                #          'https://brain.inite.ai/api/v1/admin/reindex/embeddings?dryRun=true'
+                #      to size the work, then re-runs without dryRun
+                #      to write the new vectors per tenant.
+                #   3. Old vectors stay searchable until rewritten —
+                #      reindex is idempotent.
+                #
+                # Drop to `openai` to roll back to text-embedding-3-small.
+                - EMBEDDER_PROVIDER=bge-m3
                 # Eval baselines — persisted to a host bind-mount so they
                 # survive container recreate (compose pull + up = new
                 # container; an in-image var/ would evaporate on every
