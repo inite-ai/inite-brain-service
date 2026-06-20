@@ -20,6 +20,7 @@ import { CompactionModule } from './compaction/compaction.module';
 import { DreamsModule } from './dreams/dreams.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AdminModule } from './admin/admin.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { AdminModule } from './admin/admin.module';
     DreamsModule,
     MetricsModule,
     AdminModule,
+    AuditModule,
   ],
   controllers: [HealthController],
   providers: [

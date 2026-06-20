@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
   Counter,
+  Gauge,
   Histogram,
   Registry,
   collectDefaultMetrics,
@@ -183,6 +184,19 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly changefeedConsumed = new Counter({
+    name: 'brain_changefeed_consumed_total',
+    help: 'CHANGEFEED records consumed into audit_event by source table',
+    labelNames: ['source'] as const,
+    registers: [this.registry],
+  });
+
+  readonly changefeedLag = new Gauge({
+    name: 'brain_changefeed_lag_records',
+    help: 'CHANGEFEED records pending after the most recent consumer tick (sum across tenants/tables)',
+    registers: [this.registry],
+  });
+
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
@@ -301,6 +315,16 @@ export class MetricsService implements OnModuleInit {
         args.completionTokens,
       );
     }
+  }
+
+  countChangefeedConsumed(source: string, n = 1): void {
+    if (n > 0) {
+      this.changefeedConsumed.inc({ source } as LabelValues<'source'>, n);
+    }
+  }
+
+  setChangefeedLag(n: number): void {
+    this.changefeedLag.set(n);
   }
 
   async serialize(): Promise<{ contentType: string; body: string }> {
