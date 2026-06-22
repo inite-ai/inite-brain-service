@@ -17,10 +17,28 @@ import { validateEnv } from './common/env-validation';
 import { requestLogger } from './common/request-logger';
 import { debugTraceMiddleware } from './common/debug-trace';
 import { correlationIdMiddleware } from './common/correlation-id.middleware';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
 async function bootstrap() {
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
   validateEnv();
+
+  // Process-level crash safety. This is a long-lived worker pod with many
+  // un-awaited background promises (worker poll loop, cron ticks, lease
+  // renew intervals). A stray rejection would otherwise crash the process
+  // on modern Node with only the default trace. Log structured; keep
+  // serving — a single background hiccup must not take the pod down.
+  const procLog = new Logger('Process');
+  process.on('unhandledRejection', (reason) => {
+    const e = reason as Error;
+    procLog.error(
+      `unhandledRejection: ${e?.message ?? reason}`,
+      e?.stack,
+    );
+  });
+  process.on('uncaughtException', (err) => {
+    procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
+  });
 
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
@@ -47,6 +65,10 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Catch-all filter: attaches the correlation id to every error
+  // response and prevents non-HttpException internals from leaking.
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors({
     origin: false,
