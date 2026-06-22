@@ -24,6 +24,8 @@ import { TraceBufferService } from '../common/debug-trace';
 import type { ScenariosResponse } from '../contracts/admin/scenarios.schema';
 import type { BaselinesResponse } from '../contracts/admin/baselines.schema';
 import type { TracesResponse } from '../contracts/admin/traces.schema';
+import type { ScenarioDetailResponse } from '../contracts/admin/scenario-detail.schema';
+import type { TraceDetailResponse } from '../contracts/admin/trace-detail.schema';
 
 /**
  * Operator-facing eval and observability surface — scenarios, baselines,
@@ -54,8 +56,12 @@ export class AdminEvalController {
 
   @Get('scenarios/:id')
   @RequireScopes('brain:admin')
-  getScenario(@Param('id') id: string) {
-    return this.scenarios.getById(id);
+  getScenario(@Param('id') id: string): ScenarioDetailResponse {
+    // Scenario carries SetupStep / QueryExpectation discriminated unions
+    // without an index signature, so direct assignment to the open-record
+    // shape needs an unknown bridge. Drift surfaces on the runtime parse
+    // at the BFF — the contract is still load-bearing.
+    return this.scenarios.getById(id) as unknown as ScenarioDetailResponse;
   }
 
   @Post('scenarios/:id/run')
@@ -213,9 +219,9 @@ export class AdminEvalController {
   async getTrace(
     @Req() req: AuthenticatedRequest,
     @Param('requestId') requestId: string,
-  ) {
+  ): Promise<TraceDetailResponse> {
     const t = await this.traces.get(requestId, req.brainAuth.companyId);
     if (!t) throw new NotFoundException(`Trace ${requestId} not found`);
-    return t;
+    return t satisfies TraceDetailResponse;
   }
 }

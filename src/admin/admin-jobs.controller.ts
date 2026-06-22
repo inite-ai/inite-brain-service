@@ -41,7 +41,12 @@ import {
 import type { LeasesResponse } from '../contracts/admin/leases.schema';
 import type { SchedulerResponse } from '../contracts/admin/scheduler.schema';
 import type { ChangefeedStateResponse } from '../contracts/admin/changefeed-state.schema';
-import type { JobsListResponse } from '../contracts/admin/jobs.schema';
+import type {
+  JobsListResponse,
+  JobRow,
+} from '../contracts/admin/jobs.schema';
+import type { DreamsSummaryResponse } from '../contracts/admin/dreams-summary.schema';
+import type { DreamsEmitsResponse } from '../contracts/admin/dreams-emits.schema';
 
 /**
  * Scheduler / jobs / maintenance surface.
@@ -110,12 +115,12 @@ export class AdminJobsController {
   async getJob(
     @Req() req: AuthenticatedRequest,
     @Param('runId') runId: string,
-  ) {
+  ): Promise<JobRow> {
     // Try caller's company first; admins may also query across tenants
     // via the explicit companyId query string on /jobs list endpoint.
     const row = await this.jobs.get(runId, req.brainAuth.companyId);
     if (!row) throw new NotFoundException(`Job ${runId} not found`);
-    return row;
+    return row satisfies JobRow;
   }
 
   @Post('jobs/:runId/cancel')
@@ -442,7 +447,7 @@ export class AdminJobsController {
   async dreamEmits(
     @Param('runId') runId: string,
     @Query('companyId') companyIdQ?: string,
-  ): Promise<{ runId: string; emits: Array<Record<string, unknown>> }> {
+  ): Promise<DreamsEmitsResponse> {
     const tenants = companyIdQ
       ? [companyIdQ]
       : this.apiKeys.knownCompanyIds();
@@ -472,7 +477,7 @@ export class AdminJobsController {
         // tenant without the emit table or no match — skip silently
       }
     }
-    return { runId, emits };
+    return { runId, emits } satisfies DreamsEmitsResponse;
   }
 
   /**
@@ -482,7 +487,7 @@ export class AdminJobsController {
    */
   @Get('dreams/summary')
   @RequireScopes('brain:admin')
-  async dreamsSummary() {
+  async dreamsSummary(): Promise<DreamsSummaryResponse> {
     const runs = await this.jobs.list({
       jobType: 'dreams',
       limit: 100,
@@ -508,7 +513,7 @@ export class AdminJobsController {
         identityLinksCreated: identityLinks,
         resolutionsApplied: resolutions,
       },
-    };
+    } satisfies DreamsSummaryResponse;
   }
 
   /**

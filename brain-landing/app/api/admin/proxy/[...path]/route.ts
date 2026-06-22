@@ -23,6 +23,11 @@ import { PredicatesListResponseSchema } from '@/lib/contracts/admin-predicates'
 import { ScenariosResponseSchema } from '@/lib/contracts/admin-scenarios'
 import { BaselinesResponseSchema } from '@/lib/contracts/admin-baselines'
 import { TracesResponseSchema } from '@/lib/contracts/admin-traces'
+import { DreamsSummaryResponseSchema } from '@/lib/contracts/admin-dreams-summary'
+import { DreamsEmitsResponseSchema } from '@/lib/contracts/admin-dreams-emits'
+import { TraceDetailResponseSchema } from '@/lib/contracts/admin-trace-detail'
+import { ScenarioDetailResponseSchema } from '@/lib/contracts/admin-scenario-detail'
+import { JobRowSchema } from '@/lib/contracts/admin-jobs'
 import type { ZodType } from 'zod'
 
 /**
@@ -58,6 +63,51 @@ const RESPONSE_SCHEMAS: Record<string, ZodType> = {
   'v1/admin/scenarios': ScenariosResponseSchema,
   'v1/admin/baselines': BaselinesResponseSchema,
   'v1/admin/traces': TracesResponseSchema,
+  'v1/admin/dreams/summary': DreamsSummaryResponseSchema,
+}
+
+/**
+ * Dynamic-path response schemas — paths with :params (e.g.
+ * /jobs/:runId). Patterns are matched against subpath in order;
+ * first match wins. Each pattern uses `:placeholder` syntax that
+ * expands to a single non-slash segment. Express-style; deliberately
+ * simple — no wildcard or regex inside placeholders.
+ */
+const DYNAMIC_RESPONSE_SCHEMAS: Array<{
+  pattern: string
+  schema: ZodType
+}> = [
+  { pattern: 'v1/admin/jobs/:runId', schema: JobRowSchema },
+  { pattern: 'v1/admin/scenarios/:id', schema: ScenarioDetailResponseSchema },
+  { pattern: 'v1/admin/traces/:requestId', schema: TraceDetailResponseSchema },
+  {
+    pattern: 'v1/admin/dreams/runs/:runId/emits',
+    schema: DreamsEmitsResponseSchema,
+  },
+]
+
+function placeholderToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .split('/')
+    .map((seg) =>
+      seg.startsWith(':') ? '[^/]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    )
+    .join('/')
+  return new RegExp(`^${escaped}$`)
+}
+
+const DYNAMIC_SCHEMAS_COMPILED = DYNAMIC_RESPONSE_SCHEMAS.map((entry) => ({
+  re: placeholderToRegex(entry.pattern),
+  schema: entry.schema,
+}))
+
+function findSchema(subpath: string): ZodType | undefined {
+  const exact = RESPONSE_SCHEMAS[subpath]
+  if (exact) return exact
+  for (const { re, schema } of DYNAMIC_SCHEMAS_COMPILED) {
+    if (re.test(subpath)) return schema
+  }
+  return undefined
 }
 
 /**
@@ -160,7 +210,7 @@ async function forward(
   })
 
   const schema =
-    request.method === 'GET' && res.ok ? RESPONSE_SCHEMAS[subpath] : undefined
+    request.method === 'GET' && res.ok ? findSchema(subpath) : undefined
   if (schema) {
     const parsed = schema.safeParse(res.data)
     if (!parsed.success) {
