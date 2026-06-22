@@ -103,10 +103,12 @@
     }
   },
   "stats": {
-    "eyebrow": "Eval gates",
-    "title": "Numbers that block the merge.",
-    "subtitle": "Every push runs the retrieval and memory-lifecycle eval. The marks below are CI floors — fall under one and the build goes red.",
-    "footnote": "Latest gate run: multi-vertical scenario suite (n=255) plus 180 wikidata queries, bootstrap-CI on every retrieval metric.",
+    "eyebrow": "Eval results",
+    "title": "How well it actually retrieves.",
+    "subtitle": "Brain ships with its own eval suite. These are the latest scores on the retrieval and memory-lifecycle benchmarks — measured, not asserted.",
+    "perfect": "perfect on suite",
+    "gateLabel": "CI gate",
+    "footnote": "Multi-vertical scenario suite (n=255) plus 180 wikidata queries. Every push re-runs it; the build fails below the gate.",
     "items": [
       { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },

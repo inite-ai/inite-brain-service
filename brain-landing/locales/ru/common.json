@@ -103,10 +103,12 @@
     }
   },
   "stats": {
-    "eyebrow": "Eval-гейты",
-    "title": "Цифры, которые блокируют мёрж.",
-    "subtitle": "Каждый push гоняет eval по retrieval и memory-lifecycle. Отметки ниже — это CI-полы: упал под одну — сборка краснеет.",
-    "footnote": "Последний прогон гейта: multi-vertical сценарии (n=255) плюс 180 wikidata-запросов, bootstrap-CI на каждой retrieval-метрике.",
+    "eyebrow": "Результаты eval",
+    "title": "Насколько хорошо он на самом деле ищет.",
+    "subtitle": "У Brain есть собственный eval-сьют. Это свежие оценки на бенчмарках retrieval и memory-lifecycle — измеренные, а не заявленные.",
+    "perfect": "идеально на сьюте",
+    "gateLabel": "CI-гейт",
+    "footnote": "Multi-vertical сценарии (n=255) плюс 180 wikidata-запросов. Каждый push прогоняет это заново; ниже гейта — сборка падает.",
     "items": [
       { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
