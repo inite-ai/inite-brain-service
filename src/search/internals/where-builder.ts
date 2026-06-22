@@ -87,10 +87,22 @@ export function buildBaseWhere(
     params.asOf = asOf;
   } else if (!dto.includeStale) {
     // Default "actual now" — current truth.
+    //
+    // Future-dated supersede gap: when a single_active fact B is ingested
+    // with validFrom in the future, fn::resolve_fact closes the prior A at
+    // A.validUntil = B.validFrom (future) and marks A 'superseded'. Between
+    // now and B.validFrom, A is still the value that holds — its interval
+    // [validFrom, validUntil) contains now — yet a blanket
+    // `status NOT IN ['superseded']` hid it AND B isn't visible yet
+    // (validFrom > now), leaving "no current value". So admit a superseded
+    // fact whose interval still covers now: the `validUntil > now` guard
+    // (already required above) means a normally-closed supersede, where
+    // validUntil <= now, stays hidden; only the future-gap prior survives.
     clauses.push(
       `AND validFrom <= time::now()
          AND (validUntil IS NONE OR validUntil > time::now())
-         AND status NOT IN ['superseded', 'compacted']`,
+         AND status != 'compacted'
+         AND (status != 'superseded' OR validUntil > time::now())`,
     );
   }
   // else: includeStale=true and no asOf → audit shape, no temporal
