@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import {
   CheckCircle2,
   Loader2,
@@ -11,6 +11,9 @@ import {
   XCircle,
 } from 'lucide-react'
 import { JsonView } from './JsonView'
+import { getMessages, normalizeLang } from '../../lib/i18n'
+
+type AdminT = ReturnType<typeof getMessages>['admin']
 
 interface JobRow {
   runId: string
@@ -21,9 +24,14 @@ interface JobRow {
   startedAt: string
   finishedAt?: string | null
   progress?: Record<string, unknown> | null
+  payload?: Record<string, unknown> | null
   result?: Record<string, unknown> | null
   error?: { message: string; name?: string } | null
   cancelRequested?: boolean
+  attempts?: number
+  claimedBy?: string | null
+  leaseUntil?: string | null
+  visibleAfter?: string | null
   companyId: string
 }
 
@@ -36,9 +44,15 @@ const JOB_TYPES = [
   'reindex_embeddings',
   'changefeed_drain',
 ]
-const STATUSES = ['', 'running', 'succeeded', 'failed', 'cancelled']
+// 'pending' MUST be in the list — Phase J/K queue mode creates pending
+// rows that the worker loop hasn't claimed yet. Pre-Phase-J this was
+// omitted because rows were born 'running'; that's no longer true.
+const STATUSES = ['', 'pending', 'running', 'succeeded', 'failed', 'cancelled']
 
 export function JobsPanel() {
+  const params = useParams<{ lang: string }>()
+  const lang = normalizeLang(params?.lang)
+  const t = getMessages(lang).admin
   const searchParams = useSearchParams()
   const initialRunId = searchParams?.get('runId') ?? null
   const [jobs, setJobs] = useState<JobRow[]>([])
@@ -130,13 +144,9 @@ export function JobsPanel() {
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">
-            Job runs
+            {t.jobs.title}
           </h1>
-          <p className="text-xs text-[var(--text-muted)]">
-            Long-running operator jobs (dreams / compaction / calibration refit
-            / reindex / changefeed drain). SSE-streamed transitions; per-job
-            drill shows progress / result / error.
-          </p>
+          <p className="text-xs text-[var(--text-muted)]">{t.jobs.subtitle}</p>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <button
@@ -145,7 +155,7 @@ export function JobsPanel() {
             className="text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-            refresh
+            {t.common.refresh}
           </button>
           <label className="flex items-center gap-1 text-[var(--text-muted)]">
             <input
@@ -153,7 +163,7 @@ export function JobsPanel() {
               checked={live}
               onChange={(e) => setLive(e.target.checked)}
             />
-            live
+            {t.jobs.live}
             <span
               className={`ml-1 inline-block w-1.5 h-1.5 rounded-full ${
                 sseStatus === 'open'
@@ -173,9 +183,9 @@ export function JobsPanel() {
           onChange={(e) => setFilter((f) => ({ ...f, jobType: e.target.value }))}
           className="border border-[var(--border)] rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-[var(--text)]"
         >
-          {JOB_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t || 'all types'}
+          {JOB_TYPES.map((jt) => (
+            <option key={jt} value={jt}>
+              {jt || t.jobs.filters.allTypes}
             </option>
           ))}
         </select>
@@ -186,12 +196,12 @@ export function JobsPanel() {
         >
           {STATUSES.map((s) => (
             <option key={s} value={s}>
-              {s || 'all statuses'}
+              {s || t.jobs.filters.allStatuses}
             </option>
           ))}
         </select>
         <input
-          placeholder="companyId filter"
+          placeholder={t.jobs.filters.companyIdPlaceholder}
           value={filter.companyId}
           onChange={(e) =>
             setFilter((f) => ({ ...f, companyId: e.target.value }))
@@ -199,8 +209,7 @@ export function JobsPanel() {
           className="border border-[var(--border)] rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-[var(--text)] font-mono w-44"
         />
         <span className="text-[10px] text-[var(--text-faint)] flex items-center gap-1">
-          <Radio className="w-3 h-3" /> live SSE on accepted job_run
-          transitions
+          <Radio className="w-3 h-3" /> {t.jobs.sseHint}
         </span>
       </div>
 
@@ -213,12 +222,14 @@ export function JobsPanel() {
           <table className="w-full text-xs">
             <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
               <tr>
-                <th className="text-left px-3 py-2">started</th>
-                <th className="text-left px-3 py-2">type</th>
-                <th className="text-left px-3 py-2">tenant</th>
-                <th className="text-left px-3 py-2">trigger</th>
-                <th className="text-left px-3 py-2">status</th>
-                <th className="text-right px-3 py-2">duration</th>
+                <th className="text-left px-3 py-2">{t.jobs.table.started}</th>
+                <th className="text-left px-3 py-2">{t.jobs.table.type}</th>
+                <th className="text-left px-3 py-2">{t.jobs.table.tenant}</th>
+                <th className="text-left px-3 py-2">{t.jobs.table.trigger}</th>
+                <th className="text-left px-3 py-2">{t.jobs.table.status}</th>
+                <th className="text-right px-3 py-2">
+                  {t.jobs.table.duration}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -261,7 +272,7 @@ export function JobsPanel() {
                     colSpan={6}
                     className="px-3 py-4 text-center text-[var(--text-muted)] italic"
                   >
-                    No matching job runs.
+                    {t.jobs.empty}
                   </td>
                 </tr>
               )}
@@ -270,10 +281,14 @@ export function JobsPanel() {
         </div>
         <aside className="border border-[var(--border)] rounded-md p-3 bg-[var(--bg-elevated)] max-h-[70vh] overflow-y-auto">
           {selectedJob ? (
-            <JobDetail job={selectedJob} onCancel={() => void cancel(selectedJob)} />
+            <JobDetail
+              job={selectedJob}
+              t={t}
+              onCancel={() => void cancel(selectedJob)}
+            />
           ) : (
             <div className="text-xs text-[var(--text-muted)] italic">
-              Pick a job to drill.
+              {t.jobs.drill.prompt}
             </div>
           )}
         </aside>
@@ -302,11 +317,14 @@ function StatusBadge({ status }: { status: JobRow['status'] }) {
 
 function JobDetail({
   job,
+  t,
   onCancel,
 }: {
   job: JobRow
+  t: AdminT
   onCancel: () => void
 }) {
+  const d = t.jobs.drill
   return (
     <div className="space-y-3 text-xs">
       <header className="flex items-baseline gap-2">
@@ -319,17 +337,33 @@ function JobDetail({
         <StatusBadge status={job.status} />
       </header>
       <div className="grid grid-cols-2 gap-1 text-[10px] font-mono">
-        <Cell label="trigger" value={job.triggeredBy} />
-        <Cell label="actor" value={job.triggeredByActor ?? '—'} />
-        <Cell label="tenant" value={job.companyId} />
+        <Cell label={d.trigger} value={job.triggeredBy} />
+        <Cell label={d.actor} value={job.triggeredByActor ?? t.common.noData} />
+        <Cell label={d.tenant} value={job.companyId} />
         <Cell
-          label="started"
+          label={d.started}
           value={new Date(job.startedAt).toISOString().slice(0, 19).replace('T', ' ')}
         />
         {job.finishedAt && (
           <Cell
-            label="finished"
+            label={d.finished}
             value={new Date(job.finishedAt).toISOString().slice(0, 19).replace('T', ' ')}
+          />
+        )}
+        {typeof job.attempts === 'number' && job.attempts > 0 && (
+          <Cell label={d.attempts} value={String(job.attempts)} />
+        )}
+        {job.claimedBy && <Cell label={d.claimedBy} value={job.claimedBy} />}
+        {job.status === 'pending' && job.visibleAfter && (
+          <Cell
+            label={d.visibleAfter}
+            value={new Date(job.visibleAfter).toISOString().slice(0, 19).replace('T', ' ')}
+          />
+        )}
+        {job.status === 'running' && job.leaseUntil && (
+          <Cell
+            label={d.leaseUntil}
+            value={new Date(job.leaseUntil).toISOString().slice(0, 19).replace('T', ' ')}
           />
         )}
       </div>
@@ -345,13 +379,24 @@ function JobDetail({
           ) : (
             <StopCircle className="w-3 h-3" />
           )}
-          {job.cancelRequested ? 'cancel requested' : 'Request cancel'}
+          {job.cancelRequested ? d.cancelRequested : d.requestCancel}
         </button>
+      )}
+      {job.payload && (
+        <section>
+          <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+            {d.payload}{' '}
+            <span className="text-[9px] text-[var(--text-muted)]">
+              {d.payloadHint}
+            </span>
+          </div>
+          <JsonView value={job.payload} />
+        </section>
       )}
       {job.progress && (
         <section>
           <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-            progress
+            {d.progress}
           </div>
           <JsonView value={job.progress} />
         </section>
@@ -359,7 +404,7 @@ function JobDetail({
       {job.result && (
         <section>
           <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3 text-[var(--success)]" /> result
+            <CheckCircle2 className="w-3 h-3 text-[var(--success)]" /> {d.result}
           </div>
           <JsonView value={job.result} />
         </section>
@@ -367,7 +412,7 @@ function JobDetail({
       {job.error && (
         <section>
           <div className="text-[10px] uppercase tracking-wider text-[var(--danger)] mb-1 flex items-center gap-1">
-            <XCircle className="w-3 h-3" /> error
+            <XCircle className="w-3 h-3" /> {d.error}
           </div>
           <div className="text-[10px] text-[var(--danger)] font-mono">
             {job.error.message}

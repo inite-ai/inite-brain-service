@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
+
 import { useState } from 'react'
 import { AlertTriangle, Cpu, Trash2 } from 'lucide-react'
 import { JsonView } from './JsonView'

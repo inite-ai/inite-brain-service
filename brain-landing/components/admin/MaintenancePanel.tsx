@@ -8,6 +8,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  Cpu,
   Loader2,
   Moon,
   Play,
@@ -16,7 +17,9 @@ import {
   Sparkles,
   XCircle,
 } from 'lucide-react'
-import { normalizeLang } from '../../lib/i18n'
+import { getMessages, normalizeLang } from '../../lib/i18n'
+
+type AdminT = ReturnType<typeof getMessages>['admin']
 
 interface CronEntry {
   name: string
@@ -65,6 +68,7 @@ interface ChangefeedState {
 export function MaintenancePanel() {
   const params = useParams<{ lang: string }>()
   const lang = normalizeLang(params?.lang)
+  const t = getMessages(lang).admin
   const [scheduler, setScheduler] = useState<{ cron: CronEntry[] } | null>(null)
   const [recentJobs, setRecentJobs] = useState<JobRow[]>([])
   const [changefeed, setChangefeed] = useState<ChangefeedState | null>(null)
@@ -120,7 +124,9 @@ export function MaintenancePanel() {
     async (
       kind:
         | 'dreams'
+        | 'compaction'
         | 'calibration_refit'
+        | 'reindex_embeddings'
         | 'changefeed_drain',
     ) => {
       setBusy(kind)
@@ -129,9 +135,13 @@ export function MaintenancePanel() {
         const endpoint =
           kind === 'dreams'
             ? '/api/admin/proxy/v1/admin/maintenance/dreams/run'
-            : kind === 'calibration_refit'
-              ? '/api/admin/proxy/v1/admin/maintenance/calibration-refit'
-              : '/api/admin/proxy/v1/admin/changefeed/drain'
+            : kind === 'compaction'
+              ? '/api/admin/proxy/v1/admin/maintenance/compaction'
+              : kind === 'calibration_refit'
+                ? '/api/admin/proxy/v1/admin/maintenance/calibration-refit'
+                : kind === 'reindex_embeddings'
+                  ? '/api/admin/proxy/v1/admin/maintenance/reindex'
+                  : '/api/admin/proxy/v1/admin/changefeed/drain'
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -149,60 +159,55 @@ export function MaintenancePanel() {
     [load],
   )
 
-  const cards: Array<{
-    title: string
+  // Card metadata is i18n-resolved at render via t.maintenance.cards.<kind>.
+  // The kind / icon / cronName / canTrigger are infrastructure-coupled,
+  // NOT localised — only title + description live in translations.
+  const cardMeta: Array<{
     kind:
       | 'dreams'
       | 'compaction'
       | 'calibration_refit'
       | 'source_trust_refit'
+      | 'reindex_embeddings'
       | 'changefeed_drain'
     cronName: string | null
     icon: typeof Moon
-    description: string
     canTrigger: boolean
   }> = [
     {
-      title: 'Dreams (dedup + resolve + summarize)',
       kind: 'dreams',
       cronName: 'DreamsService.runDaily',
       icon: Moon,
-      description: '04:00 UTC — entity dedup + competing-fact resolution.',
       canTrigger: true,
     },
     {
-      title: 'Compaction (hot → warm tier)',
       kind: 'compaction',
       cronName: 'CompactionService.runDaily',
       icon: Sparkles,
-      description:
-        '03:17 UTC — facts past retention move to warm tier, optional LLM summary.',
-      canTrigger: false,
+      canTrigger: true,
     },
     {
-      title: 'Calibration refit (isotonic)',
       kind: 'calibration_refit',
       cronName: 'CalibrationRefitService.refitCalibrationDaily',
       icon: Sigma,
-      description:
-        '03:51 UTC — refit isotonic map from last-30d retraction outcomes.',
       canTrigger: true,
     },
     {
-      title: 'Source-trust refit',
       kind: 'source_trust_refit',
       cronName: 'CalibrationRefitService.refitSourceTrustDaily',
       icon: Sigma,
-      description: '03:42 UTC — upserts source_trust(rate, sampleCount).',
+      canTrigger: false,
+    },
+    {
+      kind: 'reindex_embeddings',
+      cronName: null,
+      icon: Cpu,
       canTrigger: true,
     },
     {
-      title: 'Changefeed drain → audit_event',
       kind: 'changefeed_drain',
       cronName: 'ChangefeedConsumerService.tick',
       icon: Clock,
-      description:
-        'Every minute — SHOW CHANGES per source, write audit_event, advance cursor.',
       canTrigger: true,
     },
   ]
@@ -212,13 +217,10 @@ export function MaintenancePanel() {
       <header className="flex items-baseline justify-between gap-3">
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">
-            Maintenance cockpit
+            {t.maintenance.title}
           </h1>
           <p className="text-xs text-[var(--text-muted)]">
-            Scheduled jobs + manual triggers. Each card shows the last
-            persisted run (via <code>job_run</code> + <code>SchedulerRegistry</code>),
-            next-fire ETA, and a <code>Run now</code> button that delegates to
-            the same code path the cron uses.
+            {t.maintenance.subtitle}
           </p>
         </div>
         <button
@@ -227,7 +229,7 @@ export function MaintenancePanel() {
           className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-          refresh
+          {t.common.refresh}
         </button>
       </header>
 
@@ -236,11 +238,13 @@ export function MaintenancePanel() {
       )}
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {cards.map((c) => {
+        {cardMeta.map((c) => {
           const cronEntry =
             scheduler?.cron.find((e) => e.name === c.cronName) ?? null
           const lastJob = lastByJobType.get(c.kind) ?? null
           const Icon = c.icon
+          const cardCopy = t.maintenance.cards[c.kind]
+          const cronT = t.maintenance.cron
           return (
             <article
               key={c.kind}
@@ -250,10 +254,10 @@ export function MaintenancePanel() {
                 <Icon className="w-4 h-4 text-[var(--accent)]" />
                 <div className="flex-1">
                   <div className="text-sm font-semibold text-[var(--text)]">
-                    {c.title}
+                    {cardCopy.title}
                   </div>
                   <div className="text-[10px] text-[var(--text-muted)]">
-                    {c.description}
+                    {cardCopy.description}
                   </div>
                 </div>
                 {c.canTrigger && (
@@ -268,37 +272,37 @@ export function MaintenancePanel() {
                     ) : (
                       <Play className="w-3 h-3" />
                     )}
-                    Run now
+                    {t.maintenance.runNow}
                   </button>
                 )}
               </header>
               <div className="grid grid-cols-2 gap-1 text-[10px] font-mono text-[var(--text-muted)]">
                 <CronLine
-                  label="cron"
-                  value={cronEntry?.cronTime ?? '—'}
+                  label={cronT.label}
+                  value={cronEntry?.cronTime ?? cronT.noCron}
                 />
                 <CronLine
-                  label="last fire"
+                  label={cronT.lastFire}
                   value={
                     cronEntry?.lastFireAt
                       ? new Date(cronEntry.lastFireAt).toISOString().slice(0, 19).replace('T', ' ')
-                      : '—'
+                      : cronT.noCron
                   }
                 />
                 <CronLine
-                  label="next fire"
+                  label={cronT.nextFire}
                   value={
                     cronEntry?.nextFireAt
                       ? new Date(cronEntry.nextFireAt).toISOString().slice(0, 19).replace('T', ' ')
-                      : '—'
+                      : cronT.noCron
                   }
                 />
                 <CronLine
-                  label="state"
-                  value={cronEntry?.running ? 'running' : 'idle'}
+                  label={cronT.state}
+                  value={cronEntry?.running ? cronT.running : cronT.idle}
                 />
               </div>
-              {lastJob && <LastRunSummary job={lastJob} lang={lang} />}
+              {lastJob && <LastRunSummary job={lastJob} lang={lang} t={t} />}
             </article>
           )
         })}
@@ -309,7 +313,7 @@ export function MaintenancePanel() {
           <header className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-[var(--accent)]" />
             <h2 className="text-sm font-semibold text-[var(--text)]">
-              Changefeed consumer
+              {t.maintenance.changefeed.title}
             </h2>
             <span
               className={`ml-2 text-[10px] px-1.5 py-0.5 rounded font-mono ${
@@ -320,7 +324,9 @@ export function MaintenancePanel() {
                   : 'bg-[var(--bg-overlay)] text-[var(--text-faint)]'
               }`}
             >
-              {changefeed.stats.enabled ? 'enabled' : 'disabled'}
+              {changefeed.stats.enabled
+                ? t.maintenance.changefeed.enabled
+                : t.maintenance.changefeed.disabled}
             </span>
             {changefeed.stats.inFlight && (
               <Loader2 className="w-3 h-3 text-[var(--accent)] animate-spin" />
@@ -328,48 +334,53 @@ export function MaintenancePanel() {
           </header>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
             <Stat
-              label="last tick"
+              label={t.maintenance.changefeed.stats.lastTick}
               value={
                 changefeed.stats.lastTickAt
                   ? new Date(changefeed.stats.lastTickAt).toISOString().slice(11, 19)
-                  : '—'
+                  : t.common.noData
               }
             />
             <Stat
-              label="pending"
+              label={t.maintenance.changefeed.stats.pending}
               value={changefeed.stats.lastPendingRemaining.toString()}
               tone={changefeed.stats.lastPendingRemaining > 0 ? 'warn' : undefined}
             />
             <Stat
-              label="consumed total"
+              label={t.maintenance.changefeed.stats.consumedTotal}
               value={changefeed.stats.totalConsumed.toLocaleString()}
             />
             <Stat
-              label="ticks"
+              label={t.maintenance.changefeed.stats.ticks}
               value={changefeed.stats.tickCount.toString()}
             />
             <Stat
-              label="batch limit"
+              label={t.maintenance.changefeed.stats.batchLimit}
               value={changefeed.stats.perBatchLimit.toString()}
             />
           </div>
           {changefeed.stats.lastError && (
             <div className="mt-2 text-[10px] text-[var(--danger)] font-mono">
-              last error @ {changefeed.stats.lastError.ts}:{' '}
-              {changefeed.stats.lastError.message}
+              {changefeed.stats.lastError.ts}: {changefeed.stats.lastError.message}
             </div>
           )}
           {changefeed.cursors.length > 0 && (
             <div className="mt-3">
               <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                cursors per tenant × source
+                {t.maintenance.changefeed.cursors}
               </div>
               <table className="w-full text-xs">
                 <thead className="text-[10px] uppercase text-[var(--text-faint)]">
                   <tr>
-                    <th className="text-left px-2 py-1">tenant</th>
-                    <th className="text-left px-2 py-1">source</th>
-                    <th className="text-right px-2 py-1">versionstamp</th>
+                    <th className="text-left px-2 py-1">
+                      {t.maintenance.changefeed.cursorHeaders.tenant}
+                    </th>
+                    <th className="text-left px-2 py-1">
+                      {t.maintenance.changefeed.cursorHeaders.source}
+                    </th>
+                    <th className="text-right px-2 py-1">
+                      {t.maintenance.changefeed.cursorHeaders.versionstamp}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -399,24 +410,26 @@ export function MaintenancePanel() {
       <section>
         <header className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-[var(--text)]">
-            Recent job runs
+            {t.maintenance.recentJobs}
           </h2>
           <Link
             href={`/${lang}/admin/jobs`}
             className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text)]"
           >
-            full history →
+            {t.maintenance.fullHistory}
           </Link>
         </header>
         <table className="w-full text-xs border border-[var(--border)] rounded-md overflow-hidden">
           <thead className="bg-[var(--bg-overlay)] text-[var(--text-faint)] text-[10px] uppercase tracking-wider">
             <tr>
-              <th className="text-left px-3 py-1.5">started</th>
-              <th className="text-left px-3 py-1.5">type</th>
-              <th className="text-left px-3 py-1.5">tenant</th>
-              <th className="text-left px-3 py-1.5">trigger</th>
-              <th className="text-left px-3 py-1.5">status</th>
-              <th className="text-right px-3 py-1.5">duration</th>
+              <th className="text-left px-3 py-1.5">{t.jobs.table.started}</th>
+              <th className="text-left px-3 py-1.5">{t.jobs.table.type}</th>
+              <th className="text-left px-3 py-1.5">{t.jobs.table.tenant}</th>
+              <th className="text-left px-3 py-1.5">{t.jobs.table.trigger}</th>
+              <th className="text-left px-3 py-1.5">{t.jobs.table.status}</th>
+              <th className="text-right px-3 py-1.5">
+                {t.jobs.table.duration}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -448,8 +461,7 @@ export function MaintenancePanel() {
                   colSpan={6}
                   className="px-3 py-4 text-center text-[var(--text-muted)] italic"
                 >
-                  No persisted job runs yet. Trigger one above or wait for the
-                  next cron tick.
+                  {t.maintenance.noRecentJobs}
                 </td>
               </tr>
             )}
@@ -471,7 +483,15 @@ function CronLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-function LastRunSummary({ job, lang }: { job: JobRow; lang: string }) {
+function LastRunSummary({
+  job,
+  lang,
+  t,
+}: {
+  job: JobRow
+  lang: string
+  t: AdminT
+}) {
   const skipped =
     job.result &&
     typeof (job.result as Record<string, unknown>).skipped === 'boolean' &&
@@ -499,7 +519,9 @@ function LastRunSummary({ job, lang }: { job: JobRow; lang: string }) {
         <Icon
           className={`w-3 h-3 ${tone} ${job.status === 'running' ? 'animate-spin' : ''}`}
         />
-        <span className={tone}>last run: {job.status}</span>
+        <span className={tone}>
+          {t.maintenance.lastRun.replace('{status}', job.status)}
+        </span>
         <span className="text-[var(--text-faint)] font-mono">
           {new Date(job.startedAt).toISOString().slice(11, 19)}
         </span>
@@ -507,7 +529,7 @@ function LastRunSummary({ job, lang }: { job: JobRow; lang: string }) {
           href={`/${lang}/admin/jobs?runId=${encodeURIComponent(job.runId)}`}
           className="ml-auto text-[var(--accent)] hover:underline"
         >
-          drill →
+          {t.maintenance.drillLink}
         </Link>
       </div>
       {skipped && job.result && (

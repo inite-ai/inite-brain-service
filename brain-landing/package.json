@@ -8,7 +8,8 @@
     "dev": "next dev -p 3030 --turbopack",
     "build": "next build",
     "start": "next start -p 3030",
-    "lint": "next lint"
+    "lint": "next lint",
+    "lint:i18n": "eslint components/admin --max-warnings=0"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
@@ -36,9 +37,12 @@
     "@types/node": "^25.0.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/parser": "^8.61.1",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"

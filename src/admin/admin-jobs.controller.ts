@@ -23,11 +23,14 @@ import {
 import { JobClaimService } from '../jobs/job-claim.service';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { WorkerLoopService } from '../jobs/worker-loop.service';
+import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { DreamsService } from '../dreams/dreams.service';
 import { CalibrationRefitService } from '../ai/calibration/calibration-refit.service';
+import { CompactionService } from '../compaction/compaction.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import { ConfigService } from '@nestjs/config';
 import { HttpCode } from '@nestjs/common';
 import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.service';
 import {
@@ -64,6 +67,9 @@ export class AdminJobsController {
     private readonly claim: JobClaimService,
     private readonly leaderLease: LeaderLeaseService,
     private readonly workerLoop: WorkerLoopService,
+    private readonly workerPool: JobWorkerPool,
+    private readonly compaction: CompactionService,
+    private readonly config: ConfigService,
   ) {}
 
   @Get('jobs')
@@ -236,6 +242,39 @@ export class AdminJobsController {
       jobType: 'dreams',
       companyId: req.brainAuth.companyId,
     };
+  }
+
+  /**
+   * Manual compaction trigger. Under queue mode this still goes through
+   * the normal cron path (each tenant's compactCompany runs inline here
+   * — same code path the cron uses). For a queue-routed run, drop a
+   * `compaction` row into job_run via `claim.enqueue` directly — but
+   * that's a power-user move; the normal operator workflow is "trigger
+   * → see it in /admin/jobs → done".
+   */
+  @Post('maintenance/compaction')
+  @HttpCode(202)
+  @RequireScopes('brain:admin')
+  triggerCompaction(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { companyId?: string } = {},
+  ): { accepted: true; jobType: 'compaction'; tenants: string[] } {
+    const target = body.companyId
+      ? [body.companyId]
+      : this.apiKeys.knownCompanyIds();
+    void (async () => {
+      for (const companyId of target) {
+        try {
+          await this.compaction.compactCompany(companyId);
+        } catch (e) {
+          // compactCompany logs internally; swallow so one bad tenant
+          // doesn't stop the rest of the fan-out.
+          void e;
+        }
+      }
+    })();
+    void req;
+    return { accepted: true, jobType: 'compaction', tenants: target };
   }
 
   @Post('maintenance/calibration-refit')
@@ -495,12 +534,21 @@ export class AdminJobsController {
       this.claim.listActiveClaims(this.apiKeys.knownCompanyIds()),
     ]);
     const now = Date.now();
+    const queueMode =
+      (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') as
+        | 'enqueue'
+        | 'inline';
     return {
       generatedAt: new Date(now).toISOString(),
       podIdentity: this.claim.identity(),
+      queueMode,
       workerLoop: {
         leader: this.workerLoop.leader(),
         registeredTypes: this.workerLoop.registeredTypes(),
+      },
+      workerPool: {
+        enabled: this.workerPool.enabled(),
+        ...this.workerPool.stats(),
       },
       leaderLeases: leaderLeases.map((row) => {
         const expiresInMs = Date.parse(row.leaseUntil) - now;

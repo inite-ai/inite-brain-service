@@ -152,5 +152,160 @@
     "rev": {
       "ru-pending": "Translation pending — showing English."
     }
+  },
+  "admin": {
+    "common": {
+      "refresh": "refresh",
+      "auto": "auto",
+      "autoSeconds": "auto {seconds}s",
+      "loading": "loading…",
+      "noData": "—"
+    },
+    "leases": {
+      "title": "Leases & claims",
+      "subtitle": "Leader-election + active job_run claims across the fleet. Use this to spot stuck workers, dead leases that haven't been re-acquired, or pods holding more than their share.",
+      "queueModeTip": {
+        "enqueue": "crons enqueue rows; worker loop dispatches",
+        "inline": "kill switch active — crons run inline (pre-Phase-J behaviour)"
+      },
+      "queueModeLabel": "queue",
+      "leaderBadge": "worker_loop leader",
+      "followerBadge": "follower",
+      "handlersLabel": "handlers",
+      "noHandlers": "none",
+      "poolLabel": "pool",
+      "poolBusy": "{busy}/{size} busy",
+      "poolDisabled": "disabled",
+      "poolWaiting": "+{n} waiting",
+      "poolTip": "JobWorkerPool — node:worker_threads pool for cpuBound handlers (currently no handler opts in; size=0 disables the pool)",
+      "leaderLeases": {
+        "title": "Leader leases",
+        "subtitle": "Named locks in leader_lease (system DB). Multi-pod deploys elect one holder per name.",
+        "headers": {
+          "name": "name",
+          "leader": "leader",
+          "acquired": "acquired",
+          "expires": "expires in"
+        },
+        "empty": "No leases held. Either the system is fresh or every cron has released its lease cleanly."
+      },
+      "activeClaims": {
+        "title": "Active claims",
+        "subtitle": "job_run rows currently in 'running' status. Stale heartbeats are reaped by LeaseManagerService.",
+        "headers": {
+          "runId": "runId",
+          "jobType": "jobType",
+          "tenant": "tenant",
+          "worker": "worker",
+          "attempts": "attempts",
+          "heartbeat": "heartbeat",
+          "lease": "lease in"
+        },
+        "empty": "No active claims. The queue is empty or every worker just finished a cycle.",
+        "heartbeatAgo": "{n}s ago"
+      }
+    },
+    "jobs": {
+      "title": "Job runs",
+      "subtitle": "Long-running operator jobs (dreams / compaction / calibration refit / reindex / changefeed drain). SSE-streamed transitions; per-job drill shows progress / result / error.",
+      "live": "live",
+      "sseHint": "live SSE on accepted job_run transitions",
+      "filters": {
+        "allTypes": "all types",
+        "allStatuses": "all statuses",
+        "companyIdPlaceholder": "companyId filter"
+      },
+      "table": {
+        "started": "started",
+        "type": "type",
+        "tenant": "tenant",
+        "trigger": "trigger",
+        "status": "status",
+        "duration": "duration"
+      },
+      "empty": "No matching job runs.",
+      "drill": {
+        "prompt": "Pick a job to drill.",
+        "trigger": "trigger",
+        "actor": "actor",
+        "tenant": "tenant",
+        "started": "started",
+        "finished": "finished",
+        "attempts": "attempts",
+        "claimedBy": "claimedBy",
+        "visibleAfter": "visibleAfter",
+        "leaseUntil": "leaseUntil",
+        "cancelRequested": "cancel requested",
+        "requestCancel": "Request cancel",
+        "payload": "payload",
+        "payloadHint": "(handler input)",
+        "progress": "progress",
+        "result": "result",
+        "error": "error"
+      }
+    },
+    "maintenance": {
+      "title": "Maintenance cockpit",
+      "subtitle": "Scheduled jobs + manual triggers. Each card shows the last persisted run (via job_run + SchedulerRegistry), next-fire ETA, and a Run now button that delegates to the same code path the cron uses.",
+      "runNow": "Run now",
+      "cards": {
+        "dreams": {
+          "title": "Dreams (dedup + resolve + summarize)",
+          "description": "04:00 UTC — entity dedup + competing-fact resolution."
+        },
+        "compaction": {
+          "title": "Compaction (hot → warm tier)",
+          "description": "03:17 UTC — facts past retention move to warm tier, optional LLM summary."
+        },
+        "calibration_refit": {
+          "title": "Calibration refit (isotonic)",
+          "description": "03:51 UTC — refit isotonic map from last-30d retraction outcomes. The same trigger also kicks source-trust refit."
+        },
+        "source_trust_refit": {
+          "title": "Source-trust refit",
+          "description": "03:42 UTC — upserts source_trust(rate, sampleCount). Bundled with the calibration-refit trigger above."
+        },
+        "reindex_embeddings": {
+          "title": "Reindex embeddings",
+          "description": "No cron — re-embed knowledge_fact across all tenants. Run after EMBEDDER_PROVIDER swap or model dimension change."
+        },
+        "changefeed_drain": {
+          "title": "Changefeed drain → audit_event",
+          "description": "Every minute — SHOW CHANGES per source, write audit_event, advance cursor."
+        }
+      },
+      "cron": {
+        "label": "cron",
+        "lastFire": "last fire",
+        "nextFire": "next fire",
+        "state": "state",
+        "running": "running",
+        "idle": "idle",
+        "noCron": "—"
+      },
+      "lastRun": "last run: {status}",
+      "drillLink": "drill →",
+      "changefeed": {
+        "title": "Changefeed consumer",
+        "enabled": "enabled",
+        "disabled": "disabled",
+        "stats": {
+          "lastTick": "last tick",
+          "pending": "pending",
+          "consumedTotal": "consumed total",
+          "ticks": "ticks",
+          "batchLimit": "batch limit"
+        },
+        "cursors": "cursors per tenant × source",
+        "cursorHeaders": {
+          "tenant": "tenant",
+          "source": "source",
+          "versionstamp": "versionstamp"
+        }
+      },
+      "recentJobs": "Recent job runs",
+      "fullHistory": "full history →",
+      "noRecentJobs": "No persisted job runs yet. Trigger one above or wait for the next cron tick."
+    }
   }
 }

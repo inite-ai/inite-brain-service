@@ -49,9 +49,19 @@ export interface JobRunRow {
   startedAt: string;
   finishedAt?: string | null;
   progress?: JobProgress | null;
+  /** Immutable handler input — set once at enqueue, never modified. */
+  payload?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;
   error?: { message: string; name?: string; stack?: string } | null;
   cancelRequested: boolean;
+  /** Phase J/K claim fields — populated when status='running'. */
+  attempts?: number;
+  claimedBy?: string | null;
+  claimedAt?: string | null;
+  leaseUntil?: string | null;
+  heartbeatAt?: string | null;
+  /** Pending-row scheduled visibility (delayed + retry backoff). */
+  visibleAfter?: string | null;
   /** Synthetic tenant scope on the row — every row lives in one tenant DB. */
   companyId: string;
 }
@@ -324,7 +334,9 @@ export class JobRunService {
         const rows = await this.surreal.withCompany(companyId, async (db) => {
           const res = (await db.query<any[]>(
             `SELECT runId, jobType, status, triggeredBy, triggeredByActor,
-                    startedAt, finishedAt, progress, result, error, cancelRequested
+                    startedAt, finishedAt, progress, payload, result, error,
+                    cancelRequested, attempts, claimedBy, claimedAt,
+                    leaseUntil, heartbeatAt, visibleAfter
                FROM job_run ${whereSql}
               ORDER BY startedAt DESC LIMIT ${limit}`,
             params,
@@ -343,9 +355,22 @@ export class JobRunService {
               ? new Date(r.finishedAt).toISOString()
               : null,
             progress: r.progress ?? null,
+            payload: r.payload ?? null,
             result: r.result ?? null,
             error: r.error ?? null,
             cancelRequested: r.cancelRequested === true,
+            attempts: typeof r.attempts === 'number' ? r.attempts : undefined,
+            claimedBy: r.claimedBy ?? null,
+            claimedAt: r.claimedAt ? new Date(r.claimedAt).toISOString() : null,
+            leaseUntil: r.leaseUntil
+              ? new Date(r.leaseUntil).toISOString()
+              : null,
+            heartbeatAt: r.heartbeatAt
+              ? new Date(r.heartbeatAt).toISOString()
+              : null,
+            visibleAfter: r.visibleAfter
+              ? new Date(r.visibleAfter).toISOString()
+              : null,
             companyId,
           });
         }
@@ -365,7 +390,9 @@ export class JobRunService {
       return await this.surreal.withCompany(companyId, async (db) => {
         const res = (await db.query<any[]>(
           `SELECT runId, jobType, status, triggeredBy, triggeredByActor,
-                  startedAt, finishedAt, progress, result, error, cancelRequested
+                  startedAt, finishedAt, progress, payload, result, error,
+                  cancelRequested, attempts, claimedBy, claimedAt,
+                  leaseUntil, heartbeatAt, visibleAfter
              FROM job_run WHERE runId = $runId LIMIT 1`,
           { runId },
         )) as any[];
@@ -382,9 +409,22 @@ export class JobRunService {
             ? new Date(r.finishedAt).toISOString()
             : null,
           progress: r.progress ?? null,
+          payload: r.payload ?? null,
           result: r.result ?? null,
           error: r.error ?? null,
           cancelRequested: r.cancelRequested === true,
+          attempts: typeof r.attempts === 'number' ? r.attempts : undefined,
+          claimedBy: r.claimedBy ?? null,
+          claimedAt: r.claimedAt ? new Date(r.claimedAt).toISOString() : null,
+          leaseUntil: r.leaseUntil
+            ? new Date(r.leaseUntil).toISOString()
+            : null,
+          heartbeatAt: r.heartbeatAt
+            ? new Date(r.heartbeatAt).toISOString()
+            : null,
+          visibleAfter: r.visibleAfter
+            ? new Date(r.visibleAfter).toISOString()
+            : null,
           companyId,
         } as JobRunRow;
       });

@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
+
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Heart, Loader2, RefreshCw, XCircle, AlertTriangle } from 'lucide-react'
 

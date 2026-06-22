@@ -152,5 +152,160 @@
     "rev": {
       "ru-pending": "Перевод готовится — показываем английскую версию."
     }
+  },
+  "admin": {
+    "common": {
+      "refresh": "обновить",
+      "auto": "авто",
+      "autoSeconds": "авто {seconds}с",
+      "loading": "загрузка…",
+      "noData": "—"
+    },
+    "leases": {
+      "title": "Аренды и заявки",
+      "subtitle": "Выборы лидера и активные заявки job_run по флоту. Здесь видно зависших воркеров, протухшие аренды без перезахвата и поды, держащие больше своей доли.",
+      "queueModeTip": {
+        "enqueue": "крон складывает строки в очередь; worker loop диспатчит",
+        "inline": "kill switch активен — крон работает инлайн (поведение до Phase J)"
+      },
+      "queueModeLabel": "очередь",
+      "leaderBadge": "worker_loop лидер",
+      "followerBadge": "фолловер",
+      "handlersLabel": "хэндлеры",
+      "noHandlers": "нет",
+      "poolLabel": "пул",
+      "poolBusy": "{busy}/{size} занято",
+      "poolDisabled": "выключен",
+      "poolWaiting": "+{n} ждут",
+      "poolTip": "JobWorkerPool — пул node:worker_threads для cpuBound-хэндлеров (сейчас ни один хэндлер не включён; size=0 выключает пул)",
+      "leaderLeases": {
+        "title": "Аренды лидера",
+        "subtitle": "Именованные локи в leader_lease (system DB). При multi-pod деплое одну аренду держит один под.",
+        "headers": {
+          "name": "имя",
+          "leader": "лидер",
+          "acquired": "захвачено",
+          "expires": "истекает через"
+        },
+        "empty": "Аренд нет. Либо система свежая, либо все кроны чисто отпустили свои аренды."
+      },
+      "activeClaims": {
+        "title": "Активные заявки",
+        "subtitle": "Строки job_run в статусе 'running'. Просроченные heartbeat'ы зачищает LeaseManagerService.",
+        "headers": {
+          "runId": "runId",
+          "jobType": "тип",
+          "tenant": "тенант",
+          "worker": "воркер",
+          "attempts": "попытки",
+          "heartbeat": "heartbeat",
+          "lease": "аренда через"
+        },
+        "empty": "Активных заявок нет. Очередь пуста или все воркеры только что закончили цикл.",
+        "heartbeatAgo": "{n}с назад"
+      }
+    },
+    "jobs": {
+      "title": "Запуски джоб",
+      "subtitle": "Длинные операторские джобы (dreams / compaction / calibration refit / reindex / changefeed drain). Переходы по SSE; drill на джобу показывает progress / result / error.",
+      "live": "лайв",
+      "sseHint": "SSE на принятых переходах job_run",
+      "filters": {
+        "allTypes": "все типы",
+        "allStatuses": "все статусы",
+        "companyIdPlaceholder": "фильтр по companyId"
+      },
+      "table": {
+        "started": "старт",
+        "type": "тип",
+        "tenant": "тенант",
+        "trigger": "триггер",
+        "status": "статус",
+        "duration": "длительность"
+      },
+      "empty": "Нет джоб по фильтру.",
+      "drill": {
+        "prompt": "Выбери джобу для drill.",
+        "trigger": "триггер",
+        "actor": "actor",
+        "tenant": "тенант",
+        "started": "старт",
+        "finished": "финиш",
+        "attempts": "попытки",
+        "claimedBy": "claimedBy",
+        "visibleAfter": "видна с",
+        "leaseUntil": "аренда до",
+        "cancelRequested": "отмена запрошена",
+        "requestCancel": "Запросить отмену",
+        "payload": "payload",
+        "payloadHint": "(вход хэндлера)",
+        "progress": "progress",
+        "result": "result",
+        "error": "error"
+      }
+    },
+    "maintenance": {
+      "title": "Кокпит обслуживания",
+      "subtitle": "Расписанные джобы и ручные триггеры. Каждая карточка показывает последний персистнутый запуск (через job_run + SchedulerRegistry), ETA следующего срабатывания и кнопку Run now, которая идёт тем же кодом что и крон.",
+      "runNow": "Запустить",
+      "cards": {
+        "dreams": {
+          "title": "Dreams (dedup + resolve + summarize)",
+          "description": "04:00 UTC — дедуп сущностей и разрешение конфликтующих фактов."
+        },
+        "compaction": {
+          "title": "Compaction (горячий → тёплый ярус)",
+          "description": "03:17 UTC — факты за пределами retention переезжают в тёплый ярус, опционально LLM-summary."
+        },
+        "calibration_refit": {
+          "title": "Calibration refit (изотонический)",
+          "description": "03:51 UTC — пересчёт изотонической карты по retraction'ам за 30 дней. Тот же триггер также кидает source-trust refit."
+        },
+        "source_trust_refit": {
+          "title": "Source-trust refit",
+          "description": "03:42 UTC — апсёрт source_trust(rate, sampleCount). Триггерится вместе с calibration-refit выше."
+        },
+        "reindex_embeddings": {
+          "title": "Reindex embeddings",
+          "description": "Без крона — переэмбеддинг knowledge_fact по всем тенантам. Запускать после смены EMBEDDER_PROVIDER или dimension'а модели."
+        },
+        "changefeed_drain": {
+          "title": "Changefeed drain → audit_event",
+          "description": "Каждую минуту — SHOW CHANGES по каждому source, запись audit_event, продвижение курсора."
+        }
+      },
+      "cron": {
+        "label": "крон",
+        "lastFire": "посл. срабат.",
+        "nextFire": "след. срабат.",
+        "state": "состояние",
+        "running": "работает",
+        "idle": "ожидает",
+        "noCron": "—"
+      },
+      "lastRun": "последний запуск: {status}",
+      "drillLink": "drill →",
+      "changefeed": {
+        "title": "Changefeed consumer",
+        "enabled": "включен",
+        "disabled": "выключен",
+        "stats": {
+          "lastTick": "посл. tick",
+          "pending": "pending",
+          "consumedTotal": "всего обработано",
+          "ticks": "tick'ов",
+          "batchLimit": "лимит батча"
+        },
+        "cursors": "курсоры по (тенант × source)",
+        "cursorHeaders": {
+          "tenant": "тенант",
+          "source": "source",
+          "versionstamp": "versionstamp"
+        }
+      },
+      "recentJobs": "Недавние запуски",
+      "fullHistory": "вся история →",
+      "noRecentJobs": "Пока нет персистнутых запусков. Запусти джобу выше или дождись следующего срабатывания крона."
+    }
   }
 }

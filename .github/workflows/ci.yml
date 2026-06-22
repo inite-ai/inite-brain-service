@@ -53,6 +53,17 @@ jobs:
       - name: In-process e2e (testcontainers + stubs)
         run: pnpm test:e2e
 
+      # i18n gate — admin components must use the getMessages() pipeline,
+      # never hardcoded JSX literals. See brain-landing/eslint.config.mjs
+      # and § Quality gates in CONTRIBUTING.md.
+      - name: Install brain-landing deps
+        working-directory: brain-landing
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: i18n lint — admin components
+        working-directory: brain-landing
+        run: pnpm lint:i18n
+
   real-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
