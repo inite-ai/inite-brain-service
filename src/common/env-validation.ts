@@ -62,30 +62,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   // ── DB-level PII fence (scoped pool) ──────────────────────────────
-  // withScopedCompany() signs in as the brain_caller EDITOR so the
-  // SurrealDB PERMISSIONS in migration 0005 gate sensitive fields at the
-  // database layer. When SURREALDB_SCOPED_USER/PASS are unset it falls
-  // back to the ROOT pool — silently bypassing that fence, leaving only
-  // the app-layer JS policy filter. In production that fail-open is a
-  // privacy hole, so refuse to start; in dev, warn loudly.
-  {
-    const haveBoth =
-      !!env.SURREALDB_SCOPED_USER?.trim() && !!env.SURREALDB_SCOPED_PASS?.trim();
-    if (!haveBoth) {
-      if (env.NODE_ENV === 'production') {
-        errors.push(
-          'SURREALDB_SCOPED_USER and SURREALDB_SCOPED_PASS must BOTH be set in ' +
-            'production — without them withScopedCompany() falls back to the ' +
-            'root pool and the DB-level PII fence (migration 0005) is bypassed.',
-        );
-      } else {
-        warnings.push(
-          'SURREALDB_SCOPED_USER/PASS not set — DB-level PII fence inactive ' +
-            '(app-layer policy only). Set both before deploying.',
-        );
-      }
-    }
-  }
+  validateScopedPool(env, errors, warnings);
 
   // ── Embedding dimensions ──────────────────────────────────────────
   const dims = env.OPENAI_EMBEDDING_DIMENSIONS;
@@ -124,6 +101,36 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   log.log('Environment validation passed');
+}
+
+/**
+ * withScopedCompany() signs in as the brain_caller EDITOR so the
+ * SurrealDB PERMISSIONS in migration 0005 gate sensitive fields at the
+ * database layer. When SURREALDB_SCOPED_USER/PASS are unset it falls back
+ * to the ROOT pool — silently bypassing that fence, leaving only the
+ * app-layer JS policy filter. In production that fail-open is a privacy
+ * hole, so refuse to start; in dev, warn loudly.
+ */
+function validateScopedPool(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+  warnings: string[],
+): void {
+  const haveBoth =
+    !!env.SURREALDB_SCOPED_USER?.trim() && !!env.SURREALDB_SCOPED_PASS?.trim();
+  if (haveBoth) return;
+  if (env.NODE_ENV === 'production') {
+    errors.push(
+      'SURREALDB_SCOPED_USER and SURREALDB_SCOPED_PASS must BOTH be set in ' +
+        'production — without them withScopedCompany() falls back to the ' +
+        'root pool and the DB-level PII fence (migration 0005) is bypassed.',
+    );
+  } else {
+    warnings.push(
+      'SURREALDB_SCOPED_USER/PASS not set — DB-level PII fence inactive ' +
+        '(app-layer policy only). Set both before deploying.',
+    );
+  }
 }
 
 function required(
