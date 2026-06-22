@@ -116,8 +116,10 @@ describe('ExtractorService N-pass driver', () => {
   it('three-pass disagreement → positive entropy + agreement = 1/3', async () => {
     // valueSpan must exist verbatim in the text so applyGroundingGate
     // doesn't drop the rows. We use a text that contains every variant.
+    // Entity name must also be span-grounded now, so use a name that
+    // appears verbatim in the input ('Anna') rather than a bare 'A'.
     const make = (val: string) => ({
-      entities: [{ name: 'A', type: 'customer' }],
+      entities: [{ name: 'Anna', type: 'customer' }],
       facts: [
         {
           entityIndex: 0,

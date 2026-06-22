@@ -36,6 +36,7 @@ import {
 } from './extractor-internals/prompts';
 import {
   applyGroundingGate,
+  groundEntities,
   parseClauses,
   parseEntities,
   parseRawFacts,
@@ -481,10 +482,14 @@ export class ExtractorService {
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, cacheKey, snapshot, rawJson } = args;
 
-    const entities: ExtractedEntity[] = parseEntities(rawJson);
+    const parsedEntities: ExtractedEntity[] = parseEntities(rawJson);
     const clauses = parseClauses(rawJson);
-    const rawFacts = parseRawFacts(rawJson, entities.length);
-    const { facts, dropped } = applyGroundingGate(trimmed, rawFacts, clauses);
+    const rawFacts = parseRawFacts(rawJson, parsedEntities.length);
+    const { facts: valueGroundedFacts, dropped } = applyGroundingGate(
+      trimmed,
+      rawFacts,
+      clauses,
+    );
 
     if (dropped.length > 0) {
       this.logger.warn(
@@ -500,15 +505,54 @@ export class ExtractorService {
     }
     if (clauses.length > 0) traceArtifact('extractor.clauses', clauses);
 
-    const { edges, dropped: droppedEdges } = validateEdges(
+    const { edges: parsedEdges, dropped: droppedEdges } = validateEdges(
       rawJson,
-      entities.length,
+      parsedEntities.length,
       clauses,
     );
-    if (edges.length > 0) traceArtifact('extractor.edges', edges);
     if (droppedEdges.length > 0) {
       traceArtifact('extractor.invalid_edges', { dropped: droppedEdges });
     }
+
+    // Entity span-grounding: drop entities whose name never appears in the
+    // source, then re-index the surviving facts/edges onto the compacted
+    // entity array. Ingest creates EVERY returned entity (not only those a
+    // fact references), so an ungrounded name would otherwise materialise a
+    // hallucinated entity record.
+    const groundedMask = groundEntities(trimmed, parsedEntities);
+    const remap = new Map<number, number>();
+    const entities: ExtractedEntity[] = [];
+    parsedEntities.forEach((e, i) => {
+      if (groundedMask[i]) {
+        remap.set(i, entities.length);
+        entities.push(e);
+      }
+    });
+    const facts = valueGroundedFacts
+      .filter((f) => remap.has(f.entityIndex))
+      .map((f) => ({ ...f, entityIndex: remap.get(f.entityIndex) as number }));
+    const edges = parsedEdges
+      .filter(
+        (e) => remap.has(e.fromEntityIndex) && remap.has(e.toEntityIndex),
+      )
+      .map((e) => ({
+        ...e,
+        fromEntityIndex: remap.get(e.fromEntityIndex) as number,
+        toEntityIndex: remap.get(e.toEntityIndex) as number,
+      }));
+    if (entities.length < parsedEntities.length) {
+      const droppedNames = parsedEntities
+        .filter((_, i) => !groundedMask[i])
+        .map((e) => e.name);
+      this.logger.warn(
+        `extractor dropped ${droppedNames.length} entity(ies) that failed span-grounding: ${droppedNames.join('; ')}`,
+      );
+      traceArtifact('extractor.ungrounded_entities', {
+        droppedCount: droppedNames.length,
+        names: droppedNames,
+      });
+    }
+    if (edges.length > 0) traceArtifact('extractor.edges', edges);
 
     await this.applyPredicateRefinements(facts, snapshot, companyId);
 
