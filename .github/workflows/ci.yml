@@ -50,8 +50,21 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Unit suite (79 specs: auth guard, calibration, CAS job-claim,
+      # conflict-explainer, chat-router gates, …). These were defined in
+      # package.json but never wired into CI, so a regression in any of
+      # them shipped green. Now a hard gate on every PR.
+      - name: Unit tests
+        run: pnpm test:unit
+
       - name: In-process e2e (testcontainers + stubs)
         run: pnpm test:e2e
+
+      # Real-Surreal job-queue suite (CAS claim / leader lease / zombie
+      # reap / backoff). No OpenAI, no SDK — pure DB correctness against
+      # testcontainers. Previously matched no CI pattern and never ran.
+      - name: Jobs e2e (real Surreal, no OpenAI)
+        run: pnpm test:e2e:jobs
 
       # i18n gate — admin components must use the getMessages() pipeline,
       # never hardcoded JSX literals. See brain-landing/eslint.config.mjs
@@ -229,6 +242,8 @@ jobs:
             -e SURREALDB_USERNAME=root \
             -e SURREALDB_PASSWORD=root \
             -e SURREALDB_NAMESPACE=brain \
+            -e SURREALDB_SCOPED_USER=brain_caller \
+            -e SURREALDB_SCOPED_PASS=ci-scoped-pass \
             -e OPENAI_API_KEY=sk-ci-stub \
             -e BRAIN_API_KEYS='[]' \
             -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \

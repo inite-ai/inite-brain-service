@@ -27,6 +27,7 @@
     "test:watch": "jest --config ./test/jest-unit.json --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:e2e:real": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=brain.real",
+    "test:e2e:jobs": "jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=jobs.real",
     "test:eval": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=quality",
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
     "bench:router": "ts-node -r tsconfig-paths/register scripts/bench-chat-router.ts",
