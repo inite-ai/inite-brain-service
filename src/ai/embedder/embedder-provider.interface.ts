@@ -33,6 +33,18 @@ export interface EmbedderProvider {
   embed(text: string): Promise<number[]>;
 
   /**
+   * Optional: embed a single string AND report API token usage. Only
+   * vendors whose API bills tokens (OpenAI) implement this; local
+   * providers (BGE-M3) have no tokens to report and leave it undefined,
+   * so EmbedderService falls back to plain `embed()`. Lets the gen-ai
+   * observability wrapper populate `gen_ai.usage.*` for embeddings —
+   * which `embed()` alone can't, since a bare vector carries no usage.
+   */
+  embedWithUsage?(
+    text: string,
+  ): Promise<{ vector: number[]; usage?: { total_tokens?: number } }>;
+
+  /**
    * Optional batched API. Providers that support it return one vector
    * per input in the same order. Implementations that don't override
    * fall back to N sequential `embed()` calls via the default in

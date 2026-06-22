@@ -77,9 +77,10 @@ export function fitIsotonic(
     binCounts[idx] += 1;
   }
 
-  // 2. Compute means for non-empty bins. Empty bins are interpolated
-  // from the nearest non-empty mean — they cannot violate monotonicity
-  // on their own.
+  // 2. Compute means for non-empty bins. Empty bins are skipped entirely
+  // (not interpolated) — only populated bins enter the PAV pass below, and
+  // the piecewise-constant map fills the gaps at predict() time by reading
+  // the bin whose upper bound covers the query confidence.
   const populated: Array<{ upper: number; mean: number; weight: number }> = [];
   for (let i = 0; i < binCount; i++) {
     if (binCounts[i] === 0) continue;

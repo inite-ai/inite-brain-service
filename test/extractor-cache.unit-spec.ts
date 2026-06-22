@@ -61,6 +61,20 @@ describe('ExtractorCacheService.computeKey', () => {
     );
   });
 
+  it('scPasses change → different key', () => {
+    // A single-pass cached result lacks the semantic-entropy fields a
+    // multi-pass run produces, so the key must split on scPasses.
+    expect(svc.computeKey({ ...baseInput, scPasses: 1 })).not.toBe(
+      svc.computeKey({ ...baseInput, scPasses: 3 }),
+    );
+  });
+
+  it('omitted scPasses maps to the single-pass bucket', () => {
+    expect(svc.computeKey(baseInput)).toBe(
+      svc.computeKey({ ...baseInput, scPasses: 1 }),
+    );
+  });
+
   it('NFC-normalizes text', () => {
     // Composed: 'é' (U+00E9). Decomposed: 'e' + combining acute (U+0301).
     const composed = 'café';

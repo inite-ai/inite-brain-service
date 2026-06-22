@@ -164,6 +164,7 @@ export class ExtractorService {
       text: trimmed,
       companyId,
       predicateVocabHash: snapshot.versionHash,
+      scPasses: this.scPasses,
     });
     const cached = this.extractionCache.get(cacheKey);
     if (cached) {

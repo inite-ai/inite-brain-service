@@ -132,7 +132,13 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     // metric reflects real API calls, not memoised reads.
     const [vendor, model] = provider.providerId.split(':');
     const isOpenAI = vendor === 'openai';
-    const vec = await withGenAiCall(
+    // Return `{ vector, usage }` from the wrapped fn so withGenAiCall can
+    // read `.usage` and populate the embedding token counter. A bare
+    // vector has no usage, which is why the metric used to read 0.
+    const { vector } = await withGenAiCall<{
+      vector: number[];
+      usage?: { total_tokens?: number };
+    }>(
       {
         kind: 'embed',
         spanName: 'gen_ai.embed',
@@ -140,10 +146,13 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
         model: model ?? '_',
       },
       this.metrics,
-      () => provider.embed(trimmed) as Promise<number[]>,
+      async () =>
+        provider.embedWithUsage
+          ? provider.embedWithUsage(trimmed)
+          : { vector: await provider.embed(trimmed) },
     );
-    this.cache.set(key, vec);
-    return vec;
+    this.cache.set(key, vector);
+    return vector;
   }
 
   getDimensions(): number {

@@ -66,11 +66,21 @@ describe('applyConformalGuardrail', () => {
     expect(r.droppedCount).toBe(1);
   });
 
-  it('keeps facts without a breakdown (cannot judge what cannot be scored)', () => {
-    const hits = [hit('e1', [{ factId: 'no_bk' }])];
-    const r = applyConformalGuardrail(hits, { minCalibratedConfidence: 0.95 });
-    expect(r.kept.length).toBe(1);
-    expect(r.droppedCount).toBe(0);
+  it('falls back to raw confidence for a fact without a breakdown', () => {
+    // No breakdown → gated on raw confidence (0.9 in the fixture). Above a
+    // 0.5 floor it survives; above a 0.95 floor it now drops instead of
+    // bypassing the guardrail unconditionally.
+    const above = applyConformalGuardrail([hit('e1', [{ factId: 'no_bk' }])], {
+      minCalibratedConfidence: 0.5,
+    });
+    expect(above.kept.length).toBe(1);
+    expect(above.droppedCount).toBe(0);
+
+    const below = applyConformalGuardrail([hit('e1', [{ factId: 'no_bk' }])], {
+      minCalibratedConfidence: 0.95,
+    });
+    expect(below.kept.length).toBe(0);
+    expect(below.droppedCount).toBe(1);
   });
 
   it('floor === calibratedConfidence keeps the fact (inclusive boundary)', () => {

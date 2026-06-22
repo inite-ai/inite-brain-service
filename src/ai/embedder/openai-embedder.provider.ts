@@ -51,8 +51,20 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
   }
 
   async embed(text: string): Promise<number[]> {
+    return (await this.embedWithUsage(text)).vector;
+  }
+
+  /**
+   * Single-string embed that also surfaces the API's token usage so the
+   * gen-ai observability wrapper can populate `gen_ai.usage.input_tokens`.
+   * The OpenAI /embeddings response reports `usage.total_tokens`; without
+   * threading it back out, the embedding token counter stays pinned at 0.
+   */
+  async embedWithUsage(
+    text: string,
+  ): Promise<{ vector: number[]; usage?: { total_tokens?: number } }> {
     const trimmed = text.trim();
-    if (!trimmed) return new Array(this.dimensions).fill(0);
+    if (!trimmed) return { vector: new Array(this.dimensions).fill(0) };
     return this.limiter.run(async () => {
       const res = await this.openai.embeddings.create(
         {
@@ -62,7 +74,7 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
         },
         { signal: getAbortSignal() },
       );
-      return res.data[0].embedding;
+      return { vector: res.data[0].embedding, usage: res.usage };
     });
   }
 
@@ -103,8 +115,12 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
           { signal: getAbortSignal() },
         ),
       );
-      for (let j = 0; j < res.data.length; j++) {
-        out[sliceIdx[j]] = res.data[j].embedding;
+      // Index by the API-provided `.index`, NOT array position. The
+      // OpenAI contract guarantees the index field, not that data[] is
+      // pre-sorted — positional assignment would map a vector to the
+      // wrong text if the API ever reorders a batch.
+      for (const d of res.data) {
+        out[sliceIdx[d.index]] = d.embedding;
       }
     }
     return out;

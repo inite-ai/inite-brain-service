@@ -54,11 +54,18 @@ export class ExtractorCacheService {
     text: string;
     companyId: string;
     predicateVocabHash: string;
+    scPasses?: number;
   }): string {
+    // scPasses is part of the key: a single-pass cached result lacks the
+    // semantic-entropy fields a >1-pass run produces, so serving it after
+    // EXTRACTOR_SC_PASSES is raised would return a stale-shaped extraction.
+    // Default to 1 so callers that don't pass it (and pre-existing keys)
+    // map to the historical single-pass bucket.
     const parts = [
-      'v1',
+      'v2',
       input.companyId,
       input.predicateVocabHash,
+      `sc=${input.scPasses ?? 1}`,
       nfc(input.text),
     ].join('\x1f');
     return createHash('sha256').update(parts).digest('hex');

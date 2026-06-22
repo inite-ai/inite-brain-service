@@ -69,6 +69,10 @@ export class PredicateRegistryService {
    * next time it touches the registry.
    */
   private readonly bootstrapped: LRUCache<string, true>;
+  // In-flight bootstrap per tenant — dedupes concurrent first-requests so
+  // two cold reads don't both run the seed (which would CREATE duplicate
+  // knowledge_predicate rows; no unique constraint protects against it).
+  private readonly bootstrapInFlight = new Map<string, Promise<void>>();
 
   private readonly canonicalizeThreshold: number;
 
@@ -77,12 +81,18 @@ export class PredicateRegistryService {
     private readonly embedder: EmbedderService,
     private readonly config: ConfigService,
   ) {
-    this.canonicalizeThreshold = parseFloat(
+    const parsedThreshold = parseFloat(
       this.config.get<string>(
         'PREDICATE_CANONICALIZE_THRESHOLD',
         String(DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD),
       ),
     );
+    // Guard against a malformed env value: a bare parseFloat yields NaN,
+    // and `similarity >= NaN` is always false, which silently disables
+    // auto-aliasing entirely. Fall back to the default instead.
+    this.canonicalizeThreshold = Number.isFinite(parsedThreshold)
+      ? parsedThreshold
+      : DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD;
     const cap = parseInt(
       this.config.get<string>('PREDICATE_REGISTRY_CACHE_CAP', '200'),
       10,
@@ -99,6 +109,17 @@ export class PredicateRegistryService {
    */
   private async ensureBootstrap(companyId: string): Promise<void> {
     if (this.bootstrapped.has(companyId)) return;
+    let p = this.bootstrapInFlight.get(companyId);
+    if (!p) {
+      p = this.doBootstrap(companyId).finally(() =>
+        this.bootstrapInFlight.delete(companyId),
+      );
+      this.bootstrapInFlight.set(companyId, p);
+    }
+    return p;
+  }
+
+  private async doBootstrap(companyId: string): Promise<void> {
     await this.surreal.withCompany(companyId, async (db) => {
       const [existingRows] = await db.query<
         [Array<{ predicateId: string; embedding?: number[] | null }>]

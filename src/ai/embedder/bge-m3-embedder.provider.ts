@@ -40,6 +40,12 @@ export interface BgeM3EmbedderConfig {
  * (some test envs), the provider falls back to in-thread inference
  * preserving the original behaviour.
  */
+// Per-RPC deadlines for the worker path. A hung worker would otherwise
+// leave the caller's promise pending forever. Warmup loads the model from
+// disk/network so it gets a generous budget; embed calls are sub-second.
+const WORKER_WARMUP_TIMEOUT_MS = 120_000;
+const WORKER_EMBED_TIMEOUT_MS = 30_000;
+
 export class BgeM3EmbedderProvider implements EmbedderProvider {
   readonly providerId: string;
   private readonly logger = new Logger(BgeM3EmbedderProvider.name);
@@ -214,10 +220,33 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       return Promise.reject(new Error('BGE-M3 worker not initialised'));
     }
     const id = this.nextReqId++;
+    const timeoutMs =
+      kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : WORKER_EMBED_TIMEOUT_MS;
     return new Promise<R>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Only act if the reply hasn't already landed and cleared us.
+        if (this.pending.delete(id)) {
+          // A wedged worker won't recover on its own — mark it not-ready
+          // so isReady() flips false and EmbedderService fails over to the
+          // fallback provider instead of stacking timed-out RPCs.
+          this.workerReady = false;
+          reject(
+            new Error(
+              `BGE-M3 worker '${kind}' RPC timed out after ${timeoutMs}ms`,
+            ),
+          );
+        }
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
       this.pending.set(id, {
-        resolve: resolve as (v: unknown) => void,
-        reject,
+        resolve: (v: unknown) => {
+          clearTimeout(timer);
+          (resolve as (value: unknown) => void)(v);
+        },
+        reject: (e: Error) => {
+          clearTimeout(timer);
+          reject(e);
+        },
       });
       this.worker!.postMessage({ id, kind, payload });
     });

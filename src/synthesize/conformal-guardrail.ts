@@ -17,6 +17,11 @@
  * Pure module — no DI, no IO. The synthesize service calls
  * `applyConformalGuardrail()` between fact-index construction and
  * the generator call.
+ *
+ * Naming caveat: this is NOT full conformal prediction — there is no
+ * calibration-set coverage guarantee. It is a fixed confidence-threshold
+ * filter informed by the conformal/calibration literature above; the
+ * "conformal" name is aspirational, kept only to avoid a churny rename.
  */
 
 import type { SearchHit } from '../search/search.types';
@@ -39,12 +44,11 @@ export interface ConformalGuardrailResult {
 }
 
 /**
- * Drop SearchHit facts whose `breakdown.calibratedConfidence` falls
- * below `cfg.minCalibratedConfidence`. SearchHits that end up with
- * zero remaining facts are removed entirely. Facts without a
- * breakdown are kept (defensive: we cannot judge a fact we can't
- * score, and the upstream may legitimately omit breakdowns for
- * backfill rows that already carry their own zero-score signal).
+ * Drop SearchHit facts whose calibrated confidence falls below
+ * `cfg.minCalibratedConfidence`. SearchHits that end up with zero
+ * remaining facts are removed entirely. Facts without a breakdown fall
+ * back to their raw `confidence` for the comparison (both live in the
+ * [0,1] confidence space) so an unscored fact can't slip past the floor.
  */
 export function applyConformalGuardrail(
   hits: readonly SearchHit[],
@@ -58,13 +62,13 @@ export function applyConformalGuardrail(
   const kept: SearchHit[] = [];
   for (const hit of hits) {
     const filteredFacts = hit.facts.filter((f) => {
-      // Defensive: no breakdown → keep. The synthesize generator
-      // anyway grounds its citation on factLines emitted from the
-      // kept set, so a missing breakdown is observation-noise not
-      // a guardrail failure.
-      const calibrated = f.breakdown?.calibratedConfidence;
-      if (calibrated === undefined) return true;
-      if (calibrated >= floor) return true;
+      // Prefer the calibrated confidence; when a fact carries no
+      // breakdown (e.g. backfill rows), fall back to its raw confidence
+      // rather than passing it through unconditionally — an unscored
+      // fact used to bypass the floor entirely, which let low-confidence
+      // evidence reach the generator whenever the breakdown was absent.
+      const score = f.breakdown?.calibratedConfidence ?? f.confidence;
+      if (score >= floor) return true;
       droppedCount += 1;
       return false;
     });
