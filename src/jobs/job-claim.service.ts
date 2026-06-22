@@ -79,29 +79,45 @@ export class JobClaimService {
     }
     const runId = randomUUID();
     const visibleAfterIso = (input.visibleAfter ?? new Date()).toISOString();
+    // SurrealDB v2 distinguishes NONE from NULL on `option<T>` fields
+    // (especially indexed ones): passing JS null surfaces as
+    // "Found NULL … expected option<T>". Build CONTENT incrementally
+    // so option<> fields without a value are omitted from the literal
+    // entirely, letting them default to NONE.
+    const fields: string[] = [
+      `runId: $runId`,
+      `jobType: $jobType`,
+      `status: 'pending'`,
+      `triggeredBy: $triggeredBy`,
+      `startedAt: time::now()`,
+      `cancelRequested: false`,
+      `attempts: 0`,
+      `visibleAfter: type::datetime($visibleAfter)`,
+    ];
+    const params: Record<string, unknown> = {
+      runId,
+      jobType: input.jobType,
+      triggeredBy: input.triggeredBy,
+      visibleAfter: visibleAfterIso,
+    };
+    if (input.triggeredByActor !== undefined) {
+      fields.push(`triggeredByActor: $actor`);
+      params.actor = input.triggeredByActor;
+    }
+    if (input.payload !== undefined && input.payload !== null) {
+      fields.push(`progress: $payload`, `payload: $payload`);
+      params.payload = input.payload;
+    }
+    if (input.dedupKey !== undefined) {
+      fields.push(`dedupKey: $dedupKey`);
+      params.dedupKey = input.dedupKey;
+    }
     try {
       const created = await retryOnUniqueViolation(() =>
         this.surreal!.withCompany(input.companyId, async (db) => {
           await db.query(
-            `CREATE job_run CONTENT {
-               runId: $runId, jobType: $jobType, status: 'pending',
-               triggeredBy: $triggeredBy, triggeredByActor: $actor,
-               startedAt: time::now(),
-               progress: $payload, payload: $payload,
-               cancelRequested: false,
-               attempts: 0,
-               dedupKey: $dedupKey,
-               visibleAfter: type::datetime($visibleAfter)
-             }`,
-            {
-              runId,
-              jobType: input.jobType,
-              triggeredBy: input.triggeredBy,
-              actor: input.triggeredByActor ?? null,
-              payload: input.payload ?? null,
-              dedupKey: input.dedupKey ?? null,
-              visibleAfter: visibleAfterIso,
-            },
+            `CREATE job_run CONTENT { ${fields.join(', ')} }`,
+            params,
           );
           return true;
         }),
