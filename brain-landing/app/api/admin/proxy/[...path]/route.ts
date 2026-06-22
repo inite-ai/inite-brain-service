@@ -15,6 +15,11 @@ import { ThrottlerResponseSchema } from '@/lib/contracts/admin-throttler'
 import { NowResponseSchema } from '@/lib/contracts/admin-now'
 import { HealthComponentsResponseSchema } from '@/lib/contracts/admin-health-components'
 import { PiiInventoryResponseSchema } from '@/lib/contracts/admin-pii'
+import { ConfigResponseSchema } from '@/lib/contracts/admin-config'
+import { CostResponseSchema } from '@/lib/contracts/admin-cost'
+import { CalibrationResponseSchema } from '@/lib/contracts/admin-calibration'
+import { RouterStatsResponseSchema } from '@/lib/contracts/admin-router-stats'
+import { PredicatesListResponseSchema } from '@/lib/contracts/admin-predicates'
 import type { ZodType } from 'zod'
 
 /**
@@ -42,6 +47,11 @@ const RESPONSE_SCHEMAS: Record<string, ZodType> = {
   'v1/admin/now': NowResponseSchema,
   'v1/admin/health/components': HealthComponentsResponseSchema,
   'v1/admin/pii': PiiInventoryResponseSchema,
+  'v1/admin/config': ConfigResponseSchema,
+  'v1/admin/cost': CostResponseSchema,
+  'v1/admin/calibration': CalibrationResponseSchema,
+  'v1/admin/router/stats': RouterStatsResponseSchema,
+  'v1/admin/predicates': PredicatesListResponseSchema,
 }
 
 /**

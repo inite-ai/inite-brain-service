@@ -18,6 +18,7 @@ import type { DlqResponse } from '../contracts/admin/dlq.schema';
 import type { ForgottenResponse } from '../contracts/admin/forgotten.schema';
 import type { OperatorActionsResponse } from '../contracts/admin/operator-actions.schema';
 import type { PiiInventoryResponse } from '../contracts/admin/pii.schema';
+import type { ConfigResponse } from '../contracts/admin/config.schema';
 
 /**
  * Operator power-tools / GDPR surface.
@@ -44,8 +45,8 @@ export class AdminOpsController {
 
   @Get('config')
   @RequireScopes('brain:admin')
-  configList() {
-    return { entries: this.config.list() };
+  configList(): ConfigResponse {
+    return { entries: this.config.list() } satisfies ConfigResponse;
   }
 
   // ── Dead-letter ───────────────────────────────────────────

@@ -14,28 +14,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import type {
+  CostResponse,
+  CostBucket,
+} from '../../lib/contracts/admin-cost'
 
-interface CostBucket {
-  key: string
-  calls: number
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-  usd: number
-}
-
-interface CostResponse {
-  total: { usd: number; tokens: number; calls: number }
-  perModel: CostBucket[]
-  perOperation: CostBucket[]
-  perTenant: CostBucket[]
-  pricing: Record<
-    string,
-    { promptPerMTok: number; completionPerMTok: number }
-  >
-  source: 'metrics'
-  error?: string
-}
+export type { CostBucket }
 
 export function CostPanel() {
   const [data, setData] = useState<CostResponse | null>(null)
@@ -48,9 +32,12 @@ export function CostPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/cost', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as CostResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as CostResponse | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as CostResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

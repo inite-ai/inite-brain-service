@@ -13,32 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-
-interface RouterStatsResponse {
-  tenant: string
-  routeCache: {
-    size: number
-    hits: number
-    misses: number
-    hitRate: number
-    enabled: boolean
-  }
-  embedderCache: {
-    size: number
-    inFlight: number
-    waiting: number
-    provider: string
-  }
-  intentClassifier: {
-    enabled: boolean
-    ready: boolean
-    model: string
-    askThreshold: number
-    cacheSize: number
-  }
-  collapsePatternPoolSize: number
-  error?: string
-}
+import type { RouterStatsResponse } from '../../lib/contracts/admin-router-stats'
 
 interface Sample {
   ts: number
@@ -67,17 +42,23 @@ export function RouterStats() {
       )
       if (tenant) url.searchParams.set('companyId', tenant)
       const res = await fetch(url.toString(), { cache: 'no-store' })
-      const json = (await res.json()) as RouterStatsResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as
+        | RouterStatsResponse
+        | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      const ok = json as RouterStatsResponse
+      setData(ok)
       setError(null)
       const sample: Sample = {
         ts: Date.now(),
-        hitRate: json.routeCache.hitRate,
-        routeSize: json.routeCache.size,
-        embedSize: json.embedderCache.size,
-        intentSize: json.intentClassifier.cacheSize,
-        collapseSize: json.collapsePatternPoolSize,
+        hitRate: ok.routeCache.hitRate,
+        routeSize: ok.routeCache.size,
+        embedSize: ok.embedderCache.size,
+        intentSize: ok.intentClassifier.cacheSize,
+        collapseSize: ok.collapsePatternPoolSize,
       }
       samplesRef.current = [...samplesRef.current, sample].slice(-120)
       setSamples(samplesRef.current)

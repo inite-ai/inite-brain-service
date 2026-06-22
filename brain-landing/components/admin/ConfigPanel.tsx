@@ -4,17 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, KeyRound, RefreshCw, Settings2 } from 'lucide-react'
-
-interface ConfigEntry {
-  key: string
-  category: string
-  currentValue: string
-  defaultValue: string | null
-  runtimeMutable: boolean
-  isBooleanFlag: boolean
-  description?: string
-  secret?: boolean
-}
+import type { ConfigEntry } from '../../lib/contracts/admin-config'
 
 const CATEGORY_ORDER = [
   'pipeline',
@@ -86,7 +76,7 @@ export function ConfigPanel() {
 
   const categories = useMemo(() => {
     const seen = new Set(entries.map((e) => e.category))
-    return CATEGORY_ORDER.filter((c) => seen.has(c))
+    return CATEGORY_ORDER.filter((c) => seen.has(c as ConfigEntry['category']))
   }, [entries])
 
   const grouped = useMemo(() => {

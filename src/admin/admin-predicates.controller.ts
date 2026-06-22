@@ -17,6 +17,7 @@ import {
   PredicateRegistryService,
   PredicateDefinition,
 } from '../ai/predicate-registry.service';
+import type { PredicatesListResponse } from '../contracts/admin/predicates.schema';
 
 /**
  * Operator-facing CRUD for the per-tenant predicate vocabulary. Adding
@@ -34,11 +35,13 @@ export class AdminPredicatesController {
 
   @Get()
   @RequireScopes('brain:admin')
-  async list(@Req() req: AuthenticatedRequest) {
+  async list(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<PredicatesListResponse> {
     const predicates = await this.predicateRegistry.listAll(
       req.brainAuth.companyId,
     );
-    return { predicates };
+    return { predicates } satisfies PredicatesListResponse;
   }
 
   @Post()

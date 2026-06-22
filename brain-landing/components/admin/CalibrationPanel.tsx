@@ -18,44 +18,14 @@ import {
   ComposedChart,
 } from 'recharts'
 import { Loader2, Play, RefreshCw } from 'lucide-react'
+import type {
+  CalibrationResponse,
+  ReliabilityBin,
+  CurvePoint,
+  CalibrationVersion,
+} from '../../lib/contracts/admin-calibration'
 
-interface ReliabilityBin {
-  lower: number
-  upper: number
-  midpoint: number
-  n: number
-  meanRaw: number
-  meanCorrect: number
-  meanCalibrated: number
-}
-
-interface CurvePoint {
-  raw: number
-  calibrated: number
-}
-
-interface CalibrationVersion {
-  version: number
-  sampleCount: number
-  bins: number
-  createdAt?: string
-}
-
-interface CalibrationResponse {
-  disabled: boolean
-  source: 'synthetic' | 'persisted'
-  map: {
-    thresholds: number[]
-    values: number[]
-    sampleCount: number
-  } | null
-  reliability: ReliabilityBin[]
-  ece: number
-  brier: number
-  curve: CurvePoint[]
-  versions?: CalibrationVersion[]
-  error?: string
-}
+export type { ReliabilityBin, CurvePoint, CalibrationVersion }
 
 export function CalibrationPanel() {
   const [data, setData] = useState<CalibrationResponse | null>(null)
@@ -69,9 +39,14 @@ export function CalibrationPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/calibration', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as CalibrationResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as
+        | CalibrationResponse
+        | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as CalibrationResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

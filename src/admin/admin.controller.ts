@@ -29,6 +29,9 @@ import { applyMap } from '../ai/calibration/isotonic';
 import { DEMO_LIVE_COMPANY } from './admin-demo.controller';
 import type { OverviewResponse } from '../contracts/admin/overview.schema';
 import type { AuditPageResponse } from '../contracts/admin/audit-page.schema';
+import type { CostResponse } from '../contracts/admin/cost.schema';
+import type { CalibrationResponse } from '../contracts/admin/calibration.schema';
+import type { RouterStatsResponse } from '../contracts/admin/router-stats.schema';
 
 /**
  * Operator-facing core admin endpoints — overview, hybrid-router
@@ -120,13 +123,7 @@ export class AdminController {
   @RequireScopes('brain:admin')
   async routerStats(
     @Query('companyId') companyId?: string,
-  ): Promise<{
-    tenant: string;
-    routeCache: ReturnType<ChatRouterCacheService['stats']>;
-    embedderCache: ReturnType<EmbedderService['cacheStats']>;
-    intentClassifier: ReturnType<IntentClassifierService['stats']>;
-    collapsePatternPoolSize: number;
-  }> {
+  ): Promise<RouterStatsResponse> {
     const tenant = companyId?.trim() || DEMO_LIVE_COMPANY;
     return {
       tenant,
@@ -134,7 +131,7 @@ export class AdminController {
       embedderCache: this.embedder.cacheStats(),
       intentClassifier: this.intentClassifier.stats(),
       collapsePatternPoolSize: await this.collapsePatterns.poolSize(tenant),
-    };
+    } satisfies RouterStatsResponse;
   }
 
   @Post('dreams/run')
@@ -194,8 +191,8 @@ export class AdminController {
    */
   @Get('cost')
   @RequireScopes('brain:admin')
-  async cost() {
-    return this.admin.buildCostBreakdown();
+  async cost(): Promise<CostResponse> {
+    return (await this.admin.buildCostBreakdown()) satisfies CostResponse;
   }
 
   /**
@@ -217,7 +214,7 @@ export class AdminController {
    */
   @Get('calibration')
   @RequireScopes('brain:admin')
-  async calibrationStats() {
+  async calibrationStats(): Promise<CalibrationResponse> {
     const map = this.calibration.getMap();
     const source = this.calibration.getBootstrapSource();
     if (!map) {
@@ -229,7 +226,7 @@ export class AdminController {
         ece: 0,
         brier: 0,
         curve: [],
-      };
+      } satisfies CalibrationResponse;
     }
     // Reliability bins from the gold set — fixed 10 buckets on [0,1].
     const binCount = 10;
@@ -279,7 +276,7 @@ export class AdminController {
       brier,
       curve,
       versions,
-    };
+    } satisfies CalibrationResponse;
   }
 
   @Delete('tenants/:companyId')

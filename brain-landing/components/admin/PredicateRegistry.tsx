@@ -13,37 +13,15 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
+import type {
+  PredicatesListResponse as ListResponse,
+  Predicate,
+  Semantics,
+  PiiClass,
+  PredicateStatus,
+} from '../../lib/contracts/admin-predicates'
 
-type Semantics = 'append_only' | 'single_active' | 'bitemporal'
-type PiiClass =
-  | 'none'
-  | 'identifier'
-  | 'behavioral'
-  | 'text'
-  | 'sensitive'
-type PredicateStatus = 'active' | 'proposed' | 'aliased' | 'deprecated'
-
-interface Predicate {
-  predicateId: string
-  displayLabel: string
-  description: string
-  datatype: 'string' | 'number' | 'date' | 'datetime' | 'enum' | 'json'
-  semantics: Semantics
-  decayHalfLifeDays: number | null
-  piiClass: PiiClass
-  requiresScope?: string
-  parentPredicateId?: string
-  subjectClasses?: string[]
-  allowedValues?: string[]
-  status: PredicateStatus
-  aliasedTo?: string
-  createdBy: 'system' | 'admin' | 'llm_auto' | 'migration'
-}
-
-interface ListResponse {
-  predicates: Predicate[]
-  error?: string
-}
+export type { Predicate, Semantics, PiiClass, PredicateStatus }
 
 type Filter = 'all' | PredicateStatus
 
@@ -79,9 +57,12 @@ export function PredicateRegistry() {
       const res = await fetch('/api/admin/proxy/v1/admin/predicates', {
         cache: 'no-store',
       })
-      const data = (await res.json()) as ListResponse
-      if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-      setItems(data.predicates ?? [])
+      const data = (await res.json()) as ListResponse | { error?: string }
+      if (!res.ok) {
+        const err = (data as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setItems((data as ListResponse).predicates ?? [])
       setError(null)
     } catch (e) {
       setError((e as Error).message)
