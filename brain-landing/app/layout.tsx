@@ -1,6 +1,7 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import { Unbounded, Manrope, JetBrains_Mono } from 'next/font/google'
+import { ogImage } from '../lib/seo'
 
 // Lab / blueprint type system — a distinctive display face, a clean
 // readable body, and a dominant mono that carries the "instrument
@@ -45,12 +46,14 @@ export const metadata: Metadata = {
     url: 'https://brain.inite.ai',
     siteName: 'INITE Brain',
     type: 'website',
+    images: [{ url: ogImage({ title: 'Memory that keeps time' }), width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'INITE Brain — memory that keeps time',
     description:
       'Open-source bitemporal knowledge graph for AI agents. Self-host or managed. REST + native MCP, eval-gated.',
+    images: [ogImage({ title: 'Memory that keeps time' })],
   },
 }
 

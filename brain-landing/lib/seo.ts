@@ -18,6 +18,13 @@ export const ORG = {
   sameAs: [GITHUB_URL],
 }
 
+/** Build a dynamic OG image URL served by /api/og. */
+export function ogImage(opts: { title: string; kicker?: string; kind?: 'brand' | 'blog' | 'docs' }): string {
+  const p = new URLSearchParams({ title: opts.title, kind: opts.kind ?? 'brand' })
+  if (opts.kicker) p.set('kicker', opts.kicker)
+  return `${SITE_URL}/api/og?${p.toString()}`
+}
+
 type Json = Record<string, unknown>
 
 export function organizationSchema(): Json {

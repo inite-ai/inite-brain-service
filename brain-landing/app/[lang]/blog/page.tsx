@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react'
 import { JsonLd } from '../../../components/StructuredData'
 import { getMessages, normalizeLang, LANGS, type Lang } from '../../../lib/i18n'
 import { listBlogPosts } from '../../../lib/blog'
-import { SITE_URL, breadcrumbSchema, websiteSchema } from '../../../lib/seo'
+import { SITE_URL, breadcrumbSchema, websiteSchema, ogImage } from '../../../lib/seo'
 
 interface Props {
   params: Promise<{ lang: string }>
@@ -25,8 +25,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     alternates: {
       canonical: url,
       languages: Object.fromEntries(LANGS.map((l) => [l, `${SITE_URL}/${l}/blog`])),
+      types: { 'application/rss+xml': `${url}/rss.xml` },
     },
-    openGraph: { title: t.blog.title, description: t.blog.subtitle, url, type: 'website' },
+    openGraph: {
+      title: t.blog.title,
+      description: t.blog.subtitle,
+      url,
+      type: 'website',
+      images: [{ url: ogImage({ title: t.blog.title, kind: 'blog' }), width: 1200, height: 630 }],
+    },
+    twitter: { card: 'summary_large_image', images: [ogImage({ title: t.blog.title, kind: 'blog' })] },
   }
 }
 

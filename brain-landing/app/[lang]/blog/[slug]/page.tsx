@@ -13,6 +13,7 @@ import {
   articleSchema,
   faqSchema,
   breadcrumbSchema,
+  ogImage,
 } from '../../../../lib/seo'
 
 export const dynamicParams = false
@@ -50,11 +51,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       publishedTime: post.date,
       authors: [post.author],
       tags: post.tags,
+      images: [
+        { url: ogImage({ title: post.title, kicker: post.category, kind: 'blog' }), width: 1200, height: 630 },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
       title: post.title,
       description: post.description,
+      images: [ogImage({ title: post.title, kicker: post.category, kind: 'blog' })],
     },
   }
 }
@@ -78,6 +83,7 @@ export default async function BlogPostPage({ params }: Props) {
       section: post.category,
       keywords: post.tags,
       lang,
+      image: ogImage({ title: post.title, kicker: post.category, kind: 'blog' }),
     }),
     breadcrumbSchema([
       { name: 'Home', url: `${SITE_URL}/${lang}` },

@@ -18,6 +18,7 @@ import {
   organizationSchema,
   websiteSchema,
   softwareApplicationSchema,
+  ogImage,
 } from '../../lib/seo'
 import type { Metadata } from 'next'
 
@@ -36,6 +37,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       canonical: `${SITE_URL}/${lang}`,
       languages: Object.fromEntries(LANGS.map((l) => [l, `${SITE_URL}/${l}`])),
     },
+    openGraph: {
+      images: [{ url: ogImage({ title: t.hero.title }), width: 1200, height: 630 }],
+    },
+    twitter: { images: [ogImage({ title: t.hero.title })] },
   }
 }
 
