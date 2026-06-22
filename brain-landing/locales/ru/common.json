@@ -3,18 +3,62 @@
     "docs": "Документация",
     "github": "GitHub",
     "status": "Статус",
-    "skills": "Скиллы"
+    "skills": "Скиллы",
+    "star": "Star"
   },
   "hero": {
-    "badge": "Brain Service · v1.1",
-    "title": "Битемпоральный граф знаний для AI-агентов.",
-    "subtitle": "INITE Brain — это слой семантической памяти на тенанта. Гибридный поиск, ingest с разрешением конфликтов, retract / forget — всё через REST и MCP-эндпоинт, к которому агенты подключаются нативно.",
+    "eyebrow": "Битемпоральный граф знаний",
+    "title": "Память, которая помнит когда.",
+    "subtitle": "INITE Brain — open-source слой памяти на тенанта для AI-агентов. Битемпоральные факты, гибридный поиск, ingest с разрешением конфликтов и GDPR-forget, который реально работает — через REST и нативный MCP. Разверни у себя или возьми managed-облако.",
     "ctaPrimary": "Начать",
-    "ctaSecondary": "Подключить MCP"
+    "ctaSecondary": "Self-host",
+    "trust": {
+      "license": "AGPL-3.0",
+      "stack": "NestJS · SurrealDB · BGE-M3",
+      "eval": "под eval-гейтами в CI"
+    },
+    "panel": {
+      "title": "Битемпоральный ридаут",
+      "valid": "valid time",
+      "txn": "transaction time",
+      "note": "У каждого факта двое часов. По умолчанию запрос «сейчас»; передай asOf — и Brain воспроизведёт ровно то, что знал в любой прошлый момент."
+    }
+  },
+  "dualPath": {
+    "eyebrow": "Запускай как удобно",
+    "title": "Два пути, один граф знаний.",
+    "selfHost": {
+      "label": "Open source",
+      "title": "Self-host",
+      "desc": "Склонируй, настрой и подними весь стек на своей инфре. AGPL-3.0 — можно аудитить, форкать и расширять.",
+      "bullets": [
+        "Docker Compose — SurrealDB + сервис за минуты",
+        "Данные не покидают твою сеть",
+        "Локальный BGE-M3, ноль внешних embedding-вызовов",
+        "Полный admin-кокпит и eval-сьют в комплекте"
+      ],
+      "cmd": "docker compose up -d",
+      "cta": "Гайд по self-host"
+    },
+    "managed": {
+      "label": "Managed",
+      "title": "brain.inite.ai",
+      "desc": "Без эксплуатации. Хостед multi-tenant эндпоинт с тем же API, авто-деплой на каждый push в main.",
+      "bullets": [
+        "Никакой инфраструктуры на поддержке",
+        "Изоляция на тенанта + scoped API-ключи",
+        "Авто-деплой, health- и metrics-эндпоинты",
+        "Тот же REST + MCP, что и в self-host"
+      ],
+      "endpoint": "https://brain.inite.ai",
+      "cta": "Открыть дашборд"
+    }
   },
   "stats": {
+    "eyebrow": "Eval-гейты",
     "title": "Продакшен-гейты, не цифры для красоты.",
     "subtitle": "Каждый push прогоняет multi-vertical eval по retrieval + memory-lifecycle. Числа ниже — это CI-полы; уйти под них = заблокированный релиз.",
+    "footnote": "Числа из multi-vertical сценариев (n=255) + 180 wikidata-запросов. Bootstrap-CI на каждой retrieval-метрике.",
     "items": [
       { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
@@ -23,6 +67,7 @@
     ]
   },
   "features": {
+    "eyebrow": "Возможности",
     "title": "Что Brain реально умеет.",
     "items": [
       {
@@ -52,28 +97,73 @@
     ]
   },
   "quickstart": {
+    "eyebrow": "Быстрый старт",
     "title": "Три способа поговорить с Brain.",
     "subtitle": "Выбери тот, что подходит твоему runtime."
   },
   "mcpBlock": {
+    "eyebrow": "Model Context Protocol",
     "title": "Подключить Claude к графу знаний — одной строкой.",
     "subtitle": "Per-tenant MCP URL, scope-aware. Одни и те же шесть инструментов в каждом клиенте.",
+    "toolsLabel": "Шесть scope-aware инструментов",
+    "clients": "Claude Desktop, Cursor, Goose, n8n — один URL, один заголовок, ноль glue-кода.",
     "linkLabel": "Гайд по настройке MCP"
   },
   "skillsBlock": {
+    "eyebrow": "Скиллы агента",
     "title": "Скиллы для агента, не только провода.",
     "subtitle": "Четыре Anthropic-skill: search, recall, bitemporal и сама пошаговая настройка. Учат агента, как пользоваться Brain.",
     "linkLabel": "Все скиллы",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
   },
-  "footer": {
-    "tagline": "INITE Brain Service · v1.1",
+  "openSource": {
+    "eyebrow": "Open source",
+    "title": "Разрабатывается открыто, лицензия AGPL-3.0.",
+    "subtitle": "Читай код, поднимай своё, присылай PR. Всё, что крутит brain.inite.ai, лежит в репозитории.",
+    "license": {
+      "note": "Сетевой copyleft — self-host свободно; правки, отдаваемые по сети, остаются открытыми."
+    },
     "links": {
-      "docs": "Docs",
-      "openapi": "OpenAPI",
-      "status": "Status",
-      "github": "GitHub"
+      "readme": "README",
+      "contributing": "Контрибьютинг",
+      "security": "Безопасность",
+      "license": "Лицензия"
+    },
+    "stack": {
+      "label": "Собрано на"
+    },
+    "cta": {
+      "title": "Поставь звезду",
+      "desc": "Следи за разработкой, заводи issues и влияй на роадмап.",
+      "button": "Star на GitHub"
     }
+  },
+  "footer": {
+    "tagline": "Open-source битемпоральный граф знаний для AI-агентов. System of insight, не system of record.",
+    "columns": {
+      "product": {
+        "title": "Продукт",
+        "docs": "Документация",
+        "quickstart": "Быстрый старт",
+        "mcp": "Настройка MCP",
+        "skills": "Скиллы"
+      },
+      "project": {
+        "title": "Проект",
+        "github": "GitHub",
+        "license": "Лицензия",
+        "contributing": "Контрибьютинг",
+        "security": "Безопасность"
+      },
+      "resources": {
+        "title": "Ресурсы",
+        "openapi": "OpenAPI",
+        "status": "Статус",
+        "api": "API-референс"
+      }
+    },
+    "copyright": "© 2026 INITE Brain",
+    "license": "AGPL-3.0-or-later"
   },
   "docs": {
     "indexTitle": "Документация",

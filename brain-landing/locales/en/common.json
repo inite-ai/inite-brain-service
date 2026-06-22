@@ -3,18 +3,62 @@
     "docs": "Docs",
     "github": "GitHub",
     "status": "Status",
-    "skills": "Skills"
+    "skills": "Skills",
+    "star": "Star"
   },
   "hero": {
-    "badge": "Brain Service · v1.1",
-    "title": "Bitemporal knowledge graph for AI agents.",
-    "subtitle": "INITE Brain is a per-tenant semantic memory layer. Hybrid search, conflict-aware ingest, retract / forget that actually works — exposed through REST and an MCP endpoint your agents speak natively.",
+    "eyebrow": "Bitemporal knowledge graph",
+    "title": "Memory that keeps time.",
+    "subtitle": "INITE Brain is an open-source, per-tenant memory layer for AI agents. Bitemporal facts, hybrid retrieval, conflict-aware ingest, and a GDPR forget that actually works — over REST and a native MCP endpoint. Self-host it, or use the managed cloud.",
     "ctaPrimary": "Get started",
-    "ctaSecondary": "Connect via MCP"
+    "ctaSecondary": "Self-host",
+    "trust": {
+      "license": "AGPL-3.0",
+      "stack": "NestJS · SurrealDB · BGE-M3",
+      "eval": "eval-gated in CI"
+    },
+    "panel": {
+      "title": "Bitemporal readout",
+      "valid": "valid time",
+      "txn": "transaction time",
+      "note": "Every fact carries two clocks. Query 'now' by default; pass asOf to replay exactly what Brain knew at any past moment."
+    }
+  },
+  "dualPath": {
+    "eyebrow": "Run it your way",
+    "title": "Two paths, one knowledge graph.",
+    "selfHost": {
+      "label": "Open source",
+      "title": "Self-host",
+      "desc": "Clone, configure, and run the whole stack on your own infra. AGPL-3.0 — yours to audit, fork, and extend.",
+      "bullets": [
+        "Docker Compose — SurrealDB + service in minutes",
+        "No data leaves your network",
+        "Local BGE-M3 embedder, zero external embedding calls",
+        "Full admin cockpit + eval suite included"
+      ],
+      "cmd": "docker compose up -d",
+      "cta": "Self-host guide"
+    },
+    "managed": {
+      "label": "Managed",
+      "title": "brain.inite.ai",
+      "desc": "Skip the ops. A hosted, multi-tenant endpoint with the same API, auto-deployed on every push to main.",
+      "bullets": [
+        "Zero infrastructure to maintain",
+        "Per-tenant isolation + scoped API keys",
+        "Auto-deploy, health + metrics endpoints",
+        "Same REST + MCP surface as self-host"
+      ],
+      "endpoint": "https://brain.inite.ai",
+      "cta": "Open dashboard"
+    }
   },
   "stats": {
+    "eyebrow": "Eval gates",
     "title": "Production gates, not vanity numbers.",
     "subtitle": "Every push runs the multi-vertical retrieval + memory-lifecycle eval. The bars below are CI floors — drop under and a release blocks.",
+    "footnote": "Numbers from the multi-vertical scenario suite (n=255) + 180 wikidata queries. Bootstrap-CI on every retrieval metric.",
     "items": [
       { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
@@ -23,6 +67,7 @@
     ]
   },
   "features": {
+    "eyebrow": "Capabilities",
     "title": "What brain actually does.",
     "items": [
       {
@@ -52,28 +97,73 @@
     ]
   },
   "quickstart": {
+    "eyebrow": "Quickstart",
     "title": "Three ways to talk to brain.",
     "subtitle": "Pick the one that matches your runtime."
   },
   "mcpBlock": {
+    "eyebrow": "Model Context Protocol",
     "title": "Plug a Claude into your knowledge graph in one line.",
     "subtitle": "Per-tenant MCP URL, scope-aware. The same six tools across every client.",
+    "toolsLabel": "Six scope-aware tools",
+    "clients": "Claude Desktop, Cursor, Goose, n8n — same URL, same auth header, no glue code.",
     "linkLabel": "MCP setup guide"
   },
   "skillsBlock": {
+    "eyebrow": "Agent skills",
     "title": "Skills for the agent, not just the wire.",
     "subtitle": "Four Anthropic-format skills that teach the agent how to use brain — search, recall, bitemporal, and the setup walkthrough itself.",
     "linkLabel": "All skills",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
   },
-  "footer": {
-    "tagline": "INITE Brain Service · v1.1",
+  "openSource": {
+    "eyebrow": "Open source",
+    "title": "Built in the open, licensed AGPL-3.0.",
+    "subtitle": "Read the code, run your own, send a PR. Everything that runs brain.inite.ai lives in the repo.",
+    "license": {
+      "note": "Network copyleft — self-host freely; changes you serve over a network stay open."
+    },
     "links": {
-      "docs": "Docs",
-      "openapi": "OpenAPI",
-      "status": "Status",
-      "github": "GitHub"
+      "readme": "README",
+      "contributing": "Contributing",
+      "security": "Security policy",
+      "license": "License"
+    },
+    "stack": {
+      "label": "Built with"
+    },
+    "cta": {
+      "title": "Star the repo",
+      "desc": "Follow development, file issues, and help shape the roadmap.",
+      "button": "Star on GitHub"
     }
+  },
+  "footer": {
+    "tagline": "Open-source bitemporal knowledge graph for AI agents. A system of insight, not a system of record.",
+    "columns": {
+      "product": {
+        "title": "Product",
+        "docs": "Docs",
+        "quickstart": "Quickstart",
+        "mcp": "MCP setup",
+        "skills": "Skills"
+      },
+      "project": {
+        "title": "Project",
+        "github": "GitHub",
+        "license": "License",
+        "contributing": "Contributing",
+        "security": "Security"
+      },
+      "resources": {
+        "title": "Resources",
+        "openapi": "OpenAPI",
+        "status": "Status",
+        "api": "API reference"
+      }
+    },
+    "copyright": "© 2026 INITE Brain",
+    "license": "AGPL-3.0-or-later"
   },
   "docs": {
     "indexTitle": "Documentation",

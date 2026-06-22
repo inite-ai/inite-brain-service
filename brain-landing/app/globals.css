@@ -1,36 +1,61 @@
 @import "tailwindcss";
 
-/* Linear-style design tokens. Mirrors inite-auth's frontend palette so
- * the two surfaces feel like the same product. Dark-by-default, single
- * violet accent; light-mode kept for users who prefer it. */
+/* ──────────────────────────────────────────────────────────────────────
+ * INITE Brain — "Lab / blueprint" design language.
+ *
+ * Near-black instrument canvas, an amber signal accent (readouts, CTAs,
+ * the live pulse) and a cyan data accent (the knowledge-graph motif,
+ * links). Mono carries the chrome; a distinctive display face carries the
+ * headlines. The neutral + semantic tokens keep their original NAMES so
+ * the admin/docs surfaces that read `var(--accent)` etc. keep working.
+ * ────────────────────────────────────────────────────────────────────── */
 :root {
-  --bg: #08090a;
-  --bg-elevated: #0e0f11;
-  --bg-overlay: #14161a;
-  --border: #1f2226;
-  --border-strong: #2a2e34;
-  --text: #e6e7e9;
-  --text-muted: #9ba0a8;
-  --text-faint: #6b7079;
+  /* neutrals (shared with admin/docs) */
+  --bg: #070809;
+  --bg-elevated: #0c0e10;
+  --bg-overlay: #14171b;
+  --border: #1c1f24;
+  --border-strong: #2a2e35;
+  --text: #e8eaed;
+  --text-muted: #9aa0a8;
+  --text-faint: #646a73;
+
+  /* legacy accent (admin/docs chrome) — kept so nothing regresses */
   --accent: #8b5cf6;
   --accent-hover: #a78bfa;
   --accent-faint: rgba(139, 92, 246, 0.12);
   --accent-ring: rgba(139, 92, 246, 0.35);
+
+  /* semantic */
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #f87171;
+
+  /* lab signal + data accents (landing) */
+  --signal: #ffb938;
+  --signal-hover: #ffc95e;
+  --signal-ink: #1b1305;
+  --signal-faint: rgba(255, 185, 56, 0.10);
+  --signal-ring: rgba(255, 185, 56, 0.32);
+  --data: #5ce1e6;
+  --data-faint: rgba(92, 225, 230, 0.10);
+
+  /* blueprint structure */
+  --grid: rgba(255, 255, 255, 0.035);
+  --grid-strong: rgba(255, 255, 255, 0.06);
+  --graph: rgba(92, 225, 230, 0.16);
+
+  /* type roles (fed by next/font in layout.tsx) */
+  --sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --serif-display: var(--font-display), var(--sans);
 }
 
+/* Light mode kept ONLY for admin/docs (they honour prefers-color-scheme).
+ * The landing is dark-locked via .lab-root below, so this block no longer
+ * touches the marketing surface. */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #fafafa;
-    --bg-elevated: #ffffff;
-    --bg-overlay: #f4f4f5;
-    --border: #e4e4e7;
-    --border-strong: #d4d4d8;
-    --text: #18181b;
-    --text-muted: #52525b;
-    --text-faint: #a1a1aa;
     --accent: #7c3aed;
     --accent-hover: #6d28d9;
     --accent-faint: rgba(124, 58, 237, 0.08);
@@ -41,36 +66,159 @@
 body {
   color: var(--text);
   background: var(--bg);
-  font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif;
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
 ::selection {
-  background: var(--accent-faint);
-  color: var(--text);
+  background: var(--signal);
+  color: var(--signal-ink);
 }
 
 *:focus-visible {
-  outline: 2px solid var(--accent-ring);
+  outline: 2px solid var(--signal-ring);
   outline-offset: 2px;
+  border-radius: 4px;
 }
 
-/* Gradient hairline under hero — Linear's signature. */
-.accent-underline {
+/* ── type helpers ───────────────────────────────────────────────────── */
+.u-display { font-family: var(--serif-display); }
+.u-mono { font-family: var(--mono); }
+.u-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ── lab surface: dark-locked marketing root ────────────────────────── */
+.lab-root {
+  color-scheme: dark;
+  background: var(--bg);
+  position: relative;
+  overflow-x: clip;
+}
+
+/* full-bleed blueprint grid, faded toward the edges */
+.blueprint-grid {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-position: center top;
+}
+
+/* atmospheric instrument glow behind the hero */
+.lab-aura {
+  background:
+    radial-gradient(60% 50% at 18% 0%, var(--signal-faint), transparent 70%),
+    radial-gradient(55% 45% at 92% 12%, var(--data-faint), transparent 72%);
+}
+
+/* hairline panel with blueprint corner ticks */
+.lab-panel {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+.lab-panel::before,
+.lab-panel::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--border-strong);
+  pointer-events: none;
+}
+.lab-panel::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1px solid var(--signal);
+  border-left: 1px solid var(--signal);
+  opacity: 0.55;
+}
+.lab-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1px solid var(--signal);
+  border-right: 1px solid var(--signal);
+  opacity: 0.55;
+}
+
+/* primary "signal" button */
+.btn-signal {
+  background: var(--signal);
+  color: var(--signal-ink);
+  font-weight: 600;
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+.btn-signal:hover {
+  background: var(--signal-hover);
+  box-shadow: 0 0 0 1px var(--signal-ring), 0 8px 30px -12px var(--signal);
+}
+
+/* ghost / secondary button */
+.btn-ghost {
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.btn-ghost:hover {
+  border-color: var(--data);
+  color: var(--data);
+  background: var(--data-faint);
+}
+
+/* live readout dot */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--signal);
+  box-shadow: 0 0 0 0 var(--signal-ring);
+  animation: live-pulse 2.4s ease-out infinite;
+}
+
+/* gradient hairline rule */
+.lab-rule {
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--accent) 30%,
-    var(--accent) 70%,
-    transparent
-  );
-  opacity: 0.4;
+  background: linear-gradient(90deg, transparent, var(--border-strong) 12%, var(--border-strong) 88%, transparent);
+}
+
+/* ── motion ─────────────────────────────────────────────────────────── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal {
+  opacity: 0;
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 var(--signal-ring); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes node-pulse {
+  0%, 100% { opacity: 0.5; r: 2.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes edge-flow {
+  to { stroke-dashoffset: -16; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { animation: none; opacity: 1; }
+  .live-dot { animation: none; }
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
 }

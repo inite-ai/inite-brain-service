@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { SectionHeading } from './DualPath'
 import { getMessages, type Lang } from '../lib/i18n'
 
 interface Props {
@@ -81,39 +82,45 @@ export function QuickstartTabs({ lang }: Props) {
   const [active, setActive] = useState(TABS[0].id)
   const current = TABS.find((tab) => tab.id === active) ?? TABS[0]
   return (
-    <section className="py-12 border-t border-[var(--border)]">
-      <h2 className="text-lg font-semibold text-[var(--text)] tracking-tight">
-        {t.quickstart.title}
-      </h2>
-      <p className="mt-2 text-sm text-[var(--text-muted)]">{t.quickstart.subtitle}</p>
+    <section className="py-16 border-t border-[var(--border)]">
+      <SectionHeading
+        index="04"
+        eyebrow={t.quickstart.eyebrow}
+        title={t.quickstart.title}
+        subtitle={t.quickstart.subtitle}
+      />
 
-      <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] overflow-hidden">
-        <div
-          role="tablist"
-          aria-label="Quickstart"
-          className="flex border-b border-[var(--border)]"
-        >
-          {TABS.map((tab) => {
-            const isActive = tab.id === active
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActive(tab.id)}
-                className={`px-4 py-2 text-[12px] font-mono tracking-wide ${
-                  isActive
-                    ? 'text-[var(--text)] border-b-2 border-[var(--accent)] -mb-px'
-                    : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
+      <div className="mt-8 lab-panel rounded-xl overflow-hidden">
+        {/* terminal chrome */}
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-2 bg-[var(--bg-overlay)]/40">
+          <div className="flex gap-1.5" aria-hidden="true">
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-strong)]" />
+          </div>
+          <div role="tablist" aria-label="Quickstart" className="flex gap-1">
+            {TABS.map((tab) => {
+              const isActive = tab.id === active
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActive(tab.id)}
+                  className={`px-3 py-1 rounded u-mono text-[11.5px] tracking-wide transition-colors ${
+                    isActive
+                      ? 'bg-[var(--signal-faint)] text-[var(--signal)]'
+                      : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
-        <pre className="px-4 py-4 text-[12px] leading-relaxed font-mono text-[var(--text)] overflow-x-auto">
+        <pre className="px-4 py-4 text-[12px] leading-relaxed u-mono text-[var(--text)] overflow-x-auto">
           {current.code}
         </pre>
       </div>
