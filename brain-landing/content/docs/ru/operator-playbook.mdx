@@ -1,0 +1,107 @@
+# Оператор-плейбук
+
+Что держит в голове дежурный, когда brain в проде. Подробный runbook в [`docs/operator-playbook.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operator-playbook.md) покрывает больше; здесь — сокращённый обзор.
+
+## Выдать API-ключ тенанту
+
+```sh
+# Generate plaintext + hash it
+KEY=$(openssl rand -base64 32 | tr -d '=' | tr '+' '-' | tr '/' '_' )
+HASH="sha256:$(printf %s "$KEY" | sha256sum | cut -d' ' -f1)"
+
+# Update BRAIN_API_KEYS env (JSON array)
+echo '{"keyHash":"'$HASH'","companyId":"co_demo","scopes":["brain:read","brain:write"]}'
+
+# Hand the plaintext KEY to the caller. Brain never stores it.
+```
+
+Открытый ключ не сохраняется никогда. Если ключ потерян — выдай новый и убери старый хэш из `BRAIN_API_KEYS`.
+
+## Модель scope
+
+| Scope | Эффект |
+| --- | --- |
+| `brain:read` | Только чтение — search, profile, timeline, connections. Чувствительная PII скрыта. |
+| `brain:write` | Добавляет `record_fact`, `retract_fact`. |
+| `brain:read_pii` | Открывает значения `email` / `phone` / `dob` / `address` при чтении. |
+| `brain:forget` | Нужен (вместе с `brain:write`) для жёсткого каскада `forget`. |
+| `brain:admin` | Нужен для ручного триггера `/v1/dreams/run`. |
+
+По умолчанию — least-privilege: ключи для агентских поверхностей должны быть только `brain:read`, если нет конкретного кейса на запись.
+
+## Фичефлаги retrieval
+
+Пайплайн поставляется со всеми фичами ВЫКЛ. Включай на тенанта после замера эффекта. Чтобы применить — рестарт сервиса.
+
+| Флаг | Эффект | Когда включать |
+| --- | --- | --- |
+| `SEARCH_HYPE_ENABLED` | Эмбеддинги гипотетических вопросов на пути чтения | Преобладают запросы-вопросы |
+| `SEARCH_PREDICATE_ROUTER_ENABLED` | Совместный LLM-вызов → мягкое распределение по предикатам и типам | Путаница классов предикатов в eval |
+| `SEARCH_CROSS_ENCODER_ENABLED` | Cohere Rerank v3.5 между fusion и LLM-этапом | Recall@1 встал / LLM-rerank слишком дорог |
+| `SEARCH_RERANKER_ENABLED` | Listwise LLM-reranker (RankGPT-style) по топ-20 | Recall@1 встал — самая большая ручка |
+| `SEARCH_RERANKER_SC_N` | N для permutation self-consistency | Дрожание от прогона к прогону |
+| `SEARCH_RERANK_SKIP_MARGIN` | Пропускать reranker, когда зазор top1−top2 широк | После включения reranker, когда частота вызовов высока |
+| `SEARCH_PPR_ENABLED` | Prior на personalized PageRank (HippoRAG-style) | Толстые тенанты (~100+ сущностей) |
+| `COMPACTION_SUMMARIES` | LLM-суммаризация на кластер (entity, predicate) при компакции | Тенанты с длинной историей, которым нужен поиск по warm-tier |
+
+Метрика на флаг: `brain_search_<feature>_total{outcome=...}`. Смотри и настраивай.
+
+## Крон Dreams
+
+Ежедневно в 04:00 UTC (через 43 мин после компакции). Три под-прохода, каждый под своим флагом.
+
+| Под-проход | Env-флаг | Что |
+| --- | --- | --- |
+| `summarize` | `DREAMS_LLM_SUMMARY_ENABLED` | LLM-суммаризации для компакции (при ошибке откат на конкатенацию) |
+| `dedup` | `DREAMS_DEDUP_ENABLED` | Двухстадийный поиск почти-дублей (cosine + LLM-судья → ребро `identity_of`) |
+| `resolve` | `DREAMS_RESOLVE_ENABLED` | Авто-разрешение пар `COMPETING` старше `DREAMS_RESOLVE_MIN_AGE_DAYS` |
+
+Ручной триггер:
+
+```bash
+curl -X POST "$BRAIN_URL/v1/dreams/run" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{ "operations": ["dedup", "resolve"] }'
+```
+
+Метрика: `brain_dreams_emitted_total{kind=...}`. Соотношение с ok-прогонами говорит, делает ли dreams полезную работу или просто крутится.
+
+## Eval-бейзлайны
+
+Каждый зелёный push в main пишет `.eval-baseline/main.json`. PR-ы диффают против него (`pnpm eval:diff`). Допуски на метрику:
+
+```
+recall / MRR / NDCG / F1     >3pp drop  → block
+extraction-*                 >5pp drop  → block
+identity / pii-gating        >1pp drop  → block
+memory-lifecycle             any drop   → block (must equal 1.0)
+MIA-AUC                      >5pp rise  → block (lower is better)
+others                       >5pp drop  → block
+```
+
+Если прогон CI блокирует: сначала читай разбивку по вертикалям — обычно просела одна вертикаль, а не весь сьют. Чини или откатывай.
+
+## Триаж dead-letter
+
+Периодическая проверка: `SELECT count(*) FROM dead_letter_fact WHERE createdAt > now() - 7d GROUP BY sourceVertical`. Вертикаль, которая внезапно скакнула, шлёт плохие данные — подними их дежурного.
+
+## Трассировка OTel
+
+`OTEL_ENABLED=1` шлёт трейсы через OTLP/HTTP. Авто-инструментирует `http` (так что вызовы OpenAI + JWKS видны) и `express`. Brain эмитит явные child-спаны под `search`: `vector_leg`, `lexical_leg`, `route`, `ppr`, `fetch_neighbours`, `rerank` — каждый со счётчиком кандидатов.
+
+Бэкенд-агностично — Jaeger, Grafana Tempo, Datadog, Honeycomb говорят на OTLP.
+
+## Забыть тенанта
+
+```sql
+-- Brain runs in namespace `inite`, database `co_<companyId>` per tenant.
+REMOVE DATABASE co_<companyId>;
+```
+
+И всё. Никакой построчной зачистки, никакого обхода ссылок между таблицами — изоляция на тенанта физическая, а не логическая.
+
+## Связанное
+
+- [Модель безопасности](/ru/docs/security) — что и где обеспечивается
+- [Словарь предикатов](/ru/docs/concepts/predicates) — настройка source_trust
+- [Разрешение конфликтов](/ru/docs/concepts/conflict-resolution) — откуда берётся dead-letter

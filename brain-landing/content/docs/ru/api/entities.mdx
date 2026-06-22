@@ -1,0 +1,111 @@
+# GET /v1/entities/*
+
+Четыре эндпоинта, одна сущность. Profile — снимок «сейчас»; timeline — битемпоральная развёртка; connections — обход графа; forget — GDPR-каскад.
+
+## GET /v1/entities/:id
+
+```http
+GET /v1/entities/knowledge_entity:01HXYZ...?asOf=2026-04-01T00:00:00Z
+Authorization: Bearer <api-key>
+```
+
+Возвращает каноническую сущность плюс все **активные** факты (или активные на указанный момент).
+
+```ts
+{
+  entity: {
+    id: string
+    name: string
+    type: string  // 'person' | 'company' | 'place' | ...
+    externalRefs: Array<{ vertical: string, id: string }>
+  }
+  facts: Fact[]   // active only — superseded / retracted hidden by default
+}
+```
+
+`:id` принимает:
+- id сущности brain (`knowledge_entity:01HXYZ...`)
+- сокращение по external ref (`rent.cust_42`)
+
+## GET /v1/entities/:id/timeline
+
+```http
+GET /v1/entities/<id>/timeline?since=2026-01-01T00:00:00Z
+```
+
+Каждый когда-либо записанный факт — включая superseded, retracted, compacted. У каждой строки `status` + `validFrom` + `validUntil` + `recordedAt` + `retractedAt`. Для «что изменилось» / аудит-разбирательств.
+
+```ts
+{
+  facts: Array<Fact & {
+    status: 'active' | 'superseded' | 'retracted' | 'compacted'
+    retractedAt?: string
+    retractionReason?: string
+    supersededBy?: string  // factId of the winner
+  }>
+}
+```
+
+Опциональные `since` / `until` (ISO 8601) ограничивают результат. Для долгоживущих сущностей ВСЕГДА ставь окно — ответ может быть в мегабайтах.
+
+## GET /v1/entities/:id/connections
+
+```http
+GET /v1/entities/<id>/connections?kind=paid_for
+```
+
+Обход графа на один шаг. Возвращает типизированные рёбра и сущности на другом конце.
+
+```ts
+{
+  edges: Array<{
+    kind: string             // 'identity_of' | 'paid_for' | 'mentioned_in' | ...
+    from: { id: string, name: string }
+    to:   { id: string, name: string }
+    validFrom?: string
+    sourceVertical?: string
+  }>
+}
+```
+
+Опциональный `kind` фильтрует по типу ребра. Multi-hop обход: зови рекурсивно, ограничивай 3 шагами.
+
+## POST /v1/entities/:id/forget
+
+```http
+POST /v1/entities/<id>/forget
+Content-Type: application/json
+{ "reason": "gdpr_request", "requestId": "GDPR-2026-001" }
+```
+
+Жёсткий каскад. Синхронный. Удаляет:
+- Каждый факт этой сущности (и любые производные факты)
+- Каждое ребро, касающееся этой сущности
+- Каждую строку эмбеддинга (vector + HyPE alt-embedding)
+- Каждый артефакт (профиль, дайджест)
+
+Оставляет только HMAC-tombstone в `forgotten_entity`. Tombstone доказывает «запрос исполнен», не храня id сущности в открытом виде.
+
+**Нужны `brain:write` И отдельно выданное право на forget.** Аудит на каждый вызов.
+
+```ts
+{
+  factsDeleted: number
+  edgesDeleted: number
+  embeddingsDeleted: number
+  tombstoneId: string
+}
+```
+
+## Ошибки
+
+| Статус | Значение |
+| --- | --- |
+| `404` | Сущность не найдена (или уже забыта — та же поверхность) |
+| `403` | Недостаточно scope. Forget нужны и `brain:write`, и `brain:forget`. |
+| `409` | Forget по этой сущности уже выполняется |
+
+## Связанное
+
+- [Битемпоральная модель](/ru/docs/concepts/bitemporal) — что значат строки timeline
+- [Модель безопасности](/ru/docs/security) — tombstone у forget, изоляция на тенанта

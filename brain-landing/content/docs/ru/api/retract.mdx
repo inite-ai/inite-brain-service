@@ -1,0 +1,73 @@
+# POST /v1/facts/:id/retract
+
+Пометить факт как больше не подтверждаемый. Отличается от forget — retract это операция по transaction time, которая остаётся в аудите. Факт остаётся в timeline со `status: 'retracted'` и меткой `retractedAt`.
+
+## Запрос
+
+```http
+POST /v1/facts/<factId>/retract
+Authorization: Bearer <api-key>
+Content-Type: application/json
+```
+
+```ts
+{
+  reason: string                         // required — surfaces in audit + timeline
+  retractedBy?: { source: 'system' | 'human', operatorId?: string }
+  cascade?: boolean                      // also retract facts derived from this one; default true
+}
+```
+
+## Ответ
+
+```ts
+{
+  factId: string
+  retractedAt: string
+  cascaded: string[]   // factIds also retracted because they derived from this fact
+}
+```
+
+## Что «retract» реально делает
+
+- Ставит `retractedAt = now()` на строку.
+- Ставит `status = 'retracted'`.
+- Сохраняет `retractionReason` и `retractedBy`.
+- Проходит по цепочкам `derivedFrom[]` и каскадит, если не задано `cascade: false`.
+- Убирает факт из активной выдачи (запросы с `asOf <= retractedAt` его всё ещё видят).
+
+Исходная строка НЕ удаляется. Это инвариант аудита — «раньше Brain верил в X» остаётся отвечаемым навсегда.
+
+## Когда retract, а когда forget
+
+| Действие | Когда использовать |
+| --- | --- |
+| **Retract** | Факт был неверным. Хочешь, чтобы аудит показывал «верили в это, потом перестали». Сущность остаётся. |
+| **Forget** | GDPR / право на удаление *сущности*. Всё о человеке жёстко удаляется, остаётся только HMAC-tombstone. |
+
+Сомневаешься — retract. Forget необратим и приберегается для настоящих запросов на удаление.
+
+## Массовый retract
+
+```bash
+# Retract every fact derived from a bad ingest
+curl -X POST "$BRAIN_URL/v1/facts/$ROOT_FACT/retract" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -d '{ "reason": "source vertical reported wrong message", "cascade": true }'
+```
+
+`cascade: true` (по умолчанию) проходит по цепочке зависимостей. Для одного ингеста, который через NLU-извлечение выпустил 14 фактов, это один вызов.
+
+## Чтение отозванных в timeline
+
+`GET /v1/entities/:id/timeline` возвращает отозванные строки. Отфильтруй их, когда разбираешь «что откатили»:
+
+```ts
+const tl = await brain.entityTimeline(entityId)
+const retracted = tl.facts.filter(f => f.status === 'retracted')
+```
+
+## Связанное
+
+- [Битемпоральная модель](/ru/docs/concepts/bitemporal) — почему retracted ≠ deleted
+- [POST /v1/entities/:id/forget](/ru/docs/api/entities) — жёсткое стирание как контрапункт

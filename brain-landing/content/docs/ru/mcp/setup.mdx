@@ -1,0 +1,106 @@
+# Настройка MCP
+
+Brain отдаёт Streamable HTTP MCP-эндпоинт на `/mcp/:companyId`. У каждого тенанта свой URL, ограниченный API-ключом.
+
+## Что нужно
+
+1. **API-ключ** brain (формат `brain_<base64>`). Сгенерируй на `https://brain.inite.ai/admin/keys`.
+2. **companyId**, на который выдан ключ (виден на том же экране).
+3. **MCP-URL**: `https://brain.inite.ai/mcp/<companyId>`.
+
+Brain не принимает анонимный MCP-трафик. Режима общего секрета нет.
+
+## Claude Desktop
+
+Правь `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) или `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
+Полностью выйди из Claude Desktop (не просто закрой окно) и открой заново. Сервер brain появится в панели MCP с шестью инструментами (или четырьмя, если у ключа только `brain:read`).
+
+## Cursor
+
+`.cursor/mcp.json` в воркспейсе (или `~/.cursor/mcp.json` глобально):
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
+Перезагрузи воркспейс. Инструменты brain станут доступны как `@brain.<tool>` в панели чата.
+
+## Goose
+
+`~/.config/goose/config.yaml`:
+
+```yaml
+extensions:
+  brain:
+    type: streamable_http
+    uri: https://brain.inite.ai/mcp/<companyId>
+    headers:
+      Authorization: Bearer <api-key>
+    enabled: true
+```
+
+`goose session start` подгрузит инструменты brain.
+
+## n8n
+
+В ноде **MCP Client**:
+
+- URL: `https://brain.inite.ai/mcp/<companyId>`
+- Transport: HTTP (Streamable)
+- Header: `Authorization: Bearer <api-key>`
+
+Закрепи credential, чтобы переиспользовать между воркфлоу.
+
+## Smoke-тест
+
+Когда подключился, попроси ассистента:
+
+> Покажи доступные инструменты brain и вызови `search_knowledge` с query `"hello"` limit 1.
+
+Ты увидишь либо четыре, либо шесть инструментов (в зависимости от scope) и результат `search_knowledge` — либо пустой (свежий тенант), либо одно попадание (seed-данные).
+
+Получил 401 — bearer-токен битый или ключ невалиден. Получил `400: MCP path companyId (...) does not match ApiKey companyId` — вставил не тот companyId для этого ключа.
+
+## Матрица scope
+
+| Scope | Видимые инструменты |
+| --- | --- |
+| `brain:read` (всегда) | `search_knowledge`, `get_entity_profile`, `get_entity_timeline`, `find_related_entities` |
+| `brain:write` (дополнительно) | плюс `record_fact`, `retract_fact` |
+| `brain:read_pii` (дополнительно) | открывает значения `email` / `phone` / `dob` / `address` в результатах |
+
+Ключ только с `brain:read` видит четыре инструмента, а не шесть. Это инвариант безопасности, а не баг.
+
+## Stateless-режим
+
+Brain держит MCP без состояния: один McpServer на запрос, без session id. MCP-клиентам, которым нужны долгие сессии, стоит звать по разу на использование инструмента — на стороне brain нет стоимости установки. Сессии с состоянием можно добавить через `sessionIdGenerator`, если появится кейс.
+
+## Связанное
+
+- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — полные схемы шести инструментов
+- [Набор скиллов](/ru/docs/skills) — инструкции для агента (формат Anthropic Skills)

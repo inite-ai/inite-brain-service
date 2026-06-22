@@ -1,0 +1,82 @@
+# POST /v1/synthesize
+
+`/v1/search` + генерирующая LLM + проверяющая LLM. Генератор выдаёт обоснованный ответ со ссылками `[factId]`; верификатор оценивает, подтверждается ли каждое утверждение исходными фактами. Три режима guardrails; `strict` — fail-closed и по умолчанию.
+
+## Запрос
+
+```ts
+{
+  query: string
+  synthesisGuardrails?: 'strict' | 'lenient' | 'off'  // default 'strict'
+  limit?: number       // candidate facts forwarded to generator
+  predicates?: string[]
+  asOf?: string
+}
+```
+
+## Ответ
+
+```ts
+{
+  answer: string | null   // null when verifier rejects in strict mode
+  reason?: string         // verifier verdict / fallback message
+  citations: string[]     // factIds the generator cited (post-filter for hallucinated IDs)
+  results: SearchHit[]    // raw retrieval; lets the caller do their own synthesis
+  faithfulness?: {
+    supportedClaims: number
+    partialClaims: number
+    unsupportedClaims: number
+    score: number         // 0..1
+  }
+}
+```
+
+## Три режима
+
+| Режим | Верификатор работает? | Что вернётся | Когда использовать |
+| --- | --- | --- | --- |
+| `strict` (по умолчанию) | да | `null`, если не `supported` | Ответы ассистента клиенту |
+| `lenient` | да | возвращается всегда; вердикт в `reason` | Внутренние ревью-поверхности |
+| `off` | нет | возвращается всегда | Вызывающий сам обосновывает |
+
+Сбой верификатора → fail-closed в `strict`, fail-open в остальных.
+
+## Выдуманные ссылки
+
+Генератор иногда придумывает значения `factId`. Перед тем как ответ уйдёт с сервера, Brain отфильтровывает любую ссылку, которой нет в retrieved-наборе. Верификатор видит отфильтрованный набор, поэтому галлюцинация «придумал id» превращается в «у утверждения нет ссылки» → `partial`/`unsupported` в faithfulness.
+
+## Оценка faithfulness
+
+Конвенция RAGAS. Верификатор раскладывает ответ на атомарные утверждения и судит каждое против исходных фактов:
+
+```ts
+import { computeFaithfulness } from '@inite/knowledge/eval'
+
+const synthRes = await brain.synthesize({ query: '…' })
+const score = await computeFaithfulness(openai, {
+  answer: synthRes.answer,
+  sourceFacts: synthRes.results.flatMap(r => r.facts),
+})
+// → { faithfulness: 0.83, supportedClaims: 4, partialClaims: 1, unsupportedClaims: 1, claims: [...] }
+```
+
+CI гоняет faithfulness на каждом synthesize-сценарии из eval-сьюта. Жёсткий пол: pass-rate ≥ 0.8 на трёх сценариях.
+
+## Пример
+
+```bash
+curl -X POST "$BRAIN_URL/v1/synthesize" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "who reported maintenance issues last month?",
+    "synthesisGuardrails": "strict"
+  }'
+```
+
+Режим strict → либо проверенный ответ, либо `null` с объяснением. Никаких полуправдивых абзацев.
+
+## Связанное
+
+- [POST /v1/search](/ru/docs/api/search) — сторона retrieval без синтеза
+- [POST /v1/search/multi-hop](/ru/docs/api/multi-hop) — синтез поверх цепочечного рассуждения

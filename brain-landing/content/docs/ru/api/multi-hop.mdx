@@ -1,0 +1,89 @@
+# POST /v1/search/multi-hop
+
+Планировщик-LLM раскладывает свободный запрос на ≤ `maxHops` под-запросов с явной семантикой комбинирования. Исполнитель гоняет их по очереди, при желании привязываясь к текущему набору сущностей, чтобы каждый шаг строился на предыдущем.
+
+## Когда тянуться за multi-hop
+
+- «Жильцы, которые жаловались в апреле **и** потом апгрейднулись до platinum».
+- «Компании, основанные экс-инженерами Stripe **и** со штаб-квартирой в ЕС».
+- Любой вопрос с **и**, **затем**, **которые ещё**, **из тех, что**.
+
+Если вопрос одношаговый, планировщик сообщает `isMultiHop: false`, и исполнитель откатывается на `/v1/search`. Та же форма, без лишней стоимости.
+
+## Запрос
+
+```ts
+{
+  query: string
+  maxHops?: number          // 1..5, default 3
+  synthesize?: boolean      // pipe final entity set into /v1/synthesize
+  asOf?: string
+  hints?: {                 // bias the planner
+    requirePredicates?: string[]
+  }
+}
+```
+
+## Ответ
+
+```ts
+{
+  isMultiHop: boolean
+  hops: Array<{
+    subQuery: string
+    combine: 'seed' | 'subset_of_previous' | 'intersect' | 'union'
+    predicates?: string[]
+    asOf?: string
+    entityIds: string[]               // result of this hop
+    supportingFactIds: string[]       // the gold-evidence chain for this hop
+  }>
+  finalEntityIds: string[]
+  supportingFactIds: string[]         // de-duped union across hops, in execution order
+  answer?: string                     // only when synthesize: true
+}
+```
+
+## Режимы комбинирования
+
+| Режим | Поведение |
+| --- | --- |
+| `seed` | Первый шаг, без предыдущего набора |
+| `subset_of_previous` | Шаг привязан к текущим entityIds. Строгое подмножество. Большинство цепочечных рассуждений. |
+| `intersect` | Шаг идёт без ограничений, пересечение после. Выше recall, когда предыдущий набор мал. |
+| `union` | Шаг идёт без ограничений, объединение после. Редко; добавлено для полноты. |
+
+Планировщик выбирает режим на каждый шаг по формулировке — «из тех, что» → `subset_of_previous`, «которые ещё» → `intersect`.
+
+## Оценка joint-F1
+
+Для eval: массив `supportingFactIds` — это заявка системы о цепочке доказательств. Сравни её с эталоном:
+
+```ts
+import { jointF1 } from '@inite/knowledge/eval'
+
+const score = jointF1(
+  { answerEntityRefs: response.finalEntityIds, supportingFactIds: response.supportingFactIds },
+  { answerEntityRefs: ['acme.alice'], supportingFactIds: ['gold_fact_1', 'gold_fact_2'] },
+)
+// → { answerF1, supportF1, jointF1, answerEM, supportEM, jointEM, ... }
+```
+
+Joint-F1 ловит провал, которого сквозной recall@k не видит: правильный ответ через неправильную цепочку рассуждения.
+
+## Пример
+
+```bash
+curl -X POST "$BRAIN_URL/v1/search/multi-hop" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "tenants who complained in April and upgraded to platinum after",
+    "maxHops": 3,
+    "synthesize": true
+  }'
+```
+
+## Связанное
+
+- [POST /v1/search](/ru/docs/api/search) — одношаговая версия
+- [POST /v1/synthesize](/ru/docs/api/synthesize) — куда подключается `synthesize: true`

@@ -1,0 +1,125 @@
+# Справочник MCP-инструментов
+
+Шесть инструментов, зарегистрированных на `McpServer({ name: 'inite-brain-service' })`. Четыре видны всегда; двум нужен `brain:write`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`.
+
+## search_knowledge
+
+> Семантический поиск по графу знаний компании. Возвращает сущности с топ-фактами и external-ссылками назад в исходные вертикали. Применяй `asOf` для исторических запросов «что мы знали на X».
+
+**Нужный scope:** `brain:read`
+
+```ts
+{
+  query: string                  // required — natural language
+  limit?: number                 // 1..50, default 10
+  predicates?: string[]          // restrict to these predicates
+  asOf?: string                  // ISO 8601 — bitemporal cutoff
+  minConfidence?: number         // 0..1 — drop low-confidence facts
+}
+```
+
+В паре со скиллом `brain-search` в `~/.claude/skills/brain-search/`.
+
+## get_entity_profile
+
+> Полный профиль одной сущности: каноническое имя, тип, externalRefs и активные факты. Через `externalRefs` подтягивай свежее состояние из исходной вертикали с помощью `@inite/api-kit`.
+
+**Нужный scope:** `brain:read`
+
+```ts
+{
+  entityId: string               // brain id or `vertical.id` shorthand
+  asOf?: string
+}
+```
+
+## get_entity_timeline
+
+> Хронологический аудит всех фактов, что Brain узнал о сущности, включая отозванные. Полезно для разбирательств «что мы знали и когда».
+
+**Нужный scope:** `brain:read`
+
+```ts
+{
+  entityId: string
+  since?: string
+  until?: string
+}
+```
+
+Возвращает и отозванные строки — инвариант аудита.
+
+## find_related_entities
+
+> Сущности, связанные с данной через граф знаний. Только один шаг — для multi-hop зови рекурсивно.
+
+**Нужный scope:** `brain:read`
+
+```ts
+{
+  entityId: string
+  kind?: string                  // edge filter, e.g. 'paid_for', 'mentioned_in', 'identity_of'
+}
+```
+
+## record_fact
+
+> Вставить факт о сущности. Запускает разрешение конфликтов brain (`INSERTED` / `SUPERSEDED` / `COMPETING` / `REJECTED`). Из агентов используй экономно — большинство фактов должно приходить через ингест событий.
+
+**Нужный scope:** `brain:write`
+
+```ts
+{
+  entityRef:
+    | { vertical: string, id: string }
+    | { entityId: string }
+  predicate: string
+  object: string
+  validFrom: string              // ISO 8601 — required
+  validUntil?: string
+  confidence?: number            // 0..1
+  sourceVertical: string         // attributed source vertical
+}
+```
+
+## retract_fact
+
+> Пометить факт как больше не подтверждаемый. Каскадит на производные факты. Не удаляет; строка остаётся для аудита.
+
+**Нужный scope:** `brain:write`
+
+```ts
+{
+  factId: string
+  reason: string                 // required
+}
+```
+
+## Общая форма ответа
+
+Каждый инструмент возвращает:
+
+```ts
+{
+  content: [{ type: 'text', text: <JSON string> }],
+  structuredContent: <typed object>
+}
+```
+
+Парсить клиентам стоит `structuredContent`. Зеркало в `text` — для клиентов, которые ещё не уважают `structuredContent`.
+
+## Ошибки
+
+Вызовы инструментов возвращают MCP error-фреймы с такими паттернами:
+
+| Паттерн | Причина |
+| --- | --- |
+| `"scope brain:write required"` | Инструменту нужен scope, которого нет у ключа |
+| `"MCP path companyId (...) does not match ApiKey companyId"` | companyId в URL ≠ companyId ключа |
+| `"unknown predicate '<x>'"` | Словарь отверг предикат — зарегистрируй или возьми стандартный |
+| `"validFrom must be ISO 8601"` | Несовпадение формата в `record_fact` |
+
+## Связанное
+
+- [Настройка MCP](/ru/docs/mcp/setup) — подключить клиент к этим инструментам
+- [Набор скиллов](/ru/docs/skills) — инструкции для агента

@@ -1,0 +1,126 @@
+# POST /v1/search
+
+Гибридный retrieval по графу знаний на тенанта. Vector + BM25 + опциональный HyPE → выпуклая свёртка → буст роутера предикатов → опциональный cross-encoder → listwise LLM-rerank с self-consistency → дозагрузка фактов сущности.
+
+## Запрос
+
+```http
+POST /v1/search
+Authorization: Bearer <api-key>
+Content-Type: application/json
+```
+
+```ts
+{
+  query: string                    // natural language
+  limit?: number                   // 1..50, default 10
+  predicates?: string[]            // optional filter — restrict to these predicates
+  asOf?: string                    // ISO 8601 — historical cutoff
+  minConfidence?: number           // 0..1 — drop facts below this confidence
+  includeStale?: boolean           // include retracted / superseded; default false
+  legs?: ('vector' | 'lexical')[]  // override default leg set (debug)
+}
+```
+
+## Ответ
+
+```ts
+{
+  hits: Array<{
+    entity: {
+      id: string
+      name: string
+      type: string
+      externalRefs: Array<{ vertical: string, id: string }>
+    }
+    facts: Array<{
+      factId: string
+      predicate: string
+      object: string | null  // null when PII-gated
+      validFrom: string
+      validUntil: string | null
+      confidence: number
+      status: 'active' | 'superseded' | 'retracted'
+      sourceVertical?: string
+    }>
+    score: number          // post-rerank fused score
+    legScores: {           // per-leg contribution; useful for debugging
+      vector?: number
+      lexical?: number
+      hype?: number
+    }
+  }>
+  diagnostics?: {
+    router?: { predicates: Record<string, number>, types: Record<string, number> }
+    rerank?: { invoked: boolean, n: number, skippedReason?: string }
+    cacheHit?: boolean
+  }
+}
+```
+
+## Стадии пайплайна
+
+Пайплайн отрабатывает за один HTTP-вызов. Каждая стадия — фичефлаг на уровне сервиса; оператор переключает их на тенанта.
+
+```
+                   query
+                     │
+                     ▼
+       ┌─────────────────────────────┐
+       │ predicate + type router     │  joint LLM call → soft distribution
+       │ (LRU-cached per query hash) │
+       └─────────────────────────────┘
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+  vector leg   lexical leg   (HyPE alt-emb leg)
+  (HNSW cos)   (BM25)        max(cos_main, cos_alt)
+       │             │             │
+       └─────────────┼─────────────┘
+                     ▼
+       convex-fusion (CombMNZ-flavoured w=0.5)
+                     │
+                     ▼
+       decay × confidence × predicate-boost-α
+                     │
+                     ▼
+       group-by-entity ──→  PPR prior (HippoRAG, opt-in)
+                     │
+                     ▼
+       cross-encoder (Cohere Rerank v3.5, opt-in)
+                     │
+                     ▼
+       listwise LLM reranker (RankGPT-style + self-consistency)
+                     │
+                     ▼
+       entity-fact backfill (native Surreal inline subquery)
+                     │
+                     ▼
+                  results
+```
+
+## Битемпоральная отсечка
+
+`asOf` уходит прямо в WHERE на уровне этапа:
+
+```sql
+WHERE validFrom <= $asOf
+  AND (validUntil IS NULL OR validUntil > $asOf)
+  AND (retractedAt IS NULL OR retractedAt > $asOf)
+```
+
+Никакого пост-фильтра на JS, никакого второго round-trip.
+
+## Гейтинг PII
+
+Если у API-ключа вызывающего нет `brain:read_pii`, чувствительные предикаты (`email`, `phone`, `dob`, `address`) приходят с `object: null`. Сам предикат остаётся видимым — это сигнал «данные у нас есть, прав у тебя нет». Это строже, чем 403, потому что ранжировать сущности по *наличию* идентифицирующих фактов всё ещё можно.
+
+## CI по каждому этапу
+
+Каждый релиз гоняет `pnpm test:eval`, который бутстрапит 95% CI по recall@1, MRR, NDCG@10 для каждого этапа. Числа пишутся в `.eval-baseline/main.json`. Просадка больше 3 п.п. = блок CI.
+
+## Связанное
+
+- [POST /v1/synthesize](/ru/docs/api/synthesize) — поиск + обоснованный ответ + проверка faithfulness
+- [POST /v1/search/multi-hop](/ru/docs/api/multi-hop) — цепочечное рассуждение с supportingFactIds
+- [Оператор-плейбук](/ru/docs/operator-playbook) — фичефлаги пайплайна

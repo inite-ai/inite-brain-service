@@ -1,0 +1,94 @@
+# POST /v1/ingest/*
+
+Три пути ингеста. Все проходят через conflict-resolver перед тем, как осесть.
+
+| Эндпоинт | Вход | Когда использовать |
+| --- | --- | --- |
+| `POST /v1/ingest/fact` | один структурный `{entityRef, predicate, object, validFrom, …}` | Ты уже знаешь пару предикат / объект. Структурные потоки событий, выгрузки из CRM, программные записи. |
+| `POST /v1/ingest/mention` | сырой текст + `sourceVertical` | NLU-извлечение сущностей и фактов из естественного языка. Сообщения inbox, транскрипты, отзывы. |
+| `POST /v1/ingest/link` | типизированное ребро `{from, to, kind}` | Кросс-вертикальные слияния (`identity_of`), связи графа (`paid_for`, `mentioned_in`). |
+
+## POST /v1/ingest/fact
+
+```ts
+{
+  entityRef: { vertical: string, id: string } | { entityId: string }
+  predicate: string                    // e.g. 'tier', 'name', 'address'
+  object: string                       // canonicalised string
+  validFrom: string                    // ISO 8601
+  validUntil?: string
+  confidence?: number                  // 0..1, default 0.95 for structured
+  source: { vertical: string, messageId?: string, recorder?: string }
+  authority?: number                   // 0..1, default 0 — set high for human-curated
+}
+```
+
+В ответе — `factId` и исход resolver:
+
+```ts
+{
+  factId: string
+  outcome: 'INSERTED' | 'SUPERSEDED' | 'COMPETING' | 'REJECTED'
+  margin?: number
+  contradicting?: string[]   // factIds of the rivals
+}
+```
+
+## POST /v1/ingest/mention
+
+```ts
+{
+  text: string
+  sourceVertical: string
+  source: { messageId?: string, ... }
+  entityHints?: Array<{ vertical: string, id: string }>  // anchor extraction
+  asOf?: string  // when the mention happened (default: now)
+}
+```
+
+Возвращает батч-результат — каждую сущность, что нашла NLU, каждый выпущенный факт и исход resolver на факт:
+
+```ts
+{
+  entities: Array<{ entityId: string, externalRefs: [...] }>
+  facts: Array<{ factId: string, outcome: ... }>
+  cost: { promptTokens: number, completionTokens: number }
+}
+```
+
+Экстрактор — `gpt-4o-mini-2024-07-18` (закреплён на снапшоте). Стоимость считается на каждый вызов; алерты по бюджету на тенанта — в оператор-плейбуке.
+
+## POST /v1/ingest/link
+
+```ts
+{
+  from: { vertical: string, id: string } | { entityId: string }
+  to:   { vertical: string, id: string } | { entityId: string }
+  kind: string    // 'identity_of', 'paid_for', 'mentioned_in', 'manages', ...
+  validFrom?: string
+  source: { vertical: string, ... }
+}
+```
+
+`kind=identity_of` — примитив кросс-вертикального слияния: когда у вертикали rent и у вертикали inbox есть один `alice@example.com`, это один человек. Установка ребра запускает реатрибуцию: существующие факты сливаются на каноническую сущность.
+
+## Идемпотентность
+
+Все три принимают заголовок `Idempotency-Key`. Тот же ключ + то же тело в течение 24 ч вернут исходный исход и не перезапустят resolver. Другое тело с тем же ключом вернёт 409.
+
+## Ошибки
+
+| Статус | Значение |
+| --- | --- |
+| `400` | Не прошла валидация схемы — в теле ошибки пути полей |
+| `401` | Нет / неверный bearer-ключ |
+| `403` | Нужен scope `brain:write` |
+| `409` | `Idempotency-Key` переиспользован с другим телом |
+| `422` | Предикат не из словаря — зарегистрируй его или возьми из стандартного набора |
+| `429` | Упёрся в rate limit тенанта |
+
+## Связанное
+
+- [Разрешение конфликтов](/ru/docs/concepts/conflict-resolution) — что делает resolver
+- [Словарь предикатов](/ru/docs/concepts/predicates) — какие предикаты допустимы
+- [POST /v1/facts/:id/retract](/ru/docs/api/retract) — обратная операция

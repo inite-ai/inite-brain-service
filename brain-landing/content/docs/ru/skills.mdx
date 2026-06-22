@@ -1,0 +1,94 @@
+# Набор скиллов
+
+Brain поставляет четыре Anthropic Skills, которые учат AI-агента пользоваться MCP-поверхностью. Это обычный markdown — `SKILL.md` с YAML-фронтматтером — и Claude читает их нативно, когда они попадают в `~/.claude/skills/`.
+
+## Установка одной строкой
+
+```sh
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+Опциональные флаги:
+
+- `--target project` — ставить в `$PWD/.claude/skills/`, а не в `$HOME`
+- `--key <api-key>` — пингануть пробу, чтобы дашборд отметил «скиллы установлены»
+
+Инсталлятор скачивает `skills.tar.gz`, распаковывает каждый скилл в `~/.claude/skills/<name>/SKILL.md` и кладёт рядом файл `VERSION.brain`, чтобы проверке свежести было с чем сравнивать одно число.
+
+## Четыре скилла
+
+| Скилл | Срабатывает, когда… | Чему учит |
+| --- | --- | --- |
+| `brain-search` | Пользователь просит найти / посмотреть / поискать знание | Как звать `search_knowledge` с подсказками по предикатам и семантикой asOf |
+| `brain-recall` | Пользователь называет сущность и просит полную картину | Как сочетать `get_entity_profile` + `get_entity_timeline` + `find_related_entities` |
+| `brain-bitemporal` | У пользователя временной вопрос («на дату X», «до Y») | Семантика asOf, validFrom / validUntil, работа с отозванными строками |
+| `brain-mcp-setup` | Пользователь подключает MCP brain в новый клиент | Пошаговый конфиг для Claude Desktop, Cursor, Goose, n8n |
+
+## Формат
+
+Каждый `SKILL.md` — это:
+
+```yaml
+---
+name: brain-search
+description: One-line summary the agent reads before deciding to activate this skill.
+---
+
+# Heading and instructions follow — pure markdown.
+```
+
+Никакого JS-рантайма, никакой MCP-обвязки внутри самого скилла. Обвязка живёт в brain-service; скилл — это инструкция для агента, как пользоваться.
+
+## Модель версий
+
+Один semver в `skills/VERSION`. Без semver на каждый скилл. Весь набор поставляется одной версионируемой единицей.
+
+```bash
+cat ~/.claude/skills/VERSION.brain
+# → 0.1.0
+```
+
+Бампится автоматически через `pnpm skills:bump --staged` на pre-commit, когда меняется любой файл под `skills/<name>/**`. Только patch-бамп — ручные minor / major: правь `skills/VERSION`, затем `pnpm skills:build`.
+
+## Обновление
+
+```sh
+# Re-run the installer at any time — it overwrites in place.
+curl -fsSL https://brain.inite.ai/install.sh | sh
+```
+
+Инсталлятор идемпотентен. Он заменяет содержимое `~/.claude/skills/brain-*` и обновляет `VERSION.brain`.
+
+## Раскладка
+
+```
+~/.claude/skills/
+├── VERSION.brain             ← bundle version, single source of truth
+├── CHANGELOG.brain.md
+├── brain-search/SKILL.md
+├── brain-recall/SKILL.md
+├── brain-bitemporal/SKILL.md
+└── brain-mcp-setup/SKILL.md
+```
+
+## Свой скилл
+
+Набор открыт — добавь собственный `brain-*` скилл, если нужен воркфлоу, которого brain не поставляет. Раскладка:
+
+```
+skills/brain-mycustom/SKILL.md
+```
+
+Во фронтматтере обязательны `name` (= имя папки) и `description`. Тело — обычный markdown. После правки:
+
+```sh
+pnpm skills:bump --note "feat(brain-mycustom): teach the agent <thing>"
+pnpm skills:pack
+```
+
+Это patch-бампит `VERSION`, дописывает запись в CHANGELOG и собирает `brain-landing/public/skills.tar.gz` к следующему деплою.
+
+## Связанное
+
+- [Настройка MCP](/ru/docs/mcp/setup) — сначала подключи клиент
+- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — что скиллы реально вызывают
