@@ -6,6 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { policyFor, PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { BrainScope } from '../auth/api-key.types';
+import { EmbedderService } from '../ai/embedder.service';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -50,6 +51,11 @@ export interface ForgetResult {
   entityIdHash: string;
   factsDeleted: number;
   edgesDeleted: number;
+  /**
+   * Materialised audit_event rows (changefeed mirror) carrying the
+   * forgotten entity's post-images — purged as part of the erasure.
+   */
+  auditEventsDeleted: number;
   forgottenAt: string;
 }
 
@@ -62,6 +68,7 @@ export class EntitiesService {
     private readonly surreal: SurrealService,
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly embedder?: EmbedderService,
   ) {
     // Used to hash forgotten entity ids in the tombstone. If unset, derive
     // a per-process default — safe enough for 0.1.0 walking skeleton, but
@@ -303,10 +310,11 @@ export class EntitiesService {
     companyId: string,
     entityIdRaw: string,
     dto: ForgetEntityDto,
+    actorKeyHash?: string,
   ): Promise<ForgetResult> {
     const ref = this.normalizeEntityId(entityIdRaw);
 
-    return this.surreal.withCompany(companyId, async (db) => {
+    const result = await this.surreal.withCompany(companyId, async (db) => {
       // Verify exists
       const [entRows] = await db.query<any[][]>(
         `SELECT id FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
@@ -317,20 +325,27 @@ export class EntitiesService {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
 
-      // Count facts + edges before deletion (for the audit tombstone).
-      const [[factCount]] = await db.query<any[]>(
-        `SELECT count() AS c FROM knowledge_fact
-         WHERE entityId = type::thing('knowledge_entity', $rid) GROUP ALL`,
+      // Collect the exact record ids that will be deleted BEFORE deleting
+      // them. The changefeed consumer mirrors every knowledge_* mutation
+      // into audit_event keyed by `recordId` (the record's `id.toString()`
+      // — full `table:id` form), and create/update rows carry the full
+      // post-image in `audit_event.after`, including PII fact `object`
+      // values. Without this, a GDPR-erased subject stayed fully
+      // reconstructable from audit_event indefinitely.
+      const [factIdRows] = await db.query<any[][]>(
+        `SELECT id FROM knowledge_fact
+         WHERE entityId = type::thing('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      const [[edgeCount]] = await db.query<any[]>(
-        `SELECT count() AS c FROM knowledge_edge
-         WHERE in = type::thing('knowledge_entity', $rid) OR out = type::thing('knowledge_entity', $rid)
-         GROUP ALL`,
+      const [edgeIdRows] = await db.query<any[][]>(
+        `SELECT id FROM knowledge_edge
+         WHERE in = type::thing('knowledge_entity', $rid) OR out = type::thing('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      const factsDeleted = (factCount as any)?.c ?? 0;
-      const edgesDeleted = (edgeCount as any)?.c ?? 0;
+      const factIds = ((factIdRows as any[]) ?? []).map((r) => String(r.id));
+      const edgeIds = ((edgeIdRows as any[]) ?? []).map((r) => String(r.id));
+      const factsDeleted = factIds.length;
+      const edgesDeleted = edgeIds.length;
 
       // Cascade hard-delete. Embedding columns die with the rows.
       await db.query(
@@ -348,6 +363,23 @@ export class EntitiesService {
         { rid: ref.id },
       );
 
+      // Purge the materialised audit_event mirror for every deleted
+      // record (entity + its facts + edges). recordId IN [...] matches
+      // exactly how the consumer wrote them.
+      //
+      // Residual (documented, not recoverable as queryable data): the
+      // SurrealDB CHANGEFEED keeps raw pre-images in rocksdb for its 30d
+      // retention window. The consumer never materialises `before`
+      // images and delete-op changes carry no post-image, so no PII is
+      // re-mirrored into audit_event after this purge; the rocksdb log
+      // auto-expires at 30d.
+      const recordIds = [ref.full, ...factIds, ...edgeIds];
+      const [auditDeleted] = await db.query<any[][]>(
+        `DELETE audit_event WHERE recordId IN $ids RETURN BEFORE`,
+        { ids: recordIds },
+      );
+      const auditEventsDeleted = ((auditDeleted as any[]) ?? []).length;
+
       const entityIdHash =
         'hmac:' +
         createHmac('sha256', this.forgetHmacKey)
@@ -361,12 +393,18 @@ export class EntitiesService {
         requestId: dto.requestId,
         factsDeleted,
         edgesDeleted,
+        auditEventsDeleted,
+        // GDPR accountability (Art. 5(2)/30): record WHO performed the
+        // erasure (hashed admin credential), not just that it happened.
+        forgottenBy: actorKeyHash ?? 'unknown',
         forgottenAt,
       });
 
       this.logger.warn(
         `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
-        `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} reason=${dto.reason}`,
+        `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
+        `auditEventsDeleted=${auditEventsDeleted} reason=${dto.reason} ` +
+        `by=${actorKeyHash ?? 'unknown'}`,
       );
 
       this.metrics?.countForget();
@@ -375,9 +413,30 @@ export class EntitiesService {
         entityIdHash,
         factsDeleted,
         edgesDeleted,
+        auditEventsDeleted,
         forgottenAt: forgottenAt.toISOString(),
       };
     });
+
+    // Best-effort: drop the in-process embedder cache so the forgotten
+    // subject's PII text (used as a cache key → vector) no longer lingers
+    // in memory. Process-local + capacity-bounded, but a GDPR erasure
+    // should not leave the identifying text resident. Cross-tenant
+    // collateral is acceptable given how rare forget is.
+    try {
+      const evicted = this.embedder?.evictAll() ?? 0;
+      if (evicted > 0) {
+        this.logger.warn(
+          `[knowledge.entity.forgotten] embedder cache cleared (${evicted} entries) after erasure`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `embedder cache eviction after forget failed: ${(e as Error).message}`,
+      );
+    }
+
+    return result;
   }
 
   private normalizeEntityId(raw: string): { id: string; full: string } {

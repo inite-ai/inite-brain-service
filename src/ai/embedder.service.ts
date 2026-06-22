@@ -188,6 +188,20 @@ export class EmbedderService implements OnModuleInit {
    * accounting now lives on the per-provider Semaphore and is not
    * surfaced here.
    */
+  /**
+   * Drop every cached (providerId, text) → vector entry. Used by the
+   * GDPR forget path: the cache is keyed on raw text, so a forgotten
+   * subject's identifying text would otherwise linger as a cache key in
+   * process memory. Returns the number of entries evicted. Best-effort,
+   * process-local — forget is rare enough that the cold-cache cost is
+   * acceptable.
+   */
+  evictAll(): number {
+    const n = this.cache.size;
+    this.cache.clear();
+    return n;
+  }
+
   cacheStats(): {
     size: number;
     inFlight: number;

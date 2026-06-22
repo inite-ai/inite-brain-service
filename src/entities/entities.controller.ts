@@ -74,6 +74,11 @@ export class EntitiesController {
     @Param('id') id: string,
     @Body() body: ForgetEntityDto,
   ) {
-    return this.entities.forget(req.brainAuth.companyId, id, body);
+    return this.entities.forget(
+      req.brainAuth.companyId,
+      id,
+      body,
+      req.brainAuth.keyHash,
+    );
   }
 }

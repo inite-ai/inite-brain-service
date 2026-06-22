@@ -107,6 +107,25 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       });
     expect([200, 201]).toContain(linkRes.status);
 
+    // Simulate the changefeed mirror: the consumer (disabled in tests)
+    // would write an audit_event carrying the entity's post-image,
+    // including PII fact `object` values. Seed one keyed by the entity's
+    // recordId so we can assert the forget cascade purges it.
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(
+        `CREATE audit_event CONTENT {
+            source: 'knowledge_entity',
+            recordId: $rid,
+            op: 'update',
+            ts: time::now(),
+            versionstamp: 1,
+            after: { object: 'secret-pii-value' },
+            consumedBy: 'test'
+         }`,
+        { rid: entityId },
+      );
+    });
+
     // Forget.
     const r = await f.http
       .post(
@@ -118,6 +137,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
     expect(r.body.entityIdHash).toMatch(/^hmac:[0-9a-f]{64}$/);
     expect(r.body.factsDeleted).toBeGreaterThanOrEqual(2);
     expect(r.body.edgesDeleted).toBeGreaterThanOrEqual(1);
+    expect(r.body.auditEventsDeleted).toBeGreaterThanOrEqual(1);
     expect(typeof r.body.forgottenAt).toBe('string');
 
     // Storage assertions: entity row gone, facts gone, edges gone,
@@ -137,12 +157,23 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       expect((factRows as any[]).length).toBe(0);
 
       const [tombRows] = await db.query<any[][]>(
-        `SELECT entityIdHash, reason FROM forgotten_entity
+        `SELECT entityIdHash, reason, forgottenBy, auditEventsDeleted
+           FROM forgotten_entity
            WHERE entityIdHash = $h LIMIT 1`,
         { h: r.body.entityIdHash },
       );
       expect((tombRows as any[]).length).toBe(1);
       expect((tombRows as any[])[0].reason).toBe('gdpr_request');
+      // GDPR accountability: the acting credential is recorded (hashed).
+      expect((tombRows as any[])[0].forgottenBy).toBeTruthy();
+      expect((tombRows as any[])[0].forgottenBy).not.toBe('unknown');
+
+      // The seeded audit_event mirror carrying PII must be gone.
+      const [auditRows] = await db.query<any[][]>(
+        `SELECT id FROM audit_event WHERE recordId = $rid`,
+        { rid: entityId },
+      );
+      expect((auditRows as any[]).length).toBe(0);
     });
   });
 
