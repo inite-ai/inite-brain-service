@@ -324,20 +324,62 @@ Output strictly the JSON shape requested.`;
     loserId: string,
     winnerId: string,
   ): Promise<void> {
-    // Reuse the existing schema (migration 0001 + 0006). The
-    // resolve_fact server function already writes this exact shape
-    // — status='superseded', supersededBy=<winner>, retractionReason
-    // tagged with the resolution path. Tagging with 'dreams_resolution'
-    // lets operators filter the audit trail by source ("show me every
-    // fact that the dreams cron auto-resolved last week").
+    const loser = new StringRecordId(loserId);
+    const winner = new StringRecordId(winnerId);
+    // Match fn::resolve_fact's supersede shape (migration 0033). The old
+    // version set only {status, supersededBy, retractionReason} and left
+    // the loser's validUntil OPEN. Default-now search hid it via
+    // status='superseded', but the asOf path gates purely on the validity
+    // axis (validFrom/validUntil) — so the loser kept resurfacing in
+    // point-in-time / audit reads. We must CLOSE the interval like the
+    // resolver does: validUntil = winner.validFrom, priorValidUntil =
+    // loser's original validUntil. retractedBy='dreams' preserves the
+    // "auto-resolved by the dreams cron" audit signal that the old
+    // retractionReason='dreams_resolution' tag carried.
+    type Bound = { validFrom: string; validUntil: string | null };
+    const [winRows] = await db.query<[Array<{ validFrom: string }>]>(
+      `SELECT validFrom FROM $w`,
+      { w: winner },
+    );
+    const [loseRows] = await db.query<[Bound[]]>(
+      `SELECT validFrom, validUntil FROM $l`,
+      { l: loser },
+    );
+    const winnerValidFrom = (winRows as Array<{ validFrom: string }>)?.[0]
+      ?.validFrom;
+    const loserRow = (loseRows as Bound[])?.[0];
+    if (!winnerValidFrom || !loserRow) {
+      // A row vanished between selection and here (concurrent forget /
+      // compaction). Nothing safe to close — skip.
+      return;
+    }
+    // Never produce an inverted interval: for a same-instant dedup the
+    // winner's validFrom can equal/precede the loser's, so close no earlier
+    // than the loser's own start.
+    const closeAt =
+      new Date(winnerValidFrom).getTime() >
+      new Date(loserRow.validFrom).getTime()
+        ? new Date(winnerValidFrom)
+        : new Date(loserRow.validFrom);
+    // option<datetime> rejects NULL, so only assign priorValidUntil when the
+    // loser actually had a bounded interval to snapshot.
+    const priorClause =
+      loserRow.validUntil != null ? 'priorValidUntil = $priorValidUntil,' : '';
     await db.query(
       `UPDATE $loser SET
          status = 'superseded',
+         retractionReason = 'superseded',
+         retractedBy = 'dreams',
          supersededBy = $winner,
-         retractionReason = 'dreams_resolution'`,
+         ${priorClause}
+         validUntil = $closeAt`,
       {
-        loser: new StringRecordId(loserId),
-        winner: new StringRecordId(winnerId),
+        loser,
+        winner,
+        closeAt,
+        ...(loserRow.validUntil != null
+          ? { priorValidUntil: new Date(loserRow.validUntil) }
+          : {}),
       },
     );
   }
