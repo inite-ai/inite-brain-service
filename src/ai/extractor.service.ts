@@ -137,6 +137,14 @@ export class ExtractorService {
     );
   }
 
+  /**
+   * Identity of the extraction model — used as the default `source.recorder`
+   * for mention-extracted facts so source-trust can score them per model.
+   */
+  modelId(): string {
+    return this.model;
+  }
+
   async extract(
     text: string,
     companyId: string,

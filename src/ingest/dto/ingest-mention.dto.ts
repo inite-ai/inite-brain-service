@@ -12,6 +12,12 @@ export interface MentionContextRef {
   conversationId?: string;
   messageId?: string;
   eventId?: string;
+  // Provenance of the recorder that produced this mention. Flows into the
+  // fact `source.recorder`, which keys source-trust via fn::source_key_of
+  // (`vertical:recorder`). When omitted, the ingest path defaults it to the
+  // extraction model id so LLM-extracted facts get a per-model trust bucket
+  // instead of collapsing to the recorder-less `vertical:_`.
+  recorder?: string;
 }
 
 export interface KnownEntity {

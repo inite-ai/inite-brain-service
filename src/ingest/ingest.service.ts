@@ -388,6 +388,11 @@ export class IngestService {
           eventId: dto.contextRef.eventId,
           conversationId: dto.contextRef.conversationId,
           messageId: dto.contextRef.messageId,
+          // Populate source.recorder so fn::source_key_of yields a
+          // discriminating `vertical:recorder` key instead of `vertical:_`.
+          // Caller-provided recorder wins; otherwise the extraction model id,
+          // so source-trust scores LLM-extracted facts per model.
+          recorder: dto.contextRef.recorder ?? this.extractor.modelId(),
         };
         const factTexts = extraction.facts.map(
           (f) => `${f.predicate}: ${f.object}`,

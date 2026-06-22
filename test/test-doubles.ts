@@ -41,11 +41,17 @@ export class StubEmbedder
  * "topic" entity from the literal text. Tests that need specific
  * extraction results call setScript() before exercising ingest-mention.
  */
-export class StubExtractor implements Pick<ExtractorService, 'extract'> {
+export class StubExtractor
+  implements Pick<ExtractorService, 'extract' | 'modelId'>
+{
   private script: ExtractionResult | null = null;
 
   setScript(result: ExtractionResult | null) {
     this.script = result;
+  }
+
+  modelId(): string {
+    return 'stub-extractor';
   }
 
   async extract(
