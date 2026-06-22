@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/server-auth'
 import { brainFetch } from '@/lib/brain-api'
+import { LeasesResponseSchema } from '@/lib/contracts/admin-leases'
+import type { ZodType } from 'zod'
+
+/**
+ * Boundary parse for endpoints we have wire contracts for. Match by
+ * exact subpath. If the upstream payload no longer satisfies the
+ * schema, we 502 with the issue list — that's the whole point of G2:
+ * silent drift becomes a loud failure visible to the operator instead
+ * of a stale field on a panel nobody notices.
+ *
+ * The map is intentionally tiny — adding a new endpoint requires
+ * shipping a schema first.
+ */
+const RESPONSE_SCHEMAS: Record<string, ZodType> = {
+  'v1/admin/leases': LeasesResponseSchema,
+}
 
 /**
  * /api/admin/proxy/[...path] — admin-gated BFF for brain backend.
@@ -100,6 +116,22 @@ async function forward(
     query,
     headers: debug ? { 'X-Brain-Debug': '1' } : undefined,
   })
+
+  const schema =
+    request.method === 'GET' && res.ok ? RESPONSE_SCHEMAS[subpath] : undefined
+  if (schema) {
+    const parsed = schema.safeParse(res.data)
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: `wire-contract violation for /${subpath}`,
+          issues: parsed.error.issues,
+        },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json(parsed.data, { status: 200 })
+  }
 
   return NextResponse.json(res.data ?? { error: res.error }, {
     status: res.status || (res.ok ? 200 : 502),

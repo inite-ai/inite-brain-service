@@ -38,6 +38,7 @@ import {
   ScenarioRunnerService,
   ScenarioRunOutcome,
 } from './scenario-runner.service';
+import type { LeasesResponse } from '../contracts/admin/leases.schema';
 
 /**
  * Scheduler / jobs / maintenance surface.
@@ -534,7 +535,7 @@ export class AdminJobsController {
    */
   @Get('leases')
   @RequireScopes('brain:admin')
-  async leases() {
+  async leases(): Promise<LeasesResponse> {
     const [leaderLeases, activeClaims] = await Promise.all([
       this.leaderLease.list(),
       this.claim.listActiveClaims(this.apiKeys.knownCompanyIds()),
@@ -574,7 +575,7 @@ export class AdminJobsController {
           lastHeartbeatSecondsAgo: Math.round(lastHeartbeatMs / 1000),
         };
       }),
-    };
+    } satisfies LeasesResponse;
   }
 
   @Get('changefeed/state')

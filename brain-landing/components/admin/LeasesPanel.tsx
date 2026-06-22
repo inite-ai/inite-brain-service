@@ -4,50 +4,11 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Lock, RefreshCw, AlertTriangle, Cpu } from 'lucide-react'
 import { getMessages, normalizeLang } from '../../lib/i18n'
-
-interface LeaderLease {
-  name: string
-  leaderId: string
-  leaseUntil: string
-  heartbeatAt: string
-  acquiredAt: string
-  expired: boolean
-  expiresInSeconds: number
-}
-
-interface ActiveClaim {
-  runId: string
-  jobType: string
-  companyId: string
-  claimedBy: string
-  claimedAt: string
-  leaseUntil: string
-  heartbeatAt: string
-  attempts: number
-  leaseExpired: boolean
-  leaseExpiresInSeconds: number
-  lastHeartbeatSecondsAgo: number
-}
-
-interface LeasesResponse {
-  generatedAt: string
-  podIdentity: string
-  queueMode: 'enqueue' | 'inline'
-  workerLoop: {
-    leader: boolean
-    registeredTypes: string[]
-  }
-  workerPool: {
-    enabled: boolean
-    size: number
-    idle: number
-    busy: number
-    waiters: number
-  }
-  leaderLeases: LeaderLease[]
-  activeClaims: ActiveClaim[]
-  error?: string
-}
+import type {
+  LeasesResponse,
+  LeaderLeaseRow,
+  ActiveClaimRow,
+} from '../../lib/contracts/admin-leases'
 
 export function LeasesPanel() {
   const params = useParams<{ lang: string }>()
@@ -64,9 +25,12 @@ export function LeasesPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/leases', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as LeasesResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as LeasesResponse | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as LeasesResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -302,7 +266,7 @@ function Section({
   )
 }
 
-function LeaderLeaseRow({ row }: { row: LeaderLease }) {
+function LeaderLeaseRow({ row }: { row: LeaderLeaseRow }) {
   const expiresClass = row.expired
     ? 'text-[var(--danger)]'
     : row.expiresInSeconds < 10
@@ -331,7 +295,7 @@ function ActiveClaimRow({
   row,
   heartbeatAgoTemplate,
 }: {
-  row: ActiveClaim
+  row: ActiveClaimRow
   heartbeatAgoTemplate: string
 }) {
   const heartbeatClass =
