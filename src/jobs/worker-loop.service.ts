@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService, type JobClaim } from './job-claim.service';
 import { LeaderLeaseService } from './leader-lease.service';
+import { JobWorkerPool } from './job-worker-pool.service';
 import type { JobType } from './job-run.service';
 
 export interface JobContext {
@@ -41,6 +42,13 @@ interface RegisteredHandler {
   ttlSeconds: number;
   /** Max attempts before terminal-fail. */
   maxAttempts: number;
+  /**
+   * Route to JobWorkerPool instead of running in-thread. Required
+   * companion: workerModule pointing at a CommonJS module that
+   * exports `run(input): Promise<output>`.
+   */
+  cpuBound?: boolean;
+  workerModule?: string;
 }
 
 /**
@@ -94,6 +102,7 @@ export class WorkerLoopService
     @Optional() private readonly lease?: LeaderLeaseService,
     @Optional() private readonly apiKeys?: ApiKeyService,
     @Optional() @Inject('WORKER_LOOP_NOW') private readonly now?: () => number,
+    @Optional() private readonly workerPool?: JobWorkerPool,
   ) {
     this.enabled =
       (config.get<string>('WORKER_LOOP_ENABLED', '1') ?? '1') !== '0';
@@ -122,18 +131,44 @@ export class WorkerLoopService
   register(
     jobType: JobType,
     handler: JobHandler,
-    opts?: { ttlSeconds?: number; maxAttempts?: number },
+    opts?: {
+      ttlSeconds?: number;
+      maxAttempts?: number;
+      /**
+       * Set true to dispatch via JobWorkerPool. Required companion:
+       * workerModule — absolute path to a CommonJS file that
+       * `export run(input): Promise<output>`. The pool's worker
+       * thread dynamic-imports it once per pool slot and caches.
+       *
+       * The handler argument still runs as a fallback when the pool
+       * is disabled (JOB_WORKER_POOL_SIZE=0) or all workers crashed
+       * — keep it functionally equivalent so dev / test mode without
+       * the pool isn't a different code path.
+       */
+      cpuBound?: boolean;
+      workerModule?: string;
+    },
   ): void {
     if (this.handlers.has(jobType)) {
       this.logger.warn(`Re-registering handler for ${jobType}`);
+    }
+    if (opts?.cpuBound && !opts.workerModule) {
+      throw new Error(
+        `register(${jobType}): cpuBound=true requires workerModule`,
+      );
     }
     this.handlers.set(jobType, {
       jobType,
       handler,
       ttlSeconds: opts?.ttlSeconds ?? 300,
       maxAttempts: opts?.maxAttempts ?? 3,
+      cpuBound: opts?.cpuBound ?? false,
+      workerModule: opts?.workerModule,
     });
-    this.logger.log(`Registered handler for jobType=${jobType}`);
+    this.logger.log(
+      `Registered handler for jobType=${jobType}` +
+        (opts?.cpuBound ? ' (cpuBound → worker pool)' : ''),
+    );
   }
 
   registeredTypes(): JobType[] {
@@ -304,7 +339,7 @@ export class WorkerLoopService
       })();
     }, renewIntervalMs);
     try {
-      const result = await reg.handler({
+      const ctx = {
         runId: claim.runId,
         jobType: claim.jobType,
         companyId: claim.companyId,
@@ -312,7 +347,23 @@ export class WorkerLoopService
         attempts: claim.attempts,
         abortSignal: handlerAbort.signal,
         workerId: this.claim!.identity(),
-      });
+      };
+      // CPU-bound path: hand off to JobWorkerPool. The worker thread
+      // receives only the serialisable subset of ctx — abortSignal /
+      // workerId stay in-process and surface to the handler as a
+      // cooperative cancel marker via an extra check after the
+      // postMessage completes.
+      const result =
+        reg.cpuBound && reg.workerModule && this.workerPool?.enabled()
+          ? await this.workerPool.run(reg.workerModule, {
+              runId: ctx.runId,
+              jobType: ctx.jobType,
+              companyId: ctx.companyId,
+              payload: ctx.payload,
+              attempts: ctx.attempts,
+              workerId: ctx.workerId,
+            })
+          : await reg.handler(ctx);
       clearInterval(renewTimer);
       if (cancelRequested) {
         await this.claim!.cancelled({
