@@ -281,6 +281,32 @@ jobs:
                 # container; an in-image var/ would evaporate on every
                 # deploy and the diff feature would silently lose history).
                 - BRAIN_BASELINES_DIR=/var/brain/baselines
+                # ── Phase J/K job queue (Surreal-native) ─────────────────
+                # Cron handlers (dreams, compaction, calibration_refit,
+                # source_trust_refit) write to job_run as 'pending';
+                # WorkerLoopService — gated by the 'worker_loop'
+                # leader_lease — claims and dispatches.
+                #
+                # Kill switch: set JOBS_QUEUE_MODE=inline + restart to
+                # roll back to the legacy guard.run() inline path
+                # without a redeploy. Use when an unexpected backlog
+                # accumulates in pending and the worker loop won't
+                # drain (handler not registered, lease acquire fails).
+                - JOBS_QUEUE_MODE=enqueue
+                - WORKER_LOOP_ENABLED=1
+                - WORKER_LOOP_POLL_MS=1000
+                - WORKER_LOOP_EMPTY_BACKOFF_MS=5000
+                - WORKER_LOOP_LEASE_RENEW_MS=30000
+                - LEASE_MANAGER_ENABLED=1
+                - JOB_RUN_MAX_ATTEMPTS=3
+                - JOB_RUN_BACKOFF_BASE_MS=30000
+                # CPU-bound dispatcher pool. Disabled (size=0) because
+                # no current handler is registered as cpuBound — the
+                # scaffolding is there for future heavy jobs (multi-pass
+                # extractor offload, batch normalisation). Flip to 2+
+                # when a handler opts in via register({ cpuBound: true,
+                # workerModule: __dirname + '/X.worker-job.js' }).
+                - JOB_WORKER_POOL_SIZE=0
               volumes:
                 - /opt/projects/${{ env.PROJECT_NAME }}/baselines:/var/brain/baselines
               labels:

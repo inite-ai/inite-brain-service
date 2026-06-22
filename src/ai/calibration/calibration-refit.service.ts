@@ -63,7 +63,7 @@ export class CalibrationRefitService implements OnModuleInit {
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
     private readonly calibration: CalibrationService,
-    config: ConfigService,
+    private readonly config: ConfigService,
     @Optional() private readonly jobs?: JobRunService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
@@ -119,7 +119,9 @@ export class CalibrationRefitService implements OnModuleInit {
   @Cron('42 3 * * *', { timeZone: 'UTC' })
   async refitSourceTrustDaily(): Promise<number | { enqueued: boolean }> {
     if (!this.enabled) return 0;
-    if (this.claim) return this.enqueueRefit('source_trust_refit');
+    if (this.claim && this.queueModeEnabled()) {
+      return this.enqueueRefit('source_trust_refit');
+    }
     return this.refitSourceTrust();
   }
 
@@ -127,8 +129,17 @@ export class CalibrationRefitService implements OnModuleInit {
   @Cron('51 3 * * *', { timeZone: 'UTC' })
   async refitCalibrationDaily(): Promise<number | { enqueued: boolean }> {
     if (!this.enabled) return 0;
-    if (this.claim) return this.enqueueRefit('calibration_refit');
+    if (this.claim && this.queueModeEnabled()) {
+      return this.enqueueRefit('calibration_refit');
+    }
     return this.refitCalibration();
+  }
+
+  private queueModeEnabled(): boolean {
+    return (
+      (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') ===
+      'enqueue'
+    );
   }
 
   private async enqueueRefit(

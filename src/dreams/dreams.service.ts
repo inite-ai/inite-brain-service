@@ -123,19 +123,22 @@ export class DreamsService implements OnModuleInit {
   /**
    * Cron entry — daily at 04:00 UTC, 43 min after compaction (03:17).
    *
-   * Queue mode (JobClaimService wired): enqueue one row per known
-   * tenant with a date-keyed dedupKey so a second cron firing during
-   * a leader transition collapses cleanly. WorkerLoopService picks
-   * up rows on the leader pod.
+   * Queue mode (JOBS_QUEUE_MODE=enqueue, default): JobClaimService
+   * enqueues one row per known tenant with a date-keyed dedupKey so
+   * a second cron firing during a leader transition collapses
+   * cleanly. WorkerLoopService picks up rows on the leader pod.
    *
-   * Legacy mode (JobClaimService not wired — tests, single-pod dev):
-   * fall back to the original guarded runAll() so callers don't lose
-   * functionality.
+   * Inline mode (JOBS_QUEUE_MODE=inline, operator kill-switch): the
+   * cron falls back to the original guarded runAll(). Use this to
+   * roll back queue mode at runtime without redeploying — set the
+   * env var, restart the container, the next cron firing executes
+   * inline. Also the implicit fallback when JobClaimService isn't
+   * wired (tests, single-pod dev without JobsModule).
    */
   @Cron('0 4 * * *', { timeZone: 'UTC' })
   async runDaily(): Promise<DreamsTenantStats[] | { enqueued: number }> {
     if (!this.enabled) return [];
-    if (this.claim) {
+    if (this.claim && this.queueModeEnabled()) {
       return this.enqueueDailyForAllTenants();
     }
     const result = await this.guard.run('dreams_all', () => this.runAll());
@@ -146,6 +149,13 @@ export class DreamsService implements OnModuleInit {
       return [];
     }
     return result;
+  }
+
+  private queueModeEnabled(): boolean {
+    return (
+      (this.configService.get<string>('JOBS_QUEUE_MODE', 'enqueue') ??
+        'enqueue') === 'enqueue'
+    );
   }
 
   /**

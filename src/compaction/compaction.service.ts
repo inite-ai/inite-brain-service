@@ -61,7 +61,7 @@ export class CompactionService implements OnModuleInit {
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
-    config: ConfigService,
+    private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
     @Optional() private readonly claim?: JobClaimService,
@@ -119,7 +119,7 @@ export class CompactionService implements OnModuleInit {
    */
   @Cron('17 3 * * *', { timeZone: 'UTC' })
   async runDaily(): Promise<CompactionStats[] | { enqueued: number }> {
-    if (this.claim) {
+    if (this.claim && this.queueModeEnabled()) {
       return this.enqueueDailyForAllTenants();
     }
     if (this.compactionInFlight) {
@@ -132,6 +132,13 @@ export class CompactionService implements OnModuleInit {
     } finally {
       this.compactionInFlight = false;
     }
+  }
+
+  private queueModeEnabled(): boolean {
+    return (
+      (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') ===
+      'enqueue'
+    );
   }
 
   private async enqueueDailyForAllTenants(): Promise<{ enqueued: number }> {
