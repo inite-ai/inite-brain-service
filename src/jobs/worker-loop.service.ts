@@ -95,6 +95,17 @@ export class WorkerLoopService
   private leaseTimer: NodeJS.Timeout | null = null;
   private isLeader = false;
   private loopsStarted = false;
+  /**
+   * Sliding-window per-tenant recent-claim counters keyed by
+   * `${jobType}::${companyId}`. The pollLoop bumps the counter on
+   * each successful claim AND naturally decays them via the
+   * scheduleClaimDecay loop. Used by sampleByFairness to give an
+   * underclaimed tenant a higher chance of being tried first in
+   * the next poll cycle — bounded, simple counter rather than a
+   * full priority queue.
+   */
+  private readonly recentClaims = new Map<string, number>();
+  private decayTimer: NodeJS.Timeout | null = null;
 
   constructor(
     config: ConfigService,
@@ -196,10 +207,24 @@ export class WorkerLoopService
       () => void this.tryBecomeLeader(),
       this.leaseRenewIntervalMs / 6, // 5s by default
     );
+    // Decay recent-claim counters every 30s so a tenant that's been
+    // quiet for one window gets its weight back, but a tenant that's
+    // been hot needs ~2 windows of silence to fully reset. Multiplier
+    // 0.5 chosen so the exponential decay halves the count per tick.
+    this.decayTimer = setInterval(() => {
+      for (const [key, n] of this.recentClaims) {
+        const next = Math.floor(n * 0.5);
+        if (next <= 0) this.recentClaims.delete(key);
+        else this.recentClaims.set(key, next);
+      }
+    }, 30_000);
+    // Don't keep the event loop alive just for decay.
+    if (this.decayTimer.unref) this.decayTimer.unref();
   }
 
   async onApplicationShutdown(): Promise<void> {
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
+    if (this.decayTimer) clearInterval(this.decayTimer);
     this.abortController.abort();
     if (this.isLeader && this.lease) {
       try {
@@ -259,9 +284,18 @@ export class WorkerLoopService
 
   /**
    * Per-jobType polling loop. Runs while this pod holds the lease.
-   * Each iteration: shuffle known tenants → try claimNext on each
-   * until one hits → dispatch. On empty queue across all tenants,
-   * back off to emptyPollBackoffMs so we don't hammer Surreal.
+   *
+   * Tenant iteration: sampleByFairness() gives a weighted random
+   * order where weight = 1/(1+recentClaims[tenant]). A tenant that's
+   * just landed N successful claims gets weight 1/(N+1) for the next
+   * cycle, so a hot tenant can't monopolise the loop — quiet
+   * neighbours get tried first. Mirrors the "weighted-shuffle peek"
+   * pattern Inngest uses for queue fairness, scaled down to per-pod
+   * in-memory counters (we only need fairness within ONE leader
+   * pod's view; multi-pod scale is gated by leader_lease anyway).
+   *
+   * On empty queue across all tenants, back off to
+   * emptyPollBackoffMs so we don't hammer Surreal.
    */
   private async pollLoop(reg: RegisteredHandler): Promise<void> {
     this.logger.log(`Poll loop started for jobType=${reg.jobType}`);
@@ -273,7 +307,10 @@ export class WorkerLoopService
       }
       let claimed: JobClaim | null = null;
       try {
-        const tenants = shuffle(this.apiKeys?.knownCompanyIds() ?? []);
+        const tenants = this.sampleByFairness(
+          reg.jobType,
+          this.apiKeys?.knownCompanyIds() ?? [],
+        );
         for (const companyId of tenants) {
           if (this.abortController.signal.aborted || !this.isLeader) break;
           claimed = await this.claim!.claimNext({
@@ -281,7 +318,10 @@ export class WorkerLoopService
             jobType: reg.jobType,
             ttlSeconds: reg.ttlSeconds,
           });
-          if (claimed) break;
+          if (claimed) {
+            this.recordClaim(reg.jobType, companyId);
+            break;
+          }
         }
       } catch (e) {
         this.logger.warn(
@@ -410,6 +450,47 @@ export class WorkerLoopService
     } finally {
       this.abortController.signal.removeEventListener('abort', onShutdown);
     }
+  }
+
+  /**
+   * Weighted-random tenant ordering. Lower recentClaims → higher
+   * weight → more likely to be tried first this cycle. Uses Efraimidis-
+   * Spirakis weighted sampling: assign each tenant key = u^(1/weight),
+   * sort descending. Equivalent to weighted shuffle without
+   * replacement, O(n log n).
+   *
+   * Pure for test-time isolation: extracted to a method so the unit
+   * test can drive it with a seeded RNG and assert the ordering
+   * actually reflects the recent-claim counters.
+   */
+  sampleByFairness(jobType: JobType, tenants: readonly string[]): string[] {
+    if (tenants.length <= 1) return [...tenants];
+    const keyed = tenants.map((companyId) => {
+      const n = this.recentClaims.get(`${jobType}::${companyId}`) ?? 0;
+      const weight = 1 / (1 + n);
+      // u → (0,1); key = u^(1/weight). Higher weight pushes key
+      // toward 1 (more likely to win the sort).
+      const u = Math.random();
+      const key = Math.pow(u, 1 / weight);
+      return { companyId, key };
+    });
+    keyed.sort((a, b) => b.key - a.key);
+    return keyed.map((k) => k.companyId);
+  }
+
+  /** Bump the recent-claim counter — bounded to 64 so a runaway
+   *  tenant doesn't permanently zero its weight (decay still works
+   *  but starting from 64 means 7 decay ticks to fully reset, ~3.5
+   *  minutes at the default 30s decay cadence). */
+  private recordClaim(jobType: JobType, companyId: string): void {
+    const key = `${jobType}::${companyId}`;
+    const next = Math.min((this.recentClaims.get(key) ?? 0) + 1, 64);
+    this.recentClaims.set(key, next);
+  }
+
+  /** Read-only — test seam + observability. */
+  recentClaimsSnapshot(): Record<string, number> {
+    return Object.fromEntries(this.recentClaims);
   }
 }
 

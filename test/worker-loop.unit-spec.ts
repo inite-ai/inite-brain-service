@@ -266,3 +266,63 @@ describe('WorkerLoopService.leader', () => {
     expect(svc.leader()).toBe(false);
   });
 });
+
+describe('WorkerLoopService.sampleByFairness', () => {
+  it('returns single-element list unchanged', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    expect(svc.sampleByFairness('dreams', ['co_only'])).toEqual(['co_only']);
+  });
+
+  it('returns empty list unchanged', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    expect(svc.sampleByFairness('dreams', [])).toEqual([]);
+  });
+
+  it('all tenants get sampled exactly once (permutation)', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    const tenants = ['a', 'b', 'c', 'd'];
+    const out = svc.sampleByFairness('dreams', tenants);
+    expect([...out].sort()).toEqual([...tenants].sort());
+  });
+
+  it('heavily-claimed tenants are sampled later on average', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    const tenants = ['busy', 'quiet'];
+    // Simulate busy tenant landing many recent claims.
+    // We can't poke recentClaims directly without exposing internals,
+    // but the test still inspects the statistical property via
+    // recordClaim through the dispatch path. Use the public
+    // recentClaimsSnapshot as a fixture point.
+    for (let i = 0; i < 32; i++) {
+      (svc as any).recordClaim('dreams', 'busy');
+    }
+    let busyFirst = 0;
+    const trials = 200;
+    for (let i = 0; i < trials; i++) {
+      const out = svc.sampleByFairness('dreams', tenants);
+      if (out[0] === 'busy') busyFirst++;
+    }
+    // With weight(quiet)=1 vs weight(busy)=1/33, quiet should win
+    // first place ≫ 50% of the time. Allow a generous floor (60%)
+    // to keep the test stable across RNG flake.
+    expect(busyFirst).toBeLessThan(trials * 0.4);
+  });
+
+  it('recentClaimsSnapshot reflects recordClaim writes', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    (svc as any).recordClaim('dreams', 'co_a');
+    (svc as any).recordClaim('dreams', 'co_a');
+    (svc as any).recordClaim('compaction', 'co_b');
+    const snap = svc.recentClaimsSnapshot();
+    expect(snap['dreams::co_a']).toBe(2);
+    expect(snap['compaction::co_b']).toBe(1);
+  });
+
+  it('recordClaim is bounded at 64', () => {
+    const svc = new WorkerLoopService(makeConfig());
+    for (let i = 0; i < 100; i++) {
+      (svc as any).recordClaim('dreams', 'co_a');
+    }
+    expect(svc.recentClaimsSnapshot()['dreams::co_a']).toBe(64);
+  });
+});
