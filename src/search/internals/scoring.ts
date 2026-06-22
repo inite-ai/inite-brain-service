@@ -115,11 +115,20 @@ export function bucketByEntity(scored: ScoredRow[]): Map<string, EntityBucket> {
     const sortedFacts = [...bucket.facts].sort((a, b) => b.score - a.score);
     const seenKeys = new Set<string>();
     const supplementary: number[] = [];
+    // Skip exactly ONE best-scoring fact — it's already represented by
+    // bestScore. A boolean flag (not `supplementary.length === 0`) is
+    // required: with ≥2 facts tied at bestScore, the length check stays 0
+    // until a non-best fact is pushed, so every tied-best fact was wrongly
+    // skipped and never contributed to the degree boost.
+    let skippedBest = false;
     for (const f of sortedFacts) {
       const key = diversityKey(f.row.predicate, f.row.object);
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      if (f.score === bucket.bestScore && supplementary.length === 0) continue;
+      if (f.score === bucket.bestScore && !skippedBest) {
+        skippedBest = true;
+        continue;
+      }
       supplementary.push(f.score);
       if (supplementary.length >= DEGREE_BOOST_TOP_N) break;
     }

@@ -79,8 +79,14 @@ export function runPprIterations(
     for (const [src, mass] of r) {
       const ow = outWeight.get(src) ?? 0;
       if (ow === 0) {
-        // Dangling — keep mass on its own seed slot to avoid mass loss.
-        next.set(src, (next.get(src) ?? 0) + ALPHA * mass);
+        // Dangling node (no out-edges) — redistribute its mass across the
+        // seed (personalization) vector, the textbook PPR teleport. The old
+        // code parked it on the node's own slot, which let dead-end seeds
+        // hoard α·mass every iteration and over-rank themselves. `seed` is
+        // already normalised, so the total mass is preserved (no loss).
+        for (const [sid, sv] of seed) {
+          next.set(sid, (next.get(sid) ?? 0) + ALPHA * mass * sv);
+        }
         continue;
       }
       for (const nbr of adj.get(src) ?? []) {

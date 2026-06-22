@@ -269,6 +269,11 @@ export class SearchService {
     //    surface (BGE-M3-style backoff path).
     const fused = await this.runRetrievalStage(db, ctx, baseWhere);
     if (langFilter && fused.length < ctx.candidateK / 2) {
+      // Capture the first-pass size BEFORE the merge loop mutates `fused`.
+      // The old trace computed `fused.length - fallback.length` post-merge,
+      // which is wrong: only the non-duplicate fallback rows get pushed, so
+      // the subtraction undercounts the true first pass.
+      const firstPassCount = fused.length;
       const fallbackWhere = buildBaseWhere(
         ctx.dto,
         ctx.asOf,
@@ -284,8 +289,9 @@ export class SearchService {
         }
       }
       traceArtifact('search.langfilter_backoff', {
-        firstPass: fused.length - fallback.length,
+        firstPass: firstPassCount,
         fallback: fallback.length,
+        merged: fused.length - firstPassCount,
         langFilter,
       });
     }
@@ -341,6 +347,7 @@ export class SearchService {
       topEntities,
       backfillByEntity,
       ctx.dto.entityTypes,
+      ctx.dto.requireProvenance === true,
     );
     return { results: applyOutputShaping(hits, ctx.dto) };
   }
@@ -510,8 +517,13 @@ export class SearchService {
     const rerankSkipMargin = parseFloat(
       process.env.SEARCH_RERANK_SKIP_MARGIN ?? '0',
     );
+    // shouldSkipRerankByMargin compares fused rankScore of top-1 vs top-2.
+    // After runCrossEncoder, candidatesForRerank is ordered by cross-encoder
+    // relevance, NOT by rankScore — so candidatesForRerank[0/1] are no longer
+    // the highest-rankScore pair. Compute the margin on a rankScore-sorted
+    // copy so the heuristic reads the pair it actually claims to.
     const skipByMargin = shouldSkipRerankByMargin(
-      candidatesForRerank,
+      [...candidatesForRerank].sort((a, b) => b.rankScore - a.rankScore),
       rerankSkipMargin,
     );
 
@@ -553,6 +565,11 @@ export class SearchService {
       return { label: `${ent.canonicalName} [${ent.type}]`, body: topFacts };
     });
     const identityPerm = xInputs.map((_, i) => i);
+    // Distinguish a budget-timeout fallback (which returns identityPerm)
+    // from the cross-encoder genuinely producing an unchanged order. The
+    // old code inferred 'error' from an identity permutation, which
+    // mislabelled every legitimate no-op rerank as a failure.
+    let timedOut = false;
     const xPerm = await withSpan(
       'search.cross_encoder',
       () =>
@@ -562,11 +579,13 @@ export class SearchService {
           () => this.crossEncoder.rerank(query, xInputs),
           identityPerm,
           this.logger,
+          () => {
+            timedOut = true;
+          },
         ),
       { 'cross_encoder.candidates': xInputs.length },
     );
-    const isIdentity = xPerm.every((idx, i) => idx === i);
-    this.metrics?.countCrossEncoder(isIdentity ? 'error' : 'invoked');
+    this.metrics?.countCrossEncoder(timedOut ? 'error' : 'invoked');
     return xPerm.map((i) => wideCandidates[i]).slice(0, rerankWindow);
   }
 

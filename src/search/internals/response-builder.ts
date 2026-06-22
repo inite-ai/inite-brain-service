@@ -23,7 +23,14 @@ export function assembleHits(
   topEntities: EntityBucket[],
   backfillByEntity: Map<string, FactRow[]>,
   entityTypes: string[] | undefined,
+  requireProvenance = false,
 ): SearchHit[] {
+  // requireProvenance — DTO compliance primitive: keep only facts whose
+  // ingest path preserved a non-empty `source` trail (vertical/eventId/
+  // messageId). `source` is on FactRow here but not projected onto the
+  // wire-format SearchHit fact, so the filter has to run at assembly time.
+  const hasProvenance = (src: unknown): boolean =>
+    !!src && typeof src === 'object' && Object.keys(src as object).length > 0;
   return topEntities
     .filter((e) => {
       if (!entityTypes) return true;
@@ -50,6 +57,7 @@ export function assembleHits(
       }
       const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
       const matchedRender = e.facts
+        .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
         .sort((a, b) => b.score - a.score)
         .map(({ row, score, breakdown }) => ({
           factId: String(row.id),
@@ -65,6 +73,7 @@ export function assembleHits(
       const matchedPredicates = new Set(matchedRender.map((f) => f.predicate));
       const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
         .filter((r) => !matchedFactIds.has(String(r.id)))
+        .filter((r) => !requireProvenance || hasProvenance(r.source))
         .sort(
           (a, b) =>
             new Date(b.recordedAt).getTime() -
@@ -102,7 +111,8 @@ export function assembleHits(
         facts: [...matchedRender, ...backfillRender].slice(0, 5),
         score: e.bestScore,
       };
-    });
+    })
+    .filter((hit) => !requireProvenance || hit.facts.length > 0);
 }
 
 /**

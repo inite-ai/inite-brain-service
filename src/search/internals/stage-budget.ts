@@ -60,6 +60,7 @@ export async function withStageBudget<T>(
   fn: () => Promise<T>,
   fallback: T,
   logger?: { warn: (msg: string) => void },
+  onFallback?: () => void,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<{ __timedOut: true }>((resolve) => {
@@ -71,6 +72,7 @@ export async function withStageBudget<T>(
       logger?.warn(
         `Search stage '${stage}' exceeded ${budgetMs}ms budget — falling back`,
       );
+      onFallback?.();
       return fallback;
     }
     return winner.ok;
