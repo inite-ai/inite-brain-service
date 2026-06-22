@@ -42,7 +42,7 @@
   },
   "retrieval": {
     "eyebrow": "Retrieval engine",
-    "title": "A pipeline, not a cosine match.",
+    "title": "Seven stages between a query and an answer.",
     "subtitle": "Brain doesn't just rank embeddings by similarity. Every query runs a graph-aware pipeline — each stage a feature flag with its own per-tenant metrics.",
     "queryIn": "query + tenant scope",
     "answerOut": "ranked facts + per-leg score breakdown",
