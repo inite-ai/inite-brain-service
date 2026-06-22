@@ -165,6 +165,22 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     }
   }
 
+  /**
+   * Terminate the inference worker thread. A `worker_threads.Worker`
+   * keeps the event loop alive until terminated, so the owning
+   * EmbedderService must call this on shutdown (otherwise the process —
+   * and the e2e jest run — hangs). Idempotent.
+   */
+  async terminate(): Promise<void> {
+    const w = this.worker;
+    this.worker = null;
+    this.workerReady = false;
+    if (w) {
+      this.failAllPending(new Error('worker terminated on shutdown'));
+      await w.terminate().catch(() => undefined);
+    }
+  }
+
   private resolveWorkerPath(): string {
     // After ts-jest / nest build the worker compiles to .js next to .ts.
     // In dev (ts-node) we point at the .ts via ts-node loader. The two

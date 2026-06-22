@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LRUCache } from '../common/lru-cache';
@@ -24,7 +30,7 @@ import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
  * and BGE-M3 entries cannot collide.
  */
 @Injectable()
-export class EmbedderService implements OnModuleInit {
+export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbedderService.name);
   private readonly cache: LRUCache<string, number[]>;
   private readonly primary: EmbedderProvider;
@@ -76,6 +82,17 @@ export class EmbedderService implements OnModuleInit {
             `bge-m3 warmup failed, falling back to openai: ${(e as Error).message}`,
           ),
         );
+    }
+  }
+
+  /**
+   * Terminate the BGE-M3 worker thread on shutdown. A worker_threads
+   * Worker keeps the event loop alive until terminated; without this the
+   * process (and the e2e jest run) hangs on close.
+   */
+  async onModuleDestroy(): Promise<void> {
+    if (this.primary instanceof BgeM3EmbedderProvider) {
+      await this.primary.terminate();
     }
   }
 

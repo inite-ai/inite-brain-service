@@ -5,7 +5,7 @@
 // `express`, or other auto-instrumented modules. The instrumentations
 // patch via require-hooks; late init silently misses every prior
 // require. No-op when OTEL_ENABLED!=1.
-import { initTracing } from './common/tracing';
+import { initTracing, shutdownTracing } from './common/tracing';
 initTracing();
 
 import { NestFactory } from '@nestjs/core';
@@ -25,9 +25,15 @@ async function bootstrap() {
 
   // Process-level crash safety. This is a long-lived worker pod with many
   // un-awaited background promises (worker poll loop, cron ticks, lease
-  // renew intervals). A stray rejection would otherwise crash the process
-  // on modern Node with only the default trace. Log structured; keep
-  // serving — a single background hiccup must not take the pod down.
+  // renew intervals).
+  //   - unhandledRejection: log and keep serving. A stray rejected promise
+  //     in a background loop is usually benign and must not take the pod
+  //     down (modern Node would otherwise crash on it).
+  //   - uncaughtException: use the MONITOR variant — log the structured
+  //     trace but DON'T swallow it, so Node still applies its default
+  //     crash. After an uncaught throw the process state is undefined
+  //     (a half-mutated invariant); a clean restart (restart:unless-stopped)
+  //     is safer than continuing on corrupt state.
   const procLog = new Logger('Process');
   process.on('unhandledRejection', (reason) => {
     const e = reason as Error;
@@ -36,7 +42,7 @@ async function bootstrap() {
       e?.stack,
     );
   });
-  process.on('uncaughtException', (err) => {
+  process.on('uncaughtExceptionMonitor', (err) => {
     procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
   });
 
@@ -93,6 +99,7 @@ async function bootstrap() {
     await app.close().catch((err) => {
       logger.error(`Error during shutdown: ${(err as Error).message}`);
     });
+    await shutdownTracing(); // flush OTel spans before exit
     clearTimeout(t);
     process.exit(0);
   };

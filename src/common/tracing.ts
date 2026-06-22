@@ -68,11 +68,19 @@ export function initTracing(): void {
   sdk.start();
 
   process.on('SIGTERM', () => {
-    sdk
-      ?.shutdown()
-      .catch(() => {})
-      .finally(() => undefined);
+    void shutdownTracing();
   });
+}
+
+/**
+ * Flush + shut down the OTel SDK. Called from the app's graceful
+ * shutdown (main.ts onTerm) so spans are exported before exit, and from
+ * the SIGTERM listener above. Idempotent no-op when tracing is disabled.
+ */
+export async function shutdownTracing(): Promise<void> {
+  const s = sdk;
+  sdk = null;
+  if (s) await s.shutdown().catch(() => undefined);
 }
 
 /**

@@ -14,9 +14,11 @@ import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 function mockHost(): {
   host: ArgumentsHost;
   sent: { status?: number; body?: any };
+  res: { headersSent: boolean };
 } {
   const sent: { status?: number; body?: any } = {};
   const res = {
+    headersSent: false,
     status(code: number) {
       sent.status = code;
       return this;
@@ -34,7 +36,7 @@ function mockHost(): {
       getRequest: () => req,
     }),
   } as unknown as ArgumentsHost;
-  return { host, sent };
+  return { host, sent, res };
 }
 
 describe('AllExceptionsFilter', () => {
@@ -56,6 +58,15 @@ describe('AllExceptionsFilter', () => {
     expect(sent.body.requestId).toBe('req-from-header');
     // The raw internal message must NOT reach the wire.
     expect(JSON.stringify(sent.body)).not.toContain('hunter2');
+  });
+
+  it('does NOT write when headers are already sent (streaming @Res routes)', () => {
+    const { host, sent, res } = mockHost();
+    res.headersSent = true;
+    filter.catch(new Error('mid-stream MCP failure'), host);
+    // No second write — would otherwise throw ERR_HTTP_HEADERS_SENT.
+    expect(sent.status).toBeUndefined();
+    expect(sent.body).toBeUndefined();
   });
 
   it('logs 5xx HttpExceptions but still returns their status', () => {

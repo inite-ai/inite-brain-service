@@ -41,6 +41,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       (res.getHeader('x-request-id') as string | undefined) ??
       'unknown';
 
+    // Streaming routes (MCP uses @Res() + transport.handleRequest, SSE)
+    // may have already committed the response when a late error reaches
+    // us. Writing again throws ERR_HTTP_HEADERS_SENT → uncaughtException.
+    // Log and bail.
+    if (res.headersSent) {
+      this.logger.error(
+        `[${requestId}] ${req.method} ${req.url} → error after headers sent: ${
+          (exception as Error)?.message ?? exception
+        }`,
+        (exception as Error)?.stack,
+      );
+      return;
+    }
+
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();

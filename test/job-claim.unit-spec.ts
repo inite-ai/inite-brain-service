@@ -5,6 +5,7 @@
  * service reacted to driver-level errors (unique violation collapse,
  * read conflict retry).
  */
+import { Logger } from '@nestjs/common';
 import { JobClaimService } from '../src/jobs/job-claim.service';
 
 interface QueryCall {
@@ -234,6 +235,21 @@ describe('JobClaimService', () => {
     expect(sqls[0]).toContain("claimedBy = $me AND status = 'running'");
     expect(sqls[1]).toContain("status = 'cancelled'");
     expect(sqls[1]).toContain("claimedBy = $me AND status = 'running'");
+  });
+
+  it('complete()/cancelled() no-op + warn when the guarded UPDATE matches no row', async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined as any);
+    const db = { query: async () => [[]] }; // 0 rows ⇒ claim lost
+    const svc = new JobClaimService(mkSurreal(db));
+    await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc' });
+    await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no-op'));
+    expect(
+      warn.mock.calls.filter((c) => String(c[0]).includes('no-op')).length,
+    ).toBe(2);
+    warn.mockRestore();
   });
 
   it('reapZombies routes below-maxAttempts rows to requeue and at-max to fail', async () => {
