@@ -11,10 +11,32 @@ import { McpInstall } from '../../components/McpInstall'
 import { SkillsInstall } from '../../components/SkillsInstall'
 import { OpenSource } from '../../components/OpenSource'
 import { Footer } from '../../components/Footer'
-import { normalizeLang } from '../../lib/i18n'
+import { JsonLd } from '../../components/StructuredData'
+import { normalizeLang, getMessages, LANGS } from '../../lib/i18n'
+import {
+  SITE_URL,
+  organizationSchema,
+  websiteSchema,
+  softwareApplicationSchema,
+} from '../../lib/seo'
+import type { Metadata } from 'next'
 
 interface Props {
   params: Promise<{ lang: string }>
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { lang: raw } = await params
+  const lang = normalizeLang(raw)
+  const t = getMessages(lang)
+  return {
+    title: `INITE Brain — ${t.hero.title}`,
+    description: t.hero.subtitle,
+    alternates: {
+      canonical: `${SITE_URL}/${lang}`,
+      languages: Object.fromEntries(LANGS.map((l) => [l, `${SITE_URL}/${l}`])),
+    },
+  }
 }
 
 export default async function LandingPage({ params }: Props) {
@@ -22,6 +44,9 @@ export default async function LandingPage({ params }: Props) {
   const lang = normalizeLang(raw)
   return (
     <div className="lab-root min-h-screen">
+      <JsonLd
+        data={[organizationSchema(), websiteSchema(), softwareApplicationSchema()]}
+      />
       <Header lang={lang} />
       <main className="max-w-6xl mx-auto px-5 sm:px-6">
         <Hero lang={lang} />

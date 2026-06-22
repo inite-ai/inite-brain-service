@@ -4,7 +4,19 @@
     "github": "GitHub",
     "status": "Status",
     "skills": "Skills",
-    "star": "Star"
+    "star": "Star",
+    "blog": "Blog"
+  },
+  "blog": {
+    "title": "Notes on agent memory",
+    "subtitle": "Bitemporal graphs, retrieval, and the lifecycle of a fact — how Brain works and why it's built this way.",
+    "readTime": "{n} min read",
+    "read": "Read",
+    "backToBlog": "All posts",
+    "fallbackNotice": "Translation pending — showing English.",
+    "directAnswer": "In short",
+    "faqTitle": "FAQ",
+    "related": "Related"
   },
   "hero": {
     "eyebrow": "Bitemporal knowledge graph",
@@ -217,6 +229,7 @@
       "product": {
         "title": "Product",
         "docs": "Docs",
+        "blog": "Blog",
         "quickstart": "Quickstart",
         "mcp": "MCP setup",
         "skills": "Skills"

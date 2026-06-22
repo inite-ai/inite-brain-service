@@ -1,0 +1,61 @@
+---
+title: "How to actually delete a user from a RAG system"
+seoTitle: "GDPR forget in RAG: deleting a user from vector and graph memory"
+description: "A GDPR erasure request means the data is gone — including embeddings, edges, and derived artifacts. Here is why a row delete isn't enough and what a real forget looks like."
+date: "2026-06-20"
+author: "INITE Brain Team"
+category: "Privacy"
+tags: ["GDPR", "privacy", "forget", "RAG", "PII"]
+directAnswer: "Deleting a user from a RAG system means a synchronous hard delete of every fact, edge, embedding, and derived artifact tied to that entity — not a soft flag. The defensible pattern is a cascade that removes the data and leaves only an HMAC tombstone, so you can prove the erasure happened without keeping the data itself."
+definitionSentence: "GDPR forget (the right to erasure) in a RAG system is the operation that removes all of a data subject's facts, embeddings, graph edges, and derived content, leaving only a non-reversible proof-of-deletion record."
+faqs:
+  - question: "Isn't deleting the database row enough?"
+    answer: "No. In a RAG system the user's data also lives in embeddings, in graph edges to other entities, in cached or summarized artifacts, and sometimes in derived facts. A row delete leaves all of those behind, so the user is still retrievable by similarity even though the source row is gone. Erasure has to cascade through every representation."
+  - question: "What is an HMAC tombstone and why keep one?"
+    answer: "A tombstone is a tiny record that proves a deletion happened — an HMAC of the entity identifier plus a timestamp, with no recoverable personal data. You keep it so you can answer an auditor's 'prove you erased this user' without retaining the data you just erased. It also stops a later re-ingest from silently resurrecting the entity."
+  - question: "Should forget be synchronous or a background job?"
+    answer: "Synchronous for the user-facing path. A background job that 'will get to it' leaves a window where the data is still queryable, which is exactly what the regulation forbids. A defensible design deletes inline and returns only after the cascade completes; background work is fine for compaction, not for erasure."
+  - question: "How is forget different from retract?"
+    answer: "Retract corrects the record: a fact was wrong, so you mark it retracted but keep it in the audit trail. Forget destroys the record: the data subject has the right to be gone, so nothing recoverable remains. Retract preserves history; forget ends it. Using one where the other is required is a compliance bug."
+---
+
+## A row delete is not an erasure
+
+In a plain database, "delete the user" is one statement. In a RAG system, a user's data is scattered across representations:
+
+- the **facts** about them,
+- the **embeddings** of those facts (and of any chunk that mentions them),
+- the **graph edges** connecting them to other entities,
+- **derived artifacts** — summaries, profiles, digests built earlier.
+
+Delete the source row and the user is still findable by vector similarity, still reachable by walking an edge, still named in a cached summary. The regulator's question is "is the data gone?" — and "the main row is gone" is not a yes.
+
+## What a real forget removes
+
+Erasure has to cascade through every representation tied to the entity:
+
+1. **Facts** — every claim where the entity is subject or object.
+2. **Edges** — every typed relationship in or out.
+3. **Embeddings** — the vectors, not just the text.
+4. **Derived artifacts** — anything compiled from the above.
+
+After the cascade, a similarity search for the user returns nothing, and a graph walk finds no node. That is the bar.
+
+## Keep the proof, not the data
+
+You still have to *prove* you erased the user — without keeping what you erased. The pattern is a **tombstone**: an HMAC of the entity id plus a timestamp. It carries no recoverable personal data, but it lets you answer an audit and it blocks a later re-ingest from quietly recreating the entity under the same id.
+
+So the invariant after forget is precise: **data gone, proof kept.**
+
+## Forget is not retract
+
+These get confused, and the confusion is a compliance bug.
+
+- **Retract** — the fact was wrong. Mark it retracted, keep it in the audit trail, exclude it from live answers. History is preserved on purpose.
+- **Forget** — the person has the right to be gone. Destroy every representation. History ends.
+
+Use retract for corrections, forget for erasure. Never the reverse.
+
+## How Brain implements it
+
+In INITE Brain, `POST /v1/entities/:id/forget` runs a synchronous hard cascade — facts, edges, and embeddings deleted in one operation — and writes an HMAC tombstone. The memory-lifecycle eval gate asserts the invariant and refuses to pass below 1.0: after a forget, the entity is unretrievable by any path, and the tombstone is the only thing that remains.

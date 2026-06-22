@@ -8,9 +8,10 @@ import { ReactNode } from 'react'
  * here drive the docs typography pass so every page inherits one look
  * without needing a `prose` wrapper inside the MDX.
  */
-export function useMDXComponents(components: MDXComponents): MDXComponents {
-  return {
-    h1: (props) => (
+/** The shared style map — importable directly (e.g. for MDXRemote in the
+ * blog) without going through the hook. */
+export const mdxComponents: MDXComponents = {
+  h1: (props) => (
       <h1
         className="u-display text-[2rem] font-bold tracking-[-0.01em] text-[var(--text)] mt-2 mb-4"
         {...props}
@@ -103,6 +104,8 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
         {...props}
       />
     ),
-    ...components,
-  }
+}
+
+export function useMDXComponents(components: MDXComponents): MDXComponents {
+  return { ...mdxComponents, ...components }
 }

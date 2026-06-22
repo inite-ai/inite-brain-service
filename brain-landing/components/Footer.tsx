@@ -16,6 +16,7 @@ export function Footer({ lang }: Props) {
       title: f.columns.product.title,
       links: [
         { label: f.columns.product.docs, href: `/${lang}/docs` },
+        { label: f.columns.product.blog, href: `/${lang}/blog` },
         { label: f.columns.product.quickstart, href: `/${lang}/docs/getting-started` },
         { label: f.columns.product.mcp, href: `/${lang}/docs/mcp/setup` },
         { label: f.columns.product.skills, href: `/${lang}/docs/skills` },

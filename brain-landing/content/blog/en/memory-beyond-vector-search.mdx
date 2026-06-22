@@ -1,0 +1,51 @@
+---
+title: "Why AI agents need memory beyond vector search"
+seoTitle: "Vector search vs knowledge graph memory for AI agents"
+description: "Vector search finds text that looks similar. An agent's memory has to track what is true, when, and how facts relate — four jobs a pure embedding store can't do."
+date: "2026-06-22"
+author: "INITE Brain Team"
+category: "Architecture"
+tags: ["RAG", "vector search", "knowledge graph", "memory", "AI agents"]
+directAnswer: "Vector search retrieves chunks of text by cosine similarity. Agent memory needs more: typed facts instead of chunks, a time axis so you can ask what was true when, conflict resolution instead of silent overwrites, and a real delete for privacy. A knowledge graph layer adds those four; embeddings remain one signal inside it, not the whole system."
+definitionSentence: "Agent memory is the persistent, queryable store an AI agent reads and writes as it works — and to be trustworthy it must record typed facts with time and provenance, not just similarity-ranked text."
+faqs:
+  - question: "Is vector search bad?"
+    answer: "No — it is excellent at one job: finding text semantically close to a query. The mistake is treating that one signal as a complete memory. In a graph layer, embeddings are one leg of retrieval alongside keyword search, a graph walk, and reranking. You keep the recall of vectors and add the structure they lack."
+  - question: "What can a knowledge graph do that a vector store can't?"
+    answer: "Four things: store typed subject-predicate-object facts instead of opaque chunks; answer time-scoped queries (what was true in March); resolve conflicts when two sources disagree, instead of letting the newest write win silently; and delete an entity for real, cascading through facts, edges, and embeddings. Each is a capability, not a tuning knob."
+  - question: "Do I have to choose between embeddings and a graph?"
+    answer: "No. The right design is a graph of facts with embeddings attached to them. Retrieval fuses vector similarity with keyword (BM25) matches, expands along graph edges, runs personalized PageRank, then reranks. Embeddings drive recall; the graph drives precision, structure, and lifecycle."
+  - question: "When is plain vector search enough?"
+    answer: "When you only need to surface relevant passages and never need to know when a fact was true, reconcile contradictions, or delete a user's data on request. The moment any of those appear — and for an agent that remembers people, they appear fast — you need the structure a graph provides."
+---
+
+## The one job vector search does well
+
+Embed a query, embed your documents, return the nearest neighbours. For "find me passages about X," this is hard to beat. The failure isn't the technique — it's scope creep. Teams reach for a vector store as the agent's *memory*, and then ask it questions it was never built to answer.
+
+## Four questions embeddings can't answer
+
+**"What is true *now*?"** A vector store returns whatever is most similar, even if it's stale. There's no notion of a fact being superseded — only of text being nearby.
+
+**"What was true in March?"** No time axis. A chunk written last year and a chunk written today are ranked the same way. Memory without time is just a pile.
+
+**"Two sources disagree — which wins?"** Re-embedding overwrites. The newest vector silently replaces the old one. No scoring, no "these conflict," no record that there was ever a disagreement.
+
+**"Delete this user."** You can drop a row, but embeddings of their data may live in other chunks, and there's no cascade through relationships. "I think it's gone" is not a GDPR answer.
+
+## The fix is structure, not a bigger model
+
+The answer isn't a better embedding model. It's giving facts a shape:
+
+- **Typed facts** — `(Acme, plan, growth)` instead of a paragraph that mentions a plan.
+- **Time** — each fact knows when it was true and when you learned it.
+- **Provenance and conflict** — competing claims get scored, and close calls are flagged, not overwritten.
+- **Edges** — entities relate to each other, so you can walk and reason in multiple hops.
+
+Embeddings still matter. They just stop being the whole story.
+
+## What retrieval looks like with a graph
+
+In INITE Brain a query doesn't end at cosine similarity. It runs a pipeline: hybrid fusion of vectors and BM25, hypothetical-prompt embeddings, a predicate router, a one-hop edge expansion, tier-aware personalized PageRank, a cross-encoder, and a listwise LLM reranker with self-consistency. On the eval suite (n=262) that lands recall@1 at 0.962 and recall@3 at 0.989 — numbers a single-leg vector search doesn't reach because precision comes from the structure around the vectors, not the vectors alone.
+
+Give your agent a memory that knows *what*, *when*, and *how things relate* — and keep embeddings as one strong signal inside it.

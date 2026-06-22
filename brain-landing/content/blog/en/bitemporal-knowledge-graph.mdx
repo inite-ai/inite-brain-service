@@ -1,0 +1,60 @@
+---
+title: "What is a bitemporal knowledge graph?"
+seoTitle: "Bitemporal knowledge graph, explained with examples"
+description: "A bitemporal knowledge graph tracks two clocks per fact — when something was true, and when the system learned it. Here is why that second clock is what makes an AI agent's memory auditable."
+date: "2026-06-23"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["bitemporal", "knowledge graph", "memory", "RAG"]
+directAnswer: "A bitemporal knowledge graph stores two timestamps on every fact: valid time (when the fact is true in the world) and transaction time (when the system recorded it). With both, you can query the present, replay the past as it actually happened, and correct history without erasing the audit trail."
+definitionSentence: "A bitemporal knowledge graph is a graph of facts where each fact carries both a valid-time interval (when it holds in the real world) and a transaction-time interval (when the system knew it), so the same query can answer 'what is true now' and 'what did we believe on any past date'."
+faqs:
+  - question: "What is the difference between valid time and transaction time?"
+    answer: "Valid time is when a fact is true in the real world — a customer was on the starter plan from January to March. Transaction time is when your system learned that fact — you may have only recorded the plan change two days after it happened. A bitemporal store keeps both, so a late correction never silently rewrites what you believed at an earlier date."
+  - question: "Why does an AI agent need bitemporal memory?"
+    answer: "Agents act on what they know at a moment in time. When something goes wrong, you need to replay exactly what the agent's memory contained then — not what it contains now after corrections. Transaction time makes that replay exact, which is the difference between a debuggable agent and a black box."
+  - question: "Isn't a normal versioned database enough?"
+    answer: "A versioned (temporal) store gives you one clock — usually transaction time. You can see when a row changed, but you can't separate 'the fact became true' from 'we found out'. Bitemporal keeps both axes independent, which is what lets you backdate a correction (valid time in the past) without pretending you knew it earlier (transaction time stays honest)."
+  - question: "Does bitemporal storage make queries slower?"
+    answer: "Default queries pin both clocks to 'now' and read the active slice, so they behave like an ordinary lookup. The cost only appears when you deliberately query a past asOf, which scans the historical interval. In practice the overhead is a couple of index conditions, not a different query class."
+---
+
+## Two clocks, not one
+
+Most systems store one timestamp per record: when it was written. That answers "when did this change," but it can't answer "when did this *become* true" separately from "when did we *find out*." Those are two different questions, and conflating them is how audit trails quietly lie.
+
+A bitemporal knowledge graph keeps both:
+
+- **Valid time** — the interval during which a fact holds in the real world.
+- **Transaction time** — the interval during which the system believed it.
+
+Every fact is a small claim with both stamps. "Acme is on the growth plan" is true *in the world* from March 10, but Brain only *recorded* it on March 12.
+
+## The correction problem
+
+Here is the scenario that breaks single-clock systems. A customer switched plans on March 10. Your system didn't hear about it until March 12.
+
+| | Valid time | Transaction time |
+| --- | --- | --- |
+| starter | Jan 1 → Mar 10 | Jan 1 → (capped Mar 12) |
+| growth | Mar 10 → now | Mar 12 → now |
+
+Now ask: *"On March 11, what plan did we think Acme was on?"*
+
+The honest answer is **starter** — because the switch wasn't recorded until the 12th. A single-clock store can't produce that answer. Once you write the correction, it looks like you always knew. Bitemporal keeps transaction time independent, so replaying March 11 returns what you actually knew on March 11.
+
+## Why agents care
+
+An AI agent makes decisions on the memory it has at that instant. When a decision looks wrong in hindsight, "what did the agent know" is the first question — and the only useful answer is the state of memory *then*, before any later correction.
+
+- **Audit** — prove what the agent could have known at decision time.
+- **Replay** — reconstruct a past run exactly, bugs included.
+- **Honest corrections** — backdate a fact's validity without rewriting the record of when you learned it.
+
+A store that overwrites on correction throws all three away.
+
+## How Brain does it
+
+In INITE Brain every `knowledge_fact` row carries `validFrom` / `validUntil` and `recordedAt` / `retractedAt`. A default search resolves the active slice at `now/now`. Pass `asOf` and the query re-pins valid time; pass a transaction bound and it re-pins what was known. A correction inserts a new fact and caps the old one's valid interval — the original row stays, so the timeline is never destroyed, only extended.
+
+That is the whole point of bitemporality: you can change your mind about the past without lying about it.

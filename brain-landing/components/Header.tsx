@@ -84,6 +84,12 @@ export function Header({ lang, context }: Props) {
           >
             {t.nav.skills}
           </Link>
+          <Link
+            href={`/${lang}/blog`}
+            className="u-mono text-[12px] h-8 px-2.5 hidden sm:inline-flex items-center text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] rounded-md"
+          >
+            {t.nav.blog}
+          </Link>
           <a
             href={`https://github.com/${REPO}`}
             target="_blank"
