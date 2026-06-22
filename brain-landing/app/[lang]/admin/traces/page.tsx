@@ -6,16 +6,7 @@ import { useParams } from 'next/navigation'
 import { Radio, RefreshCw } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { normalizeLang } from '../../../../lib/i18n'
-
-interface TraceMeta {
-  requestId: string
-  ts: string
-  method: string
-  path: string
-  status: number
-  durationMs: number
-  companyId?: string
-}
+import type { TraceListItem as TraceMeta } from '../../../../lib/contracts/admin-traces'
 
 export default function TracesListPage() {
   const params = useParams<{ lang: string }>()

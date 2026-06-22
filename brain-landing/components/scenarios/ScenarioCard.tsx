@@ -3,17 +3,9 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { normalizeLang } from '../../lib/i18n'
+import type { ScenarioListItem } from '../../lib/contracts/admin-scenarios'
 
-export interface ScenarioSummary {
-  id: string
-  vertical: string
-  description: string
-  setupSteps: number
-  queries: number
-  hasMemoryAssertions: boolean
-  hasIdentityMerge: boolean
-  hasSynthesize: boolean
-}
+export type ScenarioSummary = ScenarioListItem
 
 export function ScenarioCard({
   s,

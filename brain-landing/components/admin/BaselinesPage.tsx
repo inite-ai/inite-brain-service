@@ -12,13 +12,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
-
-interface BaselineEntry {
-  name: string
-  savedAt: string
-  scenarios: number
-  meanRecallAt1: number
-}
+import type { BaselineEntry } from '../../lib/contracts/admin-baselines'
 
 interface DiffEntry {
   scenarioId: string

@@ -21,6 +21,9 @@ import {
 } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
 import { TraceBufferService } from '../common/debug-trace';
+import type { ScenariosResponse } from '../contracts/admin/scenarios.schema';
+import type { BaselinesResponse } from '../contracts/admin/baselines.schema';
+import type { TracesResponse } from '../contracts/admin/traces.schema';
 
 /**
  * Operator-facing eval and observability surface — scenarios, baselines,
@@ -40,13 +43,13 @@ export class AdminEvalController {
 
   @Get('scenarios')
   @RequireScopes('brain:admin')
-  listScenarios(@Query('vertical') vertical?: string) {
+  listScenarios(@Query('vertical') vertical?: string): ScenariosResponse {
     const all = this.scenarios.list();
     return {
       scenarios: vertical
         ? all.filter((s) => s.vertical === vertical)
         : all,
-    };
+    } satisfies ScenariosResponse;
   }
 
   @Get('scenarios/:id')
@@ -140,8 +143,8 @@ export class AdminEvalController {
 
   @Get('baselines')
   @RequireScopes('brain:admin')
-  listBaselines() {
-    return this.baselines.list();
+  async listBaselines(): Promise<BaselinesResponse> {
+    return (await this.baselines.list()) satisfies BaselinesResponse;
   }
 
   @Post('baselines/:name')
@@ -176,8 +179,10 @@ export class AdminEvalController {
 
   @Get('traces')
   @RequireScopes('brain:admin')
-  listTraces(@Req() req: AuthenticatedRequest) {
-    return { traces: this.traces.list(req.brainAuth.companyId) };
+  listTraces(@Req() req: AuthenticatedRequest): TracesResponse {
+    return {
+      traces: this.traces.list(req.brainAuth.companyId),
+    } satisfies TracesResponse;
   }
 
   /**

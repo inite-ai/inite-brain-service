@@ -20,6 +20,9 @@ import { CostResponseSchema } from '@/lib/contracts/admin-cost'
 import { CalibrationResponseSchema } from '@/lib/contracts/admin-calibration'
 import { RouterStatsResponseSchema } from '@/lib/contracts/admin-router-stats'
 import { PredicatesListResponseSchema } from '@/lib/contracts/admin-predicates'
+import { ScenariosResponseSchema } from '@/lib/contracts/admin-scenarios'
+import { BaselinesResponseSchema } from '@/lib/contracts/admin-baselines'
+import { TracesResponseSchema } from '@/lib/contracts/admin-traces'
 import type { ZodType } from 'zod'
 
 /**
@@ -52,6 +55,9 @@ const RESPONSE_SCHEMAS: Record<string, ZodType> = {
   'v1/admin/calibration': CalibrationResponseSchema,
   'v1/admin/router/stats': RouterStatsResponseSchema,
   'v1/admin/predicates': PredicatesListResponseSchema,
+  'v1/admin/scenarios': ScenariosResponseSchema,
+  'v1/admin/baselines': BaselinesResponseSchema,
+  'v1/admin/traces': TracesResponseSchema,
 }
 
 /**
