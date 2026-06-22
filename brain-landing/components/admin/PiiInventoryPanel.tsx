@@ -4,15 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, ShieldAlert } from 'lucide-react'
-
-interface PiiRow {
-  companyId: string
-  predicate: string
-  piiClass: string
-  requiresScope: string
-  factCount: number
-  retractedCount: number
-}
+import type { PiiRow } from '../../lib/contracts/admin-pii'
 
 const CLASS_TONE: Record<string, string> = {
   identifier: 'text-[var(--accent)] bg-[var(--accent)]/10',

@@ -3,14 +3,7 @@
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
 import { useState } from 'react'
-
-interface Row {
-  companyId: string
-  id: string
-  reason: string
-  rejectedAt: string
-  payload: Record<string, unknown>
-}
+import type { AdminDeadLetterRow as Row } from '../../lib/contracts/admin-overview'
 
 interface Props {
   rows: Row[]

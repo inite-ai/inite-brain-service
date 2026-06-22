@@ -9,6 +9,10 @@ import { IntentClassifierService } from './intent-classifier.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
 import { ActivityTrackerService } from '../common/activity-tracker.service';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
+import type { HealthComponentsResponse } from '../contracts/admin/health-components.schema';
+import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
+import type { ThrottlerResponse } from '../contracts/admin/throttler.schema';
+import type { NowResponse } from '../contracts/admin/now.schema';
 
 /**
  * Infra cockpit — deeper than /health. Per-component status grid,
@@ -42,7 +46,7 @@ export class AdminInfraController {
    */
   @Get('health/components')
   @RequireScopes('brain:admin')
-  async healthComponents() {
+  async healthComponents(): Promise<HealthComponentsResponse> {
     const components: Array<{
       name: string;
       status: 'ok' | 'warming' | 'degraded' | 'disabled' | 'unreachable';
@@ -128,7 +132,7 @@ export class AdminInfraController {
     return {
       generatedAt: new Date().toISOString(),
       components,
-    };
+    } satisfies HealthComponentsResponse;
   }
 
   /**
@@ -138,7 +142,7 @@ export class AdminInfraController {
    */
   @Get('migrations')
   @RequireScopes('brain:admin')
-  async migrations() {
+  async migrations(): Promise<MigrationsResponse> {
     const manifest = await this.surreal.migrator.loadManifest();
     const tenants = this.apiKeys.knownCompanyIds();
     const perTenant: Array<{
@@ -178,21 +182,21 @@ export class AdminInfraController {
       manifest: manifest.map((m) => ({ id: m.id, name: m.name })),
       perTenant,
       driftDetected,
-    };
+    } satisfies MigrationsResponse;
   }
 
   @Get('throttler')
   @RequireScopes('brain:admin')
-  throttlerView() {
-    return this.throttler.snapshot();
+  throttlerView(): ThrottlerResponse {
+    return this.throttler.snapshot() satisfies ThrottlerResponse;
   }
 
   @Get('now')
   @RequireScopes('brain:admin')
-  now() {
+  now(): NowResponse {
     return {
       generatedAt: new Date().toISOString(),
       inFlight: this.activity.list(),
-    };
+    } satisfies NowResponse;
   }
 }

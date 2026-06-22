@@ -15,27 +15,12 @@ import {
 } from 'recharts'
 import { ChevronRight, RefreshCw } from 'lucide-react'
 import { JsonView } from './JsonView'
+import type {
+  AuditPageResponse,
+  AuditEventRow as AuditEvent,
+} from '../../lib/contracts/admin-audit-page'
 
-interface AuditEvent {
-  id: string
-  companyId: string
-  source: string
-  recordId: string
-  op: string
-  ts: string
-  versionstamp: number
-  before?: Record<string, unknown> | null
-  after?: Record<string, unknown> | null
-  consumedBy: string
-}
-
-interface AuditPage {
-  events: AuditEvent[]
-  totalsBySource: Record<string, number>
-  totalsByOp: Record<string, number>
-  hourly: Array<{ hour: string; count: number }>
-  error?: string
-}
+type AuditPage = AuditPageResponse
 
 const SOURCES = ['', 'knowledge_entity', 'knowledge_fact', 'knowledge_edge']
 const OPS = ['', 'create', 'update', 'delete', 'define']
@@ -73,9 +58,12 @@ export function AuditLog() {
         `/api/admin/proxy/v1/admin/audit?${params.toString()}`,
         { cache: 'no-store' },
       )
-      const json = (await res.json()) as AuditPage
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as AuditPage | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as AuditPage)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

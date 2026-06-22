@@ -4,19 +4,12 @@
 
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Heart, Loader2, RefreshCw, XCircle, AlertTriangle } from 'lucide-react'
+import type {
+  HealthComponentsResponse as HealthResponse,
+  HealthComponent as Component,
+} from '../../lib/contracts/admin-health-components'
 
-interface Component {
-  name: string
-  status: 'ok' | 'warming' | 'degraded' | 'disabled' | 'unreachable'
-  latencyMs?: number
-  message?: string
-}
-
-interface HealthResponse {
-  generatedAt: string
-  components: Component[]
-  error?: string
-}
+export type { Component }
 
 const STATUS_TONE: Record<Component['status'], string> = {
   ok: 'text-[var(--success)] bg-[var(--success)]/10',
@@ -46,9 +39,12 @@ export function HealthPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/health/components', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as HealthResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as HealthResponse | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as HealthResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

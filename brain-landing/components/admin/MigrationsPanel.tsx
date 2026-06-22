@@ -4,24 +4,15 @@
 
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Database, RefreshCw } from 'lucide-react'
+import type {
+  MigrationsResponse,
+  Migration,
+  TenantState,
+} from '../../lib/contracts/admin-migrations'
 
-interface Migration {
-  id: string
-  name: string
-}
-
-interface TenantState {
-  companyId: string
-  applied: string[]
-  pending: string[]
-}
-
-interface MigrationsResponse {
-  manifest: Migration[]
-  perTenant: TenantState[]
-  driftDetected: boolean
-  error?: string
-}
+// keep Migration / TenantState named exports so JSX render fns below
+// that destructure these still compile without renaming.
+export type { Migration, TenantState }
 
 export function MigrationsPanel() {
   const [data, setData] = useState<MigrationsResponse | null>(null)
@@ -34,9 +25,12 @@ export function MigrationsPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/migrations', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as MigrationsResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as MigrationsResponse | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as MigrationsResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

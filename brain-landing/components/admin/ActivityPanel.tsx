@@ -4,20 +4,12 @@
 
 import { useEffect, useState } from 'react'
 import { Loader2, Radio, RefreshCw } from 'lucide-react'
+import type {
+  NowResponse as ActivityResponse,
+  InFlightRequest,
+} from '../../lib/contracts/admin-now'
 
-interface InFlightRequest {
-  id: string
-  method: string
-  path: string
-  companyId?: string
-  startedAtMs: number
-}
-
-interface ActivityResponse {
-  generatedAt: string
-  inFlight: InFlightRequest[]
-  error?: string
-}
+export type { InFlightRequest }
 
 export function ActivityPanel() {
   const [data, setData] = useState<ActivityResponse | null>(null)
@@ -32,9 +24,12 @@ export function ActivityPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/now', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as ActivityResponse
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as ActivityResponse | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as ActivityResponse)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

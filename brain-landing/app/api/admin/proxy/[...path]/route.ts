@@ -5,6 +5,16 @@ import { LeasesResponseSchema } from '@/lib/contracts/admin-leases'
 import { SchedulerResponseSchema } from '@/lib/contracts/admin-scheduler'
 import { ChangefeedStateResponseSchema } from '@/lib/contracts/admin-changefeed-state'
 import { JobsListResponseSchema } from '@/lib/contracts/admin-jobs'
+import { OverviewResponseSchema } from '@/lib/contracts/admin-overview'
+import { AuditPageResponseSchema } from '@/lib/contracts/admin-audit-page'
+import { DlqResponseSchema } from '@/lib/contracts/admin-dlq'
+import { ForgottenResponseSchema } from '@/lib/contracts/admin-forgotten'
+import { OperatorActionsResponseSchema } from '@/lib/contracts/admin-operator-actions'
+import { MigrationsResponseSchema } from '@/lib/contracts/admin-migrations'
+import { ThrottlerResponseSchema } from '@/lib/contracts/admin-throttler'
+import { NowResponseSchema } from '@/lib/contracts/admin-now'
+import { HealthComponentsResponseSchema } from '@/lib/contracts/admin-health-components'
+import { PiiInventoryResponseSchema } from '@/lib/contracts/admin-pii'
 import type { ZodType } from 'zod'
 
 /**
@@ -22,6 +32,16 @@ const RESPONSE_SCHEMAS: Record<string, ZodType> = {
   'v1/admin/scheduler': SchedulerResponseSchema,
   'v1/admin/changefeed/state': ChangefeedStateResponseSchema,
   'v1/admin/jobs': JobsListResponseSchema,
+  'v1/admin/overview': OverviewResponseSchema,
+  'v1/admin/audit': AuditPageResponseSchema,
+  'v1/admin/dlq': DlqResponseSchema,
+  'v1/admin/forgotten': ForgottenResponseSchema,
+  'v1/admin/operator-actions': OperatorActionsResponseSchema,
+  'v1/admin/migrations': MigrationsResponseSchema,
+  'v1/admin/throttler': ThrottlerResponseSchema,
+  'v1/admin/now': NowResponseSchema,
+  'v1/admin/health/components': HealthComponentsResponseSchema,
+  'v1/admin/pii': PiiInventoryResponseSchema,
 }
 
 /**

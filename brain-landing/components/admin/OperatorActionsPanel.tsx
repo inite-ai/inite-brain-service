@@ -5,19 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KeyRound, RefreshCw } from 'lucide-react'
 import { JsonView } from './JsonView'
-
-interface ActionRow {
-  ts: string
-  actor: string
-  scopes: string[]
-  method: string
-  path: string
-  status: number
-  durationMs: number
-  query?: Record<string, unknown> | null
-  bodySummary?: Record<string, unknown> | null
-  companyId: string
-}
+import type { OperatorActionRow as ActionRow } from '../../lib/contracts/admin-operator-actions'
 
 export function OperatorActionsPanel() {
   const [rows, setRows] = useState<ActionRow[]>([])

@@ -2,14 +2,7 @@
 
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: pre-Phase-J component, queued for separate pass. New code MUST go through getMessages(lang). */
 
-interface Row {
-  companyId: string
-  entityIdHash: string
-  reason: string
-  forgottenAt: string
-  factsDeleted: number
-  edgesDeleted: number
-}
+import type { AdminForgottenRow as Row } from '../../lib/contracts/admin-overview'
 
 interface Props {
   rows: Row[]

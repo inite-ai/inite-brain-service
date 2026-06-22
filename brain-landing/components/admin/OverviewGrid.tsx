@@ -7,51 +7,7 @@ import { Activity, Database, FileText, Trash2 } from 'lucide-react'
 import { DeadLetterTable } from './DeadLetterTable'
 import { ForgottenTable } from './ForgottenTable'
 import { DreamsTrigger } from './DreamsTrigger'
-
-interface Overview {
-  generatedAt: string
-  health: { surrealdb: 'ok' | 'unreachable' }
-  totals: {
-    tenants: number
-    entities: number
-    factsActive: number
-    factsRetracted: number
-    deadLetterLast24h: number
-    forgottenLast24h: number
-  }
-  metrics: {
-    ingestFactsTotal: number
-    ingestFactsByOutcome: Record<string, number>
-    searchCallsTotal: number
-    dreamsRunsTotal: number
-    dreamsEmittedByKind: Record<string, number>
-    retractsTotal: number
-    forgetsTotal: number
-    openaiCallsTotal: number
-    openaiTokensTotal: number
-  }
-  tenants: Array<{
-    companyId: string
-    entities: number
-    factsActive: number
-    factsRetracted: number
-  }>
-  recentDeadLetter: Array<{
-    companyId: string
-    id: string
-    reason: string
-    rejectedAt: string
-    payload: Record<string, unknown>
-  }>
-  recentForgotten: Array<{
-    companyId: string
-    entityIdHash: string
-    reason: string
-    forgottenAt: string
-    factsDeleted: number
-    edgesDeleted: number
-  }>
-}
+import type { OverviewResponse as Overview } from '../../lib/contracts/admin-overview'
 
 export function OverviewGrid() {
   const [data, setData] = useState<Overview | null>(null)

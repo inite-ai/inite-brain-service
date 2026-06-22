@@ -4,33 +4,13 @@
 
 import { useEffect, useState } from 'react'
 import { RefreshCw, SlidersHorizontal } from 'lucide-react'
+import type {
+  ThrottlerResponse as ThrottlerSnapshot,
+  RouteRow,
+  ActorRow,
+} from '../../lib/contracts/admin-throttler'
 
-interface RouteRow {
-  route: string
-  total: number
-  throttled: number
-  throttledRate: number
-}
-
-interface ActorRow {
-  actor: string
-  total: number
-  throttled: number
-  throttledRate: number
-}
-
-interface ThrottlerSnapshot {
-  topRoutes: RouteRow[]
-  topActors: ActorRow[]
-  recentThrottled: Array<{
-    ts: string
-    actor: string
-    method: string
-    path: string
-    bucket: string
-  }>
-  error?: string
-}
+export type { RouteRow, ActorRow }
 
 export function ThrottlerPanel() {
   const [data, setData] = useState<ThrottlerSnapshot | null>(null)
@@ -44,9 +24,12 @@ export function ThrottlerPanel() {
       const res = await fetch('/api/admin/proxy/v1/admin/throttler', {
         cache: 'no-store',
       })
-      const json = (await res.json()) as ThrottlerSnapshot
-      if (!res.ok) throw new Error(json.error ?? `Failed ${res.status}`)
-      setData(json)
+      const json = (await res.json()) as ThrottlerSnapshot | { error?: string }
+      if (!res.ok) {
+        const err = (json as { error?: string }).error
+        throw new Error(err ?? `Failed ${res.status}`)
+      }
+      setData(json as ThrottlerSnapshot)
       setError(null)
     } catch (e) {
       setError((e as Error).message)

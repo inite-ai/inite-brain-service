@@ -27,6 +27,8 @@ import { CalibrationRefitService } from '../ai/calibration/calibration-refit.ser
 import { BOOTSTRAP_GOLD_SET } from '../ai/calibration/gold-set';
 import { applyMap } from '../ai/calibration/isotonic';
 import { DEMO_LIVE_COMPANY } from './admin-demo.controller';
+import type { OverviewResponse } from '../contracts/admin/overview.schema';
+import type { AuditPageResponse } from '../contracts/admin/audit-page.schema';
 
 /**
  * Operator-facing core admin endpoints — overview, hybrid-router
@@ -65,8 +67,8 @@ export class AdminController {
 
   @Get('overview')
   @RequireScopes('brain:admin')
-  async overview() {
-    return this.admin.buildOverview();
+  async overview(): Promise<OverviewResponse> {
+    return (await this.admin.buildOverview()) satisfies OverviewResponse;
   }
 
   /**
@@ -87,9 +89,9 @@ export class AdminController {
     @Query('since') since?: string,
     @Query('before') before?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<AuditPageResponse> {
     const parsedLimit = limit ? parseInt(limit, 10) : undefined;
-    return this.admin.listAuditEvents({
+    const page = await this.admin.listAuditEvents({
       companyId: companyId?.trim() || undefined,
       source: source?.trim() || undefined,
       op: op?.trim() || undefined,
@@ -100,6 +102,7 @@ export class AdminController {
           ? parsedLimit
           : undefined,
     });
+    return page satisfies AuditPageResponse;
   }
 
   /**

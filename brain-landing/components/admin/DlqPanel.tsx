@@ -5,14 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, RefreshCw, Trash2 } from 'lucide-react'
 import { JsonView } from './JsonView'
-
-interface DlqRow {
-  companyId: string
-  id: string
-  reason: string
-  rejectedAt: string
-  payload: Record<string, unknown>
-}
+import type { AdminDeadLetterRow as DlqRow } from '../../lib/contracts/admin-overview'
 
 export function DlqPanel() {
   const [rows, setRows] = useState<DlqRow[]>([])

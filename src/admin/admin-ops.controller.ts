@@ -14,6 +14,10 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { AdminService } from './admin.service';
 import { ConfigInspectorService } from './config-inspector.service';
 import { OperatorActionService } from './operator-action.service';
+import type { DlqResponse } from '../contracts/admin/dlq.schema';
+import type { ForgottenResponse } from '../contracts/admin/forgotten.schema';
+import type { OperatorActionsResponse } from '../contracts/admin/operator-actions.schema';
+import type { PiiInventoryResponse } from '../contracts/admin/pii.schema';
 
 /**
  * Operator power-tools / GDPR surface.
@@ -52,7 +56,7 @@ export class AdminOpsController {
     @Query('companyId') companyId?: string,
     @Query('reason') reason?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<DlqResponse> {
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
       rows: await this.admin.listDeadLetter({
@@ -61,7 +65,7 @@ export class AdminOpsController {
         limit:
           parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
-    };
+    } satisfies DlqResponse;
   }
 
   @Delete('dlq/:companyId/:id')
@@ -83,7 +87,7 @@ export class AdminOpsController {
     @Query('reason') reason?: string,
     @Query('since') since?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<ForgottenResponse> {
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
       rows: await this.admin.listForgotten({
@@ -93,7 +97,7 @@ export class AdminOpsController {
         limit:
           parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
-    };
+    } satisfies ForgottenResponse;
   }
 
   /**
@@ -142,8 +146,10 @@ export class AdminOpsController {
 
   @Get('pii')
   @RequireScopes('brain:admin', 'brain:read_pii')
-  async piiInventory() {
-    return { rows: await this.admin.listPiiInventory() };
+  async piiInventory(): Promise<PiiInventoryResponse> {
+    return {
+      rows: await this.admin.listPiiInventory(),
+    } satisfies PiiInventoryResponse;
   }
 
   // ── Operator action log ───────────────────────────────────
@@ -156,7 +162,7 @@ export class AdminOpsController {
     @Query('pathPrefix') pathPrefix?: string,
     @Query('since') since?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<OperatorActionsResponse> {
     void req; // reserved for future per-key scoping
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
@@ -167,6 +173,6 @@ export class AdminOpsController {
         limit:
           parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
-    };
+    } satisfies OperatorActionsResponse;
   }
 }

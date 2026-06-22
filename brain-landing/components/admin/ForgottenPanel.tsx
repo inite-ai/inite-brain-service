@@ -4,15 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, RefreshCw, Skull } from 'lucide-react'
-
-interface ForgottenRow {
-  companyId: string
-  entityIdHash: string
-  reason: string
-  forgottenAt: string
-  factsDeleted: number
-  edgesDeleted: number
-}
+import type { AdminForgottenRow as ForgottenRow } from '../../lib/contracts/admin-overview'
 
 export function ForgottenPanel() {
   const [rows, setRows] = useState<ForgottenRow[]>([])
