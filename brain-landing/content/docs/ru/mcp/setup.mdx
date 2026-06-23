@@ -76,6 +76,58 @@ extensions:
 
 Закрепи credential, чтобы переиспользовать между воркфлоу.
 
+## Hermes (Nous Research)
+
+[Hermes Agent](https://hermes-agent.nousresearch.com) поддерживает remote MCP нативно. Добавь brain в `mcp_servers` файла `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  brain:
+    url: "https://brain.inite.ai/mcp/<companyId>"
+    headers:
+      Authorization: "Bearer <api-key>"
+    tools:
+      exclude: [forget_entity]   # опционально — спрятать деструктивный admin-инструмент
+```
+
+Hermes на старте обнаружит инструменты brain и зарегистрирует их в своём общем реестре. Фильтры `tools.include` / `tools.exclude` позволяют отдать агенту только нужную поверхность.
+
+## Харнесы только с stdio — коннектор `@inite/brain-mcp`
+
+Некоторые харнесы умеют запускать MCP-серверы только как **stdio**-подпроцессы и не могут прикрепить заголовок `Authorization` — MCP-клиент [openclaw](https://github.com/openclaw/openclaw) только stdio, как и Goose 1.x. Для них есть first-party коннектор stdio↔HTTP [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp). Харнес спавнит его по stdio, а он прозрачно проксирует каждый доступный по scope инструмент на удалённый эндпоинт, пробрасывая Bearer-ключ из `env`:
+
+```
+харнес ──stdio──▶ @inite/brain-mcp ──HTTP + Bearer──▶ /mcp/<companyId>
+```
+
+Это чистый проксипасс — `tools/list` и `tools/call` форвардятся вербатим, так что агент видит ровно ту поверхность, что открывает ключ. Пропиши его в MCP-конфиг харнеса (пример для `mcp.servers` у openclaw):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "brain": {
+        "command": "npx",
+        "args": ["-y", "@inite/brain-mcp"],
+        "env": {
+          "BRAIN_API_KEY": "brain_xxxxxxxx",
+          "BRAIN_COMPANY_ID": "<companyId>"
+        }
+      }
+    }
+  }
+}
+```
+
+| Переменная | Обязательна | По умолчанию | Примечание |
+| --- | --- | --- | --- |
+| `BRAIN_API_KEY` | да | — | твой ключ `brain_…` |
+| `BRAIN_COMPANY_ID` | да\* | — | \*не нужна, если задан `BRAIN_MCP_URL` |
+| `BRAIN_BASE_URL` | нет | `https://brain.inite.ai` | для self-hosted brain |
+| `BRAIN_MCP_URL` | нет | — | полный override эндпоинта; важнее base + company |
+
+Аутентификация, изоляция тенантов, scopes и PII-фенс по-прежнему энфорсятся на стороне brain из ключа — коннектор лишь несёт токен. Харнесам, которые уже умеют remote MCP (Hermes, Claude Desktop, Cursor, Goose v2), коннектор не нужен — им прямой URL-конфиг выше; коннектор только для случая stdio-only.
+
 ## Smoke-тест
 
 Когда подключился, попроси ассистента:
@@ -102,5 +154,6 @@ Brain держит MCP без состояния: один McpServer на зап
 
 ## Связанное
 
-- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — полные схемы шести инструментов
+- [Справочник MCP-инструментов](/ru/docs/mcp/tools) — полные схемы инструментов brain
 - [Набор скиллов](/ru/docs/skills) — инструкции для агента (формат Anthropic Skills)
+- [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) — коннектор stdio↔HTTP для харнесов только с stdio (исходники в [`clients/brain-mcp`](https://github.com/inite-ai/inite-brain-service/tree/main/clients/brain-mcp))

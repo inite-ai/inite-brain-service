@@ -50,8 +50,9 @@ a system of record*.
   ladder; close calls land as `COMPETING`, not a silent overwrite.
 - **A forget that deletes.** GDPR erasure is a synchronous hard cascade —
   facts, edges, and embeddings gone, only an HMAC tombstone left to prove it.
-- **Native MCP.** A per-tenant Streamable HTTP endpoint with six scope-aware
-  tools. Claude Desktop, Cursor, Goose, n8n — same URL, no glue code.
+- **Native MCP.** A per-tenant Streamable HTTP endpoint with scope-aware tools.
+  Hermes, Claude Desktop, Cursor, Goose, n8n — same URL, no glue code; stdio-only
+  harnesses connect via the [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) connector.
 - **Eval-gated in CI.** Every push re-runs the retrieval + memory-lifecycle
   suite; a regression past tolerance blocks the merge.
 
@@ -86,6 +87,38 @@ curl -X POST localhost:3000/v1/search \
 
 Prefer not to run it? The same API is hosted at **[brain.inite.ai](https://brain.inite.ai)**.
 Full walkthrough: [Getting started](https://brain.inite.ai/en/docs/getting-started).
+
+## Connect an agent
+
+Brain is an MCP server, so any MCP-capable agent gets long-term memory by
+pointing at the per-tenant URL with a Bearer key — no glue code.
+
+- **Harnesses with native remote MCP** (Hermes, Claude Desktop, Cursor, Goose v2,
+  n8n, Continue.dev) connect directly. Add brain to the harness's MCP config with
+  `url: https://brain.inite.ai/mcp/<companyId>` and an `Authorization: Bearer <key>`
+  header. Example for [Hermes](https://hermes-agent.nousresearch.com)
+  (`~/.hermes/config.yaml`):
+
+  ```yaml
+  mcp_servers:
+    brain:
+      url: "https://brain.inite.ai/mcp/<companyId>"
+      headers:
+        Authorization: "Bearer <api-key>"
+  ```
+
+- **stdio-only harnesses** that can't attach an auth header (openclaw, Goose 1.x)
+  spawn the first-party [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp)
+  connector, which transparently proxies every scoped tool over Streamable HTTP:
+
+  ```json
+  { "mcp": { "servers": { "brain": {
+    "command": "npx", "args": ["-y", "@inite/brain-mcp"],
+    "env": { "BRAIN_API_KEY": "brain_xxx", "BRAIN_COMPANY_ID": "<companyId>" }
+  }}}}
+  ```
+
+Full per-client guide: [MCP setup](https://brain.inite.ai/en/docs/mcp/setup).
 
 ## Quality (latest gate run)
 

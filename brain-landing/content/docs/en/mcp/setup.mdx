@@ -76,6 +76,58 @@ In the **MCP Client** node:
 
 Pin a credential so it's reusable across workflows.
 
+## Hermes (Nous Research)
+
+The [Hermes Agent](https://hermes-agent.nousresearch.com) supports remote MCP natively. Add brain under `mcp_servers` in `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  brain:
+    url: "https://brain.inite.ai/mcp/<companyId>"
+    headers:
+      Authorization: "Bearer <api-key>"
+    tools:
+      exclude: [forget_entity]   # optional — hide the destructive admin tool
+```
+
+Hermes discovers brain's tools at startup and registers them into its normal tool registry. The `tools.include` / `tools.exclude` filters let you expose only the surface you want the agent to see.
+
+## stdio-only harnesses — the `@inite/brain-mcp` connector
+
+Some harnesses can only launch **stdio** MCP servers as subprocesses and have no way to attach an `Authorization` header — [openclaw](https://github.com/openclaw/openclaw)'s MCP client is stdio-only, and so is Goose 1.x. For these, use the first-party stdio↔HTTP connector [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp). The harness spawns it over stdio; it transparently proxies every scoped tool to the remote endpoint, carrying the Bearer key from `env`:
+
+```
+harness ──stdio──▶ @inite/brain-mcp ──HTTP + Bearer──▶ /mcp/<companyId>
+```
+
+It is a pure passthrough — `tools/list` and `tools/call` are forwarded verbatim, so the agent sees exactly the surface the key unlocks. Wire it into the harness's MCP config (shown here for openclaw's `mcp.servers`):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "brain": {
+        "command": "npx",
+        "args": ["-y", "@inite/brain-mcp"],
+        "env": {
+          "BRAIN_API_KEY": "brain_xxxxxxxx",
+          "BRAIN_COMPANY_ID": "<companyId>"
+        }
+      }
+    }
+  }
+}
+```
+
+| Env var | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `BRAIN_API_KEY` | yes | — | your `brain_…` key |
+| `BRAIN_COMPANY_ID` | yes\* | — | \*not needed if `BRAIN_MCP_URL` is set |
+| `BRAIN_BASE_URL` | no | `https://brain.inite.ai` | point at a self-hosted brain |
+| `BRAIN_MCP_URL` | no | — | full endpoint override; wins over base + company |
+
+Auth, tenancy isolation, scopes and PII fencing stay enforced server-side from the key — the connector only carries the token. Harnesses that already speak remote MCP (Hermes, Claude Desktop, Cursor, Goose v2) should use the direct URL config above instead; the connector is only for the stdio-only case.
+
 ## Smoke test
 
 Once connected, ask the assistant:
@@ -102,5 +154,6 @@ Brain runs MCP stateless: one McpServer per request, no session id. MCP clients 
 
 ## Related
 
-- [MCP tools reference](/en/docs/mcp/tools) — full schemas for the six tools
+- [MCP tools reference](/en/docs/mcp/tools) — full schemas for the brain tools
 - [Skills bundle](/en/docs/skills) — agent how-to-use briefs (Anthropic Skills format)
+- [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) — stdio↔HTTP connector for stdio-only harnesses (source in [`clients/brain-mcp`](https://github.com/inite-ai/inite-brain-service/tree/main/clients/brain-mcp))
