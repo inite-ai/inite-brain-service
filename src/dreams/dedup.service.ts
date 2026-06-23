@@ -1,11 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
-import OpenAI from 'openai';
 import { EmbedderService } from '../ai/embedder.service';
-import { withGenAiCall } from '../common/gen-ai-observability';
+import { EntityJudgeService } from '../ai/entity-judge.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
 
 /**
@@ -55,38 +53,18 @@ export interface DedupResult {
 @Injectable()
 export class DreamsDedupService {
   private readonly logger = new Logger(DreamsDedupService.name);
-  private readonly openai: OpenAI;
   private readonly enabled: boolean;
-  private readonly model: string;
   private readonly cosineThreshold: number;
   private readonly maxPairs: number;
-  private readonly limiter: Semaphore;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly embedder: EmbedderService,
+    private readonly judge: EntityJudgeService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
       this.configService.get<string>('DREAMS_DEDUP_ENABLED', '0') === '1';
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    this.openai = apiKey
-      ? new OpenAI({
-          apiKey,
-          timeout: parseInt(
-            this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-            10,
-          ),
-          maxRetries: parseInt(
-            this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
-            10,
-          ),
-        })
-      : (undefined as unknown as OpenAI);
-    this.model = this.configService.get<string>(
-      'DREAMS_DEDUP_MODEL',
-      this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
-    );
     this.cosineThreshold = parseFloat(
       this.configService.get<string>('DREAMS_DEDUP_COSINE_THRESHOLD', '0.92'),
     );
@@ -94,16 +72,10 @@ export class DreamsDedupService {
       this.configService.get<string>('DREAMS_DEDUP_MAX_PAIRS', '50'),
       10,
     );
-    this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('DREAMS_DEDUP_CONCURRENCY', '4'),
-        10,
-      ),
-    );
   }
 
   isEnabled(): boolean {
-    return this.enabled && !!this.openai;
+    return this.enabled && this.judge.isAvailable();
   }
 
   /**
@@ -135,10 +107,11 @@ export class DreamsDedupService {
       const exists = await this.identityEdgeExists(db, cand.aId, cand.bId);
       if (exists) continue;
 
-      const verdict = await withSpan(
-        'dreams.dedup.judge',
-        () => this.limiter.run(() => this.judge(db, cand)),
-      );
+      const verdict = await withSpan('dreams.dedup.judge', async () => {
+        const factsA = await this.judge.fetchTopFacts(db, cand.aId);
+        const factsB = await this.judge.fetchTopFacts(db, cand.bId);
+        return this.judge.judge(factsA, factsB, { cosine: cand.cosine });
+      });
       result.llmJudgements++;
       if (verdict === 'same') {
         await this.linkIdentity(db, cand.aId, cand.bId);
@@ -236,101 +209,6 @@ export class DreamsDedupService {
       },
     );
     return ((rows as Array<{ id: unknown }>) ?? []).length > 0;
-  }
-
-  /**
-   * Ask the LLM whether two entities (with a few facts each) are
-   * likely the same real-world thing. Strict JSON schema, identity-
-   * fallback `unsure` on any parsing failure.
-   */
-  private async judge(
-    db: Surreal,
-    cand: DedupCandidate,
-  ): Promise<'same' | 'different' | 'unsure'> {
-    const factsA = await this.fetchTopFacts(db, cand.aId);
-    const factsB = await this.fetchTopFacts(db, cand.bId);
-
-    const sys = `You decide whether two knowledge-graph entities are the SAME real-world thing or DIFFERENT things that happen to share a similar name.
-
-Use the facts as the only evidence. Reasoning patterns:
-- "same" — facts directly identify them (matching dob / email / address) OR facts are non-contradictory and the names are identical / clear aliases.
-- "different" — facts contradict (different dob / different email / different employer at same time).
-- "unsure" — the facts don't disambiguate either way (just names + occupation, common name).
-
-Output strictly the JSON shape requested. No preamble.`;
-    const user =
-      `Entity A:\n${factsA}\n\n` +
-      `Entity B:\n${factsB}\n\n` +
-      `Cosine name-similarity: ${cand.cosine.toFixed(3)}.`;
-
-    try {
-      const res = await withGenAiCall(
-        {
-          kind: 'chat',
-          spanName: 'gen_ai.chat.dreams_dedup',
-          system: 'openai',
-          model: this.model,
-        },
-        this.metrics,
-        () => this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: sys },
-          { role: 'user', content: user },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'dedup_verdict',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                verdict: {
-                  type: 'string',
-                  enum: ['same', 'different', 'unsure'],
-                },
-              },
-              required: ['verdict'],
-            },
-          },
-        },
-        max_completion_tokens: 64,
-        temperature: 0,
-      }),
-      );
-      const content = res.choices[0]?.message?.content;
-      if (!content) return 'unsure';
-      const parsed = JSON.parse(content) as { verdict: unknown };
-      if (
-        parsed.verdict === 'same' ||
-        parsed.verdict === 'different' ||
-        parsed.verdict === 'unsure'
-      ) {
-        return parsed.verdict;
-      }
-      return 'unsure';
-    } catch (err) {
-      this.logger.warn(`Dedup judge failed: ${(err as Error).message}`);
-      return 'unsure';
-    }
-  }
-
-  private async fetchTopFacts(db: Surreal, entityId: string): Promise<string> {
-    type R = { predicate: string; object: string };
-    const [rows] = await db.query<[R[]]>(
-      `SELECT predicate, object, confidence FROM knowledge_fact
-       WHERE entityId = $eid
-         AND status = 'active'
-         AND retractedAt IS NONE
-       ORDER BY confidence DESC
-       LIMIT 5`,
-      { eid: new StringRecordId(entityId) },
-    );
-    const r = (rows as R[]) ?? [];
-    if (r.length === 0) return '(no facts)';
-    return r.map((f) => `- ${f.predicate}: ${f.object}`).join('\n');
   }
 
   private async linkIdentity(
