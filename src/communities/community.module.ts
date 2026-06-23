@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CompactionModule } from '../compaction/compaction.module';
-import { MetricsModule } from '../metrics/metrics.module';
 import { CommunityBuilderService } from './community-builder.service';
 import { CommunityService } from './community.service';
 
@@ -15,7 +14,7 @@ import { CommunityService } from './community.service';
  * EmbedderService is auto-injected.
  */
 @Module({
-  imports: [ConfigModule, CompactionModule, MetricsModule],
+  imports: [ConfigModule, CompactionModule],
   providers: [CommunityBuilderService, CommunityService],
   exports: [CommunityBuilderService, CommunityService],
 })

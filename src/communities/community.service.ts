@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { cosineSimilarity } from '../common/vector-math';
 
 /**
  * CommunityService — read surface over the topic communities that
@@ -59,13 +60,12 @@ export class CommunityService {
       );
       const minSim = args.minSimilarity ?? 0.3;
       const limit = args.limit ?? 5;
-      const qNorm = norm(q);
 
       const scored: ScoredCommunity[] = [];
       for (const r of (rows as RawCommunity[]) ?? []) {
         const emb = Array.isArray(r.summaryEmbedding) ? r.summaryEmbedding : null;
         if (!emb) continue;
-        const sim = cosine(q, emb, qNorm);
+        const sim = cosineSimilarity(q, emb);
         if (sim < minSim) continue;
         scored.push({ ...mapCommunity(r), similarity: sim });
       }
@@ -130,25 +130,6 @@ function toIso(v: unknown): string {
     return (v as { toDate: () => Date }).toDate().toISOString();
   }
   return String(v);
-}
-
-function norm(v: number[]): number {
-  let s = 0;
-  for (const x of v) s += x * x;
-  return Math.sqrt(s);
-}
-
-function cosine(a: number[], b: number[], aNorm: number): number {
-  if (a.length !== b.length || aNorm === 0) return 0;
-  let dot = 0;
-  let bn = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    bn += b[i] * b[i];
-  }
-  bn = Math.sqrt(bn);
-  if (bn === 0) return 0;
-  return dot / (aNorm * bn);
 }
 
 interface RawCommunity {

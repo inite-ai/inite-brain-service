@@ -195,6 +195,17 @@ export class EntitiesService {
       } else {
         baseClauses.push(`retractedAt IS NONE`);
       }
+      // Mirror getProfile's PII gate: a fact the caller can't see must
+      // not move the watermark, else a low-scope caller's cache gets
+      // invalidated exactly when a restricted fact lands (a timing oracle
+      // + needless rebuilds). DB-side here since we don't fetch the rows.
+      const blocked = Object.entries(PREDICATE_POLICIES)
+        .filter(([, p]) => p.requiresScope && !scopes.includes(p.requiresScope))
+        .map(([predicate]) => predicate);
+      if (blocked.length) {
+        baseClauses.push(`predicate NOT IN $blocked`);
+        params.blocked = blocked;
+      }
       // Two cheap ORDER BY … LIMIT 1 probes (recordedAt is indexed).
       // Avoids math::max aggregation, which returns NONE over datetimes on
       // this SurrealDB build.

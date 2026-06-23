@@ -1,13 +1,7 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
-import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import {
   SUMMARY_GENERATOR,
@@ -51,7 +45,6 @@ export class CommunityBuilderService {
     private readonly embedder: EmbedderService,
     @Inject(SUMMARY_GENERATOR)
     private readonly summaryGenerator: SummaryGenerator,
-    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
       this.config.get<string>('DREAMS_COMMUNITIES_ENABLED', '0') === '1';
@@ -218,6 +211,23 @@ export class CommunityBuilderService {
       ? await this.embedder.embed(summary)
       : null;
 
+    // lastBuiltMaxEdgeAt is option<datetime>: OMIT it (leave NONE) when the
+    // cluster has no dated internal edge, rather than passing NULL — a JS
+    // null does not satisfy option<datetime> on a SCHEMAFULL field. The
+    // field is last in CONTENT so the conditional comma stays simple. A JS
+    // Date serialises as a native datetime (a `d$param` cast won't parse
+    // inside a CONTENT value).
+    const params: Record<string, unknown> = {
+      label,
+      summary,
+      embedding: summaryEmbedding,
+      count: members.length,
+    };
+    let edgeClause = '';
+    if (maxEdgeAt) {
+      edgeClause = ',\n         lastBuiltMaxEdgeAt: $maxEdgeAt';
+      params.maxEdgeAt = new Date(maxEdgeAt);
+    }
     const [created] = await db.query<[Array<{ id: unknown }>]>(
       `CREATE community_node CONTENT {
          label: $label,
@@ -226,18 +236,9 @@ export class CommunityBuilderService {
          memberCount: $count,
          algorithm: 'label_propagation',
          builtAt: time::now(),
-         lastBuiltAt: time::now(),
-         lastBuiltMaxEdgeAt: $maxEdgeAt
+         lastBuiltAt: time::now()${edgeClause}
        }`,
-      {
-        label,
-        summary,
-        embedding: summaryEmbedding,
-        count: members.length,
-        // Pass a JS Date so the driver serialises it as a native datetime
-        // (a `d$param` cast does not parse inside a CONTENT value).
-        maxEdgeAt: maxEdgeAt ? new Date(maxEdgeAt) : null,
-      },
+      params,
     );
     const cid = String(((created as Array<{ id: unknown }>) ?? [])[0]?.id ?? '');
     if (!cid) throw new Error('community_node CREATE returned no id');
