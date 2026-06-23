@@ -206,18 +206,16 @@ export class EntitiesService {
         baseClauses.push(`predicate NOT IN $blocked`);
         params.blocked = blocked;
       }
-      // Two cheap ORDER BY … LIMIT 1 probes (recordedAt is indexed).
-      // Avoids math::max aggregation, which returns NONE over datetimes on
-      // this SurrealDB build.
+      // Two cheap ORDER BY … LIMIT 1 probes (recordedAt is indexed),
+      // sent as ONE round-trip (two statements) so a cache-hit freshness
+      // check stays a single network hop. Avoids math::max aggregation,
+      // which returns NONE over datetimes on this SurrealDB build.
       const where = baseClauses.join(' AND ');
-      const [recRows] = await db.query<any[][]>(
+      const [recRows, valRows] = await db.query<[any[], any[]]>(
         `SELECT recordedAt FROM knowledge_fact WHERE ${where}
-         ORDER BY recordedAt DESC LIMIT 1`,
-        params,
-      );
-      const [valRows] = await db.query<any[][]>(
-        `SELECT validFrom FROM knowledge_fact WHERE ${where}
-         ORDER BY validFrom DESC LIMIT 1`,
+           ORDER BY recordedAt DESC LIMIT 1;
+         SELECT validFrom FROM knowledge_fact WHERE ${where}
+           ORDER BY validFrom DESC LIMIT 1`,
         params,
       );
       const toIso = (v: unknown): string | null =>

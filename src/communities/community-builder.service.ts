@@ -181,16 +181,26 @@ export class CommunityBuilderService {
     const [rows] = await db.query<[Raw[]]>(
       `SELECT id, lastBuiltMaxEdgeAt FROM community_node`,
     );
+    const comms = (rows as Raw[]) ?? [];
     const out = new Map<string, ExistingCommunity>();
-    for (const r of (rows as Raw[]) ?? []) {
+    if (comms.length === 0) return out;
+
+    // One batched member fetch instead of one query per community (N+1).
+    const cids = comms.map((r) => new StringRecordId(String(r.id)));
+    const [memberRows] = await db.query<[Array<{ in: unknown; out: unknown }>]>(
+      `SELECT in, out FROM community_member WHERE in INSIDE $cids`,
+      { cids },
+    );
+    const membersByComm = new Map<string, string[]>();
+    for (const m of (memberRows as Array<{ in: unknown; out: unknown }>) ?? []) {
+      const cid = String(m.in);
+      const arr = membersByComm.get(cid);
+      if (arr) arr.push(String(m.out));
+      else membersByComm.set(cid, [String(m.out)]);
+    }
+    for (const r of comms) {
       const cid = String(r.id);
-      const [memberRows] = await db.query<[Array<{ out: unknown }>]>(
-        `SELECT out FROM community_member WHERE in = $cid`,
-        { cid: new StringRecordId(cid) },
-      );
-      const members = ((memberRows as Array<{ out: unknown }>) ?? [])
-        .map((m) => String(m.out))
-        .sort();
+      const members = (membersByComm.get(cid) ?? []).sort();
       out.set(members.join('|'), {
         id: cid,
         lastBuiltMaxEdgeAt: toIso(r.lastBuiltMaxEdgeAt) || null,
@@ -243,11 +253,20 @@ export class CommunityBuilderService {
     const cid = String(((created as Array<{ id: unknown }>) ?? [])[0]?.id ?? '');
     if (!cid) throw new Error('community_node CREATE returned no id');
 
-    for (const eid of members) {
-      await db.query(
-        `RELATE $cid->community_member->$eid SET addedAt = time::now()`,
-        { cid: new StringRecordId(cid), eid: new StringRecordId(eid) },
-      );
+    // Batch all member edges into one round-trip: a multi-statement query
+    // with indexed params (avoids a per-member round-trip; a SurrealQL FOR
+    // loop has a known scoping gotcha we sidestep here).
+    if (members.length > 0) {
+      const relateParams: Record<string, unknown> = {
+        cid: new StringRecordId(cid),
+      };
+      const stmts = members
+        .map((eid, i) => {
+          relateParams[`e${i}`] = new StringRecordId(eid);
+          return `RELATE $cid->community_member->$e${i} SET addedAt = time::now();`;
+        })
+        .join('\n');
+      await db.query(stmts, relateParams);
     }
   }
 
