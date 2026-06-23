@@ -4,6 +4,7 @@
   "description": "INITE Brain Service — marketing landing + MDX docs + admin UI + skills downloader.",
   "license": "AGPL-3.0-or-later",
   "private": true,
+  "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev": "next dev -p 3030 --turbopack",
     "build": "next build",
