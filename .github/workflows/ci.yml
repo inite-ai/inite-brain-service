@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
@@ -92,14 +92,14 @@ jobs:
     needs: build-test
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Checkout inside the workspace (actions/checkout refuses paths
       # outside GITHUB_WORKSPACE since v3). Then symlink to ../inite-shared
       # so tsconfig.json's "@inite/knowledge" path alias resolves at compile
       # and test time without changing source.
       - name: Checkout inite-shared (sibling for SDK source)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ github.repository_owner }}/inite-shared
           path: inite-shared-checkout
@@ -153,7 +153,7 @@ jobs:
     needs: build-test
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # NOTE: the old workflow checked out a sibling `inite-shared`
       # repo here to resolve the `@inite/knowledge` tsconfig alias. The
@@ -233,7 +233,7 @@ jobs:
     needs: build-test
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Build image
         run: docker build -t inite-brain-service:ci .
