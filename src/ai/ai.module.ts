@@ -13,6 +13,7 @@ import { ExtractionPatternService } from './extraction-pattern.service';
 import { CalibrationService } from './calibration/calibration.service';
 import { CalibrationRefitService } from './calibration/calibration-refit.service';
 import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service';
+import { EntityJudgeService } from './entity-judge.service';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Global()
@@ -33,6 +34,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CalibrationService,
     CalibrationRefitService,
     ReindexEmbeddingsService,
+    EntityJudgeService,
   ],
   exports: [
     EmbedderService,
@@ -49,6 +51,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CalibrationService,
     CalibrationRefitService,
     ReindexEmbeddingsService,
+    EntityJudgeService,
   ],
 })
 export class AiModule {}
