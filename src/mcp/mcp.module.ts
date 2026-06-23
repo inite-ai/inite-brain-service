@@ -7,6 +7,7 @@ import { IngestModule } from '../ingest/ingest.module';
 import { FactsModule } from '../facts/facts.module';
 import { MultiHopModule } from '../multi-hop/multi-hop.module';
 import { SynthesizeModule } from '../synthesize/synthesize.module';
+import { DiffModule } from '../diff/diff.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SynthesizeModule } from '../synthesize/synthesize.module';
     FactsModule,
     MultiHopModule,
     SynthesizeModule,
+    DiffModule,
   ],
   controllers: [McpController],
   providers: [McpService],

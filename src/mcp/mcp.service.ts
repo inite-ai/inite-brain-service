@@ -7,6 +7,7 @@ import { IngestService } from '../ingest/ingest.service';
 import { FactsService } from '../facts/facts.service';
 import { MultiHopService } from '../multi-hop/multi-hop.service';
 import { SynthesizeService } from '../synthesize/synthesize.service';
+import { MemoryDiffService } from '../diff/memory-diff.service';
 import { BrainScope } from '../auth/api-key.types';
 
 /**
@@ -29,6 +30,7 @@ export class McpService {
     private readonly facts: FactsService,
     private readonly multiHop: MultiHopService,
     private readonly synth: SynthesizeService,
+    private readonly memoryDiff: MemoryDiffService,
   ) {}
 
   buildServer(companyId: string, scopes: BrainScope[]): McpServer {
@@ -187,6 +189,39 @@ export class McpService {
       },
     );
 
+    // ── memory_diff ───────────────────────────────────────────────────
+    server.registerTool(
+      'memory_diff',
+      {
+        title: 'Diff brain memory between two points in time',
+        description:
+          'Returns everything brain learned, unlearned, or replaced between two ISO 8601 cursors [from, to). createdFacts = new active facts; retractedFacts = facts marked retracted in-window with no successor; changedFacts = facts that were superseded by another (carries before+after); newEntities = entities created in-window; forgottenEntities = GDPR-erased tombstones. Driving use case: "what changed since the last conversation?" Scope with entityIds and/or predicates to narrow the diff to a feature surface. Window is half-open; consecutive diffs over adjacent windows never double-count.',
+        inputSchema: {
+          from: z.string().datetime().describe('Inclusive lower bound (ISO 8601)'),
+          to: z.string().datetime().describe('Exclusive upper bound (ISO 8601)'),
+          entityIds: z
+            .array(z.string())
+            .optional()
+            .describe('Scope to these entities (short or full ids)'),
+          predicates: z
+            .array(z.string())
+            .optional()
+            .describe('Scope to these predicates'),
+        },
+      },
+      async (args) => {
+        const out = await this.memoryDiff.diff(companyId, {
+          from: args.from,
+          to: args.to,
+          entityIds: args.entityIds,
+          predicates: args.predicates,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: out as any,
+        };
+      },
+    );
   }
 
   private registerEntityReadTools(

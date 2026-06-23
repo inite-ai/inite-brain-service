@@ -32,6 +32,7 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   return svc.buildServer('co_test', scopes);
 }
@@ -47,6 +48,7 @@ const READ_BASELINE = [
   'search_knowledge',
   'search_multi_hop',
   'synthesize',
+  'memory_diff',
   'get_entity_profile',
   'get_entity_timeline',
   'get_competing_facts',
