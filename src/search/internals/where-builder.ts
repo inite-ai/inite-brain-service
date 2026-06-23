@@ -44,7 +44,7 @@ export function buildBaseWhere(
   if (dto.entityIds && dto.entityIds.length > 0) {
     // Multi-hop anchoring. Accept both short and fully-qualified ids;
     // SurrealDB record-link parsing tolerates both via the
-    // `type::thing` cast at query time.
+    // `type::record` cast at query time.
     clauses.push(`AND entityId INSIDE $entityIds`);
     params.entityIds = dto.entityIds.map((raw) => {
       const id = raw.startsWith('knowledge_entity:')

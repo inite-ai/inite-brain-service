@@ -63,7 +63,7 @@ describe('Inline entity resolution — mention ingest wiring', () => {
     return surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<any[][]>(
         `SELECT predicate FROM knowledge_fact
-           WHERE entityId = type::thing('knowledge_entity', $tail)`,
+           WHERE entityId = type::record('knowledge_entity', $tail)`,
         { tail: entityId.split(':')[1] },
       );
       return ((rows as any[]) ?? []).map((r) => String(r.predicate));

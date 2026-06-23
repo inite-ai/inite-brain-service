@@ -13,7 +13,7 @@ export default async function setup() {
   }
 
   console.log('[e2e] starting ephemeral SurrealDB container...');
-  const container = await new GenericContainer('surrealdb/surrealdb:v2.3.10')
+  const container = await new GenericContainer('surrealdb/surrealdb:v3.1.5')
     .withUser('root')
     .withCommand([
       'start',

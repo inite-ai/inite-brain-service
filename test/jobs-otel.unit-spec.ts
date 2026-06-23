@@ -147,6 +147,8 @@ describe('Jobs OTel handoff — wire contract', () => {
     const traceparent =
       '00-cccccccccccccccccccccccccccccccc-3333333333333333-01';
     const db = {
+      // 3.x: RETURN slot precedes the trailing COMMIT null slot (runTransaction
+      // reads arr[length-2]).
       query: async () => [
         {
           id: 'job_run:withtp',
@@ -157,6 +159,7 @@ describe('Jobs OTel handoff — wire contract', () => {
           leaseUntil: '2030-01-01T00:05:00Z',
           traceparent,
         },
+        null,
       ],
     };
     const surreal = {

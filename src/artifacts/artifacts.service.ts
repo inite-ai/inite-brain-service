@@ -87,7 +87,7 @@ export class ArtifactsService {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // 1. Verify entity exists.
       const [entRows] = await db.query<any[][]>(
-        `SELECT id FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
+        `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       if (!(entRows as any[])?.[0]) {
@@ -138,7 +138,7 @@ export class ArtifactsService {
     const ref = this.normalizeEntityId(entityIdRaw);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [entRows] = await db.query<any[][]>(
-        `SELECT id FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
+        `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       if (!(entRows as any[])?.[0]) {
@@ -202,7 +202,7 @@ export class ArtifactsService {
     const [rows] = await db.query<any[][]>(
       `SELECT payload, sourceFactIds, builtAt, staleAfterMs, dirty
        FROM knowledge_artifact
-       WHERE entityId = type::thing('knowledge_entity', $rid)
+       WHERE entityId = type::record('knowledge_entity', $rid)
          AND artifactType = $type
        LIMIT 1`,
       { rid, type: artifactType },
@@ -228,7 +228,7 @@ export class ArtifactsService {
   ): Promise<FactRow[]> {
     // Use the centralised server-side function from migration 0003.
     const [rows] = await db.query<[any[]]>(
-      `RETURN fn::active_facts_for(type::thing('knowledge_entity', $rid), NONE)`,
+      `RETURN fn::active_facts_for(type::record('knowledge_entity', $rid), NONE)`,
       { rid },
     );
     return ((rows as any[]) ?? [])
@@ -287,7 +287,7 @@ export class ArtifactsService {
              sourceFactIds = $facts,
              builtAt = time::now(),
              dirty = IF dirty = $expectedDirty THEN false ELSE dirty END
-         WHERE entityId = type::thing('knowledge_entity', $rid)
+         WHERE entityId = type::record('knowledge_entity', $rid)
            AND artifactType = $type
          RETURN AFTER`,
         {
@@ -302,7 +302,7 @@ export class ArtifactsService {
       if (updated) return updated;
       const [creRows] = await db.query<any[][]>(
         `CREATE knowledge_artifact CONTENT {
-            entityId: type::thing('knowledge_entity', $rid),
+            entityId: type::record('knowledge_entity', $rid),
             artifactType: $type,
             payload: $wrapped,
             sourceFactIds: $facts,

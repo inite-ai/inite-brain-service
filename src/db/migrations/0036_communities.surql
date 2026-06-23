@@ -38,7 +38,7 @@ DEFINE INDEX IF NOT EXISTS community_built_idx ON community_node FIELDS builtAt;
 -- "what do we know about <domain>" lexically. Same `content` analyzer
 -- the fact / entity BM25 indexes use (migration 0002).
 DEFINE INDEX IF NOT EXISTS community_summary_idx ON community_node
-  FIELDS summary SEARCH ANALYZER content BM25 HIGHLIGHTS;
+  FIELDS summary FULLTEXT ANALYZER content BM25 HIGHLIGHTS;
 -- HNSW over the summary embedding is opt-in once a tenant grows many
 -- communities; full-scan cosine in CommunityBuilderService is fine at
 -- walking-skeleton scale (communities are O(10²), not O(facts)).

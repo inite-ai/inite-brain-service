@@ -61,7 +61,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
     const surreal = f.app.get(SurrealService);
     const entityId = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<any[][]>(
-        `SELECT entityId FROM type::thing('knowledge_fact', $tail)`,
+        `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
         {
           tail: String(subjFactId).split(':')[1],
         },
@@ -89,7 +89,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       f.companyId,
       async (db) => {
         const [rows] = await db.query<any[][]>(
-          `SELECT entityId FROM type::thing('knowledge_fact', $tail)`,
+          `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
           { tail: String(counterFactId).split(':')[1] },
         );
         return String((rows as any[])?.[0]?.entityId ?? '');
@@ -128,7 +128,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       // Seed every other PII-bearing store the forget cascade must purge.
       await db.query(
         `CREATE knowledge_artifact CONTENT {
-            entityId: type::thing('knowledge_entity', $tail),
+            entityId: type::record('knowledge_entity', $tail),
             artifactType: 'customer_profile',
             payload: { name: 'secret-pii-value' },
             sourceFactIds: [], dirty: false }`,
@@ -136,7 +136,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       );
       await db.query(
         `CREATE ingest_dead_letter CONTENT {
-            payload: { entityId: type::thing('knowledge_entity', $tail),
+            payload: { entityId: type::record('knowledge_entity', $tail),
                        object: 'secret-pii-value' },
             reason: 'low_score' }`,
         { tail },
@@ -144,7 +144,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       await db.query(
         `CREATE entity_external_ref CONTENT {
             key: 'rent:secret-external-id',
-            entity: type::thing('knowledge_entity', $tail) }`,
+            entity: type::record('knowledge_entity', $tail) }`,
         { tail },
       );
       await db.query(
@@ -180,14 +180,14 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
     // tombstone written.
     await surreal.withCompany(f.companyId, async (db) => {
       const [entRows] = await db.query<any[][]>(
-        `SELECT id FROM type::thing('knowledge_entity', $tail)`,
+        `SELECT id FROM type::record('knowledge_entity', $tail)`,
         { tail: entityId.split(':')[1] },
       );
       expect((entRows as any[]).length).toBe(0);
 
       const [factRows] = await db.query<any[][]>(
         `SELECT id FROM knowledge_fact
-           WHERE entityId = type::thing('knowledge_entity', $tail)`,
+           WHERE entityId = type::record('knowledge_entity', $tail)`,
         { tail: entityId.split(':')[1] },
       );
       expect((factRows as any[]).length).toBe(0);
@@ -218,19 +218,19 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       };
       expect(
         await countWhere(
-          `SELECT id FROM knowledge_artifact WHERE entityId = type::thing('knowledge_entity', $tail)`,
+          `SELECT id FROM knowledge_artifact WHERE entityId = type::record('knowledge_entity', $tail)`,
           { tail },
         ),
       ).toBe(0);
       expect(
         await countWhere(
-          `SELECT id FROM ingest_dead_letter WHERE payload.entityId = type::thing('knowledge_entity', $tail)`,
+          `SELECT id FROM ingest_dead_letter WHERE payload.entityId = type::record('knowledge_entity', $tail)`,
           { tail },
         ),
       ).toBe(0);
       expect(
         await countWhere(
-          `SELECT id FROM entity_external_ref WHERE entity = type::thing('knowledge_entity', $tail)`,
+          `SELECT id FROM entity_external_ref WHERE entity = type::record('knowledge_entity', $tail)`,
           { tail },
         ),
       ).toBe(0);

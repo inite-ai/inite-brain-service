@@ -30,7 +30,7 @@ DEFINE FIELD IF NOT EXISTS entityId       ON knowledge_artifact TYPE record<know
 -- templates (registry/verticals.yaml has 15+ verticals each with
 -- distinct artifact shapes).
 DEFINE FIELD IF NOT EXISTS artifactType   ON knowledge_artifact TYPE string;
-DEFINE FIELD IF NOT EXISTS payload        ON knowledge_artifact FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS payload        ON knowledge_artifact TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS sourceFactIds  ON knowledge_artifact TYPE array<record<knowledge_fact>>;
 DEFINE FIELD IF NOT EXISTS builtAt        ON knowledge_artifact TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS staleAfterMs   ON knowledge_artifact TYPE int DEFAULT 300000;

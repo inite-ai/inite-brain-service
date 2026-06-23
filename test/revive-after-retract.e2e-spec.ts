@@ -202,7 +202,7 @@ describe('revive after retract — memlc.cycle scenario', () => {
       const tail = aFactId.split(':')[1];
       const [rows] = await db.query<any[][]>(
         `SELECT status, retractedAt, retractionReason, supersededBy
-           FROM type::thing('knowledge_fact', $tail) LIMIT 1`,
+           FROM type::record('knowledge_fact', $tail) LIMIT 1`,
         { tail },
       );
       const row = (rows as any[])[0];

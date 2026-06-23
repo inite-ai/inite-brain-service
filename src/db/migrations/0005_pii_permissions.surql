@@ -90,7 +90,7 @@ DEFINE FIELD OVERWRITE object ON knowledge_fact TYPE string PERMISSIONS
 
 -- objectMeta carries structured (non-string) PII for the same predicates
 -- when callers ingest non-string objects. Same gate.
-DEFINE FIELD OVERWRITE objectMeta ON knowledge_fact FLEXIBLE TYPE option<object> PERMISSIONS
+DEFINE FIELD OVERWRITE objectMeta ON knowledge_fact TYPE option<object> FLEXIBLE PERMISSIONS
     FOR select WHERE
         predicate NOT IN ['address', 'dob']
         OR ($caller_scopes ?? []) CONTAINS 'brain:read_pii';

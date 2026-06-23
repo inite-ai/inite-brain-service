@@ -100,7 +100,7 @@ export class FactsService {
       // predicate + source so the admin-scope gate below can read them.
       const [existingRows] = await db.query<any[][]>(
         `SELECT id, status, retractedAt, validFrom, predicate, source
-           FROM type::thing('knowledge_fact', $rid) LIMIT 1`,
+           FROM type::record('knowledge_fact', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       const existing = (existingRows as any[])?.[0];
@@ -188,7 +188,7 @@ export class FactsService {
     const rid = this.normalizeFactId(retractedFactId).id;
     const [rows] = await db.query<any[][]>(
       `SELECT id, priorValidUntil FROM knowledge_fact
-         WHERE supersededBy = type::thing('knowledge_fact', $rid)
+         WHERE supersededBy = type::record('knowledge_fact', $rid)
            AND status = 'superseded'
            AND retractionReason = 'superseded'`,
       { rid },
@@ -239,7 +239,7 @@ export class FactsService {
       const current = stack.pop()!;
       const [childRows] = await db.query<any[][]>(
         `SELECT id FROM knowledge_fact
-         WHERE derivedFrom CONTAINS type::thing('knowledge_fact', $cid)
+         WHERE derivedFrom CONTAINS type::record('knowledge_fact', $cid)
            AND retractedAt IS NONE`,
         { cid: this.normalizeFactId(current).id },
       );
@@ -289,7 +289,7 @@ export class FactsService {
       const asOf = opts.asOf ? new Date(opts.asOf) : null;
 
       const clauses = [
-        `entityId = type::thing('knowledge_entity', $rid)`,
+        `entityId = type::record('knowledge_entity', $rid)`,
         `status = 'competing'`,
       ];
       const params: Record<string, unknown> = { rid: ref.id };

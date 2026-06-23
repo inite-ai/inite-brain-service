@@ -47,7 +47,7 @@ describe('SummarizeEntityService — watermark freshness', () => {
     const surreal = f.app.get(SurrealService);
     entityId = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<any[][]>(
-        `SELECT entityId FROM type::thing('knowledge_fact', $tail)`,
+        `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
         { tail: factId.split(':')[1] },
       );
       return String((rows as any[])?.[0]?.entityId ?? '');

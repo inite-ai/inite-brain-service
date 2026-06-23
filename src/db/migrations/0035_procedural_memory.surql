@@ -36,7 +36,7 @@ DEFINE FIELD IF NOT EXISTS action           ON procedural_memory TYPE string;
 DEFINE FIELD IF NOT EXISTS priority         ON procedural_memory TYPE int     DEFAULT 100
     ASSERT $value >= 0;
 DEFINE FIELD IF NOT EXISTS decayHalfLifeDays ON procedural_memory TYPE option<int>;
-DEFINE FIELD IF NOT EXISTS source           ON procedural_memory FLEXIBLE TYPE object
+DEFINE FIELD IF NOT EXISTS source           ON procedural_memory TYPE object FLEXIBLE
     DEFAULT { kind: 'operator' };
 DEFINE FIELD IF NOT EXISTS createdAt        ON procedural_memory TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS retiredAt        ON procedural_memory TYPE option<datetime>;

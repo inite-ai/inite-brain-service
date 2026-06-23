@@ -15,7 +15,7 @@ DEFINE FIELD IF NOT EXISTS ts ON operator_action TYPE datetime
     DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS actor ON operator_action TYPE string;
 -- companyId of the API key that made the call.
-DEFINE FIELD IF NOT EXISTS scopes ON operator_action FLEXIBLE TYPE array
+DEFINE FIELD IF NOT EXISTS scopes ON operator_action TYPE array
     DEFAULT [];
 -- Scopes granted to the key (e.g. ['brain:admin','brain:read_pii']).
 DEFINE FIELD IF NOT EXISTS method ON operator_action TYPE string;
@@ -24,8 +24,8 @@ DEFINE FIELD IF NOT EXISTS path ON operator_action TYPE string;
 DEFINE FIELD IF NOT EXISTS status ON operator_action TYPE int;
 DEFINE FIELD IF NOT EXISTS durationMs ON operator_action TYPE int
     DEFAULT 0;
-DEFINE FIELD IF NOT EXISTS query ON operator_action FLEXIBLE TYPE option<object>;
-DEFINE FIELD IF NOT EXISTS bodySummary ON operator_action FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS query ON operator_action TYPE option<object> FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS bodySummary ON operator_action TYPE option<object> FLEXIBLE;
 -- Truncated body — we cap each scalar at 200 chars and drop nested
 -- payloads past depth 2 so an oversized DTO can't blow up the table.
 

@@ -472,6 +472,22 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       // finish. ensureRootSession may return a rebuilt conn — track
       // the swap so future migrations use the live reference.
       this.migratorConn = await this.ensureRootSession(this.migratorConn);
+      // SurrealDB 3.x no longer auto-creates a namespace/database on first
+      // DEFINE — `use()` + DDL against a non-existent NS/DB errors ("The
+      // namespace 'brain' does not exist"). 2.x created them implicitly.
+      // Provision both explicitly, idempotently, at root before selecting
+      // the tenant DB. DEFINE NAMESPACE is a root op (no NS selected);
+      // DEFINE DATABASE needs the NS selected. Identifiers can't be
+      // parameterized, so we backtick-quote — companyId is already
+      // validated `^[a-zA-Z0-9_-]+$` in withCompany, and `database` is
+      // `co_<companyId>` / `system`.
+      await this.migratorConn.query(
+        `DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``,
+      );
+      await this.migratorConn.use({ namespace: this.namespace });
+      await this.migratorConn.query(
+        `DEFINE DATABASE IF NOT EXISTS \`${database}\``,
+      );
       await this.migratorConn.use({ namespace: this.namespace, database });
       const result = await this.migrator.migrate(this.migratorConn);
       this.knownDatabases.add(database);
@@ -607,7 +623,7 @@ export async function dbMerge<T extends Record<string, unknown>>(
   patch: Record<string, unknown>,
 ): Promise<T> {
   const [rows] = await db.query<[T[]]>(
-    `UPDATE type::thing($t, $i) MERGE $p RETURN AFTER`,
+    `UPDATE type::record($t, $i) MERGE $p RETURN AFTER`,
     { t: tableOf(recordId), i: idOf(recordId), p: patch },
   );
   const arr = (rows as T[]) ?? [];
@@ -700,7 +716,16 @@ export async function runTransaction<T>(
     throw err;
   }
   const arr = result as unknown[];
-  return arr[arr.length - 1] as T;
+  // SurrealDB 3.x emits one result slot per top-level statement INCLUDING the
+  // trailing `COMMIT TRANSACTION` (always null). 2.x did not surface a COMMIT
+  // slot, so the old code took `arr[length-1]` (then the RETURN). On 3.x that
+  // index is the COMMIT null, which silently turned every transactional
+  // upsert's return into `undefined` (e.g. two distinct entity refs both
+  // resolving to "undefined" → a spurious self-merge 400). We always compose
+  // exactly one trailing COMMIT, and every caller's last statement is the
+  // RETURN it wants, so the meaningful value is the slot immediately before
+  // COMMIT.
+  return arr[arr.length - 2] as T;
 }
 
 /**
@@ -743,7 +768,13 @@ export function isReadConflict(err: unknown): boolean {
     m.includes('Transaction read conflict') ||
     m.includes('wrote at the same key') ||
     m.includes('read or write conflict') ||
-    m.includes('This transaction can be retried')
+    m.includes('This transaction can be retried') ||
+    // SurrealDB 3.x single-statement conflict wording:
+    // "Transaction conflict: Write conflict, retry the transaction. This
+    //  transaction can be retried" (already matched by the line above, but
+    //  match the distinctive prefix too in case the trailing sentence drops).
+    m.includes('Transaction conflict') ||
+    m.includes('Write conflict')
   );
 }
 

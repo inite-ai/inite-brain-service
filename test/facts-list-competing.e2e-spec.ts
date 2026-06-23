@@ -32,7 +32,7 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
       await db.query(
-        `CREATE type::thing('knowledge_entity', $eid) CONTENT {
+        `CREATE type::record('knowledge_entity', $eid) CONTENT {
             type: 'customer',
             canonicalName: 'List Competing Subject',
             externalRefs: { rent: 'lc_subj' }
@@ -45,7 +45,7 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
       const recordedB = new Date(now.getTime() - 1_000);
       await db.query(
         `CREATE knowledge_fact:lc_a CONTENT {
-            entityId: type::thing('knowledge_entity', $eid),
+            entityId: type::record('knowledge_entity', $eid),
             predicate: 'status',
             object: 'active',
             confidence: 0.7,
@@ -58,7 +58,7 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
       );
       await db.query(
         `CREATE knowledge_fact:lc_b CONTENT {
-            entityId: type::thing('knowledge_entity', $eid),
+            entityId: type::record('knowledge_entity', $eid),
             predicate: 'status',
             object: 'churned',
             confidence: 0.72,
@@ -73,7 +73,7 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
       // A non-competing fact on the same entity — must be excluded.
       await db.query(
         `CREATE knowledge_fact:lc_c CONTENT {
-            entityId: type::thing('knowledge_entity', $eid),
+            entityId: type::record('knowledge_entity', $eid),
             predicate: 'tier',
             object: 'gold',
             confidence: 0.95,

@@ -86,7 +86,7 @@ DEFINE FUNCTION IF NOT EXISTS fn::resolve_fact(
               AND vector::similarity::cosine(embedding, $embedding) >= $similarity_threshold)
     END;
 
-    -- CREATE the new fact. type::thing'd id is bound by the caller as
+    -- CREATE the new fact. type::record'd id is bound by the caller as
     -- a record<knowledge_entity>, so this is type-safe.
     LET $new = CREATE ONLY knowledge_fact CONTENT {
         entityId: $entity_id,

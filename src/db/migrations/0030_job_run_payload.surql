@@ -12,4 +12,4 @@
 -- shape (a dreams payload looks different from a reindex payload);
 -- the dispatcher reads it back into a typed handler-specific record.
 
-DEFINE FIELD IF NOT EXISTS payload ON job_run FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS payload ON job_run TYPE option<object> FLEXIBLE;

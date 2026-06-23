@@ -48,10 +48,10 @@ export class LeaderLeaseService {
               )
               .add(
                 `IF $row IS NONE OR $row.leaseUntil < time::now() OR $row.leaderId = $me {
-                   UPSERT type::thing('leader_lease', $name) CONTENT {
+                   UPSERT type::record('leader_lease', $name) CONTENT {
                      name: $name,
                      leaderId: $me,
-                     leaseUntil: time::now() + duration::from::secs($ttl),
+                     leaseUntil: time::now() + duration::from_secs($ttl),
                      heartbeatAt: time::now(),
                      acquiredAt: $row.acquiredAt OR time::now()
                    };

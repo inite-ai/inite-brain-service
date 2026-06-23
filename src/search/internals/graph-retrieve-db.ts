@@ -53,7 +53,7 @@ export async function resolveSeedEntities(
   // BM25 SEARCH fallback. Pre-fix this branch did a `SELECT … LIMIT
   // 200` full-table scan and a JS-side substring filter — linear in
   // tenant entity count per ask, hot-path. We have `entity_name_search_idx`
-  // (BM25 SEARCH ANALYZER content, migration 0002) defined for exactly
+  // (BM25 FULLTEXT ANALYZER content, migration 0002) defined for exactly
   // this purpose. Route through it and let SurrealDB score + rank;
   // returned `score` lets us prefer better matches without the
   // length-sort heuristic.

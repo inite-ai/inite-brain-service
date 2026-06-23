@@ -42,8 +42,8 @@ DEFINE FIELD IF NOT EXISTS ts ON audit_event TYPE datetime
 DEFINE FIELD IF NOT EXISTS versionstamp ON audit_event TYPE int;
 -- Optional pre-image (state before the change) — populated for
 -- update/delete when CHANGEFEED was defined with INCLUDE ORIGINAL.
-DEFINE FIELD IF NOT EXISTS before ON audit_event FLEXIBLE TYPE option<object>;
-DEFINE FIELD IF NOT EXISTS after ON audit_event FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS before ON audit_event TYPE option<object> FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS after ON audit_event TYPE option<object> FLEXIBLE;
 -- Lightweight metadata for forensic queries.
 DEFINE FIELD IF NOT EXISTS consumedBy ON audit_event TYPE string
     DEFAULT 'changefeed-consumer';

@@ -152,7 +152,7 @@ export class ProceduralMemoryService {
         ? procedureIdRaw.slice('procedural_memory:'.length)
         : procedureIdRaw;
       const [rows] = await db.query<any[][]>(
-        `UPDATE type::thing('procedural_memory', $tail)
+        `UPDATE type::record('procedural_memory', $tail)
            SET retiredAt = time::now()
            WHERE retiredAt IS NONE
            RETURN AFTER`,

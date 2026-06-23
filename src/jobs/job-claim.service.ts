@@ -209,7 +209,7 @@ export class JobClaimService {
                        SET status = 'running',
                            claimedBy = $me,
                            claimedAt = time::now(),
-                           leaseUntil = time::now() + duration::from::secs($ttl),
+                           leaseUntil = time::now() + duration::from_secs($ttl),
                            heartbeatAt = time::now(),
                            attempts = ($row.attempts OR 0) + 1
                      WHERE status = 'pending'
@@ -260,8 +260,8 @@ export class JobClaimService {
     try {
       return await this.surreal.withCompany(input.companyId, async (db) => {
         const [rows] = (await db.query<any[]>(
-          `UPDATE type::thing($rid) SET
-              leaseUntil = time::now() + duration::from::secs($ttl),
+          `UPDATE type::record($rid) SET
+              leaseUntil = time::now() + duration::from_secs($ttl),
               heartbeatAt = time::now()
             WHERE claimedBy = $me AND status = 'running'
             RETURN cancelRequested`,
@@ -312,7 +312,7 @@ export class JobClaimService {
           // corrupt status and double-count execution. 0 rows affected
           // ⇒ claim lost; skip silently (the dup-work cost is already
           // paid by the time we get here).
-          `UPDATE type::thing($rid) SET
+          `UPDATE type::record($rid) SET
               status = 'succeeded',
               finishedAt = time::now(),
               result = $result,
@@ -376,7 +376,7 @@ export class JobClaimService {
               Date.now() + backoffMs,
             ).toISOString();
             const [rows] = (await db.query<any[]>(
-              `UPDATE type::thing($rid) SET
+              `UPDATE type::record($rid) SET
                   status = 'pending',
                   error = $err,
                   claimedBy = NONE, leaseUntil = NONE,
@@ -393,7 +393,7 @@ export class JobClaimService {
             return ((rows ?? []) as unknown[]).length;
           }
           const [rows] = (await db.query<any[]>(
-            `UPDATE type::thing($rid) SET
+            `UPDATE type::record($rid) SET
                 status = 'failed',
                 finishedAt = time::now(),
                 error = $err,
@@ -435,7 +435,7 @@ export class JobClaimService {
       await this.surreal.withCompany(input.companyId, async (db) => {
         const [rows] = (await db.query<any[]>(
           // Ownership guard — same rationale as complete()/fail().
-          `UPDATE type::thing($rid) SET
+          `UPDATE type::record($rid) SET
               status = 'cancelled',
               finishedAt = time::now(),
               result = $result,
