@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.inite-ai/inite-brain-service",
   "title": "Inite Brain",
-  "description": "Open-source memory layer for LLM agents — bitemporal knowledge graph (SurrealDB) with facts, episodes, and procedural tiers. Hybrid vector + BM25 + multi-hop retrieval, planner-LLM and claim-verifier, conflict resolution (supersede/competing/revive), and GDPR-grade forget_entity. LoCoMo-benchmarked against Mem0, Zep, and MemGPT.",
+  "description": "Open-source bitemporal memory layer for LLM agents — knowledge graph with conflict resolution.",
   "version": "0.1.0",
   "websiteUrl": "https://brain.inite.ai",
   "repository": {

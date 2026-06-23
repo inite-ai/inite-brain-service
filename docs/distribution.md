@@ -55,14 +55,25 @@ The canonical machine-readable registry that every MCP client (Claude Desktop / 
 
 ### Publish flow
 
-```bash
-# Pick the right archive for your OS/arch
-curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-  | tar xz
+The `mcp-publisher` CLI lives outside Homebrew. Install once:
 
-./mcp-publisher login github   # opens GitHub OAuth in browser
-./mcp-publisher publish        # validates server.json + claims the io.github.inite-ai/* namespace
+```bash
+mkdir -p ~/.local/bin
+curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+  | tar xz -C ~/.local/bin mcp-publisher
+chmod +x ~/.local/bin/mcp-publisher
 ```
+
+`~/.local/bin` is already on PATH on this machine. Then:
+
+```bash
+cd <brain repo root>
+mcp-publisher validate                # sanity check (no network publish)
+mcp-publisher login github            # opens GitHub OAuth in browser
+mcp-publisher publish                 # claims io.github.inite-ai/* namespace + uploads server.json
+```
+
+`description` is capped at 100 chars by the registry (422 otherwise). The full positioning lives in the README — `description` is for the SERP-style preview row.
 
 The `io.github.inite-ai/...` namespace is claimed via GitHub OAuth on the `inite-ai` org. If you'd rather use a vendor namespace (`ai.inite/*`), set up a DNS-TXT record on `inite.ai` per the publisher CLI prompt — costs nothing but ties the name to the domain.
 
