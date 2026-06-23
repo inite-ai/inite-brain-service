@@ -73,17 +73,22 @@ export async function runLocomo(
   conversations: NormalizedConversation[],
   agent: QaAgent,
   options: {
-    companyIdFor: (conv: NormalizedConversation) => string;
+    /**
+     * Optional per-sample tenant pin. Default: api key's companyId.
+     * Kept on the runner so a future admin-key flow can route per
+     * sample without touching this file.
+     */
+    companyIdFor?: (conv: NormalizedConversation) => string;
     /** Per-question wall-clock cap. Some LLM-heavy paths can hang. */
     perQuestionTimeoutMs?: number;
     onProgress?: (done: number, total: number) => void;
-  },
+  } = {},
 ): Promise<RunReport> {
   const scores: QuestionScore[] = [];
   const total = conversations.reduce((a, c) => a + c.qa.length, 0);
   let done = 0;
   for (const conv of conversations) {
-    const companyId = options.companyIdFor(conv);
+    const companyId = options.companyIdFor?.(conv) ?? '';
     for (const q of conv.qa) {
       const score = await scoreQuestion(
         agent,

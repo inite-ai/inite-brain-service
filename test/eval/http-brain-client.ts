@@ -147,6 +147,42 @@ export class HttpBrainClient {
   async synthesize(body: unknown): Promise<EvalSynthesizeResponse> {
     return this.call<EvalSynthesizeResponse>('POST', '/v1/synthesize', body);
   }
+
+  /**
+   * `/v1/search/multi-hop` — planner LLM decomposes the free-text
+   * query into ≤ maxHops sub-queries; the executor chains them.
+   * Setting `synthesize: true` runs the synthesizer over the final
+   * entity set and returns the grounded answer alongside the hop
+   * trace. Used by the LoCoMo runner (test/eval/locomo/http-agent.ts);
+   * other eval paths can reuse the same surface.
+   */
+  async multiHop(body: unknown): Promise<EvalMultiHopResponse> {
+    return this.call<EvalMultiHopResponse>(
+      'POST',
+      '/v1/search/multi-hop',
+      body,
+    );
+  }
+}
+
+export interface EvalMultiHopResponse {
+  isMultiHop: boolean;
+  hops: Array<{
+    subQuery: string;
+    combination?: string;
+    entityIds: string[];
+    supportingFactIds: string[];
+    [k: string]: unknown;
+  }>;
+  finalEntityIds: string[];
+  finalHits: EvalSearchHit[];
+  supportingFactIds: string[];
+  synthesis?: {
+    answer: string | null;
+    reason?: string;
+    citations: EvalCitation[];
+  };
+  [k: string]: unknown;
 }
 
 interface IngestSurface {

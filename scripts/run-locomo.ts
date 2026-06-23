@@ -16,11 +16,16 @@
  * gpt-4o-mini at current pricing. Use --samples 1 for a smoke run
  * under $10.
  *
+ * Tenancy: the api key pins the tenant. We do NOT pick a per-sample
+ * companyId — all conversations co-exist in one tenant, namespaced by
+ * entity-id prefix `<sampleId>__`. A real deployment doesn't reshape
+ * its tenancy for a benchmark, and this matches the production path.
+ *
  * Brain MUST be running with brain:write + brain:read + brain:read_pii
- * + brain:admin scopes on the api key, in a tenant that's safe to
- * fill with synthetic conversations (the runner picks
- * `co_locomo_<sampleId>` per sample by default — a fresh dev tenant
- * works fine).
+ * + brain:admin scopes on the api key. A fresh dev tenant is the
+ * cleanest — but mixing with existing data won't corrupt anything
+ * (each sample's entities are prefixed; queries scope to the prefix
+ * implicitly via the speaker entity ref).
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -31,7 +36,7 @@ import {
   createHttpIngestSink,
   createHttpQaAgent,
 } from '../test/eval/locomo/http-agent';
-import { BrainHttpClient } from '../test/eval/http-brain-client';
+import { HttpBrainClient } from '../test/eval/http-brain-client';
 
 interface Args {
   dataset: string;
@@ -78,7 +83,7 @@ async function main() {
     `[locomo] loaded ${sliced.length}/${conversations.length} samples, ${sliced.reduce((a, c) => a + c.qa.length, 0)} QA pairs`,
   );
 
-  const client = new BrainHttpClient({
+  const client = new HttpBrainClient({
     baseUrl: args.brainUrl,
     apiKey: args.apiKey,
   });
@@ -86,12 +91,11 @@ async function main() {
   if (!args.skipIngest) {
     const sink = createHttpIngestSink(client);
     for (const conv of sliced) {
-      const companyId = `co_locomo_${conv.sampleId}`;
       const plan = planIngest(conv);
       console.error(
-        `[locomo:ingest] sample=${conv.sampleId} tenant=${companyId} speakers=${plan.speakers.length} mentions=${plan.mentions.length}`,
+        `[locomo:ingest] sample=${conv.sampleId} speakers=${plan.speakers.length} mentions=${plan.mentions.length}`,
       );
-      await executeIngest(plan, sink, companyId);
+      await executeIngest(plan, sink);
     }
   } else {
     console.error('[locomo] --skip-ingest: assuming brain already populated');
@@ -103,7 +107,6 @@ async function main() {
   });
 
   const report = await runLocomo(sliced, agent, {
-    companyIdFor: (conv) => `co_locomo_${conv.sampleId}`,
     onProgress: (done, total) => {
       if (done % 10 === 0 || done === total) {
         console.error(`[locomo:qa] ${done}/${total}`);
@@ -117,9 +120,7 @@ async function main() {
   console.error('');
   console.error('LoCoMo report');
   console.error('=============');
-  console.error(
-    `total questions: ${report.totalQuestions}`,
-  );
+  console.error(`total questions: ${report.totalQuestions}`);
   console.error(
     `overall F1: ${pct(report.overall.f1)}   ROUGE-L: ${pct(report.overall.rougeL)}   BLEU-1: ${pct(report.overall.bleu1)}   EM: ${pct(report.overall.exactMatch)}`,
   );
