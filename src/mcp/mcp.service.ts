@@ -16,6 +16,45 @@ import { SummarizeEntityService } from '../summarize-entity/summarize-entity.ser
 import { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
+import {
+  NOOP_REPORTER,
+  type ProgressEvent,
+  type ProgressReporter,
+} from './progress-reporter';
+
+/**
+ * Translate an MCP request's `extra` parameter into a ProgressReporter
+ * that emits notifications/progress on every stage tick. The caller
+ * opts in by including `_meta.progressToken` on the request — a
+ * client that doesn't ask for progress gets a NOOP_REPORTER and zero
+ * extra round-trips.
+ */
+function buildProgressReporter(extra: {
+  _meta?: { progressToken?: string | number };
+  sendNotification: (n: unknown) => Promise<void>;
+}): ProgressReporter {
+  const token = extra._meta?.progressToken;
+  if (token === undefined || token === null) return NOOP_REPORTER;
+  let counter = 0;
+  return (event: ProgressEvent) => {
+    counter += 1;
+    // Fire and forget — we don't want a slow client to back-pressure
+    // the tool execution.
+    void extra
+      .sendNotification({
+        method: 'notifications/progress',
+        params: {
+          progressToken: token,
+          progress: event.index ?? counter,
+          total: event.total,
+          message: event.message
+            ? `[${event.stage}] ${event.message}`
+            : event.stage,
+        },
+      })
+      .catch(() => undefined);
+  };
+}
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -278,7 +317,8 @@ export class McpService {
           limit: z.number().int().min(1).max(50).optional(),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const reporter = buildProgressReporter(extra as never);
         const out = await this.multiHop.run(
           companyId,
           {
@@ -291,6 +331,7 @@ export class McpService {
             limit: args.limit,
           },
           scopes,
+          reporter,
         );
         return {
           content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -321,7 +362,8 @@ export class McpService {
             .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const reporter = buildProgressReporter(extra as never);
         const out = await this.synth.synthesize(
           companyId,
           {
@@ -333,6 +375,7 @@ export class McpService {
             synthesisGuardrails: args.synthesisGuardrails,
           },
           scopes,
+          reporter,
         );
         return {
           content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

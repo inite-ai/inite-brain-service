@@ -16,6 +16,10 @@ import {
 import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { detectLanguage } from '../ai/locale/language-detector';
+import {
+  NOOP_REPORTER,
+  type ProgressReporter,
+} from '../mcp/progress-reporter';
 
 export interface Citation {
   factId: string;
@@ -151,6 +155,7 @@ export class SynthesizeService {
     companyId: string,
     dto: SynthesizeDto,
     callerScopes: string[],
+    onProgress: ProgressReporter = NOOP_REPORTER,
   ): Promise<SynthesizeResult> {
     // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
     // covers HTTP callers, but multi-hop and admin-demo drive
@@ -168,6 +173,7 @@ export class SynthesizeService {
     const model = dto.synthesisModel ?? this.defaultModel;
     const explain = dto.explain === true;
 
+    onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
       'synthesize.search',
       () => this.search.search(companyId, dto, callerScopes),
@@ -225,6 +231,10 @@ export class SynthesizeService {
     const answerLang =
       dto.answerLang ?? detectAnswerLang(dto.query);
 
+    onProgress({
+      stage: 'generate',
+      message: `LLM grounding answer over ${factIndex.size} facts`,
+    });
     let generated: GeneratorOutput;
     try {
       generated = await withSpan(
@@ -282,6 +292,7 @@ export class SynthesizeService {
       );
     }
 
+    onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
     // Verifier — the corrective guardrail. Runs in strict and
     // lenient modes. Strict gates the answer behind a 'supported'
     // verdict; lenient surfaces the verdict but returns the answer

@@ -13,6 +13,10 @@ import type {
 } from '../synthesize/synthesize.service';
 import { withSpan } from '../common/tracing';
 import { MetricsService } from '../metrics/metrics.service';
+import {
+  NOOP_REPORTER,
+  type ProgressReporter,
+} from '../mcp/progress-reporter';
 
 export interface HopOutcome {
   hop: HopPlan;
@@ -105,13 +109,19 @@ export class MultiHopService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
+  // planner / synthesize / each hop carry their own try/catch + early
+  // termination; refactoring splits the chain semantics across
+  // helpers without clarity gain.
+  /* eslint-disable-next-line complexity */
   async run(
     companyId: string,
     dto: MultiHopDto,
     callerScopes: string[],
+    onProgress: ProgressReporter = NOOP_REPORTER,
   ): Promise<MultiHopResult> {
     const maxHops = Math.min(dto.maxHops ?? 3, 5);
 
+    onProgress({ stage: 'planning', message: 'planner-LLM decomposing query' });
     let plan: MultiHopPlan | null = null;
     plan = await withSpan(
       'multi_hop.plan',
@@ -170,6 +180,12 @@ export class MultiHopService {
 
     for (let i = 0; i < plan.hops.length; i++) {
       const hop = plan.hops[i];
+      onProgress({
+        stage: 'hop',
+        index: i + 1,
+        total: plan.hops.length,
+        message: hop.subQuery,
+      });
       try {
         const hopRes = await withSpan(
           'multi_hop.hop',
@@ -253,6 +269,7 @@ export class MultiHopService {
     };
 
     if (dto.synthesize && this.synthesizer && finalHits.length > 0) {
+      onProgress({ stage: 'synthesize', message: 'grounding answer' });
       const synth = await withSpan(
         'multi_hop.synthesize',
         () =>
@@ -264,6 +281,7 @@ export class MultiHopService {
               synthesize: undefined,
             } as never,
             callerScopes,
+            onProgress,
           ),
         { 'multi_hop.final_set': finalHits.length },
       );
@@ -274,6 +292,7 @@ export class MultiHopService {
       };
     }
 
+    onProgress({ stage: 'done' });
     return result;
   }
 
