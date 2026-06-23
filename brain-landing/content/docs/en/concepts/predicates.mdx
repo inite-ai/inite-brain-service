@@ -10,7 +10,7 @@ A predicate is the verb of a fact — `name`, `email`, `tier`, `complained_about
 | `bitemporal` | Values carry explicit windows; overlap routes through conflict resolver. | `status`, `intent`, `address`, `tier` |
 | `append_only` | Never conflicts; every ingest is additive. | `said`, `mentioned_in`, `tag` |
 
-`single_active` is the simplest read model: take the row with the highest `validFrom`. `bitemporal` is the most expressive — the same predicate can be true over multiple disjoint windows. `append_only` is for utterance / tagging predicates where there is no notion of "the" value.
+`single_active` is the simplest read model: take the row with the highest `validFrom`. `bitemporal` is the most expressive — the same predicate can be true over multiple disjoint windows. `append_only` is for utterance / tagging predicates where there is no notion of “the” value.
 
 ## Decay half-life
 

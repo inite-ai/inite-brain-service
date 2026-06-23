@@ -21,14 +21,14 @@ faqs:
 
 ## A row delete is not an erasure
 
-In a plain database, "delete the user" is one statement. In a RAG system, a user's data is scattered across representations:
+In a plain database, “delete the user” is one statement. In a RAG system, a user's data is scattered across representations:
 
 - the **facts** about them,
 - the **embeddings** of those facts (and of any chunk that mentions them),
 - the **graph edges** connecting them to other entities,
 - **derived artifacts** — summaries, profiles, digests built earlier.
 
-Delete the source row and the user is still findable by vector similarity, still reachable by walking an edge, still named in a cached summary. The regulator's question is "is the data gone?" — and "the main row is gone" is not a yes.
+Delete the source row and the user is still findable by vector similarity, still reachable by walking an edge, still named in a cached summary. The regulator's question is “is the data gone?” — and “the main row is gone” is not a yes.
 
 ## What a real forget removes
 
