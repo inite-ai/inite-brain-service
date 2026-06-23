@@ -475,60 +475,20 @@ export class JobClaimService {
     const baseMs = input.backoffBaseMs ?? 30_000;
     try {
       return await this.surreal.withCompany(input.companyId, async (db) => {
-        // Find expired claims first so we can split into requeue vs fail.
-        const [rows] = (await db.query<any[]>(
-          `SELECT id, attempts, claimedBy FROM job_run
-             WHERE status = 'running' AND leaseUntil < time::now()
-             LIMIT 200`,
-        )) as any[];
-        const arr = (rows ?? []) as Array<{
-          id: string;
-          attempts?: number;
-          claimedBy?: string;
-        }>;
-        let requeued = 0;
-        let failed = 0;
-        for (const row of arr) {
-          const attempts = Number(row.attempts ?? 1);
-          const claimedBy = String(row.claimedBy ?? 'unknown');
-          if (attempts < maxAttempts) {
-            const jitter = 0.5 + Math.random() * 0.5;
-            const backoffMs = Math.min(
-              baseMs * Math.pow(2, attempts - 1) * jitter,
-              3_600_000,
-            );
-            const visibleAfter = new Date(
-              Date.now() + backoffMs,
-            ).toISOString();
-            await db.query(
-              `UPDATE type::thing($rid) SET
-                  status = 'pending',
-                  claimedBy = NONE, leaseUntil = NONE,
-                  visibleAfter = type::datetime($visibleAfter),
-                  error = { message: $msg, name: 'ZombieReclaim' }`,
-              {
-                rid: row.id,
-                visibleAfter,
-                msg: `lease expired while held by ${claimedBy}; requeued (attempt ${attempts}/${maxAttempts})`,
-              },
-            );
-            requeued++;
-          } else {
-            await db.query(
-              `UPDATE type::thing($rid) SET
-                  status = 'failed',
-                  finishedAt = time::now(),
-                  claimedBy = NONE, leaseUntil = NONE,
-                  error = { message: $msg, name: 'ZombieAbandoned' }`,
-              {
-                rid: row.id,
-                msg: `lease expired while held by ${claimedBy}; abandoned after ${attempts} attempt(s)`,
-              },
-            );
-            failed++;
-          }
-        }
-        return { requeued, failed };
+        // fn::reap_zombies (migration 0038) does the pre-select + split +
+        // per-row backoff as two set-based UPDATEs inside one statement. Both
+        // UPDATEs re-apply the status='running' AND leaseUntil<now guard in
+        // their WHERE, so a row another reaper already flipped matches zero
+        // rows — no read-then-write race between concurrent reapers, and no N
+        // round-trips. One shared LIMIT 200 budget per call (not per branch).
+        const [res] = (await db.query<[{ requeued: number; failed: number }]>(
+          `RETURN fn::reap_zombies($max_attempts, $backoff_base_ms)`,
+          { max_attempts: maxAttempts, backoff_base_ms: baseMs },
+        )) as [{ requeued: number; failed: number }];
+        return {
+          requeued: Number(res?.requeued ?? 0),
+          failed: Number(res?.failed ?? 0),
+        };
       });
     } catch (e) {
       this.logger.warn(
