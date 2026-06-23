@@ -5,6 +5,8 @@ import { SearchService } from '../search/search.service';
 import { EntitiesService } from '../entities/entities.service';
 import { IngestService } from '../ingest/ingest.service';
 import { FactsService } from '../facts/facts.service';
+import { MultiHopService } from '../multi-hop/multi-hop.service';
+import { SynthesizeService } from '../synthesize/synthesize.service';
 import { BrainScope } from '../auth/api-key.types';
 
 /**
@@ -25,6 +27,8 @@ export class McpService {
     private readonly entities: EntitiesService,
     private readonly ingest: IngestService,
     private readonly facts: FactsService,
+    private readonly multiHop: MultiHopService,
+    private readonly synth: SynthesizeService,
   ) {}
 
   buildServer(companyId: string, scopes: BrainScope[]): McpServer {
@@ -32,7 +36,22 @@ export class McpService {
       name: 'inite-brain-service',
       version: '0.1.0',
     });
+    this.registerReadTools(server, companyId, scopes);
+    if (scopes.includes('brain:write')) {
+      this.registerWriteTools(server, companyId);
+    }
+    if (scopes.includes('brain:admin')) {
+      this.registerAdminTools(server, companyId);
+    }
+    return server;
+  }
 
+   
+  private registerReadTools(
+    server: McpServer,
+    companyId: string,
+    scopes: BrainScope[],
+  ): void {
     // ── search_knowledge ──────────────────────────────────────────────
     server.registerTool(
       'search_knowledge',
@@ -116,6 +135,101 @@ export class McpService {
       },
     );
 
+    // ── search_multi_hop ──────────────────────────────────────────────
+    server.registerTool(
+      'search_multi_hop',
+      {
+        title: 'Multi-hop search across the knowledge graph',
+        description:
+          'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Use for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) so the caller can audit which facts drove the answer.',
+        inputSchema: {
+          query: z.string().describe('Natural-language query'),
+          maxHops: z.number().int().min(1).max(5).optional().describe(
+            'Hard cap on planner hops (default 3, capped at 5 — beyond that latency dominates)',
+          ),
+          synthesize: z.boolean().optional().describe(
+            'Run the synthesizer over the final entity set and return a grounded answer with citations',
+          ),
+          synthesisGuardrails: z
+            .enum(['strict', 'lenient', 'off'])
+            .optional()
+            .describe(
+              'Override guardrails when synthesize=true: strict closes to null on partial; lenient returns the answer with the verifier verdict; off skips the verifier',
+            ),
+          asOf: z
+            .string()
+            .datetime()
+            .optional()
+            .describe('Knowledge as-of this ISO 8601 moment'),
+          predicates: z
+            .array(z.string())
+            .optional()
+            .describe('Filter to these predicates only'),
+          limit: z.number().int().min(1).max(50).optional(),
+        },
+      },
+      async (args) => {
+        const out = await this.multiHop.run(
+          companyId,
+          {
+            query: args.query,
+            maxHops: args.maxHops,
+            synthesize: args.synthesize,
+            synthesisGuardrails: args.synthesisGuardrails,
+            asOf: args.asOf,
+            predicates: args.predicates,
+            limit: args.limit,
+          },
+          scopes,
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: out as any,
+        };
+      },
+    );
+
+    // ── synthesize ────────────────────────────────────────────────────
+    server.registerTool(
+      'synthesize',
+      {
+        title: 'Synthesize a grounded answer from retrieved facts',
+        description:
+          'Runs hybrid search then feeds the retrieved facts to a generator LLM that produces a citation-bearing answer (each claim ends with [factId]); a verifier LLM then judges whether every claim is supported. Three guardrail modes: strict (default) returns null on partial / unsupported / verifier outage (fail-closed); lenient returns the answer alongside the verifier verdict; off skips the verifier. Use when you need a direct natural-language answer rather than raw search results.',
+        inputSchema: {
+          query: z.string().describe('Natural-language question'),
+          limit: z.number().int().min(1).max(50).optional().describe(
+            'Top-K facts fed to the generator (default 10)',
+          ),
+          predicates: z.array(z.string()).optional(),
+          asOf: z.string().datetime().optional(),
+          minConfidence: z.number().min(0).max(1).optional(),
+          synthesisGuardrails: z
+            .enum(['strict', 'lenient', 'off'])
+            .optional()
+            .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
+        },
+      },
+      async (args) => {
+        const out = await this.synth.synthesize(
+          companyId,
+          {
+            query: args.query,
+            limit: args.limit,
+            predicates: args.predicates,
+            asOf: args.asOf,
+            minConfidence: args.minConfidence,
+            synthesisGuardrails: args.synthesisGuardrails,
+          },
+          scopes,
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: out as any,
+        };
+      },
+    );
+
     // ── find_related_entities ─────────────────────────────────────────
     server.registerTool(
       'find_related_entities',
@@ -144,8 +258,11 @@ export class McpService {
       },
     );
 
-    // Write tools — only register if the caller has brain:write
-    if (scopes.includes('brain:write')) {
+  }
+
+   
+  private registerWriteTools(server: McpServer, companyId: string): void {
+    {
       // ── record_fact ────────────────────────────────────────────────
       server.registerTool(
         'record_fact',
@@ -183,6 +300,46 @@ export class McpService {
         },
       );
 
+      // ── link_entities ──────────────────────────────────────────────
+      server.registerTool(
+        'link_entities',
+        {
+          title: 'Declare a typed edge between two entities',
+          description:
+            'Insert an edge between two entities. `kind` is the edge type — `identity_of` merges the `from` entity into `to` (cross-vertical identity reconciliation), other typed edges (`paid_for`, `mentioned_in`, `worked_with`, …) are surfaced by find_related_entities and contribute to PPR / SubgraphRAG context. Use sparingly from agents — most edges come from event ingestion. identity_of rejects self-merges and contradictory cycles.',
+          inputSchema: {
+            from: z.union([
+              z.object({ vertical: z.string(), id: z.string() }),
+              z.object({ entityId: z.string() }),
+            ]),
+            to: z.union([
+              z.object({ vertical: z.string(), id: z.string() }),
+              z.object({ entityId: z.string() }),
+            ]),
+            kind: z.string().describe(
+              'Edge type (identity_of | paid_for | mentioned_in | worked_with | …)',
+            ),
+            weight: z.number().min(0).max(1).optional(),
+            sourceVertical: z
+              .string()
+              .describe('Vertical attributed as source (e.g. "rent")'),
+          },
+        },
+        async (args) => {
+          const out = await this.ingest.ingestLink(companyId, {
+            from: args.from as any,
+            to: args.to as any,
+            kind: args.kind,
+            weight: args.weight,
+            source: { vertical: args.sourceVertical },
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as any,
+          };
+        },
+      );
+
       // ── retract_fact ───────────────────────────────────────────────
       server.registerTool(
         'retract_fact',
@@ -207,7 +364,47 @@ export class McpService {
         },
       );
     }
+  }
 
-    return server;
+  // ── forget_entity ───────────────────────────────────────────────
+  // GDPR-grade destructive operation — gated on brain:admin to keep
+  // it well away from any agent loop with brain:write. The HTTP path
+  // requires brain:admin for the same reason.
+  private registerAdminTools(server: McpServer, companyId: string): void {
+    {
+      server.registerTool(
+        'forget_entity',
+        {
+          title: 'GDPR-forget an entity (destructive, synchronous cascade)',
+          description:
+            'Hard delete one entity and ALL of its facts, edges, and embeddings; an HMAC-hashed tombstone stays in `forgotten_entity` for proof-of-erasure. THIS IS DESTRUCTIVE AND IRREVERSIBLE. Use only when responding to a GDPR Art. 17 right-to-erasure request or operator-grade cleanup. Reason + requestId are required for the audit trail.',
+          inputSchema: {
+            entityId: z
+              .string()
+              .describe('Brain entity id (knowledge_entity:...) or short id'),
+            reason: z
+              .enum(['gdpr_request', 'tenant_offboarding', 'operator_request'])
+              .describe(
+                'Audit-grade reason. gdpr_request for Art. 17 DSARs; tenant_offboarding for full deprovision; operator_request for one-off cleanup',
+              ),
+            requestId: z
+              .string()
+              .describe(
+                'Ticket / DSAR id — surfaces in the forgotten_entity audit row. Required for traceability.',
+              ),
+          },
+        },
+        async (args) => {
+          const out = await this.entities.forget(companyId, args.entityId, {
+            reason: args.reason,
+            requestId: args.requestId,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as any,
+          };
+        },
+      );
+    }
   }
 }

@@ -16,7 +16,8 @@ Search the company's bitemporal knowledge graph for entities and their facts. Br
 Do **not** use for:
 - Recording new facts → use `record_fact` instead
 - Walking one entity's full history → use `brain-recall` (it combines profile + timeline + connections)
-- Generating a synthesized answer from multiple facts → escalate to `/v1/synthesize` over REST; the MCP surface is search-only
+- Questions that combine evidence across multiple entities or sessions → use **`search_multi_hop`** (it runs a planner-LLM and chains sub-queries; the running entity set is anchored across hops so compute stays bounded)
+- Direct natural-language answers with citations → use **`synthesize`** (the LLM generator runs a verifier; the strict guardrail returns `null` when grounding is thin, lenient returns the verdict)
 
 ## How to invoke
 
@@ -94,6 +95,10 @@ If the search needs `email`, `phone`, `dob`, or `address`, the caller must hold 
 
 ## Companion tools
 
+- `search_multi_hop` — for chained reasoning over multiple entities ("tenants who complained in April AND upgraded after"); set `synthesize: true` to fold the answer in
+- `synthesize` — when the user wants a direct natural-language answer with citations rather than raw search hits; pair with `synthesisGuardrails: 'strict'` when hallucinated answers cost more than null
 - `get_entity_profile` — when you already have a specific entity in mind
 - `get_entity_timeline` — when you need every fact ever recorded for one entity
 - `find_related_entities` — graph walk from a known node
+- `link_entities` — declare a typed edge (e.g. `identity_of` to merge two records of the same person)
+- `forget_entity` — GDPR-grade hard cascade; admin scope only

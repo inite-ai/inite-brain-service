@@ -104,27 +104,30 @@ The runner exposes both natural paths brain ships:
 Both consume the same QaAgent interface so the metric pipeline is
 identical — only the answer-generation strategy varies.
 
-### MCP coverage gap (deferred)
+### MCP surface (used by the agent variant)
 
-When the `ClaudeMcpAgent` phase lands, brain's MCP surface needs two
-adds before the agent-natural numbers are fair:
+The MCP server exposes the full read-side stack agents need for
+LoCoMo-shape work:
 
-- **`search_multi_hop` tool** — `src/mcp/mcp.service.ts` currently
-  registers `search_knowledge` (one-shot) but not the multi-hop
-  variant. Without it, Claude hops manually by calling
-  `search_knowledge` N times with hand-rolled subqueries — it works,
-  but the planner-LLM that powers the HTTP path stays unused.
-  Multi-hop questions dominate LoCoMo (~half the dataset across
-  categories 2 + 3); not shipping the tool understates brain's
-  numbers vs competitors.
-- **No `ingest_mention` MCP tool** — ingest stays HTTP-only. This is
-  intentional: in production, ingestion runs from the event bus, not
-  from an agent. The Claude-MCP agent path only answers questions,
-  so the asymmetry doesn't hurt the bench.
+- `search_knowledge` — one-shot hybrid retrieval (vector + BM25 +
+  listwise rerank)
+- `search_multi_hop` — planner-LLM chained search; same planner the
+  HttpAgent path uses, so agent-natural numbers exercise the same
+  retrieval logic
+- `synthesize` — corrective-RAG with claim-level verifier; strict /
+  lenient / off guardrails
+- `get_entity_profile` / `get_entity_timeline` /
+  `find_related_entities` — graph drill-downs the planner doesn't
+  substitute for
 
-`HttpAgent` lands first as the deterministic baseline; the
-`search_multi_hop` MCP tool needs to land before publishing
-comparative numbers.
+Write tools (`record_fact`, `retract_fact`, `link_entities`,
+`forget_entity`) sit behind their own scopes and aren't exercised by
+LoCoMo — LoCoMo is a read benchmark.
+
+**No `ingest_mention` MCP tool** — ingest stays HTTP-only. This is
+intentional: in production, ingestion runs from the event bus, not
+from an agent. The Claude-MCP agent path only answers questions, so
+the asymmetry doesn't hurt the bench.
 
 ## Why this is fair
 
