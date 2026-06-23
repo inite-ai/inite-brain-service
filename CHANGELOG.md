@@ -4,7 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — 2026-06-23
+## [Unreleased]
+
+### Added
+
+- **Topic communities** — the entity graph is now clustered into topic
+  communities (label propagation over `knowledge_edge`, borrowed from
+  graphiti). Each community carries a rolled-up summary + embedding and is
+  exposed as a coarse retrieval scope via the MCP tools `search_communities`,
+  `list_communities`, and `find_entity_communities`. Built off-hours by the
+  dreams loop (`communities` op, gated by `DREAMS_COMMUNITIES_ENABLED`).
+- **Watermark summarisation cache** — `summarize_entity` now invalidates its
+  cache by a dual wall-clock / event-time watermark (graphiti `summarize_saga`
+  pattern). A backfilled fact (newer `recordedAt`, past `validFrom`) correctly
+  busts the cache, and results carry `asOfValid` — the event-time the summary
+  reflects. Community summaries reuse the same watermark to skip rebuilding
+  unchanged clusters.
 
 First public open-source release.
 

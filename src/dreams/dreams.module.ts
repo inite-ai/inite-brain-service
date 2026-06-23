@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
 import { CompactionModule } from '../compaction/compaction.module';
+import { CommunityModule } from '../communities/community.module';
 import { AuthModule } from '../auth/auth.module';
 import { DreamsService } from './dreams.service';
 import { DreamsController } from './dreams.controller';
@@ -22,6 +23,7 @@ import { DreamsResolverService } from './resolver.service';
     ScheduleModule.forRoot(),
     ConfigModule,
     CompactionModule,
+    CommunityModule,
     AuthModule,
   ],
   controllers: [DreamsController],

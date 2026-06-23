@@ -8,6 +8,10 @@ import { withSpan } from '../common/tracing';
 import { DreamsDedupService, DedupResult } from './dedup.service';
 import { DreamsResolverService, ResolverResult } from './resolver.service';
 import { CompactionService } from '../compaction/compaction.service';
+import {
+  CommunityBuilderService,
+  type CommunityBuildResult,
+} from '../communities/community-builder.service';
 import { DreamsOperation } from './dto/run-dreams.dto';
 import { JobRunService, JobRunRow } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
@@ -29,6 +33,8 @@ export interface DreamsTenantStats {
    * stay accessible via the existing /metrics surface.
    */
   summarized?: boolean;
+  /** Topic-community (re)build stats — present when the communities op ran. */
+  communities?: CommunityBuildResult;
   error?: string;
 }
 
@@ -92,6 +98,9 @@ export class DreamsService implements OnModuleInit {
     // @Optional so the positional unit tests (no DI) can omit it — they run
     // unguarded, which is correct for single-process tests.
     @Optional() private readonly guard?: DistributedLeaseGuard,
+    // @Optional so the positional unit tests (no DI) can omit it. In
+    // production CommunityModule (imported by DreamsModule) provides it.
+    @Optional() private readonly community?: CommunityBuilderService,
   ) {
     this.enabled =
       this.configService.get<string>('DREAMS_ENABLED', '0') === '1';
@@ -109,6 +118,9 @@ export class DreamsService implements OnModuleInit {
     ) {
       ops.push('summarize');
     }
+    // Communities auto-join the default set when enabled (same pattern as
+    // dedup/resolve — one flag, DREAMS_COMMUNITIES_ENABLED).
+    if (this.community?.isEnabled()) ops.push('communities');
     this.defaultOps = new Set(ops);
     this.logger.log(
       `Dreams config: enabled=${this.enabled}, default ops=${[...this.defaultOps].join(',') || '(none)'}`,
@@ -241,6 +253,7 @@ export class DreamsService implements OnModuleInit {
       identityLinksCreated: stats.dedup?.identityLinksCreated ?? 0,
       resolutionsApplied: stats.resolve?.resolutionsApplied ?? 0,
       summarized: stats.summarized ?? false,
+      communitiesBuilt: stats.communities?.communitiesBuilt ?? 0,
     };
   }
 
@@ -398,6 +411,20 @@ export class DreamsService implements OnModuleInit {
           if (jobRow) {
             await this.jobs?.updateProgress(jobRow, {
               resolutionsApplied: stats.resolve.resolutionsApplied,
+            });
+          }
+        }
+        if (opSet.has('communities') && this.community) {
+          checkAbort();
+          stats.communities = await withSpan(
+            'dreams.communities',
+            () => this.community!.run(db),
+            { 'dreams.tenant': companyId },
+          );
+          if (jobRow) {
+            await this.jobs?.updateProgress(jobRow, {
+              communitiesBuilt: stats.communities.communitiesBuilt,
+              communitiesReused: stats.communities.communitiesReused,
             });
           }
         }

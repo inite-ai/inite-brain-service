@@ -41,6 +41,7 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     stubEmbedder as never,
   );
   return svc.buildServer('co_test', scopes);
@@ -76,6 +77,9 @@ const READ_BASELINE = [
   'detect_contradiction',
   'match_procedure',
   'list_procedures',
+  'search_communities',
+  'list_communities',
+  'find_entity_communities',
   'find_related_entities',
 ];
 
@@ -125,6 +129,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
 describe('McpService.health — unauthenticated probe payload', () => {
   it('returns ok, version, the read-baseline tools, and embedder hint', () => {
     const svc = new McpService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

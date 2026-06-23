@@ -156,6 +156,81 @@ export class EntitiesService {
     });
   }
 
+  /**
+   * Cheap freshness probe for an entity's active fact set, used by the
+   * summarize_entity watermark cache (graphiti-style dual watermark):
+   *   - maxRecordedAt — wall-clock: the newest moment brain learned
+   *     anything about this entity. A cached summary is stale the instant
+   *     a fact with a newer recordedAt lands (even a BACKFILLED one whose
+   *     validFrom is in the past — the bug an asOf-keyed cache misses).
+   *   - maxValidFrom  — event-time: the newest real-world moment the
+   *     summary reflects ("as of"), surfaced to the caller.
+   *
+   * One indexed aggregate over (entityId, status, recordedAt) — far
+   * cheaper than rebuilding the full profile, so it's safe to run on
+   * every cache hit. Returns nulls when the entity has no qualifying
+   * facts.
+   */
+  async freshnessWatermark(
+    companyId: string,
+    entityIdRaw: string,
+    asOfRaw: string | undefined,
+    scopes: BrainScope[],
+  ): Promise<{ maxRecordedAt: string | null; maxValidFrom: string | null }> {
+    const ref = this.normalizeEntityId(entityIdRaw);
+    const asOf = asOfRaw ? new Date(asOfRaw) : null;
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const baseClauses = [
+        `entityId = type::thing('knowledge_entity', $rid)`,
+      ];
+      const params: Record<string, unknown> = { rid: ref.id };
+      if (asOf) {
+        baseClauses.push(
+          `recordedAt <= $asOf`,
+          `(retractedAt IS NONE OR retractedAt > $asOf)`,
+          `validFrom <= $asOf`,
+          `(validUntil IS NONE OR validUntil > $asOf)`,
+        );
+        params.asOf = asOf;
+      } else {
+        baseClauses.push(`retractedAt IS NONE`);
+      }
+      // Mirror getProfile's PII gate: a fact the caller can't see must
+      // not move the watermark, else a low-scope caller's cache gets
+      // invalidated exactly when a restricted fact lands (a timing oracle
+      // + needless rebuilds). DB-side here since we don't fetch the rows.
+      const blocked = Object.entries(PREDICATE_POLICIES)
+        .filter(([, p]) => p.requiresScope && !scopes.includes(p.requiresScope))
+        .map(([predicate]) => predicate);
+      if (blocked.length) {
+        baseClauses.push(`predicate NOT IN $blocked`);
+        params.blocked = blocked;
+      }
+      // Two cheap ORDER BY … LIMIT 1 probes (recordedAt is indexed),
+      // sent as ONE round-trip (two statements) so a cache-hit freshness
+      // check stays a single network hop. Avoids math::max aggregation,
+      // which returns NONE over datetimes on this SurrealDB build.
+      const where = baseClauses.join(' AND ');
+      const [recRows, valRows] = await db.query<[any[], any[]]>(
+        `SELECT recordedAt FROM knowledge_fact WHERE ${where}
+           ORDER BY recordedAt DESC LIMIT 1;
+         SELECT validFrom FROM knowledge_fact WHERE ${where}
+           ORDER BY validFrom DESC LIMIT 1`,
+        params,
+      );
+      const toIso = (v: unknown): string | null =>
+        v == null
+          ? null
+          : v instanceof Date
+            ? v.toISOString()
+            : new Date(String(v)).toISOString();
+      return {
+        maxRecordedAt: toIso((recRows as any[])?.[0]?.recordedAt),
+        maxValidFrom: toIso((valRows as any[])?.[0]?.validFrom),
+      };
+    });
+  }
+
   async getTimeline(
     companyId: string,
     entityIdRaw: string,

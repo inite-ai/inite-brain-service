@@ -21,11 +21,18 @@ import { BrainScope } from '../auth/api-key.types';
  *     `compacted_entity` table is a v2 lift — note `Gotcha` in the
  *     roadmap brief: an LLM-backed generator pushes us toward
  *     persistent cache, but until that lands the LRU is enough.
- *   - Invalidation: cache key embeds the asOf timestamp (or 'now' for
- *     unspecified) so future calls at different cursors miss; the LRU
- *     tail evicts when entries pile up. Fact ingest does NOT
- *     proactively invalidate — risk is bounded by short LRU tail and
- *     mostly-stable summaries.
+ *   - Invalidation: WATERMARK-based (borrowed from graphiti
+ *     `summarize_saga`). Each cache entry stores the entity's wall-clock
+ *     watermark (max recordedAt) at build time. Every lookup runs a cheap
+ *     indexed aggregate (EntitiesService.freshnessWatermark); if a fact
+ *     with a newer recordedAt has landed since — including a BACKFILLED
+ *     one whose validFrom is in the past — the entry is treated as stale
+ *     and rebuilt. The cache key still embeds asOf, so historical cursors
+ *     stay isolated; the watermark adds the missing freshness axis the
+ *     prior LRU-only design could not see.
+ *   - The result also carries `asOfValid` — the event-time (max validFrom)
+ *     the summary reflects, so the caller knows "as of when", not just
+ *     "computed when".
  */
 @Injectable()
 export class SummarizeEntityService {
@@ -41,13 +48,23 @@ export class SummarizeEntityService {
     scopes: BrainScope[],
   ): Promise<SummarizeResult> {
     const cacheKey = buildCacheKey(companyId, args);
+    // Freshness probe FIRST — one cheap indexed aggregate. Its wall-clock
+    // watermark decides whether a cache hit is still valid.
+    const watermark = await this.entities.freshnessWatermark(
+      companyId,
+      args.entityId,
+      args.asOf,
+      scopes,
+    );
+
     const hit = this.cache.get(cacheKey);
-    if (hit) {
+    if (hit && !isStale(hit.watermark, watermark.maxRecordedAt)) {
       // LRU touch — re-insert moves the key to end-of-iteration.
       this.cache.delete(cacheKey);
       this.cache.set(cacheKey, hit);
       return { ...hit.result, cached: true };
     }
+    if (hit) this.cache.delete(cacheKey); // stale — drop and rebuild below.
 
     const profile = await this.entities.getProfile(
       companyId,
@@ -64,6 +81,7 @@ export class SummarizeEntityService {
       factsConsidered: profile.facts.length,
       style,
       asOf: args.asOf,
+      asOfValid: watermark.maxValidFrom ?? undefined,
       cached: false,
     };
     const cacheable: CachedSummary = {
@@ -74,7 +92,9 @@ export class SummarizeEntityService {
         factsConsidered: result.factsConsidered,
         style: result.style,
         asOf: result.asOf,
+        asOfValid: result.asOfValid,
       },
+      watermark: watermark.maxRecordedAt,
       insertedAt: Date.now(),
     };
     this.cache.set(cacheKey, cacheable);
@@ -102,6 +122,20 @@ export class SummarizeEntityService {
       this.cache.delete(oldest.value);
     }
   }
+}
+
+/**
+ * A cached summary is stale when the entity's current wall-clock
+ * watermark differs from the one captured at build time. recordedAt only
+ * advances as facts land, so "differs" means "newer fact arrived" — the
+ * proactive invalidation the old LRU-only cache lacked. Both-null (entity
+ * with no facts) is fresh.
+ */
+function isStale(
+  builtWatermark: string | null,
+  currentWatermark: string | null,
+): boolean {
+  return (builtWatermark ?? '') !== (currentWatermark ?? '');
 }
 
 function buildCacheKey(companyId: string, args: SummarizeArgs): string {
@@ -172,6 +206,12 @@ export interface SummarizeResult {
   factsConsidered: number;
   style: SummarizeStyle;
   asOf?: string;
+  /**
+   * Event-time the summary reflects — the max validFrom across the facts
+   * considered (graphiti-style event-time watermark). Lets the caller
+   * reason about "as of when", independent of when it was computed.
+   */
+  asOfValid?: string;
   /** True when this exact (entityId, asOf, style) was served from the LRU. */
   cached: boolean;
 }
@@ -179,5 +219,7 @@ export interface SummarizeResult {
 interface CachedSummary {
   key: string;
   result: Omit<SummarizeResult, 'cached'>;
+  /** Wall-clock watermark (max recordedAt) captured at build time. */
+  watermark: string | null;
   insertedAt: number;
 }
