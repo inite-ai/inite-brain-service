@@ -8,6 +8,7 @@ import { FactsModule } from '../facts/facts.module';
 import { MultiHopModule } from '../multi-hop/multi-hop.module';
 import { SynthesizeModule } from '../synthesize/synthesize.module';
 import { DiffModule } from '../diff/diff.module';
+import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { DiffModule } from '../diff/diff.module';
     MultiHopModule,
     SynthesizeModule,
     DiffModule,
+    SummarizeEntityModule,
   ],
   controllers: [McpController],
   providers: [McpService],

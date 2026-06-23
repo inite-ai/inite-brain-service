@@ -9,6 +9,7 @@ import { MultiHopService } from '../multi-hop/multi-hop.service';
 import { SynthesizeService } from '../synthesize/synthesize.service';
 import { MemoryDiffService } from '../diff/memory-diff.service';
 import { IngestPredictionService } from '../ingest/ingest-predictor.service';
+import { SummarizeEntityService } from '../summarize-entity/summarize-entity.service';
 import { BrainScope } from '../auth/api-key.types';
 
 /**
@@ -24,6 +25,11 @@ import { BrainScope } from '../auth/api-key.types';
 export class McpService {
   private readonly logger = new Logger(McpService.name);
 
+  // This is the DI seam for every MCP-exposed surface; one
+  // collaborator per tool family. Wrapping in a deps object would push
+  // Nest's @Inject indirection into every call site without any
+  // readability win — the constructor IS the manifest.
+  /* eslint-disable-next-line max-params */
   constructor(
     private readonly search: SearchService,
     private readonly entities: EntitiesService,
@@ -33,6 +39,7 @@ export class McpService {
     private readonly synth: SynthesizeService,
     private readonly memoryDiff: MemoryDiffService,
     private readonly predictor: IngestPredictionService,
+    private readonly summarizer: SummarizeEntityService,
   ) {}
 
   buildServer(companyId: string, scopes: BrainScope[]): McpServer {
@@ -271,6 +278,47 @@ export class McpService {
           args.entityId,
           args.since,
           args.until,
+          scopes,
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: out as any,
+        };
+      },
+    );
+
+    // ── summarize_entity ──────────────────────────────────────────────
+    server.registerTool(
+      'summarize_entity',
+      {
+        title: 'One-line briefing for an entity',
+        description:
+          "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. v1 is template-rendered (no LLM call); the styleHint axis is forward-compatible with an LLM-backed generator that ships behind a feature flag later. Use INSTEAD of profile+timeline+competing when you only need a briefing — saves three round-trips and ~1000 tokens of structured fact data.",
+        inputSchema: {
+          entityId: z
+            .string()
+            .describe('Brain entity id (knowledge_entity:...) or short id'),
+          asOf: z
+            .string()
+            .datetime()
+            .optional()
+            .describe('Summarize what was known at this ISO 8601 moment'),
+          styleHint: z
+            .enum(['neutral', 'sales', 'support'])
+            .optional()
+            .describe(
+              "Phrasing register — 'neutral' (default), 'sales' (lead with name+key signals), 'support' (frame as a customer)",
+            ),
+        },
+      },
+      async (args) => {
+        const out = await this.summarizer.summarize(
+          companyId,
+          {
+            entityId: args.entityId,
+            asOf: args.asOf,
+            styleHint: args.styleHint,
+          },
           scopes,
         );
         return {
