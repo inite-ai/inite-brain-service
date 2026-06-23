@@ -90,6 +90,20 @@ describe('EntityResolverService.resolveByName', () => {
     expect(out).toBe('knowledge_entity:x');
   });
 
+  it('creates new (null) when the judge says "unsure"', async () => {
+    const { svc, db, openai } = makeService(ENABLED);
+    db.query
+      .mockResolvedValueOnce([
+        [{ entityId: 'knowledge_entity:x', etype: 'customer', sim: 0.95 }],
+      ])
+      .mockResolvedValueOnce([[{ predicate: 'occupation', object: 'lawyer' }]]);
+    openai.chat.completions.create.mockResolvedValue(verdict('unsure'));
+    const out = await svc.resolveByName(db as any, 'John Smith', 'customer', [
+      'occupation: lawyer',
+    ]);
+    expect(out).toBeNull();
+  });
+
   it('creates new (null) when the judge says "different"', async () => {
     const { svc, db, openai } = makeService(ENABLED);
     db.query

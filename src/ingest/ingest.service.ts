@@ -69,8 +69,8 @@ export class IngestService {
     private readonly configService: ConfigService,
     private readonly predicateRegistry: PredicateRegistryService,
     @Optional() private readonly metrics?: MetricsService,
-    // @Optional so the positional unit tests (no DI) can omit it; the
-    // mention path simply skips inline resolution when it's absent.
+    // @Optional: when the resolver isn't wired (or its flag is off), the
+    // mention path simply skips inline resolution and creates new as before.
     @Optional() private readonly entityResolver?: EntityResolverService,
   ) {
     this.conflict = {

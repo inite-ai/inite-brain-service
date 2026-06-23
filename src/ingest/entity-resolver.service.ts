@@ -27,6 +27,21 @@ import { withGenAiCall } from '../common/gen-ai-observability';
  * Gated by INGEST_INLINE_RESOLUTION_ENABLED (default off). Any failure /
  * timeout falls back to "create new" — inline resolution must never block
  * or fail an ingest.
+ *
+ * Provenance (deliberate, graphiti-parity): a confirmed match REUSES the
+ * existing entity rather than creating a duplicate + an `identity_of` edge
+ * the way the off-hours dreams dedup does. So there is no reversible merge
+ * edge to unlink — the trade-off for never materialising the duplicate.
+ * Mitigations: the judge prefers "different" when unsure; each ingested
+ * fact still carries its own `source` (messageId / vertical), so per-fact
+ * origin is auditable; and the decision is logged. If a wrong fuse is ever
+ * a concern for a tenant, leave the flag off and rely on dreams (reversible
+ * edges) instead.
+ *
+ * DEDUP NOTE: the LLM judge + fetchTopFacts + OpenAI/Semaphore setup mirror
+ * DreamsDedupService (one-pair vs candidate-scan framing). Extracting a
+ * shared EntityJudge that serves both call sites is tracked as a follow-up;
+ * kept duplicated here to keep this feature PR off the dreams hot path.
  */
 @Injectable()
 export class EntityResolverService {
