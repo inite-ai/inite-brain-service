@@ -27,6 +27,7 @@ COPY lib ./lib
 COPY hooks ./hooks
 COPY locales ./locales
 COPY public ./public
+COPY content ./content
 COPY middleware.ts ./middleware.ts
 
 ARG NEXT_PUBLIC_BRAIN_API_URL=https://brain.inite.ai
