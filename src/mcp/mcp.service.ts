@@ -14,6 +14,7 @@ import { MemoryDiffService } from '../diff/memory-diff.service';
 import { IngestPredictionService } from '../ingest/ingest-predictor.service';
 import { SummarizeEntityService } from '../summarize-entity/summarize-entity.service';
 import { ProceduralMemoryService } from '../procedural/procedural-memory.service';
+import { CommunityService } from '../communities/community.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import {
@@ -22,6 +23,7 @@ import {
   type ProgressReporter,
 } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
+import { registerCommunityTools } from './community-tools';
 
 /**
  * Translate an MCP request's `extra` parameter into a ProgressReporter
@@ -72,6 +74,9 @@ const HEALTH_TOOLS = [
   'find_related_entities',
   'match_procedure',
   'list_procedures',
+  'search_communities',
+  'list_communities',
+  'find_entity_communities',
 ];
 
 /**
@@ -103,6 +108,7 @@ export class McpService {
     private readonly predictor: IngestPredictionService,
     private readonly summarizer: SummarizeEntityService,
     private readonly procedural: ProceduralMemoryService,
+    private readonly communities: CommunityService,
     private readonly embedder: EmbedderService,
   ) {}
 
@@ -691,6 +697,10 @@ export class McpService {
         };
       },
     );
+
+    // Community scope (search/list/find_entity) lives in its own module
+    // to keep this file under the max-lines gate.
+    registerCommunityTools(server, companyId, this.communities);
   }
 
 

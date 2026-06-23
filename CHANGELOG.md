@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Topic communities** — the entity graph is now clustered into topic
+  communities (label propagation over `knowledge_edge`, borrowed from
+  graphiti). Each community carries a rolled-up summary + embedding and is
+  exposed as a coarse retrieval scope via the MCP tools `search_communities`,
+  `list_communities`, and `find_entity_communities`. Built off-hours by the
+  dreams loop (`communities` op, gated by `DREAMS_COMMUNITIES_ENABLED`).
+- **Watermark summarisation cache** — `summarize_entity` now invalidates its
+  cache by a dual wall-clock / event-time watermark (graphiti `summarize_saga`
+  pattern). A backfilled fact (newer `recordedAt`, past `validFrom`) correctly
+  busts the cache, and results carry `asOfValid` — the event-time the summary
+  reflects. Community summaries reuse the same watermark to skip rebuilding
+  unchanged clusters.
 - **Inline entity resolution at ingest** (opt-in, graphiti-style) — on the
   free-text mention path, before minting a new entity for an extracted name
   that missed the exact-name match, brain now cosine-searches existing
@@ -20,6 +32,8 @@ All notable changes to this project are documented here. The format is based on
   Gated by `INGEST_INLINE_RESOLUTION_ENABLED` (default off); any error or
   timeout falls back to create-new and never blocks ingest. Structured
   `POST /v1/ingest/fact` with an explicit `vertical:id` is untouched.
+
+## [0.1.0] — 2026-06-23
 
 First public open-source release.
 

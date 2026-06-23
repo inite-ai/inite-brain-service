@@ -10,6 +10,7 @@ import { SynthesizeModule } from '../synthesize/synthesize.module';
 import { DiffModule } from '../diff/diff.module';
 import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.module';
 import { ProceduralModule } from '../procedural/procedural.module';
+import { CommunityModule } from '../communities/community.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ProceduralModule } from '../procedural/procedural.module';
     DiffModule,
     SummarizeEntityModule,
     ProceduralModule,
+    CommunityModule,
   ],
   controllers: [McpController],
   providers: [McpService],
