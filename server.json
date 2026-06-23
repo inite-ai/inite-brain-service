@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.inite-ai/inite-brain-service",
+  "title": "Inite Brain",
+  "description": "Open-source memory layer for LLM agents — bitemporal knowledge graph (SurrealDB) with facts, episodes, and procedural tiers. Hybrid vector + BM25 + multi-hop retrieval, planner-LLM and claim-verifier, conflict resolution (supersede/competing/revive), and GDPR-grade forget_entity. LoCoMo-benchmarked against Mem0, Zep, and MemGPT.",
+  "version": "0.1.0",
+  "websiteUrl": "https://brain.inite.ai",
+  "repository": {
+    "url": "https://github.com/inite-ai/inite-brain-service",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://brain.inite.ai/mcp/{companyId}",
+      "variables": {
+        "companyId": {
+          "description": "Tenant identifier issued at signup — scopes the memory graph to your company.",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <API_KEY> — issued from the brain.inite.ai dashboard. Scoped to read / write / admin.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tools": 18,
+      "scopes": ["read", "write", "admin"],
+      "backend": "surrealdb",
+      "license": "AGPL-3.0",
+      "benchmarks": ["LoCoMo"]
+    }
+  }
+}

@@ -28,6 +28,7 @@ which file the bits used to live in.
 | [Operations](operations.md) | All env vars, retrieval feature flags, queue tuning, boot validation, test commands. |
 | [Operator playbook](operator-playbook.md) | Issue an ApiKey, troubleshoot ingest / search, run a GDPR forget, drain a stuck queue. |
 | [Deploy runbook](DEPLOY.md) | Production deploy — Traefik, GitHub Actions, rollback. |
+| [Distribution playbook](distribution.md) | Where to list brain — MCP Registry, awesome-* PRs, with ready-to-paste rows. |
 
 ## Roadmap
 
