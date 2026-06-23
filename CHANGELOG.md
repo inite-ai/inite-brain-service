@@ -20,6 +20,20 @@ All notable changes to this project are documented here. The format is based on
   busts the cache, and results carry `asOfValid` — the event-time the summary
   reflects. Community summaries reuse the same watermark to skip rebuilding
   unchanged clusters.
+- **Inline entity resolution at ingest** (opt-in, graphiti-style) — on the
+  free-text mention path, before minting a new entity for an extracted name
+  that missed the exact-name match, brain now cosine-searches existing
+  entities and lets an LLM judge confirm same-as using the incoming mention's
+  freshly-extracted facts. A confirmed match reuses the existing entity, so
+  the near-duplicate is never created (narrows the dedup window that
+  previously waited for the off-hours dreams pass). The judge prefers
+  "different" when unsure — wrongly fusing two distinct entities (e.g. two
+  "John Smith"s) is worse than a transient duplicate dreams can still merge.
+  Gated by `INGEST_INLINE_RESOLUTION_ENABLED` (default off); any error or
+  timeout falls back to create-new and never blocks ingest. Structured
+  `POST /v1/ingest/fact` with an explicit `vertical:id` is untouched.
+
+## [0.1.0] — 2026-06-23
 
 First public open-source release.
 

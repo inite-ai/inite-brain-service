@@ -19,6 +19,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { ExtractorService } from '../ai/extractor.service';
 import { HypeService } from '../ai/hype.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { EntityResolverService } from './entity-resolver.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
@@ -68,6 +69,9 @@ export class IngestService {
     private readonly configService: ConfigService,
     private readonly predicateRegistry: PredicateRegistryService,
     @Optional() private readonly metrics?: MetricsService,
+    // @Optional: when the resolver isn't wired (or its flag is off), the
+    // mention path simply skips inline resolution and creates new as before.
+    @Optional() private readonly entityResolver?: EntityResolverService,
   ) {
     this.conflict = {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
@@ -364,6 +368,11 @@ export class IngestService {
         for (let i = 0; i < extraction.entities.length; i++) {
           const e = extraction.entities[i];
           const knownHint = dto.knownEntities?.[i];
+          // The entity's freshly-extracted facts feed the inline-resolution
+          // judge (the "new" side — these aren't written yet).
+          const incomingFacts = extraction.facts
+            .filter((f) => f.entityIndex === i)
+            .map((f) => `${f.predicate}: ${f.object}`);
           const eid = await traceSpan(
             'ingest.entity.resolve',
             () =>
@@ -372,6 +381,7 @@ export class IngestService {
                 e,
                 knownHint,
                 dto.contextRef,
+                incomingFacts,
               ),
             { name: e.name, type: e.type },
           );
@@ -610,6 +620,7 @@ export class IngestService {
     e: { name: string; type: string; canonical?: string },
     hint: { vertical: string; id: string; role?: string } | undefined,
     _contextRef: { vertical: string },
+    incomingFacts: string[] = [],
   ): Promise<string> {
     // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
@@ -639,6 +650,21 @@ export class IngestService {
     );
     const nRow = ((nRows as any[]) ?? [])[0];
     if (nRow) return String(nRow.id);
+
+    // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
+    // a new entity, look for a near-duplicate that already exists and let
+    // an LLM judge confirm same-as using the incoming facts. A confirmed
+    // match reuses the existing entity, so the duplicate is never created.
+    // Falls through to create-new when disabled, no match, or any error.
+    if (this.entityResolver?.isEnabled()) {
+      const resolved = await this.entityResolver.resolveByName(
+        db,
+        e.name,
+        this.normalizeEntityType(e.type),
+        incomingFacts,
+      );
+      if (resolved) return resolved;
+    }
 
     const created = await dbCreate<any>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
