@@ -157,44 +157,24 @@ export class IngestService {
       //    (multiple FANOUT inserts targeting the same entity+predicate);
       //    retry sees the racing committer's row and either supersedes
       //    or competes correctly on the second attempt.
-      const result = await retryOnUniqueViolation(async () => {
-        const [r] = await db.query<[any]>(
-          `RETURN fn::resolve_fact(
-              type::thing('knowledge_entity', $eid),
-              $predicate, $object, $object_meta, $embedding,
-              $confidence, $valid_from, $valid_until, $source,
-              $source_trust, $semantics, $similarity_threshold,
-              $w_confidence, $w_source_trust, $w_recency, $w_authority,
-              $reject_threshold, $margin_for_supersede,
-              $lang, $script, $entropy
-           )`,
-          {
-            eid: idTailOf(entityId),
-            predicate: dto.predicate,
-            object: objectStr,
-            object_meta: objectMeta,
-            embedding,
-            confidence: dto.confidence ?? 0.7,
-            valid_from: new Date(dto.validFrom),
-            valid_until: dto.validUntil ? new Date(dto.validUntil) : undefined,
-            source: dto.source,
-            source_trust: sourceTrust,
-            semantics: policy.semantics,
-            similarity_threshold: this.conflict.similarityThreshold,
-            w_confidence: this.conflict.weights.confidence,
-            w_source_trust: this.conflict.weights.sourceTrust,
-            w_recency: this.conflict.weights.recency,
-            w_authority: this.conflict.weights.authority,
-            reject_threshold: this.conflict.rejectThreshold,
-            margin_for_supersede: this.conflict.marginForSupersede,
-            // Phase 4.A locale tag folded into fn::resolve_fact (migration
-            // 0039) — set on INSERTED only, server-side, no follow-up RTT.
-            lang: detectedLang.lang,
-            script: detectedLang.script,
-            entropy: undefined,
-          },
-        );
-        return r;
+      // Phase 4.A locale tag (detectedLang) folded into fn::resolve_fact
+      // (migration 0039) — set on INSERTED only, server-side, no follow-up RTT.
+      // Direct ingest carries no extraction entropy.
+      const result = await this.resolveFactCall(db, {
+        entityId,
+        predicate: dto.predicate,
+        object: objectStr,
+        objectMeta,
+        embedding,
+        confidence: dto.confidence ?? 0.7,
+        validFrom: new Date(dto.validFrom),
+        validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+        source: dto.source,
+        sourceTrust,
+        semantics: policy.semantics,
+        lang: detectedLang.lang,
+        script: detectedLang.script,
+        entropy: undefined,
       });
 
       const factId = result?.factId ? String(result.factId) : null;
@@ -571,8 +551,19 @@ export class IngestService {
               'identity_of would create a merge cycle (survivor already resolves to the loser)',
             );
           }
-          throw new BadRequestException(
-            'identity_of cannot merge an entity into itself',
+          if (merge?.reason === 'self_merge') {
+            // Defensive: the fromId===toId fast-path above already covers
+            // this, so the function's own self-merge branch is normally dead.
+            throw new BadRequestException(
+              'identity_of cannot merge an entity into itself',
+            );
+          }
+          // merged=false with no recognised reason (or a null/unexpected
+          // result shape) is NOT a client input error — surface it as such
+          // instead of mislabelling it a self-merge 400, so a driver/infra
+          // failure is debuggable rather than masked.
+          throw new Error(
+            `identity_of merge failed unexpectedly (reason=${merge?.reason ?? 'none'})`,
           );
         }
         this.logger.log(
@@ -625,6 +616,76 @@ export class IngestService {
   }
 
   // ── helpers used by mention + link ───────────────────────────────────
+
+  /**
+   * Single entry point for fn::resolve_fact (migration 0039). Both ingest
+   * paths — typed ingestFact and mention-extracted recordExtractedFact — call
+   * this so the 21-positional-arg invocation lives in ONE place: a future
+   * signature change can't drift the two call sites out of sync (which would
+   * silently bind a value to the wrong slot, e.g. entropy into script). The
+   * caller supplies the per-fact values; the conflict weights/thresholds come
+   * from this.conflict. Wrapped in retryOnUniqueViolation because the CREATE
+   * inside the function can hit a write-set conflict under FANOUT against the
+   * same entity+predicate — retry sees the racing committer's row and
+   * supersedes/competes on the second attempt.
+   */
+  private resolveFactCall(
+    db: Surreal,
+    p: {
+      entityId: string;
+      predicate: string;
+      object: string;
+      objectMeta?: object;
+      embedding: number[];
+      confidence: number;
+      validFrom: Date;
+      validUntil?: Date;
+      source: unknown;
+      sourceTrust: number;
+      semantics: string;
+      lang?: string;
+      script?: string;
+      entropy?: number;
+    },
+  ): Promise<any> {
+    return retryOnUniqueViolation(async () => {
+      const [r] = await db.query<[any]>(
+        `RETURN fn::resolve_fact(
+            type::thing('knowledge_entity', $eid),
+            $predicate, $object, $object_meta, $embedding,
+            $confidence, $valid_from, $valid_until, $source,
+            $source_trust, $semantics, $similarity_threshold,
+            $w_confidence, $w_source_trust, $w_recency, $w_authority,
+            $reject_threshold, $margin_for_supersede,
+            $lang, $script, $entropy
+         )`,
+        {
+          eid: idTailOf(p.entityId),
+          predicate: p.predicate,
+          object: p.object,
+          object_meta: p.objectMeta,
+          embedding: p.embedding,
+          confidence: p.confidence,
+          valid_from: p.validFrom,
+          valid_until: p.validUntil,
+          source: p.source,
+          source_trust: p.sourceTrust,
+          semantics: p.semantics,
+          similarity_threshold: this.conflict.similarityThreshold,
+          w_confidence: this.conflict.weights.confidence,
+          w_source_trust: this.conflict.weights.sourceTrust,
+          w_recency: this.conflict.weights.recency,
+          w_authority: this.conflict.weights.authority,
+          reject_threshold: this.conflict.rejectThreshold,
+          margin_for_supersede: this.conflict.marginForSupersede,
+          lang: p.lang,
+          script: p.script,
+          entropy: p.entropy,
+        },
+      );
+      return r;
+    });
+  }
 
   private async resolveOrCreateNamedEntity(
     db: Surreal,
@@ -783,42 +844,21 @@ export class IngestService {
       typeof factPayload.extractionEntropy === 'number'
         ? factPayload.extractionEntropy
         : undefined;
-    const result = await retryOnUniqueViolation(async () => {
-      const [r] = await db.query<[any]>(
-        `RETURN fn::resolve_fact(
-            type::thing('knowledge_entity', $eid),
-            $predicate, $object, $object_meta, $embedding,
-            $confidence, $valid_from, $valid_until, $source,
-            $source_trust, $semantics, $similarity_threshold,
-            $w_confidence, $w_source_trust, $w_recency, $w_authority,
-            $reject_threshold, $margin_for_supersede,
-            $lang, $script, $entropy
-         )`,
-        {
-          eid: idTailOf(entityId),
-          predicate,
-          object,
-          object_meta: undefined,
-          embedding,
-          confidence,
-          valid_from: validFrom,
-          valid_until: undefined,
-          source,
-          source_trust: sourceTrust,
-          semantics: policy.semantics,
-          similarity_threshold: this.conflict.similarityThreshold,
-          w_confidence: this.conflict.weights.confidence,
-          w_source_trust: this.conflict.weights.sourceTrust,
-          w_recency: this.conflict.weights.recency,
-          w_authority: this.conflict.weights.authority,
-          reject_threshold: this.conflict.rejectThreshold,
-          margin_for_supersede: this.conflict.marginForSupersede,
-          lang: langTag,
-          script: scriptTag,
-          entropy: entropyTag,
-        },
-      );
-      return r;
+    const result = await this.resolveFactCall(db, {
+      entityId,
+      predicate,
+      object,
+      objectMeta: undefined,
+      embedding,
+      confidence,
+      validFrom,
+      validUntil: undefined,
+      source,
+      sourceTrust,
+      semantics: policy.semantics,
+      lang: langTag,
+      script: scriptTag,
+      entropy: entropyTag,
     });
 
     const factId = result?.factId ? String(result.factId) : null;

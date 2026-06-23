@@ -8,33 +8,39 @@
 --      racing the reaper. The per-row UPDATEs had no "still expired" guard.
 --   2. N round-trips per tick.
 --
--- fn::reap_zombies does the whole reclamation in two set-based UPDATEs
--- inside one statement. Each UPDATE re-checks `status = 'running' AND
--- leaseUntil < now` via the pre-selected id set, so a row another reaper
--- already flipped is simply not in this call's set (or matches zero rows) —
--- no double-write. Per-row exponential backoff is computed from the row's
--- own `attempts` field directly in SET, so no TS loop is needed; the count
--- of affected rows is returned via array::len.
+-- fn::reap_zombies does the whole reclamation as two set-based UPDATEs inside
+-- one statement. Both UPDATEs carry the SAME guard the pre-select used —
+-- `status = 'running' AND leaseUntil < $now` (plus the attempts split) — so a
+-- row another reaper already flipped between this call's SELECT and UPDATE
+-- matches zero rows and is neither rewritten nor counted. (A racing committer
+-- that flips the row first also wins the per-record write check; the guard is
+-- what makes the loser a clean no-op rather than relying on abort.) Per-row
+-- exponential backoff is computed from the row's own `attempts` field directly
+-- in SET, so no TS loop is needed; the count of affected rows is returned via
+-- array::len.
 --
 -- Behaviour parity with the old TS:
 --   * attempts < max_attempts  → requeue: status='pending', lease cleared,
 --     visibleAfter = now + min(base * 2^(attempts-1) * jitter, 1h),
---     jitter = 0.5..1.0 (rand::float), error.name='ZombieReclaim'.
+--     jitter = 0.5..1.0 (rand::float, evaluated per row in the SET),
+--     error.name='ZombieReclaim'.
 --   * attempts >= max_attempts → abandon: status='failed', finishedAt set,
 --     error.name='ZombieAbandoned'.
---   * LIMIT 200 per call preserved to bound work per cron tick.
+--   * A SINGLE LIMIT 200 budget per call (one pre-select, then split by
+--     attempts in the two UPDATE guards) — matches the old one-SELECT-then-
+--     split-in-TS bound of 200 total rows per tick, NOT 200-per-branch.
 
 DEFINE FUNCTION OVERWRITE fn::reap_zombies($max_attempts: int, $backoff_base_ms: int) {
     LET $now = time::now();
 
-    LET $rq_ids = (SELECT VALUE id FROM job_run
-        WHERE status = 'running' AND leaseUntil < $now AND (attempts ?? 1) < $max_attempts
-        LIMIT 200);
-    LET $fl_ids = (SELECT VALUE id FROM job_run
-        WHERE status = 'running' AND leaseUntil < $now AND (attempts ?? 1) >= $max_attempts
+    -- One 200-row budget across both branches, matching the old single
+    -- `SELECT ... LIMIT 200`. The requeue/abandon split happens in the UPDATE
+    -- guards below, not by widening the cap to 200-per-branch.
+    LET $ids = (SELECT VALUE id FROM job_run
+        WHERE status = 'running' AND leaseUntil < $now
         LIMIT 200);
 
-    LET $rq = UPDATE $rq_ids SET
+    LET $rq = UPDATE $ids SET
         status = 'pending',
         claimedBy = NONE,
         leaseUntil = NONE,
@@ -47,9 +53,10 @@ DEFINE FUNCTION OVERWRITE fn::reap_zombies($max_attempts: int, $backoff_base_ms:
                 + '; requeued (attempt ' + <string>(attempts ?? 1) + '/' + <string>$max_attempts + ')',
             name: 'ZombieReclaim'
         }
+        WHERE status = 'running' AND leaseUntil < $now AND (attempts ?? 1) < $max_attempts
         RETURN id;
 
-    LET $fl = UPDATE $fl_ids SET
+    LET $fl = UPDATE $ids SET
         status = 'failed',
         finishedAt = time::now(),
         claimedBy = NONE,
@@ -59,6 +66,7 @@ DEFINE FUNCTION OVERWRITE fn::reap_zombies($max_attempts: int, $backoff_base_ms:
                 + '; abandoned after ' + <string>(attempts ?? 1) + ' attempt(s)',
             name: 'ZombieAbandoned'
         }
+        WHERE status = 'running' AND leaseUntil < $now AND (attempts ?? 1) >= $max_attempts
         RETURN id;
 
     RETURN { requeued: array::len($rq), failed: array::len($fl) };

@@ -28,13 +28,29 @@
 --     pre-existing cycle can never spin), rejecting the merge when the
 --     survivor already resolves transitively to the loser.
 --
+-- Scope of the serialization guarantee: the pair lock only serializes the
+-- SAME unordered pair, so it fully closes the 2-node mutual race (A→B vs
+-- B→A). A 3+-node race across DISTINCT pairs committed simultaneously
+-- (A→B, B→C, C→A) uses three different lock rows and is NOT serialized — under
+-- snapshot isolation each walk can miss the others and a >2-node cycle can
+-- still form. This is strictly better than the old multi-RTT TS walk (which
+-- was vulnerable to both), not a full fix; multi-node concurrent identity
+-- merges are rare and a later hardening (e.g. a global merge lock or
+-- serializable txn) would close it.
+--
 -- The knowledge_edge `identity_of` record is still RELATEd by ingestLink;
 -- only the cycle check + mergedInto write move here. Calling the function
--- BEFORE the RELATE preserves the "reject before any write" contract: a
--- cycle returns merged=false having written nothing.
+-- BEFORE the RELATE preserves the "reject before any write" contract for
+-- entity/edge state: on a cycle/self-merge it returns merged=false having
+-- written NO entity or edge data. (It may have UPSERTed the internal
+-- merge_lock row — that is a concurrency artifact, not graph state.)
 
 -- Lock table. SCHEMALESS — the only consumer is fn::merge_identity, keyed by
--- the sorted "loser|survivor" pair. One tiny row per distinct merged pair.
+-- the sorted "loser|survivor" pair. One tiny row per distinct attempted pair;
+-- rows are never deleted (the lock has no post-merge value, but is cheap).
+-- If merge volume ever makes this table large, a periodic prune of rows older
+-- than the longest possible merge txn is safe — they only serialize the brief
+-- A→B/B→A window.
 DEFINE TABLE IF NOT EXISTS merge_lock SCHEMALESS;
 
 DEFINE FUNCTION OVERWRITE fn::merge_identity(

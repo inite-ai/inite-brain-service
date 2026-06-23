@@ -243,6 +243,52 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     expect(row.status).toBe('pending');
     expect(row.claimedBy).toBeFalsy();
   }, 60_000);
+
+  it('reapZombies abandons a stale row at/above maxAttempts (ZombieAbandoned)', async () => {
+    // Distinct dedupKey: a prior test already enqueued a no-dedupKey
+    // reindex_embeddings row, and the (jobType, dedupKey) unique index would
+    // collide on ['reindex_embeddings', NONE] for a second keyless enqueue.
+    const { runId } = await claim.enqueue({
+      jobType: 'reindex_embeddings',
+      companyId: TENANT,
+      triggeredBy: 'cron',
+      dedupKey: 'zombie_abandon_test',
+    });
+
+    // Drive THIS row (by runId) directly into a stale-running state at the
+    // attempts cap, rather than via claimNext — a prior reap test leaves a
+    // pending row of another jobType, so claimNext is nondeterministic here.
+    // This isolates the requeue/abandon split in fn::reap_zombies (0038).
+    await surreal.withCompany(TENANT, async (db) => {
+      await db.query(
+        `UPDATE job_run SET
+            status = 'running', claimedBy = 'dead-worker', attempts = 3,
+            leaseUntil = type::datetime($t)
+         WHERE runId = $r`,
+        { r: runId, t: new Date(Date.now() - 60_000).toISOString() },
+      );
+    });
+
+    const out = await claim.reapZombies({
+      companyId: TENANT,
+      maxAttempts: 3,
+      backoffBaseMs: 1000,
+    });
+    expect(out.failed).toBe(1);
+    expect(out.requeued).toBe(0);
+
+    const row = await surreal.withCompany(TENANT, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT status, claimedBy, error.name AS errName, finishedAt FROM job_run WHERE runId = $r`,
+        { r: runId },
+      );
+      return (rows as any[])[0];
+    });
+    expect(row.status).toBe('failed');
+    expect(row.claimedBy).toBeFalsy();
+    expect(row.errName).toBe('ZombieAbandoned');
+    expect(row.finishedAt).toBeTruthy();
+  }, 60_000);
 });
 
 describe('LeaderLeaseService — real Surreal end-to-end', () => {

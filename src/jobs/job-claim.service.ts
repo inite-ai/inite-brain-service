@@ -475,11 +475,12 @@ export class JobClaimService {
     const baseMs = input.backoffBaseMs ?? 30_000;
     try {
       return await this.surreal.withCompany(input.companyId, async (db) => {
-        // fn::reap_zombies (migration 0038) does the SELECT + split + per-row
-        // backoff as two set-based UPDATEs inside one statement. Each UPDATE
-        // re-checks status='running' AND leaseUntil<now, so a row another
-        // reaper already flipped matches zero rows — no read-then-write race
-        // between concurrent reapers, and no N round-trips.
+        // fn::reap_zombies (migration 0038) does the pre-select + split +
+        // per-row backoff as two set-based UPDATEs inside one statement. Both
+        // UPDATEs re-apply the status='running' AND leaseUntil<now guard in
+        // their WHERE, so a row another reaper already flipped matches zero
+        // rows — no read-then-write race between concurrent reapers, and no N
+        // round-trips. One shared LIMIT 200 budget per call (not per branch).
         const [res] = (await db.query<[{ requeued: number; failed: number }]>(
           `RETURN fn::reap_zombies($max_attempts, $backoff_base_ms)`,
           { max_attempts: maxAttempts, backoff_base_ms: baseMs },
