@@ -7,9 +7,12 @@ concretely.
 
 ## Before you start
 
-- **Read the README** — § Architecture position, § Retrieval pipeline,
-  § Job queue. Brain is a *system of insight, not record*. Understanding
-  that distinction prevents 90% of "why did you reject my PR" exchanges.
+- **New here?** Browse [`good first issue`](https://github.com/inite-ai/inite-brain-service/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+  and skim the [Code of Conduct](CODE_OF_CONDUCT.md). PRs of any size are welcome.
+- **Read the README** — § Why Brain, then the [architecture](docs/architecture.md)
+  and [bitemporal](docs/bitemporal-semantics.md) docs. Brain is a *system of
+  insight, not a system of record*. Understanding that distinction prevents 90%
+  of "why did you reject my PR" exchanges.
 - **Read the operator playbook** in `docs/operator-playbook.md`. The runbook
   is the lens through which prod issues get triaged; new features that
   break troubleshooting flows aren't free.

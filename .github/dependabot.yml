@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Backend service
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      backend-minor:
+        update-types: ["minor", "patch"]
+
+  # Marketing landing + docs + admin UI
+  - package-ecosystem: npm
+    directory: /brain-landing
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "area: landing"]
+    groups:
+      landing-minor:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies"]
