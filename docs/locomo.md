@@ -178,15 +178,46 @@ The runner emits a single JSON report:
 exactly which question the regression hit. Aggregates above are
 derived from it.
 
+## Agents
+
+Two QA agents ship in `test/eval/locomo/`:
+
+- **HttpAgent** (default, `--agent http`) — drives brain through the
+  v1 HTTP surface (`/v1/search/multi-hop` + `/v1/synthesize`). One
+  shot per question, no agent-level chain-of-thought. Deterministic,
+  no Anthropic key, comparable run-to-run. This is the LOWER BOUND
+  on what brain can do — what the retrieval stack itself produces
+  without an agent on top.
+
+- **ClaudeMcpAgent** (`--agent claude-mcp`) — Claude calls brain
+  through the MCP transport with tool-use loops (default max 6
+  turns). Apples-to-apples with the agent-level numbers Mem0 / Zep /
+  MemGPT publish. Needs `ANTHROPIC_API_KEY` env + `--company-id <id>`
+  to build the MCP URL. Cost: ~$30 of Claude on top of the ~$80 of
+  brain-side OpenAI for the full 10-sample run.
+
+Run with claude-mcp:
+
+```bash
+OPENAI_API_KEY=… ANTHROPIC_API_KEY=… BRAIN_API_KEY=brain_… \
+  tsx scripts/run-locomo.ts \
+    --dataset /tmp/locomo10.json \
+    --agent claude-mcp \
+    --company-id co_locomo \
+    --out var/locomo-claude-mcp.json
+```
+
+The agent spawns one MCP transport for the lifetime of the run; the
+runner closes it at the end. Claude sees the full read-baseline tool
+surface (10 tools at brain:read; 13 with brain:write); pick a
+read-only key for the QA leg if you want to be sure no fact write
+leaks back into the graph mid-run.
+
 ## What's deferred
 
 - **BERTScore** — paper mentions it as a supplementary metric. Adds a
   400MB BERT-base download + ~30 min CI to the pipeline for a number
   that doesn't change rankings vs F1. Easy to bolt on later via a
   downstream consumer that reads `scores[].prediction` + `scores[].gold`.
-- **ClaudeMcpAgent** — the apples-to-apples agent path. Implementation
-  is one Anthropic SDK + `@modelcontextprotocol/sdk` call; deferred so
-  the first published baseline stays deterministic and runnable
-  without an Anthropic key.
 - **CI gating** — once a baseline is established, the LoCoMo report
   joins the existing eval baseline diff in CI (`scripts/eval-baseline-diff.ts`).

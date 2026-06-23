@@ -36,7 +36,10 @@ import {
   createHttpIngestSink,
   createHttpQaAgent,
 } from '../test/eval/locomo/http-agent';
+import { createClaudeMcpAgent } from '../test/eval/locomo/claude-agent';
 import { HttpBrainClient } from '../test/eval/http-brain-client';
+
+type AgentKind = 'http' | 'claude-mcp';
 
 interface Args {
   dataset: string;
@@ -45,6 +48,10 @@ interface Args {
   out: string;
   samples?: number;
   skipIngest: boolean;
+  agent: AgentKind;
+  /** Tenant id used to build the MCP URL when --agent claude-mcp. */
+  companyId?: string;
+  anthropicApiKey?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -53,6 +60,9 @@ function parseArgs(argv: string[]): Args {
     apiKey: process.env.BRAIN_API_KEY ?? 'local-dev-key',
     out: 'locomo-report.json',
     skipIngest: false,
+    agent: 'http',
+    companyId: process.env.BRAIN_COMPANY_ID,
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -63,9 +73,23 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--out') (args.out = next), i++;
     else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
     else if (a === '--skip-ingest') args.skipIngest = true;
+    else if (a === '--agent') (args.agent = next as AgentKind), i++;
+    else if (a === '--company-id') (args.companyId = next), i++;
   }
   if (!args.dataset) {
     throw new Error('missing --dataset path/to/locomo10.json');
+  }
+  if (args.agent === 'claude-mcp') {
+    if (!args.companyId) {
+      throw new Error(
+        '--agent claude-mcp requires --company-id <id> (or BRAIN_COMPANY_ID env)',
+      );
+    }
+    if (!args.anthropicApiKey) {
+      throw new Error(
+        '--agent claude-mcp requires ANTHROPIC_API_KEY env',
+      );
+    }
   }
   return args as Args;
 }
@@ -101,10 +125,23 @@ async function main() {
     console.error('[locomo] --skip-ingest: assuming brain already populated');
   }
 
-  const agent = createHttpQaAgent(client, {
-    useMultiHop: true,
-    synthesisGuardrails: 'lenient',
-  });
+  let agentClose: (() => Promise<void>) | undefined;
+  const agent =
+    args.agent === 'claude-mcp'
+      ? await (async () => {
+          const { agent: a, close } = await createClaudeMcpAgent({
+            brainUrl: args.brainUrl,
+            companyId: args.companyId!,
+            apiKey: args.apiKey,
+            anthropicApiKey: args.anthropicApiKey!,
+          });
+          agentClose = close;
+          return a;
+        })()
+      : createHttpQaAgent(client, {
+          useMultiHop: true,
+          synthesisGuardrails: 'lenient',
+        });
 
   const report = await runLocomo(sliced, agent, {
     onProgress: (done, total) => {
@@ -113,6 +150,7 @@ async function main() {
       }
     },
   });
+  if (agentClose) await agentClose();
 
   await fs.mkdir(path.dirname(path.resolve(args.out)), { recursive: true });
   await fs.writeFile(args.out, JSON.stringify(report, null, 2));
