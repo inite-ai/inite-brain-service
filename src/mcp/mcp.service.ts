@@ -21,6 +21,7 @@ import {
   type ProgressEvent,
   type ProgressReporter,
 } from './progress-reporter';
+import { summarizeViaClientSampling } from './sampling';
 
 /**
  * Translate an MCP request's `extra` parameter into a ProgressReporter
@@ -479,7 +480,7 @@ export class McpService {
       {
         title: 'One-line briefing for an entity',
         description:
-          "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. v1 is template-rendered (no LLM call); the styleHint axis is forward-compatible with an LLM-backed generator that ships behind a feature flag later. Use INSTEAD of profile+timeline+competing when you only need a briefing — saves three round-trips and ~1000 tokens of structured fact data.",
+          "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. styleHint='neutral' | 'sales' | 'support' are template-rendered (no LLM call). styleHint='client_llm' opts into MCP SAMPLING: brain asks the connected client (Claude Desktop / agent runtime) to write the one-liner with its own model — zero brain-side OpenAI cost, perfect for self-hosters who don't want brain holding an LLM key. Falls back to neutral template + sampledBy='local_template' when the client doesn't advertise sampling capability. Use INSTEAD of profile+timeline+competing when you only need a briefing.",
         inputSchema: {
           entityId: z
             .string()
@@ -490,14 +491,28 @@ export class McpService {
             .optional()
             .describe('Summarize what was known at this ISO 8601 moment'),
           styleHint: z
-            .enum(['neutral', 'sales', 'support'])
+            .enum(['neutral', 'sales', 'support', 'client_llm'])
             .optional()
             .describe(
-              "Phrasing register — 'neutral' (default), 'sales' (lead with name+key signals), 'support' (frame as a customer)",
+              "Phrasing register — 'neutral' (default), 'sales', 'support', or 'client_llm' (delegate to client-side LLM via MCP sampling; falls back to neutral template if client doesn't support sampling)",
             ),
         },
       },
       async (args) => {
+        if (args.styleHint === 'client_llm') {
+          const out = await summarizeViaClientSampling(
+            { entities: this.entities, summarizer: this.summarizer },
+            server,
+            companyId,
+            args.entityId,
+            args.asOf,
+            scopes,
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as any,
+          };
+        }
         const out = await this.summarizer.summarize(
           companyId,
           {
@@ -508,8 +523,10 @@ export class McpService {
           scopes,
         );
         return {
-          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-          structuredContent: out as any,
+          content: [
+            { type: 'text', text: JSON.stringify(out, null, 2) },
+          ],
+          structuredContent: { ...out, sampledBy: 'local_template' } as any,
         };
       },
     );
