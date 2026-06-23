@@ -252,34 +252,32 @@ describe('JobClaimService', () => {
     warn.mockRestore();
   });
 
-  it('reapZombies routes below-maxAttempts rows to requeue and at-max to fail', async () => {
-    const updates: string[] = [];
+  it('reapZombies delegates to fn::reap_zombies and returns its counts', async () => {
+    // The requeue/abandon split + per-row backoff now live in
+    // fn::reap_zombies (migration 0038), run as two set-based UPDATEs in one
+    // atomic statement — so no concurrent reaper can read-then-write the same
+    // expired row. The service is now a thin caller: pass the knobs, return
+    // the counts. We assert the wiring (fn name + params + result mapping).
+    let captured: { sql: string; params?: Record<string, unknown> } | null =
+      null;
     const db = {
-      query: async (sql: string, _params?: Record<string, unknown>) => {
-        if (sql.startsWith('SELECT id, attempts')) {
-          return [
-            [
-              { id: 'job_run:a', attempts: 1, claimedBy: 'host#1' },
-              { id: 'job_run:b', attempts: 3, claimedBy: 'host#1' },
-            ],
-          ];
-        }
-        if (sql.includes('UPDATE')) {
-          updates.push(sql);
-          return [[]];
-        }
-        return [[]];
+      query: async (sql: string, params?: Record<string, unknown>) => {
+        captured = { sql, params };
+        return [{ requeued: 2, failed: 1 }];
       },
     };
     const svc = new JobClaimService(mkSurreal(db));
     const out = await svc.reapZombies({
       companyId: 'co_x',
       maxAttempts: 3,
+      backoffBaseMs: 30_000,
     });
-    expect(out.requeued).toBe(1);
-    expect(out.failed).toBe(1);
-    expect(updates.find((s) => s.includes("status = 'pending'"))).toBeDefined();
-    expect(updates.find((s) => s.includes("status = 'failed'"))).toBeDefined();
+    expect(out).toEqual({ requeued: 2, failed: 1 });
+    expect(captured!.sql).toContain('fn::reap_zombies');
+    expect(captured!.params).toMatchObject({
+      max_attempts: 3,
+      backoff_base_ms: 30_000,
+    });
   });
 
   it('identity is hostname#pid format', () => {

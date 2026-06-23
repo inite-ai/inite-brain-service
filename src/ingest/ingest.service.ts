@@ -10,7 +10,6 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
-  dbMerge,
   isUniqueViolation,
   retryOnUniqueViolation,
   runTransaction,
@@ -136,6 +135,17 @@ export class IngestService {
       // is what we want for an optional field.
       const objectMeta = objectIsString ? undefined : (dto.object as unknown as object);
 
+      // Detect locale up front so it rides into fn::resolve_fact as a param
+      // (folded, INSERTED-only write — migration 0039) rather than a
+      // follow-up UPDATE. detectLanguage is pure TS and never needed the
+      // returned factId. 'und' → leave the fields unset (NONE), matching the
+      // old `language !== 'und'` guard.
+      const detLang = detectLanguage(objectStr);
+      const detectedLang =
+        detLang.language !== 'und'
+          ? { lang: detLang.language, script: detLang.script }
+          : { lang: undefined, script: undefined };
+
       // 5. One-RTT server-side resolve. `fn::resolve_fact` (migration
       //    0006) does: filter by cosine for bitemporal → score → decide
       //    INSERTED/SUPERSEDED/COMPETING/REJECTED → CREATE + cascade.
@@ -155,7 +165,8 @@ export class IngestService {
               $confidence, $valid_from, $valid_until, $source,
               $source_trust, $semantics, $similarity_threshold,
               $w_confidence, $w_source_trust, $w_recency, $w_authority,
-              $reject_threshold, $margin_for_supersede
+              $reject_threshold, $margin_for_supersede,
+              $lang, $script, $entropy
            )`,
           {
             eid: idTailOf(entityId),
@@ -176,6 +187,11 @@ export class IngestService {
             w_authority: this.conflict.weights.authority,
             reject_threshold: this.conflict.rejectThreshold,
             margin_for_supersede: this.conflict.marginForSupersede,
+            // Phase 4.A locale tag folded into fn::resolve_fact (migration
+            // 0039) — set on INSERTED only, server-side, no follow-up RTT.
+            lang: detectedLang.lang,
+            script: detectedLang.script,
+            entropy: undefined,
           },
         );
         return r;
@@ -184,25 +200,8 @@ export class IngestService {
       const factId = result?.factId ? String(result.factId) : null;
       const outcome = result?.outcome as IngestOutcome;
 
-      // Phase 4.A locale tagging. Detect language + script on the
-      // object span (the "what is true about the entity" text) and
-      // persist alongside the fact. We tag on INSERTED only — for
-      // SUPERSEDED/COMPETING the new fact is already in `factId`
-      // and the previous tag, if any, stays valid for the loser row.
-      if (factId && outcome === 'INSERTED') {
-        const detected = detectLanguage(objectStr);
-        if (detected.language !== 'und') {
-          await db.query(
-            `UPDATE type::thing('knowledge_fact', $tail)
-                SET lang = $lang, script = $script`,
-            {
-              tail: idTailOf(factId),
-              lang: detected.language,
-              script: detected.script,
-            },
-          );
-        }
-      }
+      // Phase 4.A locale tagging now happens inside fn::resolve_fact via the
+      // $lang/$script params above (migration 0039) — no follow-up UPDATE.
 
       // HyPE: generate a hypothetical-question embedding and write
       // it onto the new fact. We do this synchronously inside the
@@ -533,32 +532,52 @@ export class IngestService {
       const fromId = await this.resolveOrCreateBareRef(db, dto.from as any);
       const toId = await this.resolveOrCreateBareRef(db, dto.to as any);
 
-      // identity_of cycle-guard. The merge sets toId.mergedInto = fromId.
+      // identity_of merge. The merge sets toId.mergedInto = fromId.
       // If fromId already resolves (transitively) back to toId, both ends end
       // up mergedInto-set and BOTH vanish from retrieval (`WHERE mergedInto IS
-      // NONE`), since survivor resolution is single-hop. Reject before any
-      // write so nothing is created on a contradictory link.
+      // NONE`), since survivor resolution is single-hop.
+      //
+      // fn::merge_identity (migration 0037) runs the multi-hop cycle guard
+      // AND the mergedInto write as a single atomic statement, so the
+      // read-decide-write can't be interleaved the way the old separate
+      // TS-walk + standalone UPDATE could. A sorted-pair lock row inside the
+      // function makes concurrent reverse merges (A→B racing B→A) collide on
+      // one record write; retryOnUniqueViolation re-runs the loser, whose
+      // second attempt sees the committed merge and trips the cycle guard.
+      //
+      // Called BEFORE the RELATE so the "reject before any write" contract
+      // holds: a cycle / self-merge returns merged=false having written
+      // nothing, and we throw before creating the edge.
       if (dto.kind === 'identity_of') {
         if (fromId === toId) {
           throw new BadRequestException(
             'identity_of cannot merge an entity into itself',
           );
         }
-        let cursor: string | null = fromId;
-        for (let hops = 0; cursor && hops < 32; hops++) {
-          const [rows] = await db.query<[Array<{ mergedInto: unknown }>]>(
-            `SELECT mergedInto FROM $e`,
-            { e: new StringRecordId(cursor) },
+        const merge = await retryOnUniqueViolation(async () => {
+          const [r] = await db.query<
+            [{ merged: boolean; reason: string | null }]
+          >(
+            `RETURN fn::merge_identity(
+                type::thing('knowledge_entity', $loser),
+                type::thing('knowledge_entity', $survivor))`,
+            { loser: idTailOf(toId), survivor: idTailOf(fromId) },
           );
-          const next = (rows as Array<{ mergedInto: unknown }>)?.[0]
-            ?.mergedInto;
-          cursor = next ? String(next) : null;
-          if (cursor === toId) {
+          return r;
+        });
+        if (!merge?.merged) {
+          if (merge?.reason === 'cycle') {
             throw new BadRequestException(
               'identity_of would create a merge cycle (survivor already resolves to the loser)',
             );
           }
+          throw new BadRequestException(
+            'identity_of cannot merge an entity into itself',
+          );
         }
+        this.logger.log(
+          `[knowledge.entity.merged] companyId=${companyId} loser=${toId} survivor=${fromId}`,
+        );
       }
 
       // Idempotent edge insert. UNIQUE on (in, out, kind) means the second
@@ -598,16 +617,8 @@ export class IngestService {
         `[knowledge.edge.created] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId}`,
       );
 
-      // Optional: identity merge on kind='identity_of'
-      if (dto.kind === 'identity_of') {
-        await dbMerge(db, toId, {
-          mergedAt: new Date(),
-          mergedInto: new StringRecordId(fromId),
-        });
-        this.logger.log(
-          `[knowledge.entity.merged] companyId=${companyId} loser=${toId} survivor=${fromId}`,
-        );
-      }
+      // identity merge (mergedInto write) already happened atomically in
+      // fn::merge_identity above, before the RELATE.
 
       return { edgeId, fromEntityId: fromId, toEntityId: toId, kind: dto.kind };
     });
@@ -762,6 +773,16 @@ export class IngestService {
     }
     const policy = this.predicateRegistry.policyFor(companyId, predicate);
     const sourceTrust = this.sourceTrustFor(source);
+    // Locale + entropy ride into fn::resolve_fact as params (migration 0039),
+    // folded INSERTED-only writes instead of follow-up UPDATEs. detectLanguage
+    // is pure TS; 'und' → leave unset (NONE), matching the old guard.
+    const detLang = detectLanguage(object);
+    const langTag = detLang.language !== 'und' ? detLang.language : undefined;
+    const scriptTag = detLang.language !== 'und' ? detLang.script : undefined;
+    const entropyTag =
+      typeof factPayload.extractionEntropy === 'number'
+        ? factPayload.extractionEntropy
+        : undefined;
     const result = await retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(
         `RETURN fn::resolve_fact(
@@ -770,7 +791,8 @@ export class IngestService {
             $confidence, $valid_from, $valid_until, $source,
             $source_trust, $semantics, $similarity_threshold,
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
-            $reject_threshold, $margin_for_supersede
+            $reject_threshold, $margin_for_supersede,
+            $lang, $script, $entropy
          )`,
         {
           eid: idTailOf(entityId),
@@ -791,6 +813,9 @@ export class IngestService {
           w_authority: this.conflict.weights.authority,
           reject_threshold: this.conflict.rejectThreshold,
           margin_for_supersede: this.conflict.marginForSupersede,
+          lang: langTag,
+          script: scriptTag,
+          entropy: entropyTag,
         },
       );
       return r;
@@ -799,36 +824,12 @@ export class IngestService {
     const factId = result?.factId ? String(result.factId) : null;
     const outcome = result?.outcome as IngestOutcome | undefined;
 
-    // Phase 4.A locale tagging + Phase 1 HyPE alt-embedding — must
-    // apply to mention-ingested facts too, not just direct-ingest.
-    // Pre-fix only ingestFact() ran these passes, so chat-router /
-    // conversational corpora bypassed BOTH:
-    //   - lang/script never set → the locale-pinned retrieval pass
-    //     (where-builder lang filter) treated mention-ingested facts
-    //     as language-agnostic and they only survived via the legacy
-    //     `OR lang IS NONE` back-compat branch.
-    //   - altEmbedding never written → the question-shaped HyPE max
-    //     pool in runVectorLeg saw zero alt vectors for the conversa-
-    //     tional half of the corpus.
-    // Both passes mirror what ingestFact() does after fn::resolve_fact
-    // (same `outcome === INSERTED` gate, same UPDATE shape), so the
-    // demo-chat / chat-router path now has parity with the direct
-    // ingestion path for both Phase 1 and Phase 4.A/B.
-    if (factId && outcome === 'INSERTED') {
-      const detected = detectLanguage(object);
-      if (detected.language !== 'und') {
-        await db.query(
-          `UPDATE type::thing('knowledge_fact', $tail)
-              SET lang = $lang, script = $script`,
-          {
-            tail: idTailOf(factId),
-            lang: detected.language,
-            script: detected.script,
-          },
-        );
-      }
-    }
-
+    // Phase 4.A locale tag + Phase 3.B entropy now ride into fn::resolve_fact
+    // via the $lang/$script/$entropy params (migration 0039) — set on
+    // INSERTED only, server-side, with no follow-up round-trips. HyPE stays a
+    // post-call UPDATE below: it's an LLM call, gated on isEnabled() AND
+    // INSERTED, so pre-computing it would burn the model on non-INSERTED
+    // outcomes.
     if (factId && this.hype.isEnabled() && outcome === 'INSERTED') {
       const altEmbedding = await this.hype.generateAltEmbedding(
         predicate,
@@ -842,19 +843,6 @@ export class IngestService {
       }
     }
 
-    // Phase 3.B — persist self-consistency entropy on INSERTED rows.
-    // Only fires when EXTRACTOR_SC_PASSES > 1 produced a value;
-    // single-pass extractions leave the column NONE.
-    if (
-      factId &&
-      outcome === 'INSERTED' &&
-      typeof factPayload.extractionEntropy === 'number'
-    ) {
-      await db.query(
-        `UPDATE type::thing('knowledge_fact', $tail) SET extractionEntropy = $h`,
-        { tail: idTailOf(factId), h: factPayload.extractionEntropy },
-      );
-    }
 
     // Surface supersede / compete outcomes in the trace so the demo can
     // show "Berlin fact closed at July 1, Dublin became current" —
