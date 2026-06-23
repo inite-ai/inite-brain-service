@@ -40,6 +40,7 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     stubEmbedder as never,
   );
   return svc.buildServer('co_test', scopes);
@@ -52,6 +53,17 @@ function toolNames(server: McpServer): string[] {
   return Object.keys(internals._registeredTools);
 }
 
+function resourceNames(server: McpServer): string[] {
+  const internals = server as unknown as {
+    _registeredResources?: Record<string, unknown>;
+    _registeredResourceTemplates?: Record<string, unknown>;
+  };
+  return [
+    ...Object.keys(internals._registeredResources ?? {}),
+    ...Object.keys(internals._registeredResourceTemplates ?? {}),
+  ];
+}
+
 const READ_BASELINE = [
   'search_knowledge',
   'search_multi_hop',
@@ -62,6 +74,8 @@ const READ_BASELINE = [
   'summarize_entity',
   'get_competing_facts',
   'detect_contradiction',
+  'match_procedure',
+  'list_procedures',
   'find_related_entities',
 ];
 
@@ -76,6 +90,8 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).not.toContain('record_fact');
     expect(names).not.toContain('retract_fact');
     expect(names).not.toContain('link_entities');
+    expect(names).not.toContain('record_procedure');
+    expect(names).not.toContain('retire_procedure');
   });
 
   it('registers mutation tools when brain:write is present', () => {
@@ -83,6 +99,8 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('record_fact');
     expect(names).toContain('retract_fact');
     expect(names).toContain('link_entities');
+    expect(names).toContain('record_procedure');
+    expect(names).toContain('retire_procedure');
   });
 
   it('does NOT register forget_entity without brain:admin (even with write)', () => {
@@ -96,11 +114,18 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     );
     expect(names).toContain('forget_entity');
   });
+
+  it('registers brain://entity/ + /timeline resources at brain:read', () => {
+    const names = resourceNames(buildWithScopes(['brain:read']));
+    expect(names).toContain('entity-profile');
+    expect(names).toContain('entity-timeline');
+  });
 });
 
 describe('McpService.health — unauthenticated probe payload', () => {
   it('returns ok, version, the read-baseline tools, and embedder hint', () => {
     const svc = new McpService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

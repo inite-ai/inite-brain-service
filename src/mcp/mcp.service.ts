@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  McpServer,
+  ResourceTemplate,
+} from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { SearchService } from '../search/search.service';
 import { EntitiesService } from '../entities/entities.service';
@@ -10,6 +13,7 @@ import { SynthesizeService } from '../synthesize/synthesize.service';
 import { MemoryDiffService } from '../diff/memory-diff.service';
 import { IngestPredictionService } from '../ingest/ingest-predictor.service';
 import { SummarizeEntityService } from '../summarize-entity/summarize-entity.service';
+import { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 
@@ -26,6 +30,8 @@ const HEALTH_TOOLS = [
   'get_competing_facts',
   'detect_contradiction',
   'find_related_entities',
+  'match_procedure',
+  'list_procedures',
 ];
 
 /**
@@ -56,6 +62,7 @@ export class McpService {
     private readonly memoryDiff: MemoryDiffService,
     private readonly predictor: IngestPredictionService,
     private readonly summarizer: SummarizeEntityService,
+    private readonly procedural: ProceduralMemoryService,
     private readonly embedder: EmbedderService,
   ) {}
 
@@ -102,6 +109,8 @@ export class McpService {
     // timeline / competing / related).
     this.registerSearchTools(server, companyId, scopes);
     this.registerEntityReadTools(server, companyId, scopes);
+    this.registerProceduralReadTools(server, companyId);
+    this.registerReadResources(server, companyId, scopes);
     if (scopes.includes('brain:write')) {
       this.registerWriteTools(server, companyId);
     }
@@ -109,6 +118,87 @@ export class McpService {
       this.registerAdminTools(server, companyId);
     }
     return server;
+  }
+
+  /**
+   * Resources are the MCP-native "read-once" surface alongside tools.
+   * Clients can list and read URIs without going through a tool call —
+   * an LLM can drop a resource ref straight into context. Brain
+   * exposes:
+   *
+   *   - brain://entity/<entityId>           — full profile
+   *   - brain://entity/<entityId>/timeline  — chronological audit
+   *
+   * Resources here are read-only. MCP's subscribe semantics would
+   * require server-side per-client session state; brain runs in
+   * stateless Streamable HTTP mode, so subscribe is a no-op for v1.
+   * Streaming via a server-pushed changefeed resource is the v2 lift.
+   */
+  private registerReadResources(
+    server: McpServer,
+    companyId: string,
+    scopes: BrainScope[],
+  ): void {
+    server.registerResource(
+      'entity-profile',
+      new ResourceTemplate('brain://entity/{entityId}', { list: undefined }),
+      {
+        title: 'Brain entity profile',
+        description:
+          'Full profile of one entity — canonical name, type, externalRefs, and active facts. Drop a brain://entity/<id> URI into a chat context to load it.',
+        mimeType: 'application/json',
+      },
+      async (uri, params) => {
+        const entityIdRaw = String(params.entityId);
+        const profile = await this.entities.getProfile(
+          companyId,
+          entityIdRaw,
+          undefined,
+          scopes,
+        );
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify(profile, null, 2),
+            },
+          ],
+        };
+      },
+    );
+
+    server.registerResource(
+      'entity-timeline',
+      new ResourceTemplate('brain://entity/{entityId}/timeline', {
+        list: undefined,
+      }),
+      {
+        title: 'Brain entity timeline',
+        description:
+          'Chronological audit of every fact recorded against this entity, including retracted/superseded rows. Use as a drop-in context payload for "what is the full history" questions.',
+        mimeType: 'application/json',
+      },
+      async (uri, params) => {
+        const entityIdRaw = String(params.entityId);
+        const timeline = await this.entities.getTimeline(
+          companyId,
+          entityIdRaw,
+          undefined,
+          undefined,
+          scopes,
+        );
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify(timeline, null, 2),
+            },
+          ],
+        };
+      },
+    );
   }
 
 
@@ -483,6 +573,66 @@ export class McpService {
     );
   }
 
+  private registerProceduralReadTools(
+    server: McpServer,
+    companyId: string,
+  ): void {
+    // ── match_procedure ───────────────────────────────────────────────
+    server.registerTool(
+      'match_procedure',
+      {
+        title: 'Match procedural memory against a context query',
+        description:
+          "Cosine-matches procedural memory (curated 'how to' patterns the operator recorded) against a free-text context query. Returns top-K procedures sorted by similarity DESC then priority ASC. Use at the top of an agent loop to surface behaviour rules that should apply — e.g. \"user asks about pricing\" → \"mention they're on platinum tier; they get 20% off\". Procedural memory is the third tier alongside facts (semantic) and episodes (timeline).",
+        inputSchema: {
+          query: z.string().describe('Natural-language context'),
+          limit: z.number().int().min(1).max(20).optional(),
+          minSimilarity: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe('Floor (default 0.4); rows below are dropped'),
+        },
+      },
+      async (args) => {
+        const out = await this.procedural.match(companyId, {
+          query: args.query,
+          limit: args.limit,
+          minSimilarity: args.minSimilarity,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: { matches: out } as any,
+        };
+      },
+    );
+
+    // ── list_procedures ───────────────────────────────────────────────
+    server.registerTool(
+      'list_procedures',
+      {
+        title: 'List recorded procedural memory entries',
+        description:
+          'Paginated listing of procedural memory for admin/review UIs. Sorted by priority ASC, createdAt DESC. Set includeRetired=true to see soft-deleted rows.',
+        inputSchema: {
+          limit: z.number().int().min(1).max(200).optional(),
+          includeRetired: z.boolean().optional(),
+        },
+      },
+      async (args) => {
+        const out = await this.procedural.list(companyId, {
+          limit: args.limit,
+          includeRetired: args.includeRetired,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: { procedures: out } as any,
+        };
+      },
+    );
+  }
+
 
   private registerWriteTools(server: McpServer, companyId: string): void {
     {
@@ -580,6 +730,61 @@ export class McpService {
             reason: args.reason,
             retractedBy: { source: 'system' },
           });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as any,
+          };
+        },
+      );
+
+      // ── record_procedure ───────────────────────────────────────────
+      server.registerTool(
+        'record_procedure',
+        {
+          title: 'Record a procedural memory (behaviour rule)',
+          description:
+            "Record a 'how to' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. \"user asks about pricing\"); action = the behaviour to apply (e.g. \"mention they're on platinum tier; they get 20% off\"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.",
+          inputSchema: {
+            trigger: z.string().min(1),
+            action: z.string().min(1),
+            priority: z.number().int().min(0).max(1000).optional(),
+            decayHalfLifeDays: z.number().int().min(1).max(3650).optional(),
+            sourceKind: z
+              .enum(['operator', 'agent', 'dreams_loop'])
+              .optional()
+              .describe('Audit tag for who recorded this — default operator'),
+          },
+        },
+        async (args) => {
+          const out = await this.procedural.record(companyId, {
+            trigger: args.trigger,
+            action: args.action,
+            priority: args.priority,
+            decayHalfLifeDays: args.decayHalfLifeDays,
+            source: { kind: args.sourceKind ?? 'operator' },
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as any,
+          };
+        },
+      );
+
+      // ── retire_procedure ───────────────────────────────────────────
+      server.registerTool(
+        'retire_procedure',
+        {
+          title: 'Soft-retire a procedural memory entry',
+          description:
+            "Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.",
+          inputSchema: {
+            procedureId: z
+              .string()
+              .describe('procedural_memory:<tail> or just the tail'),
+          },
+        },
+        async (args) => {
+          const out = await this.procedural.retire(companyId, args.procedureId);
           return {
             content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
             structuredContent: out as any,

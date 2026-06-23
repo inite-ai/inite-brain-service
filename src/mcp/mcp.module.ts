@@ -9,6 +9,7 @@ import { MultiHopModule } from '../multi-hop/multi-hop.module';
 import { SynthesizeModule } from '../synthesize/synthesize.module';
 import { DiffModule } from '../diff/diff.module';
 import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.module';
+import { ProceduralModule } from '../procedural/procedural.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.modu
     SynthesizeModule,
     DiffModule,
     SummarizeEntityModule,
+    ProceduralModule,
   ],
   controllers: [McpController],
   providers: [McpService],
