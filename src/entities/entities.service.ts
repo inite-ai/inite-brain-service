@@ -156,6 +156,72 @@ export class EntitiesService {
     });
   }
 
+  /**
+   * Cheap freshness probe for an entity's active fact set, used by the
+   * summarize_entity watermark cache (graphiti-style dual watermark):
+   *   - maxRecordedAt — wall-clock: the newest moment brain learned
+   *     anything about this entity. A cached summary is stale the instant
+   *     a fact with a newer recordedAt lands (even a BACKFILLED one whose
+   *     validFrom is in the past — the bug an asOf-keyed cache misses).
+   *   - maxValidFrom  — event-time: the newest real-world moment the
+   *     summary reflects ("as of"), surfaced to the caller.
+   *
+   * One indexed aggregate over (entityId, status, recordedAt) — far
+   * cheaper than rebuilding the full profile, so it's safe to run on
+   * every cache hit. Returns nulls when the entity has no qualifying
+   * facts.
+   */
+  async freshnessWatermark(
+    companyId: string,
+    entityIdRaw: string,
+    asOfRaw: string | undefined,
+    scopes: BrainScope[],
+  ): Promise<{ maxRecordedAt: string | null; maxValidFrom: string | null }> {
+    const ref = this.normalizeEntityId(entityIdRaw);
+    const asOf = asOfRaw ? new Date(asOfRaw) : null;
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const baseClauses = [
+        `entityId = type::thing('knowledge_entity', $rid)`,
+      ];
+      const params: Record<string, unknown> = { rid: ref.id };
+      if (asOf) {
+        baseClauses.push(
+          `recordedAt <= $asOf`,
+          `(retractedAt IS NONE OR retractedAt > $asOf)`,
+          `validFrom <= $asOf`,
+          `(validUntil IS NONE OR validUntil > $asOf)`,
+        );
+        params.asOf = asOf;
+      } else {
+        baseClauses.push(`retractedAt IS NONE`);
+      }
+      // Two cheap ORDER BY … LIMIT 1 probes (recordedAt is indexed).
+      // Avoids math::max aggregation, which returns NONE over datetimes on
+      // this SurrealDB build.
+      const where = baseClauses.join(' AND ');
+      const [recRows] = await db.query<any[][]>(
+        `SELECT recordedAt FROM knowledge_fact WHERE ${where}
+         ORDER BY recordedAt DESC LIMIT 1`,
+        params,
+      );
+      const [valRows] = await db.query<any[][]>(
+        `SELECT validFrom FROM knowledge_fact WHERE ${where}
+         ORDER BY validFrom DESC LIMIT 1`,
+        params,
+      );
+      const toIso = (v: unknown): string | null =>
+        v == null
+          ? null
+          : v instanceof Date
+            ? v.toISOString()
+            : new Date(String(v)).toISOString();
+      return {
+        maxRecordedAt: toIso((recRows as any[])?.[0]?.recordedAt),
+        maxValidFrom: toIso((valRows as any[])?.[0]?.validFrom),
+      };
+    });
+  }
+
   async getTimeline(
     companyId: string,
     entityIdRaw: string,
