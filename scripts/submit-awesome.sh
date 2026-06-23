@@ -43,6 +43,19 @@ readonly ROW_WEBFUSE='- [inite-brain-service](https://github.com/inite-ai/inite-
 
 readonly ROW_APPCYPHER='- [inite-ai/inite-brain-service](https://github.com/inite-ai/inite-brain-service) - Open-source bitemporal memory layer for LLM agents. MCP server (Streamable HTTP) with 18 tools across read/write/admin scopes. Knowledge graph (SurrealDB) with facts/episodes/procedural tiers, hybrid retrieval, conflict resolution, GDPR forget. AGPL-3.0.'
 
+# Tier 3 row text — generic format, mostly identical across lists.
+# Per-list adjustments are minor (some lists want a leading `*`, some
+# bullet `-`; emoji conventions vary).
+readonly ROW_KYROLABS='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Open-source bitemporal memory layer for LLM agents. Knowledge graph (SurrealDB) with facts / episodes / procedural tiers, hybrid retrieval, conflict resolution, GDPR forget. MCP server, AGPL-3.0.'
+
+readonly ROW_TENSORCHORD='| [Inite Brain](https://github.com/inite-ai/inite-brain-service)    | Open-source bitemporal memory layer for LLM agents. Hybrid vector + BM25 + multi-hop retrieval over a knowledge graph (SurrealDB). MCP server, AGPL-3.0.                       | ![GitHub Badge](https://img.shields.io/github/stars/inite-ai/inite-brain-service.svg?style=flat-square) |'
+
+readonly ROW_DANIELSKRY='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Open-source bitemporal memory layer for LLM agents. Hybrid retrieval (vector + BM25 + multi-hop planner) with claim-level verifier. MCP server, AGPL-3.0. LoCoMo-benchmarked.'
+
+readonly ROW_JENQYANG='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Open-source bitemporal memory layer for LLM agents. Knowledge graph with facts/episodes/procedural tiers, hybrid retrieval, conflict resolution. MCP server, AGPL-3.0.'
+
+readonly ROW_KAUSHIKB11='- [Inite Brain](https://github.com/inite-ai/inite-brain-service) - Open-source memory layer (bitemporal knowledge graph) for LLM agents. MCP server over Streamable HTTP, 18 tools across read/write/admin scopes. AGPL-3.0.'
+
 # ── PR copy ──────────────────────────────────────────────────────────
 
 readonly PR_TITLE='Add inite-brain-service'
@@ -334,29 +347,96 @@ target_appcypher() {
   show_diff_then_commit "$clone_dir" "$upstream"
 }
 
+# ── Tier 3 targets ───────────────────────────────────────────────────
+
+target_kyrolabs() {
+  local upstream='kyrolabs/awesome-agents'
+  local clone_dir
+  clone_dir="$(fork_clone_branch "$upstream")"
+  insert_at_section_end \
+    "${clone_dir}/README.md" \
+    '^#+ .*Knowledge Management' \
+    "$ROW_KYROLABS"
+  show_diff_then_commit "$clone_dir" "$upstream"
+}
+
+target_tensorchord() {
+  local upstream='tensorchord/Awesome-LLMOps'
+  local clone_dir
+  clone_dir="$(fork_clone_branch "$upstream")"
+  insert_at_section_end \
+    "${clone_dir}/README.md" \
+    '^#+ .*Hybrid search' \
+    "$ROW_TENSORCHORD"
+  show_diff_then_commit "$clone_dir" "$upstream"
+}
+
+target_danielskry() {
+  local upstream='Danielskry/Awesome-RAG'
+  local clone_dir
+  clone_dir="$(fork_clone_branch "$upstream")"
+  insert_at_section_end \
+    "${clone_dir}/README.md" \
+    '^#+ .*Frameworks that Facilitate RAG' \
+    "$ROW_DANIELSKRY"
+  show_diff_then_commit "$clone_dir" "$upstream"
+}
+
+target_jenqyang() {
+  local upstream='Jenqyang/Awesome-AI-Agents'
+  local clone_dir
+  clone_dir="$(fork_clone_branch "$upstream")"
+  insert_at_section_end \
+    "${clone_dir}/README.md" \
+    '^#+ .*Advanced Components' \
+    "$ROW_JENQYANG"
+  show_diff_then_commit "$clone_dir" "$upstream"
+}
+
+target_kaushikb11() {
+  local upstream='kaushikb11/awesome-llm-agents'
+  local clone_dir
+  clone_dir="$(fork_clone_branch "$upstream")"
+  # H1 title contains "Frameworks" — anchor on the exact H2 heading
+  # so we don't match the title and insert at top of file.
+  insert_at_section_end \
+    "${clone_dir}/README.md" \
+    '^## Frameworks$' \
+    "$ROW_KAUSHIKB11"
+  show_diff_then_commit "$clone_dir" "$upstream"
+}
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 list_targets() {
   cat <<'EOF'
 Available targets:
 
+Tier 1-2:
   punkpeye      punkpeye/awesome-mcp-servers       (Knowledge & Memory, alpha-sort)
   topoteretes   topoteretes/awesome-ai-memory      (Memory Tool table)
   surrealdb     surrealdb/awesome-surreal          (Projects, alpha-sort)
   webfuse       webfuse-com/awesome-claude         (Claude Code & MCP section)
   appcypher     appcypher/awesome-mcp-servers      (AI Services, append)
 
+Tier 3:
+  kyrolabs      kyrolabs/awesome-agents            (Knowledge Management, append)
+  tensorchord   tensorchord/Awesome-LLMOps         (Search > Hybrid search, append)
+  danielskry    Danielskry/Awesome-RAG             (Frameworks that Facilitate RAG, append)
+  jenqyang      Jenqyang/Awesome-AI-Agents         (Advanced Components, append)
+  kaushikb11    kaushikb11/awesome-llm-agents      (Frameworks, append)
+
 Run one:
   scripts/submit-awesome.sh --only punkpeye
   scripts/submit-awesome.sh --only punkpeye --apply
 
-Run all:
+Run all 10:
   scripts/submit-awesome.sh --all --apply
 
 By default (without --apply) it's a dry run — clones into
-tmp/awesome-submissions/, runs the insertion, prints the diff,
-DOES NOT commit or open a PR. Re-run with --apply once the diff
-looks right.
+/tmp/inite-awesome-submissions/, runs the insertion, prints the
+diff, DOES NOT commit or open a PR. Re-run with --apply once the
+diff looks right.
 EOF
 }
 
@@ -370,6 +450,11 @@ run_target() {
     surrealdb)   target_surrealdb ;;
     webfuse)     target_webfuse ;;
     appcypher)   target_appcypher ;;
+    kyrolabs)    target_kyrolabs ;;
+    tensorchord) target_tensorchord ;;
+    danielskry)  target_danielskry ;;
+    jenqyang)    target_jenqyang ;;
+    kaushikb11)  target_kaushikb11 ;;
     *)
       err "unknown target: $id"
       list_targets
@@ -399,7 +484,8 @@ main() {
     list) list_targets ;;
     one)  run_target "$only" ;;
     all)
-      for id in punkpeye topoteretes surrealdb webfuse appcypher; do
+      for id in punkpeye topoteretes surrealdb webfuse appcypher \
+                kyrolabs tensorchord danielskry jenqyang kaushikb11; do
         run_target "$id" || warn "target ${id} failed — continuing"
       done
       ;;
