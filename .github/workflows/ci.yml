@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -108,7 +108,7 @@ jobs:
       - name: Symlink inite-shared as sibling
         run: ln -sf "$GITHUB_WORKSPACE/inite-shared-checkout" "$GITHUB_WORKSPACE/../inite-shared"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -162,7 +162,7 @@ jobs:
       # deliberately stay self-contained so quality-eval doesn't
       # depend on cross-repo PAT secrets.
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v6
         with:
