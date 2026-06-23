@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in Brain behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in what you can —
+        a clear reproduction is the single biggest help.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+      placeholder: "Searching with asOf returned the current fact instead of the historical one…"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal sequence — ideally the curl / SDK / MCP call and the response.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface?
+      options:
+        - REST API
+        - MCP
+        - SDK (@inite/knowledge)
+        - Self-host (Docker)
+        - Managed (brain.inite.ai)
+        - Website / docs
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Release tag, image digest, or git SHA.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traces
+      description: Relevant server logs, error body, or an OTel trace id. Redact any secrets.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go to SECURITY.md, not public issues).
+          required: true

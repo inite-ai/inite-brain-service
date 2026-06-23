@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://brain.inite.ai/en/docs
+    about: Most "how do I…" questions are answered here first.
+  - name: 🔒 Security vulnerability
+    url: https://github.com/inite-ai/inite-brain-service/blob/main/SECURITY.md
+    about: Please report privately — do not open a public issue.

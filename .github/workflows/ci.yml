@@ -81,6 +81,10 @@ jobs:
         working-directory: brain-landing
         run: pnpm lint:i18n
 
+      - name: Test brain-landing (sitemap + locale parity)
+        working-directory: brain-landing
+        run: pnpm test
+
   real-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20

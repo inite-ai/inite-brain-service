@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a capability, improvement, or new retrieval leg.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome. The strongest proposals start from a concrete problem,
+        not a solution looking for one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The use case or pain. Who hits it, and when?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like Brain to do. API shape, behavior, or config if you have it in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried or other designs you weighed.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Retrieval / search
+        - Ingest / conflict resolution
+        - Bitemporal / lifecycle
+        - MCP / SDK
+        - Eval / quality
+        - Ops / deploy
+        - Website / docs
+        - Other
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to help implement this.
