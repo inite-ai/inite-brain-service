@@ -551,10 +551,16 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    // SurrealDB 3.x requires DEFINE USER … PASSWORD to be a string LITERAL
+    // (a "strand"), not a bound parameter — `PASSWORD $pass` raises
+    // "Unexpected token `a parameter`, expected a strand". Splice the secret
+    // as an escaped single-quoted literal. scopedPass is an operator-supplied
+    // env secret; escape backslashes then single quotes so it can't break out
+    // of the literal or malform the DDL.
+    const escapedPass = scopedPass.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     try {
       await this.migratorConn.query(
-        `DEFINE USER OVERWRITE ${scopedUser} ON NAMESPACE PASSWORD $pass ROLES EDITOR`,
-        { pass: scopedPass },
+        `DEFINE USER OVERWRITE ${scopedUser} ON NAMESPACE PASSWORD '${escapedPass}' ROLES EDITOR`,
       );
       this.logger.log(`Reset password for scoped user '${scopedUser}'`);
     } catch (err) {
