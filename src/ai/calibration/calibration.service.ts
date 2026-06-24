@@ -110,7 +110,7 @@ export class CalibrationService implements OnModuleInit {
           }>,
         ]
       >(
-        `SELECT thresholds, values, sampleCount
+        `SELECT version, thresholds, values, sampleCount
            FROM calibration_table
            WHERE extractorModel = $m AND promptHash = $p
            ORDER BY version DESC LIMIT 1`,

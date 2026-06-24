@@ -40,7 +40,12 @@ services:
       - BRAIN_BASELINES_DIR=/app/.cache/baselines
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - BRAIN_API_KEYS=${BRAIN_API_KEYS:-[]}
-      - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-}
+      # The image runs NODE_ENV=production, where validateEnv REQUIRES a
+      # FORGET_HMAC_KEY (the tombstone-signing secret). Ship a clearly-local
+      # default so `docker compose up` works out of the box; a real env value
+      # (CI/prod) overrides it. ≥32 chars to also clear the length warning.
+      # Mirrors the SURREALDB_SCOPED_PASS local-default pattern above.
+      - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-local-dev-forget-hmac-key-change-in-prod}
     ports:
       - "${BRAIN_HOST_PORT:-3030}:3000"
     # Mirror the prod ceilings so local OOMs surface here, not in deploy.

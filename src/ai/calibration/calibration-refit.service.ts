@@ -489,7 +489,7 @@ export class CalibrationRefitService implements OnModuleInit {
           }>,
         ]
       >(
-        `SELECT confidence, status, retractedAt, retractionReason
+        `SELECT confidence, status, retractedAt, retractionReason, recordedAt
             FROM knowledge_fact
             WHERE confidence IS NOT NONE
               AND time::now() - recordedAt > 30d

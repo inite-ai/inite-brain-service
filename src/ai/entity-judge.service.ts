@@ -80,7 +80,9 @@ export class EntityJudgeService {
   async fetchTopFacts(db: Surreal, entityId: string): Promise<string> {
     type R = { predicate: string; object: string };
     const [rows] = await db.query<[R[]]>(
-      `SELECT predicate, object FROM knowledge_fact
+      // confidence must be in the projection — SurrealDB 3.x requires the
+      // ORDER BY idiom to appear in the SELECT (else "Missing order idiom").
+      `SELECT predicate, object, confidence FROM knowledge_fact
          WHERE entityId = $eid
            AND status = 'active'
            AND retractedAt IS NONE
