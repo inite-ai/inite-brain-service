@@ -1,141 +1,101 @@
 'use client'
 
-/* eslint-disable react/jsx-no-literals -- TODO i18n: admin shell is English-only (pre-Phase-J); queued for a dedicated i18n pass. */
+/* eslint-disable react/jsx-no-literals -- TODO i18n: end-user /app pages ship English-only for MVP (admin UI is too); queued for a dedicated i18n pass. */
 
+import Link from 'next/link'
 import { usePathname, useParams } from 'next/navigation'
 import { ReactNode, useState } from 'react'
 import {
-  Activity,
-  CalendarClock,
-  ClipboardList,
-  Coins,
-  Cpu,
-  Database,
-  FlaskConical,
-  Gauge,
-  Heart,
-  History,
+  BarChart3,
+  GitCompareArrows,
   KeyRound,
-  ListChecks,
-  Lock,
   Menu,
-  Moon,
   Network,
-  Presentation,
-  Play,
-  Radio,
-  Settings2,
-  ShieldAlert,
-  Sigma,
-  Skull,
-  SlidersHorizontal,
-  Tags,
-  Trash2,
+  Search,
+  Boxes,
+  History,
+  FlaskConical,
+  Users,
   UserRound,
-  Waypoints,
   X,
 } from 'lucide-react'
-import { CommandPalette } from '../../../components/admin/CommandPalette'
 import { Header } from '../../../components/Header'
 import { ShellNav, type ShellGroup } from '../../../components/ShellNav'
+import { ProxyBaseProvider } from '../../../components/playground/usePlaygroundCall'
 import { useAuth } from '../../../hooks/useAuth'
 import { normalizeLang } from '../../../lib/i18n'
+
+/** End-user pages route all brain calls through the reduced-scope BFF. */
+const APP_PROXY_BASE = '/api/app/proxy'
 
 interface Props {
   children: ReactNode
 }
 
+// Two-section product shell: a memory Explorer for everyone, and a
+// Develop console for technical users. Mirrors the admin layout's
+// nav/mobile-drawer structure but routes under /[lang]/app/*.
 const GROUPS: ShellGroup[] = [
   {
-    label: 'Ops',
+    label: 'Explore',
     items: [
-      { slug: 'explore/overview', title: 'Overview', icon: Activity },
-      { slug: 'maintenance', title: 'Maintenance', icon: CalendarClock },
-      { slug: 'jobs', title: 'Jobs', icon: Play },
-      { slug: 'dreams', title: 'Dreams', icon: Moon },
-      { slug: 'cost', title: 'Cost', icon: Coins },
-      { slug: 'audit', title: 'Audit log', icon: History },
-      { slug: 'operator-actions', title: 'Operator actions', icon: KeyRound },
-      { slug: 'router', title: 'Router / cache', icon: Gauge },
-      { slug: 'predicates', title: 'Predicates', icon: Tags },
+      { slug: 'search', title: 'Search & Ask', icon: Search },
+      { slug: 'entities', title: 'Entities', icon: Boxes },
+      { slug: 'graph', title: 'Knowledge graph', icon: Network },
+      { slug: 'timeline', title: 'Timeline', icon: History },
+      { slug: 'review', title: 'Conflicts', icon: GitCompareArrows },
+      { slug: 'communities', title: 'Communities', icon: Users },
     ],
   },
   {
-    label: 'Compliance',
-    items: [
-      { slug: 'pii', title: 'PII inventory', icon: ShieldAlert },
-      { slug: 'forgotten', title: 'Forgotten', icon: Skull },
-      { slug: 'dlq', title: 'Dead-letter', icon: Trash2 },
-      { slug: 'config', title: 'Config', icon: Settings2 },
-    ],
-  },
-  {
-    label: 'Infra',
-    items: [
-      { slug: 'health', title: 'Health', icon: Heart },
-      { slug: 'migrations', title: 'Migrations', icon: Database },
-      { slug: 'throttler', title: 'Throttler', icon: SlidersHorizontal },
-      { slug: 'now', title: 'In-flight', icon: Radio },
-      { slug: 'leases', title: 'Leases', icon: Lock },
-    ],
-  },
-  {
-    label: 'Eval',
-    items: [
-      { slug: 'scenarios', title: 'Scenarios', icon: ListChecks },
-      { slug: 'baselines', title: 'Baselines', icon: ClipboardList },
-      { slug: 'calibration', title: 'Calibration', icon: Sigma },
-      { slug: 'traces', title: 'Traces', icon: Waypoints },
-    ],
-  },
-  {
-    label: 'Dev',
+    label: 'Develop',
     items: [
       { slug: 'playground', title: 'Playground', icon: FlaskConical },
-      { slug: 'explore/graph', title: 'Graph explorer', icon: Network },
-      { slug: 'reindex', title: 'Reindex', icon: Cpu },
+      { slug: 'keys', title: 'Keys & integrations', icon: KeyRound },
+      { slug: 'usage', title: 'Usage', icon: BarChart3 },
     ],
-  },
-  {
-    label: 'Live',
-    items: [{ slug: 'demo', title: 'Demo deck', icon: Presentation }],
   },
 ]
 
-export default function AdminLayout({ children }: Props) {
+export default function AppLayout({ children }: Props) {
   const params = useParams<{ lang: string }>()
   const lang = normalizeLang(params?.lang)
   const pathname = usePathname() ?? ''
   const auth = useAuth()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
-  if (!auth.loading && !auth.isAdmin) {
+  if (!auth.loading && !auth.isAuthenticated) {
     return (
       <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
         <div className="max-w-md text-center px-4">
           <h1 className="text-xl font-semibold text-[var(--text)]">
-            Admin sign-in required
+            Sign-in required
           </h1>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
-            This area is restricted to brain operators. Sign in through
-            <code className="ml-1 text-[var(--accent)]">auth.inite.ai</code>{' '}
-            with an account that has <code>metadata.isAdmin = true</code>.
+            Sign in through
+            <code className="mx-1 text-[var(--accent)]">auth.inite.ai</code>
+            to explore your brain.
           </p>
+          <Link
+            href={`/api/auth/login?return_url=${encodeURIComponent(
+              pathname || `/${lang}/app/search`,
+            )}`}
+            className="mt-4 inline-block px-4 py-2 rounded-md text-sm bg-[var(--accent)] text-white"
+          >
+            Sign in
+          </Link>
         </div>
       </div>
     )
   }
 
-  const adminPath = pathname.replace(/^\/+(en|ru)\/admin\/?/, '')
-  const currentSlug = adminPath.startsWith('explore/')
-    ? adminPath.split('/').slice(0, 2).join('/')
-    : adminPath.split('/')[0]
-
+  const appPath = pathname.replace(/^\/+(en|ru)\/app\/?/, '')
+  const currentSlug = appPath.split('/')[0]
   const closeNav = () => setMobileNavOpen(false)
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <Header lang={lang} context="Admin" />
+      <Header lang={lang} context="Brain" />
 
       <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]/60 backdrop-blur sticky top-12 z-20">
         <div className="max-w-7xl mx-auto px-4 h-10 flex items-center gap-2 text-xs">
@@ -147,7 +107,7 @@ export default function AdminLayout({ children }: Props) {
           >
             <Menu className="w-4 h-4" />
           </button>
-          <CommandPalette lang={lang} />
+          <span className="font-mono text-[var(--text-muted)]">Memory</span>
           <div className="ml-auto flex items-center gap-2 text-[var(--text-muted)]">
             {auth.email && (
               <span className="hidden sm:flex items-center gap-1">
@@ -155,15 +115,14 @@ export default function AdminLayout({ children }: Props) {
                 <span className="font-mono">{auth.email}</span>
               </span>
             )}
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                auth.isAdmin
-                  ? 'bg-[var(--accent)]/10 text-[var(--accent)]'
-                  : 'bg-[var(--bg-overlay)] text-[var(--text-faint)]'
-              }`}
-            >
-              {auth.loading ? '…' : auth.isAdmin ? 'brain:admin' : 'no admin'}
-            </span>
+            {auth.isAdmin && (
+              <Link
+                href={`/${lang}/admin/explore/overview`}
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--accent)]/10 text-[var(--accent)]"
+              >
+                admin
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -173,9 +132,9 @@ export default function AdminLayout({ children }: Props) {
           <ShellNav
             groups={GROUPS}
             currentSlug={currentSlug}
-            hrefFor={(slug) => `/${lang}/admin/${slug}`}
+            hrefFor={(slug) => `/${lang}/app/${slug}`}
             onNavigate={closeNav}
-            ariaLabel="Admin sections"
+            ariaLabel="Memory sections"
           />
         </aside>
 
@@ -190,7 +149,7 @@ export default function AdminLayout({ children }: Props) {
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs uppercase tracking-wider text-[var(--text-faint)]">
-                  Admin
+                  Memory
                 </span>
                 <button
                   type="button"
@@ -204,15 +163,17 @@ export default function AdminLayout({ children }: Props) {
               <ShellNav
                 groups={GROUPS}
                 currentSlug={currentSlug}
-                hrefFor={(slug) => `/${lang}/admin/${slug}`}
+                hrefFor={(slug) => `/${lang}/app/${slug}`}
                 onNavigate={closeNav}
-                ariaLabel="Admin sections"
+                ariaLabel="Memory sections"
               />
             </aside>
           </div>
         )}
 
-        <main className="py-6 min-w-0">{children}</main>
+        <main className="py-6 min-w-0">
+          <ProxyBaseProvider value={APP_PROXY_BASE}>{children}</ProxyBaseProvider>
+        </main>
       </div>
     </div>
   )

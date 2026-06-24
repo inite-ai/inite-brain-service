@@ -2,18 +2,21 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { jwtVerify, createRemoteJWKSet } from 'jose'
 
 /**
- * Edge guard for /(en|ru)/admin/**.
+ * Edge guard for /(en|ru)/admin/** and /(en|ru)/app/**.
  *
  * Strategy: lightweight JWT verify on the edge (signature + audience).
- * If the cookie is missing or `isAdmin` is false, redirect into the
- * OAuth init flow (`/api/auth/login?return_url=...`). The init endpoint
- * generates PKCE and bounces the user to auth.inite.ai.
+ *   - /admin/**: requires a token whose `isAdmin` is true.
+ *   - /app/**:   requires any valid token (the end-user product shell).
+ * On a missing/invalid (or non-admin, for /admin) token we redirect
+ * into the OAuth init flow (`/api/auth/login?return_url=...`). The init
+ * endpoint generates PKCE and bounces the user to auth.inite.ai.
  *
  * ADMIN_DEV_BYPASS=1 short-circuits the JWT check entirely. Never
  * enable in production.
  */
 
 const ADMIN_PATH_RE = /^\/(en|ru)?\/?admin(\/|$)/
+const APP_PATH_RE = /^\/(en|ru)?\/?app(\/|$)/
 
 const AUTH_DOMAIN =
   process.env.AUTH_SERVICE_URL ||
@@ -42,7 +45,9 @@ function loginRedirect(req: NextRequest): NextResponse {
   return NextResponse.redirect(url)
 }
 
-async function isAdminToken(token: string): Promise<boolean> {
+async function verifyToken(
+  token: string,
+): Promise<{ valid: boolean; isAdmin: boolean }> {
   try {
     const { payload } = await jwtVerify(token, JWKS, {
       audience: EXPECTED_AUDIENCE,
@@ -51,20 +56,27 @@ async function isAdminToken(token: string): Promise<boolean> {
     const roles = (payload.roles as string[] | undefined) ?? []
     const metadataIsAdmin =
       (payload.metadata as { isAdmin?: boolean } | undefined)?.isAdmin === true
-    return roles.includes('admin') || metadataIsAdmin
+    return { valid: true, isAdmin: roles.includes('admin') || metadataIsAdmin }
   } catch {
-    return false
+    return { valid: false, isAdmin: false }
   }
 }
 
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname
 
-  if (!ADMIN_PATH_RE.test(pathname)) {
+  const isAdminPath = ADMIN_PATH_RE.test(pathname)
+  const isAppPath = APP_PATH_RE.test(pathname)
+  if (!isAdminPath && !isAppPath) {
     return NextResponse.next()
   }
 
-  if (process.env.ADMIN_DEV_BYPASS === '1') {
+  // Dev escape hatch — fails closed in production (mirrors devBypass in
+  // lib/server-auth.ts) so a leaked flag can't disable the edge guard.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.ADMIN_DEV_BYPASS === '1'
+  ) {
     return NextResponse.next()
   }
 
@@ -73,8 +85,9 @@ export async function middleware(req: NextRequest) {
     return loginRedirect(req)
   }
 
-  const allowed = await isAdminToken(token)
-  if (!allowed) {
+  const { valid, isAdmin } = await verifyToken(token)
+  // /app/** needs any valid session; /admin/** additionally needs admin.
+  if (!valid || (isAdminPath && !isAdmin)) {
     return loginRedirect(req)
   }
 
@@ -82,5 +95,12 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/en/admin/:path*', '/ru/admin/:path*'],
+  matcher: [
+    '/admin/:path*',
+    '/en/admin/:path*',
+    '/ru/admin/:path*',
+    '/app/:path*',
+    '/en/app/:path*',
+    '/ru/app/:path*',
+  ],
 }

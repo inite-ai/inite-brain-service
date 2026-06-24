@@ -24,6 +24,7 @@ import { EntitySearch, type SearchHit } from './EntitySearch'
 import { EntityPanel } from './EntityPanel'
 import { PredicateFilter } from './PredicateFilter'
 import { AsOfSlider } from './AsOfSlider'
+import { useProxyBase } from '../playground/usePlaygroundCall'
 import {
   applyDagreLayout,
   type LayoutDirection,
@@ -62,6 +63,7 @@ export function GraphExplorer() {
 }
 
 function GraphExplorerInner() {
+  const proxyBase = useProxyBase()
   const [nodes, setNodes] = useState<Node<EntityNodeData>[]>([])
   const [edges, setEdges] = useState<Edge<KindEdgeData>[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -180,7 +182,7 @@ function GraphExplorerInner() {
         if (recordedAt) params.set('recordedAt', recordedAt)
         const qs = params.toString() ? `?${params.toString()}` : ''
         const res = await fetch(
-          `/api/admin/proxy/v1/entities/${encodeURIComponent(entityId)}/connections${qs}`,
+          `${proxyBase}/v1/entities/${encodeURIComponent(entityId)}/connections${qs}`,
         )
         const data = (await res.json()) as
           | ConnectionsResponse
@@ -228,7 +230,7 @@ function GraphExplorerInner() {
         setExpanding(false)
       }
     },
-    [nodes, edges, updateGraph, asOf, recordedAt],
+    [nodes, edges, updateGraph, asOf, recordedAt, proxyBase],
   )
 
   // Wire reactflow's own change-pipeline so drag motion is rendered.
