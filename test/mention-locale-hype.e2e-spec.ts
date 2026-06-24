@@ -106,7 +106,7 @@ describe('mention-path locale + HyPE coverage', () => {
         ? String(factId).split(':')[1]
         : String(factId);
       const [rows] = await db.query<any[][]>(
-        `SELECT lang, script, altEmbedding FROM type::thing('knowledge_fact', $t)`,
+        `SELECT lang, script, altEmbedding FROM type::record('knowledge_fact', $t)`,
         { t: tail },
       );
       return (rows as any[])?.[0] ?? null;

@@ -152,7 +152,7 @@ export class IngestPredictionService {
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
                 recordedAt, embedding, source, status
            FROM knowledge_fact
-           WHERE entityId = type::thing('knowledge_entity', $eid)
+           WHERE entityId = type::record('knowledge_entity', $eid)
              AND predicate = $predicate
              AND retractedAt IS NONE
              AND status = 'active'
@@ -248,7 +248,7 @@ export class IngestPredictionService {
         ? ref.entityId.slice('knowledge_entity:'.length)
         : ref.entityId;
       const [rows] = await db.query<any[][]>(
-        `SELECT id FROM type::thing('knowledge_entity', $tail) LIMIT 1`,
+        `SELECT id FROM type::record('knowledge_entity', $tail) LIMIT 1`,
         { tail },
       );
       const row = (rows as any[])?.[0];

@@ -23,7 +23,7 @@ DEFINE FIELD IF NOT EXISTS subject ON dream_emit TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS object ON dream_emit TYPE option<string>;
 -- Sibling pointer: for identity_link the loser entityId; for
 -- resolution the loser factId.
-DEFINE FIELD IF NOT EXISTS detail ON dream_emit FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS detail ON dream_emit TYPE option<object> FLEXIBLE;
 -- Free-form judge output (similarity scores, judge reason, etc).
 
 DEFINE INDEX IF NOT EXISTS dream_emit_run_idx

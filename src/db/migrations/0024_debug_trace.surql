@@ -23,11 +23,15 @@ DEFINE FIELD IF NOT EXISTS path ON debug_trace TYPE string;
 DEFINE FIELD IF NOT EXISTS status ON debug_trace TYPE int;
 DEFINE FIELD IF NOT EXISTS durationMs ON debug_trace TYPE int;
 DEFINE FIELD IF NOT EXISTS companyId ON debug_trace TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS spans ON debug_trace FLEXIBLE TYPE array
-    DEFAULT [];
-DEFINE FIELD IF NOT EXISTS artifacts ON debug_trace FLEXIBLE TYPE array
-    DEFAULT [];
-DEFINE FIELD IF NOT EXISTS errored ON debug_trace FLEXIBLE TYPE option<object>;
+-- SurrealDB 3.x validates object-element sub-fields even on FLEXIBLE arrays;
+-- arbitrary keys are only allowed by typing the element via `field.*` as a
+-- FLEXIBLE object. The parent must be plain `array` (NOT option<array>, which
+-- auto-defines `.*` and then collides). See migration audit for 2x→3x.
+DEFINE FIELD IF NOT EXISTS spans ON debug_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS spans.* ON debug_trace TYPE object FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS artifacts ON debug_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS artifacts.* ON debug_trace TYPE object FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS errored ON debug_trace TYPE option<object> FLEXIBLE;
 
 DEFINE INDEX IF NOT EXISTS debug_trace_request_idx
     ON debug_trace FIELDS requestId UNIQUE;

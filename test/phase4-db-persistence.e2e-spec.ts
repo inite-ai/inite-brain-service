@@ -37,7 +37,7 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
     const surreal = f.app.get(SurrealService);
     const row = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<[Array<{ lang: string; script: string }>]>(
-        `SELECT lang, script FROM type::thing('knowledge_fact', $tail)`,
+        `SELECT lang, script FROM type::record('knowledge_fact', $tail)`,
         { tail: factId.replace(/^knowledge_fact:/, '') },
       );
       return Array.isArray(rows) ? rows[0] : null;
@@ -61,7 +61,7 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
     const surreal = f.app.get(SurrealService);
     const row = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<[Array<{ lang: string; script: string }>]>(
-        `SELECT lang, script FROM type::thing('knowledge_fact', $tail)`,
+        `SELECT lang, script FROM type::record('knowledge_fact', $tail)`,
         { tail: factId.replace(/^knowledge_fact:/, '') },
       );
       return Array.isArray(rows) ? rows[0] : null;
@@ -85,7 +85,7 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
       f.companyId,
       async (db) => {
         const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
-          `SELECT embedding FROM type::thing('knowledge_fact', $tail)`,
+          `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
           { tail: factId.replace(/^knowledge_fact:/, '') },
         );
         return Array.isArray(rows) ? rows[0]?.embedding ?? null : null;
@@ -103,7 +103,7 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
       f.companyId,
       async (db) => {
         const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
-          `SELECT embedding FROM type::thing('knowledge_fact', $tail)`,
+          `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
           { tail: factId.replace(/^knowledge_fact:/, '') },
         );
         return Array.isArray(rows) ? rows[0]?.embedding ?? null : null;

@@ -44,7 +44,7 @@ DEFINE FUNCTION OVERWRITE fn::reap_zombies($max_attempts: int, $backoff_base_ms:
         status = 'pending',
         claimedBy = NONE,
         leaseUntil = NONE,
-        visibleAfter = time::now() + duration::from::millis(<int> math::floor(math::min([
+        visibleAfter = time::now() + duration::from_millis(<int> math::floor(math::min([
             $backoff_base_ms * math::pow(2, (attempts ?? 1) - 1) * (0.5 + rand::float() * 0.5),
             3600000
         ]))),

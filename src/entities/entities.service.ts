@@ -89,7 +89,7 @@ export class EntitiesService {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [entRows] = await db.query<any[][]>(
         `SELECT ${ENTITY_PROFILE_FIELDS}
-         FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
+         FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       const entity = (entRows as any[])?.[0];
@@ -103,7 +103,7 @@ export class EntitiesService {
       // in JS. With a long-lived entity (~thousands of facts), this
       // collapses bytes-scanned by an order of magnitude for the
       // common case `asOf = now`.
-      const baseClauses = [`entityId = type::thing('knowledge_entity', $rid)`];
+      const baseClauses = [`entityId = type::record('knowledge_entity', $rid)`];
       const params: Record<string, unknown> = { rid: ref.id };
       if (asOf) {
         baseClauses.push(
@@ -181,7 +181,7 @@ export class EntitiesService {
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const baseClauses = [
-        `entityId = type::thing('knowledge_entity', $rid)`,
+        `entityId = type::record('knowledge_entity', $rid)`,
       ];
       const params: Record<string, unknown> = { rid: ref.id };
       if (asOf) {
@@ -247,7 +247,7 @@ export class EntitiesService {
       // long-lived entities don't pay for full timeline materialisation
       // on every query. The composite (entityId, status, recordedAt)
       // index covers the entityId+range combination directly.
-      const clauses = [`entityId = type::thing('knowledge_entity', $rid)`];
+      const clauses = [`entityId = type::record('knowledge_entity', $rid)`];
       const params: Record<string, unknown> = { rid: ref.id };
       if (since) { clauses.push(`recordedAt >= $since`); params.since = since; }
       if (until) { clauses.push(`recordedAt <= $until`); params.until = until; }
@@ -305,7 +305,7 @@ export class EntitiesService {
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Native graph traversal via SurrealDB's `->` / `<-` operators
-      // applied to an inline `type::thing(...)` expression. The graph
+      // applied to an inline `type::record(...)` expression. The graph
       // operators walk the adjacency list directly — O(degree) — and
       // the inline `out.{...}` / `in.{...}` projections hydrate the
       // far entity in the same query. Two parallel reads (outbound +
@@ -326,13 +326,13 @@ export class EntitiesService {
       const outSql = `
         SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
                out.{id, type, canonicalName} AS toEntity
-        FROM type::thing('knowledge_entity', $rid)->knowledge_edge
+        FROM type::record('knowledge_entity', $rid)->knowledge_edge
         WHERE 1=1${asOfParam}${kindParam}
       `;
       const inSql = `
         SELECT id, kind, weight, source, createdAt, invalidatedAt, in, out,
                in.{id, type, canonicalName} AS fromEntity
-        FROM type::thing('knowledge_entity', $rid)<-knowledge_edge
+        FROM type::record('knowledge_entity', $rid)<-knowledge_edge
         WHERE 1=1${asOfParam}${kindParam}
       `;
       const [outRowsResult, inRowsResult] = await Promise.all([
@@ -402,7 +402,7 @@ export class EntitiesService {
     const result = await this.surreal.withCompany(companyId, async (db) => {
       // Verify exists
       const [entRows] = await db.query<any[][]>(
-        `SELECT id FROM type::thing('knowledge_entity', $rid) LIMIT 1`,
+        `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       const entity = (entRows as any[])?.[0];
@@ -423,12 +423,12 @@ export class EntitiesService {
       // reconstructable from audit_event indefinitely.
       const [factIdRows] = await db.query<any[][]>(
         `SELECT id FROM knowledge_fact
-         WHERE entityId = type::thing('knowledge_entity', $rid)`,
+         WHERE entityId = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
       const [edgeIdRows] = await db.query<any[][]>(
         `SELECT id FROM knowledge_edge
-         WHERE in = type::thing('knowledge_entity', $rid) OR out = type::thing('knowledge_entity', $rid)`,
+         WHERE in = type::record('knowledge_entity', $rid) OR out = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
       const factIds = ((factIdRows as any[]) ?? []).map((r) => String(r.id));
@@ -439,16 +439,16 @@ export class EntitiesService {
       // Cascade hard-delete. Embedding columns die with the rows.
       await db.query(
         `DELETE knowledge_fact
-         WHERE entityId = type::thing('knowledge_entity', $rid)`,
+         WHERE entityId = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
       await db.query(
         `DELETE knowledge_edge
-         WHERE in = type::thing('knowledge_entity', $rid) OR out = type::thing('knowledge_entity', $rid)`,
+         WHERE in = type::record('knowledge_entity', $rid) OR out = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
       await db.query(
-        `DELETE type::thing('knowledge_entity', $rid)`,
+        `DELETE type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
 
@@ -493,21 +493,21 @@ export class EntitiesService {
       // support_context) carry name/contact/complaints — entityId-keyed.
       await db.query(
         `DELETE knowledge_artifact
-           WHERE entityId = type::thing('knowledge_entity', $rid)`,
+           WHERE entityId = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
 
       // ingest_dead_letter: rejected facts keep payload.{object,entityId}.
       await db.query(
         `DELETE ingest_dead_letter
-           WHERE payload.entityId = type::thing('knowledge_entity', $rid)`,
+           WHERE payload.entityId = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
 
       // entity_external_ref: external subject identifier + pointer.
       await db.query(
         `DELETE entity_external_ref
-           WHERE entity = type::thing('knowledge_entity', $rid)`,
+           WHERE entity = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
 

@@ -31,11 +31,15 @@ DEFINE FIELD IF NOT EXISTS clauseText   ON extraction_pattern TYPE string;
 -- input clause for the replay to be valid — the consumer (Sprint E7)
 -- runs the same span-grounding check before accepting the cached
 -- facts.
-DEFINE FIELD IF NOT EXISTS facts        ON extraction_pattern FLEXIBLE TYPE array;
+-- 3.x: flexible object-array needs the element typed via `facts.*` (parent
+-- must be plain `array`, not option<array>). See 0024 for the rationale.
+DEFINE FIELD IF NOT EXISTS facts        ON extraction_pattern TYPE array;
+DEFINE FIELD IF NOT EXISTS facts.*      ON extraction_pattern TYPE object FLEXIBLE;
 -- Captured edge templates as JSON. Each template carries the kind plus
 -- relative entity positions in the clause; the consumer maps them to
 -- the new clause's entities (Sprint E7).
-DEFINE FIELD IF NOT EXISTS edges        ON extraction_pattern FLEXIBLE TYPE array  DEFAULT [];
+DEFINE FIELD IF NOT EXISTS edges        ON extraction_pattern TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS edges.*      ON extraction_pattern TYPE object FLEXIBLE;
 -- How many times this clause has been observed. Useful for operators
 -- triaging the learned set — high-count patterns are battle-tested;
 -- one-shot patterns may be brittle.

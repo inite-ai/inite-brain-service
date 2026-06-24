@@ -37,10 +37,11 @@ function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
 
 describe('JobClaimService', () => {
   it('claimNext returns null when the transaction yields no row', async () => {
-    // runTransaction returns the LAST statement's result. Our handler
-    // wraps "RETURN NONE" when the SELECT was empty.
+    // runTransaction reads the slot before the trailing COMMIT (SurrealDB 3.x
+    // emits a null COMMIT slot). RETURN NONE → the slot is null → claimNext
+    // returns null. [null, null] = (RETURN NONE, COMMIT).
     const { db } = mkDbScript([
-      () => [null], // BEGIN/COMMIT batch returns one slot: NONE
+      () => [null, null],
     ]);
     const svc = new JobClaimService(mkSurreal(db));
     const got = await svc.claimNext({
@@ -52,6 +53,7 @@ describe('JobClaimService', () => {
   });
 
   it('claimNext returns a typed JobClaim when the tx yields a row', async () => {
+    // 3.x: row is the RETURN slot, immediately before the COMMIT null slot.
     const { db } = mkDbScript([
       () => [
         {
@@ -62,6 +64,7 @@ describe('JobClaimService', () => {
           payload: { operations: ['dedup'] },
           leaseUntil: '2030-01-01T00:05:00Z',
         },
+        null,
       ],
     ]);
     const svc = new JobClaimService(mkSurreal(db));

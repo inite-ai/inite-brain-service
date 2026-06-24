@@ -221,7 +221,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
     // Force the lease into the past.
     await surreal.withCompany(TENANT, async (db) => {
       await db.query(
-        `UPDATE type::thing($rid) SET leaseUntil = type::datetime($t)`,
+        `UPDATE type::record($rid) SET leaseUntil = type::datetime($t)`,
         { rid: claimed!.recordId, t: new Date(Date.now() - 60_000).toISOString() },
       );
     });

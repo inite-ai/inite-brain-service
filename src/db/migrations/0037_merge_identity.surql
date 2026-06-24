@@ -65,7 +65,7 @@ DEFINE FUNCTION OVERWRITE fn::merge_identity(
     -- B→A both hash to the same lock record, so one of two racing
     -- transactions aborts with a retryable write conflict.
     LET $pair = array::sort([<string>$loser, <string>$survivor]);
-    UPSERT type::thing('merge_lock', array::join($pair, '|')) SET at = time::now();
+    UPSERT type::record('merge_lock', array::join($pair, '|')) SET at = time::now();
 
     -- Multi-hop cycle guard. `+collect` returns every mergedInto value along
     -- the survivor's chain; if the loser is anywhere in it, merging the loser

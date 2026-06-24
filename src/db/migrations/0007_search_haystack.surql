@@ -36,4 +36,4 @@ DEFINE FIELD IF NOT EXISTS searchHaystack ON knowledge_fact
 UPDATE knowledge_fact SET searchHaystack = string::concat(string::replace(predicate, '_', ' '), ' ', object);
 
 DEFINE INDEX IF NOT EXISTS fact_haystack_search_idx ON knowledge_fact
-  FIELDS searchHaystack SEARCH ANALYZER content BM25 HIGHLIGHTS;
+  FIELDS searchHaystack FULLTEXT ANALYZER content BM25 HIGHLIGHTS;

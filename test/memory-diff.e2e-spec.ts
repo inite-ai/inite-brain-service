@@ -36,7 +36,7 @@ describe('MemoryDiffService.diff — window math', () => {
     await surreal.withCompany(f.companyId, async (db) => {
       // Two entities: target + bystander. Created at T0.
       await db.query(
-        `CREATE type::thing('knowledge_entity', $eid) CONTENT {
+        `CREATE type::record('knowledge_entity', $eid) CONTENT {
             type: 'customer',
             canonicalName: 'Diff Target',
             externalRefs: { rent: 'md_subj' },
@@ -46,7 +46,7 @@ describe('MemoryDiffService.diff — window math', () => {
       );
       // Bystander created INSIDE the window — should appear in newEntities.
       await db.query(
-        `CREATE type::thing('knowledge_entity', $eid) CONTENT {
+        `CREATE type::record('knowledge_entity', $eid) CONTENT {
             type: 'customer',
             canonicalName: 'Diff Bystander',
             externalRefs: { rent: 'md_bystander' },
@@ -58,8 +58,8 @@ describe('MemoryDiffService.diff — window math', () => {
       // 5 facts at T1 on the target.
       for (let i = 1; i <= 5; i++) {
         await db.query(
-          `CREATE type::thing('knowledge_fact', $rid) CONTENT {
-              entityId: type::thing('knowledge_entity', $eid),
+          `CREATE type::record('knowledge_fact', $rid) CONTENT {
+              entityId: type::record('knowledge_entity', $eid),
               predicate: 'tag',
               object: $obj,
               confidence: 0.9,
@@ -80,7 +80,7 @@ describe('MemoryDiffService.diff — window math', () => {
 
       // At T2: retract md_t1_1 (pure retract — no successor).
       await db.query(
-        `UPDATE type::thing('knowledge_fact', 'md_t1_1') SET
+        `UPDATE type::record('knowledge_fact', 'md_t1_1') SET
             status = 'retracted',
             retractedAt = $t2,
             retractionReason = 'operator',
@@ -89,8 +89,8 @@ describe('MemoryDiffService.diff — window math', () => {
       );
       // At T2: add md_t2_new — net-new active fact on target.
       await db.query(
-        `CREATE type::thing('knowledge_fact', $rid) CONTENT {
-            entityId: type::thing('knowledge_entity', $eid),
+        `CREATE type::record('knowledge_fact', $rid) CONTENT {
+            entityId: type::record('knowledge_entity', $eid),
             predicate: 'tag',
             object: 'tag_added_in_t2',
             confidence: 0.95,
@@ -108,8 +108,8 @@ describe('MemoryDiffService.diff — window math', () => {
       );
       // At T2: a superseded transition — md_t1_2 is replaced by md_t2_replacement.
       await db.query(
-        `CREATE type::thing('knowledge_fact', $rid) CONTENT {
-            entityId: type::thing('knowledge_entity', $eid),
+        `CREATE type::record('knowledge_fact', $rid) CONTENT {
+            entityId: type::record('knowledge_entity', $eid),
             predicate: 'tier',
             object: 'platinum',
             confidence: 0.95,
@@ -126,11 +126,11 @@ describe('MemoryDiffService.diff — window math', () => {
         },
       );
       await db.query(
-        `UPDATE type::thing('knowledge_fact', 'md_t1_2') SET
+        `UPDATE type::record('knowledge_fact', 'md_t1_2') SET
             status = 'superseded',
             retractedAt = $t2,
             retractionReason = 'superseded',
-            supersededBy = type::thing('knowledge_fact', 'md_t2_replacement')`,
+            supersededBy = type::record('knowledge_fact', 'md_t2_replacement')`,
         { t2: T2 },
       );
     });

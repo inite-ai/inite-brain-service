@@ -196,7 +196,7 @@ export class IngestService {
         );
         if (altEmbedding) {
           await db.query(
-            `UPDATE type::thing('knowledge_fact', $tail) SET altEmbedding = $emb`,
+            `UPDATE type::record('knowledge_fact', $tail) SET altEmbedding = $emb`,
             { tail: idTailOf(factId), emb: altEmbedding },
           );
         }
@@ -539,8 +539,8 @@ export class IngestService {
             [{ merged: boolean; reason: string | null }]
           >(
             `RETURN fn::merge_identity(
-                type::thing('knowledge_entity', $loser),
-                type::thing('knowledge_entity', $survivor))`,
+                type::record('knowledge_entity', $loser),
+                type::record('knowledge_entity', $survivor))`,
             { loser: idTailOf(toId), survivor: idTailOf(fromId) },
           );
           return r;
@@ -651,7 +651,7 @@ export class IngestService {
     return retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(
         `RETURN fn::resolve_fact(
-            type::thing('knowledge_entity', $eid),
+            type::record('knowledge_entity', $eid),
             $predicate, $object, $object_meta, $embedding,
             $confidence, $valid_from, $valid_until, $source,
             $source_trust, $semantics, $similarity_threshold,
@@ -877,7 +877,7 @@ export class IngestService {
       );
       if (altEmbedding) {
         await db.query(
-          `UPDATE type::thing('knowledge_fact', $tail) SET altEmbedding = $emb`,
+          `UPDATE type::record('knowledge_fact', $tail) SET altEmbedding = $emb`,
           { tail: idTailOf(factId), emb: altEmbedding },
         );
       }

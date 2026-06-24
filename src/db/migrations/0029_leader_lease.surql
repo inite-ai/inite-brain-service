@@ -14,7 +14,7 @@
 --
 --   IF leaseUntil IS NONE OR leaseUntil < time::now() THEN
 --     UPSERT leader_lease:[$name] CONTENT {
---       leaseUntil = time::now() + duration::from::secs($ttl),
+--       leaseUntil = time::now() + duration::from_secs($ttl),
 --       leaderId   = $me,
 --       heartbeatAt = time::now()
 --     };

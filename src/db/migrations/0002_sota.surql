@@ -46,9 +46,9 @@ DEFINE INDEX IF NOT EXISTS entity_canonical_lc_idx ON knowledge_entity FIELDS ca
 DEFINE INDEX IF NOT EXISTS entity_aliases_idx     ON knowledge_entity FIELDS aliases;
 
 DEFINE INDEX IF NOT EXISTS entity_name_search_idx ON knowledge_entity
-  FIELDS canonicalName SEARCH ANALYZER content BM25 HIGHLIGHTS;
+  FIELDS canonicalName FULLTEXT ANALYZER content BM25 HIGHLIGHTS;
 DEFINE INDEX IF NOT EXISTS entity_alias_search_idx ON knowledge_entity
-  FIELDS aliases SEARCH ANALYZER content BM25;
+  FIELDS aliases FULLTEXT ANALYZER content BM25;
 
 -- ─── EntityExternalRef (lookup table) ────────────────────────────────────
 DEFINE TABLE IF NOT EXISTS entity_external_ref SCHEMAFULL;
@@ -67,7 +67,7 @@ DEFINE INDEX IF NOT EXISTS fact_bitemporal_idx ON knowledge_fact
   FIELDS entityId, status, recordedAt;
 
 DEFINE INDEX IF NOT EXISTS fact_object_search_idx ON knowledge_fact
-  FIELDS object SEARCH ANALYZER content BM25 HIGHLIGHTS;
+  FIELDS object FULLTEXT ANALYZER content BM25 HIGHLIGHTS;
 
 -- ─── KnowledgeEdge additions ─────────────────────────────────────────────
 DEFINE TABLE IF NOT EXISTS knowledge_edge SCHEMAFULL TYPE RELATION

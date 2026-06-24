@@ -37,15 +37,15 @@ DEFINE FIELD IF NOT EXISTS startedAt ON job_run TYPE datetime
     DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS finishedAt ON job_run TYPE option<datetime>;
 -- Set on transition to terminal status. Subtract startedAt for duration.
-DEFINE FIELD IF NOT EXISTS progress ON job_run FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS progress ON job_run TYPE option<object> FLEXIBLE;
 -- Free-form progress hash. Conventional keys:
 --   { processed: number, total?: number, currentTenant?: string,
 --     itemsEmitted?: number, partialStats?: any }
 -- The job is the source of truth for shape; UI renders whatever is here.
-DEFINE FIELD IF NOT EXISTS result ON job_run FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS result ON job_run TYPE option<object> FLEXIBLE;
 -- Terminal payload; mirrors what the legacy synchronous HTTP response
 -- returned (so callers waiting on the run can read it back from DB).
-DEFINE FIELD IF NOT EXISTS error ON job_run FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS error ON job_run TYPE option<object> FLEXIBLE;
 -- { message: string, name?: string, stack?: string } on failure.
 DEFINE FIELD IF NOT EXISTS cancelRequested ON job_run TYPE bool
     DEFAULT false;

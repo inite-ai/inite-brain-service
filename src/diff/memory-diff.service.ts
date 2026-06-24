@@ -137,7 +137,7 @@ export class MemoryDiffService {
       // Fetch the `after` snapshot for each changedFacts entry. The
       // id column is record<knowledge_fact>; an `IN` against plain
       // string ids doesn't match. We hydrate each replacement via
-      // type::thing in a per-row fetch — changedFacts counts are
+      // type::record in a per-row fetch — changedFacts counts are
       // bounded by retracts in-window, so the N+1 round trip is
       // cheap in practice and the SurrealQL stays portable.
       const replacementTails = Array.from(
@@ -153,7 +153,7 @@ export class MemoryDiffService {
       for (const tail of replacementTails) {
         const [afterRows] = await db.query<any[][]>(
           `SELECT ${FACT_FIELDS}
-             FROM type::thing('knowledge_fact', $tail) LIMIT 1`,
+             FROM type::record('knowledge_fact', $tail) LIMIT 1`,
           { tail },
         );
         const r = (afterRows as any[])?.[0];
@@ -232,11 +232,11 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
     );
     params.entityIds = normalized;
     // SurrealDB IN on a record<knowledge_entity> field accepts an
-    // array of record links (strings here cast through type::thing).
+    // array of record links (strings here cast through type::record).
     factParts.push(
-      `entityId IN (SELECT type::thing(id) FROM $entityIds AS id)`,
+      `entityId IN (SELECT type::record(id) FROM $entityIds AS id)`,
     );
-    entityParts.push(`id IN (SELECT type::thing(id) FROM $entityIds AS id)`);
+    entityParts.push(`id IN (SELECT type::record(id) FROM $entityIds AS id)`);
   }
 
   if (args.predicates && args.predicates.length > 0) {
