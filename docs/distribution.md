@@ -126,7 +126,7 @@ Add inite-brain-service to Knowledge & Memory
 
 ```
 Adds inite-brain-service — open-source (AGPL-3.0) bitemporal memory layer
-for LLM agents. MCP server (Streamable HTTP) exposing 18 tools across
+for LLM agents. MCP server (Streamable HTTP) exposing 21 tools across
 read/write/admin scopes.
 
 Distinct from existing entries: bitemporal (valid-time + transaction-
@@ -202,7 +202,7 @@ URL: https://mcpservers.org/submit
 Section: **Claude Code & Model Context Protocol (MCP)**.
 
 ```
-- [inite-brain-service](https://github.com/inite-ai/inite-brain-service) — open-source memory layer for Claude (and any other MCP client). Bitemporal knowledge graph, 18 tools, three memory tiers (facts/episodes/procedural), conflict resolution, GDPR forget. AGPL-3.0.
+- [inite-brain-service](https://github.com/inite-ai/inite-brain-service) — open-source memory layer for Claude (and any other MCP client). Bitemporal knowledge graph, 21 tools, three memory tiers (facts/episodes/procedural), conflict resolution, GDPR forget. AGPL-3.0.
 ```
 
 Note: 165+ open PRs on this repo as of 2026-06 — maintainer is slow. File and forget.
