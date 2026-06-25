@@ -294,12 +294,20 @@ export class CommunityBuilderService {
       names[0]?.canonicalName ?? `community of ${members.length} entities`;
 
     const [factRows] = await db.query<[Array<RawFact>]>(
+      // Deterministic tiebreakers after confidence: a cluster's facts often
+      // share one confidence (e.g. a batch of name facts all at 0.95), so
+      // ORDER BY confidence alone left the row order DB-dependent. That made
+      // the concat summary — and thus its embedding — vary run-to-run, so the
+      // cosine of an unrelated query against it flipped sign across
+      // environments and intermittently fell below minSimilarity:0 (a CI-only
+      // flake in the communities search e2e). A fully-ordered projection makes
+      // the summary, and every downstream similarity, reproducible.
       `SELECT entityId, predicate, object, confidence, validFrom, validUntil
          FROM knowledge_fact
          WHERE entityId INSIDE $ids
            AND status = 'active'
            AND retractedAt IS NONE
-         ORDER BY confidence DESC
+         ORDER BY confidence DESC, validFrom ASC, predicate ASC, object ASC
          LIMIT 40`,
       { ids: ridSample },
     );
