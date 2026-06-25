@@ -117,6 +117,14 @@ jobs:
               image: ${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service:latest
               container_name: ${{ env.PROJECT_NAME }}
               restart: unless-stopped
+              # PID-1 init (tini): reaps zombie children from the worker
+              # pool / native deps and forwards signals so SIGTERM reaches
+              # Node cleanly.
+              init: true
+              # The app's graceful shutdown drains in-flight work for up to
+              # 15s (main.ts); Docker's default 10s SIGKILLs mid-drain, so
+              # give it headroom past that budget.
+              stop_grace_period: 30s
               expose:
                 - "${{ env.PORT }}"
               environment:

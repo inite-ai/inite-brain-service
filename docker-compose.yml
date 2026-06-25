@@ -48,6 +48,14 @@ services:
       - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-local-dev-forget-hmac-key-change-in-prod}
     ports:
       - "${BRAIN_HOST_PORT:-3030}:3000"
+    # PID-1 init (tini): reaps zombie children — the app spawns
+    # worker_threads / native processes, and without an init the Node
+    # PID-1 doesn't reap them. Also forwards signals correctly.
+    init: true
+    # The app's graceful shutdown gives in-flight work up to 15s before a
+    # forced exit (main.ts). Docker's default 10s SIGKILLs mid-drain; give
+    # it headroom so SIGTERM handling actually completes.
+    stop_grace_period: 30s
     # Mirror the prod ceilings so local OOMs surface here, not in deploy.
     mem_limit: 2g
     mem_reservation: 768m
