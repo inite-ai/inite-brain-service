@@ -156,6 +156,10 @@ jobs:
                 - AUTH_SERVICE_URL=https://auth.inite.ai
                 - AUTH_SERVICE_JWKS_URL=https://auth.inite.ai/.well-known/jwks.json
                 - AUTH_SERVICE_AUDIENCE=brain
+                # Required: JwksService refuses to boot in production when JWKS
+                # is enabled without an issuer (else the `iss` claim is not
+                # validated). Must match the `iss` auth-service signs with.
+                - AUTH_SERVICE_ISSUER=https://auth.inite.ai
                 # GDPR forget HMAC — opaque tombstone marker.
                 - FORGET_HMAC_KEY=${{ secrets.BRAIN_FORGET_HMAC_KEY }}
                 # Search retrieval features — eval-validated ON config.
