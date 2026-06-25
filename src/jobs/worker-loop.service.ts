@@ -12,6 +12,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService, type JobClaim } from './job-claim.service';
 import { LeaderLeaseService } from './leader-lease.service';
 import { JobWorkerPool } from './job-worker-pool.service';
+import { MetricsService } from '../metrics/metrics.service';
 import type { JobType } from './job-run.service';
 
 export interface JobContext {
@@ -115,6 +116,7 @@ export class WorkerLoopService
     @Optional() private readonly apiKeys?: ApiKeyService,
     @Optional() @Inject('WORKER_LOOP_NOW') private readonly now?: () => number,
     @Optional() private readonly workerPool?: JobWorkerPool,
+    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
       (config.get<string>('WORKER_LOOP_ENABLED', '1') ?? '1') !== '0';
@@ -227,6 +229,7 @@ export class WorkerLoopService
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
     if (this.decayTimer) clearInterval(this.decayTimer);
     this.abortController.abort();
+    this.metrics?.setWorkerLeader(false);
     if (this.isLeader && this.lease) {
       try {
         await this.lease.release('worker_loop');
@@ -268,6 +271,7 @@ export class WorkerLoopService
         this.isLeader = false;
       }
     }
+    this.metrics?.setWorkerLeader(this.isLeader);
     if (this.isLeader && !this.loopsStarted) {
       this.loopsStarted = true;
       for (const reg of this.handlers.values()) {
@@ -395,6 +399,10 @@ export class WorkerLoopService
     consumerSpan: ReturnType<ReturnType<typeof trace.getTracer>['startSpan']>,
   ): Promise<void> {
     const handlerAbort = new AbortController();
+    const startedAt = this.now?.() ?? Date.now();
+    // Mirrors the span's `job.outcome`. Defaults to 'failed' so an
+    // unexpected throw before any branch is counted as a failure, not lost.
+    let outcome: 'succeeded' | 'failed' | 'cancelled' | 'lost_claim' = 'failed';
     // Pod shutdown propagates into the handler.
     const onShutdown = () => handlerAbort.abort(new Error('pod_shutdown'));
     this.abortController.signal.addEventListener('abort', onShutdown, {
@@ -453,6 +461,7 @@ export class WorkerLoopService
       clearInterval(renewTimer);
       if (cancelRequested) {
         consumerSpan.setAttribute('job.outcome', 'cancelled');
+        outcome = 'cancelled';
         await this.claim!.cancelled({
           companyId: claim.companyId,
           recordId: claim.recordId,
@@ -462,11 +471,13 @@ export class WorkerLoopService
         // Don't write — another worker owns the row now. The
         // duplicate-work cost was already paid; just bail.
         consumerSpan.setAttribute('job.outcome', 'lost_claim');
+        outcome = 'lost_claim';
         this.logger.warn(
           `Claim ${claim.runId} lost mid-handler; skipping terminal write`,
         );
       } else {
         consumerSpan.setAttribute('job.outcome', 'succeeded');
+        outcome = 'succeeded';
         await this.claim!.complete({
           companyId: claim.companyId,
           recordId: claim.recordId,
@@ -479,6 +490,7 @@ export class WorkerLoopService
       consumerSpan.recordException(e);
       if (cancelRequested) {
         consumerSpan.setAttribute('job.outcome', 'cancelled');
+        outcome = 'cancelled';
         await this.claim!.cancelled({
           companyId: claim.companyId,
           recordId: claim.recordId,
@@ -486,11 +498,13 @@ export class WorkerLoopService
         });
       } else if (lostClaim) {
         consumerSpan.setAttribute('job.outcome', 'lost_claim');
+        outcome = 'lost_claim';
         this.logger.warn(
           `Claim ${claim.runId} lost mid-handler (handler threw): ${e.message}`,
         );
       } else {
         consumerSpan.setAttribute('job.outcome', 'failed');
+        outcome = 'failed';
         consumerSpan.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
         await this.claim!.fail({
           companyId: claim.companyId,
@@ -503,6 +517,8 @@ export class WorkerLoopService
       }
     } finally {
       this.abortController.signal.removeEventListener('abort', onShutdown);
+      const elapsed = ((this.now?.() ?? Date.now()) - startedAt) / 1000;
+      this.metrics?.recordJob(claim.jobType, outcome, elapsed);
     }
   }
 

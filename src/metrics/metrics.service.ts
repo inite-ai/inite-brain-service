@@ -197,6 +197,35 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Background job execution. Before this, job outcomes lived only on
+  // OTel spans + logs — there was no Prometheus signal to alert on a
+  // rising failure rate or a stalled queue. Outcomes mirror the span's
+  // `job.outcome`: succeeded | failed | cancelled | lost_claim.
+  readonly jobsTotal = new Counter({
+    name: 'brain_job_total',
+    help: 'Background job dispatches by type and terminal outcome',
+    labelNames: ['jobType', 'outcome'] as const,
+    registers: [this.registry],
+  });
+
+  readonly jobDuration = new Histogram({
+    name: 'brain_job_duration_seconds',
+    help: 'Background job handler latency in seconds, by type',
+    labelNames: ['jobType'] as const,
+    buckets: [0.05, 0.25, 1, 5, 15, 60, 300, 1200],
+    registers: [this.registry],
+  });
+
+  // 1 on the pod currently holding the worker_loop leader lease, 0
+  // elsewhere. Summed across pods it tells the operator whether the
+  // cluster has exactly one leader (sum=1), none (sum=0 → no jobs
+  // running), or a split-brain window (sum>1).
+  readonly workerIsLeader = new Gauge({
+    name: 'brain_worker_is_leader',
+    help: 'Whether this pod currently holds the worker_loop leader lease (1/0)',
+    registers: [this.registry],
+  });
+
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
@@ -315,6 +344,22 @@ export class MetricsService implements OnModuleInit {
         args.completionTokens,
       );
     }
+  }
+
+  recordJob(
+    jobType: string,
+    outcome: 'succeeded' | 'failed' | 'cancelled' | 'lost_claim',
+    durationSeconds: number,
+  ): void {
+    this.jobsTotal.inc({ jobType, outcome } as LabelValues<'jobType' | 'outcome'>);
+    this.jobDuration.observe(
+      { jobType } as LabelValues<'jobType'>,
+      durationSeconds,
+    );
+  }
+
+  setWorkerLeader(isLeader: boolean): void {
+    this.workerIsLeader.set(isLeader ? 1 : 0);
   }
 
   countChangefeedConsumed(source: string, n = 1): void {

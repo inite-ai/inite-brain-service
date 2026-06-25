@@ -135,6 +135,35 @@ describe('WorkerLoopService.dispatch', () => {
     expect(claimSvc.calls.failed).toHaveLength(0);
   });
 
+  it('records a job metric with the terminal outcome and a duration', async () => {
+    const claim = makeJobClaim({ jobType: 'dreams' });
+    const claimSvc = makeClaimSvc();
+    const recordJob = jest.fn();
+    // metrics is the 7th constructor arg (config, claim, lease, apiKeys,
+    // now, workerPool, metrics).
+    const svc = new WorkerLoopService(
+      makeConfig(),
+      claimSvc as any,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { recordJob, setWorkerLeader: jest.fn() } as any,
+    );
+    await callDispatch(svc, claim, {
+      jobType: 'dreams' as JobType,
+      handler: async () => ({ ok: true }),
+      ttlSeconds: 3,
+      maxAttempts: 3,
+    });
+    expect(recordJob).toHaveBeenCalledTimes(1);
+    const [jobType, outcome, seconds] = recordJob.mock.calls[0];
+    expect(jobType).toBe('dreams');
+    expect(outcome).toBe('succeeded');
+    expect(typeof seconds).toBe('number');
+    expect(seconds).toBeGreaterThanOrEqual(0);
+  });
+
   it('routes a thrown handler error to fail()', async () => {
     const claim = makeJobClaim({ attempts: 2 });
     const claimSvc = makeClaimSvc();

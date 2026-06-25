@@ -51,6 +51,15 @@ export class ChangefeedConsumerService {
   // for minutes. Trailing batches drain on subsequent ticks; the
   // lag-records gauge surfaces the backlog.
   private readonly perBatchLimit: number;
+  /**
+   * Upper bound on rows pulled from SHOW CHANGES per source per tick.
+   * Without it, a cold start (cursor=0) materialises the ENTIRE 30-day
+   * CHANGEFEED retention into the node process before the TS-side batch
+   * slice runs. Kept a few multiples above perBatchLimit so the trailing
+   * count still reports a useful lag; the cursor drains the rest over
+   * subsequent ticks.
+   */
+  private readonly fetchLimit: number;
   // Hot in-flight flag — overlapping ticks waste DB connections and
   // could double-emit on a slow tenant. Each cron firing checks +
   // skips if a previous one is still running.
@@ -85,6 +94,21 @@ export class ChangefeedConsumerService {
     this.perBatchLimit = parseInt(
       config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'),
       10,
+    );
+    const fetchLimit = parseInt(
+      config.get<string>('AUDIT_CHANGEFEED_FETCH_LIMIT', '5000'),
+      10,
+    );
+    // Never fetch fewer than we process in a tick, else we'd starve;
+    // fall back to a sane default if the env value is garbage (the value
+    // is interpolated into the SHOW CHANGES LIMIT clause, so NaN would
+    // produce invalid SurrealQL).
+    const safeBatch = Number.isFinite(this.perBatchLimit)
+      ? this.perBatchLimit
+      : 500;
+    this.fetchLimit = Math.max(
+      Number.isFinite(fetchLimit) ? fetchLimit : 5000,
+      safeBatch,
     );
   }
 
@@ -325,7 +349,7 @@ export class ChangefeedConsumerService {
       throw new Error(`refusing unknown changefeed source: ${source}`);
     }
     const [rows] = await db.query(
-      `SHOW CHANGES FOR TABLE ${source} SINCE ${since}`,
+      `SHOW CHANGES FOR TABLE ${source} SINCE ${since} LIMIT ${this.fetchLimit}`,
     );
     const changes = (rows as Array<Record<string, unknown>>) ?? [];
     // SurrealDB's SHOW CHANGES ... SINCE <vs> is inclusive of the boundary
