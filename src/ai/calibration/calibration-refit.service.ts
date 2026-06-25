@@ -61,8 +61,6 @@ export class CalibrationRefitService implements OnModuleInit {
    * draining a huge tenant — and the manual trigger from
    * /admin/maintenance/calibration-refit can't overlap with either.
    */
-  private readonly guard = new DistributedLeaseGuard();
-
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
@@ -71,6 +69,12 @@ export class CalibrationRefitService implements OnModuleInit {
     @Optional() private readonly jobs?: JobRunService,
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
+    // Inject the DI-wired guard (carries LeaderLeaseService from the global
+    // JobsModule) instead of `new DistributedLeaseGuard()`. A self-built
+    // guard has no lease, so in JOBS_QUEUE_MODE=inline the 03:42/03:51 cron
+    // fired on EVERY pod and double-wrote source_trust / calibration_table.
+    // @Optional so the positional unit tests (no DI) can omit it.
+    @Optional() private readonly guard?: DistributedLeaseGuard,
   ) {
     this.enabled =
       (config.get<string>('CALIBRATION_NIGHTLY_REFIT', 'true').toLowerCase()) ===
@@ -186,9 +190,11 @@ export class CalibrationRefitService implements OnModuleInit {
       triggeredByActor?: string;
     },
   ): Promise<number> {
-    const guarded = await this.guard.run('refit_source_trust', () =>
-      this.refitSourceTrustInner(trigger),
-    );
+    const guarded = this.guard
+      ? await this.guard.run('refit_source_trust', () =>
+          this.refitSourceTrustInner(trigger),
+        )
+      : await this.refitSourceTrustInner(trigger);
     if (guarded === null) {
       this.logger.warn('source-trust refit skipped — already in flight');
       return 0;
@@ -331,9 +337,11 @@ export class CalibrationRefitService implements OnModuleInit {
       triggeredByActor?: string;
     },
   ): Promise<number> {
-    const guarded = await this.guard.run('refit_calibration', () =>
-      this.refitCalibrationInner(trigger),
-    );
+    const guarded = this.guard
+      ? await this.guard.run('refit_calibration', () =>
+          this.refitCalibrationInner(trigger),
+        )
+      : await this.refitCalibrationInner(trigger);
     if (guarded === null) {
       this.logger.warn('calibration refit skipped — already in flight');
       return 0;
