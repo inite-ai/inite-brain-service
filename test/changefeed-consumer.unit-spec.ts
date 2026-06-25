@@ -103,6 +103,11 @@ describe('ChangefeedConsumerService', () => {
     expect(
       ((inserts[0].params?.events ?? []) as unknown[]).length,
     ).toBe(2);
+    // SHOW CHANGES must carry a LIMIT so a cold cursor can't materialise
+    // the whole 30-day retention into the process.
+    const show = calls.find((c) => c.sql.startsWith('SHOW CHANGES'));
+    expect(show).toBeTruthy();
+    expect(show!.sql).toMatch(/LIMIT \d+/);
   });
 
   it('caps batch size and reports pendingRemaining for the trailing slice', async () => {
