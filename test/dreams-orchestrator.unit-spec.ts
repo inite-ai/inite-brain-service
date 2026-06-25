@@ -295,6 +295,9 @@ describe('DreamsService', () => {
       metrics as never,
     );
     const out = await svc.runDaily();
+    // runDaily returns the per-tenant stats array in inline mode (vs the
+    // {enqueued} summary in queue mode); narrow before indexing.
+    if (!Array.isArray(out)) throw new Error('expected per-tenant stats array');
     expect(out).toHaveLength(1);
     expect(out[0].dedup?.identityLinksCreated).toBe(2);
   });
