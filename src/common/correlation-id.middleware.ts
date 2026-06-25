@@ -40,17 +40,21 @@ export function correlationIdMiddleware() {
     // tokens. The listener self-removes on response 'finish' (normal
     // path) to avoid leaking when the response completes normally.
     const controller = new AbortController();
-    // Defensive: unit tests mock req/res as plain objects without
-    // EventEmitter wiring. Skip the listener install when on() is
-    // missing — production Express requests always have it.
-    if (typeof (req as { on?: unknown }).on === 'function') {
-      const onClose = () => {
-        if (!res.writableEnded) controller.abort();
-      };
-      req.on('close', onClose);
-      if (typeof (res as { on?: unknown }).on === 'function') {
-        res.on('finish', () => req.removeListener('close', onClose));
-      }
+    // Bind cancellation to the RESPONSE lifecycle, not the request stream.
+    // On Express 5 / modern Node the request's 'close' event fires once the
+    // request BODY has been fully read — which happens long before a slow
+    // async handler (OpenAI embed/extract) finishes — so keying the abort
+    // off `req 'close'` cancelled every in-flight request mid-flight
+    // (observed: ingest aborting its own embedding call ~25ms in → HTTP 500
+    // "Request was aborted"). The response 'close' event fires when the
+    // response stream closes; if it closed WITHOUT finishing, the client
+    // genuinely went away and we abort to stop burning tokens.
+    // Defensive: unit tests mock res as a plain object without EventEmitter
+    // wiring — skip the listener when on() is missing.
+    if (typeof (res as { on?: unknown }).on === 'function') {
+      res.on('close', () => {
+        if (!res.writableFinished) controller.abort();
+      });
     }
     runWithRequestContext(
       { correlationId, abortSignal: controller.signal },
