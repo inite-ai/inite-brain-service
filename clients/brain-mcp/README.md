@@ -19,7 +19,7 @@ harness ──stdio──▶ brain-mcp ──HTTP + Bearer──▶ https://brai
 
 It is a **transparent passthrough** — it does not rename or curate tools.
 `tools/list` and `tools/call` are forwarded verbatim, so the harness sees
-exactly the surface the key unlocks (read → 10 tools, +write → 13, +admin → 14).
+exactly the surface the key unlocks (read → 15 tools, +write → 20, +admin → 21).
 
 ## Configuration
 

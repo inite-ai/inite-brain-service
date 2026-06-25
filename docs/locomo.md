@@ -209,7 +209,7 @@ OPENAI_API_KEY=… ANTHROPIC_API_KEY=… BRAIN_API_KEY=brain_… \
 
 The agent spawns one MCP transport for the lifetime of the run; the
 runner closes it at the end. Claude sees the full read-baseline tool
-surface (10 tools at brain:read; 13 with brain:write); pick a
+surface (15 tools at brain:read; 20 with brain:write); pick a
 read-only key for the QA leg if you want to be sure no fact write
 leaks back into the graph mid-run.
 

@@ -159,12 +159,12 @@ Expected: a tool list whose count depends on the key's scopes (see matrix below)
 
 | Scope | Tools unlocked |
 | --- | --- |
-| `brain:read` (always) | `search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities` (10 tools) |
-| `brain:write` | + `record_fact`, `link_entities`, `retract_fact` (3 more = 13 total) |
-| `brain:admin` | + `forget_entity` (1 more = 14 total) |
+| `brain:read` (always) | `search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities`, `match_procedure`, `list_procedures`, `search_communities`, `list_communities`, `find_entity_communities` (15 tools) |
+| `brain:write` | + `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure` (5 more = 20 total) |
+| `brain:admin` | + `forget_entity` (1 more = 21 total) |
 | `brain:read_pii` | unlocks `email` / `phone` / `dob` / `address` object values in read results (predicate stays visible without it; no new tool surface) |
 
-A key with only `brain:read` will see 10 tools, not 14 — that's the security invariant, not a bug. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`.
+A key with only `brain:read` will see 15 tools, not 21 — that's the security invariant, not a bug. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`.
 
 The detailed taxonomy (which tool for which question) lives in the workflow skills — `brain-search`, `brain-recall`, `brain-bitemporal`, `brain-write`, `brain-conflict`.
 
@@ -188,4 +188,4 @@ Once connected, point the user at the workflow skills:
 - `brain-write` — recording, linking, and retracting (with `detect_contradiction` preflight)
 - `brain-conflict` — adjudicating COMPETING facts and 3+ multi-way disagreements
 
-These describe how to actually *use* the 14 tools brain exposes, not just how to wire them in.
+These describe how to actually *use* the 21 tools brain exposes, not just how to wire them in.
