@@ -10,7 +10,7 @@ function makeHit(
     confidence: number;
     score: number;
     finalScore?: number;
-    stages?: SearchHit['facts'][0]['breakdown']['stages'];
+    stages?: NonNullable<SearchHit['facts'][0]['breakdown']>['stages'];
   }>,
 ): SearchHit {
   return {
