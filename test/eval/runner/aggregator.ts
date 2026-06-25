@@ -41,12 +41,25 @@ export class Aggregator {
 
     return {
       perVertical,
-      overall: this.computeMetrics(outcomes),
+      overall: this.computeMetrics(outcomes, true),
       outcomes,
     };
   }
 
-  private computeMetrics(group: ScenarioOutcome[]): AggregateMetric[] {
+  private computeMetrics(
+    group: ScenarioOutcome[],
+    isOverall = false,
+  ): AggregateMetric[] {
+    // Per-vertical groups are small (n≈8–30) with wide CIs, so their core
+    // retrieval floors stay lenient — a single miss on a 12-query vertical
+    // shouldn't red the suite. The OVERALL aggregate (n≈260) is tight, so it
+    // carries a much stricter floor that actually catches regression. The
+    // measured 2026-06-25 baseline is recall@1 0.95 / recall@3 0.99 / MRR
+    // 0.97; these floors sit ~10pp below with headroom for normal variance
+    // while still tripping on a real drop (the old 0.6/0.8/0.5 could not).
+    const recall1Floor = isOverall ? 0.85 : 0.6;
+    const recall3Floor = isOverall ? 0.93 : 0.8;
+    const mrrFloor = isOverall ? 0.88 : 0.5;
     const queries = group.flatMap((o) => o.queryResults);
     const extractions = group.flatMap((o) => o.extractionResults);
     const merges = group
@@ -103,9 +116,9 @@ export class Aggregator {
     };
 
     return [
-      bootstrap('recall@1', recallAtKVector(queries, 1), 0.6),
-      bootstrap('recall@3', recallAtKVector(queries, 3), 0.8),
-      bootstrap('MRR', reciprocalRankVector(queries), 0.5),
+      bootstrap('recall@1', recallAtKVector(queries, 1), recall1Floor),
+      bootstrap('recall@3', recallAtKVector(queries, 3), recall3Floor),
+      bootstrap('MRR', reciprocalRankVector(queries), mrrFloor),
       // NDCG@10 — canonical retrieval metric on BEIR/MTEB/MS MARCO.
       // Standard reporting unit for embedding-model papers; lets our
       // numbers be directly compared to published baselines.
