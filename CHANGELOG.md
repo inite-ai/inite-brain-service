@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0](https://github.com/inite-ai/inite-brain-service/compare/v0.1.0...v0.2.0) (2026-06-25)
+
+
+### Features
+
+* **app:** end-user memory UI with Explore/Develop console ([#26](https://github.com/inite-ai/inite-brain-service/issues/26)) ([fb5b27e](https://github.com/inite-ai/inite-brain-service/commit/fb5b27e0250aaf71d09e8fa5a430bf10e0349d97))
+* **db:** move identity-merge, zombie-reap & locale tagging into SurrealDB functions ([#23](https://github.com/inite-ai/inite-brain-service/issues/23)) ([680e814](https://github.com/inite-ai/inite-brain-service/commit/680e814f468f16b3fa6b45cd7e9d7a0eb980a4f7))
+* **ingest:** inline entity resolution at write time ([#21](https://github.com/inite-ai/inite-brain-service/issues/21)) ([9758ec8](https://github.com/inite-ai/inite-brain-service/commit/9758ec8c56fdf7bbd7017a027e29a6a4d96a0ed6))
+* topic communities + watermark summarisation ([#20](https://github.com/inite-ai/inite-brain-service/issues/20)) ([704eb08](https://github.com/inite-ai/inite-brain-service/commit/704eb08c271183c43e19d8dd95d85b9a74f69656))
+
+
+### Bug Fixes
+
+* **brain-mcp:** explicit types:[node] so it builds under TypeScript 6 ([b247d1f](https://github.com/inite-ai/inite-brain-service/commit/b247d1f52f1b06b620075e3ff74c04eace6ca3a3))
+* **db:** SurrealDB 3.x runtime gaps surfaced by full-Docker boot ([#25](https://github.com/inite-ai/inite-brain-service/issues/25)) ([3fb39a3](https://github.com/inite-ai/inite-brain-service/commit/3fb39a3d6a1a7c44bf4f3d92891b0fe281635a20))
+
 ## [Unreleased]
 
 ### Added

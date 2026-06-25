@@ -1,6 +1,6 @@
 {
   "name": "inite-brain-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "INITE Brain Service - Cross-vertical knowledge layer (system of insight, not record). Implements inite.service.brain spec @ inite-ecosystem/core/services/brain.yaml.",
   "author": "INITE",
   "license": "AGPL-3.0-or-later",
