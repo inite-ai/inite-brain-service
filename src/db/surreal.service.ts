@@ -620,6 +620,12 @@ export async function dbCreate<T extends Record<string, unknown>>(
     d: data,
   });
   const arr = (rows as T[]) ?? [];
+  // A CREATE that returns no row means the write didn't land. Returning
+  // arr[0] would hand back `undefined` typed as T and corrupt every caller
+  // downstream — fail loud instead.
+  if (arr.length === 0) {
+    throw new Error(`dbCreate(${table}) returned no row`);
+  }
   return arr[0];
 }
 
@@ -633,6 +639,11 @@ export async function dbMerge<T extends Record<string, unknown>>(
     { t: tableOf(recordId), i: idOf(recordId), p: patch },
   );
   const arr = (rows as T[]) ?? [];
+  // An UPDATE...MERGE that matched no record returns []. Returning arr[0]
+  // would hand back `undefined` typed as T — surface the missing record.
+  if (arr.length === 0) {
+    throw new Error(`dbMerge(${recordId}) matched no record`);
+  }
   return arr[0];
 }
 

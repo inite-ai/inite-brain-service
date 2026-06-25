@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { CompactionService, SUMMARY_GENERATOR } from './compaction.service';
 import {
@@ -20,7 +19,7 @@ import { MetricsModule } from '../metrics/metrics.module';
  * existing concat output, never a hard error inside compaction.
  */
 @Module({
-  imports: [ScheduleModule.forRoot(), MetricsModule],
+  imports: [MetricsModule],
   providers: [
     CompactionService,
     {

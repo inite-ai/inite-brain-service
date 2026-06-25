@@ -15,6 +15,10 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
 // identifier charset (alnum / underscore / hyphen, bounded length).
 const VALID_COMPANY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+// Defence-in-depth cap. A well-formed token carries a handful of scopes;
+// an absurdly long array is malformed/hostile and we refuse to parse it.
+const MAX_SCOPES = 64;
+
 /**
  * JWT verification against the @inite/auth-service JWKS endpoint.
  *
@@ -32,6 +36,7 @@ export class JwksService implements OnModuleInit {
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
   private issuer?: string;
   private audience?: string;
+  private algorithms: string[] = ['RS256'];
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -46,7 +51,33 @@ export class JwksService implements OnModuleInit {
     this.jwks = createRemoteJWKSet(new URL(url));
     this.issuer = this.configService.get<string>('AUTH_SERVICE_ISSUER');
     this.audience = this.configService.get<string>('AUTH_SERVICE_AUDIENCE', 'brain');
-    this.logger.log(`JWKS verifier enabled — url=${url}, audience=${this.audience}`);
+    // Pin the accepted signature algorithms. Without this, jwtVerify accepts
+    // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
+    // surface (e.g. a symmetric key smuggled into the key set). Configurable
+    // for issuers that sign with ES256/EdDSA, but default to RS256.
+    this.algorithms = (
+      this.configService.get<string>('AUTH_SERVICE_JWT_ALGS', 'RS256') ?? 'RS256'
+    )
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean);
+    // In production an unvalidated issuer means a token minted by ANY trusted
+    // JWKS (e.g. another tenant's auth realm sharing the key infra) would pass.
+    // Refuse to boot rather than fail open.
+    if (
+      this.configService.get<string>('NODE_ENV') === 'production' &&
+      !this.issuer
+    ) {
+      throw new Error(
+        'AUTH_SERVICE_ISSUER must be set in production when JWKS verification ' +
+          'is enabled — without it the `iss` claim is not validated and any ' +
+          'token signed by the JWKS keys is accepted.',
+      );
+    }
+    this.logger.log(
+      `JWKS verifier enabled — url=${url}, audience=${this.audience}, ` +
+        `issuer=${this.issuer ?? '(unvalidated)'}, algs=[${this.algorithms.join(',')}]`,
+    );
   }
 
   enabled(): boolean {
@@ -65,6 +96,7 @@ export class JwksService implements OnModuleInit {
       ({ payload } = await jwtVerify(token, this.jwks, {
         issuer: this.issuer,
         audience: this.audience,
+        algorithms: this.algorithms,
       }));
     } catch (e) {
       // Don't log token contents — only the error class/message
@@ -98,10 +130,12 @@ export class JwksService implements OnModuleInit {
 
 function extractScopes(payload: JWTPayload): string[] {
   if (Array.isArray(payload.scopes)) {
-    return payload.scopes.filter((s): s is string => typeof s === 'string');
+    return payload.scopes
+      .filter((s): s is string => typeof s === 'string')
+      .slice(0, MAX_SCOPES);
   }
   if (typeof payload.scope === 'string') {
-    return payload.scope.split(' ').filter(Boolean);
+    return payload.scope.split(' ').filter(Boolean).slice(0, MAX_SCOPES);
   }
   return [];
 }

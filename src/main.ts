@@ -11,6 +11,7 @@ initTracing();
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateEnv } from './common/env-validation';
@@ -46,10 +47,18 @@ async function bootstrap() {
     procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
   });
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+
+  // Bound the JSON body. Express defaults to 100kb, but the app installs its
+  // own parser; set an explicit cap so a hostile client can't post a huge
+  // payload that pins memory before any handler runs. Ingest text fits well
+  // under 1mb; override via MAX_BODY_SIZE for unusual workloads.
+  const maxBody = configService.get<string>('MAX_BODY_SIZE', '1mb');
+  app.useBodyParser('json', { limit: maxBody });
+  app.useBodyParser('urlencoded', { limit: maxBody, extended: true });
 
   app.use(helmet({
     contentSecurityPolicy: false,

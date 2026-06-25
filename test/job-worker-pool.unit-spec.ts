@@ -25,6 +25,15 @@ function makeConfig(env: Record<string, string> = {}): ConfigService {
 
 const FIXTURE_PATH = join(__dirname, 'fixtures', 'echo-worker-job.ts');
 
+async function waitFor(pred: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('waitFor: condition not met within timeout');
+}
+
 describe('JobWorkerPool', () => {
   it('runs a worker module and returns its result', async () => {
     const pool = new JobWorkerPool(makeConfig({ JOB_WORKER_POOL_SIZE: '2' }));
@@ -80,6 +89,46 @@ describe('JobWorkerPool', () => {
     await expect(pool.run(FIXTURE_PATH, {})).rejects.toThrow(/disabled/);
     await pool.onApplicationShutdown();
   });
+
+  it('times out a wedged worker call and self-heals the slot', async () => {
+    const pool = new JobWorkerPool(
+      makeConfig({ JOB_WORKER_POOL_SIZE: '1', JOB_WORKER_CALL_TIMEOUT_MS: '200' }),
+    );
+    await pool.onModuleInit();
+    try {
+      await expect(pool.run(FIXTURE_PATH, { mode: 'hang' })).rejects.toThrow(
+        /timed out/,
+      );
+      // The timed-out worker was terminated; the pool should respawn a
+      // replacement and accept new work again. Wait for an *idle* worker, not
+      // just size===1 — the terminated slot lingers in `workers` until its
+      // async 'exit' fires, so size===1 can briefly count the dead worker.
+      await waitFor(() => pool.stats().idle === 1, 8_000);
+      const out = (await pool.run(FIXTURE_PATH, {
+        mode: 'echo',
+        payload: { ok: 1 },
+      })) as { echoed: { ok: number } };
+      expect(out.echoed).toEqual({ ok: 1 });
+    } finally {
+      await pool.onApplicationShutdown();
+    }
+  }, 20_000);
+
+  it('respawns a worker that crashes mid-job', async () => {
+    const pool = new JobWorkerPool(makeConfig({ JOB_WORKER_POOL_SIZE: '1' }));
+    await pool.onModuleInit();
+    try {
+      await expect(pool.run(FIXTURE_PATH, { mode: 'crash' })).rejects.toThrow();
+      await waitFor(() => pool.stats().idle === 1, 8_000);
+      const out = (await pool.run(FIXTURE_PATH, {
+        mode: 'echo',
+        payload: { back: true },
+      })) as { echoed: { back: boolean } };
+      expect(out.echoed).toEqual({ back: true });
+    } finally {
+      await pool.onApplicationShutdown();
+    }
+  }, 20_000);
 
   it('rejects in-flight requests on shutdown', async () => {
     const pool = new JobWorkerPool(makeConfig({ JOB_WORKER_POOL_SIZE: '1' }));

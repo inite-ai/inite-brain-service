@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './common/health.controller';
@@ -63,6 +64,11 @@ import { StatsModule } from './stats/stats.module';
         },
       ],
     }),
+
+    // Registered once at the root. `@Cron`/`@Interval` providers in any
+    // feature module are picked up by the global SchedulerOrchestrator —
+    // feature modules must NOT call forRoot() again (duplicate registration).
+    ScheduleModule.forRoot(),
 
     CommonModule,
     SurrealModule,

@@ -150,7 +150,8 @@ export class DreamsDedupService {
        WHERE predicate = 'name'
          AND status = 'active'
          AND retractedAt IS NONE
-         AND embedding != NONE`,
+         AND embedding != NONE
+         AND entityId.mergedInto IS NONE`,
     );
     const seeds = (seedRows as NameRow[]) ?? [];
     if (seeds.length < 2) return [];
@@ -169,6 +170,7 @@ export class DreamsDedupService {
           AND status = 'active'
           AND retractedAt IS NONE
           AND embedding != NONE
+          AND entityId.mergedInto IS NONE
         ORDER BY sim DESC
         LIMIT 5
       `;

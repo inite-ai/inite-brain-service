@@ -11,6 +11,15 @@ export async function run(input: unknown): Promise<unknown> {
   if (i.mode === 'sleep') {
     await new Promise((r) => setTimeout(r, 50));
   }
+  if (i.mode === 'hang') {
+    // Never resolves — simulates a worker wedged in a tight loop. Only the
+    // pool's per-call timeout (which terminates the worker) frees the slot.
+    await new Promise(() => {});
+  }
+  if (i.mode === 'crash') {
+    // Abruptly kill the worker thread — simulates a native crash / OOM.
+    process.exit(1);
+  }
   return {
     echoed: i.payload ?? null,
     workerPid: process.pid,
