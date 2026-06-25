@@ -416,6 +416,28 @@ jobs:
           docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
           exit 1
 
+      - name: Internal readiness probe (warning-only)
+        if: github.event.inputs.action != 'logs'
+        continue-on-error: true
+        run: |
+          cd /opt/projects/${{ env.PROJECT_NAME }}
+          # /health (gate above) is liveness — green as soon as Nest boots,
+          # while the bge-m3 embedder is still warming and the app serves on
+          # the OpenAI fallback. /ready 503s until DB + embedder are warm.
+          # Surfaced as warning-only (NOT a gate) because a cold-image ONNX
+          # download can exceed this window without anything being wrong;
+          # failing the deploy on it would be a false alarm. Gives ops a
+          # clear "booted but not yet warm" signal in the deploy log.
+          for i in $(seq 1 24); do
+            if docker-compose exec -T ${{ env.PROJECT_NAME }} wget -qO- http://localhost:${{ env.PORT }}/ready > /dev/null 2>&1; then
+              echo "[ok] container is READY (db + embedder warm)"
+              exit 0
+            fi
+            echo "[info] booted, waiting for readiness (embedder warmup)... ($i/24)"
+            sleep 5
+          done
+          echo "[warn] /ready never went green within 120s — embedder may still be warming; serving on OpenAI fallback until then"
+
       - name: External health probe (warning-only)
         if: github.event.inputs.action != 'logs'
         continue-on-error: true
