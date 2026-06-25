@@ -77,6 +77,12 @@ export async function spawnService(opts: SpawnOptions = {}): Promise<SpawnedServ
     // override via SpawnOptions.env.
     THROTTLE_LIMIT: '100000',
     THROTTLE_TTL_MS: '60000',
+    // search / synthesize / ingest sit in the *expensive* throttle tier,
+    // which has its own knobs — raising only the default limit above still
+    // let quality-eval's burst trip a 429 on /v1/search. Lift the expensive
+    // tier too so the harness isn't self-throttled.
+    THROTTLE_EXPENSIVE_LIMIT: '100000',
+    THROTTLE_EXPENSIVE_TTL_MS: '60000',
     BRAIN_API_KEYS: JSON.stringify(allKeys),
     FORGET_HMAC_KEY: 'test-hmac-key-must-be-at-least-32-chars',
     // Spec-supplied overrides land last so a spec can override anything
