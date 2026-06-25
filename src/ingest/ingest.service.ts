@@ -30,6 +30,7 @@ import {
   type ResolverConflictPayload,
 } from './conflict-explainer';
 import { detectLanguage } from '../ai/locale/language-detector';
+import { KeyedMutex } from '../common/keyed-mutex';
 
 export type IngestOutcome =
   | 'INSERTED'
@@ -58,6 +59,11 @@ export interface IngestResult {
 @Injectable()
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
+  // Serializes concurrent fn::resolve_fact calls on the same
+  // (company, entity, predicate) so at most one row ends up active —
+  // SurrealDB 3.x no longer raises the OCC conflict the retry loop
+  // relied on for this case. See KeyedMutex.
+  private readonly resolveLock = new KeyedMutex();
   private readonly conflict: ConflictConfig;
 
   constructor(
@@ -161,6 +167,7 @@ export class IngestService {
       // (migration 0039) — set on INSERTED only, server-side, no follow-up RTT.
       // Direct ingest carries no extraction entropy.
       const result = await this.resolveFactCall(db, {
+        companyId,
         entityId,
         predicate: dto.predicate,
         object: objectStr,
@@ -632,6 +639,7 @@ export class IngestService {
   private resolveFactCall(
     db: Surreal,
     p: {
+      companyId: string;
       entityId: string;
       predicate: string;
       object: string;
@@ -648,7 +656,15 @@ export class IngestService {
       entropy?: number;
     },
   ): Promise<any> {
-    return retryOnUniqueViolation(async () => {
+    // Serialize resolves on the same (company, entity, predicate). Under
+    // SurrealDB 3.x the OCC read-conflict that let racing single_active
+    // resolves retry-and-supersede no longer fires for the function's
+    // SELECT-then-write, so without this two concurrent ingests could
+    // each leave an `active` row. Space-joined — neither an entity record
+    // tail nor a predicate slug contains a space, so the key can't collide.
+    const lockKey = `${p.companyId} ${p.entityId} ${p.predicate}`;
+    return this.resolveLock.run(lockKey, () =>
+      retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(
         `RETURN fn::resolve_fact(
             type::record('knowledge_entity', $eid),
@@ -684,7 +700,8 @@ export class IngestService {
         },
       );
       return r;
-    });
+      }),
+    );
   }
 
   private async resolveOrCreateNamedEntity(
@@ -845,6 +862,7 @@ export class IngestService {
         ? factPayload.extractionEntropy
         : undefined;
     const result = await this.resolveFactCall(db, {
+      companyId,
       entityId,
       predicate,
       object,

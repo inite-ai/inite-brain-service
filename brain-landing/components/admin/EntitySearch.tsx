@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
+import { useProxyBase } from '../playground/usePlaygroundCall'
 
 export interface SearchHit {
   entityId: string
@@ -19,6 +20,7 @@ interface Props {
  * via the BFF. Picks the brain backend default scope (read-only).
  */
 export function EntitySearch({ onSelect }: Props) {
+  const proxyBase = useProxyBase()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [results, setResults] = useState<SearchHit[]>([])
@@ -35,7 +37,7 @@ export function EntitySearch({ onSelect }: Props) {
       setLoading(true)
       setErr(null)
       try {
-        const res = await fetch('/api/admin/proxy/v1/search', {
+        const res = await fetch(`${proxyBase}/v1/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: q, limit: 10 }),
@@ -75,7 +77,7 @@ export function EntitySearch({ onSelect }: Props) {
       ctrl.abort()
       clearTimeout(t)
     }
-  }, [q])
+  }, [q, proxyBase])
 
   return (
     <div className="relative">

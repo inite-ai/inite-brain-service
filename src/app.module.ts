@@ -22,6 +22,8 @@ import { MetricsModule } from './metrics/metrics.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
+import { CommunityModule } from './communities/community.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -80,6 +82,8 @@ import { JobsModule } from './jobs/jobs.module';
     AdminModule,
     AuditModule,
     JobsModule,
+    CommunityModule,
+    StatsModule,
   ],
   controllers: [HealthController],
   providers: [

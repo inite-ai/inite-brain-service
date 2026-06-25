@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CompactionModule } from '../compaction/compaction.module';
+import { CommunitiesController } from './communities.controller';
 import { CommunityBuilderService } from './community-builder.service';
 import { CommunityService } from './community.service';
 
@@ -15,6 +16,7 @@ import { CommunityService } from './community.service';
  */
 @Module({
   imports: [ConfigModule, CompactionModule],
+  controllers: [CommunitiesController],
   providers: [CommunityBuilderService, CommunityService],
   exports: [CommunityBuilderService, CommunityService],
 })

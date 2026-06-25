@@ -119,6 +119,33 @@ describe('Communities — build + read surfaces', () => {
     expect(out[0].similarity).toBeGreaterThanOrEqual(0);
   });
 
+  it('REST: list / search / for-entity / stats resolve over HTTP', async () => {
+    const listRes = await f.http.get('/v1/communities?limit=50').set(auth());
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.communities).toHaveLength(2);
+
+    const searchRes = await f.http
+      .get(
+        `/v1/communities/search?query=${encodeURIComponent('Acme billing')}&minSimilarity=0`,
+      )
+      .set(auth());
+    expect(searchRes.status).toBe(200);
+    expect(searchRes.body.communities.length).toBeGreaterThanOrEqual(1);
+
+    const feRes = await f.http
+      .get(`/v1/communities/for-entity/${encodeURIComponent(entityA)}`)
+      .set(auth());
+    expect(feRes.status).toBe(200);
+    expect(feRes.body.communities).toHaveLength(1);
+
+    const statsRes = await f.http.get('/v1/stats/overview').set(auth());
+    expect(statsRes.status).toBe(200);
+    expect(statsRes.body.entities).toBeGreaterThanOrEqual(6);
+    expect(statsRes.body.communities).toBe(2);
+    expect(typeof statsRes.body.factsActive).toBe('number');
+    expect(typeof statsRes.body.asOf).toBe('string');
+  });
+
   it('rebuild with no graph change reuses every community (watermark)', async () => {
     const stats = await f.app
       .get(DreamsService)

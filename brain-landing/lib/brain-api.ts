@@ -37,8 +37,19 @@ const CLIENT_ID =
 const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || ''
 
 const BRAIN_AUDIENCE = process.env.BRAIN_AUDIENCE || 'brain'
-const BRAIN_SCOPE =
+
+/**
+ * Full operator scope — used by the admin BFF (`/api/admin/proxy`).
+ */
+export const ADMIN_SCOPE =
   process.env.BRAIN_SCOPE || 'brain:read brain:write brain:admin brain:read_pii'
+
+/**
+ * Reduced scope for the end-user product BFF (`/api/app/proxy`).
+ * Deliberately excludes `brain:admin` and `brain:read_pii` — PII
+ * predicates come back as `__pii_redacted__` for ordinary users.
+ */
+export const USER_SCOPE = process.env.BRAIN_USER_SCOPE || 'brain:read brain:write'
 
 interface CachedToken {
   accessToken: string
@@ -46,10 +57,13 @@ interface CachedToken {
   expiresAtMs: number
 }
 
-let cached: CachedToken | null = null
-let inFlight: Promise<CachedToken> | null = null
+// One cache entry + one in-flight promise per requested scope set. A
+// user request must never be served an admin-scoped token (or vice
+// versa), so the scope string is the cache key.
+const tokenCache = new Map<string, CachedToken>()
+const inFlight = new Map<string, Promise<CachedToken>>()
 
-async function fetchServiceToken(): Promise<CachedToken> {
+async function fetchServiceToken(scope: string): Promise<CachedToken> {
   if (!CLIENT_SECRET) {
     throw new Error('OAUTH_CLIENT_SECRET is not configured')
   }
@@ -60,7 +74,7 @@ async function fetchServiceToken(): Promise<CachedToken> {
       grant_type: 'client_credentials',
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-      scope: BRAIN_SCOPE,
+      scope,
       audience: BRAIN_AUDIENCE,
     }),
   })
@@ -82,20 +96,24 @@ async function fetchServiceToken(): Promise<CachedToken> {
   }
 }
 
-async function getServiceToken(): Promise<string> {
+async function getServiceToken(scope: string): Promise<string> {
+  const cached = tokenCache.get(scope)
   if (cached && cached.expiresAtMs > Date.now()) {
     return cached.accessToken
   }
-  if (inFlight) {
-    const t = await inFlight
+  const pending = inFlight.get(scope)
+  if (pending) {
+    const t = await pending
     return t.accessToken
   }
-  inFlight = fetchServiceToken()
+  const p = fetchServiceToken(scope)
+  inFlight.set(scope, p)
   try {
-    cached = await inFlight
-    return cached.accessToken
+    const fresh = await p
+    tokenCache.set(scope, fresh)
+    return fresh.accessToken
   } finally {
-    inFlight = null
+    inFlight.delete(scope)
   }
 }
 
@@ -106,6 +124,12 @@ export interface BrainFetchOptions {
   signal?: AbortSignal
   /** Extra headers merged on top of Authorization/Content-Type. */
   headers?: Record<string, string>
+  /**
+   * OAuth scope set to mint the M2M token with. Defaults to
+   * {@link ADMIN_SCOPE} for backward compatibility with the admin BFF.
+   * The user BFF passes {@link USER_SCOPE}.
+   */
+  scope?: string
 }
 
 export interface BrainResponse<T = unknown> {
@@ -129,9 +153,10 @@ export async function brainFetch<T = unknown>(
   path: string,
   options: BrainFetchOptions = {},
 ): Promise<BrainResponse<T>> {
+  const scope = options.scope ?? ADMIN_SCOPE
   let token: string
   try {
-    token = await getServiceToken()
+    token = await getServiceToken(scope)
   } catch (err) {
     return {
       ok: false,
@@ -161,10 +186,10 @@ export async function brainFetch<T = unknown>(
     } catch {
       // raw text below
     }
-    // On 401 the cached token may have been revoked — invalidate and
-    // let the next request re-mint.
+    // On 401 the cached token may have been revoked — invalidate the
+    // entry for this scope and let the next request re-mint.
     if (res.status === 401) {
-      cached = null
+      tokenCache.delete(scope)
     }
     if (!res.ok) {
       return {

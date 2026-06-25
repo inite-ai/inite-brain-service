@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/server-auth'
 import { brainFetch } from '@/lib/brain-api'
+import { extractProxyPath, collectQuery, isPathAllowed } from '@/lib/bff-proxy'
 import { LeasesResponseSchema } from '@/lib/contracts/admin-leases'
 import { SchedulerResponseSchema } from '@/lib/contracts/admin-scheduler'
 import { ChangefeedStateResponseSchema } from '@/lib/contracts/admin-changefeed-state'
@@ -253,30 +254,19 @@ const ALLOWED_PREFIXES = [
   'health',
 ]
 
-function isAllowed(path: string): boolean {
-  const normalized = path.replace(/^\/+/, '').replace(/\?.*$/, '')
-  return ALLOWED_PREFIXES.some(
-    (p) => normalized === p || normalized.startsWith(p),
-  )
-}
-
 async function forward(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> },
+  path: string[],
 ): Promise<NextResponse> {
-  const { path } = await params
   const subpath = path.join('/')
-  if (!isAllowed(subpath)) {
+  if (!isPathAllowed(subpath, { allow: ALLOWED_PREFIXES })) {
     return NextResponse.json(
       { error: `path '/${subpath}' is not in the admin proxy allow-list` },
       { status: 403 },
     )
   }
 
-  const query: Record<string, string> = {}
-  request.nextUrl.searchParams.forEach((v, k) => {
-    query[k] = v
-  })
+  const query = collectQuery(request)
 
   const body =
     request.method === 'GET' || request.method === 'HEAD'
@@ -317,29 +307,17 @@ async function forward(
   })
 }
 
+const ADMIN_ROUTE_PREFIX = '/api/admin/proxy/'
+
 export const GET = withAdmin((_session, request) =>
-  forward(request, extractCtx(request)),
+  forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
 export const POST = withAdmin((_session, request) =>
-  forward(request, extractCtx(request)),
+  forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
 export const PUT = withAdmin((_session, request) =>
-  forward(request, extractCtx(request)),
+  forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
 export const DELETE = withAdmin((_session, request) =>
-  forward(request, extractCtx(request)),
+  forward(request, extractProxyPath(request, ADMIN_ROUTE_PREFIX)),
 )
-
-// Pull dynamic [...path] segments out of the URL since `withAdmin`
-// erases the second handler arg.
-function extractCtx(request: NextRequest): {
-  params: Promise<{ path: string[] }>
-} {
-  const u = request.nextUrl
-  const prefix = '/api/admin/proxy/'
-  const rest = u.pathname.startsWith(prefix)
-    ? u.pathname.slice(prefix.length)
-    : ''
-  const path = rest.split('/').filter(Boolean)
-  return { params: Promise.resolve({ path }) }
-}

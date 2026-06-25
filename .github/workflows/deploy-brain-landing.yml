@@ -156,6 +156,15 @@ jobs:
                 - OAUTH_CLIENT_ID=brain-landing
                 - NEXT_PUBLIC_OAUTH_CLIENT_ID=brain-landing
                 - OAUTH_CLIENT_SECRET=${{ secrets.OAUTH_CLIENT_SECRET }}
+                # End-user product UI (/[lang]/app/**). ENABLED asserts this
+                # is a single-company deployment — brain derives the tenant
+                # from the service credential, not the end user, so the
+                # surface is only safe when all brain-landing users belong to
+                # one company. ALLOW_USER_WRITES lets any authenticated user
+                # (not just admins) record/retract facts in that company's
+                # memory via the user BFF.
+                - BRAIN_APP_ENABLED=1
+                - BRAIN_APP_ALLOW_USER_WRITES=1
               labels:
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"

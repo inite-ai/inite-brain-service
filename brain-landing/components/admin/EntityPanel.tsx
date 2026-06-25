@@ -11,6 +11,7 @@ import {
   Trash2,
   CircleDot,
 } from 'lucide-react'
+import { useProxyBase } from '../playground/usePlaygroundCall'
 
 /**
  * Brain returns externalRefs in two shapes depending on the path:
@@ -74,6 +75,7 @@ export function EntityPanel({
   onClose,
   onExpand,
 }: Props) {
+  const proxyBase = useProxyBase()
   const [profile, setProfile] = useState<EntityProfile | null>(null)
   const [timeline, setTimeline] = useState<TimelineRow[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -101,10 +103,10 @@ export function EntityPanel({
       : ''
     Promise.all([
       fetch(
-        `/api/admin/proxy/v1/entities/${encodeURIComponent(entityId)}${profileQs}`,
+        `${proxyBase}/v1/entities/${encodeURIComponent(entityId)}${profileQs}`,
       ),
       fetch(
-        `/api/admin/proxy/v1/entities/${encodeURIComponent(entityId)}/timeline${timelineQs}`,
+        `${proxyBase}/v1/entities/${encodeURIComponent(entityId)}/timeline${timelineQs}`,
       ),
     ])
       .then(async ([p, t]) => {
@@ -118,7 +120,7 @@ export function EntityPanel({
       })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false))
-  }, [entityId, asOf, recordedAt])
+  }, [entityId, asOf, recordedAt, proxyBase])
 
   if (!entityId) return null
 
