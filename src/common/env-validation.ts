@@ -2,6 +2,12 @@ import { Logger } from '@nestjs/common';
 
 const log = new Logger('EnvValidation');
 
+// The placeholder password baked into migration 0005's `DEFINE USER
+// brain_caller`. It is public (lives in the repo), so deploying with it
+// unchanged leaves the scoped account on a known credential.
+const SHIPPED_SCOPED_PASS_DEFAULT =
+  'brain-caller-password-must-be-overridden-via-env';
+
 /**
  * Validate required environment variables at boot. Fails fast with a
  * single multi-line error rather than dribbling out 500s once requests
@@ -91,6 +97,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'THROTTLE_EXPENSIVE_LIMIT', errors);
   positiveInt(env, 'COMPACTION_HOT_RETENTION_DAYS', errors);
 
+  // ── Body size cap (main.ts useBodyParser) ─────────────────────────
+  validateBodySize(env, errors);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
@@ -137,6 +146,16 @@ function validateProductionGuards(
           '(app-layer policy only). Set both before deploying.',
       );
     }
+  } else if (env.SURREALDB_SCOPED_PASS?.trim() === SHIPPED_SCOPED_PASS_DEFAULT) {
+    // The placeholder shipped in migration 0005 is public (it's in the repo).
+    // Setting it verbatim leaves the brain_caller account on a known password,
+    // which is no better than no fence at all.
+    const msg =
+      'SURREALDB_SCOPED_PASS is set to the public placeholder from migration ' +
+      '0005 — choose a real secret; the shipped default is known to anyone ' +
+      'with the source.';
+    if (isProd) errors.push(msg);
+    else warnings.push(msg);
   }
 
   // Test-only kill switch must never run in production.
@@ -145,6 +164,22 @@ function validateProductionGuards(
       'THROTTLE_DISABLED=1 is a test-only flag and must not be set in ' +
         'production — it disables all rate limiting, including the ' +
         'expensive OpenAI-budget caps.',
+    );
+  }
+}
+
+/**
+ * MAX_BODY_SIZE feeds body-parser's `limit`. A bad value silently defeats the
+ * memory-pinning cap: an unparseable string makes body-parser throw at boot,
+ * and a `gb`/`tb` unit lets one request pin gigabytes. Accept only a byte
+ * count or a b/kb/mb size.
+ */
+function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
+  const maxBody = env.MAX_BODY_SIZE;
+  if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
+    errors.push(
+      'MAX_BODY_SIZE must be a byte count or a b/kb/mb size (e.g. "1mb", ' +
+        '"512kb", "1048576") — gb/tb and other units are rejected.',
     );
   }
 }

@@ -42,7 +42,7 @@
     "skills:pack": "pnpm skills:build && ts-node -T scripts/package-skills.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/common": "^11.1.9",
     "@nestjs/config": "^4.0.2",
@@ -107,7 +107,17 @@
       "onnxruntime-node"
     ],
     "overrides": {
-      "sharp": "^0.34.4"
+      "sharp": "^0.34.4",
+      "ws": "^8.21.0",
+      "multer": "^2.2.0",
+      "qs": "^6.15.2",
+      "hono": "^4.12.25",
+      "@grpc/grpc-js": "^1.14.4",
+      "ip-address": "^10.1.1",
+      "@opentelemetry/core": "^2.8.0",
+      "onnx-proto>protobufjs": "^7.6.3",
+      "@grpc/proto-loader>protobufjs": "^8.6.0",
+      "@opentelemetry/otlp-transformer>protobufjs": "^8.6.0"
     }
   },
   "jest": {

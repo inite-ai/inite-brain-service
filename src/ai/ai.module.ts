@@ -14,11 +14,11 @@ import { CalibrationService } from './calibration/calibration.service';
 import { CalibrationRefitService } from './calibration/calibration-refit.service';
 import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service';
 import { EntityJudgeService } from './entity-judge.service';
-import { ScheduleModule } from '@nestjs/schedule';
 
 @Global()
 @Module({
-  imports: [ScheduleModule.forRoot()],
+  // ScheduleModule.forRoot() lives in AppModule; @Cron providers here are
+  // discovered by the global scheduler without a local registration.
   providers: [
     EmbedderService,
     ExtractorService,

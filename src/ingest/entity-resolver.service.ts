@@ -126,6 +126,7 @@ export class EntityResolverService {
            AND status = 'active'
            AND retractedAt IS NONE
            AND embedding != NONE
+           AND entityId.mergedInto IS NONE
          ORDER BY sim DESC
          LIMIT $k`,
       { q, k: this.candidateK },

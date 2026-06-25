@@ -196,9 +196,24 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       const vecs = provider.embedMany
         ? await provider.embedMany(missTexts)
         : await Promise.all(missTexts.map((t) => provider.embed(t)));
+      // A provider that returns fewer vectors than inputs (or a hole) would
+      // otherwise cache `undefined` and write it as the row's embedding,
+      // silently corrupting the vector store. Fail loud instead.
+      if (vecs.length !== missTexts.length) {
+        throw new Error(
+          `embedMany(${provider.providerId}) returned ${vecs.length} vectors ` +
+            `for ${missTexts.length} inputs`,
+        );
+      }
       for (let j = 0; j < missTexts.length; j++) {
         const text = missTexts[j];
         const vec = vecs[j];
+        if (!Array.isArray(vec) || vec.length === 0) {
+          throw new Error(
+            `embedMany(${provider.providerId}) produced an empty/invalid ` +
+              `vector at index ${j}`,
+          );
+        }
         const k = this.cacheKey(provider.providerId, text);
         this.cache.set(k, vec);
         out[missIdx[j]] = vec;

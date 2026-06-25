@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
 import { CompactionModule } from '../compaction/compaction.module';
 import { CommunityModule } from '../communities/community.module';
@@ -19,13 +18,7 @@ import { DreamsResolverService } from './resolver.service';
  * via the SUMMARY_GENERATOR token (see compaction.module.ts).
  */
 @Module({
-  imports: [
-    ScheduleModule.forRoot(),
-    ConfigModule,
-    CompactionModule,
-    CommunityModule,
-    AuthModule,
-  ],
+  imports: [ConfigModule, CompactionModule, CommunityModule, AuthModule],
   controllers: [DreamsController],
   providers: [DreamsService, DreamsDedupService, DreamsResolverService],
   exports: [DreamsService],

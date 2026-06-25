@@ -212,6 +212,9 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
 
     const config = new StubConfig({
       AUTH_SERVICE_JWKS_URL: `http://127.0.0.1:${port}/.well-known/jwks.json`,
+      // Required in production now that JwksService refuses to boot with an
+      // unvalidated issuer (alg/issuer hardening).
+      AUTH_SERVICE_ISSUER: 'https://auth.test/',
       BRAIN_API_KEYS: JSON.stringify([
         {
           keyHash:

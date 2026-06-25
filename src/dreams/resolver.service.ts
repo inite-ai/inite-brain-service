@@ -174,14 +174,17 @@ export class DreamsResolverService {
     const cutoff = new Date(
       Date.now() - this.minAgeDays * 24 * 60 * 60 * 1000,
     );
+    // Fetch ALL competing facts (no age filter in the query). The group-size
+    // check that follows decides what's a 2-way pair vs a 3+-way disagreement,
+    // so it must see every competing member. Filtering by age here would hide a
+    // recent member of a genuine 3-way group and make it look like a clean pair
+    // we could auto-resolve — exactly the multi-way case we must NOT touch.
     const [rows] = await db.query<[CompetingFactRow[]]>(
       `SELECT id, entityId, predicate, object, confidence, validFrom, recordedAt, source
        FROM knowledge_fact
        WHERE status = 'competing'
          AND retractedAt IS NONE
-         AND recordedAt <= $cutoff
        ORDER BY entityId, predicate, recordedAt ASC`,
-      { cutoff },
     );
     const all = (rows as CompetingFactRow[]) ?? [];
 
@@ -194,9 +197,19 @@ export class DreamsResolverService {
       else byKey.set(key, [r]);
     }
 
+    const cutoffMs = cutoff.getTime();
     const pairs: Array<{ a: CompetingFactRow; b: CompetingFactRow }> = [];
     for (const group of byKey.values()) {
+      // Exactly two competing facts = a resolvable pair. One = nothing to do;
+      // three or more = a multi-way disagreement that needs operator review,
+      // never auto-resolution.
       if (group.length !== 2) continue;
+      // Min-age gate is now an eligibility condition on the pair: both members
+      // must have settled past the cutoff before we let the LLM adjudicate.
+      const aged = group.every(
+        (r) => new Date(r.recordedAt as unknown as string).getTime() <= cutoffMs,
+      );
+      if (!aged) continue;
       pairs.push({ a: group[0], b: group[1] });
       if (pairs.length >= this.maxPairs) break;
     }
