@@ -660,9 +660,11 @@ export class IngestService {
     // SurrealDB 3.x the OCC read-conflict that let racing single_active
     // resolves retry-and-supersede no longer fires for the function's
     // SELECT-then-write, so without this two concurrent ingests could
-    // each leave an `active` row. Space-joined — neither an entity record
-    // tail nor a predicate slug contains a space, so the key can't collide.
-    const lockKey = `${p.companyId} ${p.entityId} ${p.predicate}`;
+    // each leave an `active` row. NUL-joined (\x00) — no entity record tail
+    // or predicate slug can contain a NUL, so the composite key can't
+    // collide. (The escape keeps the source clean ASCII while the runtime
+    // separator stays a NUL byte.)
+    const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicate}`;
     return this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(
