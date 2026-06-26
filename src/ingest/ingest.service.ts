@@ -22,7 +22,7 @@ import { EntityResolverService } from './entity-resolver.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
-import { ConflictConfig, SOURCE_TRUST } from './conflict-resolver';
+import { ConflictConfig } from './conflict-resolver';
 import { traceSpan, traceArtifact } from '../common/debug-trace';
 import {
   buildConflictExplanation,
@@ -31,6 +31,13 @@ import {
 } from './conflict-explainer';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { KeyedMutex } from '../common/keyed-mutex';
+import {
+  idTailOf,
+  externalRefKey,
+  redactPii,
+  sourceTrustFor,
+  shouldWriteHypeAltEmbedding,
+} from './ingest-utils';
 
 export type IngestOutcome =
   | 'INSERTED'
@@ -127,7 +134,7 @@ export class IngestService {
         );
       }
       const policy = this.predicateRegistry.policyFor(companyId, dto.predicate);
-      const sourceTrust = this.sourceTrustFor(dto.source);
+      const sourceTrust = sourceTrustFor(dto.source);
 
       // 4. Object preservation. Schema stores `object` as string for
       //    indexing; for non-string DTO objects we additionally keep
@@ -190,24 +197,15 @@ export class IngestService {
       // Phase 4.A locale tagging now happens inside fn::resolve_fact via the
       // $lang/$script params above (migration 0039) — no follow-up UPDATE.
 
-      // HyPE: generate a hypothetical-question embedding and write
-      // it onto the new fact. We do this synchronously inside the
-      // ingest flow so the post-condition "fact is searchable with
-      // alt-embedding" holds immediately. When SEARCH_HYPE_ENABLED
-      // is off, hype.generateAltEmbedding returns null and we skip
-      // the UPDATE entirely — no extra latency on ingest.
-      if (factId && this.hype.isEnabled() && outcome === 'INSERTED') {
-        const altEmbedding = await this.hype.generateAltEmbedding(
-          dto.predicate,
-          objectStr,
-        );
-        if (altEmbedding) {
-          await db.query(
-            `UPDATE type::record('knowledge_fact', $tail) SET altEmbedding = $emb`,
-            { tail: idTailOf(factId), emb: altEmbedding },
-          );
-        }
-      }
+      // HyPE: generate a hypothetical-question embedding and write it onto
+      // the new fact (shared with recordExtractedFact via this helper).
+      await this.writeAltEmbeddingIfHype(
+        db,
+        factId,
+        outcome,
+        dto.predicate,
+        objectStr,
+      );
 
       const out: IngestResult = { factId, outcome };
       if (result?.reason) out.reason = String(result.reason);
@@ -296,15 +294,6 @@ export class IngestService {
     if (outcome) this.metrics?.countIngestFact(String(outcome));
   }
 
-
-  private sourceTrustFor(source: { vertical: string; eventId?: string; messageId?: string }): number {
-    // Heuristic: derive a trust label from source shape.
-    if (source.eventId?.startsWith('billing.'))   return SOURCE_TRUST.billing_event;
-    if (source.eventId?.startsWith('incidents.')) return SOURCE_TRUST.incidents_event;
-    if (source.eventId?.startsWith('auth.'))      return SOURCE_TRUST.auth_event;
-    if (source.messageId)                         return SOURCE_TRUST.inbox_extraction;
-    return SOURCE_TRUST.default;
-  }
 
   // ── ingestMention: free-text → LLM extraction → fact records ─────────
   async ingestMention(companyId: string, dto: IngestMentionDto) {
@@ -660,9 +649,11 @@ export class IngestService {
     // SurrealDB 3.x the OCC read-conflict that let racing single_active
     // resolves retry-and-supersede no longer fires for the function's
     // SELECT-then-write, so without this two concurrent ingests could
-    // each leave an `active` row. Space-joined — neither an entity record
-    // tail nor a predicate slug contains a space, so the key can't collide.
-    const lockKey = `${p.companyId} ${p.entityId} ${p.predicate}`;
+    // each leave an `active` row. NUL-joined (\x00) — no entity record tail
+    // or predicate slug can contain a NUL, so the composite key can't
+    // collide. (The escape keeps the source clean ASCII while the runtime
+    // separator stays a NUL byte.)
+    const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicate}`;
     return this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
       const [r] = await db.query<[any]>(
@@ -850,7 +841,7 @@ export class IngestService {
       );
     }
     const policy = this.predicateRegistry.policyFor(companyId, predicate);
-    const sourceTrust = this.sourceTrustFor(source);
+    const sourceTrust = sourceTrustFor(source);
     // Locale + entropy ride into fn::resolve_fact as params (migration 0039),
     // folded INSERTED-only writes instead of follow-up UPDATEs. detectLanguage
     // is pure TS; 'und' → leave unset (NONE), matching the old guard.
@@ -885,22 +876,9 @@ export class IngestService {
     // Phase 4.A locale tag + Phase 3.B entropy now ride into fn::resolve_fact
     // via the $lang/$script/$entropy params (migration 0039) — set on
     // INSERTED only, server-side, with no follow-up round-trips. HyPE stays a
-    // post-call UPDATE below: it's an LLM call, gated on isEnabled() AND
-    // INSERTED, so pre-computing it would burn the model on non-INSERTED
-    // outcomes.
-    if (factId && this.hype.isEnabled() && outcome === 'INSERTED') {
-      const altEmbedding = await this.hype.generateAltEmbedding(
-        predicate,
-        object,
-      );
-      if (altEmbedding) {
-        await db.query(
-          `UPDATE type::record('knowledge_fact', $tail) SET altEmbedding = $emb`,
-          { tail: idTailOf(factId), emb: altEmbedding },
-        );
-      }
-    }
-
+    // post-call UPDATE: it's an LLM call, gated on isEnabled() AND INSERTED,
+    // so pre-computing it would burn the model on non-INSERTED outcomes.
+    await this.writeAltEmbeddingIfHype(db, factId, outcome, predicate, object);
 
     // Surface supersede / compete outcomes in the trace so the demo can
     // show "Berlin fact closed at July 1, Dublin became current" —
@@ -960,34 +938,31 @@ export class IngestService {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   }
-}
 
-function idTailOf(rid: string): string {
-  const i = rid.indexOf(':');
-  return i === -1 ? rid : rid.slice(i + 1);
-}
-
-/**
- * Build a SurrealDB-safe externalRefs key. SurrealQL CONTENT treats dots
- * inside object keys as nested-path separators, so a key like
- * "rent.cust_42" silently expands into nested fields and is then dropped
- * by the schemafull `externalRefs: object` constraint. Replace dots with
- * a double underscore — the original `vertical.entityId` form is
- * recoverable but stored unambiguously as a single property.
- */
-function externalRefKey(vertical: string, id: string): string {
-  const safe = (s: string) => s.replace(/\./g, '__');
-  return `${safe(vertical)}__${safe(id)}`;
-}
-
-/**
- * Naive PII redactor — masks emails, phone-like numbers, and 9+ digit runs.
- * 0.2.0 will replace this with @inite/assistant.piiMask once the package
- * exposes a server-side import path.
- */
-function redactPii(text: string): string {
-  return text
-    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[EMAIL]')
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[PHONE]')
-    .replace(/\b\d{9,}\b/g, '[NUM]');
+  /**
+   * HyPE post-INSERT alt-embedding write, shared by both ingest paths
+   * (typed ingestFact + mention-extracted recordExtractedFact). We do this
+   * synchronously inside the ingest flow so the post-condition "fact is
+   * searchable with alt-embedding" holds immediately. Gated on
+   * shouldWriteHypeAltEmbedding (INSERTED only, HyPE enabled, concrete
+   * factId); when HyPE is off generateAltEmbedding returns null and we skip
+   * the UPDATE — no extra ingest latency.
+   */
+  private async writeAltEmbeddingIfHype(
+    db: Surreal,
+    factId: string | null,
+    outcome: unknown,
+    predicate: string,
+    object: string,
+  ): Promise<void> {
+    if (!shouldWriteHypeAltEmbedding(outcome, this.hype.isEnabled(), factId)) {
+      return;
+    }
+    const altEmbedding = await this.hype.generateAltEmbedding(predicate, object);
+    if (!altEmbedding) return;
+    await db.query(
+      `UPDATE type::record('knowledge_fact', $tail) SET altEmbedding = $emb`,
+      { tail: idTailOf(factId as string), emb: altEmbedding },
+    );
+  }
 }
