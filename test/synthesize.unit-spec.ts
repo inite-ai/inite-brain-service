@@ -147,6 +147,96 @@ describe('SynthesizeService', () => {
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
   });
 
+  it('resolves an inline [factId] citation even when citedFactIds is empty', async () => {
+    // The generator reliably inlines a bracketed citation (system prompt
+    // rule #2) but only intermittently mirrors it into the structured
+    // citedFactIds array. The answer text must still produce a citation.
+    const search = makeSearch([
+      makeHit('cust_a', [
+        {
+          factId: 'knowledge_fact:abc123',
+          predicate: 'intent',
+          object: 'requested a refund',
+        },
+      ]),
+    ]);
+    const { svc } = makeSvc(
+      search,
+      {},
+      [
+        JSON.stringify({
+          answer: 'They requested a refund [knowledge_fact:abc123].',
+          citedFactIds: [],
+        }),
+      ],
+    );
+    const out = await svc.synthesize(
+      'co_x',
+      { ...baseDto, synthesisGuardrails: 'off' },
+      ['brain:read'],
+    );
+    expect(out.citations.map((c) => c.factId)).toEqual([
+      'knowledge_fact:abc123',
+    ]);
+  });
+
+  it('resolves a citation whose prefix drifted to the example fact_ form', async () => {
+    // The prompt's own example uses "[fact_abc]"; the model sometimes
+    // echoes that prefix instead of the canonical knowledge_fact: one.
+    // Tail-matching must still resolve it against the retrieved fact.
+    const search = makeSearch([
+      makeHit('cust_a', [
+        {
+          factId: 'knowledge_fact:abc123',
+          predicate: 'intent',
+          object: 'requested a refund',
+        },
+      ]),
+    ]);
+    const { svc } = makeSvc(
+      search,
+      {},
+      [
+        JSON.stringify({
+          answer: 'They requested a refund [fact_abc123].',
+          citedFactIds: ['fact_abc123'],
+        }),
+      ],
+    );
+    const out = await svc.synthesize(
+      'co_x',
+      { ...baseDto, synthesisGuardrails: 'off' },
+      ['brain:read'],
+    );
+    expect(out.citations.map((c) => c.factId)).toEqual([
+      'knowledge_fact:abc123',
+    ]);
+  });
+
+  it('drops a hallucinated citation that matches no retrieved fact', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [
+        { factId: 'knowledge_fact:real1', predicate: 'name', object: 'Maya' },
+      ]),
+    ]);
+    const { svc } = makeSvc(
+      search,
+      {},
+      [
+        JSON.stringify({
+          answer: 'Maya did something [knowledge_fact:notreal].',
+          citedFactIds: ['knowledge_fact:notreal'],
+        }),
+      ],
+    );
+    const out = await svc.synthesize(
+      'co_x',
+      { ...baseDto, synthesisGuardrails: 'off' },
+      ['brain:read'],
+    );
+    expect(out.citations).toEqual([]);
+  });
+
   it('strict mode + unsupported verdict fails closed (answer null)', async () => {
     const search = makeSearch([
       makeHit('cust_a', [
