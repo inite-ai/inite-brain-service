@@ -181,9 +181,10 @@ describe('SynthesizeService', () => {
   });
 
   it('resolves a citation whose prefix drifted to the example fact_ form', async () => {
-    // The prompt's own example uses "[fact_abc]"; the model sometimes
-    // echoes that prefix instead of the canonical knowledge_fact: one.
-    // Tail-matching must still resolve it against the retrieved fact.
+    // Even with the prompt instructing the canonical knowledge_fact:
+    // prefix, the model can still drift to a fact_ / fact: form. Tail-
+    // matching is the safety net that resolves it against the retrieved
+    // fact regardless of prefix.
     const search = makeSearch([
       makeHit('cust_a', [
         {

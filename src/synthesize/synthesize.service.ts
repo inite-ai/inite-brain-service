@@ -63,9 +63,9 @@ interface VerifierOutput {
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
 
-Given a user query and a set of retrieved facts (each with a unique factId), generate a CONCISE answer that:
+Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a CONCISE answer that:
 1. Uses ONLY information present in the provided facts. Do NOT speculate, fill in missing details, or use outside knowledge.
-2. After each claim in the answer, inline a citation in square brackets with the factId(s) supporting it: e.g. "Maya complained about a broken washing machine [fact_abc]".
+2. After each claim in the answer, inline a citation in square brackets, copying the factId EXACTLY as it appears in the fact list — including its "knowledge_fact:" prefix. Do not abbreviate, renumber, or change the prefix. Example: "Maya complained about a broken washing machine [knowledge_fact:8a3fd2c1b9e4f7a6d5c0]". Mirror every factId you cite inline into the citedFactIds array.
 3. If the facts do not answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
