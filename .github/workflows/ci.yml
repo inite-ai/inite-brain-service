@@ -172,30 +172,17 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-workspace
 
-      # Baseline cache. On every job we restore the most recent
-      # eval-report.json from a previous green main; the post-eval
-      # diff step compares current numbers against it. Cache key is
-      # uniquified by github.run_id so each successful main run
-      # writes a fresh entry (without overwriting the prior one),
-      # and the restoreKeys prefix matches any earlier entry for the
-      # delta-gate to find.
-      #
-      # Namespace bump: `v5-openai-` prefix invalidates the prior
-      # baseline epoch taken under openai SDK v4 (node-fetch keep-alive
-      # path). v5 (undici) shifts a few LLM-extraction recall numbers
-      # ±5-15pp run-to-run within absolute thresholds; comparing them
-      # to a v4 snapshot produced false-positive regressions in CI.
-      # Bumping the namespace forces the first green main run on v5
-      # to seed a fresh baseline. Bump again on the next SDK epoch.
-      - name: Restore eval baseline
-        id: baseline-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .eval-baseline/main.json
-          key: eval-baseline-main-v5-openai-${{ github.run_id }}
-          restore-keys: |
-            eval-baseline-main-v5-openai-
-
+      # Delta-gate baseline is now a FROZEN golden committed at
+      # test/eval/golden-baseline.json — not a cache-restored,
+      # self-promoted snapshot. The old cache flow promoted every green
+      # nightly's report into the next run's baseline, so a slow ~1pp/night
+      # drift within the diff tolerance ratcheted the comparison floor down
+      # over time. Anchoring to a committed golden removes that ratchet: the
+      # comparison reference only moves when a human re-measures and commits
+      # a new golden (regen: pnpm test:eval with BRAIN_EVAL_REPORT_OUT
+      # pointing at the golden path, on a clean main, under real OpenAI).
+      # The absolute overall floors in test/quality.real-e2e-spec.ts (PR #31)
+      # remain the hard anti-erosion anchor; this diff is the drift detector.
       - name: Quality eval (multi-vertical, real OpenAI)
         env:
           # Repo secret is `BRAIN_OPENAI_API_KEY` (org convention —
@@ -208,24 +195,12 @@ jobs:
           BRAIN_EVAL_REPORT_OUT: .eval-current/report.json
         run: pnpm test:eval
 
-      - name: Compare to baseline (delta-gate)
+      - name: Compare to frozen golden (delta-gate)
         run: |
-          if [ -f .eval-baseline/main.json ]; then
-            pnpm eval:diff .eval-baseline/main.json .eval-current/report.json
-          else
-            echo "[delta-gate] no baseline yet — first run, skipping diff"
-            pnpm eval:diff --no-baseline .eval-current/report.json
-          fi
-
-      # Promote current to baseline for next run, but ONLY on a green
-      # nightly schedule run. Workflow_dispatch runs (manual / branch)
-      # still diff against the cached baseline but don't pollute it,
-      # so an ad-hoc dispatch can't lock in a flaky number as truth.
-      - name: Promote current to baseline
-        if: github.event_name == 'schedule'
-        run: |
-          mkdir -p .eval-baseline
-          cp .eval-current/report.json .eval-baseline/main.json
+          # Diff against the committed golden, never a cache-promoted
+          # snapshot — no ratchet. eval:diff blocks on regressions beyond
+          # per-metric tolerances; improvements never block.
+          pnpm eval:diff test/eval/golden-baseline.json .eval-current/report.json
 
   docker:
     runs-on: ubuntu-latest
