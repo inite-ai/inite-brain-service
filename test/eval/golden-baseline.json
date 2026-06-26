@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-26T13:49:45.836Z",
+  "generatedAt": "2026-06-26T15:15:58.309Z",
   "perVertical": [
     {
       "vertical": "shop",
@@ -24,16 +24,16 @@
         },
         {
           "name": "MRR",
-          "value": 0.8958333333333334,
+          "value": 0.8916666666666666,
           "threshold": 0.5,
-          "ciLower": 0.7708333333333334,
+          "ciLower": 0.7583333333333332,
           "ciUpper": 1,
           "n": 12
         },
         {
           "name": "NDCG@10",
-          "value": 0.927815870126527,
-          "ciLower": 0.8272417212970122,
+          "value": 0.9244448123696922,
+          "ciLower": 0.8204996057833428,
           "ciUpper": 1,
           "n": 13
         },
@@ -60,8 +60,8 @@
         },
         {
           "name": "MRR:current",
-          "value": 0.875,
-          "ciLower": 0.725,
+          "value": 0.8699999999999999,
+          "ciLower": 0.7100000000000001,
           "ciUpper": 1,
           "n": 10
         },
@@ -307,33 +307,33 @@
       "metrics": [
         {
           "name": "recall@1",
-          "value": 0.6,
-          "threshold": 0.6,
-          "ciLower": 0.3,
-          "ciUpper": 0.9,
-          "n": 10
-        },
-        {
-          "name": "recall@3",
           "value": 0.9,
-          "threshold": 0.8,
+          "threshold": 0.6,
           "ciLower": 0.7,
           "ciUpper": 1,
           "n": 10
         },
         {
+          "name": "recall@3",
+          "value": 1,
+          "threshold": 0.8,
+          "ciLower": 1,
+          "ciUpper": 1,
+          "n": 10
+        },
+        {
           "name": "MRR",
-          "value": 0.775,
+          "value": 0.95,
           "threshold": 0.5,
-          "ciLower": 0.6,
-          "ciUpper": 0.95,
+          "ciLower": 0.85,
+          "ciUpper": 1,
           "n": 10
         },
         {
           "name": "NDCG@10",
-          "value": 0.8323465818787767,
-          "ciLower": 0.7016001884004075,
-          "ciUpper": 0.9630929753571458,
+          "value": 0.9630929753571458,
+          "ciLower": 0.8892789260714373,
+          "ciUpper": 1,
           "n": 10
         },
         {
@@ -343,9 +343,9 @@
         },
         {
           "name": "recall@1:current",
-          "value": 0.6,
-          "ciLower": 0.3,
-          "ciUpper": 0.9,
+          "value": 0.9,
+          "ciLower": 0.7,
+          "ciUpper": 1,
           "n": 10
         },
         {
@@ -355,14 +355,14 @@
         },
         {
           "name": "MRR:current",
-          "value": 0.775,
-          "ciLower": 0.6,
-          "ciUpper": 0.95,
+          "value": 0.95,
+          "ciLower": 0.85,
+          "ciUpper": 1,
           "n": 10
         },
         {
           "name": "extraction-predicate-recall",
-          "value": 0.5,
+          "value": 1,
           "threshold": 0.5
         },
         {
@@ -577,7 +577,7 @@
         },
         {
           "name": "decision-log-citation-rate",
-          "value": 0,
+          "value": 1,
           "threshold": 0.8,
           "n": 1
         },
@@ -746,10 +746,10 @@
       "metrics": [
         {
           "name": "recall@1",
-          "value": 0.984375,
+          "value": 0.9791666666666666,
           "threshold": 0.6,
-          "ciLower": 0.9635416666666666,
-          "ciUpper": 1,
+          "ciLower": 0.9583333333333334,
+          "ciUpper": 0.9947916666666666,
           "n": 192
         },
         {
@@ -762,17 +762,17 @@
         },
         {
           "name": "MRR",
-          "value": 0.9869791666666666,
+          "value": 0.984375,
           "threshold": 0.5,
-          "ciLower": 0.96875,
-          "ciUpper": 1,
+          "ciLower": 0.9661458333333334,
+          "ciUpper": 0.9973958333333334,
           "n": 192
         },
         {
           "name": "NDCG@10",
-          "value": 0.987661092466518,
-          "ciLower": 0.9701138515997026,
-          "ciUpper": 1,
+          "value": 0.9857388515997026,
+          "ciLower": 0.9681916107328873,
+          "ciUpper": 0.9980777591331846,
           "n": 192
         },
         {
@@ -782,9 +782,9 @@
         },
         {
           "name": "recall@1:current",
-          "value": 0.984375,
-          "ciLower": 0.9635416666666666,
-          "ciUpper": 1,
+          "value": 0.9791666666666666,
+          "ciLower": 0.9583333333333334,
+          "ciUpper": 0.9947916666666666,
           "n": 192
         },
         {
@@ -794,9 +794,9 @@
         },
         {
           "name": "MRR:current",
-          "value": 0.9869791666666666,
-          "ciLower": 0.96875,
-          "ciUpper": 1,
+          "value": 0.984375,
+          "ciLower": 0.9661458333333334,
+          "ciUpper": 0.9973958333333334,
           "n": 192
         },
         {
@@ -887,33 +887,33 @@
   "overall": [
     {
       "name": "recall@1",
-      "value": 0.9389312977099237,
+      "value": 0.9465648854961832,
       "threshold": 0.85,
-      "ciLower": 0.9083969465648855,
-      "ciUpper": 0.9656488549618321,
+      "ciLower": 0.916030534351145,
+      "ciUpper": 0.9732824427480916,
       "n": 262
     },
     {
       "name": "recall@3",
-      "value": 0.9847328244274809,
+      "value": 0.9885496183206107,
       "threshold": 0.93,
-      "ciLower": 0.9694656488549618,
-      "ciUpper": 0.9961832061068703,
+      "ciLower": 0.9732824427480916,
+      "ciUpper": 1,
       "n": 262
     },
     {
       "name": "MRR",
-      "value": 0.9637404580152672,
+      "value": 0.9683206106870229,
       "threshold": 0.88,
-      "ciLower": 0.9446564885496184,
-      "ciUpper": 0.9799618320610687,
+      "ciLower": 0.95,
+      "ciUpper": 0.9835877862595419,
       "n": 262
     },
     {
       "name": "NDCG@10",
-      "value": 0.9640319930789634,
-      "ciLower": 0.9452951580564221,
-      "ciUpper": 0.9804570691933563,
+      "value": 0.9673950379568441,
+      "ciLower": 0.9486648972079944,
+      "ciUpper": 0.9828356798338576,
       "n": 266
     },
     {
@@ -925,9 +925,9 @@
     },
     {
       "name": "recall@1:current",
-      "value": 0.941908713692946,
-      "ciLower": 0.9128630705394191,
-      "ciUpper": 0.966804979253112,
+      "value": 0.950207468879668,
+      "ciLower": 0.9253112033195021,
+      "ciUpper": 0.975103734439834,
       "n": 241
     },
     {
@@ -939,14 +939,14 @@
     },
     {
       "name": "MRR:current",
-      "value": 0.9647302904564315,
-      "ciLower": 0.9450207468879668,
-      "ciUpper": 0.9813278008298755,
+      "value": 0.9697095435684647,
+      "ciLower": 0.9518672199170124,
+      "ciUpper": 0.9854771784232366,
       "n": 241
     },
     {
       "name": "extraction-predicate-recall",
-      "value": 0.6785714285714285,
+      "value": 0.7619047619047619,
       "threshold": 0.5
     },
     {
@@ -1018,7 +1018,7 @@
     },
     {
       "name": "decision-log-citation-rate",
-      "value": 0.6666666666666666,
+      "value": 1,
       "threshold": 0.8,
       "n": 3
     },
