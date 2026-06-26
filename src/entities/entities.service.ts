@@ -4,9 +4,14 @@ import { createHmac } from 'node:crypto';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { ForgetEntityDto } from './dto/forget.dto';
-import { policyFor, PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { BrainScope } from '../auth/api-key.types';
 import { EmbedderService } from '../ai/embedder.service';
+import {
+  normalizeEntityId,
+  factVisibleToScopes,
+  blockedPredicates,
+  activeFactWhere,
+} from './entity-read.helpers';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -83,7 +88,7 @@ export class EntitiesService {
     asOfRaw: string | undefined,
     scopes: BrainScope[],
   ): Promise<EntityProfile> {
-    const ref = this.normalizeEntityId(entityIdRaw);
+    const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
@@ -103,19 +108,12 @@ export class EntitiesService {
       // in JS. With a long-lived entity (~thousands of facts), this
       // collapses bytes-scanned by an order of magnitude for the
       // common case `asOf = now`.
-      const baseClauses = [`entityId = type::record('knowledge_entity', $rid)`];
-      const params: Record<string, unknown> = { rid: ref.id };
-      if (asOf) {
-        baseClauses.push(
-          `recordedAt <= $asOf`,
-          `(retractedAt IS NONE OR retractedAt > $asOf)`,
-          `validFrom <= $asOf`,
-          `(validUntil IS NONE OR validUntil > $asOf)`,
-        );
-        params.asOf = asOf;
-      } else {
-        baseClauses.push(`retractedAt IS NONE`);
-      }
+      const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
+      const baseClauses = [
+        `entityId = type::record('knowledge_entity', $rid)`,
+        ...asOfClauses,
+      ];
+      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
       const [factRows] = await db.query<any[][]>(
         `SELECT ${FACT_PROFILE_FIELDS}
          FROM knowledge_fact
@@ -126,13 +124,9 @@ export class EntitiesService {
       );
       // PII scope gate — keep this in JS (per-row policy lookup).
       // Move to DB-side PERMISSIONS once we switch to JWT-per-conn.
-      const facts = ((factRows as any[]) ?? []).filter((f) => {
-        const policy = policyFor(f.predicate);
-        if (policy.requiresScope && !scopes.includes(policy.requiresScope)) {
-          return false;
-        }
-        return true;
-      });
+      const facts = ((factRows as any[]) ?? []).filter((f) =>
+        factVisibleToScopes(f.predicate, scopes),
+      );
 
       return {
         entityId: String(entity.id),
@@ -177,31 +171,20 @@ export class EntitiesService {
     asOfRaw: string | undefined,
     scopes: BrainScope[],
   ): Promise<{ maxRecordedAt: string | null; maxValidFrom: string | null }> {
-    const ref = this.normalizeEntityId(entityIdRaw);
+    const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
+        ...asOfClauses,
       ];
-      const params: Record<string, unknown> = { rid: ref.id };
-      if (asOf) {
-        baseClauses.push(
-          `recordedAt <= $asOf`,
-          `(retractedAt IS NONE OR retractedAt > $asOf)`,
-          `validFrom <= $asOf`,
-          `(validUntil IS NONE OR validUntil > $asOf)`,
-        );
-        params.asOf = asOf;
-      } else {
-        baseClauses.push(`retractedAt IS NONE`);
-      }
+      const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
       // Mirror getProfile's PII gate: a fact the caller can't see must
       // not move the watermark, else a low-scope caller's cache gets
       // invalidated exactly when a restricted fact lands (a timing oracle
       // + needless rebuilds). DB-side here since we don't fetch the rows.
-      const blocked = Object.entries(PREDICATE_POLICIES)
-        .filter(([, p]) => p.requiresScope && !scopes.includes(p.requiresScope))
-        .map(([predicate]) => predicate);
+      const blocked = blockedPredicates(scopes);
       if (blocked.length) {
         baseClauses.push(`predicate NOT IN $blocked`);
         params.blocked = blocked;
@@ -238,7 +221,7 @@ export class EntitiesService {
     untilRaw: string | undefined,
     scopes: BrainScope[],
   ): Promise<{ entityId: string; events: any[] }> {
-    const ref = this.normalizeEntityId(entityIdRaw);
+    const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
 
@@ -258,13 +241,9 @@ export class EntitiesService {
          ORDER BY recordedAt ASC`,
         params,
       );
-      const rows = ((factRows as any[]) ?? []).filter((f) => {
-        const policy = policyFor(f.predicate);
-        if (policy.requiresScope && !scopes.includes(policy.requiresScope)) {
-          return false;
-        }
-        return true;
-      });
+      const rows = ((factRows as any[]) ?? []).filter((f) =>
+        factVisibleToScopes(f.predicate, scopes),
+      );
 
       const events: any[] = [];
       for (const f of rows) {
@@ -301,7 +280,7 @@ export class EntitiesService {
     scopes: BrainScope[] = [],
     asOf?: string,
   ): Promise<{ entityId: string; edges: any[] }> {
-    const ref = this.normalizeEntityId(entityIdRaw);
+    const ref = normalizeEntityId(entityIdRaw);
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Native graph traversal via SurrealDB's `->` / `<-` operators
@@ -376,17 +355,14 @@ export class EntitiesService {
             : undefined,
           direction: 'inbound' as const,
         })),
-      ].filter((edge) => {
+      ].filter((edge) =>
         // Defense-in-depth: the DB-level PERMISSIONS fence (migration 0005)
         // gates knowledge_fact.object, but knowledge_edge has no such fence,
         // so a scoped caller could otherwise read a PII-classed relation
-        // (edge.kind maps to a predicate). Mirror the timeline policyFor
-        // filter: drop edges whose kind requires a scope the caller lacks.
-        const policy = policyFor(edge.kind);
-        return (
-          !policy.requiresScope || scopes.includes(policy.requiresScope)
-        );
-      });
+        // (edge.kind maps to a predicate). Mirror the timeline scope gate:
+        // drop edges whose kind requires a scope the caller lacks.
+        factVisibleToScopes(edge.kind, scopes),
+      );
       return { entityId: ref.full, edges };
     });
   }
@@ -397,7 +373,7 @@ export class EntitiesService {
     dto: ForgetEntityDto,
     actorKeyHash?: string,
   ): Promise<ForgetResult> {
-    const ref = this.normalizeEntityId(entityIdRaw);
+    const ref = normalizeEntityId(entityIdRaw);
 
     const result = await this.surreal.withCompany(companyId, async (db) => {
       // Verify exists
@@ -569,15 +545,4 @@ export class EntitiesService {
 
     return result;
   }
-
-  private normalizeEntityId(raw: string): { id: string; full: string } {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
-    return { id, full: `knowledge_entity:${id}` };
-  }
 }
-
-// Keep import-side alive: re-export to avoid tree-shake stripping the policies
-// when search/forget paths are the only call sites.
-export { PREDICATE_POLICIES };
