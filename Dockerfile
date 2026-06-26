@@ -14,8 +14,15 @@
 # pre-pass speed-up. Switching to Debian slim is the simplest fix —
 # `apk add gcompat libc6-compat` is unreliable for native ABIs this
 # specific.
+#
+# Pinned by digest, not the floating `:22-slim` tag, so a base-image
+# republish can't silently change the build under us — reproducible
+# images + an auditable bump. Refresh both FROMs together with the new
+# manifest-list digest from:
+#   docker buildx imagetools inspect node:22-slim   # → Digest:
+# (use the top-level multi-arch manifest digest, which resolves per-arch).
 
-FROM node:22-slim AS builder
+FROM node:22-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4 AS builder
 
 WORKDIR /app
 
@@ -37,7 +44,8 @@ COPY src ./src
 RUN pnpm build
 
 # ── Runtime ──────────────────────────────────────────────────────────────
-FROM node:22-slim
+# Same digest pin as the builder stage above (keep them in lockstep).
+FROM node:22-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4
 
 # wget is preinstalled on node:22-alpine but NOT on -slim (Debian).
 # The deploy workflow's docker-compose healthcheck shells `wget -qO-
