@@ -9,6 +9,7 @@ import {
   SOURCE_TRUST,
   scoreFact,
 } from './conflict-resolver';
+import { sourceTrustFor } from './ingest-utils';
 
 export type IngestOutcome =
   | 'INSERTED'
@@ -351,20 +352,6 @@ export class IngestPredictionService {
     const n = typeof raw === 'number' ? raw : Number(raw);
     return Number.isFinite(n) ? n : fallback;
   }
-}
-
-function sourceTrustFor(source: {
-  vertical: string;
-  eventId?: string;
-  messageId?: string;
-  recorder?: string;
-}): number {
-  if (source.eventId?.startsWith('billing.')) return SOURCE_TRUST.billing_event;
-  if (source.eventId?.startsWith('incidents.'))
-    return SOURCE_TRUST.incidents_event;
-  if (source.eventId?.startsWith('auth.')) return SOURCE_TRUST.auth_event;
-  if (source.messageId) return SOURCE_TRUST.inbox_extraction;
-  return SOURCE_TRUST.default;
 }
 
 function rowToOpposingFact(row: PriorRow): OpposingFact {
