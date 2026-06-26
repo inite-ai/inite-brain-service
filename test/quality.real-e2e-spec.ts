@@ -133,7 +133,12 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
     ];
 
     expect({ failed: failures }).toEqual({ failed: [] });
-  }, 1_200_000);
+    // 30 min. The full multi-vertical + directory-augmented eval runs
+    // ~19-20 min wall on real OpenAI, so the old 20 min cap sat right on
+    // the edge — OpenAI latency variance tipped it into a timeout (killing
+    // the run before the report was even written). Generous headroom so a
+    // slow API day can't flake the gate or waste a paid run.
+  }, 1_800_000);
 });
 
 /**
