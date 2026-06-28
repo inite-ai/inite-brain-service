@@ -22,7 +22,7 @@
  * query lands the expected entity in top-3.
  */
 import { resolve } from 'node:path';
-import { BrainClient } from '@inite/knowledge';
+import { HttpBrainClient } from './eval/http-brain-client';
 import { spawnService, SpawnedService } from './spawn';
 import { loadDirectoryJson } from './eval/loaders/json-directory.loader';
 import {
@@ -73,13 +73,12 @@ describe('JSON-directory eval (load + retrieval + lifecycle)', () => {
           `${loaded.stats.forgets} forgets`,
       );
 
-      const sdkOpts = { baseUrl: svc.baseUrl, timeoutMs: 60_000 };
-      const fullClient = new BrainClient({
-        ...sdkOpts,
+      const fullClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.primary.plaintext,
       });
-      const limitedClient = new BrainClient({
-        ...sdkOpts,
+      const limitedClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.extras[0].plaintext,
       });
 

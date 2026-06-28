@@ -17,7 +17,7 @@
  * Tune scale via FAT_TENANT_CUSTOMERS / FAT_TENANT_STAFF /
  * FAT_TENANT_PROJECTS env vars (defaults 500 / 50 / 30).
  */
-import { BrainClient } from '@inite/knowledge';
+import { HttpBrainClient } from './eval/http-brain-client';
 import { spawnService, SpawnedService } from './spawn';
 import { buildFatTenant } from './eval/fixtures/fat-tenant.generator';
 import {
@@ -65,13 +65,12 @@ describe('Fat-tenant retrieval eval', () => {
           `${fixture.stats.totalFacts} facts`,
       );
 
-      const sdkOpts = { baseUrl: svc.baseUrl, timeoutMs: 60_000 };
-      const fullClient = new BrainClient({
-        ...sdkOpts,
+      const fullClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.primary.plaintext,
       });
-      const limitedClient = new BrainClient({
-        ...sdkOpts,
+      const limitedClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.extras[0].plaintext,
       });
 
