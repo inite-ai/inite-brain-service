@@ -2,7 +2,8 @@
  * Wire-contract drift guard for GET /v1/admin/now.
  */
 import { NowResponseSchema } from '../src/contracts/admin/now.schema';
-import { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { makeAdminInfraController } from './helpers/admin-controllers';
+import type { AdminInfraController } from '../src/admin/admin-infra.controller';
 import type { ActivityTrackerService } from '../src/common/activity-tracker.service';
 
 function makeController(): AdminInfraController {
@@ -23,16 +24,7 @@ function makeController(): AdminInfraController {
       },
     ],
   } as unknown as ActivityTrackerService;
-  const undef = undefined as unknown as never;
-  return new AdminInfraController(
-    undef,
-    undef,
-    undef,
-    undef,
-    activity,
-    undef,
-    undef,
-  );
+  return makeAdminInfraController({ activity });
 }
 
 describe('AdminInfraController.now() — wire contract', () => {

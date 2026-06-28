@@ -26,7 +26,7 @@ import {
   BaselineSaveResponseSchema,
   BaselineDiffResponseSchema,
 } from '../src/contracts/admin/write-responses.schema';
-import { AdminController } from '../src/admin/admin.controller';
+import { makeAdminController } from './helpers/admin-controllers';
 import { AdminOpsController } from '../src/admin/admin-ops.controller';
 import { AdminJobsController } from '../src/admin/admin-jobs.controller';
 import { AdminEvalController } from '../src/admin/admin-eval.controller';
@@ -46,13 +46,11 @@ function assertParses(schema: { safeParse: (x: unknown) => { success: boolean; e
 
 describe('write-side wire contracts', () => {
   it('AdminController.dropTenant() matches DropTenantResponseSchema', async () => {
-    const surreal = {
-      dropCompanyDatabase: async () => undefined,
-    } as never;
-     
-    const ctl = new AdminController(
-      undef, undef, surreal, undef, undef, undef, undef, undef, undef, undef,
-    );
+    const admin = {
+      dropTenantDatabase: async () => undefined,
+    };
+
+    const ctl = makeAdminController({ admin });
     const payload = await ctl.dropTenant('eval_test123');
     assertParses(DropTenantResponseSchema, payload, 'tenants drop');
   });
@@ -74,9 +72,7 @@ describe('write-side wire contracts', () => {
       }),
     } as never;
      
-    const ctl = new AdminController(
-      undef, dreams, undef, undef, undef, undef, undef, undef, undef, undef,
-    );
+    const ctl = makeAdminController({ dreams });
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -96,9 +92,7 @@ describe('write-side wire contracts', () => {
       }),
     } as never;
      
-    const ctl = new AdminController(
-      undef, undef, undef, undef, undef, undef, undef, reindex, undef, undef,
-    );
+    const ctl = makeAdminController({ reindex });
     const payload = await ctl.reindexEmbeddings();
     assertParses(ReindexRunResponseSchema, payload, 'reindex/embeddings');
   });

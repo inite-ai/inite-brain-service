@@ -5,7 +5,8 @@
  * without (the disabled flow). Schema is flat, both must parse.
  */
 import { CalibrationResponseSchema } from '../src/contracts/admin/calibration.schema';
-import { AdminController } from '../src/admin/admin.controller';
+import { makeAdminController } from './helpers/admin-controllers';
+import type { AdminController } from '../src/admin/admin.controller';
 import type { CalibrationService } from '../src/ai/calibration/calibration.service';
 import type { CalibrationRefitService } from '../src/ai/calibration/calibration-refit.service';
 
@@ -13,11 +14,7 @@ function makeController(
   calibration: CalibrationService,
   refit: CalibrationRefitService,
 ): AdminController {
-  const undef = undefined as unknown as never;
-   
-  return new AdminController(
-    undef, undef, undef, undef, undef, undef, undef, undef, calibration, refit,
-  );
+  return makeAdminController({ calibration, calibrationRefit: refit });
 }
 
 describe('AdminController.calibrationStats() — wire contract', () => {

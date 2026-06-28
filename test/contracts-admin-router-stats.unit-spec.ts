@@ -2,7 +2,8 @@
  * Wire-contract drift guard for GET /v1/admin/router/stats.
  */
 import { RouterStatsResponseSchema } from '../src/contracts/admin/router-stats.schema';
-import { AdminController } from '../src/admin/admin.controller';
+import { makeAdminController } from './helpers/admin-controllers';
+import type { AdminController } from '../src/admin/admin.controller';
 import type { ChatRouterCacheService } from '../src/admin/chat-router-cache.service';
 import type { CollapsePatternService } from '../src/admin/collapse-pattern.service';
 import type { IntentClassifierService } from '../src/admin/intent-classifier.service';
@@ -38,20 +39,12 @@ function makeController(): AdminController {
       provider: 'bge-m3',
     }),
   } as unknown as EmbedderService;
-  const undef = undefined as unknown as never;
-   
-  return new AdminController(
-    undef,
-    undef,
-    undef,
+  return makeAdminController({
     routeCache,
     collapsePatterns,
-    intent,
+    intentClassifier: intent,
     embedder,
-    undef,
-    undef,
-    undef,
-  );
+  });
 }
 
 describe('AdminController.routerStats() — wire contract', () => {
