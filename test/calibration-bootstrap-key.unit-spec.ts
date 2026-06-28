@@ -17,7 +17,7 @@ import {
   BOOTSTRAP_PROMPT_KEY,
   promptHashOf,
 } from '../src/ai/calibration/calibration.service';
-import { CalibrationRefitService } from '../src/ai/calibration/calibration-refit.service';
+import { CalibrationRefitRunnerService } from '../src/ai/calibration/calibration-refit-runner.service';
 
 function fakeSurreal(capture: Array<Record<string, any>>) {
   return {
@@ -47,12 +47,7 @@ describe('calibration bootstrap promptHash — persist/load contract', () => {
     const apiKeys = { knownCompanyIds: () => ['co_a'] } as any;
 
     // Write side.
-    const refit = new CalibrationRefitService(
-      surreal,
-      apiKeys,
-      {} as any,
-      config,
-    );
+    const refit = new CalibrationRefitRunnerService(surreal, {} as any, apiKeys);
     await (refit as any).persistCalibrationMap({
       thresholds: [1],
       values: [0.5],

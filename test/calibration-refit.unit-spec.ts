@@ -1,7 +1,7 @@
 import {
   aggregateBySourceKey,
   isCorrect,
-} from '../src/ai/calibration/calibration-refit.service';
+} from '../src/ai/calibration/calibration-refit-runner.service';
 
 describe('calibration-refit pure helpers', () => {
   describe('aggregateBySourceKey', () => {
