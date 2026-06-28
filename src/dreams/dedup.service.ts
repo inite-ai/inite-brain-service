@@ -1,9 +1,7 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
-import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService } from '../ai/entity-judge.service';
-import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 
 /**
@@ -59,9 +57,7 @@ export class DreamsDedupService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly embedder: EmbedderService,
     private readonly judge: EntityJudgeService,
-    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
       this.configService.get<string>('DREAMS_DEDUP_ENABLED', '0') === '1';
