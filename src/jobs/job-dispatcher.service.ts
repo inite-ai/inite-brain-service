@@ -67,19 +67,24 @@ export class JobDispatcherService {
     });
     try {
       await context.with(trace.setSpan(context.active(), span), () =>
-        this.dispatchBody(claim, reg, span, shutdownSignal),
+        this.dispatchBody({ claim, reg, consumerSpan: span, shutdownSignal }),
       );
     } finally {
       span.end();
     }
   }
 
-  private async dispatchBody(
-    claim: JobClaim,
-    reg: RegisteredHandler,
-    consumerSpan: ReturnType<ReturnType<typeof trace.getTracer>['startSpan']>,
-    shutdownSignal: AbortSignal,
-  ): Promise<void> {
+  private async dispatchBody({
+    claim,
+    reg,
+    consumerSpan,
+    shutdownSignal,
+  }: {
+    claim: JobClaim;
+    reg: RegisteredHandler;
+    consumerSpan: ReturnType<ReturnType<typeof trace.getTracer>['startSpan']>;
+    shutdownSignal: AbortSignal;
+  }): Promise<void> {
     const handlerAbort = new AbortController();
     const startedAt = Date.now();
     // Mirrors the span's `job.outcome`. Defaults to 'failed' so an
