@@ -4,7 +4,9 @@
 import { NowResponseSchema } from '../src/contracts/admin/now.schema';
 import { makeAdminInfraController } from './helpers/admin-controllers';
 import type { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { LiveSnapshotService } from '../src/admin/live-snapshot.service';
 import type { ActivityTrackerService } from '../src/common/activity-tracker.service';
+import type { ThrottlerObservabilityService } from '../src/admin/throttler-observability.service';
 
 function makeController(): AdminInfraController {
   const activity = {
@@ -24,7 +26,11 @@ function makeController(): AdminInfraController {
       },
     ],
   } as unknown as ActivityTrackerService;
-  return makeAdminInfraController({ activity });
+  const liveSnapshot = new LiveSnapshotService(
+    undefined as unknown as ThrottlerObservabilityService,
+    activity,
+  );
+  return makeAdminInfraController({ liveSnapshot });
 }
 
 describe('AdminInfraController.now() — wire contract', () => {

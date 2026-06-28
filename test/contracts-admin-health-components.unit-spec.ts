@@ -5,11 +5,11 @@ import { HealthComponentsResponseSchema } from '../src/contracts/admin/health-co
 import { makeAdminInfraController } from './helpers/admin-controllers';
 import type { AdminInfraController } from '../src/admin/admin-infra.controller';
 import { AdminInfraService } from '../src/admin/admin-infra.service';
+import { HealthComponentsService } from '../src/admin/health-components.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import type { IntentClassifierService } from '../src/admin/intent-classifier.service';
 import type { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
-import type { ConfigService } from '@nestjs/config';
 
 function makeController(): AdminInfraController {
   const surreal = {
@@ -35,17 +35,15 @@ function makeController(): AdminInfraController {
       perBatchLimit: 100,
     }),
   } as unknown as ChangefeedConsumerService;
-  const config = {
-    get: <T>(_k: string, dflt?: T) => dflt,
-  } as unknown as ConfigService;
   const adminInfra = new AdminInfraService(surreal, undefined as never);
-  return makeAdminInfraController({ adminInfra, embedder, intent, changefeed, config });
+  const healthComponents = new HealthComponentsService(embedder, intent, changefeed);
+  return makeAdminInfraController({ adminInfra, healthComponents });
 }
 
 describe('AdminInfraController.healthComponents() — wire contract', () => {
   it('matches HealthComponentsResponseSchema', async () => {
     const parsed = HealthComponentsResponseSchema.safeParse(
-      await makeController().healthComponents(),
+      await makeController().healthComponentsView(),
     );
     if (!parsed.success) {
       throw new Error(

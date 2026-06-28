@@ -1,12 +1,8 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AdminInfraService } from './admin-infra.service';
-import { EmbedderService } from '../ai/embedder.service';
-import { IntentClassifierService } from './intent-classifier.service';
-import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
-import { ActivityTrackerService } from '../common/activity-tracker.service';
-import { ThrottlerObservabilityService } from './throttler-observability.service';
+import { HealthComponentsService } from './health-components.service';
+import { LiveSnapshotService } from './live-snapshot.service';
 import type { HealthComponentsResponse } from '../contracts/admin/health-components.schema';
 import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
 import type { ThrottlerResponse } from '../contracts/admin/throttler.schema';
@@ -21,18 +17,18 @@ import type { NowResponse } from '../contracts/admin/now.schema';
  *   /v1/admin/migrations        — applied vs pending per tenant
  *   /v1/admin/throttler         — top routes / actors / recent 429s
  *   /v1/admin/now               — currently in-flight HTTP requests
+ *
+ * HTTP plumbing only — the per-component probing lives in
+ * HealthComponentsService, the live snapshots in LiveSnapshotService,
+ * and the DB/migration reads in AdminInfraService.
  */
 @Controller('v1/admin')
 @UseGuards(ApiKeyGuard)
 export class AdminInfraController {
   constructor(
     private readonly adminInfra: AdminInfraService,
-    private readonly embedder: EmbedderService,
-    private readonly intent: IntentClassifierService,
-    private readonly changefeed: ChangefeedConsumerService,
-    private readonly activity: ActivityTrackerService,
-    private readonly throttler: ThrottlerObservabilityService,
-    private readonly config: ConfigService,
+    private readonly healthComponents: HealthComponentsService,
+    private readonly liveSnapshot: LiveSnapshotService,
   ) {}
 
   /**
@@ -43,88 +39,10 @@ export class AdminInfraController {
    */
   @Get('health/components')
   @RequireScopes('brain:admin')
-  async healthComponents(): Promise<HealthComponentsResponse> {
-    const components: Array<{
-      name: string;
-      status: 'ok' | 'warming' | 'degraded' | 'disabled' | 'unreachable';
-      latencyMs?: number;
-      message?: string;
-    }> = [];
-
-    // SurrealDB
+  async healthComponentsView(): Promise<HealthComponentsResponse> {
     const dbStart = Date.now();
     const dbOk = await this.adminInfra.pingDb();
-    components.push({
-      name: 'surrealdb',
-      status: dbOk ? 'ok' : 'unreachable',
-      latencyMs: Date.now() - dbStart,
-    });
-
-    // Embedder (BGE-M3 or OpenAI proxy — service exposes isReady)
-    const embedderReady = this.embedder.isReady();
-    const embedderProvider = this.embedder.cacheStats().provider;
-    components.push({
-      name: `embedder (${embedderProvider})`,
-      status: embedderReady ? 'ok' : 'warming',
-      message: embedderReady
-        ? `cache size ${this.embedder.cacheStats().size}`
-        : 'downloading model weights',
-    });
-
-    // Intent classifier
-    const intentStats = this.intent.stats();
-    components.push({
-      name: 'intent classifier',
-      status: !intentStats.enabled
-        ? 'disabled'
-        : intentStats.ready
-          ? 'ok'
-          : 'warming',
-      message: intentStats.enabled
-        ? `model=${intentStats.model} cache=${intentStats.cacheSize}`
-        : 'CHAT_ROUTE_NLI_ENABLED=0',
-    });
-
-    // OpenAI key presence (we don't ping — that would burn tokens)
-    const hasOpenAI = !!this.config.get<string>('OPENAI_API_KEY');
-    components.push({
-      name: 'openai key',
-      status: hasOpenAI ? 'ok' : 'disabled',
-      message: hasOpenAI
-        ? 'present (not pinged)'
-        : 'OPENAI_API_KEY unset',
-    });
-
-    // Changefeed consumer
-    const cf = this.changefeed.stats();
-    components.push({
-      name: 'changefeed consumer',
-      status: !cf.enabled
-        ? 'disabled'
-        : cf.lastError
-          ? 'degraded'
-          : cf.lastPendingRemaining > 100
-            ? 'degraded'
-            : 'ok',
-      message: cf.enabled
-        ? `${cf.lastPendingRemaining} pending · ${cf.tickCount} ticks`
-        : 'AUDIT_CHANGEFEED_ENABLED=0',
-    });
-
-    // Calibration source
-    components.push({
-      name: 'calibration',
-      status:
-        this.config.get<string>('CALIBRATION_USE_GOLD_SET', '1') === '0'
-          ? 'disabled'
-          : 'ok',
-      message: 'see /admin/calibration for ECE + version history',
-    });
-
-    return {
-      generatedAt: new Date().toISOString(),
-      components,
-    } satisfies HealthComponentsResponse;
+    return this.healthComponents.build(dbOk, Date.now() - dbStart);
   }
 
   /**
@@ -141,15 +59,12 @@ export class AdminInfraController {
   @Get('throttler')
   @RequireScopes('brain:admin')
   throttlerView(): ThrottlerResponse {
-    return this.throttler.snapshot() satisfies ThrottlerResponse;
+    return this.liveSnapshot.throttlerSnapshot();
   }
 
   @Get('now')
   @RequireScopes('brain:admin')
   now(): NowResponse {
-    return {
-      generatedAt: new Date().toISOString(),
-      inFlight: this.activity.list(),
-    } satisfies NowResponse;
+    return this.liveSnapshot.now();
   }
 }
