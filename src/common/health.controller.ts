@@ -5,16 +5,11 @@ import {
   HttpStatus,
   ServiceUnavailableException,
 } from '@nestjs/common';
-// eslint-disable-next-line import/no-restricted-paths -- TODO: layer migration. Move the inline withCompany() / withAdminDb() queries below into a dedicated admin service, then drop this import. New controllers MUST NOT import db/* directly.
-import { SurrealService } from '../db/surreal.service';
-import { EmbedderService } from '../ai/embedder.service';
+import { HealthService } from './health.service';
 
 @Controller()
 export class HealthController {
-  constructor(
-    private readonly surreal: SurrealService,
-    private readonly embedder: EmbedderService,
-  ) {}
+  constructor(private readonly healthService: HealthService) {}
 
   // Liveness — answers true as soon as Nest is up, so the container
   // is considered alive while warmups (BGE-M3, local NER, intent
@@ -22,7 +17,7 @@ export class HealthController {
   // healthcheck uses this.
   @Get('health')
   async health() {
-    const dbOk = await this.surreal.ping().catch(() => false);
+    const { dbOk } = await this.healthService.liveness();
     return {
       status: dbOk ? 'ok' : 'degraded',
       service: 'inite-brain-service',
@@ -43,9 +38,8 @@ export class HealthController {
   @Get('ready')
   @HttpCode(HttpStatus.OK)
   async ready() {
-    const dbOk = await this.surreal.ping().catch(() => false);
-    const embedderReady = this.embedder.isReady();
-    if (!dbOk || !embedderReady) {
+    const { dbOk, embedderReady, ready } = await this.healthService.readiness();
+    if (!ready) {
       throw new ServiceUnavailableException({
         ready: false,
         checks: {
