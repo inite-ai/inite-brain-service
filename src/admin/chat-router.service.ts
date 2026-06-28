@@ -1,36 +1,13 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { clampLlmInputText } from '../common/input-limits';
-import { withGenAiCall } from '../common/gen-ai-observability';
-import { MetricsService } from '../metrics/metrics.service';
-import {
-  PredicateRegistryService,
-  type PredicateSnapshot,
-} from '../ai/predicate-registry.service';
-import { EmbedderService } from '../ai/embedder.service';
 import { ChatRouterCacheService } from './chat-router-cache.service';
-import {
-  CollapsePatternService,
-  extractCollapseEditsLocally,
-} from './collapse-pattern.service';
-import { IntentClassifierService } from './intent-classifier.service';
-
+import { ChatRoutePlannerService } from './chat-route-planner.service';
+import { ChatRouterLlmService } from './chat-router-llm.service';
 import type { ChatRoute, RawRouteOutput } from './chat-router-internals/types';
-import { buildSchema, buildSystemPrompt } from './chat-router-internals/prompts';
-import {
-  extractMentionsLocally,
-  extractPredicateHintsLocally,
-  extractTemporalLocally,
-  shouldSkipLLM,
-} from './chat-router-internals/local-prepass';
-import {
-  extractJsonObject,
-  nfc,
-  validateAndAssemble,
-  validateSpan,
-} from './chat-router-internals/validator';
+import { shouldSkipLLM } from './chat-router-internals/local-prepass';
+import { validateAndAssemble } from './chat-router-internals/validator';
+import type { RouteContext, RoutePlan } from './chat-route-context';
 
 export type {
   ChatRoute,
@@ -56,61 +33,33 @@ export {
  * validates by checking that the claimed substring actually appears
  * in the input.
  *
- * Pipeline stages — each lives in its own module under
- * `./chat-router-internals/`:
- *   1. Local pre-pass (`local-prepass.ts`) — chrono temporal extract,
- *      lexical mention resolve, embedding-based predicate hints,
- *      collapse-pattern cache lookup, NLI intent classification.
- *   2. Skip gate (`local-prepass.ts:shouldSkipLLM`) — if every local
- *      slot is confident, synthesise the RawRouteOutput from locals
- *      and run validation without the LLM round-trip.
- *   3. LLM call (this file) — prompt + JSON schema in
- *      `./chat-router-internals/prompts.ts`; one OpenAI call.
- *   4. Local-override merge (this file) — chrono/lexical/embedding
- *      results override or augment the LLM's matching slots.
- *   5. Validate + assemble (`./chat-router-internals/validator.ts`) —
- *      grounding checks, edit application, ChatRoute build.
- *   6. Cache write + collapse-pattern teach (this file).
+ * Pipeline stages, each its own service:
+ *   1. Local pre-pass — {@link ChatRoutePlannerService} (chrono temporal,
+ *      lexical mention resolve, embedding predicate hints, collapse-pattern
+ *      lookup, NLI intent).
+ *   2. Skip gate (`local-prepass.ts:shouldSkipLLM`) — synthesise the route
+ *      from locals when every slot is confident, no LLM round-trip.
+ *   3. LLM call — {@link ChatRouterLlmService} (prompt + JSON schema; one
+ *      OpenAI call).
+ *   4. Local-override merge (this file) — chrono/lexical/embedding override
+ *      the LLM's matching slots.
+ *   5. Validate + assemble (`./chat-router-internals/validator.ts`).
+ *   6. Cache write ({@link ChatRouterCacheService}) + collapse-pattern teach
+ *      (planner).
  */
 @Injectable()
 export class ChatRouterService {
   private readonly logger = new Logger(ChatRouterService.name);
-  private readonly openai: OpenAI;
-  private readonly model: string;
-  private readonly hintSimilarityThreshold: number;
-  private readonly hintMaxCount: number;
-  private readonly intentConfidenceFloor: number;
+  private readonly intentConfidenceFloor = cfgFloat(
+    'CHAT_ROUTE_INTENT_CONFIDENCE_FLOOR',
+    0.85,
+  );
 
   constructor(
-    private readonly config: ConfigService,
-    private readonly registry: PredicateRegistryService,
+    private readonly planner: ChatRoutePlannerService,
+    private readonly llm: ChatRouterLlmService,
     private readonly routeCache: ChatRouterCacheService,
-    private readonly embedder: EmbedderService,
-    private readonly collapsePatterns: CollapsePatternService,
-    private readonly intentClassifier: IntentClassifierService,
-    @Optional() private readonly metrics?: MetricsService,
-  ) {
-    this.openai = new OpenAI({
-      apiKey: this.config.getOrThrow<string>('OPENAI_API_KEY'),
-      // Honour the same OPENAI_TIMEOUT_MS / OPENAI_MAX_RETRIES knobs every
-      // other OpenAI-using service reads — this was the sole outlier
-      // hardcoding 15s/1, so an operator raising the timeout silently
-      // didn't apply to chat routing.
-      timeout: parseInt(this.config.get<string>('OPENAI_TIMEOUT_MS', '30000'), 10),
-      maxRetries: parseInt(this.config.get<string>('OPENAI_MAX_RETRIES', '3'), 10),
-    });
-    this.model = this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
-    this.hintSimilarityThreshold = parseFloat(
-      this.config.get<string>('CHAT_ROUTE_HINT_SIMILARITY', '0.4'),
-    );
-    this.hintMaxCount = parseInt(
-      this.config.get<string>('CHAT_ROUTE_HINT_MAX', '3'),
-      10,
-    );
-    this.intentConfidenceFloor = parseFloat(
-      this.config.get<string>('CHAT_ROUTE_INTENT_CONFIDENCE_FLOOR', '0.85'),
-    );
-  }
+  ) {}
 
   async route(
     message: string,
@@ -148,114 +97,21 @@ export class ChatRouterService {
     return traceSpan('demo.chat.route', () => this.routeMiss(message, ctx));
   }
 
-  // ── Per-request setup: local pre-pass + cache key + skip decision ──
+  // ── Per-request setup: local pre-pass (planner) + cache key ──
   private async buildRouteContext(
     message: string,
     options: { knownNames?: string[]; now?: Date; companyId: string },
   ): Promise<RouteContext> {
-    const knownNames = options.knownNames ?? [];
-    const nowIso = (options.now ?? new Date()).toISOString();
-    const refDate = options.now ?? new Date();
-
-    const snapshot = await this.loadPredicateSnapshot(options.companyId);
-    const predicateVocab = snapshot?.active.map((p) => p.predicateId) ?? [];
-
-    const localTemporal = extractTemporalLocally(message, refDate);
-    const localMentions = extractMentionsLocally(message, knownNames);
-    traceArtifact('demo.chat.local_planner', {
-      temporal: localTemporal,
-      mentions: localMentions,
-      knownNamesCount: knownNames.length,
-    });
-
+    const plan: RoutePlan = await this.planner.buildContext(message, options);
     const cacheKey = this.routeCache.computeKey({
-      companyId: options.companyId,
+      companyId: plan.companyId,
       message,
-      knownNames,
-      predicateVocab,
-      hasTemporal: localTemporal !== null,
-      now: refDate,
+      knownNames: plan.knownNames,
+      predicateVocab: plan.predicateVocab,
+      hasTemporal: plan.localTemporal !== null,
+      now: options.now ?? new Date(),
     });
-
-    const localHints = await extractPredicateHintsLocally({
-      message,
-      snapshot,
-      embedder: this.embedder,
-      threshold: this.hintSimilarityThreshold,
-      maxHints: this.hintMaxCount,
-    });
-    traceArtifact('demo.chat.local_hints', {
-      hints: localHints,
-      threshold: this.hintSimilarityThreshold,
-      poolSize: snapshot?.embeddings.size ?? 0,
-    });
-
-    const { collapseSnapshot, localCollapses } = await this.loadCollapseSnapshot(
-      message,
-      options.companyId,
-    );
-    traceArtifact('demo.chat.local_collapses', {
-      hits: localCollapses,
-      poolSize: collapseSnapshot?.patterns.size ?? 0,
-    });
-
-    const localIntent = await this.intentClassifier.classify(message);
-    traceArtifact('demo.chat.local_intent', {
-      intent: localIntent.intent,
-      confidence: localIntent.confidence,
-      source: localIntent.source,
-    });
-
-    return {
-      companyId: options.companyId,
-      knownNames,
-      snapshot,
-      predicateVocab,
-      nowIso,
-      cacheKey,
-      localTemporal,
-      localMentions,
-      localHints,
-      localCollapses,
-      collapseSnapshot,
-      localIntent,
-    };
-  }
-
-  private async loadPredicateSnapshot(
-    companyId: string,
-  ): Promise<PredicateSnapshot | null> {
-    try {
-      return await this.registry.getSnapshot(companyId);
-    } catch (e) {
-      this.logger.warn(
-        `chat router: registry getSnapshot failed for ${companyId}: ${(e as Error).message}; falling back to permissive vocab`,
-      );
-      return null;
-    }
-  }
-
-  private async loadCollapseSnapshot(
-    message: string,
-    companyId: string,
-  ): Promise<{
-    collapseSnapshot:
-      | { patterns: Map<string, { pattern: string; replacement: string }> }
-      | null;
-    localCollapses: ReturnType<typeof extractCollapseEditsLocally>;
-  }> {
-    try {
-      const snapshot = await this.collapsePatterns.getSnapshot(companyId);
-      return {
-        collapseSnapshot: snapshot,
-        localCollapses: extractCollapseEditsLocally(message, snapshot),
-      };
-    } catch (e) {
-      this.logger.warn(
-        `collapse-pattern snapshot failed for ${companyId}: ${(e as Error).message}; LLM-only collapse`,
-      );
-      return { collapseSnapshot: null, localCollapses: [] };
-    }
+    return { ...plan, cacheKey };
   }
 
   // ── Cache-miss path: skip gate vs LLM call → validate → cache ──
@@ -291,7 +147,7 @@ export class ChatRouterService {
       return route;
     }
 
-    const llmOut = await this.callRouterLlm(message, ctx);
+    const llmOut = await this.llm.call(message, ctx);
     if (!llmOut) {
       return this.safeDefault(message, 'router-empty');
     }
@@ -311,7 +167,7 @@ export class ChatRouterService {
     });
     this.routeCache.set(ctx.cacheKey, route);
 
-    void this.teachCollapsePatterns(message, ctx, llmOut.parsed);
+    void this.planner.teachCollapsePatterns(message, ctx, llmOut.parsed);
     return route;
   }
 
@@ -348,85 +204,6 @@ export class ChatRouterService {
           : null,
       reason: `local-skip (${skipReason})`,
     };
-  }
-
-  private async callRouterLlm(
-    message: string,
-    ctx: RouteContext,
-  ): Promise<
-    | { kind: 'parsed'; parsed: RawRouteOutput }
-    | { kind: 'parse_error'; message: string }
-    | { kind: 'llm_error'; message: string }
-    | null
-  > {
-    const system = buildSystemPrompt(ctx.predicateVocab, ctx.knownNames);
-    const user = `now: ${ctx.nowIso}
-message: ${message}`;
-    traceArtifact('demo.chat.prompt', {
-      system,
-      user,
-      model: this.model,
-      registryVersionHash: ctx.snapshot?.versionHash ?? 'unavailable',
-      predicateCount: ctx.predicateVocab.length,
-      knownNamesCount: ctx.knownNames.length,
-    });
-    let res: Awaited<
-      ReturnType<typeof this.openai.chat.completions.create>
-    >;
-    try {
-      res = await withGenAiCall(
-        {
-          kind: 'chat',
-          spanName: 'gen_ai.chat.chat_router',
-          system: 'openai',
-          model: this.model,
-        },
-        this.metrics,
-        () =>
-          this.openai.chat.completions.create({
-            model: this.model,
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: user },
-            ],
-            response_format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'chat_route',
-                strict: true,
-                schema: buildSchema(ctx.predicateVocab),
-              },
-            },
-            temperature: 0,
-            max_completion_tokens: 800,
-          }),
-      );
-    } catch (e) {
-      // OpenAI network glitch (Premature close, ETIMEDOUT, 5xx after
-      // SDK retries exhausted) MUST NOT bubble up as a 500 to the
-      // demo client. The caller checks `kind: 'llm_error'` and falls
-      // back to a safeDefault route — the chat UI still gets a
-      // response, the trace records why we degraded.
-      const msg = (e as Error).message;
-      this.logger.warn(
-        `chat router LLM call failed: ${msg}; falling back to safeDefault`,
-      );
-      traceArtifact('demo.chat.llm_error', { message: msg });
-      return { kind: 'llm_error', message: msg };
-    }
-    const content = res.choices[0]?.message?.content;
-    const finish = res.choices[0]?.finish_reason;
-    traceArtifact('demo.chat.raw', { content, finish_reason: finish });
-    if (!content) return null;
-    try {
-      const parsed = JSON.parse(extractJsonObject(content)) as RawRouteOutput;
-      return { kind: 'parsed', parsed };
-    } catch (e) {
-      this.logger.warn(
-        `chat router parse failed: ${(e as Error).message}; raw="${content.slice(0, 200)}"`,
-      );
-      return { kind: 'parse_error', message: (e as Error).message };
-    }
   }
 
   /**
@@ -484,33 +261,6 @@ message: ${message}`;
     return merged;
   }
 
-  /** Teach the collapse-pattern cache about NEW patterns the LLM
-   *  emitted — fire-and-forget. Failure here doesn't affect routing. */
-  private async teachCollapsePatterns(
-    message: string,
-    ctx: RouteContext,
-    parsed: RawRouteOutput,
-  ): Promise<void> {
-    const knownLower = new Set(ctx.collapseSnapshot?.patterns.keys() ?? []);
-    const newPairs: Array<{ pattern: string; replacement: string }> = [];
-    for (const e of parsed.edits ?? []) {
-      if (e.op !== 'collapse_state_change') continue;
-      const span = validateSpan(message, nfc(message), e.sourceSpan);
-      if (!span || !e.replacement) continue;
-      const pattern = span.text;
-      if (knownLower.has(pattern.toLowerCase())) continue;
-      newPairs.push({ pattern, replacement: e.replacement });
-    }
-    if (newPairs.length === 0) return;
-    try {
-      await this.collapsePatterns.record(ctx.companyId, newPairs);
-    } catch (e) {
-      this.logger.warn(
-        `collapse-pattern record failed for ${ctx.companyId}: ${(e as Error).message}`,
-      );
-    }
-  }
-
   /** Safe default when the LLM gave us nothing usable. Treat as a tell
    *  of the original message — ingest still happens, downstream
    *  pipeline doesn't 500. */
@@ -526,19 +276,9 @@ message: ${message}`;
   }
 }
 
-interface RouteContext {
-  companyId: string;
-  knownNames: string[];
-  snapshot: PredicateSnapshot | null;
-  predicateVocab: string[];
-  nowIso: string;
-  cacheKey: string;
-  localTemporal: ReturnType<typeof extractTemporalLocally>;
-  localMentions: ReturnType<typeof extractMentionsLocally>;
-  localHints: Awaited<ReturnType<typeof extractPredicateHintsLocally>>;
-  localCollapses: ReturnType<typeof extractCollapseEditsLocally>;
-  collapseSnapshot:
-    | { patterns: Map<string, { pattern: string; replacement: string }> }
-    | null;
-  localIntent: Awaited<ReturnType<IntentClassifierService['classify']>>;
+function cfgFloat(key: string, fallback: number): number {
+  const v = process.env[key];
+  if (v === undefined) return fallback;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
