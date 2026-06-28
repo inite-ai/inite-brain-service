@@ -12,15 +12,7 @@
  */
 import { context, propagation } from '@opentelemetry/api';
 import { JobClaimService } from '../src/jobs/job-claim.service';
-import { WorkerLoopService } from '../src/jobs/worker-loop.service';
-import { ConfigService } from '@nestjs/config';
-
-function makeConfig(env: Record<string, string> = {}): ConfigService {
-  return {
-    get: <T>(key: string, dflt?: T) => (env[key] ?? dflt) as T,
-    getOrThrow: <T>(key: string) => env[key] as unknown as T,
-  } as unknown as ConfigService;
-}
+import { JobDispatcherService } from '../src/jobs/job-dispatcher.service';
 
 describe('Jobs OTel handoff — wire contract', () => {
   it('enqueue includes traceparent: $traceparent in the CREATE statement when the propagator injects one', async () => {
@@ -77,7 +69,7 @@ describe('Jobs OTel handoff — wire contract', () => {
       fail: jest.fn(async () => ({ requeued: false })),
       cancelled: jest.fn(async () => undefined),
     };
-    const loop = new WorkerLoopService(makeConfig(), claimSvc as any);
+    const loop = new JobDispatcherService(claimSvc as any);
 
     let handlerRan = false;
     const reg = {
@@ -99,7 +91,7 @@ describe('Jobs OTel handoff — wire contract', () => {
       leaseUntil: '2030-01-01T00:05:00Z',
       traceparent: fakeTraceparent,
     };
-    await (loop as any).dispatch(claim, reg);
+    await (loop as any).dispatch(claim, reg, new AbortController().signal);
 
     // Without an SDK registered, trace.getActiveSpan() returns undefined
     // (no-op API surface). The contract verified here is that dispatch
@@ -123,7 +115,7 @@ describe('Jobs OTel handoff — wire contract', () => {
       fail: jest.fn(async () => ({ requeued: false })),
       cancelled: jest.fn(async () => undefined),
     };
-    const loop = new WorkerLoopService(makeConfig(), claimSvc as any);
+    const loop = new JobDispatcherService(claimSvc as any);
     const claim = {
       recordId: 'job_run:noparent',
       runId: 'run-2',
@@ -139,7 +131,7 @@ describe('Jobs OTel handoff — wire contract', () => {
       ttlSeconds: 3,
       maxAttempts: 3,
     };
-    await (loop as any).dispatch(claim, reg);
+    await (loop as any).dispatch(claim, reg, new AbortController().signal);
     expect(claimSvc.complete).toHaveBeenCalled();
   });
 
