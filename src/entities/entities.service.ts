@@ -176,6 +176,47 @@ export class EntitiesService {
   }
 
   /**
+   * Resolve an entity by its external reference (vertical + id) and return
+   * its full profile, or null when no entity carries that ref. Used by the
+   * code-memory `why` tool, which addresses a code anchor by its SCIP-style
+   * symbol string rather than the internal knowledge_entity id.
+   */
+  async getProfileByExternalRef({
+    companyId,
+    vertical,
+    id,
+    asOfRaw,
+    scopes,
+  }: {
+    companyId: string;
+    vertical: string;
+    id: string;
+    asOfRaw: string | undefined;
+    scopes: BrainScope[];
+  }): Promise<EntityProfile | null> {
+    // externalRef key format mirrors externalRefKey() in
+    // src/ingest/ingest-utils.ts (the write side) — dots become "__". Kept
+    // inline to avoid an entities→ingest module dependency; the format is a
+    // stable storage contract.
+    const safe = (s: string) => s.replace(/\./g, '__');
+    const key = `${safe(vertical)}__${safe(id)}`;
+    const entityId = await this.surreal.withScopedCompany(
+      companyId,
+      scopes,
+      async (db) => {
+        const [rows] = await db.query<[any[]]>(
+          `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
+          { key },
+        );
+        const arr = (rows as any[]) ?? [];
+        return arr[0] ? String(arr[0]) : null;
+      },
+    );
+    if (!entityId) return null;
+    return this.getProfile({ companyId, entityIdRaw: entityId, asOfRaw, scopes });
+  }
+
+  /**
    * Cheap freshness probe for an entity's active fact set, used by the
    * summarize_entity watermark cache (graphiti-style dual watermark):
    *   - maxRecordedAt — wall-clock: the newest moment brain learned

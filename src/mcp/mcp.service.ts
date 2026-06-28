@@ -17,6 +17,10 @@ import { registerCommunityTools } from './community-tools';
 import { registerReadTools } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
+import {
+  registerCodeMemoryReadTools,
+  registerCodeMemoryWriteTools,
+} from './code-memory-tools';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -36,6 +40,7 @@ const HEALTH_TOOLS = [
   'search_communities',
   'list_communities',
   'find_entity_communities',
+  'why',
 ];
 
 /**
@@ -132,11 +137,22 @@ export class McpService {
       procedural: this.procedural,
     });
     registerCommunityTools(server, companyId, this.communities);
+    registerCodeMemoryReadTools({
+      server,
+      companyId,
+      scopes,
+      deps: { entities: this.entities },
+    });
     if (scopes.includes('brain:write')) {
       registerWriteTools(server, companyId, {
         ingest: this.ingest,
         facts: this.facts,
         procedural: this.procedural,
+      });
+      registerCodeMemoryWriteTools({
+        server,
+        companyId,
+        deps: { ingest: this.ingest },
       });
     }
     if (scopes.includes('brain:admin')) {
