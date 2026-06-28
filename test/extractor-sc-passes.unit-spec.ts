@@ -9,6 +9,10 @@
  * produced the entropy because the extractor only ran N=1.
  */
 import { ExtractorService } from '../src/ai/extractor.service';
+import { ExtractorRunnerService } from '../src/ai/extractor-runner.service';
+import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
+import { ExtractorLocalService } from '../src/ai/extractor-local.service';
+import { ExtractorRefineService } from '../src/ai/extractor-refine.service';
 
 function mkExtractor(scPasses: number, scripted: any[]): ExtractorService {
   const config = {
@@ -47,22 +51,18 @@ function mkExtractor(scPasses: number, scripted: any[]): ExtractorService {
     record: async () => {},
   } as any;
 
-  const svc = new ExtractorService(
-    config,
-    registry,
-    localPredicates,
-    extractionCache,
-    localNer,
-    extractionPatterns,
-  );
+  const llm = new ExtractorLlmService(config);
   // Replace the private callLlm with a scripted stub. The driver
   // calls callLlm once per pass; scripted[i] is returned on pass i.
   let call = 0;
-  (svc as any).callLlm = async () => scripted[call++ % scripted.length];
-  // Also short-circuit tryLocalSkip so the test exercises the LLM
-  // / multi-pass branch directly.
-  (svc as any).tryLocalSkip = async () => null;
-  return svc;
+  (llm as any).callLlm = async () => scripted[call++ % scripted.length];
+  const local = new ExtractorLocalService(localNer, extractionPatterns);
+  // Short-circuit trySkip so the test exercises the LLM / multi-pass
+  // branch directly.
+  (local as any).trySkip = async () => null;
+  const refine = new ExtractorRefineService(registry, localPredicates);
+  const runner = new ExtractorRunnerService(llm, local, refine);
+  return new ExtractorService(extractionCache, registry, runner);
 }
 
 describe('ExtractorService N-pass driver', () => {

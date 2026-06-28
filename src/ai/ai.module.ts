@@ -1,6 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { EmbedderService } from './embedder.service';
 import { ExtractorService } from './extractor.service';
+import { ExtractorRunnerService } from './extractor-runner.service';
+import { ExtractorLlmService } from './extractor-llm.service';
+import { ExtractorLocalService } from './extractor-local.service';
+import { ExtractorRefineService } from './extractor-refine.service';
 import { RerankerService } from './reranker.service';
 import { HypeService } from './hype.service';
 import { PredicateRouterService } from './predicate-router.service';
@@ -25,6 +29,10 @@ import { EntityJudgeService } from './entity-judge.service';
   // discovered by the global scheduler without a local registration.
   providers: [
     EmbedderService,
+    ExtractorLlmService,
+    ExtractorLocalService,
+    ExtractorRefineService,
+    ExtractorRunnerService,
     ExtractorService,
     RerankerService,
     HypeService,

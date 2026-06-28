@@ -16,6 +16,10 @@
  * the extractor output is sanitised.
  */
 import { ExtractorService } from '../src/ai/extractor.service';
+import { ExtractorRunnerService } from '../src/ai/extractor-runner.service';
+import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
+import { ExtractorLocalService } from '../src/ai/extractor-local.service';
+import { ExtractorRefineService } from '../src/ai/extractor-refine.service';
 
 function mkExtractor(scriptedLlmResponse: any): ExtractorService {
   const config = {
@@ -50,17 +54,13 @@ function mkExtractor(scriptedLlmResponse: any): ExtractorService {
     lookup: async () => undefined,
     record: async () => {},
   } as any;
-  const svc = new ExtractorService(
-    config,
-    registry,
-    localPredicates,
-    extractionCache,
-    localNer,
-    extractionPatterns,
-  );
-  (svc as any).callLlm = async () => scriptedLlmResponse;
-  (svc as any).tryLocalSkip = async () => null;
-  return svc;
+  const llm = new ExtractorLlmService(config);
+  (llm as any).callLlm = async () => scriptedLlmResponse;
+  const local = new ExtractorLocalService(localNer, extractionPatterns);
+  (local as any).trySkip = async () => null;
+  const refine = new ExtractorRefineService(registry, localPredicates);
+  const runner = new ExtractorRunnerService(llm, local, refine);
+  return new ExtractorService(extractionCache, registry, runner);
 }
 
 describe('ExtractorService — prompt injection resistance', () => {
