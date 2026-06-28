@@ -18,6 +18,9 @@ import { AdminInfraController } from './admin-infra.controller';
 import { AdminInfraService } from './admin-infra.service';
 import { HealthComponentsService } from './health-components.service';
 import { LiveSnapshotService } from './live-snapshot.service';
+import { DemoStateService } from './demo-state.service';
+import { DemoPipelineService } from './demo-pipeline.service';
+import { DemoChatService } from './demo-chat.service';
 import { AdminService } from './admin.service';
 import { OperatorActionService } from './operator-action.service';
 import { OperatorActionInterceptor } from './operator-action.interceptor';
@@ -60,6 +63,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,
+    DemoStateService,
+    DemoPipelineService,
+    DemoChatService,
     ScenarioRunnerService,
     BaselineService,
     ChatRouterCacheService,

@@ -18,17 +18,10 @@ import { DemoChatDto } from './dto/demo-chat.dto';
 import { DemoDreamsDto } from './dto/demo-dreams.dto';
 import { DemoIngestMentionDto } from './dto/demo-ingest-mention.dto';
 import { DemoSearchDto } from './dto/demo-search.dto';
-import {
-  runWithDebugTrace,
-  traceArtifact,
-  traceSpan,
-} from '../common/debug-trace';
-// eslint-disable-next-line import/no-restricted-paths -- TODO: layer migration. Move the inline withCompany() / withAdminDb() queries below into a dedicated admin service, then drop this import. New controllers MUST NOT import db/* directly.
-import { SurrealService } from '../db/surreal.service';
-import { IngestService } from '../ingest/ingest.service';
-import { SearchService } from '../search/search.service';
-import { DreamsService } from '../dreams/dreams.service';
-import { ChatRouterService, ChatRoute } from './chat-router.service';
+import { runWithDebugTrace } from '../common/debug-trace';
+import { DemoPipelineService } from './demo-pipeline.service';
+import { DemoStateService } from './demo-state.service';
+import { DemoChatService } from './demo-chat.service';
 import { policyFor } from '../ingest/conflict-resolver';
 
 /**
@@ -93,11 +86,9 @@ export class AdminDemoController {
   private readonly logger = new Logger(AdminDemoController.name);
 
   constructor(
-    private readonly surreal: SurrealService,
-    private readonly ingest: IngestService,
-    private readonly search: SearchService,
-    private readonly dreams: DreamsService,
-    private readonly chatRouter: ChatRouterService,
+    private readonly pipeline: DemoPipelineService,
+    private readonly state: DemoStateService,
+    private readonly chatService: DemoChatService,
   ) {}
 
   @Post('ingest-mention')
@@ -113,11 +104,10 @@ export class AdminDemoController {
     }
     const tenant = demoTenantFor(req);
     const captured = await runWithDebugTrace(() =>
-      this.ingest.ingestMention(tenant, {
+      this.pipeline.ingestMention(tenant, {
         text: body.text,
-        contextRef: { vertical: body.vertical ?? 'shop' },
-        emittedAt: new Date().toISOString(),
-      } as any),
+        vertical: body.vertical,
+      }),
     );
     return {
       ...captured.result,
@@ -144,14 +134,10 @@ export class AdminDemoController {
     const tenant = demoTenantFor(req);
     const scopes = assertPiiScope(req, body.includePii);
     const captured = await runWithDebugTrace(() =>
-      this.search.search(
+      this.pipeline.runSearch(
         tenant,
-        {
-          query: body.query,
-          limit: body.limit ?? 5,
-          asOf: body.asOf,
-        } as any,
-        scopes as any,
+        { query: body.query, limit: body.limit, asOf: body.asOf },
+        scopes,
       ),
     );
     return {
@@ -189,17 +175,13 @@ export class AdminDemoController {
     // LLM call burns tokens / leaves a tenant in a partial state.
     const askScopes = assertPiiScope(req, body.includePii);
     try {
-      const captured = await runWithDebugTrace(async () => {
-        const knownNames = await this.fetchKnownEntityNames(tenant);
-        const route: ChatRoute = await this.chatRouter.route(body.message, {
-          knownNames,
-          companyId: tenant,
-        });
-        if (route.intent === 'tell') {
-          return this.runTellChat(route, tenant);
-        }
-        return this.runAskChat({ route, body, tenant, scopes: askScopes });
-      });
+      const captured = await runWithDebugTrace(() =>
+        this.chatService.chat({
+          message: body.message,
+          tenant,
+          scopes: askScopes,
+        }),
+      );
       const result = captured.result as any;
       if (result.search) {
         result.search = {
@@ -249,104 +231,6 @@ export class AdminDemoController {
     }
   }
 
-  private async runTellChat(route: ChatRoute, tenant: string) {
-    const emittedAt = route.validFrom?.iso ?? new Date().toISOString();
-    const ingest = await this.ingest.ingestMention(tenant, {
-      text: route.normalizedMessage,
-      contextRef: { vertical: 'shop' },
-      emittedAt,
-    } as any);
-    // Lazy fast-path identity resolution. Mirrors how a brain SHOULD
-    // behave in production: cheap inline dedup runs in the moment so an
-    // obvious dupe (typo, alias) gets stitched immediately and the next
-    // query sees the merged shape.
-    let autoDedup: { identityLinksCreated?: number } | undefined;
-    try {
-      const r = await this.dreams.runForTenant(tenant, ['dedup']);
-      autoDedup = r.dedup
-        ? { identityLinksCreated: r.dedup.identityLinksCreated }
-        : undefined;
-    } catch (e) {
-      // Auto-dedup is best-effort; an error here MUST NOT fail the
-      // ingest. The deep sweep button will still pick it up later.
-      this.logger.debug(
-        `demo auto-dedup skipped: ${(e as Error).message ?? e}`,
-      );
-      autoDedup = undefined;
-    }
-    return { route, ingest, autoDedup };
-  }
-
-  private async runAskChat({
-    route,
-    body,
-    tenant,
-    scopes,
-  }: {
-    route: ChatRoute;
-    body: { message: string; includePii?: boolean };
-    tenant: string;
-    scopes: readonly BrainScope[];
-  }) {
-    const queryText = route.cleanedQuery ?? body.message;
-    const entityRefs = route.mentions.map((m) => m.canonical);
-    const predicateHints = route.predicateHints.map((h) => h.predicateId);
-    const asOf = route.asOf?.iso;
-
-    // Graph-first: resolve named entities, walk their 1-hop
-    // neighbourhood, and fetch facts across (seeds ∪ neighbours)
-    // optionally filtered by predicate hints. The neighbour walk is
-    // what lets "who runs engineering at Acme" find Maria's status
-    // fact even though Acme itself has no status fact — the answer
-    // is one edge away.
-    const graph = await traceSpan('demo.graph_first', () =>
-      this.search.graphRetrieve({
-        companyId: tenant,
-        queryText,
-        entityRefs,
-        predicateHints,
-        asOf,
-        callerScopes: scopes as string[],
-      }),
-    );
-    const graphHasFacts = graph.results.some(
-      (r) => Array.isArray(r.facts) && r.facts.length > 0,
-    );
-    if (graphHasFacts) {
-      traceArtifact('demo.strategy', {
-        picked: 'graph',
-        graphHits: graph.results.length,
-        entityRefs,
-        predicateHints,
-      });
-      return {
-        route,
-        strategy: 'graph' as const,
-        search: { results: graph.results },
-      };
-    }
-    // Graph couldn't pin the subject — fall back to vector+lexical.
-    traceArtifact('demo.strategy', {
-      picked: 'graph→vector',
-      graphHits: 0,
-      entityRefs,
-      predicateHints,
-      reason: entityRefs.length
-        ? 'named subject(s) had no matching facts in window'
-        : 'no named subject — topical query',
-    });
-    const search = await this.search.search(
-      tenant,
-      { query: queryText, limit: 5, asOf } as any,
-      scopes as any,
-    );
-    return {
-      route,
-      strategy: 'graph→vector' as const,
-      search: { results: search.results },
-    };
-  }
-
   // Dreams orchestration fans out to OpenAI (summaries/dedup).
   @Throttle({ expensive: { limit: 3, ttl: 60_000 } })
   @Post('dreams')
@@ -357,10 +241,7 @@ export class AdminDemoController {
   ) {
     const tenant = demoTenantFor(req);
     const captured = await runWithDebugTrace(() =>
-      this.dreams.runForTenant(
-        tenant,
-        body?.operations ?? ['dedup', 'resolve'],
-      ),
+      this.pipeline.runDreams(tenant, body?.operations ?? ['dedup', 'resolve']),
     );
     return {
       ...captured.result,
@@ -375,76 +256,13 @@ export class AdminDemoController {
   @Get('state')
   @RequireScopes('brain:admin')
   async demoState(@Req() req: AuthenticatedRequest) {
-    const tenant = demoTenantFor(req);
-    try {
-      return await this.surreal.withCompany(
-        tenant,
-        async (db) => {
-          const [eRows, fRows, lastRows] = (await db.query<
-            [
-              Array<{ c: number }>,
-              Array<{ c: number }>,
-              Array<{ recordedAt?: string }>,
-            ]
-          >(
-            `SELECT count() AS c FROM knowledge_entity WHERE mergedInto IS NONE GROUP ALL;
-             SELECT count() AS c FROM knowledge_fact WHERE retractedAt IS NONE GROUP ALL;
-             SELECT recordedAt FROM knowledge_fact ORDER BY recordedAt DESC LIMIT 1;`,
-          )) as any;
-          const entities =
-            (eRows as Array<{ c: number }>)?.[0]?.c ?? 0;
-          const facts = (fRows as Array<{ c: number }>)?.[0]?.c ?? 0;
-          const lastAt =
-            (lastRows as Array<{ recordedAt?: string }>)?.[0]?.recordedAt;
-          return { entities, facts, lastIngestAt: lastAt ?? null };
-        },
-      );
-    } catch {
-      // Tenant doesn't exist yet — that's a clean state, not an error.
-      return { entities: 0, facts: 0, lastIngestAt: null };
-    }
+    return this.state.state(demoTenantFor(req));
   }
 
   @Post('reset')
   @RequireScopes('brain:admin')
   async demoReset(@Req() req: AuthenticatedRequest) {
-    const tenant = demoTenantFor(req);
-    try {
-      await this.surreal.dropCompanyDatabase(tenant);
-    } catch (e) {
-      // Reset is idempotent — a missing DB is a success state.
-      return { dropped: false, reason: (e as Error).message };
-    }
-    return { dropped: true };
-  }
-
-  private async fetchKnownEntityNames(tenant: string): Promise<string[]> {
-    // Top 25 canonical names from the demo tenant — bounded so the
-    // router prompt doesn't bloat. Best-effort: if the tenant is empty
-    // / the read fails, return [] and the router just won't
-    // canonicalise this turn.
-    try {
-      return await this.surreal.withCompany(
-        tenant,
-        async (db) => {
-          const [rows] = await db.query<
-            [Array<{ canonicalName: string }>]
-          >(
-            `SELECT canonicalName FROM knowledge_entity ` +
-              `WHERE mergedInto IS NONE AND canonicalName IS NOT NONE ` +
-              `LIMIT 25`,
-          );
-          return ((rows as Array<{ canonicalName: string }>) ?? [])
-            .map((r) => r.canonicalName)
-            .filter(Boolean);
-        },
-      );
-    } catch (e) {
-      this.logger.debug(
-        `fetchKnownEntityNames(${tenant}) returned empty: ${(e as Error).message ?? e}`,
-      );
-      return [];
-    }
+    return this.state.reset(demoTenantFor(req));
   }
 }
 
