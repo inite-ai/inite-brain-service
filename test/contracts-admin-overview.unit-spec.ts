@@ -3,7 +3,8 @@
  * See contracts-admin-leases for the broader rationale.
  */
 import { OverviewResponseSchema } from '../src/contracts/admin/overview.schema';
-import { AdminController } from '../src/admin/admin.controller';
+import { makeAdminController } from './helpers/admin-controllers';
+import type { AdminController } from '../src/admin/admin.controller';
 import type { AdminService } from '../src/admin/admin.service';
 
 function makeController(): AdminController {
@@ -37,11 +38,7 @@ function makeController(): AdminController {
       recentForgotten: [],
     }),
   } as unknown as AdminService;
-  const undef = undefined as unknown as never;
-   
-  return new AdminController(
-    admin, undef, undef, undef, undef, undef, undef, undef, undef, undef,
-  );
+  return makeAdminController({ admin });
 }
 
 describe('AdminController.overview() — wire contract', () => {

@@ -2,7 +2,8 @@
  * Wire-contract drift guard for GET /v1/admin/throttler.
  */
 import { ThrottlerResponseSchema } from '../src/contracts/admin/throttler.schema';
-import { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { makeAdminInfraController } from './helpers/admin-controllers';
+import type { AdminInfraController } from '../src/admin/admin-infra.controller';
 import type { ThrottlerObservabilityService } from '../src/admin/throttler-observability.service';
 
 function makeController(): AdminInfraController {
@@ -30,16 +31,7 @@ function makeController(): AdminInfraController {
       ],
     }),
   } as unknown as ThrottlerObservabilityService;
-  const undef = undefined as unknown as never;
-  return new AdminInfraController(
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    throttler,
-    undef,
-  );
+  return makeAdminInfraController({ throttler });
 }
 
 describe('AdminInfraController.throttlerView() — wire contract', () => {

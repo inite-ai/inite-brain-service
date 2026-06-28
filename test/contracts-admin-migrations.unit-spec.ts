@@ -2,7 +2,8 @@
  * Wire-contract drift guard for GET /v1/admin/migrations.
  */
 import { MigrationsResponseSchema } from '../src/contracts/admin/migrations.schema';
-import { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { makeAdminInfraController } from './helpers/admin-controllers';
+import type { AdminInfraController } from '../src/admin/admin-infra.controller';
 import { AdminInfraService } from '../src/admin/admin-infra.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { ApiKeyService } from '../src/auth/api-key.service';
@@ -30,16 +31,7 @@ function makeController(): AdminInfraController {
     knownCompanyIds: () => ['tenant-a'],
   } as unknown as ApiKeyService;
   const adminInfra = new AdminInfraService(surreal, apiKeys);
-  const undef = undefined as unknown as never;
-  return new AdminInfraController(
-    adminInfra,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-  );
+  return makeAdminInfraController({ adminInfra });
 }
 
 describe('AdminInfraController.migrations() — wire contract', () => {

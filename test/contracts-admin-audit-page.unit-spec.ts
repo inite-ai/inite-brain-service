@@ -2,7 +2,8 @@
  * Wire-contract drift guard for GET /v1/admin/audit.
  */
 import { AuditPageResponseSchema } from '../src/contracts/admin/audit-page.schema';
-import { AdminController } from '../src/admin/admin.controller';
+import { makeAdminController } from './helpers/admin-controllers';
+import type { AdminController } from '../src/admin/admin.controller';
 import type { AdminService } from '../src/admin/admin.service';
 
 function makeController(): AdminController {
@@ -27,11 +28,7 @@ function makeController(): AdminController {
       hourly: [{ hour: '2026-06-22T15', count: 1 }],
     }),
   } as unknown as AdminService;
-  const undef = undefined as unknown as never;
-   
-  return new AdminController(
-    admin, undef, undef, undef, undef, undef, undef, undef, undef, undef,
-  );
+  return makeAdminController({ admin });
 }
 
 describe('AdminController.audit() — wire contract', () => {

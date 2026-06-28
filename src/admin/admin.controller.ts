@@ -15,8 +15,6 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { AdminService } from './admin.service';
 import { DreamsService } from '../dreams/dreams.service';
 import { RunDreamsDto } from '../dreams/dto/run-dreams.dto';
-// eslint-disable-next-line import/no-restricted-paths -- TODO: layer migration. Move the inline withCompany() / withAdminDb() queries below into a dedicated admin service, then drop this import. New controllers MUST NOT import db/* directly.
-import { SurrealService } from '../db/surreal.service';
 import { ChatRouterCacheService } from './chat-router-cache.service';
 import { CollapsePatternService } from './collapse-pattern.service';
 import { IntentClassifierService } from './intent-classifier.service';
@@ -57,13 +55,12 @@ import type {
 export class AdminController {
   // TODO: pre-existing god-controller. Split the surface into
   // AdminFactsController / AdminEntitiesController / AdminRouterController
-  // and the DI list shrinks naturally. Tracked separately so the new
-  // import/no-restricted-paths + max-params gates work for new code.
+  // and the DI list shrinks naturally; until then the constructor still
+  // injects 9 collaborators, over the max-params gate.
   // eslint-disable-next-line max-params
   constructor(
     private readonly admin: AdminService,
     private readonly dreams: DreamsService,
-    private readonly surreal: SurrealService,
     private readonly routeCache: ChatRouterCacheService,
     private readonly collapsePatterns: CollapsePatternService,
     private readonly intentClassifier: IntentClassifierService,
@@ -300,7 +297,7 @@ export class AdminController {
         `Only ephemeral eval_* tenants can be dropped via admin API`,
       );
     }
-    await this.surreal.dropCompanyDatabase(companyId);
+    await this.admin.dropTenantDatabase(companyId);
     return { dropped: companyId } satisfies DropTenantResponse;
   }
 }

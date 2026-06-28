@@ -748,6 +748,15 @@ export class AdminService {
       };
     });
   }
+
+  /**
+   * Drop a tenant's entire per-tenant database. The caller is responsible
+   * for authorising this (the admin API restricts it to ephemeral eval_*
+   * tenants) — this just performs the DB-level teardown.
+   */
+  async dropTenantDatabase(companyId: string): Promise<void> {
+    await this.surreal.dropCompanyDatabase(companyId);
+  }
 }
 
 function countOf(stmtResult: any): number {
