@@ -2,6 +2,7 @@ import {
   MultiHopService,
   MultiHopResult,
 } from '../src/multi-hop/multi-hop.service';
+import { MultiHopChainService } from '../src/multi-hop/multi-hop-chain.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type {
   MultiHopPlannerService,
@@ -76,7 +77,8 @@ describe('MultiHopService', () => {
     planner: MultiHopPlannerService,
     synth?: SynthesizeService,
   ): MultiHopService {
-    return new MultiHopService(search, planner, synth);
+    const chain = new MultiHopChainService(search, synth);
+    return new MultiHopService(planner, chain);
   }
 
   const baseDto: MultiHopDto = { query: 'q' };
