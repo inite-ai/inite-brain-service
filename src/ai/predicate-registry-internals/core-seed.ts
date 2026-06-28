@@ -346,5 +346,69 @@ VALUE  one anti-pattern per fact (multi-valued)`,
     status: 'active',
     createdBy: 'system',
   },
+
+  // ── CODE-MEMORY DomainPack (docs/roadmap/code-memory-domain.md) ───────
+  // The non-derivable engineering "why" of a codebase, anchored to code
+  // anchors (knowledge_entity with externalRef "code__<scip-symbol>"). This
+  // is NOT a code index — it stores decisions / rationale / invariants /
+  // gotchas a parser cannot recover from source. decayHalfLifeDays:null —
+  // code knowledge doesn't decay on a wall clock; it's superseded by a newer
+  // decision (single_active) or accumulates (append_only).
+  {
+    predicateId: 'decided',
+    displayLabel: 'decided',
+    description: `TYPE   subject is a code anchor; value is a design decision
+ADMIT  text states a design/implementation decision made for this code
+       location ("resolve facts through one gateway", "split per phase")
+VALUE  the decision statement`,
+    datatype: 'string',
+    semantics: 'single_active',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'because',
+    displayLabel: 'because',
+    description: `TYPE   subject is a code anchor; value is the rationale for a decision
+ADMIT  text gives the reason a decision was made ("21 positional args
+       drifted between call-sites")
+VALUE  one rationale per fact (multi-valued)`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'invariant',
+    displayLabel: 'invariant',
+    description: `TYPE   subject is a code anchor; value is a constraint that must hold
+ADMIT  text states a rule the code must satisfy ("always export a new
+       @Injectable from the @Global module or e2e DI-boot fails")
+VALUE  the invariant statement`,
+    datatype: 'string',
+    semantics: 'single_active',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
+  {
+    predicateId: 'gotcha',
+    displayLabel: 'gotcha',
+    description: `TYPE   subject is a code anchor; value is a non-obvious trap
+ADMIT  text warns of a counter-intuitive behaviour or pitfall
+       ("pnpm test -- --testPathPattern does NOT work — double dash")
+VALUE  one gotcha per fact (multi-valued)`,
+    datatype: 'string',
+    semantics: 'append_only',
+    decayHalfLifeDays: null,
+    piiClass: 'none',
+    status: 'active',
+    createdBy: 'system',
+  },
 ];
 

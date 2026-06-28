@@ -81,6 +81,7 @@ const READ_BASELINE = [
   'list_communities',
   'find_entity_communities',
   'find_related_entities',
+  'why',
 ];
 
 describe('McpService.buildServer — scope-gated tool surface', () => {
@@ -96,6 +97,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).not.toContain('link_entities');
     expect(names).not.toContain('record_procedure');
     expect(names).not.toContain('retire_procedure');
+    expect(names).not.toContain('record_decision');
   });
 
   it('registers mutation tools when brain:write is present', () => {
@@ -105,6 +107,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('link_entities');
     expect(names).toContain('record_procedure');
     expect(names).toContain('retire_procedure');
+    expect(names).toContain('record_decision');
   });
 
   it('does NOT register forget_entity without brain:admin (even with write)', () => {
