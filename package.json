@@ -16,6 +16,7 @@
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "build": "nest build",
+    "typecheck": "tsc -p tsconfig.spec.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

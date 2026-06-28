@@ -51,6 +51,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Typecheck the WHOLE project, tests included. `nest build` only
+      # compiles src/ (tsconfig.json excludes test/), so before this step a
+      # type error in a spec only surfaced if/when ts-jest happened to run
+      # that spec — a skipped or never-run spec shipped its type error
+      # green. tsconfig.spec.json re-includes test/ and gates it here.
+      - name: Typecheck (src + tests)
+        run: pnpm typecheck
+
       - name: Build
         run: pnpm build
 
