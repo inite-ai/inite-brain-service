@@ -33,6 +33,13 @@ import { EntityJudgeService } from '../ai/entity-judge.service';
  * flag is off by default (operators wanting reversible merges keep it off
  * and rely on dreams).
  */
+export interface ResolveByNameOptions {
+  db: Surreal;
+  name: string;
+  type: string;
+  incomingFacts: string[];
+}
+
 @Injectable()
 export class EntityResolverService {
   private readonly logger = new Logger(EntityResolverService.name);
@@ -69,12 +76,12 @@ export class EntityResolverService {
    * @param incomingFacts  the mention's freshly-extracted facts for THIS
    *   entity, as `"predicate: object"` lines — the judge's "new" side.
    */
-  async resolveByName(
-    db: Surreal,
-    name: string,
-    type: string,
-    incomingFacts: string[],
-  ): Promise<string | null> {
+  async resolveByName({
+    db,
+    name,
+    type,
+    incomingFacts,
+  }: ResolveByNameOptions): Promise<string | null> {
     if (!this.isEnabled()) return null;
     try {
       const candidate = await this.findBestNameCandidate(db, name, type);

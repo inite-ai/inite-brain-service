@@ -54,14 +54,23 @@ export function resolveStageBudgets(env = process.env): StageBudgets {
  * fine, the result is dropped on the floor. Memory pressure is bounded
  * by OPENAI_CONCURRENCY / per-stage limiters upstream.
  */
-export async function withStageBudget<T>(
-  stage: keyof typeof DEFAULT_STAGE_BUDGET_MS,
-  budgetMs: number,
-  fn: () => Promise<T>,
-  fallback: T,
-  logger?: { warn: (msg: string) => void },
-  onFallback?: () => void,
-): Promise<T> {
+export interface WithStageBudgetOptions<T> {
+  stage: keyof typeof DEFAULT_STAGE_BUDGET_MS;
+  budgetMs: number;
+  fn: () => Promise<T>;
+  fallback: T;
+  logger?: { warn: (msg: string) => void };
+  onFallback?: () => void;
+}
+
+export async function withStageBudget<T>({
+  stage,
+  budgetMs,
+  fn,
+  fallback,
+  logger,
+  onFallback,
+}: WithStageBudgetOptions<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<{ __timedOut: true }>((resolve) => {
     timer = setTimeout(() => resolve({ __timedOut: true }), budgetMs);

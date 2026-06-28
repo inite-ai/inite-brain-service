@@ -82,12 +82,19 @@ const NON_HINT_FACT_SCORE = 0.5;
  *   - Neighbours: 0.7  (one edge away)
  *   - Fact-level score: 1.0 if predicate ∈ hints (or no hints), else 0.5
  */
-export function assembleGraphHits(
-  seedIds: string[],
-  entitiesById: Map<string, GraphEntity>,
-  factsByEntity: Map<string, GraphFactRow[]>,
-  predicateHints: string[],
-): GraphRetrieveHit[] {
+export interface AssembleGraphHitsOptions {
+  seedIds: string[];
+  entitiesById: Map<string, GraphEntity>;
+  factsByEntity: Map<string, GraphFactRow[]>;
+  predicateHints: string[];
+}
+
+export function assembleGraphHits({
+  seedIds,
+  entitiesById,
+  factsByEntity,
+  predicateHints,
+}: AssembleGraphHitsOptions): GraphRetrieveHit[] {
   const seedSet = new Set(seedIds);
   const hintSet = new Set(predicateHints);
 
@@ -96,7 +103,14 @@ export function assembleGraphHits(
   for (const seedId of seedIds) {
     const ent = entitiesById.get(seedId);
     if (!ent) continue;
-    results.push(renderHit(ent, factsByEntity.get(seedId) ?? [], hintSet, SEED_SCORE));
+    results.push(
+      renderHit({
+        ent,
+        rows: factsByEntity.get(seedId) ?? [],
+        hintSet,
+        entityScore: SEED_SCORE,
+      }),
+    );
   }
 
   for (const [eid, ent] of entitiesById) {
@@ -108,18 +122,25 @@ export function assembleGraphHits(
       // keeps the result focused on the asked predicate.
       continue;
     }
-    results.push(renderHit(ent, rows, hintSet, NEIGHBOUR_SCORE));
+    results.push(
+      renderHit({ ent, rows, hintSet, entityScore: NEIGHBOUR_SCORE }),
+    );
   }
 
   return results;
 }
 
-function renderHit(
-  ent: GraphEntity,
-  rows: GraphFactRow[],
-  hintSet: Set<string>,
-  entityScore: number,
-): GraphRetrieveHit {
+function renderHit({
+  ent,
+  rows,
+  hintSet,
+  entityScore,
+}: {
+  ent: GraphEntity;
+  rows: GraphFactRow[];
+  hintSet: Set<string>;
+  entityScore: number;
+}): GraphRetrieveHit {
   const deduped = dedupeAndSortFacts(rows);
   const stage = entityScore === SEED_SCORE ? 'graph_seed' : 'graph_neighbour';
   return {

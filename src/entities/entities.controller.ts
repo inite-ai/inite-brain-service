@@ -25,12 +25,12 @@ export class EntitiesController {
     @Param('id') id: string,
     @Query('asOf') asOf?: string,
   ) {
-    return this.entities.getProfile(
-      req.brainAuth.companyId,
-      id,
-      asOf,
-      req.brainAuth.scopes,
-    );
+    return this.entities.getProfile({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: id,
+      asOfRaw: asOf,
+      scopes: req.brainAuth.scopes,
+    });
   }
 
   @Get(':id/timeline')
@@ -41,13 +41,13 @@ export class EntitiesController {
     @Query('since') since?: string,
     @Query('until') until?: string,
   ) {
-    return this.entities.getTimeline(
-      req.brainAuth.companyId,
-      id,
-      since,
-      until,
-      req.brainAuth.scopes,
-    );
+    return this.entities.getTimeline({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: id,
+      sinceRaw: since,
+      untilRaw: until,
+      scopes: req.brainAuth.scopes,
+    });
   }
 
   @Get(':id/connections')
@@ -58,13 +58,13 @@ export class EntitiesController {
     @Query('kind') kind?: string,
     @Query('asOf') asOf?: string,
   ) {
-    return this.entities.getConnections(
-      req.brainAuth.companyId,
-      id,
+    return this.entities.getConnections({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: id,
       kind,
-      req.brainAuth.scopes,
+      scopes: req.brainAuth.scopes,
       asOf,
-    );
+    });
   }
 
   @Post(':id/forget')
@@ -74,11 +74,11 @@ export class EntitiesController {
     @Param('id') id: string,
     @Body() body: ForgetEntityDto,
   ) {
-    return this.entities.forget(
-      req.brainAuth.companyId,
-      id,
-      body,
-      req.brainAuth.keyHash,
-    );
+    return this.entities.forget({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: id,
+      dto: body,
+      actorKeyHash: req.brainAuth.keyHash,
+    });
   }
 }

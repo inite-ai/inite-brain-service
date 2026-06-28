@@ -54,35 +54,35 @@ function mkSnapshot(
 
 describe('extractPredicateHintsLocally', () => {
   it('returns [] when snapshot is null', async () => {
-    const hints = await extractPredicateHintsLocally(
-      'q',
-      null,
-      mkEmbedder(new Map([['q', vec([1, 0])]])),
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: 'q',
+      snapshot: null,
+      embedder: mkEmbedder(new Map([['q', vec([1, 0])]])),
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints).toEqual([]);
   });
 
   it('returns [] when snapshot has no embeddings', async () => {
-    const hints = await extractPredicateHintsLocally(
-      'q',
-      mkSnapshot({}),
-      mkEmbedder(new Map([['q', vec([1, 0])]])),
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: 'q',
+      snapshot: mkSnapshot({}),
+      embedder: mkEmbedder(new Map([['q', vec([1, 0])]])),
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints).toEqual([]);
   });
 
   it('returns [] when message is empty', async () => {
-    const hints = await extractPredicateHintsLocally(
-      '',
-      mkSnapshot({ address: vec([1, 0]) }),
-      mkEmbedder(new Map()),
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: '',
+      snapshot: mkSnapshot({ address: vec([1, 0]) }),
+      embedder: mkEmbedder(new Map()),
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints).toEqual([]);
   });
 
@@ -92,13 +92,13 @@ describe('extractPredicateHintsLocally', () => {
       email: vec([0, 1]),
     });
     const emb = mkEmbedder(new Map([['where lives', vec([1, 0])]]));
-    const hints = await extractPredicateHintsLocally(
-      'where lives',
-      snap,
-      emb,
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: 'where lives',
+      snapshot: snap,
+      embedder: emb,
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints).toHaveLength(1);
     expect(hints[0].predicateId).toBe('address');
     expect(hints[0].similarity).toBeCloseTo(1, 5);
@@ -112,7 +112,13 @@ describe('extractPredicateHintsLocally', () => {
       status: vec([0, 0, 1]),
     });
     const emb = mkEmbedder(new Map([['x', vec([1, 0, 0])]]));
-    const hints = await extractPredicateHintsLocally('x', snap, emb, 0.4, 2);
+    const hints = await extractPredicateHintsLocally({
+      message: 'x',
+      snapshot: snap,
+      embedder: emb,
+      threshold: 0.4,
+      maxHints: 2,
+    });
     expect(hints).toHaveLength(2);
     expect(hints[0].predicateId).toBe('address');
     expect(hints[1].predicateId).toBe('email');
@@ -127,15 +133,21 @@ describe('extractPredicateHintsLocally', () => {
     const emb = mkEmbedder(
       new Map([['x', vec([Math.SQRT1_2, Math.SQRT1_2])]]),
     );
-    const tightHints = await extractPredicateHintsLocally(
-      'x',
-      snap,
-      emb,
-      0.8,
-      3,
-    );
+    const tightHints = await extractPredicateHintsLocally({
+      message: 'x',
+      snapshot: snap,
+      embedder: emb,
+      threshold: 0.8,
+      maxHints: 3,
+    });
     expect(tightHints).toEqual([]);
-    const loose = await extractPredicateHintsLocally('x', snap, emb, 0.5, 3);
+    const loose = await extractPredicateHintsLocally({
+      message: 'x',
+      snapshot: snap,
+      embedder: emb,
+      threshold: 0.5,
+      maxHints: 3,
+    });
     expect(loose.map((h) => h.predicateId).sort()).toEqual([
       'address',
       'email',
@@ -145,13 +157,13 @@ describe('extractPredicateHintsLocally', () => {
   it('returns triggerSpan covering the whole message', async () => {
     const snap = mkSnapshot({ address: vec([1, 0]) });
     const emb = mkEmbedder(new Map([['where Maria lives', vec([1, 0])]]));
-    const hints = await extractPredicateHintsLocally(
-      'where Maria lives',
-      snap,
-      emb,
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: 'where Maria lives',
+      snapshot: snap,
+      embedder: emb,
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints[0].triggerSpan).toEqual({
       text: 'where Maria lives',
       start: 0,
@@ -161,13 +173,13 @@ describe('extractPredicateHintsLocally', () => {
 
   it('degrades silently when embedder throws', async () => {
     const snap = mkSnapshot({ address: vec([1, 0]) });
-    const hints = await extractPredicateHintsLocally(
-      'x',
-      snap,
-      mkEmbedder(new Map(), true),
-      0.4,
-      3,
-    );
+    const hints = await extractPredicateHintsLocally({
+      message: 'x',
+      snapshot: snap,
+      embedder: mkEmbedder(new Map(), true),
+      threshold: 0.4,
+      maxHints: 3,
+    });
     expect(hints).toEqual([]);
   });
 });

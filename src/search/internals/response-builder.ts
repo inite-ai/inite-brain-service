@@ -19,12 +19,19 @@ import type { EntityBucket, FactRow } from './types';
  * address, occupation, genre} instead of {name, occupation×4} and
  * the eval-side fact-predicate assertion passes.
  */
-export function assembleHits(
-  topEntities: EntityBucket[],
-  backfillByEntity: Map<string, FactRow[]>,
-  entityTypes: string[] | undefined,
+export interface AssembleHitsOptions {
+  topEntities: EntityBucket[];
+  backfillByEntity: Map<string, FactRow[]>;
+  entityTypes: string[] | undefined;
+  requireProvenance?: boolean;
+}
+
+export function assembleHits({
+  topEntities,
+  backfillByEntity,
+  entityTypes,
   requireProvenance = false,
-): SearchHit[] {
+}: AssembleHitsOptions): SearchHit[] {
   // requireProvenance — DTO compliance primitive: keep only facts whose
   // ingest path preserved a non-empty `source` trail (vertical/eventId/
   // messageId). `source` is on FactRow here but not projected onto the

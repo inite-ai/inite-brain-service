@@ -39,6 +39,18 @@ export interface ReadToolDeps {
 }
 
 /**
+ * Args for the brain:read registration entrypoint and its per-family
+ * helpers. One options object instead of the (server, companyId, scopes,
+ * deps) positional quad.
+ */
+export interface RegisterReadToolsOptions {
+  server: McpServer;
+  companyId: string;
+  scopes: BrainScope[];
+  deps: ReadToolDeps;
+}
+
+/**
  * Translate an MCP request's `extra` parameter into a ProgressReporter
  * that emits notifications/progress on every stage tick. The caller
  * opts in by including `_meta.progressToken` on the request — a
@@ -79,23 +91,23 @@ function buildProgressReporter(extra: {
  * `server.registerTool` pattern as community-tools.ts) to keep that file
  * under the max-lines gate and the tool families independently editable.
  */
-export function registerReadTools(
-  server: McpServer,
-  companyId: string,
-  scopes: BrainScope[],
-  deps: ReadToolDeps,
-): void {
-  registerSearchTools(server, companyId, scopes, deps);
-  registerEntityReadTools(server, companyId, scopes, deps);
-  registerReadResources(server, companyId, scopes, deps);
+export function registerReadTools({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  registerSearchTools({ server, companyId, scopes, deps });
+  registerEntityReadTools({ server, companyId, scopes, deps });
+  registerReadResources({ server, companyId, scopes, deps });
 }
 
-function registerSearchTools(
-  server: McpServer,
-  companyId: string,
-  scopes: BrainScope[],
-  deps: ReadToolDeps,
-): void {
+function registerSearchTools({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
   const embedderHint = ` Embedding model on this tenant: ${deps.embedderDescription()}.`;
 
   // ── search_knowledge ──────────────────────────────────────────────
@@ -169,9 +181,9 @@ function registerSearchTools(
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.multiHop.run(
+      const out = await deps.multiHop.run({
         companyId,
-        {
+        dto: {
           query: args.query,
           maxHops: args.maxHops,
           synthesize: args.synthesize,
@@ -180,9 +192,9 @@ function registerSearchTools(
           predicates: args.predicates,
           limit: args.limit,
         },
-        scopes,
-        reporter,
-      );
+        callerScopes: scopes,
+        onProgress: reporter,
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -214,9 +226,9 @@ function registerSearchTools(
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.synth.synthesize(
+      const out = await deps.synth.synthesize({
         companyId,
-        {
+        dto: {
           query: args.query,
           limit: args.limit,
           predicates: args.predicates,
@@ -224,9 +236,9 @@ function registerSearchTools(
           minConfidence: args.minConfidence,
           synthesisGuardrails: args.synthesisGuardrails,
         },
-        scopes,
-        reporter,
-      );
+        callerScopes: scopes,
+        onProgress: reporter,
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -269,12 +281,12 @@ function registerSearchTools(
   );
 }
 
-function registerEntityReadTools(
-  server: McpServer,
-  companyId: string,
-  scopes: BrainScope[],
-  deps: ReadToolDeps,
-): void {
+function registerEntityReadTools({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
   // ── get_entity_profile ────────────────────────────────────────────
   server.registerTool(
     'get_entity_profile',
@@ -288,7 +300,12 @@ function registerEntityReadTools(
       },
     },
     async (args) => {
-      const out = await deps.entities.getProfile(companyId, args.entityId, args.asOf, scopes);
+      const out = await deps.entities.getProfile({
+        companyId,
+        entityIdRaw: args.entityId,
+        asOfRaw: args.asOf,
+        scopes,
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -310,13 +327,13 @@ function registerEntityReadTools(
       },
     },
     async (args) => {
-      const out = await deps.entities.getTimeline(
+      const out = await deps.entities.getTimeline({
         companyId,
-        args.entityId,
-        args.since,
-        args.until,
+        entityIdRaw: args.entityId,
+        sinceRaw: args.since,
+        untilRaw: args.until,
         scopes,
-      );
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -350,14 +367,14 @@ function registerEntityReadTools(
     },
     async (args) => {
       if (args.styleHint === 'client_llm') {
-        const out = await summarizeViaClientSampling(
-          { entities: deps.entities, summarizer: deps.summarizer },
+        const out = await summarizeViaClientSampling({
+          deps: { entities: deps.entities, summarizer: deps.summarizer },
           server,
           companyId,
-          args.entityId,
-          args.asOf,
+          entityId: args.entityId,
+          asOf: args.asOf,
           scopes,
-        );
+        });
         return {
           content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
           structuredContent: out as any,
@@ -365,17 +382,11 @@ function registerEntityReadTools(
       }
       const out = await deps.summarizer.summarize(
         companyId,
-        {
-          entityId: args.entityId,
-          asOf: args.asOf,
-          styleHint: args.styleHint,
-        },
+        { entityId: args.entityId, asOf: args.asOf, styleHint: args.styleHint },
         scopes,
       );
       return {
-        content: [
-          { type: 'text', text: JSON.stringify(out, null, 2) },
-        ],
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: { ...out, sampledBy: 'local_template' } as any,
       };
     },
@@ -469,12 +480,12 @@ function registerEntityReadTools(
       // Pass scopes — without them getConnections signs in with an
       // empty scope set, bypassing the DB-level PII fence (every other
       // MCP tool forwards scopes).
-      const out = await deps.entities.getConnections(
+      const out = await deps.entities.getConnections({
         companyId,
-        args.entityId,
-        args.kind,
+        entityIdRaw: args.entityId,
+        kind: args.kind,
         scopes,
-      );
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -496,12 +507,12 @@ function registerEntityReadTools(
  * Streamable HTTP mode, so subscribe is a no-op for v1. Streaming via a
  * server-pushed changefeed resource is the v2 lift.
  */
-function registerReadResources(
-  server: McpServer,
-  companyId: string,
-  scopes: BrainScope[],
-  deps: ReadToolDeps,
-): void {
+function registerReadResources({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
   server.registerResource(
     'entity-profile',
     new ResourceTemplate('brain://entity/{entityId}', { list: undefined }),
@@ -513,12 +524,12 @@ function registerReadResources(
     },
     async (uri, params) => {
       const entityIdRaw = String(params.entityId);
-      const profile = await deps.entities.getProfile(
+      const profile = await deps.entities.getProfile({
         companyId,
         entityIdRaw,
-        undefined,
+        asOfRaw: undefined,
         scopes,
-      );
+      });
       return {
         contents: [
           {
@@ -544,13 +555,13 @@ function registerReadResources(
     },
     async (uri, params) => {
       const entityIdRaw = String(params.entityId);
-      const timeline = await deps.entities.getTimeline(
+      const timeline = await deps.entities.getTimeline({
         companyId,
         entityIdRaw,
-        undefined,
-        undefined,
+        sinceRaw: undefined,
+        untilRaw: undefined,
         scopes,
-      );
+      });
       return {
         contents: [
           {

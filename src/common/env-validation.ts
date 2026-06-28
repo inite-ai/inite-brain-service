@@ -18,10 +18,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   const warnings: string[] = [];
 
   // ── Required ──────────────────────────────────────────────────────
-  required(env, 'SURREALDB_URL', errors, /^(ws|wss|http|https):\/\//);
-  required(env, 'SURREALDB_USERNAME', errors);
-  required(env, 'SURREALDB_PASSWORD', errors);
-  required(env, 'OPENAI_API_KEY', errors, /^sk-/);
+  required({ env, name: 'SURREALDB_URL', errors, pattern: /^(ws|wss|http|https):\/\// });
+  required({ env, name: 'SURREALDB_USERNAME', errors });
+  required({ env, name: 'SURREALDB_PASSWORD', errors });
+  required({ env, name: 'OPENAI_API_KEY', errors, pattern: /^sk-/ });
 
   // ── Auth ─────────────────────────────────────────────────────────
   // BRAIN_API_KEYS is required, but [] is acceptable in dev (no callers).
@@ -184,12 +184,17 @@ function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   }
 }
 
-function required(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  errors: string[],
-  pattern?: RegExp,
-): void {
+function required({
+  env,
+  name,
+  errors,
+  pattern,
+}: {
+  env: NodeJS.ProcessEnv;
+  name: string;
+  errors: string[];
+  pattern?: RegExp;
+}): void {
   const v = env[name];
   if (!v || !v.trim()) {
     errors.push(`${name} is required`);

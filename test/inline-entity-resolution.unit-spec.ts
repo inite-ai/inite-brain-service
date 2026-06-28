@@ -53,28 +53,28 @@ describe('EntityResolverService.resolveByName', () => {
       ...ENABLED,
       INGEST_INLINE_RESOLUTION_ENABLED: '0',
     });
-    expect(await svc.resolveByName(db as any, 'Acme', 'customer', [])).toBeNull();
+    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
     expect(db.query).not.toHaveBeenCalled();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
   it('returns null when the judge service is unavailable (no key)', async () => {
     const { svc, db } = makeService(ENABLED, { isAvailable: () => false });
-    expect(await svc.resolveByName(db as any, 'Acme', 'customer', [])).toBeNull();
+    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
     expect(db.query).not.toHaveBeenCalled();
   });
 
   it('returns null when no candidate clears the cosine floor', async () => {
     const { svc, db, judge } = makeService(ENABLED);
     db.query.mockResolvedValueOnce(candidate(0.7));
-    expect(await svc.resolveByName(db as any, 'Acme', 'customer', [])).toBeNull();
+    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
   it('ignores a high-cosine candidate of a different type', async () => {
     const { svc, db, judge } = makeService(ENABLED);
     db.query.mockResolvedValueOnce(candidate(0.97, 'asset'));
-    expect(await svc.resolveByName(db as any, 'Acme', 'customer', [])).toBeNull();
+    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
@@ -82,9 +82,12 @@ describe('EntityResolverService.resolveByName', () => {
     const { svc, db, judge } = makeService(ENABLED);
     db.query.mockResolvedValueOnce(candidate(0.95));
     judge.judge.mockResolvedValue('same');
-    const out = await svc.resolveByName(db as any, 'Acme', 'customer', [
-      'dob: 1990-01-01',
-    ]);
+    const out = await svc.resolveByName({
+      db: db as any,
+      name: 'Acme',
+      type: 'customer',
+      incomingFacts: ['dob: 1990-01-01'],
+    });
     expect(out).toBe('knowledge_entity:x');
     expect(judge.judge).toHaveBeenCalledWith(
       '- dob: 1990-01-01',
@@ -100,7 +103,12 @@ describe('EntityResolverService.resolveByName', () => {
       db.query.mockResolvedValueOnce(candidate(0.95));
       judge.judge.mockResolvedValue(verdict);
       expect(
-        await svc.resolveByName(db as any, 'John Smith', 'customer', []),
+        await svc.resolveByName({
+          db: db as any,
+          name: 'John Smith',
+          type: 'customer',
+          incomingFacts: [],
+        }),
       ).toBeNull();
     },
   );
@@ -108,6 +116,6 @@ describe('EntityResolverService.resolveByName', () => {
   it('falls back to null when a DB read throws', async () => {
     const { svc, db } = makeService(ENABLED);
     db.query.mockRejectedValue(new Error('surreal down'));
-    expect(await svc.resolveByName(db as any, 'Acme', 'customer', [])).toBeNull();
+    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
   });
 });

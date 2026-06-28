@@ -22,11 +22,11 @@ export class FactsController {
     @Param('id') id: string,
     @Body() body: RetractFactDto,
   ) {
-    return this.facts.retract(
-      req.brainAuth.companyId,
-      id,
-      body,
-      req.brainAuth.scopes,
-    );
+    return this.facts.retract({
+      companyId: req.brainAuth.companyId,
+      factId: id,
+      dto: body,
+      callerScopes: req.brainAuth.scopes,
+    });
   }
 }

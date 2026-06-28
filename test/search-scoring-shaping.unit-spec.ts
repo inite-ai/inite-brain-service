@@ -88,12 +88,12 @@ describe('assembleHits requireProvenance', () => {
       fact({ predicate: 'hobby', object: 'chess', source: null }),
       0.8,
     );
-    const hits = assembleHits(
-      [bucket([withSrc, noSrc])],
-      new Map(),
-      undefined,
-      true,
-    );
+    const hits = assembleHits({
+      topEntities: [bucket([withSrc, noSrc])],
+      backfillByEntity: new Map(),
+      entityTypes: undefined,
+      requireProvenance: true,
+    });
     expect(hits).toHaveLength(1);
     const preds = hits[0].facts.map((f) => f.predicate);
     expect(preds).toContain('role');
@@ -105,7 +105,12 @@ describe('assembleHits requireProvenance', () => {
       fact({ predicate: 'hobby', object: 'chess', source: {} }),
       0.8,
     );
-    const hits = assembleHits([bucket([noSrc])], new Map(), undefined, true);
+    const hits = assembleHits({
+      topEntities: [bucket([noSrc])],
+      backfillByEntity: new Map(),
+      entityTypes: undefined,
+      requireProvenance: true,
+    });
     expect(hits).toHaveLength(0);
   });
 
@@ -114,7 +119,12 @@ describe('assembleHits requireProvenance', () => {
       fact({ predicate: 'hobby', object: 'chess', source: null }),
       0.8,
     );
-    const hits = assembleHits([bucket([noSrc])], new Map(), undefined, false);
+    const hits = assembleHits({
+      topEntities: [bucket([noSrc])],
+      backfillByEntity: new Map(),
+      entityTypes: undefined,
+      requireProvenance: false,
+    });
     expect(hits).toHaveLength(1);
     expect(hits[0].facts).toHaveLength(1);
   });

@@ -21,6 +21,13 @@ import {
   type ProgressReporter,
 } from '../mcp/progress-reporter';
 
+export interface SynthesizeOptions {
+  companyId: string;
+  dto: SynthesizeDto;
+  callerScopes: string[];
+  onProgress?: ProgressReporter;
+}
+
 export interface Citation {
   factId: string;
   entityId: string;
@@ -151,12 +158,12 @@ export class SynthesizeService {
     );
   }
 
-  async synthesize(
-    companyId: string,
-    dto: SynthesizeDto,
-    callerScopes: string[],
-    onProgress: ProgressReporter = NOOP_REPORTER,
-  ): Promise<SynthesizeResult> {
+  async synthesize({
+    companyId,
+    dto,
+    callerScopes,
+    onProgress = NOOP_REPORTER,
+  }: SynthesizeOptions): Promise<SynthesizeResult> {
     // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
     // covers HTTP callers, but multi-hop and admin-demo drive
     // synthesize() with bodies that bypass class-validator. Clamp here
@@ -241,7 +248,12 @@ export class SynthesizeService {
         'synthesize.generate',
         () =>
           this.limiter.run(() =>
-            this.callGenerator(dto.query, factLines, model, answerLang),
+            this.callGenerator({
+              query: dto.query,
+              factLines,
+              model,
+              answerLang,
+            }),
           ),
         { 'synthesize.facts': factIndex.size },
       );
@@ -307,35 +319,35 @@ export class SynthesizeService {
         'synthesize.verify',
         () =>
           this.limiter.run(() =>
-            this.callVerifier(
-              dto.query,
-              generated.answer,
+            this.callVerifier({
+              query: dto.query,
+              answer: generated.answer,
               factLines,
               model,
-            ),
+            }),
           ),
         { 'synthesize.facts': factIndex.size },
       );
     } catch (err) {
       this.logger.warn(`Synthesize verifier failed: ${(err as Error).message}`);
       this.metrics?.countSynthesize('verifier_error');
-      return verifierErrorResult(
+      return verifierErrorResult({
         guardrails,
-        generated.answer,
+        answer: generated.answer,
         citations,
         results,
         decisionLog,
-      );
+      });
     }
 
-    return this.finalizeVerdict(
-      verdict.verdict,
-      generated.answer,
+    return this.finalizeVerdict({
+      verdict: verdict.verdict,
+      answer: generated.answer,
       citations,
       results,
       guardrails,
       decisionLog,
-    );
+    });
   }
 
   /**
@@ -347,14 +359,21 @@ export class SynthesizeService {
    * Strict + non-supported → answer dropped (fail-closed). Lenient
    * surfaces the answer with a reason tag. Supported is the ok path.
    */
-  private finalizeVerdict(
-    verdict: VerifierOutput['verdict'],
-    answer: string,
-    citations: Citation[],
-    results: SynthesizeResult['results'],
-    guardrails: SynthesisGuardrails,
-    decisionLog?: DecisionLogEntry[],
-  ): SynthesizeResult {
+  private finalizeVerdict({
+    verdict,
+    answer,
+    citations,
+    results,
+    guardrails,
+    decisionLog,
+  }: {
+    verdict: VerifierOutput['verdict'];
+    answer: string;
+    citations: Citation[];
+    results: SynthesizeResult['results'];
+    guardrails: SynthesisGuardrails;
+    decisionLog?: DecisionLogEntry[];
+  }): SynthesizeResult {
     if (verdict === 'supported') {
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
@@ -378,12 +397,17 @@ export class SynthesizeService {
     );
   }
 
-  private async callGenerator(
-    query: string,
-    factLines: string[],
-    model: string,
-    answerLang: string | null,
-  ): Promise<GeneratorOutput> {
+  private async callGenerator({
+    query,
+    factLines,
+    model,
+    answerLang,
+  }: {
+    query: string;
+    factLines: string[];
+    model: string;
+    answerLang: string | null;
+  }): Promise<GeneratorOutput> {
     const langInstruction = answerLang
       ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
       : '';
@@ -443,12 +467,17 @@ export class SynthesizeService {
     return parsed;
   }
 
-  private async callVerifier(
-    query: string,
-    answer: string,
-    factLines: string[],
-    model: string,
-  ): Promise<VerifierOutput> {
+  private async callVerifier({
+    query,
+    answer,
+    factLines,
+    model,
+  }: {
+    query: string;
+    answer: string;
+    factLines: string[];
+    model: string;
+  }): Promise<VerifierOutput> {
     const user = `Query: ${query}\n\nAnswer:\n${answer}\n\nSource facts:\n${factLines.join('\n')}`;
     traceArtifact('synthesize.verifier_prompt', {
       system: VERIFIER_SYSTEM,
@@ -634,13 +663,19 @@ function detectAnswerLang(query: string): string | null {
  * Extracted from `synthesize()` to keep the orchestrator under the
  * cognitive-complexity gate.
  */
-function verifierErrorResult(
-  guardrails: SynthesisGuardrails,
-  answer: string,
-  citations: Citation[],
-  results: SearchHit[],
-  decisionLog: DecisionLogEntry[] | undefined,
-): SynthesizeResult {
+function verifierErrorResult({
+  guardrails,
+  answer,
+  citations,
+  results,
+  decisionLog,
+}: {
+  guardrails: SynthesisGuardrails;
+  answer: string;
+  citations: Citation[];
+  results: SearchHit[];
+  decisionLog: DecisionLogEntry[] | undefined;
+}): SynthesizeResult {
   if (guardrails === 'strict') {
     return attachDecisionLog(
       { answer: null, reason: 'verifier_error', citations: [], results },

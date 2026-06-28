@@ -50,12 +50,12 @@ export class SummarizeEntityService {
     const cacheKey = buildCacheKey(companyId, args);
     // Freshness probe FIRST — one cheap indexed aggregate. Its wall-clock
     // watermark decides whether a cache hit is still valid.
-    const watermark = await this.entities.freshnessWatermark(
+    const watermark = await this.entities.freshnessWatermark({
       companyId,
-      args.entityId,
-      args.asOf,
+      entityIdRaw: args.entityId,
+      asOfRaw: args.asOf,
       scopes,
-    );
+    });
 
     const hit = this.cache.get(cacheKey);
     if (hit && !isStale(hit.watermark, watermark.maxRecordedAt)) {
@@ -66,12 +66,12 @@ export class SummarizeEntityService {
     }
     if (hit) this.cache.delete(cacheKey); // stale — drop and rebuild below.
 
-    const profile = await this.entities.getProfile(
+    const profile = await this.entities.getProfile({
       companyId,
-      args.entityId,
-      args.asOf,
+      entityIdRaw: args.entityId,
+      asOfRaw: args.asOf,
       scopes,
-    );
+    });
 
     const style = args.styleHint ?? 'neutral';
     const summary = renderSummary(profile, style);

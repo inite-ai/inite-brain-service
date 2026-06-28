@@ -87,7 +87,7 @@ describe('MultiHopService', () => {
       [hit('e1'), hit('e2')],
     ]);
     const svc = makeSvc(search, makePlanner(null));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.isMultiHop).toBe(false);
     expect(out.hops).toEqual([]);
     expect(out.finalEntityIds).toEqual(['e1', 'e2']);
@@ -112,7 +112,7 @@ describe('MultiHopService', () => {
         ],
       }),
     );
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.isMultiHop).toBe(false);
     expect(out.hops.length).toBe(1);
     expect(out.finalEntityIds).toEqual(['e1']);
@@ -144,7 +144,7 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.isMultiHop).toBe(true);
     expect(out.hops.length).toBe(2);
     expect(out.finalEntityIds).toEqual(['e2', 'e3']);
@@ -178,7 +178,7 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.finalEntityIds).toEqual(['e2']);
     // Hop 2 must NOT be anchored — intersect runs unconstrained.
     const hop2Dto = calls[1] as { entityIds?: string[] };
@@ -210,7 +210,7 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.finalEntityIds.sort()).toEqual(['e1', 'e2', 'e3', 'e4']);
   });
 
@@ -247,7 +247,7 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     // Hop 3 should NOT have been called.
     expect(calls.length).toBe(2);
     expect(out.finalEntityIds).toEqual([]);
@@ -287,7 +287,7 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan));
-    const out = await svc.run('co_x', baseDto, scopes);
+    const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.hops.length).toBe(1);
     expect(out.finalEntityIds).toEqual(['e1', 'e2']);
   });
@@ -305,7 +305,7 @@ describe('MultiHopService', () => {
       search,
       makePlanner({ isMultiHop: false, hops: [hop] }),
     );
-    await svc.run('co_x', baseDto, scopes);
+    await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     const dto = calls[0] as { predicates?: string[]; asOf?: string };
     expect(dto.predicates).toEqual(['tier', 'status']);
     expect(dto.asOf).toBe('2026-04-01T00:00:00Z');
@@ -324,11 +324,11 @@ describe('MultiHopService', () => {
       search,
       makePlanner({ isMultiHop: false, hops: [hop] }),
     );
-    await svc.run(
-      'co_x',
-      { ...baseDto, predicates: ['inherited'] },
-      scopes,
-    );
+    await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, predicates: ['inherited'] },
+      callerScopes: scopes,
+    });
     // Hop omitted predicates ⇒ caller's inherited list survives.
     const dto = calls[0] as { predicates?: string[] };
     expect(dto.predicates).toEqual(['inherited']);
@@ -357,7 +357,11 @@ describe('MultiHopService', () => {
       search.svc,
       makePlanner({ isMultiHop: true, hops: seven }),
     );
-    const out = await svc.run('co_x', { ...baseDto, maxHops: 5 }, scopes);
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, maxHops: 5 },
+      callerScopes: scopes,
+    });
     // The planner can emit at most maxHops hops because the planner
     // caps internally; we don't enforce again in the service. Still,
     // the test is here to flag if the executor starts truncating
@@ -371,7 +375,7 @@ describe('MultiHopService', () => {
       [hit('e2')],
     ]);
     const synth = {
-      synthesize: async (_co: string, dto: { entityIds?: string[] }) => ({
+      synthesize: async ({ dto }: { dto: { entityIds?: string[] } }) => ({
         answer: 'final',
         citations: [],
         results: [],
@@ -399,11 +403,11 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan), synth);
-    const out = await svc.run(
-      'co_x',
-      { ...baseDto, synthesize: true },
-      scopes,
-    );
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
     expect(out.synthesis?.answer).toBe('final');
     expect(out.finalEntityIds).toEqual(['e2']);
   });
@@ -436,11 +440,11 @@ describe('MultiHopService', () => {
       ],
     };
     const svc = makeSvc(search, makePlanner(plan), synth);
-    const out: MultiHopResult = await svc.run(
-      'co_x',
-      { ...baseDto, synthesize: true },
-      scopes,
-    );
+    const out: MultiHopResult = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
     expect(out.finalEntityIds).toEqual([]);
     expect(out.synthesis).toBeUndefined();
     // synth.synthesize must NOT have been called on an empty set.
@@ -481,7 +485,7 @@ describe('MultiHopService', () => {
         ],
       };
       const svc = makeSvc(search, makePlanner(plan));
-      const out = await svc.run('co_x', baseDto, scopes);
+      const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
       // Expansion called once for hop 2's prior set.
       expect(expandCalls.length).toBe(1);
       expect(expandCalls[0]).toEqual(['e1']);
@@ -518,7 +522,7 @@ describe('MultiHopService', () => {
         ],
       };
       const svc = makeSvc(search, makePlanner(plan));
-      await svc.run('co_x', baseDto, scopes);
+      await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
       expect(expandCalls.length).toBe(0);
       const hop2Dto = calls[1] as { entityIds?: string[] };
       expect(hop2Dto.entityIds).toEqual(['e1', 'e2']);
@@ -556,7 +560,7 @@ describe('MultiHopService', () => {
         ],
       };
       const svc = makeSvc(search, makePlanner(plan));
-      await svc.run('co_x', baseDto, scopes);
+      await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
       const hop2Dto = calls[1] as { entityIds?: string[] };
       // Bare prior set — no expansion applied.
       expect(hop2Dto.entityIds).toEqual(['e1']);

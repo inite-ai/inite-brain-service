@@ -76,12 +76,17 @@ const empty = (): CompiledArtifact => ({
  * Add a single-active field (latest fact's object → payload[fieldName]).
  * Mutates compiled in place; returns the source fact id (or undefined).
  */
-const addSingle = (
-  compiled: CompiledArtifact,
-  facts: FactRow[],
-  fieldName: string,
-  predicate: string,
-): string | undefined => {
+const addSingle = ({
+  compiled,
+  facts,
+  fieldName,
+  predicate,
+}: {
+  compiled: CompiledArtifact;
+  facts: FactRow[];
+  fieldName: string;
+  predicate: string;
+}): string | undefined => {
   const f = latestSingle(facts, predicate);
   if (!f) return undefined;
   compiled.payload[fieldName] = f.object;
@@ -94,13 +99,19 @@ const addSingle = (
  * Add an append-only field — top-N facts as an array. Each fact gets
  * a citation entry parallel to the array entry.
  */
-const addList = (
-  compiled: CompiledArtifact,
-  facts: FactRow[],
-  fieldName: string,
-  predicate: string,
-  topN: number,
-) => {
+const addList = ({
+  compiled,
+  facts,
+  fieldName,
+  predicate,
+  topN,
+}: {
+  compiled: CompiledArtifact;
+  facts: FactRow[];
+  fieldName: string;
+  predicate: string;
+  topN: number;
+}) => {
   const subset = allOf(facts, predicate).slice(0, topN);
   if (subset.length === 0) return;
   compiled.payload[fieldName] = subset.map((f) => f.object);
@@ -112,12 +123,12 @@ const addList = (
 
 const customerProfile: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addSingle(c, facts, 'status', 'status');
-  addSingle(c, facts, 'email', 'email');
-  addSingle(c, facts, 'phone', 'phone');
-  addList(c, facts, 'recentInteractions', 'interacted_with', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addSingle({ compiled: c, facts, fieldName: 'status', predicate: 'status' });
+  addSingle({ compiled: c, facts, fieldName: 'email', predicate: 'email' });
+  addSingle({ compiled: c, facts, fieldName: 'phone', predicate: 'phone' });
+  addList({ compiled: c, facts, fieldName: 'recentInteractions', predicate: 'interacted_with', topN: 5 });
   return c;
 };
 
@@ -194,157 +205,157 @@ const identityDossier: Template = (facts) => {
 /** inite.rent — tenant dossier for car-rental operators. */
 const tenantDossier: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addSingle(c, facts, 'status', 'status');
-  addList(c, facts, 'rentalHistory', 'rented_vehicle', 10);
-  addList(c, facts, 'paymentEvents', 'paid_invoice', 10);
-  addList(c, facts, 'incidents', 'reported_incident', 5);
-  addList(c, facts, 'preferences', 'preference', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addSingle({ compiled: c, facts, fieldName: 'status', predicate: 'status' });
+  addList({ compiled: c, facts, fieldName: 'rentalHistory', predicate: 'rented_vehicle', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'paymentEvents', predicate: 'paid_invoice', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'incidents', predicate: 'reported_incident', topN: 5 });
+  addList({ compiled: c, facts, fieldName: 'preferences', predicate: 'preference', topN: 5 });
   return c;
 };
 
 /** inite.estate — listing card for property listings. */
 const listingCard: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'title', 'name');
-  addSingle(c, facts, 'price', 'listed_price');
-  addSingle(c, facts, 'status', 'status');
-  addSingle(c, facts, 'bedrooms', 'bedrooms');
-  addSingle(c, facts, 'bathrooms', 'bathrooms');
-  addSingle(c, facts, 'floorArea', 'floor_area');
-  addList(c, facts, 'amenities', 'amenity', 20);
-  addList(c, facts, 'recentViewings', 'viewed_by', 10);
+  addSingle({ compiled: c, facts, fieldName: 'title', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'price', predicate: 'listed_price' });
+  addSingle({ compiled: c, facts, fieldName: 'status', predicate: 'status' });
+  addSingle({ compiled: c, facts, fieldName: 'bedrooms', predicate: 'bedrooms' });
+  addSingle({ compiled: c, facts, fieldName: 'bathrooms', predicate: 'bathrooms' });
+  addSingle({ compiled: c, facts, fieldName: 'floorArea', predicate: 'floor_area' });
+  addList({ compiled: c, facts, fieldName: 'amenities', predicate: 'amenity', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'recentViewings', predicate: 'viewed_by', topN: 10 });
   return c;
 };
 
 /** inite.estate — prospect summary for buyers/renters interested in listings. */
 const prospectSummary: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'budget', 'budget');
-  addSingle(c, facts, 'desiredArea', 'desired_area');
-  addList(c, facts, 'viewedListings', 'viewed_listing', 10);
-  addList(c, facts, 'preferences', 'preference', 10);
-  addList(c, facts, 'objections', 'complained_about', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'budget', predicate: 'budget' });
+  addSingle({ compiled: c, facts, fieldName: 'desiredArea', predicate: 'desired_area' });
+  addList({ compiled: c, facts, fieldName: 'viewedListings', predicate: 'viewed_listing', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'preferences', predicate: 'preference', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'objections', predicate: 'complained_about', topN: 5 });
   return c;
 };
 
 /** inite.events — attendee history (concerts, classes, conferences). */
 const attendeeHistory: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addList(c, facts, 'attendedEvents', 'attended_event', 20);
-  addList(c, facts, 'purchasedTickets', 'purchased_ticket', 10);
-  addList(c, facts, 'preferences', 'preference', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addList({ compiled: c, facts, fieldName: 'attendedEvents', predicate: 'attended_event', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'purchasedTickets', predicate: 'purchased_ticket', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'preferences', predicate: 'preference', topN: 5 });
   return c;
 };
 
 /** inite.health — patient summary (heavy PII; per-field gating active). */
 const patientSummary: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'dob', 'dob');
-  addSingle(c, facts, 'status', 'status');
-  addList(c, facts, 'medications', 'prescribed_medication', 20);
-  addList(c, facts, 'allergies', 'has_allergy', 10);
-  addList(c, facts, 'recentAppointments', 'attended_appointment', 10);
-  addList(c, facts, 'recentTreatments', 'received_treatment', 10);
-  addList(c, facts, 'concerns', 'complained_about', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'dob', predicate: 'dob' });
+  addSingle({ compiled: c, facts, fieldName: 'status', predicate: 'status' });
+  addList({ compiled: c, facts, fieldName: 'medications', predicate: 'prescribed_medication', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'allergies', predicate: 'has_allergy', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'recentAppointments', predicate: 'attended_appointment', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'recentTreatments', predicate: 'received_treatment', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'concerns', predicate: 'complained_about', topN: 5 });
   return c;
 };
 
 /** inite.shop — order history with LTV. */
 const orderHistory: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addSingle(c, facts, 'status', 'status');
-  addList(c, facts, 'recentOrders', 'placed_order', 20);
-  addList(c, facts, 'returns', 'returned_item', 10);
-  addList(c, facts, 'reviews', 'reviewed_product', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addSingle({ compiled: c, facts, fieldName: 'status', predicate: 'status' });
+  addList({ compiled: c, facts, fieldName: 'recentOrders', predicate: 'placed_order', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'returns', predicate: 'returned_item', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'reviews', predicate: 'reviewed_product', topN: 10 });
   return c;
 };
 
 /** inite.club — community member profile. */
 const memberProfile: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addSingle(c, facts, 'joinDate', 'joined_at');
-  addList(c, facts, 'attendedMeetups', 'attended_meetup', 10);
-  addList(c, facts, 'contributions', 'contributed_to', 10);
-  addList(c, facts, 'interests', 'interested_in', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addSingle({ compiled: c, facts, fieldName: 'joinDate', predicate: 'joined_at' });
+  addList({ compiled: c, facts, fieldName: 'attendedMeetups', predicate: 'attended_meetup', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'contributions', predicate: 'contributed_to', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'interests', predicate: 'interested_in', topN: 10 });
   return c;
 };
 
 /** inite.education — learner progress (courses, grades, AI tutor notes). */
 const learnerProgress: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'currentLevel', 'level');
-  addList(c, facts, 'enrolledCourses', 'enrolled_in', 10);
-  addList(c, facts, 'completedCourses', 'completed_course', 20);
-  addList(c, facts, 'recentScores', 'scored', 10);
-  addList(c, facts, 'tutorNotes', 'said', 10);
-  addList(c, facts, 'strugglingTopics', 'complained_about', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'currentLevel', predicate: 'level' });
+  addList({ compiled: c, facts, fieldName: 'enrolledCourses', predicate: 'enrolled_in', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'completedCourses', predicate: 'completed_course', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'recentScores', predicate: 'scored', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'tutorNotes', predicate: 'said', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'strugglingTopics', predicate: 'complained_about', topN: 5 });
   return c;
 };
 
 /** inite.sport — athlete card (training, performance, team). */
 const athleteCard: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'team', 'plays_for');
-  addSingle(c, facts, 'position', 'plays_position');
-  addList(c, facts, 'recentMatches', 'played_match', 10);
-  addList(c, facts, 'trainingSessions', 'attended_training', 10);
-  addList(c, facts, 'achievements', 'achieved', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'team', predicate: 'plays_for' });
+  addSingle({ compiled: c, facts, fieldName: 'position', predicate: 'plays_position' });
+  addList({ compiled: c, facts, fieldName: 'recentMatches', predicate: 'played_match', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'trainingSessions', predicate: 'attended_training', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'achievements', predicate: 'achieved', topN: 10 });
   return c;
 };
 
 /** inite.travel — traveler history (trips, preferences). */
 const travelerHistory: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'tier', 'tier');
-  addList(c, facts, 'recentTrips', 'completed_trip', 10);
-  addList(c, facts, 'bookings', 'booked_trip', 10);
-  addList(c, facts, 'destinations', 'visited_destination', 20);
-  addList(c, facts, 'preferences', 'preference', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'tier', predicate: 'tier' });
+  addList({ compiled: c, facts, fieldName: 'recentTrips', predicate: 'completed_trip', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'bookings', predicate: 'booked_trip', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'destinations', predicate: 'visited_destination', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'preferences', predicate: 'preference', topN: 10 });
   return c;
 };
 
 /** inite.food — diner preferences (cuisine, dietary, ordering history). */
 const dinerPreferences: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addList(c, facts, 'dietaryRestrictions', 'dietary_restriction', 10);
-  addList(c, facts, 'favouriteCuisines', 'preference', 10);
-  addList(c, facts, 'recentOrders', 'placed_order', 10);
-  addList(c, facts, 'visitedRestaurants', 'visited_restaurant', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addList({ compiled: c, facts, fieldName: 'dietaryRestrictions', predicate: 'dietary_restriction', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'favouriteCuisines', predicate: 'preference', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'recentOrders', predicate: 'placed_order', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'visitedRestaurants', predicate: 'visited_restaurant', topN: 10 });
   return c;
 };
 
 /** inite.studio — booking history for studio rentals. */
 const studioBookings: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addList(c, facts, 'recentBookings', 'booked_session', 10);
-  addList(c, facts, 'instruments', 'requested_instrument', 5);
-  addList(c, facts, 'genres', 'preference', 5);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addList({ compiled: c, facts, fieldName: 'recentBookings', predicate: 'booked_session', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'instruments', predicate: 'requested_instrument', topN: 5 });
+  addList({ compiled: c, facts, fieldName: 'genres', predicate: 'preference', topN: 5 });
   return c;
 };
 
 /** inite.ai — usage and feedback for an AI agent end-user. */
 const aiUserContext: Template = (facts) => {
   const c = empty();
-  addSingle(c, facts, 'name', 'name');
-  addSingle(c, facts, 'plan', 'tier');
-  addList(c, facts, 'recentPrompts', 'said', 20);
-  addList(c, facts, 'feedback', 'rated', 10);
-  addList(c, facts, 'preferences', 'preference', 10);
+  addSingle({ compiled: c, facts, fieldName: 'name', predicate: 'name' });
+  addSingle({ compiled: c, facts, fieldName: 'plan', predicate: 'tier' });
+  addList({ compiled: c, facts, fieldName: 'recentPrompts', predicate: 'said', topN: 20 });
+  addList({ compiled: c, facts, fieldName: 'feedback', predicate: 'rated', topN: 10 });
+  addList({ compiled: c, facts, fieldName: 'preferences', predicate: 'preference', topN: 10 });
   return c;
 };
 

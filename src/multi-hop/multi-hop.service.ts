@@ -55,6 +55,13 @@ export interface MultiHopResult {
   };
 }
 
+export interface MultiHopRunOptions {
+  companyId: string;
+  dto: MultiHopDto;
+  callerScopes: string[];
+  onProgress?: ProgressReporter;
+}
+
 /**
  * MultiHopService — chained search across hop-decomposed sub-queries.
  *
@@ -113,12 +120,12 @@ export class MultiHopService {
   // termination; refactoring splits the chain semantics across
   // helpers without clarity gain.
   /* eslint-disable-next-line complexity */
-  async run(
-    companyId: string,
-    dto: MultiHopDto,
-    callerScopes: string[],
-    onProgress: ProgressReporter = NOOP_REPORTER,
-  ): Promise<MultiHopResult> {
+  async run({
+    companyId,
+    dto,
+    callerScopes,
+    onProgress = NOOP_REPORTER,
+  }: MultiHopRunOptions): Promise<MultiHopResult> {
     const maxHops = Math.min(dto.maxHops ?? 3, 5);
 
     onProgress({ stage: 'planning', message: 'planner-LLM decomposing query' });
@@ -153,7 +160,13 @@ export class MultiHopService {
         subQuery: dto.query,
         combination: 'seed' as const,
       };
-      const hopRes = await this.runHop(companyId, dto, callerScopes, hop, []);
+      const hopRes = await this.runHop({
+        companyId,
+        dto,
+        callerScopes,
+        hop,
+        priorEntityIds: [],
+      });
       this.metrics?.countMultiHop('single_hop');
       const factIds = collectFactIds(hopRes.hits);
       return {
@@ -190,24 +203,24 @@ export class MultiHopService {
         const hopRes = await withSpan(
           'multi_hop.hop',
           () =>
-            this.runHop(
+            this.runHop({
               companyId,
               dto,
               callerScopes,
               hop,
-              i === 0 ? [] : runningIds,
-            ),
+              priorEntityIds: i === 0 ? [] : runningIds,
+            }),
           { 'multi_hop.hop_index': i, 'multi_hop.combination': hop.combination },
         );
 
         const hopIds = hopRes.hits.map((h) => h.entityId);
-        const next = this.combine(
-          hop.combination,
-          runningIds,
+        const next = this.combine({
+          combination: hop.combination,
+          priorIds: runningIds,
           hopIds,
-          runningHitsByEntity,
-          hopRes.hits,
-        );
+          priorByEntity: runningHitsByEntity,
+          hopHits: hopRes.hits,
+        });
 
         outcomes.push({
           hop,
@@ -273,16 +286,16 @@ export class MultiHopService {
       const synth = await withSpan(
         'multi_hop.synthesize',
         () =>
-          this.synthesizer!.synthesize(
+          this.synthesizer!.synthesize({
             companyId,
-            {
+            dto: {
               ...dto,
               entityIds: runningIds,
               synthesize: undefined,
             } as never,
             callerScopes,
             onProgress,
-          ),
+          }),
         { 'multi_hop.final_set': finalHits.length },
       );
       result.synthesis = {
@@ -301,13 +314,19 @@ export class MultiHopService {
    * and, when combination=subset_of_previous, anchors to the running
    * entity set via SearchDto.entityIds (pushed into WHERE).
    */
-  private async runHop(
-    companyId: string,
-    dto: MultiHopDto,
-    callerScopes: string[],
-    hop: HopPlan,
-    priorEntityIds: string[],
-  ): Promise<{ hits: SearchHit[] }> {
+  private async runHop({
+    companyId,
+    dto,
+    callerScopes,
+    hop,
+    priorEntityIds,
+  }: {
+    companyId: string;
+    dto: MultiHopDto;
+    callerScopes: string[];
+    hop: HopPlan;
+    priorEntityIds: string[];
+  }): Promise<{ hits: SearchHit[] }> {
     // Build a per-hop SearchDto that inherits the caller's broad
     // intent (limit, mode, includeContested, ...) and overlays the
     // hop's local refinements.
@@ -378,13 +397,19 @@ export class MultiHopService {
    * Listing it explicitly so adding a new combination later doesn't
    * silently fall through to a default.
    */
-  private combine(
-    combination: HopPlan['combination'],
-    priorIds: string[],
-    hopIds: string[],
-    priorByEntity: Map<string, SearchHit>,
-    hopHits: SearchHit[],
-  ): { ids: string[]; byEntity: Map<string, SearchHit> } {
+  private combine({
+    combination,
+    priorIds,
+    hopIds,
+    priorByEntity,
+    hopHits,
+  }: {
+    combination: HopPlan['combination'];
+    priorIds: string[];
+    hopIds: string[];
+    priorByEntity: Map<string, SearchHit>;
+    hopHits: SearchHit[];
+  }): { ids: string[]; byEntity: Map<string, SearchHit> } {
     const hopByEntity = new Map<string, SearchHit>();
     for (const h of hopHits) hopByEntity.set(h.entityId, h);
 

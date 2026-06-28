@@ -125,14 +125,14 @@ export class SearchService {
    * Soft-fail across the board: a query error logs and returns the
    * partial result so the caller can fall through to vector.
    */
-  async graphRetrieve(
-    companyId: string,
-    queryText: string,
-    entityRefs: string[],
-    predicateHints: string[],
-    asOf: string | undefined,
-    callerScopes: string[],
-  ): Promise<{ results: GraphRetrieveHit[] }> {
+  async graphRetrieve({
+    companyId,
+    queryText,
+    entityRefs,
+    predicateHints,
+    asOf,
+    callerScopes,
+  }: GraphRetrieveOptions): Promise<{ results: GraphRetrieveHit[] }> {
     return this.surreal.withScopedCompany(
       companyId,
       callerScopes,
@@ -152,12 +152,12 @@ export class SearchService {
           for (const e of seeds) entitiesById.set(e.entityId, e);
           for (const e of neighbours) entitiesById.set(e.entityId, e);
 
-          const factsByEntity = await fetchFactsForEntities(
+          const factsByEntity = await fetchFactsForEntities({
             db,
-            [...entitiesById.keys()],
+            entityIds: [...entitiesById.keys()],
             predicateHints,
             asOf,
-          );
+          });
 
           traceArtifact('graph_retrieve', {
             seeds: seedIds,
@@ -168,12 +168,12 @@ export class SearchService {
             predicateHints,
           });
 
-          const results = assembleGraphHits(
+          const results = assembleGraphHits({
             seedIds,
             entitiesById,
             factsByEntity,
             predicateHints,
-          );
+          });
           return { results };
         } catch (err) {
           this.logger.warn(
@@ -248,13 +248,13 @@ export class SearchService {
     // filter → cross-lingual backoff strategy. `und` or disabled →
     // single-pass exactly as before.
     const langFilter = this.resolveLangFilter(ctx.dto);
-    const baseWhere = buildBaseWhere(
-      ctx.dto,
-      ctx.asOf,
-      ctx.includeRetracted,
-      ctx.includeContested,
-      { langFilter },
-    );
+    const baseWhere = buildBaseWhere({
+      dto: ctx.dto,
+      asOf: ctx.asOf,
+      includeRetracted: ctx.includeRetracted,
+      includeContested: ctx.includeContested,
+      opts: { langFilter },
+    });
     traceArtifact('search.query', {
       query: ctx.dto.query,
       mode: ctx.mode,
@@ -274,12 +274,12 @@ export class SearchService {
       // which is wrong: only the non-duplicate fallback rows get pushed, so
       // the subtraction undercounts the true first pass.
       const firstPassCount = fused.length;
-      const fallbackWhere = buildBaseWhere(
-        ctx.dto,
-        ctx.asOf,
-        ctx.includeRetracted,
-        ctx.includeContested,
-      );
+      const fallbackWhere = buildBaseWhere({
+        dto: ctx.dto,
+        asOf: ctx.asOf,
+        includeRetracted: ctx.includeRetracted,
+        includeContested: ctx.includeContested,
+      });
       const fallback = await this.runRetrievalStage(db, ctx, fallbackWhere);
       const seen = new Set(fused.map((r) => String(r.id)));
       for (const r of fallback) {
@@ -311,44 +311,49 @@ export class SearchService {
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
     //    `calibration` rewrites the raw confidence via the Phase 3
     //    isotonic map before it folds into the final score.
-    const scored = scoreRows(filtered, predicateDist, Date.now(), {
-      calibrate: (raw: number) => this.calibration.calibrate(raw),
+    const scored = scoreRows({
+      rows: filtered,
+      predicateDist,
+      now: Date.now(),
+      calibrator: {
+        calibrate: (raw: number) => this.calibration.calibrate(raw),
+      },
     });
     const byEntity = bucketByEntity(scored);
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds.
-    await this.runEdgeExpansionStage(db, byEntity, baseWhere, ctx);
+    await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx });
 
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
     await this.runPprStage(db, byEntity);
 
     // 7. Cross-encoder + LLM rerank.
-    let topEntities = await this.runRerankStage(db, byEntity, ctx, typeDist);
+    let topEntities = await this.runRerankStage({ db, byEntity, ctx, typeDist });
     topEntities = topEntities.slice(0, ctx.limit);
 
     // 8. Backfill missing facts for top-K, then assemble.
-    const backfillByEntity = await withStageBudget(
-      'backfill',
-      this.budgets.backfill,
-      () =>
-        backfillEntityFacts(
+    const backfillByEntity = await withStageBudget({
+      stage: 'backfill',
+      budgetMs: this.budgets.backfill,
+      fn: () =>
+        backfillEntityFacts({
           db,
-          this.logger,
-          topEntities.map((e) => e.entityId),
+          logger: this.logger,
+          entityIds: topEntities.map((e) => e.entityId),
           baseWhere,
-          ctx.dto,
-          ctx.callerScopes,
+          dto: ctx.dto,
+          callerScopes: ctx.callerScopes,
           passesPolicy,
-        ),
-      new Map<string, FactRow[]>(),
-      this.logger,
-    );
-    const hits = assembleHits(
+        }),
+      fallback: new Map<string, FactRow[]>(),
+      logger: this.logger,
+    });
+    const hits = assembleHits({
       topEntities,
       backfillByEntity,
-      ctx.dto.entityTypes,
-      ctx.dto.requireProvenance === true,
-    );
+      entityTypes: ctx.dto.entityTypes,
+      requireProvenance: ctx.dto.requireProvenance === true,
+    });
     return { results: applyOutputShaping(hits, ctx.dto) };
   }
 
@@ -363,13 +368,13 @@ export class SearchService {
         : withSpan(
             'search.vector_leg',
             async (span) => {
-              const rows = await runVectorLeg(
+              const rows = await runVectorLeg({
                 db,
-                this.embedder,
-                ctx.dto.query,
-                ctx.candidateK,
+                embedder: this.embedder,
+                query: ctx.dto.query,
+                k: ctx.candidateK,
                 baseWhere,
-              );
+              });
               span.setAttribute('candidates', rows.length);
               traceArtifact(
                 'search.vector_hits',
@@ -390,13 +395,13 @@ export class SearchService {
         : withSpan(
             'search.lexical_leg',
             async (span) => {
-              const rows = await runLexicalLeg(
+              const rows = await runLexicalLeg({
                 db,
-                this.logger,
-                ctx.dto.query,
-                ctx.candidateK,
+                logger: this.logger,
+                query: ctx.dto.query,
+                k: ctx.candidateK,
                 baseWhere,
-              );
+              });
               span.setAttribute('candidates', rows.length);
               traceArtifact(
                 'search.lexical_hits',
@@ -418,13 +423,13 @@ export class SearchService {
 
   private async runRouterStage(query: string) {
     const out = await withSpan('search.route', async (span) => {
-      const r = await withStageBudget(
-        'router',
-        this.budgets.router,
-        () => this.predicateRouter.route(query),
-        null,
-        this.logger,
-      );
+      const r = await withStageBudget({
+        stage: 'router',
+        budgetMs: this.budgets.router,
+        fn: () => this.predicateRouter.route(query),
+        fallback: null,
+        logger: this.logger,
+      });
       span.setAttribute('router.hit', r !== null);
       return r;
     });
@@ -432,26 +437,31 @@ export class SearchService {
     return out;
   }
 
-  private async runEdgeExpansionStage(
-    db: Surreal,
-    byEntity: Map<string, EntityBucket>,
-    baseWhere: { sql: string; params: Record<string, unknown> },
-    ctx: PipelineContext,
-  ): Promise<void> {
+  private async runEdgeExpansionStage({
+    db,
+    byEntity,
+    baseWhere,
+    ctx,
+  }: {
+    db: Surreal;
+    byEntity: Map<string, EntityBucket>;
+    baseWhere: { sql: string; params: Record<string, unknown> };
+    ctx: PipelineContext;
+  }): Promise<void> {
     if (process.env.SEARCH_EDGE_EXPANSION_ENABLED === '0') return;
     if (byEntity.size < 1) return;
     await withSpan(
       'search.edge_expansion',
       async (span) => {
-        const injected = await expandViaEdges(
+        const injected = await expandViaEdges({
           db,
-          this.logger,
+          logger: this.logger,
           byEntity,
           baseWhere,
-          ctx.dto,
-          ctx.callerScopes,
+          dto: ctx.dto,
+          callerScopes: ctx.callerScopes,
           passesPolicy,
-        );
+        });
         span.setAttribute('edge_expansion.injected', injected);
         if (injected > 0) {
           traceArtifact('search.edge_expansion', {
@@ -482,12 +492,17 @@ export class SearchService {
     );
   }
 
-  private async runRerankStage(
-    db: Surreal,
-    byEntity: Map<string, EntityBucket>,
-    ctx: PipelineContext,
-    typeDist: { weights: Record<string, number> } | null,
-  ): Promise<EntityBucket[]> {
+  private async runRerankStage({
+    db,
+    byEntity,
+    ctx,
+    typeDist,
+  }: {
+    db: Surreal;
+    byEntity: Map<string, EntityBucket>;
+    ctx: PipelineContext;
+    typeDist: { weights: Record<string, number> } | null;
+  }): Promise<EntityBucket[]> {
     const RERANK_WINDOW = Math.min(ctx.limit * 2, 20);
     const CROSS_ENCODER_WINDOW = this.crossEncoder.isEnabled()
       ? Math.min(
@@ -540,7 +555,7 @@ export class SearchService {
       return candidatesForRerank;
     }
 
-    return this.runLlmRerank(db, candidatesForRerank, ctx, typeDist);
+    return this.runLlmRerank({ db, candidatesForRerank, ctx, typeDist });
   }
 
   private async runCrossEncoder(
@@ -573,28 +588,33 @@ export class SearchService {
     const xPerm = await withSpan(
       'search.cross_encoder',
       () =>
-        withStageBudget(
-          'crossEncoder',
-          this.budgets.crossEncoder,
-          () => this.crossEncoder.rerank(query, xInputs),
-          identityPerm,
-          this.logger,
-          () => {
+        withStageBudget({
+          stage: 'crossEncoder',
+          budgetMs: this.budgets.crossEncoder,
+          fn: () => this.crossEncoder.rerank(query, xInputs),
+          fallback: identityPerm,
+          logger: this.logger,
+          onFallback: () => {
             timedOut = true;
           },
-        ),
+        }),
       { 'cross_encoder.candidates': xInputs.length },
     );
     this.metrics?.countCrossEncoder(timedOut ? 'error' : 'invoked');
     return xPerm.map((i) => wideCandidates[i]).slice(0, rerankWindow);
   }
 
-  private async runLlmRerank(
-    db: Surreal,
-    candidatesForRerank: EntityBucket[],
-    ctx: PipelineContext,
-    typeDist: { weights: Record<string, number> } | null,
-  ): Promise<EntityBucket[]> {
+  private async runLlmRerank({
+    db,
+    candidatesForRerank,
+    ctx,
+    typeDist,
+  }: {
+    db: Surreal;
+    candidatesForRerank: EntityBucket[];
+    ctx: PipelineContext;
+    typeDist: { weights: Record<string, number> } | null;
+  }): Promise<EntityBucket[]> {
     // SubgraphRAG-style 1-hop neighbourhood injection. Surfaces graph
     // context as "Connected to: …" lines in the candidate body — lets
     // the reranker disambiguate shared-firstname / same-topic peers by
@@ -648,19 +668,28 @@ export class SearchService {
     const permutation = await withSpan(
       'search.rerank',
       () =>
-        withStageBudget(
-          'rerank',
-          this.budgets.rerank,
-          () => this.reranker.rerank(ctx.dto.query, rerankInputs, hints),
-          identityPerm,
-          this.logger,
-        ),
+        withStageBudget({
+          stage: 'rerank',
+          budgetMs: this.budgets.rerank,
+          fn: () => this.reranker.rerank(ctx.dto.query, rerankInputs, hints),
+          fallback: identityPerm,
+          logger: this.logger,
+        }),
       { 'rerank.candidates': rerankInputs.length },
     );
     const isIdentity = permutation.every((idx, i) => idx === i);
     this.metrics?.countRerank(isIdentity ? 'skipped_disabled' : 'invoked');
     return permutation.map((i) => candidatesForRerank[i]);
   }
+}
+
+export interface GraphRetrieveOptions {
+  companyId: string;
+  queryText: string;
+  entityRefs: string[];
+  predicateHints: string[];
+  asOf: string | undefined;
+  callerScopes: string[];
 }
 
 interface PipelineContext {

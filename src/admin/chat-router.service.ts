@@ -177,13 +177,13 @@ export class ChatRouterService {
       now: refDate,
     });
 
-    const localHints = await extractPredicateHintsLocally(
+    const localHints = await extractPredicateHintsLocally({
       message,
       snapshot,
-      this.embedder,
-      this.hintSimilarityThreshold,
-      this.hintMaxCount,
-    );
+      embedder: this.embedder,
+      threshold: this.hintSimilarityThreshold,
+      maxHints: this.hintMaxCount,
+    });
     traceArtifact('demo.chat.local_hints', {
       hints: localHints,
       threshold: this.hintSimilarityThreshold,
@@ -281,12 +281,12 @@ export class ChatRouterService {
 
     if (skipDecision.skip) {
       const synthetic = this.buildSyntheticRoute(ctx, skipDecision.reason);
-      const route = validateAndAssemble(
+      const route = validateAndAssemble({
         message,
-        synthetic,
-        new Set(ctx.predicateVocab),
-        new Set(ctx.knownNames),
-      );
+        parsed: synthetic,
+        vocab: new Set(ctx.predicateVocab),
+        knownNames: new Set(ctx.knownNames),
+      });
       this.routeCache.set(ctx.cacheKey, route);
       return route;
     }
@@ -303,12 +303,12 @@ export class ChatRouterService {
     }
 
     const merged = this.mergeLlmWithLocals(llmOut.parsed, ctx);
-    const route = validateAndAssemble(
+    const route = validateAndAssemble({
       message,
-      merged,
-      new Set(ctx.predicateVocab),
-      new Set(ctx.knownNames),
-    );
+      parsed: merged,
+      vocab: new Set(ctx.predicateVocab),
+      knownNames: new Set(ctx.knownNames),
+    });
     this.routeCache.set(ctx.cacheKey, route);
 
     void this.teachCollapsePatterns(message, ctx, llmOut.parsed);

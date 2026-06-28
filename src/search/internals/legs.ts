@@ -16,13 +16,21 @@ import type { FactRow } from './types';
  * on the read path. NONE alt (legacy facts or HyPE disabled)
  * contributes -1 so it never wins the max.
  */
-export async function runVectorLeg(
-  db: Surreal,
-  embedder: EmbedderService,
-  query: string,
-  k: number,
-  baseWhere: { sql: string; params: Record<string, unknown> },
-): Promise<FactRow[]> {
+export interface RunVectorLegOptions {
+  db: Surreal;
+  embedder: EmbedderService;
+  query: string;
+  k: number;
+  baseWhere: { sql: string; params: Record<string, unknown> };
+}
+
+export async function runVectorLeg({
+  db,
+  embedder,
+  query,
+  k,
+  baseWhere,
+}: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   const sql = `
       SELECT
@@ -61,13 +69,21 @@ export async function runVectorLeg(
  * / test fixtures pre-dating migration 0007) — the vector leg keeps
  * serving the request.
  */
-export async function runLexicalLeg(
-  db: Surreal,
-  logger: { warn: (msg: string) => void },
-  query: string,
-  k: number,
-  baseWhere: { sql: string; params: Record<string, unknown> },
-): Promise<FactRow[]> {
+export interface RunLexicalLegOptions {
+  db: Surreal;
+  logger: { warn: (msg: string) => void };
+  query: string;
+  k: number;
+  baseWhere: { sql: string; params: Record<string, unknown> };
+}
+
+export async function runLexicalLeg({
+  db,
+  logger,
+  query,
+  k,
+  baseWhere,
+}: RunLexicalLegOptions): Promise<FactRow[]> {
   // Parens around the OR clause are LOAD-BEARING. SurrealQL
   // evaluates AND with higher precedence than OR (same as SQL),
   // so without them the WHERE parses as

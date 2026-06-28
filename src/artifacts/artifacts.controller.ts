@@ -23,12 +23,12 @@ export class ArtifactsController {
     @Param('type') type: string,
     @Param('entityId') entityId: string,
   ) {
-    return this.artifacts.getArtifact(
-      req.brainAuth.companyId,
-      entityId,
-      type as ArtifactType,
-      req.brainAuth.scopes,
-    );
+    return this.artifacts.getArtifact({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: entityId,
+      artifactType: type as ArtifactType,
+      scopes: req.brainAuth.scopes,
+    });
   }
 
   @Post(':type/:entityId/recompile')
@@ -38,11 +38,11 @@ export class ArtifactsController {
     @Param('type') type: string,
     @Param('entityId') entityId: string,
   ) {
-    return this.artifacts.recompileArtifact(
-      req.brainAuth.companyId,
-      entityId,
-      type as ArtifactType,
-      req.brainAuth.scopes,
-    );
+    return this.artifacts.recompileArtifact({
+      companyId: req.brainAuth.companyId,
+      entityIdRaw: entityId,
+      artifactType: type as ArtifactType,
+      scopes: req.brainAuth.scopes,
+    });
   }
 }

@@ -75,14 +75,14 @@ describe('summarizeViaClientSampling — capability gate + fallback', () => {
 
   it('client advertises sampling → returns client_llm summary', async () => {
     const server = fakeServer({ sampling: true, text: 'Platinum customer.' });
-    const out = await summarizeViaClientSampling(
+    const out = await summarizeViaClientSampling({
       deps,
-      server as never,
-      'co_test',
-      'test_entity',
-      undefined,
-      ['brain:read'],
-    );
+      server: server as never,
+      companyId: 'co_test',
+      entityId: 'test_entity',
+      asOf: undefined,
+      scopes: ['brain:read'],
+    });
     expect(out.sampledBy).toBe('client_llm');
     expect(out.summary).toBe('Platinum customer.');
     expect(out.modelUsed).toBe('fake-client-model-v1');
@@ -90,14 +90,14 @@ describe('summarizeViaClientSampling — capability gate + fallback', () => {
 
   it('client does NOT advertise sampling → falls back to template', async () => {
     const server = fakeServer({ sampling: false });
-    const out = await summarizeViaClientSampling(
+    const out = await summarizeViaClientSampling({
       deps,
-      server as never,
-      'co_test',
-      'test_entity',
-      undefined,
-      ['brain:read'],
-    );
+      server: server as never,
+      companyId: 'co_test',
+      entityId: 'test_entity',
+      asOf: undefined,
+      scopes: ['brain:read'],
+    });
     expect(out.sampledBy).toBe('local_template');
     expect(out.summary).toBe('Test Subject (customer): tier=platinum.');
     expect(out.modelUsed).toBeUndefined();
@@ -105,27 +105,27 @@ describe('summarizeViaClientSampling — capability gate + fallback', () => {
 
   it('createMessage throwing → falls back to template, no error to caller', async () => {
     const server = fakeServer({ sampling: true, shouldThrow: true });
-    const out = await summarizeViaClientSampling(
+    const out = await summarizeViaClientSampling({
       deps,
-      server as never,
-      'co_test',
-      'test_entity',
-      undefined,
-      ['brain:read'],
-    );
+      server: server as never,
+      companyId: 'co_test',
+      entityId: 'test_entity',
+      asOf: undefined,
+      scopes: ['brain:read'],
+    });
     expect(out.sampledBy).toBe('local_template');
   });
 
   it('empty client text → uses entity name + type as a safe default', async () => {
     const server = fakeServer({ sampling: true, text: '' });
-    const out = await summarizeViaClientSampling(
+    const out = await summarizeViaClientSampling({
       deps,
-      server as never,
-      'co_test',
-      'test_entity',
-      undefined,
-      ['brain:read'],
-    );
+      server: server as never,
+      companyId: 'co_test',
+      entityId: 'test_entity',
+      asOf: undefined,
+      scopes: ['brain:read'],
+    });
     expect(out.sampledBy).toBe('client_llm');
     expect(out.summary).toBe('Test Subject (customer)');
   });

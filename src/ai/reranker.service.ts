@@ -114,7 +114,7 @@ export class RerankerService {
 
     if (this.scN === 1) {
       // Single-call path. Identity ordering — no shuffle.
-      return this.singleRerank(query, candidates, identity, hints);
+      return this.singleRerank({ query, candidates, presentationOrder: identity, hints });
     }
 
     // Permutation self-consistency: run scN calls in parallel with
@@ -126,7 +126,9 @@ export class RerankerService {
       shuffle(candidates.map((_, i) => i)),
     );
     const settled = await Promise.allSettled(
-      orderings.map((ord) => this.singleRerank(query, candidates, ord, hints)),
+      orderings.map((ord) =>
+        this.singleRerank({ query, candidates, presentationOrder: ord, hints }),
+      ),
     );
     const rankings: number[][] = [];
     for (const s of settled) {
@@ -147,12 +149,17 @@ export class RerankerService {
    * presentationOrder), so callers don't have to know about the
    * shuffle.
    */
-  private async singleRerank(
-    query: string,
-    candidates: RerankCandidate[],
-    presentationOrder: number[],
-    hints?: string,
-  ): Promise<number[]> {
+  private async singleRerank({
+    query,
+    candidates,
+    presentationOrder,
+    hints,
+  }: {
+    query: string;
+    candidates: RerankCandidate[];
+    presentationOrder: number[];
+    hints?: string;
+  }): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     const items = presentationOrder
       .map((parentIdx, presIdx) => {

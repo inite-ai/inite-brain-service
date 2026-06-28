@@ -18,10 +18,10 @@ export class SynthesizeController {
     @Req() req: AuthenticatedRequest,
     @Body() body: SynthesizeDto,
   ) {
-    return this.synthesize.synthesize(
-      req.brainAuth.companyId,
-      body,
-      req.brainAuth.scopes,
-    );
+    return this.synthesize.synthesize({
+      companyId: req.brainAuth.companyId,
+      dto: body,
+      callerScopes: req.brainAuth.scopes,
+    });
   }
 }

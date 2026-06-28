@@ -21,13 +21,21 @@ export interface BaseWhereOptions {
   langFilter?: string;
 }
 
-export function buildBaseWhere(
-  dto: SearchDto,
-  asOf: Date | null,
-  includeRetracted: boolean,
-  includeContested: boolean,
-  opts: BaseWhereOptions = {},
-): { sql: string; params: Record<string, unknown> } {
+export interface BuildBaseWhereOptions {
+  dto: SearchDto;
+  asOf: Date | null;
+  includeRetracted: boolean;
+  includeContested: boolean;
+  opts?: BaseWhereOptions;
+}
+
+export function buildBaseWhere({
+  dto,
+  asOf,
+  includeRetracted,
+  includeContested,
+  opts = {},
+}: BuildBaseWhereOptions): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
   const params: Record<string, unknown> = {};
 

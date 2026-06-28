@@ -51,19 +51,27 @@ function entityIndexForFact(
  *     and aren't a self-edge
  * Returns null if any check fails — caller falls back to the LLM.
  */
-export async function attemptLocalSynth(
-  patterns: ExtractionPatternService,
-  companyId: string,
-  inputText: string,
-  clauseTexts: string[],
+export interface AttemptLocalSynthOptions {
+  patterns: ExtractionPatternService;
+  companyId: string;
+  inputText: string;
+  clauseTexts: string[];
   localEntities: Array<{
     text: string;
     type: string;
     start: number;
     end: number;
     score: number;
-  }>,
-): Promise<ExtractionResult | null> {
+  }>;
+}
+
+export async function attemptLocalSynth({
+  patterns,
+  companyId,
+  inputText,
+  clauseTexts,
+  localEntities,
+}: AttemptLocalSynthOptions): Promise<ExtractionResult | null> {
   const facts: ExtractedFact[] = [];
   const edges: ExtractedEdge[] = [];
   const normalizedInput = normalizeForGrounding(inputText);

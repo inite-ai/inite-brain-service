@@ -205,7 +205,12 @@ export class ScenarioRunnerService {
       for (let i = 0; i < scenario.setup.length; i++) {
         const step = scenario.setup[i];
         try {
-          await this.applyStep(companyId, step, setupSummary, factIdsByTag);
+          await this.applyStep({
+            companyId,
+            step,
+            summary: setupSummary,
+            factIdsByTag,
+          });
         } catch (e) {
           setupSummary.errors.push({
             step: i,
@@ -314,12 +319,17 @@ export class ScenarioRunnerService {
     return [];
   }
 
-  private async applyStep(
-    companyId: string,
-    step: SetupStep,
-    summary: ScenarioRunOutcome['setupSummary'],
-    factIdsByTag: Map<string, string>,
-  ): Promise<void> {
+  private async applyStep({
+    companyId,
+    step,
+    summary,
+    factIdsByTag,
+  }: {
+    companyId: string;
+    step: SetupStep;
+    summary: ScenarioRunOutcome['setupSummary'];
+    factIdsByTag: Map<string, string>;
+  }): Promise<void> {
     switch (step.kind) {
       case 'fact': {
         await this.applyFact(companyId, step, factIdsByTag);
@@ -392,9 +402,13 @@ export class ScenarioRunnerService {
     if (!factId) {
       throw new Error(`Retract references unknown tag '${step.tag}'`);
     }
-    await this.facts.retract(companyId, factId, {
-      reason: step.reason,
-      retractedBy: { source: 'system' },
+    await this.facts.retract({
+      companyId,
+      factId,
+      dto: {
+        reason: step.reason,
+        retractedBy: { source: 'system' },
+      },
     });
   }
 
@@ -410,9 +424,13 @@ export class ScenarioRunnerService {
     if (!hit) {
       throw new Error(`Forget could not resolve ${refKey}`);
     }
-    await this.entities.forget(companyId, hit, {
-      reason: step.reason,
-      requestId: step.requestId,
+    await this.entities.forget({
+      companyId,
+      entityIdRaw: hit,
+      dto: {
+        reason: step.reason,
+        requestId: step.requestId,
+      },
     });
   }
 

@@ -116,9 +116,13 @@ export function registerWriteTools(
       },
     },
     async (args) => {
-      const out = await deps.facts.retract(companyId, args.factId, {
-        reason: args.reason,
-        retractedBy: { source: 'system' },
+      const out = await deps.facts.retract({
+        companyId,
+        factId: args.factId,
+        dto: {
+          reason: args.reason,
+          retractedBy: { source: 'system' },
+        },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -218,9 +222,13 @@ export function registerAdminTools(
       },
     },
     async (args) => {
-      const out = await deps.entities.forget(companyId, args.entityId, {
-        reason: args.reason,
-        requestId: args.requestId,
+      const out = await deps.entities.forget({
+        companyId,
+        entityIdRaw: args.entityId,
+        dto: {
+          reason: args.reason,
+          requestId: args.requestId,
+        },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

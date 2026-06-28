@@ -112,16 +112,21 @@ export class McpService {
       name: 'inite-brain-service',
       version: '0.1.0',
     });
-    registerReadTools(server, companyId, scopes, {
-      search: this.search,
-      entities: this.entities,
-      facts: this.facts,
-      multiHop: this.multiHop,
-      synth: this.synth,
-      memoryDiff: this.memoryDiff,
-      predictor: this.predictor,
-      summarizer: this.summarizer,
-      embedderDescription: () => this.embedderDescription(),
+    registerReadTools({
+      server,
+      companyId,
+      scopes,
+      deps: {
+        search: this.search,
+        entities: this.entities,
+        facts: this.facts,
+        multiHop: this.multiHop,
+        synth: this.synth,
+        memoryDiff: this.memoryDiff,
+        predictor: this.predictor,
+        summarizer: this.summarizer,
+        embedderDescription: () => this.embedderDescription(),
+      },
     });
     registerProceduralReadTools(server, companyId, {
       procedural: this.procedural,

@@ -51,12 +51,19 @@ export interface ConfidenceCalibrator {
  * null → no decay (1.0). `calibrator` null → calibratedConfidence ===
  * rawConfidence.
  */
-export function scoreRows(
-  rows: FusedRow[],
-  predicateDist: PredicateDistribution | null,
-  now: number,
-  calibrator: ConfidenceCalibrator | null = null,
-): ScoredRow[] {
+export interface ScoreRowsOptions {
+  rows: FusedRow[];
+  predicateDist: PredicateDistribution | null;
+  now: number;
+  calibrator?: ConfidenceCalibrator | null;
+}
+
+export function scoreRows({
+  rows,
+  predicateDist,
+  now,
+  calibrator = null,
+}: ScoreRowsOptions): ScoredRow[] {
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
     const ageDays = (now - new Date(row.recordedAt).getTime()) / 86_400_000;

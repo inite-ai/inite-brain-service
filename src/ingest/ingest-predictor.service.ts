@@ -195,12 +195,12 @@ export class IngestPredictionService {
       }
 
       const overlapping = priors.filter((p) =>
-        intervalsOverlap(
-          new Date(p.validFrom),
-          p.validUntil ? new Date(p.validUntil) : null,
-          validFrom,
-          args.validUntil ? new Date(args.validUntil) : null,
-        ),
+        intervalsOverlap({
+          aFrom: new Date(p.validFrom),
+          aUntil: p.validUntil ? new Date(p.validUntil) : null,
+          bFrom: validFrom,
+          bUntil: args.validUntil ? new Date(args.validUntil) : null,
+        }),
       );
 
       if (overlapping.length === 0) {
@@ -372,12 +372,17 @@ function dateToIso(v: unknown): string {
   return new Date().toISOString();
 }
 
-function intervalsOverlap(
-  aFrom: Date,
-  aUntil: Date | null,
-  bFrom: Date,
-  bUntil: Date | null,
-): boolean {
+function intervalsOverlap({
+  aFrom,
+  aUntil,
+  bFrom,
+  bUntil,
+}: {
+  aFrom: Date;
+  aUntil: Date | null;
+  bFrom: Date;
+  bUntil: Date | null;
+}): boolean {
   const aEnd = aUntil ?? new Date(8.64e15);
   const bEnd = bUntil ?? new Date(8.64e15);
   return aFrom < bEnd && bFrom < aEnd;

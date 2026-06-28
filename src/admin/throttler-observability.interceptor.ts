@@ -38,21 +38,34 @@ export class ThrottlerObservabilityInterceptor implements NestInterceptor {
     }
     return next.handle().pipe(
       tap({
-        next: () => this.observability.record(this.buildInput(req, res, path, false)),
+        next: () =>
+          this.observability.record(
+            this.buildInput({ req, res, path, forceThrottled: false }),
+          ),
         error: (err) =>
           this.observability.record(
-            this.buildInput(req, res, path, err?.status === 429),
+            this.buildInput({
+              req,
+              res,
+              path,
+              forceThrottled: err?.status === 429,
+            }),
           ),
       }),
     );
   }
 
-  private buildInput(
-    req: Request & Partial<AuthenticatedRequest>,
-    res: Response,
-    path: string,
-    forceThrottled: boolean,
-  ): {
+  private buildInput({
+    req,
+    res,
+    path,
+    forceThrottled,
+  }: {
+    req: Request & Partial<AuthenticatedRequest>;
+    res: Response;
+    path: string;
+    forceThrottled: boolean;
+  }): {
     actor: string;
     method: string;
     path: string;

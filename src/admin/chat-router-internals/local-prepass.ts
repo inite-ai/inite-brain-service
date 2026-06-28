@@ -73,28 +73,40 @@ export function extractMentionsLocally(
   // so the full form wins when both substrings are present.
   const namesByLength = [...knownNames].sort((a, b) => b.length - a.length);
   for (const canonical of namesByLength) {
-    matchCanonicalForm(canonical, message, lowerMessage, occupied, accepted);
-    matchFirstTokenForm(
+    matchCanonicalForm({
+      canonical,
+      message,
+      lowerMessage,
+      occupied,
+      accepted,
+    });
+    matchFirstTokenForm({
       canonical,
       knownNames,
       message,
       lowerMessage,
       occupied,
       accepted,
-    );
+    });
   }
   return accepted;
 }
 
 /** Scan the message for the full canonical form. Honours `occupied`
  *  so longer matches recorded earlier in the pass win. */
-function matchCanonicalForm(
-  canonical: string,
-  message: string,
-  lowerMessage: string,
-  occupied: Array<[number, number]>,
-  accepted: MentionMatch[],
-): void {
+function matchCanonicalForm({
+  canonical,
+  message,
+  lowerMessage,
+  occupied,
+  accepted,
+}: {
+  canonical: string;
+  message: string;
+  lowerMessage: string;
+  occupied: Array<[number, number]>;
+  accepted: MentionMatch[];
+}): void {
   const needle = canonical.toLowerCase();
   if (needle.length < 2) return;
   let from = 0;
@@ -102,14 +114,7 @@ function matchCanonicalForm(
     const idx = lowerMessage.indexOf(needle, from);
     if (idx < 0) return;
     const end = idx + needle.length;
-    pushIfFree(
-      canonical,
-      message,
-      idx,
-      end,
-      occupied,
-      accepted,
-    );
+    pushIfFree({ canonical, message, start: idx, end, occupied, accepted });
     from = end;
   }
 }
@@ -119,14 +124,21 @@ function matchCanonicalForm(
  * "Maria Petrov"). Skipped when the first token clashes with another
  * knownName's first token (ambiguous case — leave it to the LLM).
  */
-function matchFirstTokenForm(
-  canonical: string,
-  knownNames: string[],
-  message: string,
-  lowerMessage: string,
-  occupied: Array<[number, number]>,
-  accepted: MentionMatch[],
-): void {
+function matchFirstTokenForm({
+  canonical,
+  knownNames,
+  message,
+  lowerMessage,
+  occupied,
+  accepted,
+}: {
+  canonical: string;
+  knownNames: string[];
+  message: string;
+  lowerMessage: string;
+  occupied: Array<[number, number]>;
+  accepted: MentionMatch[];
+}): void {
   const tokens = canonical.split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) return;
   const firstToken = tokens[0];
@@ -139,7 +151,7 @@ function matchFirstTokenForm(
     if (idx < 0) return;
     const end = idx + needle.length;
     if (isWordBoundary(message, idx, end)) {
-      pushIfFree(canonical, message, idx, end, occupied, accepted);
+      pushIfFree({ canonical, message, start: idx, end, occupied, accepted });
     }
     from = end;
   }
@@ -168,14 +180,21 @@ function isWordChar(c: string): boolean {
   return /[\p{L}\p{N}]/u.test(c);
 }
 
-function pushIfFree(
-  canonical: string,
-  message: string,
-  start: number,
-  end: number,
-  occupied: Array<[number, number]>,
-  accepted: MentionMatch[],
-): void {
+function pushIfFree({
+  canonical,
+  message,
+  start,
+  end,
+  occupied,
+  accepted,
+}: {
+  canonical: string;
+  message: string;
+  start: number;
+  end: number;
+  occupied: Array<[number, number]>;
+  accepted: MentionMatch[];
+}): void {
   if (occupied.some(([s, e]) => !(end <= s || start >= e))) return;
   accepted.push({
     canonical,
@@ -202,13 +221,21 @@ function pushIfFree(
  * Failure modes degrade silently to empty hints — the LLM still
  * produces its own hints and validation handles missing slots.
  */
-export async function extractPredicateHintsLocally(
-  message: string,
-  snapshot: PredicateSnapshot | null,
-  embedder: EmbedderService,
-  threshold: number,
-  maxHints: number,
-): Promise<
+export interface ExtractPredicateHintsLocallyOptions {
+  message: string;
+  snapshot: PredicateSnapshot | null;
+  embedder: EmbedderService;
+  threshold: number;
+  maxHints: number;
+}
+
+export async function extractPredicateHintsLocally({
+  message,
+  snapshot,
+  embedder,
+  threshold,
+  maxHints,
+}: ExtractPredicateHintsLocallyOptions): Promise<
   Array<{ predicateId: string; similarity: number; triggerSpan: Span }>
 > {
   if (!snapshot || snapshot.embeddings.size === 0) return [];

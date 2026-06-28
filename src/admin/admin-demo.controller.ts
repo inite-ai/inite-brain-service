@@ -198,7 +198,7 @@ export class AdminDemoController {
         if (route.intent === 'tell') {
           return this.runTellChat(route, tenant);
         }
-        return this.runAskChat(route, body, tenant, askScopes);
+        return this.runAskChat({ route, body, tenant, scopes: askScopes });
       });
       const result = captured.result as any;
       if (result.search) {
@@ -277,12 +277,17 @@ export class AdminDemoController {
     return { route, ingest, autoDedup };
   }
 
-  private async runAskChat(
-    route: ChatRoute,
-    body: { message: string; includePii?: boolean },
-    tenant: string,
-    scopes: readonly BrainScope[],
-  ) {
+  private async runAskChat({
+    route,
+    body,
+    tenant,
+    scopes,
+  }: {
+    route: ChatRoute;
+    body: { message: string; includePii?: boolean };
+    tenant: string;
+    scopes: readonly BrainScope[];
+  }) {
     const queryText = route.cleanedQuery ?? body.message;
     const entityRefs = route.mentions.map((m) => m.canonical);
     const predicateHints = route.predicateHints.map((h) => h.predicateId);
@@ -295,14 +300,14 @@ export class AdminDemoController {
     // fact even though Acme itself has no status fact — the answer
     // is one edge away.
     const graph = await traceSpan('demo.graph_first', () =>
-      this.search.graphRetrieve(
-        tenant,
+      this.search.graphRetrieve({
+        companyId: tenant,
         queryText,
         entityRefs,
         predicateHints,
         asOf,
-        scopes as string[],
-      ),
+        callerScopes: scopes as string[],
+      }),
     );
     const graphHasFacts = graph.results.some(
       (r) => Array.isArray(r.facts) && r.facts.length > 0,

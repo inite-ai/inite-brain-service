@@ -31,26 +31,35 @@ export interface SamplingSummarizeResult {
   asOf?: string;
 }
 
-export async function summarizeViaClientSampling(
+export interface SummarizeViaClientSamplingOptions {
   deps: {
     entities: EntitiesService;
     summarizer: SummarizeEntityService;
-  },
-  server: McpServer,
-  companyId: string,
-  entityId: string,
-  asOf: string | undefined,
-  scopes: BrainScope[],
-): Promise<SamplingSummarizeResult> {
-  const profile = await deps.entities.getProfile(
+  };
+  server: McpServer;
+  companyId: string;
+  entityId: string;
+  asOf: string | undefined;
+  scopes: BrainScope[];
+}
+
+export async function summarizeViaClientSampling({
+  deps,
+  server,
+  companyId,
+  entityId,
+  asOf,
+  scopes,
+}: SummarizeViaClientSamplingOptions): Promise<SamplingSummarizeResult> {
+  const profile = await deps.entities.getProfile({
     companyId,
-    entityId,
-    asOf,
+    entityIdRaw: entityId,
+    asOfRaw: asOf,
     scopes,
-  );
+  });
   const caps = server.server.getClientCapabilities();
   if (!caps?.sampling) {
-    return fallback(deps.summarizer, companyId, entityId, asOf, scopes);
+    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, scopes });
   }
   const topFacts = profile.facts
     .filter((f) => f.status === 'active' || f.status === 'competing')
@@ -91,17 +100,23 @@ export async function summarizeViaClientSampling(
     log.warn(
       `summarize_entity sampling fell back to template: ${(err as Error).message}`,
     );
-    return fallback(deps.summarizer, companyId, entityId, asOf, scopes);
+    return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, scopes });
   }
 }
 
-async function fallback(
-  summarizer: SummarizeEntityService,
-  companyId: string,
-  entityId: string,
-  asOf: string | undefined,
-  scopes: BrainScope[],
-): Promise<SamplingSummarizeResult> {
+async function fallback({
+  summarizer,
+  companyId,
+  entityId,
+  asOf,
+  scopes,
+}: {
+  summarizer: SummarizeEntityService;
+  companyId: string;
+  entityId: string;
+  asOf: string | undefined;
+  scopes: BrainScope[];
+}): Promise<SamplingSummarizeResult> {
   const out = await summarizer.summarize(
     companyId,
     { entityId, asOf, styleHint: 'neutral' },

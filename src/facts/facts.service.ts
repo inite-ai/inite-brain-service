@@ -66,6 +66,13 @@ export interface CompetingFactGroup {
   facts: CompetingFactRecord[];
 }
 
+export interface RetractOptions {
+  companyId: string;
+  factId: string;
+  dto: RetractFactDto;
+  callerScopes?: ReadonlyArray<BrainScope>;
+}
+
 export interface ListCompetingResult {
   entityId: string;
   asOf?: string;
@@ -86,12 +93,12 @@ export class FactsService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  async retract(
-    companyId: string,
-    factId: string,
-    dto: RetractFactDto,
-    callerScopes?: ReadonlyArray<BrainScope>,
-  ): Promise<RetractResult> {
+  async retract({
+    companyId,
+    factId,
+    dto,
+    callerScopes,
+  }: RetractOptions): Promise<RetractResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const ref = this.normalizeFactId(factId);
       const now = new Date();
@@ -128,7 +135,12 @@ export class FactsService {
         };
       }
 
-      const cascaded = await this.cascadeRetract(db, String(existing.id), now, dto.reason);
+      const cascaded = await this.cascadeRetract({
+        db,
+        parentFactId: String(existing.id),
+        now,
+        reason: dto.reason,
+      });
 
       await dbMerge(db, `knowledge_fact:${ref.id}`, {
         status: 'retracted',
@@ -226,12 +238,17 @@ export class FactsService {
    * For 0.1.0 we apply a simpler rule: if any parent is retracted, the child
    * is retracted. Lazy re-validation on retrieval is a 0.2.0 enhancement.
    */
-  private async cascadeRetract(
-    db: Surreal,
-    parentFactId: string,
-    now: Date,
-    reason: string,
-  ): Promise<string[]> {
+  private async cascadeRetract({
+    db,
+    parentFactId,
+    now,
+    reason,
+  }: {
+    db: Surreal;
+    parentFactId: string;
+    now: Date;
+    reason: string;
+  }): Promise<string[]> {
     const cascaded: string[] = [];
     const stack = [parentFactId];
 

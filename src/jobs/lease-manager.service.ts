@@ -90,15 +90,19 @@ export class LeaseManagerService {
       // — each reapZombies call holds one root pool conn for its
       // SELECT+UPDATE pair. Cap at 4 so a saturated reap can't fully
       // drain the pool from caller-facing requests.
-      await mapWithLimit(tenants, 4, async (companyId) => {
-        const result = await this.claim!.reapZombies({
-          companyId,
-          maxAttempts: this.maxAttempts,
-          backoffBaseMs: this.backoffBaseMs,
-        });
-        requeued += result.requeued;
-        failed += result.failed;
-        return null;
+      await mapWithLimit({
+        items: tenants,
+        concurrency: 4,
+        fn: async (companyId) => {
+          const result = await this.claim!.reapZombies({
+            companyId,
+            maxAttempts: this.maxAttempts,
+            backoffBaseMs: this.backoffBaseMs,
+          });
+          requeued += result.requeued;
+          failed += result.failed;
+          return null;
+        },
       });
       if (requeued > 0 || failed > 0) {
         this.logger.log(
