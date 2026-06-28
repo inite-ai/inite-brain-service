@@ -7,7 +7,7 @@
 import {
   redactAfterImage,
   REDACTED,
-} from '../src/audit/changefeed-consumer.service';
+} from '../src/audit/changefeed-redaction';
 
 describe('redactAfterImage', () => {
   it('redacts fact PII value fields but keeps structural fields', () => {

@@ -1,5 +1,5 @@
 /**
- * Unit-test for ChangefeedConsumerService.consumeForTenant — exercises
+ * Unit-test for ChangefeedDrainService.consumeForTenant — exercises
  * the cursor-advance + batch-cap + audit-event-emit paths without
  * standing up a real SurrealDB testcontainer.
  *
@@ -10,7 +10,7 @@
  *   3. Cursor is advanced to the highest consumed versionstamp.
  *   4. The unknown-source guard rejects an out-of-allowlist table.
  */
-import { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
+import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
 
 type Captured = { sql: string; params?: Record<string, unknown> };
 
@@ -57,8 +57,7 @@ function mkSurreal(opts: {
 function mkSvc(
   surreal: any,
   cfgOverrides: Record<string, string> = {},
-): ChangefeedConsumerService {
-  const apiKeys = { knownCompanyIds: () => ['co_a'] } as any;
+): ChangefeedDrainService {
   const config = {
     get: (k: string, def?: string) => {
       if (k === 'AUDIT_CHANGEFEED_ENABLED') return cfgOverrides[k] ?? '1';
@@ -66,10 +65,10 @@ function mkSvc(
       return def;
     },
   } as any;
-  return new ChangefeedConsumerService(surreal, apiKeys, config);
+  return new ChangefeedDrainService(surreal, config);
 }
 
-describe('ChangefeedConsumerService', () => {
+describe('ChangefeedDrainService', () => {
   it('consumes every change from a cold cursor and advances to the high-water mark', async () => {
     const { surreal, calls } = mkSurreal({
       cursors: {},
