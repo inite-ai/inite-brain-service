@@ -1,29 +1,17 @@
 /**
- * Unit coverage for WorkerLoopService — the leader-elected polling
- * loop that drains the job_run queue. We assert:
- *
- *   - register() collects handlers
- *   - dispatch routes return-value to complete(), thrown to fail()
- *   - dispatch routes thrown-after-cancelRequest to cancelled()
- *   - dispatch routes thrown-after-lost-claim to neither (skip write)
+ * Unit coverage for the worker-loop trio after the max-params split:
+ *   - WorkerLoopService.register collects handlers
+ *   - JobDispatcherService routes return-value→complete, thrown→fail,
+ *     thrown-after-cancel→cancelled, thrown-after-lost-claim→neither
  *   - renew tick polls cancelRequested + propagates into AbortSignal
- *   - onApplicationShutdown aborts in-flight handlers
- *
- * The polling loop itself is exercised indirectly — we drive
- * dispatch() through the private path via a thin test harness that
- * doesn't require a real LeaderLease or the lease-acquire cron.
+ *   - the shutdown AbortSignal aborts in-flight handlers
+ *   - WorkerPollerService.sampleByFairness weighting
  */
-import { ConfigService } from '@nestjs/config';
 import { WorkerLoopService } from '../src/jobs/worker-loop.service';
+import { WorkerPollerService } from '../src/jobs/worker-poller.service';
+import { JobDispatcherService } from '../src/jobs/job-dispatcher.service';
 import type { JobClaim } from '../src/jobs/job-claim.service';
 import type { JobType } from '../src/jobs/job-run.service';
-
-function makeConfig(env: Record<string, string | undefined> = {}): ConfigService {
-  return {
-    get: <T>(key: string, dflt?: T) => (env[key] ?? dflt) as T,
-    getOrThrow: <T>(key: string) => env[key] as unknown as T,
-  } as unknown as ConfigService;
-}
 
 function makeClaimSvc(opts: {
   renewSequence?: Array<{ stillOwned: boolean; cancelRequested: boolean }>;
@@ -42,19 +30,13 @@ function makeClaimSvc(opts: {
     renew: jest.fn(async (input: { recordId: string }) => {
       calls.renewed.push({ recordId: input.recordId });
       const seq = opts.renewSequence ?? [];
-      return (
-        seq[renewIdx++] ?? { stillOwned: true, cancelRequested: false }
-      );
+      return seq[renewIdx++] ?? { stillOwned: true, cancelRequested: false };
     }),
     complete: jest.fn(async (input: { recordId: string; result?: unknown }) => {
       calls.completed.push({ recordId: input.recordId, result: input.result });
     }),
     fail: jest.fn(
-      async (input: {
-        recordId: string;
-        attempts: number;
-        error: unknown;
-      }) => {
+      async (input: { recordId: string; attempts: number; error: unknown }) => {
         calls.failed.push({
           recordId: input.recordId,
           attempts: input.attempts,
@@ -64,10 +46,7 @@ function makeClaimSvc(opts: {
       },
     ),
     cancelled: jest.fn(async (input: { recordId: string; result?: unknown }) => {
-      calls.cancelled.push({
-        recordId: input.recordId,
-        result: input.result,
-      });
+      calls.cancelled.push({ recordId: input.recordId, result: input.result });
     }),
     enqueue: jest.fn(),
     reapZombies: jest.fn(),
@@ -94,17 +73,26 @@ function makeJobClaim(opts: {
   };
 }
 
-// We need to reach the private dispatch() method from tests because
-// the full polling loop is hard to drive deterministically with real
-// timers. Cast to any to grant access — this is unit-level coverage
-// of the dispatch contract.
-function callDispatch(svc: WorkerLoopService, claim: JobClaim, reg: any) {
-  return (svc as any).dispatch(claim, reg);
+function mkDispatcher(claimSvc: unknown, metrics?: unknown): JobDispatcherService {
+  return new JobDispatcherService(
+    claimSvc as never,
+    undefined,
+    metrics as never,
+  );
+}
+
+function callDispatch(
+  dispatcher: JobDispatcherService,
+  claim: JobClaim,
+  reg: any,
+  signal: AbortSignal = new AbortController().signal,
+) {
+  return dispatcher.dispatch(claim, reg, signal);
 }
 
 describe('WorkerLoopService.register', () => {
   it('collects handlers by jobType and exposes registeredTypes()', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerLoopService(undefined as never);
     svc.register('dreams', async () => ({}));
     svc.register('compaction', async () => ({}));
     expect(svc.registeredTypes()).toEqual(
@@ -114,21 +102,17 @@ describe('WorkerLoopService.register', () => {
   });
 });
 
-describe('WorkerLoopService.dispatch', () => {
+describe('JobDispatcherService.dispatch', () => {
   it('routes a successful handler result to complete()', async () => {
     const claim = makeJobClaim();
     const claimSvc = makeClaimSvc();
-    const svc = new WorkerLoopService(
-      makeConfig(),
-      claimSvc as any,
-    );
     const reg = {
       jobType: 'dreams' as JobType,
       handler: async () => ({ ok: true }),
       ttlSeconds: 3,
       maxAttempts: 3,
     };
-    await callDispatch(svc, claim, reg);
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.completed).toHaveLength(1);
     expect(claimSvc.calls.completed[0].recordId).toBe('job_run:abc');
     expect(claimSvc.calls.completed[0].result).toEqual({ ok: true });
@@ -139,18 +123,7 @@ describe('WorkerLoopService.dispatch', () => {
     const claim = makeJobClaim({ jobType: 'dreams' });
     const claimSvc = makeClaimSvc();
     const recordJob = jest.fn();
-    // metrics is the 7th constructor arg (config, claim, lease, apiKeys,
-    // now, workerPool, metrics).
-    const svc = new WorkerLoopService(
-      makeConfig(),
-      claimSvc as any,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { recordJob, setWorkerLeader: jest.fn() } as any,
-    );
-    await callDispatch(svc, claim, {
+    await callDispatch(mkDispatcher(claimSvc, { recordJob }), claim, {
       jobType: 'dreams' as JobType,
       handler: async () => ({ ok: true }),
       ttlSeconds: 3,
@@ -167,7 +140,6 @@ describe('WorkerLoopService.dispatch', () => {
   it('routes a thrown handler error to fail()', async () => {
     const claim = makeJobClaim({ attempts: 2 });
     const claimSvc = makeClaimSvc();
-    const svc = new WorkerLoopService(makeConfig(), claimSvc as any);
     const reg = {
       jobType: 'dreams' as JobType,
       handler: async () => {
@@ -176,7 +148,7 @@ describe('WorkerLoopService.dispatch', () => {
       ttlSeconds: 3,
       maxAttempts: 3,
     };
-    await callDispatch(svc, claim, reg);
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.failed).toHaveLength(1);
     expect(claimSvc.calls.failed[0].attempts).toBe(2);
     expect((claimSvc.calls.failed[0].error as Error).message).toBe(
@@ -186,13 +158,9 @@ describe('WorkerLoopService.dispatch', () => {
 
   it('routes cancel-requested → cancelled() not failed()', async () => {
     const claim = makeJobClaim();
-    // First renew tick reports cancelRequested=true; this should
-    // propagate into the handler's AbortSignal and route the throw
-    // to cancelled() instead of fail().
     const claimSvc = makeClaimSvc({
       renewSequence: [{ stillOwned: true, cancelRequested: true }],
     });
-    const svc = new WorkerLoopService(makeConfig(), claimSvc as any);
     let sawAbort = false;
     const reg = {
       jobType: 'dreams' as JobType,
@@ -202,14 +170,13 @@ describe('WorkerLoopService.dispatch', () => {
             sawAbort = true;
             resolve();
           });
-          // Allow the renew interval to fire.
         });
         throw new Error('aborted');
       },
       ttlSeconds: 1, // → renew tick every ttl/3 = 333ms
       maxAttempts: 3,
     };
-    await callDispatch(svc, claim, reg);
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(sawAbort).toBe(true);
     expect(claimSvc.calls.cancelled).toHaveLength(1);
     expect(claimSvc.calls.failed).toHaveLength(0);
@@ -218,11 +185,9 @@ describe('WorkerLoopService.dispatch', () => {
 
   it('skips terminal write when claim is lost mid-handler', async () => {
     const claim = makeJobClaim();
-    // Renew reports stillOwned=false — zombie reaper took the row.
     const claimSvc = makeClaimSvc({
       renewSequence: [{ stillOwned: false, cancelRequested: false }],
     });
-    const svc = new WorkerLoopService(makeConfig(), claimSvc as any);
     const reg = {
       jobType: 'dreams' as JobType,
       handler: async (ctx: any) => {
@@ -234,9 +199,7 @@ describe('WorkerLoopService.dispatch', () => {
       ttlSeconds: 1,
       maxAttempts: 3,
     };
-    await callDispatch(svc, claim, reg);
-    // We should not have written complete, fail, OR cancelled — the
-    // new owner does that.
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.completed).toHaveLength(0);
     expect(claimSvc.calls.failed).toHaveLength(0);
     expect(claimSvc.calls.cancelled).toHaveLength(0);
@@ -245,7 +208,6 @@ describe('WorkerLoopService.dispatch', () => {
   it('completed handler receives a workerId in ctx', async () => {
     const claim = makeJobClaim();
     const claimSvc = makeClaimSvc();
-    const svc = new WorkerLoopService(makeConfig(), claimSvc as any);
     let observedWorkerId = '';
     const reg = {
       jobType: 'dreams' as JobType,
@@ -256,16 +218,14 @@ describe('WorkerLoopService.dispatch', () => {
       ttlSeconds: 3,
       maxAttempts: 3,
     };
-    await callDispatch(svc, claim, reg);
+    await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(observedWorkerId).toBe('host-test#42');
   });
-});
 
-describe('WorkerLoopService.onApplicationShutdown', () => {
-  it('aborts in-flight handlers', async () => {
+  it('aborts in-flight handlers when the shutdown signal fires', async () => {
     const claim = makeJobClaim();
     const claimSvc = makeClaimSvc();
-    const svc = new WorkerLoopService(makeConfig(), claimSvc as any);
+    const ac = new AbortController();
     let sawAbort = false;
     const reg = {
       jobType: 'dreams' as JobType,
@@ -281,9 +241,8 @@ describe('WorkerLoopService.onApplicationShutdown', () => {
       ttlSeconds: 3,
       maxAttempts: 3,
     };
-    const dispatched = callDispatch(svc, claim, reg);
-    // Trigger shutdown — the dispatch's onShutdown listener aborts.
-    setTimeout(() => void svc.onApplicationShutdown(), 5);
+    const dispatched = callDispatch(mkDispatcher(claimSvc), claim, reg, ac.signal);
+    setTimeout(() => ac.abort(), 5);
     await dispatched;
     expect(sawAbort).toBe(true);
   });
@@ -291,37 +250,32 @@ describe('WorkerLoopService.onApplicationShutdown', () => {
 
 describe('WorkerLoopService.leader', () => {
   it('reports false until lease is acquired (default state)', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerLoopService(undefined as never);
     expect(svc.leader()).toBe(false);
   });
 });
 
-describe('WorkerLoopService.sampleByFairness', () => {
+describe('WorkerPollerService.sampleByFairness', () => {
   it('returns single-element list unchanged', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     expect(svc.sampleByFairness('dreams', ['co_only'])).toEqual(['co_only']);
   });
 
   it('returns empty list unchanged', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     expect(svc.sampleByFairness('dreams', [])).toEqual([]);
   });
 
   it('all tenants get sampled exactly once (permutation)', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     const tenants = ['a', 'b', 'c', 'd'];
     const out = svc.sampleByFairness('dreams', tenants);
     expect([...out].sort()).toEqual([...tenants].sort());
   });
 
   it('heavily-claimed tenants are sampled later on average', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     const tenants = ['busy', 'quiet'];
-    // Simulate busy tenant landing many recent claims.
-    // We can't poke recentClaims directly without exposing internals,
-    // but the test still inspects the statistical property via
-    // recordClaim through the dispatch path. Use the public
-    // recentClaimsSnapshot as a fixture point.
     for (let i = 0; i < 32; i++) {
       (svc as any).recordClaim('dreams', 'busy');
     }
@@ -331,14 +285,11 @@ describe('WorkerLoopService.sampleByFairness', () => {
       const out = svc.sampleByFairness('dreams', tenants);
       if (out[0] === 'busy') busyFirst++;
     }
-    // With weight(quiet)=1 vs weight(busy)=1/33, quiet should win
-    // first place ≫ 50% of the time. Allow a generous floor (60%)
-    // to keep the test stable across RNG flake.
     expect(busyFirst).toBeLessThan(trials * 0.4);
   });
 
   it('recentClaimsSnapshot reflects recordClaim writes', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     (svc as any).recordClaim('dreams', 'co_a');
     (svc as any).recordClaim('dreams', 'co_a');
     (svc as any).recordClaim('compaction', 'co_b');
@@ -348,7 +299,7 @@ describe('WorkerLoopService.sampleByFairness', () => {
   });
 
   it('recordClaim is bounded at 64', () => {
-    const svc = new WorkerLoopService(makeConfig());
+    const svc = new WorkerPollerService(undefined as never);
     for (let i = 0; i < 100; i++) {
       (svc as any).recordClaim('dreams', 'co_a');
     }
