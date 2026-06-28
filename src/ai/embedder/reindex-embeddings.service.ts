@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ApiKeyService } from '../../auth/api-key.service';
-import { SurrealService } from '../../db/surreal.service';
-import { EmbedderService } from '../embedder.service';
+import { ReindexEngineService } from './reindex-engine.service';
 
 export interface ReindexResult {
   tenantsScanned: number;
@@ -20,12 +18,6 @@ export interface ReindexOptions {
   dryRun?: boolean;
   /** Cap on facts processed per tenant; protects against runaway batches. */
   maxFacts?: number;
-}
-
-interface FactRowForReindex {
-  id: { tb: string; id: { String: string } } | string;
-  predicate: string;
-  object: string;
 }
 
 /**
@@ -49,19 +41,11 @@ interface FactRowForReindex {
 @Injectable()
 export class ReindexEmbeddingsService {
   private readonly logger = new Logger(ReindexEmbeddingsService.name);
-  private readonly batchSize: number;
 
   constructor(
-    private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
-    private readonly embedder: EmbedderService,
-    config: ConfigService,
-  ) {
-    this.batchSize = parseInt(
-      config.get<string>('REINDEX_BATCH_SIZE', '200'),
-      10,
-    );
-  }
+    private readonly engine: ReindexEngineService,
+  ) {}
 
   async run(opts: ReindexOptions = {}): Promise<ReindexResult> {
     const started = Date.now();
@@ -75,7 +59,7 @@ export class ReindexEmbeddingsService {
     let factsUpdated = 0;
     for (const companyId of tenants) {
       try {
-        const tenantResult = await this.reindexTenant(companyId, {
+        const tenantResult = await this.engine.reindexTenant(companyId, {
           dryRun,
           remaining: maxFacts - factsScanned,
         });
@@ -89,87 +73,17 @@ export class ReindexEmbeddingsService {
       }
     }
 
-    // Provider id surfaces in the response for operator audit. The
-    // stub embedder used in tests doesn't implement cacheStats, so
-    // we fall back to 'unknown' instead of crashing the endpoint.
-    const provider =
-      typeof this.embedder.cacheStats === 'function'
-        ? this.embedder.cacheStats().provider
-        : 'unknown';
     const result: ReindexResult = {
       tenantsScanned: tenants.length,
       factsScanned,
       factsUpdated,
       durationMs: Date.now() - started,
       dryRun,
-      provider,
+      provider: this.engine.providerId(),
     };
     this.logger.log(
       `reindex done — provider=${result.provider} tenants=${result.tenantsScanned} scanned=${result.factsScanned} updated=${result.factsUpdated} dryRun=${dryRun}`,
     );
     return result;
-  }
-
-  private async reindexTenant(
-    companyId: string,
-    opts: { dryRun: boolean; remaining: number },
-  ): Promise<{ factsScanned: number; factsUpdated: number }> {
-    return this.surreal.withCompany(companyId, async (db) => {
-      let offset = 0;
-      let factsScanned = 0;
-      let factsUpdated = 0;
-      const batch = Math.min(this.batchSize, opts.remaining);
-      // Paginate until either the tenant is empty or we hit the cap.
-      while (factsScanned < opts.remaining) {
-        const [rows] = await db.query<[FactRowForReindex[]]>(
-          `SELECT id, predicate, object
-              FROM knowledge_fact
-              ORDER BY id
-              LIMIT $batch START $offset`,
-          { batch, offset },
-        );
-        const page = (rows as FactRowForReindex[]) ?? [];
-        if (page.length === 0) break;
-
-        factsScanned += page.length;
-        if (!opts.dryRun) {
-          // Batch the whole page through one embedMany — the previous
-          // per-row embed() loop paid one HTTP round-trip per fact,
-          // which made reindex unworkable on large tenants (a 100k-row
-          // tenant = 100k sequential calls). embedMany chunks 512 at
-          // a time inside the OpenAI provider.
-          const texts = page.map((row) => `${row.predicate}: ${row.object}`);
-          let embeddings: number[][];
-          try {
-            embeddings = await this.embedder.embedMany(texts);
-          } catch (e) {
-            this.logger.warn(
-              `reindex batch embed failed (${companyId}, page=${page.length}): ${(e as Error).message}`,
-            );
-            // Skip this page entirely; the next outer-loop iteration
-            // advances `offset` by `page.length` so we don't retry-loop.
-            offset += page.length;
-            if (page.length < batch) break;
-            continue;
-          }
-          for (let i = 0; i < page.length; i++) {
-            try {
-              await db.query(`UPDATE $id SET embedding = $embedding`, {
-                id: page[i].id,
-                embedding: embeddings[i],
-              });
-              factsUpdated += 1;
-            } catch (e) {
-              this.logger.warn(
-                `reindex row update failed (${companyId}): ${(e as Error).message}`,
-              );
-            }
-          }
-        }
-        offset += page.length;
-        if (page.length < batch) break;
-      }
-      return { factsScanned, factsUpdated };
-    });
   }
 }
