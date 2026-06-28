@@ -12,6 +12,9 @@ import { LocalNerService } from './local-ner.service';
 import { ExtractionPatternService } from './extraction-pattern.service';
 import { CalibrationService } from './calibration/calibration.service';
 import { CalibrationRefitService } from './calibration/calibration-refit.service';
+import { CalibrationRefitRunnerService } from './calibration/calibration-refit-runner.service';
+import { CalibrationRefitQueueService } from './calibration/calibration-refit-queue.service';
+import { CalibrationRefitJobService } from './calibration/calibration-refit-job.service';
 import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service';
 import { ReindexEngineService } from './embedder/reindex-engine.service';
 import { EntityJudgeService } from './entity-judge.service';
@@ -33,6 +36,9 @@ import { EntityJudgeService } from './entity-judge.service';
     LocalNerService,
     ExtractionPatternService,
     CalibrationService,
+    CalibrationRefitRunnerService,
+    CalibrationRefitQueueService,
+    CalibrationRefitJobService,
     CalibrationRefitService,
     ReindexEngineService,
     ReindexEmbeddingsService,
