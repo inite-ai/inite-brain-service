@@ -23,6 +23,10 @@ import { createApp } from './app-fixture';
 import { IngestService } from '../src/ingest/ingest.service';
 import { EntitiesService } from '../src/entities/entities.service';
 import type { BrainScope } from '../src/auth/api-key.types';
+import {
+  codeMemoryPredicateId,
+  type CodeMemoryKind,
+} from '../src/ai/domain-packs';
 
 describe('code-memory Phase 0 — record_decision → why round-trip', () => {
   let f: AppFixture;
@@ -42,9 +46,12 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
       scopes: READ,
     });
   };
-  const activeOf = (profile: Awaited<ReturnType<typeof recall>>, kind: string) =>
+  const activeOf = (
+    profile: Awaited<ReturnType<typeof recall>>,
+    kind: CodeMemoryKind,
+  ) =>
     (profile?.facts ?? []).filter(
-      (x) => x.predicate === kind && x.status === 'active',
+      (x) => x.predicate === codeMemoryPredicateId(kind) && x.status === 'active',
     );
 
   beforeAll(async () => {
@@ -59,7 +66,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     const ingest = f.app.get(IngestService);
     const out = await ingest.ingestFact(f.companyId, {
       entityRef: { vertical: 'code', id: SYMBOL },
-      predicate: 'decided',
+      predicate: codeMemoryPredicateId('decided'),
       object: 'Route every fact write through one fn::resolve_fact gateway',
       validFrom: '2026-06-28T00:00:00Z',
       source: { vertical: 'code', recorder: 'code_memory', eventId: 'f0e824b' },
@@ -77,7 +84,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     const ingest = f.app.get(IngestService);
     const out = await ingest.ingestFact(f.companyId, {
       entityRef: { vertical: 'code', id: SYMBOL },
-      predicate: 'decided',
+      predicate: codeMemoryPredicateId('decided'),
       object: 'Gateway also detects locale and writes the HyPE alt-embedding',
       validFrom: '2026-06-29T00:00:00Z',
       source: { vertical: 'code', recorder: 'code_memory', eventId: 'a002e1f' },
@@ -94,14 +101,14 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     const ingest = f.app.get(IngestService);
     await ingest.ingestFact(f.companyId, {
       entityRef: { vertical: 'code', id: SYMBOL },
-      predicate: 'gotcha',
+      predicate: codeMemoryPredicateId('gotcha'),
       object: 'conflict weights are read from process.env, not ConfigService',
       validFrom: '2026-06-28T00:00:00Z',
       source: { vertical: 'code', recorder: 'code_memory' },
     });
     await ingest.ingestFact(f.companyId, {
       entityRef: { vertical: 'code', id: SYMBOL },
-      predicate: 'gotcha',
+      predicate: codeMemoryPredicateId('gotcha'),
       object: 'the resolve lock key is companyId + entityId + predicate (NUL-joined)',
       validFrom: '2026-06-28T00:00:00Z',
       source: { vertical: 'code', recorder: 'code_memory' },

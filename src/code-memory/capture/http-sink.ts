@@ -1,3 +1,4 @@
+import { codeMemoryPredicateId } from '../../ai/domain-packs';
 import type { DecisionCandidate, DecisionSink } from './types';
 
 /**
@@ -38,7 +39,7 @@ export class HttpDecisionSink implements DecisionSink {
   async record(candidate: DecisionCandidate): Promise<{ outcome: string }> {
     const body = {
       entityRef: { vertical: CODE_VERTICAL, id: candidate.anchor },
-      predicate: candidate.kind,
+      predicate: codeMemoryPredicateId(candidate.kind),
       object: candidate.text,
       validFrom: candidate.validFrom,
       ...(candidate.confidence !== undefined
