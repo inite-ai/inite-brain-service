@@ -13,6 +13,7 @@ import { ExtractionPatternService } from './extraction-pattern.service';
 import { CalibrationService } from './calibration/calibration.service';
 import { CalibrationRefitService } from './calibration/calibration-refit.service';
 import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service';
+import { ReindexEngineService } from './embedder/reindex-engine.service';
 import { EntityJudgeService } from './entity-judge.service';
 
 @Global()
@@ -33,6 +34,7 @@ import { EntityJudgeService } from './entity-judge.service';
     ExtractionPatternService,
     CalibrationService,
     CalibrationRefitService,
+    ReindexEngineService,
     ReindexEmbeddingsService,
     EntityJudgeService,
   ],
