@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CompactionService, SUMMARY_GENERATOR } from './compaction.service';
+import { CompactionService } from './compaction.service';
+import { CompactionRunnerService } from './compaction-runner.service';
+import { CompactionQueueService } from './compaction-queue.service';
+import { SUMMARY_GENERATOR } from './compaction.types';
 import {
   ConcatSummaryGenerator,
   type SummaryGenerator,
@@ -22,6 +25,8 @@ import { MetricsModule } from '../metrics/metrics.module';
   imports: [MetricsModule],
   providers: [
     CompactionService,
+    CompactionRunnerService,
+    CompactionQueueService,
     {
       provide: SUMMARY_GENERATOR,
       inject: [ConfigService],

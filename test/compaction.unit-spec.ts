@@ -4,12 +4,11 @@
  * error isolation, and the optional summary leg.
  */
 import { ConfigService } from '@nestjs/config';
-import { CompactionService } from '../src/compaction/compaction.service';
+import { CompactionRunnerService } from '../src/compaction/compaction-runner.service';
 import type {
   FactToSummarize,
   SummaryGenerator,
 } from '../src/compaction/summary-generator';
-import type { ApiKeyService } from '../src/auth/api-key.service';
 import type { SurrealService } from '../src/db/surreal.service';
 
 class StubConfig {
@@ -79,12 +78,6 @@ function makeFakeSurreal(byTenant: Record<string, TenantSeed>) {
   return { surreal, calls, created };
 }
 
-function makeApiKeys(companyIds: string[]): ApiKeyService {
-  return {
-    knownCompanyIds: () => companyIds,
-  } as unknown as ApiKeyService;
-}
-
 function rows(specs: Array<Partial<CandidateRow> & { id: string }>): CandidateRow[] {
   return specs.map((s, i) => ({
     entityId: 'knowledge_entity:e1',
@@ -103,13 +96,12 @@ describe('CompactionService — mark + drop (default mode)', () => {
       co_b: { rows: [] },
       co_c: { rows: rows(Array.from({ length: 5 }, (_, i) => ({ id: `g${i}` }))) },
     });
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a', 'co_b', 'co_c']),
       new StubConfig() as unknown as ConfigService,
     );
 
-    const stats = await service.compactAll();
+    const stats = await runner.compactAll(['co_a', 'co_b', 'co_c']);
     expect(stats).toHaveLength(3);
     const byTenant = Object.fromEntries(stats.map((s) => [s.companyId, s]));
     expect(byTenant.co_a.factsCompacted).toBe(12);
@@ -134,26 +126,24 @@ describe('CompactionService — mark + drop (default mode)', () => {
       },
       co_c: { rows: rows([{ id: 'h1' }, { id: 'h2' }]) },
     });
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a', 'co_b', 'co_c']),
       new StubConfig() as unknown as ConfigService,
     );
 
-    const stats = await service.compactAll();
+    const stats = await runner.compactAll(['co_a', 'co_b', 'co_c']);
     expect(stats.map((s) => s.companyId).sort()).toEqual(['co_a', 'co_c']);
   });
 
   it('honours COMPACTION_HOT_RETENTION_DAYS env override', async () => {
     const { surreal, calls } = makeFakeSurreal({ co_a: { rows: rows([{ id: 'f1' }]) } });
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a']),
       new StubConfig({ COMPACTION_HOT_RETENTION_DAYS: '30' }) as unknown as ConfigService,
     );
 
     const before = Date.now();
-    await service.compactCompany('co_a');
+    await runner.compactCompany('co_a');
     const after = Date.now();
 
     const select = calls[0].calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
@@ -165,20 +155,17 @@ describe('CompactionService — mark + drop (default mode)', () => {
 
   it('rejects invalid retention config at construction', () => {
     const surreal = {} as SurrealService;
-    const apiKeys = makeApiKeys([]);
     expect(
       () =>
-        new CompactionService(
+        new CompactionRunnerService(
           surreal,
-          apiKeys,
           new StubConfig({ COMPACTION_HOT_RETENTION_DAYS: '0' }) as unknown as ConfigService,
         ),
     ).toThrow(/positive integer/);
     expect(
       () =>
-        new CompactionService(
+        new CompactionRunnerService(
           surreal,
-          apiKeys,
           new StubConfig({ COMPACTION_HOT_RETENTION_DAYS: 'abc' }) as unknown as ConfigService,
         ),
     ).toThrow(/positive integer/);
@@ -210,15 +197,13 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     });
     const gen = new StubGenerator((g) => `SUMMARY(${g.length}:${g.map((f) => f.object).join(',')})`);
 
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a']),
       new StubConfig({ COMPACTION_SUMMARIES: 'true' }) as unknown as ConfigService,
-      undefined,
       gen,
     );
 
-    const [stats] = await service.compactAll();
+    const [stats] = await runner.compactAll(['co_a']);
     expect(stats.factsCompacted).toBe(5);
     // Two summaries: tier (3 rows) + name (1 row) — name is singleton, skip
     expect(stats.summariesCreated).toBe(1);
@@ -248,14 +233,12 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       },
     });
     const emptyGen: SummaryGenerator = { generate: async () => '' };
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a']),
       new StubConfig({ COMPACTION_SUMMARIES: 'true' }) as unknown as ConfigService,
-      undefined,
       emptyGen,
     );
-    const [stats] = await service.compactAll();
+    const [stats] = await runner.compactAll(['co_a']);
     expect(stats.factsCompacted).toBe(2);
     expect(stats.summariesCreated).toBe(0);
     expect(created).toHaveLength(0);
@@ -271,14 +254,12 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       },
     });
     const gen = new StubGenerator(() => 'should-not-run');
-    const service = new CompactionService(
+    const runner = new CompactionRunnerService(
       surreal,
-      makeApiKeys(['co_a']),
       new StubConfig() as unknown as ConfigService, // default = false
-      undefined,
       gen,
     );
-    const [stats] = await service.compactAll();
+    const [stats] = await runner.compactAll(['co_a']);
     expect(stats.factsCompacted).toBe(2);
     expect(stats.summariesCreated).toBe(0);
     expect(gen.calls).toHaveLength(0);
