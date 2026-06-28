@@ -4,7 +4,9 @@
 import { ThrottlerResponseSchema } from '../src/contracts/admin/throttler.schema';
 import { makeAdminInfraController } from './helpers/admin-controllers';
 import type { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { LiveSnapshotService } from '../src/admin/live-snapshot.service';
 import type { ThrottlerObservabilityService } from '../src/admin/throttler-observability.service';
+import type { ActivityTrackerService } from '../src/common/activity-tracker.service';
 
 function makeController(): AdminInfraController {
   const throttler = {
@@ -31,7 +33,11 @@ function makeController(): AdminInfraController {
       ],
     }),
   } as unknown as ThrottlerObservabilityService;
-  return makeAdminInfraController({ throttler });
+  const liveSnapshot = new LiveSnapshotService(
+    throttler,
+    undefined as unknown as ActivityTrackerService,
+  );
+  return makeAdminInfraController({ liveSnapshot });
 }
 
 describe('AdminInfraController.throttlerView() — wire contract', () => {

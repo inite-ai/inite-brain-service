@@ -44,12 +44,8 @@ export function makeAdminController(d: AdminControllerDeps = {}): AdminControlle
 
 export interface AdminInfraControllerDeps {
   adminInfra?: unknown;
-  embedder?: unknown;
-  intent?: unknown;
-  changefeed?: unknown;
-  activity?: unknown;
-  throttler?: unknown;
-  config?: unknown;
+  healthComponents?: unknown;
+  liveSnapshot?: unknown;
 }
 
 export function makeAdminInfraController(
@@ -57,11 +53,7 @@ export function makeAdminInfraController(
 ): AdminInfraController {
   return new AdminInfraController(
     as(d.adminInfra ?? u),
-    as(d.embedder ?? u),
-    as(d.intent ?? u),
-    as(d.changefeed ?? u),
-    as(d.activity ?? u),
-    as(d.throttler ?? u),
-    as(d.config ?? u),
+    as(d.healthComponents ?? u),
+    as(d.liveSnapshot ?? u),
   );
 }
