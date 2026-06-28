@@ -5,6 +5,7 @@ import { JobClaimService } from './job-claim.service';
 import { LeaderLeaseService } from './leader-lease.service';
 import { WorkerLoopService } from './worker-loop.service';
 import { LeaseManagerService } from './lease-manager.service';
+import { JobReaperService } from './job-reaper.service';
 import { JobWorkerPool } from './job-worker-pool.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 
@@ -35,6 +36,7 @@ import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
     LeaderLeaseService,
     WorkerLoopService,
     LeaseManagerService,
+    JobReaperService,
     JobWorkerPool,
     DistributedLeaseGuard,
   ],

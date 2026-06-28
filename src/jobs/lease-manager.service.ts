@@ -1,10 +1,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
-import { ApiKeyService } from '../auth/api-key.service';
-import { JobClaimService } from './job-claim.service';
 import { LeaderLeaseService } from './leader-lease.service';
-import { mapWithLimit } from '../common/parallel';
+import { JobReaperService, ReapResult } from './job-reaper.service';
 
 /**
  * LeaseManagerService — cron-driven housekeeping for the queue.
@@ -34,27 +32,16 @@ import { mapWithLimit } from '../common/parallel';
 export class LeaseManagerService {
   private readonly logger = new Logger(LeaseManagerService.name);
   private readonly enabled: boolean;
-  private readonly maxAttempts: number;
-  private readonly backoffBaseMs: number;
   private reapInFlight = false;
   private janitorInFlight = false;
 
   constructor(
     config: ConfigService,
-    @Optional() private readonly claim?: JobClaimService,
+    private readonly reaper: JobReaperService,
     @Optional() private readonly lease?: LeaderLeaseService,
-    @Optional() private readonly apiKeys?: ApiKeyService,
   ) {
     this.enabled =
       (config.get<string>('LEASE_MANAGER_ENABLED', '1') ?? '1') !== '0';
-    this.maxAttempts = parseInt(
-      config.get<string>('JOB_RUN_MAX_ATTEMPTS', '3') ?? '3',
-      10,
-    );
-    this.backoffBaseMs = parseInt(
-      config.get<string>('JOB_RUN_BACKOFF_BASE_MS', '30000') ?? '30000',
-      10,
-    );
   }
 
   /**
@@ -67,49 +54,18 @@ export class LeaseManagerService {
    * catch + recycle a dead worker within the lease window.
    */
   @Cron('*/10 * * * * *')
-  async reapTick(): Promise<{
-    requeued: number;
-    failed: number;
-    tenants: number;
-  } | null> {
+  async reapTick(): Promise<ReapResult | null> {
     if (!this.enabled) return null;
     if (this.reapInFlight) {
       // Previous tick still draining a large backlog. Skip silently —
       // the next tick will pick up what we couldn't.
       return null;
     }
-    if (!this.claim || !this.apiKeys) return null;
     const isLeader = await this.acquireLease();
     if (!isLeader) return null;
     this.reapInFlight = true;
     try {
-      const tenants = this.apiKeys.knownCompanyIds();
-      let requeued = 0;
-      let failed = 0;
-      // Parallel fan-out bounded under the SURREALDB_POOL_SIZE budget
-      // — each reapZombies call holds one root pool conn for its
-      // SELECT+UPDATE pair. Cap at 4 so a saturated reap can't fully
-      // drain the pool from caller-facing requests.
-      await mapWithLimit({
-        items: tenants,
-        concurrency: 4,
-        fn: async (companyId) => {
-          const result = await this.claim!.reapZombies({
-            companyId,
-            maxAttempts: this.maxAttempts,
-            backoffBaseMs: this.backoffBaseMs,
-          });
-          requeued += result.requeued;
-          failed += result.failed;
-          return null;
-        },
-      });
-      if (requeued > 0 || failed > 0) {
-        this.logger.log(
-          `Zombie reap: requeued=${requeued}, failed=${failed} across ${tenants.length} tenant(s)`,
-        );
-      }
-      return { requeued, failed, tenants: tenants.length };
+      return await this.reaper.reap();
     } catch (e) {
       this.logger.warn(`reapTick failed: ${(e as Error).message}`);
       return null;
