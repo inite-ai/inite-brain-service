@@ -15,19 +15,19 @@
     "rootDir": null
   },
   "include": ["src/**/*", "test/**/*"],
-  // The five real-e2e specs below import the `@inite/knowledge` SDK from
-  // the sibling ../inite-shared repo, which is intentionally NOT checked
-  // out in the build-test gate (kept self-contained, no cross-repo PAT).
-  // They are typechecked by ts-jest when the real-e2e job runs them with
-  // the sibling present. Excluding them here keeps `pnpm typecheck` green
-  // and dependency-free; everything else under test/ is now gated.
+  // The two specs below genuinely exercise the `@inite/knowledge` SDK
+  // (brain = the SDK-over-HTTP smoke; dreams = the SDK's dreams.run
+  // surface), which lives in the sibling ../inite-shared repo that is
+  // intentionally NOT checked out in the build-test gate (kept
+  // self-contained, no cross-repo PAT). They stay typechecked by ts-jest
+  // when the real-e2e job runs them with the sibling present. Everything
+  // else under test/ — including the directory / fat-tenant / json-
+  // directory specs, which were migrated off the SDK to HttpBrainClient —
+  // is gated here.
   "exclude": [
     "node_modules",
     "dist",
     "test/brain.real-e2e-spec.ts",
-    "test/directory.real-e2e-spec.ts",
-    "test/dreams.real-e2e-spec.ts",
-    "test/fat-tenant.real-e2e-spec.ts",
-    "test/json-directory.real-e2e-spec.ts"
+    "test/dreams.real-e2e-spec.ts"
   ]
 }

@@ -23,7 +23,7 @@
  *       pnpm exec jest --config ./test/jest-e2e-real.json \
  *         --runInBand --testPathPattern=directory
  */
-import { BrainClient } from '@inite/knowledge';
+import { HttpBrainClient } from './eval/http-brain-client';
 import { spawnService, SpawnedService } from './spawn';
 import { buildFatTenant } from './eval/fixtures/fat-tenant.generator';
 import {
@@ -98,13 +98,12 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
           `forgotten=${fixture.stats.forgottenCustomers}`,
       );
 
-      const sdkOpts = { baseUrl: svc.baseUrl, timeoutMs: 60_000 };
-      const fullClient = new BrainClient({
-        ...sdkOpts,
+      const fullClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.primary.plaintext,
       });
-      const limitedClient = new BrainClient({
-        ...sdkOpts,
+      const limitedClient = new HttpBrainClient({
+        baseUrl: svc.baseUrl,
         apiKey: svc.extras[0].plaintext,
       });
 
