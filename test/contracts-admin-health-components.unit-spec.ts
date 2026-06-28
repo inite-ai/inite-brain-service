@@ -3,6 +3,7 @@
  */
 import { HealthComponentsResponseSchema } from '../src/contracts/admin/health-components.schema';
 import { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { AdminInfraService } from '../src/admin/admin-infra.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import type { IntentClassifierService } from '../src/admin/intent-classifier.service';
@@ -37,9 +38,9 @@ function makeController(): AdminInfraController {
     get: <T>(_k: string, dflt?: T) => dflt,
   } as unknown as ConfigService;
   const undef = undefined as unknown as never;
+  const adminInfra = new AdminInfraService(surreal, undef);
   return new AdminInfraController(
-    surreal,
-    undef,
+    adminInfra,
     embedder,
     intent,
     changefeed,

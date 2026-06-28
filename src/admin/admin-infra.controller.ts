@@ -1,9 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
-// eslint-disable-next-line import/no-restricted-paths -- TODO: layer migration. Move the inline withCompany() / withAdminDb() queries below into a dedicated admin service, then drop this import. New controllers MUST NOT import db/* directly.
-import { SurrealService } from '../db/surreal.service';
-import { ApiKeyService } from '../auth/api-key.service';
+import { AdminInfraService } from './admin-infra.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { IntentClassifierService } from './intent-classifier.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
@@ -28,8 +26,7 @@ import type { NowResponse } from '../contracts/admin/now.schema';
 @UseGuards(ApiKeyGuard)
 export class AdminInfraController {
   constructor(
-    private readonly surreal: SurrealService,
-    private readonly apiKeys: ApiKeyService,
+    private readonly adminInfra: AdminInfraService,
     private readonly embedder: EmbedderService,
     private readonly intent: IntentClassifierService,
     private readonly changefeed: ChangefeedConsumerService,
@@ -56,12 +53,7 @@ export class AdminInfraController {
 
     // SurrealDB
     const dbStart = Date.now();
-    let dbOk = false;
-    try {
-      dbOk = await this.surreal.ping();
-    } catch {
-      dbOk = false;
-    }
+    const dbOk = await this.adminInfra.pingDb();
     components.push({
       name: 'surrealdb',
       status: dbOk ? 'ok' : 'unreachable',
@@ -143,46 +135,7 @@ export class AdminInfraController {
   @Get('migrations')
   @RequireScopes('brain:admin')
   async migrations(): Promise<MigrationsResponse> {
-    const manifest = await this.surreal.migrator.loadManifest();
-    const tenants = this.apiKeys.knownCompanyIds();
-    const perTenant: Array<{
-      companyId: string;
-      applied: string[];
-      pending: string[];
-    }> = [];
-    for (const companyId of tenants) {
-      try {
-        const applied = await this.surreal.withCompany(
-          companyId,
-          async (db) => {
-            const res = (await db.query<any[]>(
-              `SELECT migrationId FROM schema_migrations`,
-            )) as any[];
-            const rows = (res[0] ?? []) as Array<{ migrationId: string }>;
-            return rows.map((r) => r.migrationId).sort();
-          },
-        );
-        const appliedSet = new Set(applied);
-        const pending = manifest
-          .filter((m) => !appliedSet.has(m.id))
-          .map((m) => m.id);
-        perTenant.push({ companyId, applied, pending });
-      } catch (e) {
-        perTenant.push({
-          companyId,
-          applied: [],
-          pending: manifest.map((m) => m.id),
-        });
-        void e;
-      }
-    }
-    // Drift: any pending row across tenants?
-    const driftDetected = perTenant.some((t) => t.pending.length > 0);
-    return {
-      manifest: manifest.map((m) => ({ id: m.id, name: m.name })),
-      perTenant,
-      driftDetected,
-    } satisfies MigrationsResponse;
+    return this.adminInfra.migrationsAudit();
   }
 
   @Get('throttler')
