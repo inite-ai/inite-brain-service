@@ -32,6 +32,9 @@ import { ScenarioLifecycleService } from './scenario-lifecycle.service';
 import { ScenarioEvalService } from './scenario-eval.service';
 import { BaselineService } from './baseline.service';
 import { ChatRouterService } from './chat-router.service';
+import { ChatRouterLlmService } from './chat-router-llm.service';
+import { ChatRoutePlannerService } from './chat-route-planner.service';
+import { PredicatePlanService } from './predicate-plan.service';
 import { ChatRouterCacheService } from './chat-router-cache.service';
 import { CollapsePatternService } from './collapse-pattern.service';
 import { IntentClassifierService } from './intent-classifier.service';
@@ -79,6 +82,10 @@ import { ConfigInspectorService } from './config-inspector.service';
     CollapsePatternService,
     IntentClassifierService,
     ChatRouterService,
+    // Chat-router stage services (max-params split):
+    ChatRouterLlmService,
+    ChatRoutePlannerService,
+    PredicatePlanService,
     ConfigInspectorService,
     OperatorActionService,
     ThrottlerObservabilityService,
