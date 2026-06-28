@@ -27,6 +27,9 @@ import { OperatorActionInterceptor } from './operator-action.interceptor';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
 import { ThrottlerObservabilityInterceptor } from './throttler-observability.interceptor';
 import { ScenarioRunnerService } from './scenario-runner.service';
+import { ScenarioWriteService } from './scenario-write.service';
+import { ScenarioLifecycleService } from './scenario-lifecycle.service';
+import { ScenarioEvalService } from './scenario-eval.service';
 import { BaselineService } from './baseline.service';
 import { ChatRouterService } from './chat-router.service';
 import { ChatRouterCacheService } from './chat-router-cache.service';
@@ -67,6 +70,10 @@ import { ConfigInspectorService } from './config-inspector.service';
     DemoPipelineService,
     DemoChatService,
     ScenarioRunnerService,
+    // Scenario-runner phase services (max-params split):
+    ScenarioWriteService,
+    ScenarioLifecycleService,
+    ScenarioEvalService,
     BaselineService,
     ChatRouterCacheService,
     CollapsePatternService,
