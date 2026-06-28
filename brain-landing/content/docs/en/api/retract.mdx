@@ -28,7 +28,7 @@ Content-Type: application/json
 }
 ```
 
-## What "retract" actually does
+## What “retract” actually does
 
 - Sets `retractedAt = now()` on the row.
 - Sets `status = 'retracted'`.
@@ -36,13 +36,13 @@ Content-Type: application/json
 - Walks `derivedFrom[]` chains and cascades unless `cascade: false`.
 - Removes the fact from active search results (`asOf <= retractedAt` queries still see it).
 
-The original row is NOT deleted. That's the audit invariant — "brain used to believe X" stays answerable forever.
+The original row is NOT deleted. That's the audit invariant — “brain used to believe X” stays answerable forever.
 
 ## When to retract vs forget
 
 | Action | Use when |
 | --- | --- |
-| **Retract** | The fact was wrong. You want the audit trail to show "we believed this, then we didn't". The entity remains. |
+| **Retract** | The fact was wrong. You want the audit trail to show “we believed this, then we didn't”. The entity remains. |
 | **Forget** | GDPR / right-to-erasure on the *entity*. Everything about the person is hard-deleted, only an HMAC tombstone remains. |
 
 If unsure, retract. Forget is one-way and reserved for genuine erasure requests.
@@ -60,7 +60,7 @@ The `cascade: true` (default) walks the dependency chain. For a single ingest th
 
 ## Reading retracted in timeline
 
-`GET /v1/entities/:id/timeline` returns retracted rows. Filter to them when investigating "what walked back":
+`GET /v1/entities/:id/timeline` returns retracted rows. Filter to them when investigating “what walked back”:
 
 ```ts
 const tl = await brain.entityTimeline(entityId)

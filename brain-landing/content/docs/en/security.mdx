@@ -46,7 +46,7 @@ DEFINE FIELD object ON TABLE knowledge_fact
      OR $caller_scopes CONTAINS 'brain:read_pii';
 ```
 
-A scope-less caller still sees the row exists — `predicate`, `validFrom`, `factId` all visible. The `object` is `null`. This is the "we have this data, you don't have rights" surface.
+A scope-less caller still sees the row exists — `predicate`, `validFrom`, `factId` all visible. The `object` is `null`. This is the “we have this data, you don't have rights” surface.
 
 CI runs a PII-gating eval with threshold 1.0 — any leak blocks the release.
 

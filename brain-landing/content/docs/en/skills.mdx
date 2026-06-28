@@ -11,7 +11,7 @@ curl -fsSL https://brain.inite.ai/install.sh | sh
 Optional flags:
 
 - `--target project` — install into `$PWD/.claude/skills/` instead of `$HOME`
-- `--key <api-key>` — ping a probe so the dashboard marks "skills installed" complete
+- `--key <api-key>` — ping a probe so the dashboard marks “skills installed” complete
 
 The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skills/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
 
@@ -21,7 +21,7 @@ The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skil
 | --- | --- | --- |
 | `brain-search` | The user asks to find / look up / search knowledge | How to call `search_knowledge` with predicate hints and asOf semantics |
 | `brain-recall` | The user names an entity and asks for the full picture | How to combine `get_entity_profile` + `get_entity_timeline` + `find_related_entities` |
-| `brain-bitemporal` | The user has a temporal question ("on X date", "before Y") | asOf semantics, validFrom / validUntil, retracted-row handling |
+| `brain-bitemporal` | The user has a temporal question (“on X date”, “before Y”) | asOf semantics, validFrom / validUntil, retracted-row handling |
 | `brain-mcp-setup` | The user is wiring brain MCP into a new client | Step-by-step config for Claude Desktop, Cursor, Goose, n8n |
 
 ## Format
