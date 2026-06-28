@@ -97,6 +97,7 @@ export class AdminJobsController {
     private readonly config: ConfigService,
   ) {}
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('jobs')
   @RequireScopes('brain:admin')
   async listJobs(

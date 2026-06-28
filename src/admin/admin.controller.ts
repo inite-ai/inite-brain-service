@@ -85,6 +85,7 @@ export class AdminController {
    * (capped at 500). Returns aggregate totals and hourly buckets so
    * the UI can render charts without a second round-trip.
    */
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('audit')
   @RequireScopes('brain:admin')
   async audit(

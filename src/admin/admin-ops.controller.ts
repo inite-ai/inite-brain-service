@@ -82,6 +82,7 @@ export class AdminOpsController {
 
   // ── Forgotten ─────────────────────────────────────────────
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('forgotten')
   @RequireScopes('brain:admin')
   async forgotten(
@@ -156,6 +157,7 @@ export class AdminOpsController {
 
   // ── Operator action log ───────────────────────────────────
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('operator-actions')
   @RequireScopes('brain:admin')
   async operatorActions(
