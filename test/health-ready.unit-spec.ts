@@ -12,6 +12,7 @@
  * and-forget; /ready waits on isReady() instead.
  */
 import { HealthController } from '../src/common/health.controller';
+import { HealthService } from '../src/common/health.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 
 describe('HealthController', () => {
@@ -24,7 +25,7 @@ describe('HealthController', () => {
   }) {
     const surreal = { ping: async () => db } as any;
     const embedder = { isReady: () => embedderReady } as any;
-    return new HealthController(surreal, embedder);
+    return new HealthController(new HealthService(surreal, embedder));
   }
 
   describe('/health', () => {
