@@ -18,15 +18,25 @@ import type {
  * Fire-and-forget: failure logs but doesn't fail the current
  * extraction. The cache will simply stay cold for those clauses.
  */
-export async function persistExtractionPatterns(
-  patterns: ExtractionPatternService,
-  logger: Logger,
-  companyId: string,
-  clauses: string[],
-  rawFacts: RawExtractedFact[],
-  facts: ExtractedFact[],
-  edges: ExtractedEdge[],
-): Promise<void> {
+export interface PersistExtractionPatternsOptions {
+  patterns: ExtractionPatternService;
+  logger: Logger;
+  companyId: string;
+  clauses: string[];
+  rawFacts: RawExtractedFact[];
+  facts: ExtractedFact[];
+  edges: ExtractedEdge[];
+}
+
+export async function persistExtractionPatterns({
+  patterns,
+  logger,
+  companyId,
+  clauses,
+  rawFacts,
+  facts,
+  edges,
+}: PersistExtractionPatternsOptions): Promise<void> {
   const entries: ExtractionPatternEntry[] = [];
   const factsByClause = new Map<number, RawExtractedFact[]>();
   for (const rf of rawFacts) {

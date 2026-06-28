@@ -144,17 +144,15 @@ export class AdminService {
     // Parallel fan-out — sequential was N × per-tenant-Surreal-RTT which
     // turned the overview into a 5s+ page under 20 tenants. Cap at
     // TENANT_FANOUT so we don't drain the Surreal pool either.
-    const tenantResults = await mapWithLimit(
-      tenants,
-      TENANT_FANOUT,
-      (companyId) => this.collectTenant(companyId, dayAgoIso),
-      {
-        onError: (err, companyId) =>
-          this.logger.warn(
-            `Failed to collect admin overview for ${companyId}: ${err.message}`,
-          ),
-      },
-    );
+    const tenantResults = await mapWithLimit({
+      items: tenants,
+      concurrency: TENANT_FANOUT,
+      fn: (companyId) => this.collectTenant(companyId, dayAgoIso),
+      onError: (err, companyId) =>
+        this.logger.warn(
+          `Failed to collect admin overview for ${companyId}: ${err.message}`,
+        ),
+    });
     tenants.forEach((companyId, i) => {
       const data = tenantResults[i];
       if (!data) {
@@ -401,10 +399,10 @@ export class AdminService {
       params.reason = filter.reason;
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const perTenant = await mapWithLimit(
-      tenants,
-      TENANT_FANOUT,
-      async (companyId) => {
+    const perTenant = await mapWithLimit({
+      items: tenants,
+      concurrency: TENANT_FANOUT,
+      fn: async (companyId) => {
         const rows = await this.surreal.withCompany(companyId, async (db) => {
           const res = (await db.query<any[]>(
             `SELECT id, reason, rejectedAt, payload
@@ -422,13 +420,11 @@ export class AdminService {
           payload: r.payload ?? {},
         }));
       },
-      {
-        onError: (err, companyId) =>
-          this.logger.warn(
-            `dead-letter list failed for ${companyId}: ${err.message}`,
-          ),
-      },
-    );
+      onError: (err, companyId) =>
+        this.logger.warn(
+          `dead-letter list failed for ${companyId}: ${err.message}`,
+        ),
+    });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
     }
@@ -484,10 +480,10 @@ export class AdminService {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const out: AdminForgottenRow[] = [];
-    const perTenant = await mapWithLimit(
-      tenants,
-      TENANT_FANOUT,
-      async (companyId) => {
+    const perTenant = await mapWithLimit({
+      items: tenants,
+      concurrency: TENANT_FANOUT,
+      fn: async (companyId) => {
         const rows = await this.surreal.withCompany(companyId, async (db) => {
           const res = (await db.query<any[]>(
             `SELECT entityIdHash, reason, forgottenAt, factsDeleted, edgesDeleted
@@ -506,13 +502,11 @@ export class AdminService {
           edgesDeleted: r.edgesDeleted ?? 0,
         }));
       },
-      {
-        onError: (err, companyId) =>
-          this.logger.warn(
-            `forgotten list failed for ${companyId}: ${err.message}`,
-          ),
-      },
-    );
+      onError: (err, companyId) =>
+        this.logger.warn(
+          `forgotten list failed for ${companyId}: ${err.message}`,
+        ),
+    });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
     }
@@ -627,10 +621,10 @@ export class AdminService {
       ? `WHERE ${whereClauses.join(' AND ')}`
       : '';
 
-    const perTenant = await mapWithLimit(
-      tenants,
-      TENANT_FANOUT,
-      async (companyId) => {
+    const perTenant = await mapWithLimit({
+      items: tenants,
+      concurrency: TENANT_FANOUT,
+      fn: async (companyId) => {
         const rows = await this.surreal.withCompany(companyId, async (db) => {
           const sql = `
             SELECT id, source, recordId, op, ts, versionstamp, before, after, consumedBy
@@ -655,13 +649,11 @@ export class AdminService {
           },
         }));
       },
-      {
-        onError: (err, companyId) =>
-          this.logger.warn(
-            `listAuditEvents failed for ${companyId}: ${err.message}`,
-          ),
-      },
-    );
+      onError: (err, companyId) =>
+        this.logger.warn(
+          `listAuditEvents failed for ${companyId}: ${err.message}`,
+        ),
+    });
     for (const batch of perTenant) {
       if (!batch) continue;
       for (const { row } of batch) {

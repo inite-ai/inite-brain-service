@@ -241,12 +241,12 @@ export class DreamsService implements OnModuleInit {
     const opsRaw = ctx.payload?.operations as DreamsOperation[] | undefined;
     const ops = opsRaw && opsRaw.length ? opsRaw : [...this.defaultOps];
     this.throwIfAborted(ctx);
-    const stats = await this.runForTenantInner(
-      ctx.companyId,
-      ops,
-      { triggeredBy: 'cron', triggeredByActor: ctx.workerId },
-      { skipJobRowLifecycle: true, abortSignal: ctx.abortSignal },
-    );
+    const stats = await this.runForTenantInner({
+      companyId: ctx.companyId,
+      operations: ops,
+      triggered: { triggeredBy: 'cron', triggeredByActor: ctx.workerId },
+      opts: { skipJobRowLifecycle: true, abortSignal: ctx.abortSignal },
+    });
     this.throwIfAborted(ctx);
     return {
       durationSeconds: stats.durationSeconds,
@@ -324,9 +324,9 @@ export class DreamsService implements OnModuleInit {
   ): Promise<DreamsTenantStats> {
     const guarded = this.guard
       ? await this.guard.run(`dreams_tenant_${companyId}`, () =>
-          this.runForTenantInner(companyId, operations, triggered),
+          this.runForTenantInner({ companyId, operations, triggered }),
         )
-      : await this.runForTenantInner(companyId, operations, triggered);
+      : await this.runForTenantInner({ companyId, operations, triggered });
     if (guarded !== null) return guarded;
     this.logger.warn(
       `dreams skipped for ${companyId} — previous run still in flight`,
@@ -343,15 +343,20 @@ export class DreamsService implements OnModuleInit {
   // sub-leg into a helper (runDedupLeg, runResolveLeg, etc.) and
   // drop back under the gate. Tracked separately.
   // eslint-disable-next-line complexity
-  private async runForTenantInner(
-    companyId: string,
-    operations: DreamsOperation[],
+  private async runForTenantInner({
+    companyId,
+    operations,
+    triggered,
+    opts,
+  }: {
+    companyId: string;
+    operations: DreamsOperation[];
     triggered?: {
       triggeredBy?: 'cron' | 'manual' | 'startup';
       triggeredByActor?: string;
-    },
-    opts?: { skipJobRowLifecycle?: boolean; abortSignal?: AbortSignal },
-  ): Promise<DreamsTenantStats> {
+    };
+    opts?: { skipJobRowLifecycle?: boolean; abortSignal?: AbortSignal };
+  }): Promise<DreamsTenantStats> {
     const checkAbort = () => {
       if (opts?.abortSignal?.aborted) {
         throw opts.abortSignal.reason ?? new Error('aborted');

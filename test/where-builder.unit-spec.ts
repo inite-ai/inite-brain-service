@@ -6,7 +6,12 @@ const dto = (extra: Partial<SearchDto> = {}): SearchDto =>
 
 describe('buildBaseWhere default-now bitemporal visibility', () => {
   it('admits a future-supersede prior whose interval still covers now', () => {
-    const { sql } = buildBaseWhere(dto(), null, false, false);
+    const { sql } = buildBaseWhere({
+      dto: dto(),
+      asOf: null,
+      includeRetracted: false,
+      includeContested: false,
+    });
     // The blanket superseded exclusion is gone…
     expect(sql).not.toContain("status NOT IN ['superseded', 'compacted']");
     // …replaced by a compacted exclusion plus a guarded superseded clause
@@ -18,14 +23,24 @@ describe('buildBaseWhere default-now bitemporal visibility', () => {
   });
 
   it('asOf path is unchanged (validity-axis only, no status gap clause)', () => {
-    const { sql } = buildBaseWhere(dto({ asOf: '2026-01-01' }), new Date(), false, false);
+    const { sql } = buildBaseWhere({
+      dto: dto({ asOf: '2026-01-01' }),
+      asOf: new Date(),
+      includeRetracted: false,
+      includeContested: false,
+    });
     expect(sql).toContain('validFrom <= $asOf');
     expect(sql).toContain("status != 'compacted'");
     expect(sql).not.toContain("status != 'superseded'");
   });
 
   it('includeStale drops the temporal closure entirely', () => {
-    const { sql } = buildBaseWhere(dto({ includeStale: true }), null, false, false);
+    const { sql } = buildBaseWhere({
+      dto: dto({ includeStale: true }),
+      asOf: null,
+      includeRetracted: false,
+      includeContested: false,
+    });
     expect(sql).not.toContain("validUntil > time::now()");
   });
 });

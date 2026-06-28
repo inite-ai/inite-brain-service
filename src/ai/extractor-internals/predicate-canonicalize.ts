@@ -15,12 +15,19 @@ import type { ExtractedFact } from './types';
  * Mutates facts in place — predicate field is overwritten on hit.
  * Returns the override-decision list for trace emission.
  */
-export async function applyLocalPredicateOverrides(
-  facts: ExtractedFact[],
-  snapshot: PredicateSnapshot | null,
-  selector: LocalPredicateSelectorService,
-  threshold: number,
-): Promise<
+export interface ApplyLocalPredicateOverridesOptions {
+  facts: ExtractedFact[];
+  snapshot: PredicateSnapshot | null;
+  selector: LocalPredicateSelectorService;
+  threshold: number;
+}
+
+export async function applyLocalPredicateOverrides({
+  facts,
+  snapshot,
+  selector,
+  threshold,
+}: ApplyLocalPredicateOverridesOptions): Promise<
   Array<{ original: string; override: string; similarity: number }>
 > {
   const overrides: Array<{
@@ -54,12 +61,19 @@ export async function applyLocalPredicateOverrides(
  * Defensive: per-fact errors are logged but don't fail the pass.
  * Returns the non-trivial decisions for trace emission.
  */
-export async function applyCanonicalizePass(
-  facts: ExtractedFact[],
-  registry: PredicateRegistryService,
-  companyId: string,
-  logger: Logger,
-): Promise<
+export interface ApplyCanonicalizePassOptions {
+  facts: ExtractedFact[];
+  registry: PredicateRegistryService;
+  companyId: string;
+  logger: Logger;
+}
+
+export async function applyCanonicalizePass({
+  facts,
+  registry,
+  companyId,
+  logger,
+}: ApplyCanonicalizePassOptions): Promise<
   Array<{
     original: string;
     canonical: string;

@@ -39,21 +39,29 @@ export class OperatorActionInterceptor implements NestInterceptor {
     const startedAt = Date.now();
     return next.handle().pipe(
       tap({
-        next: () => this.maybeRecord(req, res, path, isAdminRoute, isSelf, startedAt),
+        next: () =>
+          this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
         error: () =>
-          this.maybeRecord(req, res, path, isAdminRoute, isSelf, startedAt),
+          this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
       }),
     );
   }
 
-  private maybeRecord(
-    req: Request & Partial<AuthenticatedRequest>,
-    res: Response,
-    path: string,
-    isAdminRoute: boolean,
-    isSelf: boolean,
-    startedAt: number,
-  ): void {
+  private maybeRecord({
+    req,
+    res,
+    path,
+    isAdminRoute,
+    isSelf,
+    startedAt,
+  }: {
+    req: Request & Partial<AuthenticatedRequest>;
+    res: Response;
+    path: string;
+    isAdminRoute: boolean;
+    isSelf: boolean;
+    startedAt: number;
+  }): void {
     if (!isAdminRoute || isSelf) return;
     const brainAuth = req.brainAuth;
     if (!brainAuth?.companyId) return;

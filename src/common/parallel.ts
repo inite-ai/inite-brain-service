@@ -8,12 +8,19 @@
  * removes the dep, which matters for our cold-start budget (BGE-M3
  * already imports onnxruntime + ~150MB model).
  */
-export async function mapWithLimit<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
-  opts?: { onError?: (err: Error, item: T, index: number) => void },
-): Promise<Array<R | null>> {
+export interface MapWithLimitOptions<T, R> {
+  items: readonly T[];
+  concurrency: number;
+  fn: (item: T, index: number) => Promise<R>;
+  onError?: (err: Error, item: T, index: number) => void;
+}
+
+export async function mapWithLimit<T, R>({
+  items,
+  concurrency,
+  fn,
+  onError,
+}: MapWithLimitOptions<T, R>): Promise<Array<R | null>> {
   const out: Array<R | null> = new Array(items.length).fill(null);
   let cursor = 0;
   const cap = Math.max(1, Math.min(concurrency, items.length || 1));
@@ -24,7 +31,7 @@ export async function mapWithLimit<T, R>(
       try {
         out[i] = await fn(items[i], i);
       } catch (e) {
-        opts?.onError?.(e as Error, items[i], i);
+        onError?.(e as Error, items[i], i);
         out[i] = null;
       }
     }

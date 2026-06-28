@@ -15,10 +15,10 @@ export class MultiHopController {
   // Planner + up to maxHops sub-searches + optional synthesize → expensive.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async run(@Req() req: AuthenticatedRequest, @Body() body: MultiHopDto) {
-    return this.multiHop.run(
-      req.brainAuth.companyId,
-      body,
-      req.brainAuth.scopes,
-    );
+    return this.multiHop.run({
+      companyId: req.brainAuth.companyId,
+      dto: body,
+      callerScopes: req.brainAuth.scopes,
+    });
   }
 }

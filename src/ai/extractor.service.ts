@@ -410,13 +410,13 @@ export class ExtractorService {
       });
       return null;
     }
-    const synthesised = await attemptLocalSynth(
-      this.extractionPatterns,
+    const synthesised = await attemptLocalSynth({
+      patterns: this.extractionPatterns,
       companyId,
-      trimmed,
-      localClauses.map((c) => c.text),
+      inputText: trimmed,
+      clauseTexts: localClauses.map((c) => c.text),
       localEntities,
-    );
+    });
     if (!synthesised) {
       traceArtifact('extractor.skip_decision', {
         skip: false,
@@ -567,15 +567,15 @@ export class ExtractorService {
     const result: ExtractionResult = { entities, facts, edges };
     this.extractionCache.set(cacheKey, result);
 
-    void persistExtractionPatterns(
-      this.extractionPatterns,
-      this.logger,
+    void persistExtractionPatterns({
+      patterns: this.extractionPatterns,
+      logger: this.logger,
       companyId,
       clauses,
       rawFacts,
       facts,
       edges,
-    );
+    });
 
     return result;
   }
@@ -591,12 +591,12 @@ export class ExtractorService {
         '0.45',
       ),
     );
-    const localOverrides = await applyLocalPredicateOverrides(
+    const localOverrides = await applyLocalPredicateOverrides({
       facts,
-      snapshot as PredicateSnapshot,
-      this.localPredicates,
-      localThreshold,
-    );
+      snapshot: snapshot as PredicateSnapshot,
+      selector: this.localPredicates,
+      threshold: localThreshold,
+    });
     if (localOverrides.length > 0) {
       traceArtifact('extractor.local_predicate_override', {
         threshold: localThreshold,
@@ -605,12 +605,12 @@ export class ExtractorService {
     }
     try {
       if (facts.length === 0) return;
-      const decisions = await applyCanonicalizePass(
+      const decisions = await applyCanonicalizePass({
         facts,
-        this.registry,
+        registry: this.registry,
         companyId,
-        this.logger,
-      );
+        logger: this.logger,
+      });
       if (decisions.length > 0) {
         traceArtifact('extractor.canonicalize', decisions);
       }

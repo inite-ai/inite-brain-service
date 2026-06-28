@@ -149,12 +149,19 @@ export function extractJsonObject(raw: string): string {
  *   5. Auto-derive strip_temporal from grounded anchors.
  *   6. Apply edits → normalizedMessage + cleanedQuery (ask only).
  */
-export function validateAndAssemble(
-  message: string,
-  parsed: RawRouteOutput,
-  vocab: Set<string>,
-  knownNames: Set<string>,
-): ChatRoute {
+export interface ValidateAndAssembleOptions {
+  message: string;
+  parsed: RawRouteOutput;
+  vocab: Set<string>;
+  knownNames: Set<string>;
+}
+
+export function validateAndAssemble({
+  message,
+  parsed,
+  vocab,
+  knownNames,
+}: ValidateAndAssembleOptions): ChatRoute {
   const normalizedInput = nfc(message);
   const report: ValidationReport = {
     acceptedEdits: 0,
@@ -167,33 +174,33 @@ export function validateAndAssemble(
     validFromStatus: 'absent',
   };
 
-  const mentions = collectMentions(
+  const mentions = collectMentions({
     parsed,
     message,
     normalizedInput,
     knownNames,
     report,
-  );
-  const predicateHints = collectPredicateHints(
+  });
+  const predicateHints = collectPredicateHints({
     parsed,
     message,
     normalizedInput,
     vocab,
     report,
-  );
-  const { asOf, validFrom } = collectTemporalAnchors(
+  });
+  const { asOf, validFrom } = collectTemporalAnchors({
     parsed,
     message,
     normalizedInput,
     report,
-  );
-  const acceptedEdits = collectEdits(
+  });
+  const acceptedEdits = collectEdits({
     parsed,
     message,
     normalizedInput,
     mentions,
     report,
-  );
+  });
   const autoStripEdits = deriveStripTemporalEdits(
     acceptedEdits.map((c) => c.span),
     asOf,
@@ -223,13 +230,19 @@ export function validateAndAssemble(
   };
 }
 
-function collectMentions(
-  parsed: RawRouteOutput,
-  message: string,
-  normalizedInput: string,
-  knownNames: Set<string>,
-  report: ValidationReport,
-): Array<{ canonical: string; span: Span }> {
+function collectMentions({
+  parsed,
+  message,
+  normalizedInput,
+  knownNames,
+  report,
+}: {
+  parsed: RawRouteOutput;
+  message: string;
+  normalizedInput: string;
+  knownNames: Set<string>;
+  report: ValidationReport;
+}): Array<{ canonical: string; span: Span }> {
   const mentions: Array<{ canonical: string; span: Span }> = [];
   for (const m of parsed.mentions ?? []) {
     const span = validateSpan(message, normalizedInput, m.nameSpan);
@@ -255,13 +268,19 @@ function collectMentions(
   return mentions;
 }
 
-function collectPredicateHints(
-  parsed: RawRouteOutput,
-  message: string,
-  normalizedInput: string,
-  vocab: Set<string>,
-  report: ValidationReport,
-): Array<{ predicateId: string; triggerSpan: Span }> {
+function collectPredicateHints({
+  parsed,
+  message,
+  normalizedInput,
+  vocab,
+  report,
+}: {
+  parsed: RawRouteOutput;
+  message: string;
+  normalizedInput: string;
+  vocab: Set<string>;
+  report: ValidationReport;
+}): Array<{ predicateId: string; triggerSpan: Span }> {
   const out: Array<{ predicateId: string; triggerSpan: Span }> = [];
   if (parsed.intent !== 'ask') return out;
   for (const h of parsed.predicateHints ?? []) {
@@ -288,12 +307,17 @@ function collectPredicateHints(
   return out;
 }
 
-function collectTemporalAnchors(
-  parsed: RawRouteOutput,
-  message: string,
-  normalizedInput: string,
-  report: ValidationReport,
-): { asOf?: TemporalAnchor; validFrom?: TemporalAnchor } {
+function collectTemporalAnchors({
+  parsed,
+  message,
+  normalizedInput,
+  report,
+}: {
+  parsed: RawRouteOutput;
+  message: string;
+  normalizedInput: string;
+  report: ValidationReport;
+}): { asOf?: TemporalAnchor; validFrom?: TemporalAnchor } {
   let asOf: TemporalAnchor | undefined;
   if (parsed.intent === 'ask' && parsed.asOf) {
     const span = validateSpan(message, normalizedInput, parsed.asOf.anchorSpan);
@@ -321,13 +345,19 @@ function collectTemporalAnchors(
   return { asOf, validFrom };
 }
 
-function collectEdits(
-  parsed: RawRouteOutput,
-  message: string,
-  normalizedInput: string,
-  mentions: Array<{ canonical: string; span: Span }>,
-  report: ValidationReport,
-): Array<{ edit: EditOp; span: Span }> {
+function collectEdits({
+  parsed,
+  message,
+  normalizedInput,
+  mentions,
+  report,
+}: {
+  parsed: RawRouteOutput;
+  message: string;
+  normalizedInput: string;
+  mentions: Array<{ canonical: string; span: Span }>;
+  report: ValidationReport;
+}): Array<{ edit: EditOp; span: Span }> {
   // Synthesise canonicalize_mention 1:1 from accepted mentions, then
   // validate LLM-emitted collapse_state_change edits. Edits whose
   // sourceSpan overlaps another accepted edit are dropped right-to-left

@@ -89,7 +89,7 @@ describe('SynthesizeService', () => {
 
   it('returns no_results when search comes back empty', async () => {
     const { svc } = makeSvc(makeSearch([]), {}, []);
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out).toMatchObject<Partial<SynthesizeResult>>({
       answer: null,
       reason: 'no_results',
@@ -114,7 +114,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toBe("I don't have grounded evidence for that.");
     expect(out.reason).toBe('no_grounded_evidence');
     expect(out.citations).toEqual([]);
@@ -141,7 +141,7 @@ describe('SynthesizeService', () => {
         JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
       ],
     );
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toContain('broken washing machine');
     expect(out.reason).toBeUndefined();
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
@@ -170,11 +170,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize(
-      'co_x',
-      { ...baseDto, synthesisGuardrails: 'off' },
-      ['brain:read'],
-    );
+    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
     expect(out.citations.map((c) => c.factId)).toEqual([
       'knowledge_fact:abc123',
     ]);
@@ -204,11 +200,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize(
-      'co_x',
-      { ...baseDto, synthesisGuardrails: 'off' },
-      ['brain:read'],
-    );
+    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
     expect(out.citations.map((c) => c.factId)).toEqual([
       'knowledge_fact:abc123',
     ]);
@@ -230,11 +222,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize(
-      'co_x',
-      { ...baseDto, synthesisGuardrails: 'off' },
-      ['brain:read'],
-    );
+    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
     expect(out.citations).toEqual([]);
   });
 
@@ -258,7 +246,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toBeNull();
     expect(out.reason).toBe('verifier_failed');
     expect(out.citations).toEqual([]);
@@ -284,11 +272,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize(
-      'co_x',
-      { ...baseDto, synthesisGuardrails: 'lenient' },
-      ['brain:read'],
-    );
+    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'lenient' }, callerScopes: ['brain:read'] });
     expect(out.answer).toContain('fridge');
     expect(out.reason).toBe('verifier_failed');
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
@@ -314,11 +298,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize(
-      'co_x',
-      { ...baseDto, synthesisGuardrails: 'off' },
-      ['brain:read'],
-    );
+    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
     expect(out.answer).toContain('noisy neighbour');
     expect(out.reason).toBeUndefined();
     // Generator should be the only OpenAI call (no verifier).
@@ -349,7 +329,7 @@ describe('SynthesizeService', () => {
         JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
       ],
     );
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
   });
 
@@ -395,7 +375,7 @@ describe('SynthesizeService', () => {
         },
       },
     };
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toBeNull();
     expect(out.reason).toBe('verifier_error');
   });
@@ -416,7 +396,7 @@ describe('SynthesizeService', () => {
         }),
       ],
     );
-    const out = await svc.synthesize('co_x', baseDto, ['brain:read']);
+    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toContain('customer');
     expect(out.reason).toBeUndefined();
   });

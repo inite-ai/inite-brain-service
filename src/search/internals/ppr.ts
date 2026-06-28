@@ -66,12 +66,19 @@ export function buildPprSeed(
 
 /** PPR step 4 — power-iteration `r ← α·M·r + (1−α)·seed` with
  *  dangling-node mass returned to the seed slot. */
-export function runPprIterations(
-  ids: string[],
-  adj: Map<string, Array<{ to: string; w: number }>>,
-  outWeight: Map<string, number>,
-  seed: Map<string, number>,
-): Map<string, number> {
+export interface RunPprIterationsOptions {
+  ids: string[];
+  adj: Map<string, Array<{ to: string; w: number }>>;
+  outWeight: Map<string, number>;
+  seed: Map<string, number>;
+}
+
+export function runPprIterations({
+  ids,
+  adj,
+  outWeight,
+  seed,
+}: RunPprIterationsOptions): Map<string, number> {
   let r = new Map(seed);
   for (let i = 0; i < ITERATIONS; i++) {
     const next = new Map<string, number>();
@@ -136,6 +143,6 @@ export async function applyPprPrior(
   const seed = buildPprSeed(byEntity);
   if (!seed) return;
 
-  const r = runPprIterations(ids, adj, outWeight, seed);
+  const r = runPprIterations({ ids, adj, outWeight, seed });
   applyPprBoost(byEntity, r);
 }

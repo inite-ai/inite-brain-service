@@ -120,16 +120,27 @@ export function resolveExpansionConfig(env = process.env): ExpansionConfig {
  * Failure-soft: any query error logs and returns 0 — the pipeline
  * continues with the pre-expansion candidate set.
  */
-export async function expandViaEdges(
-  db: Surreal,
-  logger: { warn: (msg: string) => void },
-  byEntity: Map<string, EntityBucket>,
-  baseWhere: { sql: string; params: Record<string, unknown> },
-  dto: SearchDto,
-  callerScopes: string[],
-  passesPolicy: (row: FactRow, dto: SearchDto, scopes: string[]) => boolean,
-  config: ExpansionConfig = resolveExpansionConfig(),
-): Promise<number> {
+export interface ExpandViaEdgesOptions {
+  db: Surreal;
+  logger: { warn: (msg: string) => void };
+  byEntity: Map<string, EntityBucket>;
+  baseWhere: { sql: string; params: Record<string, unknown> };
+  dto: SearchDto;
+  callerScopes: string[];
+  passesPolicy: (row: FactRow, dto: SearchDto, scopes: string[]) => boolean;
+  config?: ExpansionConfig;
+}
+
+export async function expandViaEdges({
+  db,
+  logger,
+  byEntity,
+  baseWhere,
+  dto,
+  callerScopes,
+  passesPolicy,
+  config = resolveExpansionConfig(),
+}: ExpandViaEdgesOptions): Promise<number> {
   const seeds = selectEdgeExpansionSeeds(byEntity, config.topSeeds);
   if (seeds.length === 0) return 0;
 

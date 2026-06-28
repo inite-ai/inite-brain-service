@@ -64,6 +64,43 @@ export interface ForgetResult {
   forgottenAt: string;
 }
 
+export interface GetProfileOptions {
+  companyId: string;
+  entityIdRaw: string;
+  asOfRaw: string | undefined;
+  scopes: BrainScope[];
+}
+
+export interface FreshnessWatermarkOptions {
+  companyId: string;
+  entityIdRaw: string;
+  asOfRaw: string | undefined;
+  scopes: BrainScope[];
+}
+
+export interface GetTimelineOptions {
+  companyId: string;
+  entityIdRaw: string;
+  sinceRaw: string | undefined;
+  untilRaw: string | undefined;
+  scopes: BrainScope[];
+}
+
+export interface GetConnectionsOptions {
+  companyId: string;
+  entityIdRaw: string;
+  kind: string | undefined;
+  scopes?: BrainScope[];
+  asOf?: string;
+}
+
+export interface ForgetOptions {
+  companyId: string;
+  entityIdRaw: string;
+  dto: ForgetEntityDto;
+  actorKeyHash?: string;
+}
+
 @Injectable()
 export class EntitiesService {
   private readonly logger = new Logger(EntitiesService.name);
@@ -82,12 +119,12 @@ export class EntitiesService {
       this.configService.get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
   }
 
-  async getProfile(
-    companyId: string,
-    entityIdRaw: string,
-    asOfRaw: string | undefined,
-    scopes: BrainScope[],
-  ): Promise<EntityProfile> {
+  async getProfile({
+    companyId,
+    entityIdRaw,
+    asOfRaw,
+    scopes,
+  }: GetProfileOptions): Promise<EntityProfile> {
     const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
 
@@ -165,12 +202,12 @@ export class EntitiesService {
    * every cache hit. Returns nulls when the entity has no qualifying
    * facts.
    */
-  async freshnessWatermark(
-    companyId: string,
-    entityIdRaw: string,
-    asOfRaw: string | undefined,
-    scopes: BrainScope[],
-  ): Promise<{ maxRecordedAt: string | null; maxValidFrom: string | null }> {
+  async freshnessWatermark({
+    companyId,
+    entityIdRaw,
+    asOfRaw,
+    scopes,
+  }: FreshnessWatermarkOptions): Promise<{ maxRecordedAt: string | null; maxValidFrom: string | null }> {
     const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
@@ -214,13 +251,13 @@ export class EntitiesService {
     });
   }
 
-  async getTimeline(
-    companyId: string,
-    entityIdRaw: string,
-    sinceRaw: string | undefined,
-    untilRaw: string | undefined,
-    scopes: BrainScope[],
-  ): Promise<{ entityId: string; events: any[] }> {
+  async getTimeline({
+    companyId,
+    entityIdRaw,
+    sinceRaw,
+    untilRaw,
+    scopes,
+  }: GetTimelineOptions): Promise<{ entityId: string; events: any[] }> {
     const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
@@ -273,13 +310,13 @@ export class EntitiesService {
     });
   }
 
-  async getConnections(
-    companyId: string,
-    entityIdRaw: string,
-    kind: string | undefined,
-    scopes: BrainScope[] = [],
-    asOf?: string,
-  ): Promise<{ entityId: string; edges: any[] }> {
+  async getConnections({
+    companyId,
+    entityIdRaw,
+    kind,
+    scopes = [],
+    asOf,
+  }: GetConnectionsOptions): Promise<{ entityId: string; edges: any[] }> {
     const ref = normalizeEntityId(entityIdRaw);
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
@@ -367,12 +404,12 @@ export class EntitiesService {
     });
   }
 
-  async forget(
-    companyId: string,
-    entityIdRaw: string,
-    dto: ForgetEntityDto,
-    actorKeyHash?: string,
-  ): Promise<ForgetResult> {
+  async forget({
+    companyId,
+    entityIdRaw,
+    dto,
+    actorKeyHash,
+  }: ForgetOptions): Promise<ForgetResult> {
     const ref = normalizeEntityId(entityIdRaw);
 
     const result = await this.surreal.withCompany(companyId, async (db) => {

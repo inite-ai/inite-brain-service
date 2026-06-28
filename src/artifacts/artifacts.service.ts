@@ -71,18 +71,32 @@ export interface KnowledgeArtifact {
 
 type FactRow = TemplateFactRow;
 
+export interface GetArtifactOptions {
+  companyId: string;
+  entityIdRaw: string;
+  artifactType: ArtifactType;
+  scopes: BrainScope[];
+}
+
+export interface RecompileArtifactOptions {
+  companyId: string;
+  entityIdRaw: string;
+  artifactType: ArtifactType;
+  scopes: BrainScope[];
+}
+
 @Injectable()
 export class ArtifactsService {
   private readonly logger = new Logger(ArtifactsService.name);
 
   constructor(private readonly surreal: SurrealService) {}
 
-  async getArtifact(
-    companyId: string,
-    entityIdRaw: string,
-    artifactType: ArtifactType,
-    scopes: BrainScope[],
-  ): Promise<KnowledgeArtifact> {
+  async getArtifact({
+    companyId,
+    entityIdRaw,
+    artifactType,
+    scopes,
+  }: GetArtifactOptions): Promise<KnowledgeArtifact> {
     const ref = this.normalizeEntityId(entityIdRaw);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // 1. Verify entity exists.
@@ -100,7 +114,13 @@ export class ArtifactsService {
       if (cached && !cached.dirty) {
         const ageMs = now - new Date(cached.builtAt).getTime();
         if (ageMs < cached.staleAfterMs) {
-          return this.shapeForReturn(cached, ref.full, scopes, ageMs, artifactType);
+          return this.shapeForReturn({
+            cached,
+            fullSelf: ref.full,
+            scopes,
+            ageMs,
+            artifactType,
+          });
         }
       }
 
@@ -112,29 +132,35 @@ export class ArtifactsService {
       // are unnecessary here because the unique index on (entityId,
       // artifactType) lets us either CREATE or UPDATE in one go.
       // We use UPDATE...UPSERT-style: update if exists, else create.
-      const stored = await this.upsertArtifact(
+      const stored = await this.upsertArtifact({
         db,
-        ref.id,
+        rid: ref.id,
         artifactType,
-        compiled.payload,
-        compiled.citations,
-        compiled.sourceFactIds,
+        payload: compiled.payload,
+        citations: compiled.citations,
+        sourceFactIds: compiled.sourceFactIds,
         // dirty as observed before we read facts; the CAS clears it only if
         // unchanged since (no fact-change event fired during compile).
-        cached?.dirty ?? false,
-      );
+        expectedDirty: cached?.dirty ?? false,
+      });
       const ageMs = now - new Date(stored.builtAt).getTime();
-      return this.shapeForReturn(stored, ref.full, scopes, ageMs, artifactType);
+      return this.shapeForReturn({
+        cached: stored,
+        fullSelf: ref.full,
+        scopes,
+        ageMs,
+        artifactType,
+      });
     });
   }
 
   /** Force-recompile and return — bypasses cache freshness check. */
-  async recompileArtifact(
-    companyId: string,
-    entityIdRaw: string,
-    artifactType: ArtifactType,
-    scopes: BrainScope[],
-  ): Promise<KnowledgeArtifact> {
+  async recompileArtifact({
+    companyId,
+    entityIdRaw,
+    artifactType,
+    scopes,
+  }: RecompileArtifactOptions): Promise<KnowledgeArtifact> {
     const ref = this.normalizeEntityId(entityIdRaw);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [entRows] = await db.query<any[][]>(
@@ -149,16 +175,22 @@ export class ArtifactsService {
       const before = await this.fetchCached(db, ref.id, artifactType);
       const facts = await this.fetchActiveFacts(db, ref.id, scopes);
       const compiled = this.compile(artifactType, facts);
-      const stored = await this.upsertArtifact(
+      const stored = await this.upsertArtifact({
         db,
-        ref.id,
+        rid: ref.id,
         artifactType,
-        compiled.payload,
-        compiled.citations,
-        compiled.sourceFactIds,
-        before?.dirty ?? false,
-      );
-      return this.shapeForReturn(stored, ref.full, scopes, 0, artifactType);
+        payload: compiled.payload,
+        citations: compiled.citations,
+        sourceFactIds: compiled.sourceFactIds,
+        expectedDirty: before?.dirty ?? false,
+      });
+      return this.shapeForReturn({
+        cached: stored,
+        fullSelf: ref.full,
+        scopes,
+        ageMs: 0,
+        artifactType,
+      });
     });
   }
 
@@ -251,15 +283,23 @@ export class ArtifactsService {
       }));
   }
 
-  private async upsertArtifact(
-    db: Surreal,
-    rid: string,
-    artifactType: ArtifactType,
-    payload: Record<string, unknown>,
-    citations: KnowledgeArtifact['citations'],
-    sourceFactIds: string[],
-    expectedDirty: boolean,
-  ) {
+  private async upsertArtifact({
+    db,
+    rid,
+    artifactType,
+    payload,
+    citations,
+    sourceFactIds,
+    expectedDirty,
+  }: {
+    db: Surreal;
+    rid: string;
+    artifactType: ArtifactType;
+    payload: Record<string, unknown>;
+    citations: KnowledgeArtifact['citations'];
+    sourceFactIds: string[];
+    expectedDirty: boolean;
+  }) {
     // Wrap payload + citations together so they round-trip as a single
     // FLEXIBLE object — schema has one `payload` field, no need for
     // a separate citations column.
@@ -324,19 +364,25 @@ export class ArtifactsService {
     };
   }
 
-  private shapeForReturn(
+  private shapeForReturn({
+    cached,
+    fullSelf,
+    scopes,
+    ageMs,
+    artifactType,
+  }: {
     cached: {
       payload: Record<string, unknown>;
       citations: KnowledgeArtifact['citations'];
       sourceFactIds: string[];
       builtAt: string;
       staleAfterMs: number;
-    },
-    fullSelf: string,
-    scopes: BrainScope[],
-    ageMs: number,
-    artifactType: ArtifactType,
-  ): KnowledgeArtifact {
+    };
+    fullSelf: string;
+    scopes: BrainScope[];
+    ageMs: number;
+    artifactType: ArtifactType;
+  }): KnowledgeArtifact {
     // PII filter on the COMPILED payload — drop fields whose source
     // predicates require a scope the caller doesn't carry. The
     // citations array also gets pruned so we don't leak factIds for

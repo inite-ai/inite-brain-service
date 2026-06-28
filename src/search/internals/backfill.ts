@@ -19,15 +19,25 @@ import type { FactRow } from './types';
  * Per-entity LIMIT pushed into DB — no JS-side dedup needed, no
  * over-fetch.
  */
-export async function backfillEntityFacts(
-  db: Surreal,
-  logger: { warn: (msg: string) => void },
-  entityIds: string[],
-  baseWhere: { sql: string; params: Record<string, unknown> },
-  dto: SearchDto,
-  callerScopes: string[],
-  passesPolicy: (row: FactRow, dto: SearchDto, scopes: string[]) => boolean,
-): Promise<Map<string, FactRow[]>> {
+export interface BackfillEntityFactsOptions {
+  db: Surreal;
+  logger: { warn: (msg: string) => void };
+  entityIds: string[];
+  baseWhere: { sql: string; params: Record<string, unknown> };
+  dto: SearchDto;
+  callerScopes: string[];
+  passesPolicy: (row: FactRow, dto: SearchDto, scopes: string[]) => boolean;
+}
+
+export async function backfillEntityFacts({
+  db,
+  logger,
+  entityIds,
+  baseWhere,
+  dto,
+  callerScopes,
+  passesPolicy,
+}: BackfillEntityFactsOptions): Promise<Map<string, FactRow[]>> {
   const out = new Map<string, FactRow[]>();
   if (entityIds.length === 0) return out;
   const ids = entityIds.map((raw) => {

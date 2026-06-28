@@ -199,13 +199,13 @@ export class IngestService {
 
       // HyPE: generate a hypothetical-question embedding and write it onto
       // the new fact (shared with recordExtractedFact via this helper).
-      await this.writeAltEmbeddingIfHype(
+      await this.writeAltEmbeddingIfHype({
         db,
         factId,
         outcome,
-        dto.predicate,
-        objectStr,
-      );
+        predicate: dto.predicate,
+        object: objectStr,
+      });
 
       const out: IngestResult = { factId, outcome };
       if (result?.reason) out.reason = String(result.reason);
@@ -351,13 +351,13 @@ export class IngestService {
           const eid = await traceSpan(
             'ingest.entity.resolve',
             () =>
-              this.resolveOrCreateNamedEntity(
+              this.resolveOrCreateNamedEntity({
                 db,
                 e,
-                knownHint,
-                dto.contextRef,
+                hint: knownHint,
+                _contextRef: dto.contextRef,
                 incomingFacts,
-              ),
+              }),
             { name: e.name, type: e.type },
           );
           entityIds.push(eid);
@@ -404,14 +404,19 @@ export class IngestService {
           const result = await traceSpan(
             'ingest.fact.upsert',
             () =>
-              this.recordExtractedFact(db, companyId, eid, {
-                predicate: f.predicate,
-                object: f.object,
-                confidence: f.confidence,
-                validFrom: new Date(dto.emittedAt),
-                source: sourceFromContext,
-                extractionEntropy: f.extractionEntropy,
-                precomputedEmbedding: factEmbeddings[i],
+              this.recordExtractedFact({
+                db,
+                companyId,
+                entityId: eid,
+                factPayload: {
+                  predicate: f.predicate,
+                  object: f.object,
+                  confidence: f.confidence,
+                  validFrom: new Date(dto.emittedAt),
+                  source: sourceFromContext,
+                  extractionEntropy: f.extractionEntropy,
+                  precomputedEmbedding: factEmbeddings[i],
+                },
               }),
             { predicate: f.predicate, entityId: eid },
           );
@@ -431,12 +436,18 @@ export class IngestService {
             const edgeId = await traceSpan(
               'ingest.edge.upsert',
               () =>
-                this.createEdgeBetween(db, fromEid, toEid, e.kind, {
-                  vertical: dto.contextRef.vertical,
-                  eventId: dto.contextRef.eventId,
-                  conversationId: dto.contextRef.conversationId,
-                  messageId: dto.contextRef.messageId,
-                  confidence: e.confidence,
+                this.createEdgeBetween({
+                  db,
+                  fromEntityId: fromEid,
+                  toEntityId: toEid,
+                  kind: e.kind,
+                  source: {
+                    vertical: dto.contextRef.vertical,
+                    eventId: dto.contextRef.eventId,
+                    conversationId: dto.contextRef.conversationId,
+                    messageId: dto.contextRef.messageId,
+                    confidence: e.confidence,
+                  },
                 }),
               { kind: e.kind, from: fromEid, to: toEid },
             );
@@ -469,13 +480,19 @@ export class IngestService {
    * Idempotent: UNIQUE on (in, out, kind) — concurrent / duplicate
    * RELATEs return the existing edge id.
    */
-  private async createEdgeBetween(
-    db: Surreal,
-    fromEntityId: string,
-    toEntityId: string,
-    kind: string,
-    source: Record<string, unknown>,
-  ): Promise<string | null> {
+  private async createEdgeBetween({
+    db,
+    fromEntityId,
+    toEntityId,
+    kind,
+    source,
+  }: {
+    db: Surreal;
+    fromEntityId: string;
+    toEntityId: string;
+    kind: string;
+    source: Record<string, unknown>;
+  }): Promise<string | null> {
     const fromRid = new StringRecordId(fromEntityId);
     const toRid = new StringRecordId(toEntityId);
     try {
@@ -695,13 +712,19 @@ export class IngestService {
     );
   }
 
-  private async resolveOrCreateNamedEntity(
-    db: Surreal,
-    e: { name: string; type: string; canonical?: string },
-    hint: { vertical: string; id: string; role?: string } | undefined,
-    _contextRef: { vertical: string },
-    incomingFacts: string[] = [],
-  ): Promise<string> {
+  private async resolveOrCreateNamedEntity({
+    db,
+    e,
+    hint,
+    _contextRef,
+    incomingFacts = [],
+  }: {
+    db: Surreal;
+    e: { name: string; type: string; canonical?: string };
+    hint: { vertical: string; id: string; role?: string } | undefined;
+    _contextRef: { vertical: string };
+    incomingFacts?: string[];
+  }): Promise<string> {
     // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
       const hintKey = externalRefKey(hint.vertical, hint.id);
@@ -737,12 +760,12 @@ export class IngestService {
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
     if (this.entityResolver?.isEnabled()) {
-      const resolved = await this.entityResolver.resolveByName(
+      const resolved = await this.entityResolver.resolveByName({
         db,
-        e.name,
-        this.normalizeEntityType(e.type),
+        name: e.name,
+        type: this.normalizeEntityType(e.type),
         incomingFacts,
-      );
+      });
       if (resolved) return resolved;
     }
 
@@ -777,10 +800,15 @@ export class IngestService {
    * and noisy, so we let the conflict-resolution pass at search time handle
    * dedup via embeddings + decay rather than blocking ingest.
    */
-  private async recordExtractedFact(
-    db: Surreal,
-    companyId: string,
-    entityId: string,
+  private async recordExtractedFact({
+    db,
+    companyId,
+    entityId,
+    factPayload,
+  }: {
+    db: Surreal;
+    companyId: string;
+    entityId: string;
     factPayload: {
       predicate: string;
       object: string;
@@ -795,8 +823,8 @@ export class IngestService {
        * legacy path).
        */
       precomputedEmbedding?: number[];
-    },
-  ): Promise<{
+    };
+  }): Promise<{
     factId: string | null;
     outcome?: IngestOutcome;
     supersededFactIds?: string[];
@@ -878,7 +906,7 @@ export class IngestService {
     // INSERTED only, server-side, with no follow-up round-trips. HyPE stays a
     // post-call UPDATE: it's an LLM call, gated on isEnabled() AND INSERTED,
     // so pre-computing it would burn the model on non-INSERTED outcomes.
-    await this.writeAltEmbeddingIfHype(db, factId, outcome, predicate, object);
+    await this.writeAltEmbeddingIfHype({ db, factId, outcome, predicate, object });
 
     // Surface supersede / compete outcomes in the trace so the demo can
     // show "Berlin fact closed at July 1, Dublin became current" —
@@ -948,13 +976,19 @@ export class IngestService {
    * factId); when HyPE is off generateAltEmbedding returns null and we skip
    * the UPDATE — no extra ingest latency.
    */
-  private async writeAltEmbeddingIfHype(
-    db: Surreal,
-    factId: string | null,
-    outcome: unknown,
-    predicate: string,
-    object: string,
-  ): Promise<void> {
+  private async writeAltEmbeddingIfHype({
+    db,
+    factId,
+    outcome,
+    predicate,
+    object,
+  }: {
+    db: Surreal;
+    factId: string | null;
+    outcome: unknown;
+    predicate: string;
+    object: string;
+  }): Promise<void> {
     if (!shouldWriteHypeAltEmbedding(outcome, this.hype.isEnabled(), factId)) {
       return;
     }

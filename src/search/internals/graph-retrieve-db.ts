@@ -172,12 +172,19 @@ export async function fetchEntitiesByIds(
  * to still surface a couple of distinct facts on busy entities, small
  * enough that the demo response stays tight.
  */
-export async function fetchFactsForEntities(
-  db: Surreal,
-  entityIds: string[],
-  predicateHints: string[],
-  asOf: string | undefined,
-): Promise<Map<string, GraphFactRow[]>> {
+export interface FetchFactsForEntitiesOptions {
+  db: Surreal;
+  entityIds: string[];
+  predicateHints: string[];
+  asOf: string | undefined;
+}
+
+export async function fetchFactsForEntities({
+  db,
+  entityIds,
+  predicateHints,
+  asOf,
+}: FetchFactsForEntitiesOptions): Promise<Map<string, GraphFactRow[]>> {
   const out = new Map<string, GraphFactRow[]>();
   if (entityIds.length === 0) return out;
   const rids = entityIds.map((s) => new StringRecordId(s));
