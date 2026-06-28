@@ -25,6 +25,7 @@ export class CommunitiesController {
     return { communities };
   }
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('search')
   @RequireScopes('brain:read')
   async search(

@@ -33,6 +33,7 @@ export class EntitiesController {
     });
   }
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/timeline')
   @RequireScopes('brain:read')
   async getTimeline(
@@ -50,6 +51,7 @@ export class EntitiesController {
     });
   }
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/connections')
   @RequireScopes('brain:read')
   async getConnections(

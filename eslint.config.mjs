@@ -28,8 +28,10 @@ import globals from 'globals';
  *   - `max-classes-per-file` (1)     — one class per module file.
  *     Helper types/interfaces ok; multiple @Injectable classes in one
  *     file is a Single Responsibility smell.
- *   - `max-params` (8)               — argument-list bloat. Past 8 the
- *     callee almost certainly wants a typed config object.
+ *   - `max-params` (3)               — argument-list bloat. Past 3 the
+ *     callee wants a typed options object; DI constructors past 3 want a
+ *     responsibility split. The only exemptions are decorated HTTP route
+ *     handlers (@Query/@Param/@Body bindings), marked per-line.
  *   - `complexity` (25)              — cyclomatic complexity per fn.
  *   - `sonarjs/cognitive-complexity` (30) — readability-weighted variant.
  *
@@ -48,7 +50,7 @@ const sizeGates = {
     { max: 200, skipBlankLines: true, skipComments: true, IIFEs: true },
   ],
   'max-classes-per-file': ['error', 1],
-  'max-params': ['error', 8],
+  'max-params': ['error', 3],
   complexity: ['error', 25],
   'sonarjs/cognitive-complexity': ['error', 30],
 };
