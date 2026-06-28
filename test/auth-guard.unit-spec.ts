@@ -24,6 +24,7 @@ import {
 } from 'jose';
 import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ApiKeyService } from '../src/auth/api-key.service';
+import { CredentialResolverService } from '../src/auth/credential-resolver.service';
 import { JwksService } from '../src/auth/jwks.service';
 
 const ISSUER = 'https://auth.test';
@@ -125,12 +126,12 @@ describe('ApiKeyGuard — JWKS verification', () => {
     apiKeys = new ApiKeyService(config as unknown as ConfigService);
     apiKeys.onModuleInit();
 
-    guard = new ApiKeyGuard(
+    const credentials = new CredentialResolverService(
       apiKeys,
       jwks,
-      new Reflector(),
       config as unknown as ConfigService,
     );
+    guard = new ApiKeyGuard(credentials, new Reflector());
   });
 
   afterAll(async () => {
@@ -231,12 +232,12 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
     jwks.onModuleInit();
     apiKeys = new ApiKeyService(config as unknown as ConfigService);
     apiKeys.onModuleInit();
-    guard = new ApiKeyGuard(
+    const credentials = new CredentialResolverService(
       apiKeys,
       jwks,
-      new Reflector(),
       config as unknown as ConfigService,
     );
+    guard = new ApiKeyGuard(credentials, new Reflector());
   });
 
   afterAll(async () => {
