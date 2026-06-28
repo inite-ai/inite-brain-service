@@ -37,7 +37,6 @@ function makeController(): AdminInfraController {
     undef,
     undef,
     undef,
-    undef,
     throttler,
     undef,
   );

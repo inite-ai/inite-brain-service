@@ -15,6 +15,7 @@ import { AdminPredicatesController } from './admin-predicates.controller';
 import { AdminJobsController } from './admin-jobs.controller';
 import { AdminOpsController } from './admin-ops.controller';
 import { AdminInfraController } from './admin-infra.controller';
+import { AdminInfraService } from './admin-infra.service';
 import { AdminService } from './admin.service';
 import { OperatorActionService } from './operator-action.service';
 import { OperatorActionInterceptor } from './operator-action.interceptor';
@@ -54,6 +55,7 @@ import { ConfigInspectorService } from './config-inspector.service';
   ],
   providers: [
     AdminService,
+    AdminInfraService,
     ScenarioRunnerService,
     BaselineService,
     ChatRouterCacheService,

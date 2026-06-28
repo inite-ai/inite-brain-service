@@ -3,6 +3,7 @@
  */
 import { MigrationsResponseSchema } from '../src/contracts/admin/migrations.schema';
 import { AdminInfraController } from '../src/admin/admin-infra.controller';
+import { AdminInfraService } from '../src/admin/admin-infra.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { ApiKeyService } from '../src/auth/api-key.service';
 
@@ -28,10 +29,10 @@ function makeController(): AdminInfraController {
   const apiKeys = {
     knownCompanyIds: () => ['tenant-a'],
   } as unknown as ApiKeyService;
+  const adminInfra = new AdminInfraService(surreal, apiKeys);
   const undef = undefined as unknown as never;
   return new AdminInfraController(
-    surreal,
-    apiKeys,
+    adminInfra,
     undef,
     undef,
     undef,
