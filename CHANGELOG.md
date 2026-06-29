@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0](https://github.com/inite-ai/inite-brain-service/compare/v0.2.0...v0.3.0) (2026-06-29)
+
+
+### Features
+
+* **code-memory:** Phase 0 — record_decision/why MCP tools + code-decision predicate pack ([#71](https://github.com/inite-ai/inite-brain-service/issues/71)) ([ee903f4](https://github.com/inite-ai/inite-brain-service/commit/ee903f47216dee67d89ce31f267850409c67fca9))
+* **code-memory:** Phase 1 — hybrid client-side decision capture (layered gate + LLM extract) ([#72](https://github.com/inite-ai/inite-brain-service/issues/72)) ([75a1ac0](https://github.com/inite-ai/inite-brain-service/commit/75a1ac097f73e5e97faa842240819ed32ba64b83))
+* **domain-packs:** pluggable versioned ontology pack standard + namespacing (code-memory becomes pack [#1](https://github.com/inite-ai/inite-brain-service/issues/1)) ([#73](https://github.com/inite-ai/inite-brain-service/issues/73)) ([d035661](https://github.com/inite-ai/inite-brain-service/commit/d035661f32594d40993118f3c5a90651e2620f01))
+* **ops:** observability + deploy resilience ([#30](https://github.com/inite-ai/inite-brain-service/issues/30)) ([8b04244](https://github.com/inite-ai/inite-brain-service/commit/8b04244b65c7aa8b4e1a65b359fa8bfc7575bde1))
+* **security:** auth hardening, body limits, worker-pool self-heal & correctness fences ([#27](https://github.com/inite-ai/inite-brain-service/issues/27)) ([a89c625](https://github.com/inite-ai/inite-brain-service/commit/a89c625d96181574f31fed7771a6d564baebd475))
+
+
+### Bug Fixes
+
+* **communities:** deterministic fact order so community summaries are reproducible ([#32](https://github.com/inite-ai/inite-brain-service/issues/32)) ([48c4f7b](https://github.com/inite-ai/inite-brain-service/commit/48c4f7b9421dd68d56eafa3a4cae9ce627f6cf3b))
+* **jobs:** make JobDispatcherService.dispatchBody take an options object (max-params) ([#66](https://github.com/inite-ai/inite-brain-service/issues/66)) ([a1211e8](https://github.com/inite-ai/inite-brain-service/commit/a1211e8187baec5efca8313dd5b577b736d527a0))
+* **synthesize:** resolve inline + prefix-drifted citations (citation-rate) ([#42](https://github.com/inite-ai/inite-brain-service/issues/42)) ([196a9b1](https://github.com/inite-ai/inite-brain-service/commit/196a9b176db54c2e2817d811b01b92081fca6d2f))
+* **test:** migrate runner-driven specs off the SDK to HttpBrainClient ([#45](https://github.com/inite-ai/inite-brain-service/issues/45)) ([a4564bd](https://github.com/inite-ai/inite-brain-service/commit/a4564bdbab564406e0911e528bf24f3e06d18a38))
+
 ## [0.2.0](https://github.com/inite-ai/inite-brain-service/compare/v0.1.0...v0.2.0) (2026-06-25)
 
 
