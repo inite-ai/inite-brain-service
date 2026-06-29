@@ -16,7 +16,10 @@ import {
   type Semantics,
   SNAPSHOT_TTL_MS,
 } from './predicate-registry-internals/types';
-import { CORE_PREDICATES } from './predicate-registry-internals/core-seed';
+// Core + installed Domain Packs (namespaced predicates), assembled + collision-
+// checked at load. The registry seeds / falls back on the MERGED set so a pack's
+// predicates are bootstrapped into every tenant. See src/ai/domain-packs.
+import { SEED_PREDICATES } from './domain-packs';
 import {
   computeHash,
   deserializeFromRow,
@@ -129,7 +132,7 @@ export class PredicateRegistryService {
         embedding?: number[] | null;
       }>) ?? [];
       const existingIds = new Set(existing.map((r) => r.predicateId));
-      const missing = CORE_PREDICATES.filter(
+      const missing = SEED_PREDICATES.filter(
         (p) => !existingIds.has(p.predicateId),
       );
       if (missing.length > 0) {
@@ -176,7 +179,7 @@ export class PredicateRegistryService {
           `Backfilling embeddings for ${needBackfill.length} predicate(s) in ${companyId}`,
         );
         const texts = needBackfill.map((row) => {
-          const seed = CORE_PREDICATES.find(
+          const seed = SEED_PREDICATES.find(
             (p) => p.predicateId === row.predicateId,
           );
           return seed
@@ -250,7 +253,7 @@ export class PredicateRegistryService {
     // Fallback: CORE seed table by predicate id. Covers the case where the
     // tenant snapshot wasn't preloaded yet (early-boot search path) — the
     // policy reflects the code-side defaults until the cache populates.
-    const seed = CORE_PREDICATES.find((p) => p.predicateId === predicate);
+    const seed = SEED_PREDICATES.find((p) => p.predicateId === predicate);
     return seed ?? DEFAULT_FALLBACK;
   }
 

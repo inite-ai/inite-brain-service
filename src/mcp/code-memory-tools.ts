@@ -3,6 +3,12 @@ import { z } from 'zod';
 import type { IngestService } from '../ingest/ingest.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { BrainScope } from '../auth/api-key.types';
+import {
+  CODE_MEMORY_KINDS,
+  CODE_MEMORY_PREDICATE_IDS,
+  codeMemoryKindOf,
+  codeMemoryPredicateId,
+} from '../ai/domain-packs';
 
 /**
  * Code-memory MCP surface (Phase 0 — docs/roadmap/code-memory-domain.md).
@@ -18,8 +24,6 @@ import type { BrainScope } from '../auth/api-key.types';
  * over the existing ingest + entity-read paths — no new retrieval engine.
  */
 
-/** The four code-memory predicates seeded in CORE_PREDICATES. */
-const CODE_MEMORY_KINDS = ['decided', 'because', 'invariant', 'gotcha'] as const;
 /** Vertical used for code-anchor external refs. */
 const CODE_VERTICAL = 'code';
 
@@ -63,15 +67,14 @@ export function registerCodeMemoryReadTools(opts: {
         asOfRaw: args.asOf,
         scopes,
       });
-      const memory = (profile?.facts ?? []).filter((f) =>
-        (CODE_MEMORY_KINDS as readonly string[]).includes(f.predicate),
-      );
+      const codeIds = new Set(CODE_MEMORY_PREDICATE_IDS);
+      const memory = (profile?.facts ?? []).filter((f) => codeIds.has(f.predicate));
       const out = {
         symbol: args.symbol,
         entityId: profile?.entityId ?? null,
         found: memory.length,
         memory: memory.map((f) => ({
-          kind: f.predicate,
+          kind: codeMemoryKindOf(f.predicate),
           text: f.object,
           validFrom: f.validFrom,
           validUntil: f.validUntil,
@@ -131,7 +134,7 @@ export function registerCodeMemoryWriteTools(opts: {
     async (args) => {
       const out = await deps.ingest.ingestFact(companyId, {
         entityRef: { vertical: CODE_VERTICAL, id: args.symbol },
-        predicate: args.kind,
+        predicate: codeMemoryPredicateId(args.kind),
         object: args.text,
         validFrom: args.validFrom ?? new Date().toISOString(),
         confidence: args.confidence,

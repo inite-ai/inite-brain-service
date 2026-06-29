@@ -33,6 +33,7 @@
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
     "bench:router": "ts-node -r tsconfig-paths/register scripts/bench-chat-router.ts",
     "capture:decisions": "ts-node -r tsconfig-paths/register scripts/capture-decisions.ts",
+    "pack:validate": "ts-node -r tsconfig-paths/register scripts/validate-pack.ts",
     "test:eval:fat": "pnpm build && FAT_TENANT_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=fat-tenant",
     "test:eval:directory": "pnpm build && DIRECTORY_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=directory",
     "test:eval:json": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=json-directory",

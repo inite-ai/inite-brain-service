@@ -116,7 +116,7 @@ describe('HttpDecisionSink', () => {
       vertical: 'code',
       id: 'src/ingest/fact-resolver.service.ts',
     });
-    expect(body.predicate).toBe('decided');
+    expect(body.predicate).toBe('code_memory__decided');
     expect(body.source.eventId).toBe('f0e824b1');
     expect(body.source.recorder).toBe('code_memory_capture');
     expect(body.source.messageId).toBe('src/ingest/fact-resolver.service.ts:145');
