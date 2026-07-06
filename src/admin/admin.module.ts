@@ -26,6 +26,8 @@ import { OperatorActionService } from './operator-action.service';
 import { OperatorActionInterceptor } from './operator-action.interceptor';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
 import { ThrottlerObservabilityInterceptor } from './throttler-observability.interceptor';
+import { AdminPacksController } from './admin-packs.controller';
+import { DomainPackInstallService } from './domain-pack-install.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { ScenarioWriteService } from './scenario-write.service';
 import { ScenarioLifecycleService } from './scenario-lifecycle.service';
@@ -63,6 +65,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminJobsController,
     AdminOpsController,
     AdminInfraController,
+    AdminPacksController,
   ],
   providers: [
     AdminService,
@@ -72,6 +75,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     DemoStateService,
     DemoPipelineService,
     DemoChatService,
+    DomainPackInstallService,
     ScenarioRunnerService,
     // Scenario-runner phase services (max-params split):
     ScenarioWriteService,
