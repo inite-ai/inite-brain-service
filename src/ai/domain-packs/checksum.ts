@@ -13,6 +13,12 @@ export function packChecksum(manifest: DomainPackManifest): string {
   return createHash('sha256').update(canonicalize(manifest)).digest('hex');
 }
 
+/** Canonical (recursively key-sorted) JSON string of any value. Shared by the
+ *  checksum and the signature (which signs the manifest minus its own sig). */
+export function canonicalJson(value: unknown): string {
+  return canonicalize(value);
+}
+
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value) ?? 'null';

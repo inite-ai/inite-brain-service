@@ -27,4 +27,5 @@ export const SEED_PREDICATES: PredicateDefinition[] = assembleSeed(
 export * from './manifest';
 export * from './validate';
 export * from './checksum';
+export * from './signature';
 export * from './code-memory.pack';

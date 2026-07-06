@@ -35,6 +35,7 @@
     "capture:decisions": "ts-node -r tsconfig-paths/register scripts/capture-decisions.ts",
     "pack:validate": "ts-node -r tsconfig-paths/register scripts/validate-pack.ts",
     "pack:install": "ts-node -r tsconfig-paths/register scripts/install-pack.ts",
+    "pack:sign": "ts-node -r tsconfig-paths/register scripts/sign-pack.ts",
     "code-memory:validate-anchors": "ts-node -r tsconfig-paths/register scripts/validate-anchors.ts",
     "test:eval:fat": "pnpm build && FAT_TENANT_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=fat-tenant",
     "test:eval:directory": "pnpm build && DIRECTORY_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=directory",
