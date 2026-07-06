@@ -27,6 +27,8 @@ import { OperatorActionInterceptor } from './operator-action.interceptor';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
 import { ThrottlerObservabilityInterceptor } from './throttler-observability.interceptor';
 import { AdminPacksController } from './admin-packs.controller';
+import { AdminCodeMemoryController } from './admin-code-memory.controller';
+import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { ScenarioWriteService } from './scenario-write.service';
@@ -56,6 +58,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     // @Global, so without this import Nest fails to resolve the
     // controller and the whole app refuses to boot.
     CompactionModule,
+    CodeMemoryModule,
   ],
   controllers: [
     AdminController,
@@ -66,6 +69,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminOpsController,
     AdminInfraController,
     AdminPacksController,
+    AdminCodeMemoryController,
   ],
   providers: [
     AdminService,

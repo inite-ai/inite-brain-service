@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
 import { CodeMemorySearchService } from './code-memory-search.service';
+import { CodeMemoryAnchorService } from './code-memory-anchor.service';
 
 /**
- * Server-side code-memory retrieval (Phase 3b). SurrealService + EmbedderService
- * are provided by their @Global modules, so this module only declares the
- * code-memory-specific service and exports it for the MCP surface.
+ * Server-side code-memory services: semantic retrieval (Phase 3b) + anchor
+ * re-validation (Phase 2b). SurrealService + EmbedderService come from their
+ * @Global modules; this module declares + exports the code-memory-specific
+ * services for the MCP + admin surfaces.
  */
 @Module({
-  providers: [CodeMemorySearchService],
-  exports: [CodeMemorySearchService],
+  providers: [CodeMemorySearchService, CodeMemoryAnchorService],
+  exports: [CodeMemorySearchService, CodeMemoryAnchorService],
 })
 export class CodeMemoryModule {}
