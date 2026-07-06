@@ -10,6 +10,7 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
 import type { PredicateDefinition } from '../ai/predicate-registry-internals/types';
 import {
+  assertPackTrust,
   BUILTIN_PACKS,
   composePredicateId,
   DomainPackError,
@@ -52,6 +53,17 @@ export class DomainPackInstallService {
     private readonly embedder: EmbedderService,
     private readonly registry: PredicateRegistryService,
   ) {}
+
+  /** Trust store: publisher → PEM public key, from DOMAIN_PACK_TRUSTED_KEYS
+   *  (JSON). Empty when unset — then only unsigned packs install (unless
+   *  DOMAIN_PACK_REQUIRE_SIGNATURE forces signing). */
+  private trustedKeys(): Record<string, string> {
+    try {
+      return JSON.parse(process.env.DOMAIN_PACK_TRUSTED_KEYS ?? '{}');
+    } catch {
+      return {};
+    }
+  }
 
   listAvailable(): AvailablePack[] {
     return BUILTIN_PACKS.map((p) => ({
@@ -103,6 +115,16 @@ export class DomainPackInstallService {
       throw new BadRequestException(
         `pack id "${manifest.id}" is reserved by a builtin pack and is already globally available`,
       );
+    }
+    try {
+      assertPackTrust({
+        manifest,
+        trustedKeys: this.trustedKeys(),
+        requireSignature: process.env.DOMAIN_PACK_REQUIRE_SIGNATURE === 'true',
+      });
+    } catch (e) {
+      if (e instanceof DomainPackError) throw new BadRequestException(e.message);
+      throw e;
     }
     const checksum = packChecksum(manifest);
     if (opts.expectedChecksum && opts.expectedChecksum !== checksum) {

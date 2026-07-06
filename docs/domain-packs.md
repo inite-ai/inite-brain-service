@@ -99,6 +99,12 @@ anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
 - **Forward-compat manifest fields** — `extractionProfile` (prompt/few-shot for
   the extractor) and `evalFixtures` are carried + stored, not yet consumed.
 
-Still ahead: publisher **signatures** (verify authorship, not just integrity)
-and a discovery **registry**; consuming `extractionProfile` / `evalFixtures` at
-runtime.
+- **Publisher signatures** (shipped) — an ed25519 `signature` (+ `publisher`)
+  over the canonical manifest proves authorship, not just integrity. Sign with
+  `pnpm pack:sign --key priv.pem --publisher acme`; the server verifies against
+  a trust store (`DOMAIN_PACK_TRUSTED_KEYS` = publisher→PEM) and can require
+  signing (`DOMAIN_PACK_REQUIRE_SIGNATURE=true`). Unknown publisher / bad
+  signature → install rejected.
+
+Still ahead: a discovery **registry**; consuming `extractionProfile` /
+`evalFixtures` at runtime.

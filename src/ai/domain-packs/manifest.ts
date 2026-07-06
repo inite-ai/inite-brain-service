@@ -46,6 +46,10 @@ export interface DomainPackManifest {
    */
   extractionProfile?: Record<string, unknown>;
   evalFixtures?: unknown[];
+  /** ed25519 signature (base64) over the canonical manifest sans this field. */
+  signature?: string;
+  /** Publisher id — the key in the tenant's trust store used to verify. */
+  publisher?: string;
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */
