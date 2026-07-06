@@ -5,6 +5,7 @@
 import {
   assembleSeed,
   composePredicateId,
+  packChecksum,
   validatePack,
   DomainPackError,
   type DomainPackManifest,
@@ -117,6 +118,19 @@ describe('assembleSeed', () => {
         [pack({ id: 'p', predicates: [packPredicate('x')] })],
       ),
     ).toThrow(/collision/);
+  });
+});
+
+describe('packChecksum', () => {
+  it('is deterministic and independent of key order', () => {
+    const a = pack({ id: 'demo', version: '1.2.3' });
+    const b = { version: '1.2.3', predicates: a.predicates, description: 'demo', id: 'demo' };
+    expect(packChecksum(a)).toBe(packChecksum(b as DomainPackManifest));
+  });
+  it('changes when content changes', () => {
+    const a = pack({ version: '1.0.0' });
+    const c = pack({ version: '1.0.1' });
+    expect(packChecksum(a)).not.toBe(packChecksum(c));
   });
 });
 

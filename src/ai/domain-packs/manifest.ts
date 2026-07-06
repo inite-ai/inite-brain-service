@@ -38,6 +38,14 @@ export interface DomainPackManifest {
   description: string;
   /** The ontology this pack contributes. */
   predicates: PackPredicate[];
+  /**
+   * Forward-compatible distribution fields (docs/domain-packs.md). Carried in
+   * the manifest + stored on install; not yet consumed by the runtime. A pack
+   * may ship its extraction profile (prompt/few-shot for the LLM extractor) and
+   * eval fixtures alongside its predicates, per the full DomainPack vision.
+   */
+  extractionProfile?: Record<string, unknown>;
+  evalFixtures?: unknown[];
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */

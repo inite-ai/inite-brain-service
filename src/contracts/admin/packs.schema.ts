@@ -17,6 +17,7 @@ export const InstalledPackSchema = z.object({
   version: z.string(),
   installedAt: z.string(),
   predicateCount: z.number().int().nonnegative(),
+  checksum: z.string().nullable(),
 });
 
 export const PacksListResponseSchema = z.object({
@@ -28,6 +29,7 @@ export const InstallPackResponseSchema = z.object({
   packId: z.string(),
   version: z.string(),
   predicatesSeeded: z.number().int().nonnegative(),
+  checksum: z.string(),
 });
 
 export const UninstallPackResponseSchema = z.object({
