@@ -24,9 +24,18 @@ export async function runCapturePipeline(opts: {
   classifier: DecisionClassifier;
   extractor: DecisionExtractor;
   sink: DecisionSink;
+  /**
+   * Optional Phase-2 anchor refinement — upgrade a candidate's file anchor to a
+   * grounded symbol anchor (see anchor/refine.ts). Runs client-side (reads local
+   * files); defaults to identity so Phase-1 file anchoring still works.
+   */
+  refineAnchor?: (
+    c: import('./types').DecisionCandidate,
+  ) => import('./types').DecisionCandidate;
   log?: (msg: string) => void;
 }): Promise<CaptureSummary> {
   const { commits, classifier, extractor, sink } = opts;
+  const refineAnchor = opts.refineAnchor ?? ((c) => c);
   const log = opts.log ?? (() => {});
   const summary: CaptureSummary = {
     scanned: commits.length,
@@ -60,7 +69,8 @@ export async function runCapturePipeline(opts: {
     }
     summary.extracted += candidates.length;
 
-    for (const candidate of candidates) {
+    for (const raw of candidates) {
+      const candidate = refineAnchor(raw);
       try {
         await sink.record(candidate);
         summary.recorded += 1;

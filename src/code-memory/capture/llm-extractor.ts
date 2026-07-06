@@ -42,10 +42,11 @@ export function buildExtractionPrompt(commit: CommitInput): {
 } {
   const system = `You extract the non-derivable engineering "why" from a git commit — knowledge a parser cannot recover from source. Output ONLY decisions, rationale, invariants, and gotchas that are EXPLICITLY present in the message or PR body. Never restate what the code change literally is; capture the reasoning behind it. If the commit carries no such "why", return an empty list.
 
-Return STRICT JSON: {"decisions":[{"kind","text","anchor","confidence"}]}.
+Return STRICT JSON: {"decisions":[{"kind","text","anchor","symbol","confidence"}]}.
 - kind: one of decided | because | invariant | gotcha
 - text: the decision/rationale/invariant/gotcha, one sentence, faithful to the commit
 - anchor: the MOST relevant changed file path, chosen verbatim from the provided list
+- symbol: the enclosing function/class/method name the decision is about, if identifiable (e.g. "FactResolverService.resolve"), else null. It is verified against the file — do not guess.
 - confidence: 0..1, how explicitly the commit states it`;
 
   const files = commit.changedFiles.map((f) => `- ${f}`).join('\n');
@@ -89,10 +90,13 @@ export function parseCandidates(
       o.confidence <= 1
         ? o.confidence
         : undefined;
+    const symbol =
+      typeof o.symbol === 'string' && o.symbol.trim() ? o.symbol.trim() : undefined;
     out.push({
       kind,
       text,
       anchor,
+      ...(symbol ? { symbol } : {}),
       commit: commit.sha,
       validFrom: commit.authorDate,
       confidence,
