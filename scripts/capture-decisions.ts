@@ -18,7 +18,10 @@
  *
  * Anchors are file-level in Phase 1; symbol-level (SCIP) is Phase 2.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { readCommits } from '../src/code-memory/capture/git-commits';
+import { makeSymbolAnchorRefiner } from '../src/code-memory/anchor/refine';
 import { HeuristicDecisionClassifier } from '../src/code-memory/capture/heuristic-classifier';
 import {
   LlmDecisionExtractor,
@@ -64,11 +67,24 @@ async function main(): Promise<void> {
       }
     : new HttpDecisionSink({ baseUrl: brainUrl!, apiKey: brainKey! });
 
+  // Phase 2: ground LLM-proposed symbols against the local working tree and
+  // upgrade file anchors to drift-resistant symbol anchors (client-side).
+  const refineAnchor = makeSymbolAnchorRefiner({
+    readFile: (p) => {
+      try {
+        return readFileSync(join(process.cwd(), p), 'utf8');
+      } catch {
+        return null;
+      }
+    },
+  });
+
   const summary = await runCapturePipeline({
     commits,
     classifier: new HeuristicDecisionClassifier(),
     extractor,
     sink,
+    refineAnchor,
     log: (m) => console.error(`[capture] ${m}`),
   });
 

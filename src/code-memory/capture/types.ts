@@ -57,8 +57,18 @@ export type DecisionKind = 'decided' | 'because' | 'invariant' | 'gotcha';
 export interface DecisionCandidate {
   kind: DecisionKind;
   text: string;
-  /** File anchor — "src/x.ts". Mapped to externalRef code:<path> by the sink. */
+  /**
+   * Anchor — a file path ("src/x.ts") or, after symbol grounding (Phase 2), a
+   * symbol anchor ("src/x.ts#Foo.bar"). Mapped to externalRef code:<anchor> by
+   * the sink.
+   */
   anchor: string;
+  /**
+   * LLM-proposed enclosing symbol name (Phase 2). Grounded against the local
+   * file before use — the anchor is upgraded to symbol-level only if the symbol
+   * actually resolves; otherwise it stays file-level.
+   */
+  symbol?: string;
   /** Commit SHA provenance. */
   commit: string;
   /** Optional file:line provenance. */
