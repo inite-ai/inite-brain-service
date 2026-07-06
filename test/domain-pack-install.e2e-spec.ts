@@ -49,6 +49,8 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     expect([200, 201]).toContain(r.status);
     expect(r.body.packId).toBe('medical');
     expect(r.body.predicatesSeeded).toBe(1);
+    expect(typeof r.body.checksum).toBe('string');
+    expect(r.body.checksum.length).toBeGreaterThan(0);
 
     const preds = await f.http.get('/v1/admin/predicates').set(auth());
     const ids = (preds.body.predicates ?? []).map((p: any) => p.predicateId);
@@ -84,6 +86,17 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
       .post('/v1/admin/packs')
       .set(auth())
       .send({ manifest: { ...MEDICAL_MANIFEST, id: 'code_memory' } });
+    expect(r.status).toBe(400);
+  });
+
+  it('rejects install when expectedChecksum does not match', async () => {
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({
+        manifest: { ...MEDICAL_MANIFEST, id: 'legal', version: '2.0.0' },
+        expectedChecksum: 'deadbeef',
+      });
     expect(r.status).toBe(400);
   });
 

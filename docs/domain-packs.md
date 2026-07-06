@@ -86,12 +86,19 @@ than silently shadowing.
 engineering "why" of a codebase: `decided`, `because`, `invariant`, `gotcha`,
 anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
 
-## Roadmap (not built yet)
+## Distribution + integrity
 
-This phase delivers the **standard + namespacing + the merge loader**. Still
-ahead, to make packs fully community-distributable:
-- **Runtime per-tenant install/uninstall** — a `domain_pack` table recording
-  installed packs + pinned versions per tenant; install/upgrade/rollback API.
-- **Distribution** — load packs from JSON manifests / a registry, not only
-  compiled modules; signed/checksummed packs.
-- **Per-pack eval fixtures + extraction profiles** carried in the manifest.
+- **Runtime per-tenant install/uninstall** (shipped) — `domain_pack` table +
+  `/v1/admin/packs` (install upserts = upgrade; uninstall deprecates predicates).
+- **JSON-manifest install** (shipped) — `pnpm pack:install --file pack.json`
+  POSTs a manifest; no compiled module needed. Community packs ship as JSON.
+- **Content integrity** (shipped) — every install computes + stores a
+  `packChecksum` (sha256 of the canonical, key-sorted manifest). Pass
+  `expectedChecksum` (or `pnpm pack:install --verify`) and the server rejects a
+  mismatch: "the manifest I install is the one I reviewed".
+- **Forward-compat manifest fields** — `extractionProfile` (prompt/few-shot for
+  the extractor) and `evalFixtures` are carried + stored, not yet consumed.
+
+Still ahead: publisher **signatures** (verify authorship, not just integrity)
+and a discovery **registry**; consuming `extractionProfile` / `evalFixtures` at
+runtime.

@@ -13,6 +13,7 @@ import {
   BUILTIN_PACKS,
   composePredicateId,
   DomainPackError,
+  packChecksum,
   validatePack,
   type DomainPackManifest,
 } from '../ai/domain-packs';
@@ -22,6 +23,7 @@ export interface InstalledPack {
   version: string;
   installedAt: string;
   predicateCount: number;
+  checksum: string | null;
 }
 
 export interface AvailablePack {
@@ -64,7 +66,7 @@ export class DomainPackInstallService {
   async listInstalled(companyId: string): Promise<InstalledPack[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<[any[]]>(
-        `SELECT packId, version, installedAt, manifest FROM domain_pack WHERE status = 'active'`,
+        `SELECT packId, version, installedAt, manifest, checksum FROM domain_pack WHERE status = 'active'`,
       );
       return ((rows as any[]) ?? []).map((r) => ({
         packId: String(r.packId),
@@ -73,6 +75,7 @@ export class DomainPackInstallService {
         predicateCount: Array.isArray(r.manifest?.predicates)
           ? r.manifest.predicates.length
           : 0,
+        checksum: r.checksum ? String(r.checksum) : null,
       }));
     });
   }
@@ -80,7 +83,13 @@ export class DomainPackInstallService {
   async install(
     companyId: string,
     manifest: DomainPackManifest,
-  ): Promise<{ packId: string; version: string; predicatesSeeded: number }> {
+    opts: { expectedChecksum?: string } = {},
+  ): Promise<{
+    packId: string;
+    version: string;
+    predicatesSeeded: number;
+    checksum: string;
+  }> {
     if (!manifest || typeof manifest !== 'object') {
       throw new BadRequestException('request body must include a pack manifest');
     }
@@ -93,6 +102,12 @@ export class DomainPackInstallService {
     if (this.builtinIds.has(manifest.id)) {
       throw new BadRequestException(
         `pack id "${manifest.id}" is reserved by a builtin pack and is already globally available`,
+      );
+    }
+    const checksum = packChecksum(manifest);
+    if (opts.expectedChecksum && opts.expectedChecksum !== checksum) {
+      throw new BadRequestException(
+        `checksum mismatch: expected ${opts.expectedChecksum}, computed ${checksum}`,
       );
     }
 
@@ -113,8 +128,8 @@ export class DomainPackInstallService {
       const row = ((existing as any[]) ?? [])[0];
       if (row) {
         await db.query(
-          `UPDATE $id SET version = $version, manifest = $manifest, status = 'active', updatedAt = time::now()`,
-          { id: row.id, version: manifest.version, manifest },
+          `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()`,
+          { id: row.id, version: manifest.version, manifest, checksum },
         );
       } else {
         await db.query(`CREATE domain_pack CONTENT $content`, {
@@ -122,6 +137,7 @@ export class DomainPackInstallService {
             packId: manifest.id,
             version: manifest.version,
             manifest,
+            checksum,
             status: 'active',
           },
         });
@@ -138,7 +154,12 @@ export class DomainPackInstallService {
     this.logger.log(
       `Installed pack ${manifest.id} v${manifest.version} into ${companyId} (${seeded} predicate(s) seeded)`,
     );
-    return { packId: manifest.id, version: manifest.version, predicatesSeeded: seeded };
+    return {
+      packId: manifest.id,
+      version: manifest.version,
+      predicatesSeeded: seeded,
+      checksum,
+    };
   }
 
   async uninstall(

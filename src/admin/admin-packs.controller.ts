@@ -44,9 +44,11 @@ export class AdminPacksController {
   @RequireScopes('brain:admin')
   async install(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { manifest: DomainPackManifest },
+    @Body() body: { manifest: DomainPackManifest; expectedChecksum?: string },
   ): Promise<InstallPackResponse> {
-    return this.packs.install(req.brainAuth.companyId, body?.manifest);
+    return this.packs.install(req.brainAuth.companyId, body?.manifest, {
+      expectedChecksum: body?.expectedChecksum,
+    });
   }
 
   @Delete(':packId')
