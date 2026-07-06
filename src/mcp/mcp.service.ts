@@ -11,6 +11,7 @@ import { IngestPredictionService } from '../ingest/ingest-predictor.service';
 import { SummarizeEntityService } from '../summarize-entity/summarize-entity.service';
 import { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import { CommunityService } from '../communities/community.service';
+import { CodeMemorySearchService } from '../code-memory/code-memory-search.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
@@ -41,6 +42,7 @@ const HEALTH_TOOLS = [
   'list_communities',
   'find_entity_communities',
   'why',
+  'recall_decisions',
 ];
 
 /**
@@ -78,6 +80,7 @@ export class McpService {
     private readonly summarizer: SummarizeEntityService,
     private readonly procedural: ProceduralMemoryService,
     private readonly communities: CommunityService,
+    private readonly codeSearch: CodeMemorySearchService,
     private readonly embedder: EmbedderService,
   ) {}
 
@@ -141,7 +144,7 @@ export class McpService {
       server,
       companyId,
       scopes,
-      deps: { entities: this.entities },
+      deps: { entities: this.entities, codeSearch: this.codeSearch },
     });
     if (scopes.includes('brain:write')) {
       registerWriteTools(server, companyId, {

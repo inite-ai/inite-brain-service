@@ -11,6 +11,7 @@ import { DiffModule } from '../diff/diff.module';
 import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.module';
 import { ProceduralModule } from '../procedural/procedural.module';
 import { CommunityModule } from '../communities/community.module';
+import { CodeMemoryModule } from '../code-memory/code-memory.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { CommunityModule } from '../communities/community.module';
     SummarizeEntityModule,
     ProceduralModule,
     CommunityModule,
+    CodeMemoryModule,
   ],
   controllers: [McpController],
   providers: [McpService],

@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { IngestService } from '../ingest/ingest.service';
 import type { EntitiesService } from '../entities/entities.service';
+import type { CodeMemorySearchService } from '../code-memory/code-memory-search.service';
 import type { BrainScope } from '../auth/api-key.types';
 import {
   CODE_MEMORY_KINDS,
@@ -29,6 +30,7 @@ const CODE_VERTICAL = 'code';
 
 export interface CodeMemoryReadDeps {
   entities: EntitiesService;
+  codeSearch: CodeMemorySearchService;
 }
 
 export interface CodeMemoryWriteDeps {
@@ -81,6 +83,32 @@ export function registerCodeMemoryReadTools(opts: {
           status: f.status,
         })),
       };
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: out as any,
+      };
+    },
+  );
+
+  server.registerTool(
+    'recall_decisions',
+    {
+      title: 'Semantically recall code-memory across the codebase',
+      description:
+        'Find recorded design decisions / rationale / invariants / gotchas by NL topic ("why do we resolve facts through one gateway?"), across ALL code anchors — a semantic search over code-memory, vs `why` which reads one known anchor. Returns matches with their code anchor + kind, ranked by relevance.',
+      inputSchema: {
+        query: z.string().describe('Natural-language topic to recall the "why" for'),
+        limit: z.number().int().min(1).max(50).optional(),
+      },
+    },
+    async (args) => {
+      const decisions = await deps.codeSearch.recall({
+        companyId,
+        query: args.query,
+        limit: args.limit,
+        scopes,
+      });
+      const out = { query: args.query, found: decisions.length, decisions };
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,

@@ -20,6 +20,7 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { IngestService } from '../src/ingest/ingest.service';
 import { EntitiesService } from '../src/entities/entities.service';
+import { CodeMemorySearchService } from '../src/code-memory/code-memory-search.service';
 import {
   codeMemoryKindOf,
   codeMemoryPredicateId,
@@ -82,5 +83,23 @@ describe('code-memory Phase 3 — eval (recall + invariant surfacing)', () => {
       if (texts.includes(inv.text)) surfaced += 1;
     }
     expect(surfaced).toBe(invariants.length);
+  });
+
+  it('recall_decisions surfaces code-memory by NL topic (0 via the general search)', async () => {
+    const cm = f.app.get(CodeMemorySearchService);
+    const recalls: number[] = [];
+    for (const q of GOLDEN_QUERIES) {
+      const decisions = await cm.recall({
+        companyId: f.companyId,
+        query: q.semanticQuery,
+        limit: 20,
+        scopes: READ,
+      });
+      const anchors = new Set(decisions.map((d) => d.anchor));
+      recalls.push(anchors.has(q.anchor) ? 1 : 0);
+    }
+    // Dedicated code-memory retrieval leg: every query's anchor is recalled,
+    // where the general entity-centric search returned nothing.
+    expect(mean(recalls)).toBe(1);
   });
 });
