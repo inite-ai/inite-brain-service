@@ -23,10 +23,12 @@ import { join } from 'node:path';
 import { readCommits } from '../src/code-memory/capture/git-commits';
 import { makeSymbolAnchorRefiner } from '../src/code-memory/anchor/refine';
 import { HeuristicDecisionClassifier } from '../src/code-memory/capture/heuristic-classifier';
+import { TrainedDecisionClassifier } from '../src/code-memory/capture/gate-classifier';
 import {
   LlmDecisionExtractor,
   makeOpenAiCompleter,
 } from '../src/code-memory/capture/llm-extractor';
+import type { DecisionClassifier } from '../src/code-memory/capture/types';
 import { HttpDecisionSink } from '../src/code-memory/capture/http-sink';
 import { runCapturePipeline } from '../src/code-memory/capture/capture-pipeline';
 import type {
@@ -55,6 +57,18 @@ async function main(): Promise<void> {
   const commits = readCommits({ range });
   console.error(`[capture] ${commits.length} commit(s) in ${range}`);
 
+  // Layer-1 gate: the trained student (track C) when a model is supplied,
+  // else the deterministic heuristic. Same DecisionClassifier seam either way.
+  const gateModelPath = arg('gate-model');
+  const classifier: DecisionClassifier = gateModelPath
+    ? TrainedDecisionClassifier.fromJson(
+        JSON.parse(readFileSync(gateModelPath, 'utf8')),
+      )
+    : new HeuristicDecisionClassifier();
+  console.error(
+    `[capture] Layer-1 gate: ${gateModelPath ? `trained (${gateModelPath})` : 'heuristic'}`,
+  );
+
   const extractor = new LlmDecisionExtractor(
     makeOpenAiCompleter({ apiKey: openAiKey, model }),
   );
@@ -81,7 +95,7 @@ async function main(): Promise<void> {
 
   const summary = await runCapturePipeline({
     commits,
-    classifier: new HeuristicDecisionClassifier(),
+    classifier,
     extractor,
     sink,
     refineAnchor,

@@ -10,5 +10,6 @@ coverage/
 .idea/
 *.tsbuildinfo
 
-# Generated code-memory silver datasets (track C distillation)
+# Generated code-memory silver datasets + trained gate models (track C)
 data/code-memory/*.jsonl
+data/code-memory/*.model.json
