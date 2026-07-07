@@ -13,8 +13,9 @@
 2. Read auto-memory **`code_memory_domain.md`** (full domain history + gotchas)
    and **`maxparams_program.md`**. This brief assumes them.
 3. Acceptance bar for every PR (unchanged): `pnpm exec tsc --noEmit` ·
-   `pnpm typecheck` · `pnpm lint` (max-params=3) · `pnpm test` · `pnpm test:e2e`
-   · `pnpm test:e2e:jobs`. Current baseline: **772 unit / 146 e2e / 9 jobs**.
+   `pnpm typecheck` · `pnpm lint` (max-params=3, complexity=25) · `pnpm test` ·
+   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **786 unit / 150
+   e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`).
 4. Workflow (works, use verbatim): branch off main → small commits → PR with a
    conventional title → wait for `build-test` green (only required check;
    `summarize` 403 is ignored) → `gh pr merge <n> --squash --admin
@@ -50,6 +51,20 @@
   - `#91` publisher signatures — ed25519 sign/verify + trust store
     (`pnpm pack:sign`, `DOMAIN_PACK_TRUSTED_KEYS` / `_REQUIRE_SIGNATURE`).
 
+## Shipped 2026-07-07 (the "делай все" session) — DO NOT redo
+
+- **Track B — `extractionProfile` is now CONSUMED + a second pack** (`#93`).
+  Typed `extractionProfile` ({ guidance, fewShot }); `loadFresh` assembles
+  `snapshot.extractionProfiles` from builtin + active `domain_pack` rows;
+  `composeSystemPrompt` injects a `DOMAIN EXTRACTION GUIDANCE` block (empty →
+  byte-identical prompt). Shipped **real_estate** as a DISTRIBUTABLE pack
+  (`src/ai/domain-packs/real-estate.pack.ts` + `packs/real-estate.pack.json`,
+  NOT a builtin). e2e proves install→`domain_pack`→snapshot→prompt.
+- **Track D (refactor half)** — dropped both `eslint-disable complexity`
+  pragmas (`#94`): `JobRunService.list` and `DreamsService.runForTenantInner`
+  split into helpers, zero behaviour change. The 2 `it.skip` in
+  `concurrency.real-e2e` stay skipped (infra-blocked — see track D below).
+
 ## Open tracks — each needs a DECISION first, then code
 
 ### A. Pack discovery registry
@@ -59,14 +74,11 @@ a full registry service is the big version. Nothing to build until that's chosen
 Entry points once decided: `DomainPackInstallService` (add `installFromRegistry`),
 `AdminPacksController`.
 
-### B. Consume `extractionProfile` / `evalFixtures` from a pack
-Manifests already CARRY these (stored, not read). Wiring a pack's
-`extractionProfile` (custom prompt/few-shot) into the extractor only pays off
-once a real second domain pack exists that needs a different extraction than
-core — otherwise it's speculative. **Decision:** is there a concrete second
-domain (real-estate / fintech / medical) to build a pack for? If yes, build that
-pack WITH an extractionProfile and wire consumption in `ExtractorService` +
-`MentionExtractionService`. If no, leave it.
+### B. Consume `extractionProfile` / `evalFixtures` from a pack — ✅ DONE (`#93`)
+`extractionProfile` is now consumed end-to-end via the **real_estate** pack (see
+"Shipped 2026-07-07"). Only `evalFixtures` remains forward-compat (stored, not
+read) — wire it the same way (pack → snapshot → eval harness) when a pack needs
+domain-specific eval fixtures; no second-domain decision blocks it anymore.
 
 ### C. Trained BiLSTM for capture Layer-1
 The heuristic classifier (`HeuristicDecisionClassifier`) sits behind the exact
@@ -80,8 +92,11 @@ reference), not code.
 - **LoCoMo** full paid run + published numbers (~$110, 2-4h) — the one item left
   from `docs/roadmap/mcp-and-memory.md`.
 - **Audit remainder** (`audit_next_session.md`): D-complexity `job-run.list` /
-  `dreams.runForTenantInner` (refactor only if it genuinely improves); 2 `it.skip`
-  in `concurrency.real-e2e` (needs namespace/db migration split).
+  `dreams.runForTenantInner` — ✅ DONE (`#94`). The 2 `it.skip` in
+  `concurrency.real-e2e` remain (infra-blocked: namespace/db migration split for
+  the cold-start test; SurrealDB rocksdb write-lock fairness for the pool-drain
+  test — both covered by passing FANOUT tests). Un-skip only alongside the
+  migration split, not as a standalone.
 
 ## Files to read first (per track)
 - Domain packs: `src/ai/domain-packs/*` + `docs/domain-packs.md`.
@@ -92,7 +107,9 @@ reference), not code.
   `src/admin/admin-packs.controller.ts`.
 
 ## Recommendation
-If the user wants forward motion with real value, **B via a concrete second
-domain pack** is the highest-signal next step (it exercises + proves the whole
-Domain Pack system end to end, and is the reason the pack machinery exists).
-A and C are infra/data tracks; D (LoCoMo) is a paid one-off.
+B and the D-refactor shipped 2026-07-07 (`#93`/`#94`). Of what's left: **A (pack
+registry, cheap JSON-index first cut)** is the highest-signal code track and the
+natural follow-on to the now-proven pack machine. **C (BiLSTM)** needs a labeled
+commit corpus first (data/ML, not an app change). **D (LoCoMo)** is a paid
+one-off (~$110) — confirm with the user before spending. `evalFixtures`
+consumption mirrors the shipped `extractionProfile` wiring when a pack needs it.
