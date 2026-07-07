@@ -338,11 +338,6 @@ export class DreamsService implements OnModuleInit {
     };
   }
 
-  // TODO: complexity 28 — opSet branching across dedup/resolve/
-  // summarize + jobRow lifecycle + abortSignal checks. Extract each
-  // sub-leg into a helper (runDedupLeg, runResolveLeg, etc.) and
-  // drop back under the gate. Tracked separately.
-  // eslint-disable-next-line complexity
   private async runForTenantInner({
     companyId,
     operations,
@@ -357,135 +352,28 @@ export class DreamsService implements OnModuleInit {
     };
     opts?: { skipJobRowLifecycle?: boolean; abortSignal?: AbortSignal };
   }): Promise<DreamsTenantStats> {
-    const checkAbort = () => {
-      if (opts?.abortSignal?.aborted) {
-        throw opts.abortSignal.reason ?? new Error('aborted');
-      }
-    };
     const t0 = Date.now();
-    const stats: DreamsTenantStats = {
-      companyId,
-      durationSeconds: 0,
-    };
+    const stats: DreamsTenantStats = { companyId, durationSeconds: 0 };
     const opSet = new Set(operations);
-    // Queue mode (skipJobRowLifecycle): WorkerLoopService owns the
-    // job_run row's lifecycle — already wrote claimedBy/leaseUntil on
-    // claim, will write status='succeeded'/'failed' on dispatch return.
-    // We skip start()/finish() to avoid double-row + double-terminal.
-    let jobRow: JobRunRow | null = null;
-    if (!opts?.skipJobRowLifecycle) {
-      try {
-        jobRow =
-          (await this.jobs?.start({
-            jobType: 'dreams',
-            companyId,
-            triggeredBy: triggered?.triggeredBy ?? 'cron',
-            triggeredByActor: triggered?.triggeredByActor,
-            initialProgress: { operations: [...opSet] },
-          })) ?? null;
-      } catch (e) {
-        this.logger.warn(
-          `dreams job_run start failed for ${companyId}: ${(e as Error).message}`,
-        );
-      }
-    }
+    const signal = opts?.abortSignal;
+    // Queue mode (skipJobRowLifecycle): WorkerLoopService owns the job_run
+    // row's lifecycle — already wrote claimedBy/leaseUntil on claim, will write
+    // status='succeeded'/'failed' on dispatch return. Skip start()/finish() to
+    // avoid double-row + double-terminal.
+    const jobRow = opts?.skipJobRowLifecycle
+      ? null
+      : await this.startDreamsJobRow(companyId, triggered, opSet);
 
     try {
-      await this.surreal.withCompany(companyId, async (db) => {
-        if (opSet.has('dedup')) {
-          checkAbort();
-          stats.dedup = await withSpan(
-            'dreams.dedup',
-            () => this.dedup.run(db),
-            { 'dreams.tenant': companyId },
-          );
-          if (jobRow) {
-            await this.jobs?.updateProgress(jobRow, {
-              currentTenant: companyId,
-              dedupLinksCreated: stats.dedup.identityLinksCreated,
-            });
-          }
-        }
-        if (opSet.has('resolve')) {
-          checkAbort();
-          stats.resolve = await withSpan(
-            'dreams.resolve',
-            () => this.resolver.run(db),
-            { 'dreams.tenant': companyId },
-          );
-          if (jobRow) {
-            await this.jobs?.updateProgress(jobRow, {
-              resolutionsApplied: stats.resolve.resolutionsApplied,
-            });
-          }
-        }
-        if (opSet.has('communities') && this.community) {
-          checkAbort();
-          stats.communities = await withSpan(
-            'dreams.communities',
-            () => this.community!.run(db),
-            { 'dreams.tenant': companyId },
-          );
-          if (jobRow) {
-            await this.jobs?.updateProgress(jobRow, {
-              communitiesBuilt: stats.communities.communitiesBuilt,
-              communitiesReused: stats.communities.communitiesReused,
-            });
-          }
-        }
-        if (jobRow) {
-          await this.writeEmits(db, jobRow.runId, stats);
-        }
-      });
-
+      await this.surreal.withCompany(companyId, (db) =>
+        this.runGraphLegs({ db, companyId, opSet, stats, jobRow, signal }),
+      );
       if (opSet.has('summarize')) {
-        checkAbort();
-        // Compaction owns its own connection lifecycle (it iterates
-        // over knowledge_fact in batches and updates statuses), so we
-        // delegate rather than threading the existing db handle in.
-        try {
-          await withSpan(
-            'dreams.summarize',
-            () => this.compaction.compactCompany(companyId),
-            { 'dreams.tenant': companyId },
-          );
-          stats.summarized = true;
-        } catch (err) {
-          this.logger.warn(
-            `Dreams summarize failed for ${companyId}: ${(err as Error).message}`,
-          );
-          stats.summarized = false;
-        }
+        await this.runSummarizeLeg(companyId, stats, signal);
       }
-
       stats.durationSeconds = (Date.now() - t0) / 1000;
-      this.metrics?.countDreams('ok');
-      if (stats.dedup) {
-        this.metrics?.countDreamsEmitted(
-          'identity_link',
-          stats.dedup.identityLinksCreated,
-        );
-      }
-      if (stats.resolve) {
-        this.metrics?.countDreamsEmitted(
-          'resolution',
-          stats.resolve.resolutionsApplied,
-        );
-      }
-      if (stats.summarized) {
-        this.metrics?.countDreamsEmitted('summary', 1);
-      }
-      if (jobRow) {
-        await this.jobs?.finish(jobRow, {
-          status: 'succeeded',
-          result: {
-            durationSeconds: stats.durationSeconds,
-            identityLinksCreated: stats.dedup?.identityLinksCreated ?? 0,
-            resolutionsApplied: stats.resolve?.resolutionsApplied ?? 0,
-            summarized: stats.summarized ?? false,
-          },
-        });
-      }
+      this.recordDreamsMetrics(stats);
+      await this.finishDreamsJobRow(jobRow, stats);
       return stats;
     } catch (err) {
       const e = err as Error;
@@ -497,6 +385,157 @@ export class DreamsService implements OnModuleInit {
       }
       throw err;
     }
+  }
+
+  /** Throw the abort reason if the run's signal has fired. Checked between legs
+   *  so a cancelled dreams run exits promptly. */
+  private assertNotAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+  }
+
+  /** Open a job_run row for the dreams run (non-queue mode). Best-effort — a
+   *  start() failure logs and yields null; the run proceeds without a row. */
+  private async startDreamsJobRow(
+    companyId: string,
+    triggered:
+      | { triggeredBy?: 'cron' | 'manual' | 'startup'; triggeredByActor?: string }
+      | undefined,
+    opSet: Set<DreamsOperation>,
+  ): Promise<JobRunRow | null> {
+    try {
+      return (
+        (await this.jobs?.start({
+          jobType: 'dreams',
+          companyId,
+          triggeredBy: triggered?.triggeredBy ?? 'cron',
+          triggeredByActor: triggered?.triggeredByActor,
+          initialProgress: { operations: [...opSet] },
+        })) ?? null
+      );
+    } catch (e) {
+      this.logger.warn(
+        `dreams job_run start failed for ${companyId}: ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /** The in-DB graph legs (dedup / resolve / communities) + emit rows, run
+   *  under one tenant connection. Each leg is gated on the requested op set and
+   *  writes progress to the job row. Extracted from runForTenantInner. */
+  private async runGraphLegs(args: {
+    db: any;
+    companyId: string;
+    opSet: Set<DreamsOperation>;
+    stats: DreamsTenantStats;
+    jobRow: JobRunRow | null;
+    signal?: AbortSignal;
+  }): Promise<void> {
+    const { db, companyId, opSet, stats, jobRow, signal } = args;
+    if (opSet.has('dedup')) {
+      this.assertNotAborted(signal);
+      stats.dedup = await withSpan('dreams.dedup', () => this.dedup.run(db), {
+        'dreams.tenant': companyId,
+      });
+      if (jobRow) {
+        await this.jobs?.updateProgress(jobRow, {
+          currentTenant: companyId,
+          dedupLinksCreated: stats.dedup.identityLinksCreated,
+        });
+      }
+    }
+    if (opSet.has('resolve')) {
+      this.assertNotAborted(signal);
+      stats.resolve = await withSpan(
+        'dreams.resolve',
+        () => this.resolver.run(db),
+        { 'dreams.tenant': companyId },
+      );
+      if (jobRow) {
+        await this.jobs?.updateProgress(jobRow, {
+          resolutionsApplied: stats.resolve.resolutionsApplied,
+        });
+      }
+    }
+    if (opSet.has('communities') && this.community) {
+      this.assertNotAborted(signal);
+      stats.communities = await withSpan(
+        'dreams.communities',
+        () => this.community!.run(db),
+        { 'dreams.tenant': companyId },
+      );
+      if (jobRow) {
+        await this.jobs?.updateProgress(jobRow, {
+          communitiesBuilt: stats.communities.communitiesBuilt,
+          communitiesReused: stats.communities.communitiesReused,
+        });
+      }
+    }
+    if (jobRow) {
+      await this.writeEmits(db, jobRow.runId, stats);
+    }
+  }
+
+  /** The summarize leg. Compaction owns its own connection lifecycle (it
+   *  batches over knowledge_fact), so we delegate rather than thread the db
+   *  handle in. A failure here is non-fatal — records summarized=false. */
+  private async runSummarizeLeg(
+    companyId: string,
+    stats: DreamsTenantStats,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.assertNotAborted(signal);
+    try {
+      await withSpan(
+        'dreams.summarize',
+        () => this.compaction.compactCompany(companyId),
+        { 'dreams.tenant': companyId },
+      );
+      stats.summarized = true;
+    } catch (err) {
+      this.logger.warn(
+        `Dreams summarize failed for ${companyId}: ${(err as Error).message}`,
+      );
+      stats.summarized = false;
+    }
+  }
+
+  /** Emit the per-run dreams counters. */
+  private recordDreamsMetrics(stats: DreamsTenantStats): void {
+    this.metrics?.countDreams('ok');
+    if (stats.dedup) {
+      this.metrics?.countDreamsEmitted(
+        'identity_link',
+        stats.dedup.identityLinksCreated,
+      );
+    }
+    if (stats.resolve) {
+      this.metrics?.countDreamsEmitted(
+        'resolution',
+        stats.resolve.resolutionsApplied,
+      );
+    }
+    if (stats.summarized) {
+      this.metrics?.countDreamsEmitted('summary', 1);
+    }
+  }
+
+  /** Commit the terminal 'succeeded' job row (non-queue mode). No-op when there
+   *  is no row (queue mode or a failed start). */
+  private async finishDreamsJobRow(
+    jobRow: JobRunRow | null,
+    stats: DreamsTenantStats,
+  ): Promise<void> {
+    if (!jobRow) return;
+    await this.jobs?.finish(jobRow, {
+      status: 'succeeded',
+      result: {
+        durationSeconds: stats.durationSeconds,
+        identityLinksCreated: stats.dedup?.identityLinksCreated ?? 0,
+        resolutionsApplied: stats.resolve?.resolutionsApplied ?? 0,
+        summarized: stats.summarized ?? false,
+      },
+    });
   }
 
   /**

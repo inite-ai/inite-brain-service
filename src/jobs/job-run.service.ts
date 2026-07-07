@@ -67,6 +67,60 @@ export interface JobRunRow {
   companyId: string;
 }
 
+/** The job_run columns the cross-tenant list projects. */
+const JOB_RUN_LIST_COLUMNS = `runId, jobType, status, triggeredBy, triggeredByActor,
+        startedAt, finishedAt, progress, payload, result, error,
+        cancelRequested, attempts, claimedBy, claimedAt,
+        leaseUntil, heartbeatAt, visibleAfter`;
+
+/** Build the optional WHERE clause + bound params for the cross-tenant list.
+ *  Pure — extracted from JobRunService.list so each stays under the complexity
+ *  gate and the filter logic is unit-testable in isolation. */
+function buildJobRunListWhere(filter: {
+  jobType?: JobType;
+  status?: JobStatus;
+  since?: string;
+}): { whereSql: string; params: Record<string, unknown> } {
+  const clauses: Array<[string, string, unknown]> = [];
+  if (filter.jobType) clauses.push(['jobType = $jobType', 'jobType', filter.jobType]);
+  if (filter.status) clauses.push(['status = $status', 'status', filter.status]);
+  if (filter.since)
+    clauses.push(['startedAt >= type::datetime($since)', 'since', filter.since]);
+  const params: Record<string, unknown> = {};
+  for (const [, key, value] of clauses) params[key] = value;
+  const whereSql = clauses.length
+    ? `WHERE ${clauses.map(([sql]) => sql).join(' AND ')}`
+    : '';
+  return { whereSql, params };
+}
+
+/** Project a raw job_run DB row onto the API shape (datetimes → ISO strings,
+ *  null-coalesced optionals). Pure — extracted from JobRunService.list. */
+function mapJobRunRow(r: any, companyId: string): JobRunRow {
+  const iso = (v: unknown): string | null => (v ? new Date(v as string).toISOString() : null);
+  return {
+    runId: r.runId,
+    jobType: r.jobType,
+    status: r.status,
+    triggeredBy: r.triggeredBy ?? 'cron',
+    triggeredByActor: r.triggeredByActor ?? null,
+    startedAt: new Date(r.startedAt).toISOString(),
+    finishedAt: iso(r.finishedAt),
+    progress: r.progress ?? null,
+    payload: r.payload ?? null,
+    result: r.result ?? null,
+    error: r.error ?? null,
+    cancelRequested: r.cancelRequested === true,
+    attempts: typeof r.attempts === 'number' ? r.attempts : undefined,
+    claimedBy: r.claimedBy ?? null,
+    claimedAt: iso(r.claimedAt),
+    leaseUntil: iso(r.leaseUntil),
+    heartbeatAt: iso(r.heartbeatAt),
+    visibleAfter: iso(r.visibleAfter),
+    companyId,
+  };
+}
+
 /**
  * JobRunService — generic projection of long-running operator jobs.
  *
@@ -315,10 +369,6 @@ export class JobRunService {
    * per tenant before merging so a single noisy tenant can't crowd
    * out the rest.
    */
-  // TODO: complexity 26 — three optional WHERE branches + per-tenant
-  // fan-out + row-shape projection. Extract buildWhere + rowToRow
-  // helpers to drop back under the gate. Tracked separately.
-  // eslint-disable-next-line complexity
   async list(filter: {
     jobType?: JobType;
     status?: JobStatus;
@@ -331,75 +381,39 @@ export class JobRunService {
     const tenants = filter.companyId
       ? [filter.companyId]
       : this.apiKeys.knownCompanyIds();
-    const where: string[] = [];
-    const params: Record<string, unknown> = {};
-    if (filter.jobType) {
-      where.push('jobType = $jobType');
-      params.jobType = filter.jobType;
-    }
-    if (filter.status) {
-      where.push('status = $status');
-      params.status = filter.status;
-    }
-    if (filter.since) {
-      where.push('startedAt >= type::datetime($since)');
-      params.since = filter.since;
-    }
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const where = buildJobRunListWhere(filter);
     const out: JobRunRow[] = [];
     for (const companyId of tenants) {
-      try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
-            `SELECT runId, jobType, status, triggeredBy, triggeredByActor,
-                    startedAt, finishedAt, progress, payload, result, error,
-                    cancelRequested, attempts, claimedBy, claimedAt,
-                    leaseUntil, heartbeatAt, visibleAfter
-               FROM job_run ${whereSql}
-              ORDER BY startedAt DESC LIMIT ${limit}`,
-            params,
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
-        for (const r of rows) {
-          out.push({
-            runId: r.runId,
-            jobType: r.jobType,
-            status: r.status,
-            triggeredBy: r.triggeredBy ?? 'cron',
-            triggeredByActor: r.triggeredByActor ?? null,
-            startedAt: new Date(r.startedAt).toISOString(),
-            finishedAt: r.finishedAt
-              ? new Date(r.finishedAt).toISOString()
-              : null,
-            progress: r.progress ?? null,
-            payload: r.payload ?? null,
-            result: r.result ?? null,
-            error: r.error ?? null,
-            cancelRequested: r.cancelRequested === true,
-            attempts: typeof r.attempts === 'number' ? r.attempts : undefined,
-            claimedBy: r.claimedBy ?? null,
-            claimedAt: r.claimedAt ? new Date(r.claimedAt).toISOString() : null,
-            leaseUntil: r.leaseUntil
-              ? new Date(r.leaseUntil).toISOString()
-              : null,
-            heartbeatAt: r.heartbeatAt
-              ? new Date(r.heartbeatAt).toISOString()
-              : null,
-            visibleAfter: r.visibleAfter
-              ? new Date(r.visibleAfter).toISOString()
-              : null,
-            companyId,
-          });
-        }
-      } catch (e) {
-        this.logger.warn(
-          `job_run list failed for ${companyId}: ${(e as Error).message}`,
-        );
-      }
+      const rows = await this.listTenantRows(companyId, where, limit);
+      for (const r of rows) out.push(mapJobRunRow(r, companyId));
     }
     out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     return out.slice(0, limit);
+  }
+
+  /** Query one tenant's job_run rows for the cross-tenant list. A per-tenant
+   *  failure is logged and yields [] so one noisy tenant can't sink the rollup. */
+  private async listTenantRows(
+    companyId: string,
+    where: { whereSql: string; params: Record<string, unknown> },
+    limit: number,
+  ): Promise<any[]> {
+    try {
+      return await this.surreal!.withCompany(companyId, async (db) => {
+        const res = (await db.query<any[]>(
+          `SELECT ${JOB_RUN_LIST_COLUMNS}
+               FROM job_run ${where.whereSql}
+              ORDER BY startedAt DESC LIMIT ${limit}`,
+          where.params,
+        )) as any[];
+        return (res[0] ?? []) as any[];
+      });
+    } catch (e) {
+      this.logger.warn(
+        `job_run list failed for ${companyId}: ${(e as Error).message}`,
+      );
+      return [];
+    }
   }
 
   async get(runId: string, companyId: string): Promise<JobRunRow | null> {
