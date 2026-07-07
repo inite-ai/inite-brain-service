@@ -10,17 +10,17 @@ import { join } from 'node:path';
 import {
   assembleSeed,
   BUILTIN_PACKS,
-  FINTECH_PACK,
   FIRST_PARTY_PACKS,
-  LEGAL_PACK,
-  MEDICAL_PACK,
   packChecksum,
   validatePack,
   type DomainPackManifest,
 } from '../src/ai/domain-packs';
 import { CORE_PREDICATES } from '../src/ai/predicate-registry-internals/core-seed';
 
-const INDUSTRY: DomainPackManifest[] = [FINTECH_PACK, MEDICAL_PACK, LEGAL_PACK];
+// Every first-party pack except real_estate (which has its own spec).
+const INDUSTRY: DomainPackManifest[] = FIRST_PARTY_PACKS.filter(
+  (p) => p.id !== 'real_estate',
+);
 
 describe.each(INDUSTRY.map((p) => [p.id, p] as const))(
   'industry pack: %s',
@@ -66,7 +66,14 @@ describe.each(INDUSTRY.map((p) => [p.id, p] as const))(
 describe('first-party pack library', () => {
   it('lists the industry packs + real_estate', () => {
     const ids = FIRST_PARTY_PACKS.map((p) => p.id).sort();
-    expect(ids).toEqual(['fintech', 'legal', 'medical', 'real_estate']);
+    expect(ids).toEqual([
+      'fintech',
+      'hr',
+      'insurance',
+      'legal',
+      'medical',
+      'real_estate',
+    ]);
   });
 
   it('seeds together with core collision-free (namespaced)', () => {
