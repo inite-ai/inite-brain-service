@@ -44,6 +44,7 @@ function mkSnapshot(
     byId: new Map(active.map((p) => [p.predicateId, p])),
     aliasMap: new Map(),
     embeddings: new Map(Object.entries(embeddings)),
+    extractionProfiles: [],
   };
 }
 

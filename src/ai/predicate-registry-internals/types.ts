@@ -41,6 +41,37 @@ export interface PredicateDefinition {
   createdBy: 'system' | 'admin' | 'llm_auto' | 'migration';
 }
 
+/**
+ * A single few-shot example a Domain Pack ships in its extraction profile.
+ * Rendered into the extractor system prompt as illustrative TEXT (not a
+ * schema-constrained message turn), so it can never violate the strict JSON
+ * response schema. `text` is a sample input snippet; `note` says what a correct
+ * extraction should capture from it.
+ */
+export interface ExtractionExample {
+  text: string;
+  note: string;
+}
+
+/**
+ * A Domain Pack's extraction profile — domain-specific tuning for the LLM
+ * extractor, carried in the pack manifest (docs/domain-packs.md) and CONSUMED
+ * at extract time. `guidance` is domain framing appended to the extractor
+ * system prompt; `fewShot` are illustrative examples. Both are advisory: they
+ * never override the VERBATIM RULE or the strict output schema.
+ */
+export interface ExtractionProfile {
+  guidance?: string;
+  fewShot?: ExtractionExample[];
+}
+
+/** A pack's extraction profile paired with its origin pack id, as assembled
+ *  onto the tenant snapshot from installed + builtin packs. */
+export interface PackExtractionProfile {
+  packId: string;
+  profile: ExtractionProfile;
+}
+
 export interface PredicateSnapshot {
   /** Stable hash of the active-row-set; pinned to extractor traces. */
   versionHash: string;
@@ -57,6 +88,10 @@ export interface PredicateSnapshot {
    *  skipped during similarity scoring (older rows from before 0012
    *  migration). */
   embeddings: Map<string, number[]>;
+  /** Extraction profiles contributed by the tenant's active packs (builtin +
+   *  runtime-installed). Injected into the extractor system prompt so a pack
+   *  can tune extraction for its domain. Empty when no active pack ships one. */
+  extractionProfiles: PackExtractionProfile[];
 }
 
 export type CanonicalizeDecision =

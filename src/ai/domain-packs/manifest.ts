@@ -1,4 +1,9 @@
-import type { PredicateDefinition } from '../predicate-registry-internals/types';
+import type {
+  ExtractionProfile,
+  PredicateDefinition,
+} from '../predicate-registry-internals/types';
+
+export type { ExtractionProfile, ExtractionExample } from '../predicate-registry-internals/types';
 
 /**
  * Domain Pack standard (docs/domain-packs.md).
@@ -39,12 +44,17 @@ export interface DomainPackManifest {
   /** The ontology this pack contributes. */
   predicates: PackPredicate[];
   /**
-   * Forward-compatible distribution fields (docs/domain-packs.md). Carried in
-   * the manifest + stored on install; not yet consumed by the runtime. A pack
-   * may ship its extraction profile (prompt/few-shot for the LLM extractor) and
-   * eval fixtures alongside its predicates, per the full DomainPack vision.
+   * Domain-specific extractor tuning (guidance + few-shot). CONSUMED at extract
+   * time: a pack's profile is merged onto the tenant snapshot and injected into
+   * the extractor system prompt (src/ai/predicate-registry.service loadFresh →
+   * ExtractorLlmService.composeSystemPrompt). Advisory — never overrides the
+   * verbatim rule or the strict output schema.
    */
-  extractionProfile?: Record<string, unknown>;
+  extractionProfile?: ExtractionProfile;
+  /**
+   * Forward-compatible eval fixtures (docs/domain-packs.md). Carried in the
+   * manifest + stored on install; not yet consumed by the runtime.
+   */
   evalFixtures?: unknown[];
   /** ed25519 signature (base64) over the canonical manifest sans this field. */
   signature?: string;

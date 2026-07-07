@@ -6,6 +6,7 @@ import {
   CORE_PREDICATES,
   PredicateDefinition,
 } from './predicate-registry.service';
+import type { PackExtractionProfile } from './predicate-registry-internals/types';
 import { ExtractorCacheService } from './extractor-cache.service';
 import { ExtractorRunnerService } from './extractor-runner.service';
 import type { ExtractionResult } from './extractor-internals/types';
@@ -88,7 +89,11 @@ export class ExtractorService {
 
   private async loadSnapshot(
     companyId: string,
-  ): Promise<{ versionHash: string; active: PredicateDefinition[] }> {
+  ): Promise<{
+    versionHash: string;
+    active: PredicateDefinition[];
+    extractionProfiles?: PackExtractionProfile[];
+  }> {
     try {
       return await this.registry.getSnapshot(companyId);
     } catch (e) {

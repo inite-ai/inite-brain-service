@@ -1,0 +1,84 @@
+{
+  "id": "real_estate",
+  "version": "0.1.0",
+  "description": "Real-estate ontology — zoning, valuation, encumbrances, tenure, and construction of properties/parcels, with a domain extraction profile.",
+  "predicates": [
+    {
+      "localId": "zoned_as",
+      "displayLabel": "zoned as",
+      "description": "TYPE   subject is a property/parcel; value is its zoning class\nADMIT  text states a property's zoning designation (\"zoned R-2\",\n       \"commercial zoning\", \"mixed-use\")\nVALUE  the zoning code/class, verbatim (\"R-2\", \"commercial\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "valued_at",
+      "displayLabel": "valued at",
+      "description": "TYPE   subject is a property/parcel; value is an appraised/market value\nADMIT  text states a valuation or appraised worth of the property\n       (\"appraised at $840,000\", \"market value €1.2M\")\nVALUE  the amount, verbatim including currency (\"$840,000\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "listed_at",
+      "displayLabel": "listed at",
+      "description": "TYPE   subject is a property/parcel; value is its current asking price\nADMIT  text states the listing / asking / sale price (\"listed at\n       $1.5M\", \"asking 350k\")\nVALUE  the asking amount, verbatim (\"$1.5M\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "encumbered_by",
+      "displayLabel": "encumbered by",
+      "description": "TYPE   subject is a property/parcel; value is an encumbrance on it\nADMIT  text states a lien, mortgage, easement, or covenant burdening\n       the property (\"mortgage held by First National\", \"utility\n       easement\", \"tax lien\")\nVALUE  one encumbrance per fact, verbatim (\"mortgage\", \"easement\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "tenure_type",
+      "displayLabel": "tenure type",
+      "description": "TYPE   subject is a property/parcel; value is the ownership tenure\nADMIT  text states the tenure/estate type (\"freehold\", \"leasehold\",\n       \"commonhold\")\nVALUE  the tenure term, verbatim (\"leasehold\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "built_in",
+      "displayLabel": "built in",
+      "description": "TYPE   subject is a property/parcel; value is its construction year\nADMIT  text states when the structure was built/constructed (\"built\n       in 1998\", \"constructed 2010\")\nVALUE  the year, verbatim (\"1998\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    }
+  ],
+  "extractionProfile": {
+    "guidance": "Real-estate inputs describe properties or parcels. Treat a street\naddress (\"12 Elm St\"), unit (\"Unit 4B\"), or lot/parcel id as the SUBJECT entity\n(type location). Prefer the real_estate__* predicates for zoning\n(real_estate__zoned_as), valuation (real_estate__valued_at), asking price\n(real_estate__listed_at), liens/mortgages/easements (real_estate__encumbered_by),\ntenure (real_estate__tenure_type), and construction year (real_estate__built_in).\nCopy amounts, zoning codes, tenure terms, and years VERBATIM from the text —\n\"$840,000\" not \"840000\", \"R-2\" not \"residential\". When a named party holds an\nencumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).",
+    "fewShot": [
+      {
+        "text": "The parcel at 12 Elm St is zoned R-2 and was last appraised at $840,000.",
+        "note": "property '12 Elm St' (location) → real_estate__zoned_as='R-2', real_estate__valued_at='$840,000'."
+      },
+      {
+        "text": "Unit 4B is leasehold and carries a mortgage held by First National.",
+        "note": "property 'Unit 4B' → real_estate__tenure_type='leasehold', real_estate__encumbered_by='mortgage'; edge (Unit 4B, held_by, First National)."
+      },
+      {
+        "text": "The warehouse, built in 1998, is listed at $1.5M with a utility easement.",
+        "note": "property 'The warehouse' → real_estate__built_in='1998', real_estate__listed_at='$1.5M', real_estate__encumbered_by='easement'."
+      }
+    ]
+  }
+}

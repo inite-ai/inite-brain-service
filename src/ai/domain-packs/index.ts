@@ -29,3 +29,7 @@ export * from './validate';
 export * from './checksum';
 export * from './signature';
 export * from './code-memory.pack';
+// real-estate is a DISTRIBUTABLE pack (installed per-tenant at runtime), not a
+// builtin — exported for the JSON generator + tests, deliberately NOT added to
+// BUILTIN_PACKS so its domain predicates don't seed into every tenant.
+export * from './real-estate.pack';
