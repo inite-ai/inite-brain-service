@@ -85,17 +85,21 @@ the core product loop.
 read) — wire it the same way (pack → snapshot → eval harness) when a pack needs
 domain-specific eval fixtures; no second-domain decision blocks it anymore.
 
-### C. Trained Layer-1 gate — whole CODE path DONE (`#101` + `#103`)
-The corpus blocker is resolved by **distillation** and the full pipeline ships:
-`pnpm label:decisions` (Layer-2 teacher → silver JSONL) → `pnpm train:decision-gate`
-(logistic-regression student, prints model-vs-heuristic F1 on a holdout) →
-`capture:decisions --gate-model <path>` (serves the student behind the same
-`DecisionClassifier` seam). Deliberately a LINEAR student (client-side, zero ML
+### C. Trained Layer-1 gate — DONE + PROVEN on real data (`#101`/`#103`/`#105`)
+Full pipeline ships: `pnpm label:decisions` + `pnpm label:commitpackft` (Layer-2
+teacher → silver JSONL, the latter pulls diverse negatives from CommitPackFT via
+the HF API) → `pnpm train:decision-gate` (logistic-regression student) →
+`capture:decisions --gate-model <path>` (serves behind the same
+`DecisionClassifier` seam). Linear student on purpose (client-side, zero ML
 runtime); DistilBERT/BiLSTM-via-ONNX is an optional upgrade behind the same seam.
-See `docs/code-memory/distillation-dataset.md`. Research on the corpus is captured
-in the `code-memory-domain` memory (don't re-run the deep-research).
-**Remaining — DATA only, not code (paid):** run `label:decisions` over real
-history (`OPENAI_API_KEY`), train, and tune `--threshold` on a hand-checked slice.
+**Real-run result:** brain's own history is degenerate (384 pos / 1 neg); the
+gpt-4o-mini teacher over-labels, so `SilverExample.maxConfidence` +
+`--min-confidence` re-threshold offline. On brain+CommitPackFT at
+`--min-confidence 0.9`, the trained gate **beats the heuristic by ~17 F1**
+(84.1 vs 66.9). Details + runbook in `docs/code-memory/distillation-dataset.md`;
+corpus research in the `code-memory-domain` memory (don't re-run deep-research).
+**Remaining (optional):** stronger teacher model, a multi-label `kinds` head, an
+ONNX student, and a hand-checked slice for final threshold calibration.
 
 ### D. Older backlog (from prior briefs, still valid)
 - **LoCoMo** full paid run + published numbers (~$110, 2-4h) — the one item left
@@ -118,8 +122,8 @@ history (`OPENAI_API_KEY`), train, and tune `--threshold` on a hand-checked slic
 ## Recommendation
 B, the D-refactor, A (the full pack registry), and track C's **entire code path**
 (silver harness + trained gate, train + serve) shipped 2026-07-07
-(`#93`/`#94`/`#96`/`#97`/`#101`/`#103`). Of what's left: **C** is now DATA-only —
-a paid `label:decisions` run + threshold tuning, no app code. **D (LoCoMo)** is a
+(`#93`/`#94`/`#96`/`#97`/`#101`/`#103`). Of what's left: **C** is proven (trained gate beats the heuristic +17 F1); only
+optional polish remains (stronger teacher, ONNX student, threshold calibration). **D (LoCoMo)** is a
 paid one-off (~$110) — confirm before spending. **`evalFixtures`** consumption
 mirrors the shipped `extractionProfile` wiring (pack → snapshot → eval harness)
 and is the smallest remaining pure-code track if a pack needs fixtures.
