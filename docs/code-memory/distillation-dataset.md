@@ -1,4 +1,4 @@
-# Track C — training the Layer-1 decision gate (distillation dataset)
+# Track C — the trained Layer-1 decision gate (dataset → train → serve)
 
 The capture pipeline's Layer-1 is a cheap binary gate: *does this commit's text
 (message + PR body, no diff) carry an engineering "why" — a decision / rationale
@@ -77,3 +77,59 @@ Generated datasets live under `data/code-memory/` and are git-ignored.
    `classify(commit): Layer1Verdict` (binary `likelyDecision` + `reason` =
    `model p=…` + `signals`). The capture pipeline is unchanged — swap the
    heuristic for the model at the same seam.
+
+## The trained gate (train → serve), in-process, zero-dep
+
+The shipped student is a **logistic regression** over hashed token n-grams of
+the commit text PLUS the deterministic commit signals — deliberately linear, not
+a BiLSTM/DistilBERT: the Layer-1 gate runs client-side (CI / git hook) with no ML
+runtime, the input is short commit text, and a linear model trains in seconds and
+serialises to a tiny JSON. A heavier student (DistilBERT via ONNX) can replace it
+behind the same `DecisionClassifier` seam if metrics ever demand — the pipeline
+never changes. Features live in one place (`gate-features.ts`) shared by trainer
+and server, so train-time and serve-time features always match.
+
+### Train
+
+```bash
+pnpm train:decision-gate -- \
+  --data data/code-memory/silver-decisions.jsonl \
+  --out  data/code-memory/decision-gate.model.json \
+  [--epochs 25] [--lr 0.1] [--l2 0.0001] [--threshold 0.5] [--holdout 0.2] [--seed 42]
+```
+
+Deterministic (seeded), fully offline. It holds out a slice (bucketed by commit
+sha) and prints **model-vs-heuristic** precision/recall/F1 against the teacher
+label — the payoff check: does the trained gate beat the heuristic? The model
+artifact is a portable sparse JSON (`{version, config, threshold, bias, weights}`),
+git-ignored under `data/code-memory/`.
+
+### Serve
+
+Point the capture CLI at the model — the trained gate replaces the heuristic at
+the same seam, so nothing else changes:
+
+```bash
+OPENAI_API_KEY=... BRAIN_API_KEY=... pnpm capture:decisions -- \
+  --range origin/main..HEAD --brain-url https://brain.inite.ai \
+  --gate-model data/code-memory/decision-gate.model.json
+```
+
+Without `--gate-model`, capture uses `HeuristicDecisionClassifier` as before.
+
+### Files
+- `gate-features.ts` — `featurize` (hashing trick + structured signal features),
+  shared by train + serve.
+- `gate-train.ts` — `trainGate` (SGD logistic regression, seeded, prunes
+  near-zero weights).
+- `gate-classifier.ts` — `GateModel`, `predictProba`, `evaluateGate`,
+  `TrainedDecisionClassifier` (the `DecisionClassifier` impl).
+- `scripts/train-decision-gate.ts` (`pnpm train:decision-gate`), and the
+  `--gate-model` flag on `scripts/capture-decisions.ts`.
+
+### Remaining
+Run `label:decisions` over real history to produce a real corpus, train, and
+compare F1 vs the heuristic on a hand-checked slice; tune `--threshold` for the
+precision/recall trade-off the gate wants (higher threshold = fewer wasted LLM
+calls, more missed "why"). Optionally add a multi-label (`kinds`) head or an
+ONNX BiLSTM/DistilBERT student behind the same seam.
