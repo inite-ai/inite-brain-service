@@ -14,8 +14,8 @@
    and **`maxparams_program.md`**. This brief assumes them.
 3. Acceptance bar for every PR (unchanged): `pnpm exec tsc --noEmit` ·
    `pnpm typecheck` · `pnpm lint` (max-params=3, complexity=25) · `pnpm test` ·
-   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **790 unit / 158
-   e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`/`#96`).
+   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **795 unit / 158
+   e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`/`#96`/`#101`).
 4. Workflow (works, use verbatim): branch off main → small commits → PR with a
    conventional title → wait for `build-test` green (only required check;
    `summarize` 403 is ignored) → `gh pr merge <n> --squash --admin
@@ -85,13 +85,16 @@ the core product loop.
 read) — wire it the same way (pack → snapshot → eval harness) when a pack needs
 domain-specific eval fixtures; no second-domain decision blocks it anymore.
 
-### C. Trained BiLSTM for capture Layer-1
-The heuristic classifier (`HeuristicDecisionClassifier`) sits behind the exact
-`DecisionClassifier` interface a trained model would implement. **Blocker:** no
-labeled commit corpus + no training/serving pipeline in brain. This is a
-data/ML track, not an app change. First step is a data plan (label commits as
-decision-bearing or not — CoMRAT's OOM-Killer/Linux datasets are a starting
-reference), not code.
+### C. Trained BiLSTM for capture Layer-1 — first brick DONE (`#101`)
+The corpus blocker is resolved by **distillation**: `pnpm label:decisions`
+(`silver-dataset.ts`) runs the Layer-2 LLM extractor as a teacher over a git
+range and writes a silver-labeled JSONL (`docs/code-memory/distillation-dataset.md`).
+Research confirmed no public corpus labels the `decided/because/invariant/gotcha`
+taxonomy on commit+PR text; external sets (CoMRAT/OOM-Killer — a BiLSTM
+Decision/Rationale precedent — and SATD "different-sources") are calibration gold.
+**Remaining (data/ML, not app code):** run the harness to produce the corpus
+(needs an `OPENAI_API_KEY`, paid), train the student (DistilBERT/BiLSTM), and
+wrap it as a `DecisionClassifier` (same seam, pipeline unchanged).
 
 ### D. Older backlog (from prior briefs, still valid)
 - **LoCoMo** full paid run + published numbers (~$110, 2-4h) — the one item left
@@ -113,9 +116,9 @@ reference), not code.
 
 ## Recommendation
 B, the D-refactor, and A (the full pack registry) shipped 2026-07-07
-(`#93`/`#94`/`#96`/`#97`). Of what's left: **C (BiLSTM)** needs a labeled commit
-corpus first (data/ML, not an app change) — the next step is a data plan, not
-code. **D (LoCoMo)** is a paid one-off (~$110) — confirm with the user before
-spending. **`evalFixtures`** consumption mirrors the now-shipped
-`extractionProfile` wiring (pack → snapshot → eval harness) and is the smallest
-remaining code track if a pack needs domain-specific fixtures.
+(`#93`/`#94`/`#96`/`#97`), and track C's first brick — the silver-dataset
+harness — landed in `#101`. Of what's left: **C** now needs a paid harness run
+(`OPENAI_API_KEY`) + model training (data/ML, not app code). **D (LoCoMo)** is a
+paid one-off (~$110) — confirm before spending. **`evalFixtures`** consumption
+mirrors the shipped `extractionProfile` wiring (pack → snapshot → eval harness)
+and is the smallest remaining pure-code track if a pack needs fixtures.
