@@ -52,10 +52,11 @@ export interface DomainPackManifest {
    */
   extractionProfile?: ExtractionProfile;
   /**
-   * Forward-compatible eval fixtures (docs/domain-packs.md). Carried in the
-   * manifest + stored on install; not yet consumed by the runtime.
+   * Domain eval fixtures (docs/domain-packs.md). CONSUMED at runtime: an
+   * operator runs `POST /v1/admin/packs/:packId/eval` to score the live
+   * extractor against these cases for a tenant. Typed as EvalFixture[].
    */
-  evalFixtures?: unknown[];
+  evalFixtures?: import('./eval-fixture').EvalFixture[];
   /** ed25519 signature (base64) over the canonical manifest sans this field. */
   signature?: string;
   /** Publisher id — the key in the tenant's trust store used to verify. */

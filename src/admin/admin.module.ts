@@ -31,6 +31,7 @@ import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
+import { PackEvalService } from './pack-eval.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { ScenarioWriteService } from './scenario-write.service';
 import { ScenarioLifecycleService } from './scenario-lifecycle.service';
@@ -84,6 +85,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     DemoPipelineService,
     DemoChatService,
     DomainPackInstallService,
+    PackEvalService,
     ScenarioRunnerService,
     // Scenario-runner phase services (max-params split):
     ScenarioWriteService,

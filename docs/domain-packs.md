@@ -178,5 +178,36 @@ pnpm pack:install  -- --brain-url $URL --registry real_estate[@0.2.0]  # brain:a
 pnpm registry:seed -- --brain-url $URL                   # publish all packs/*.json
 ```
 
-Still ahead: consuming `evalFixtures` at runtime (the same wiring as
-`extractionProfile`).
+## Eval fixtures (consumed)
+
+A pack may ship `evalFixtures` — small extraction test cases for its domain,
+now **consumed at runtime** (like `extractionProfile`):
+
+```jsonc
+"evalFixtures": [
+  {
+    "id": "zoning",
+    "text": "The parcel at 12 Elm St is zoned R-2.",
+    "expect": { "facts": [{ "predicate": "zoned_as", "objectIncludes": "R-2" }] }
+  }
+]
+```
+
+- `text` — the mention run through the LIVE extractor for the tenant (with the
+  pack's predicates + extractionProfile active).
+- `expect.facts[].predicate` — bare (`zoned_as`) resolves to the pack namespace
+  (`real_estate__zoned_as`); an already-namespaced id is used verbatim.
+  `objectIncludes` is an optional case-insensitive substring on the value.
+  `expect.minEntities` / `minFacts` are coarse thresholds.
+
+Flow: the manifest (already stored in `domain_pack` on install, or shipped for
+builtins) → `PackEvalService` runs each fixture through
+`ExtractorService.extract` → `scoreFixture` (pure) → a pass/fail report:
+
+```
+POST /v1/admin/packs/:packId/eval   (brain:admin)
+→ { packId, version, total, passed, results: [{ id, passed, failures[] }] }
+```
+
+`real_estate` ships three fixtures (zoning / valuation / tenure) as the
+demonstrator. Nothing forward-compat remains in the manifest.

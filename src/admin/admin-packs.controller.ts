@@ -12,7 +12,8 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { DomainPackInstallService } from './domain-pack-install.service';
 import { PackRegistryService } from '../registry/pack-registry.service';
-import type { DomainPackManifest } from '../ai/domain-packs';
+import { PackEvalService } from './pack-eval.service';
+import type { DomainPackManifest, PackEvalReport } from '../ai/domain-packs';
 import type {
   InstallPackResponse,
   PacksListResponse,
@@ -32,6 +33,7 @@ export class AdminPacksController {
   constructor(
     private readonly packs: DomainPackInstallService,
     private readonly registry: PackRegistryService,
+    private readonly packEval: PackEvalService,
   ) {}
 
   @Get()
@@ -72,6 +74,18 @@ export class AdminPacksController {
     return this.packs.install(req.brainAuth.companyId, manifest, {
       expectedChecksum: checksum,
     });
+  }
+
+  /** Run a pack's eval fixtures against the live extractor for this tenant —
+   *  scores whether extraction (with the pack's predicates + extractionProfile
+   *  active) still meets the pack's own expectations. */
+  @Post(':packId/eval')
+  @RequireScopes('brain:admin')
+  async eval(
+    @Req() req: AuthenticatedRequest,
+    @Param('packId') packId: string,
+  ): Promise<PackEvalReport> {
+    return this.packEval.run(req.brainAuth.companyId, packId);
   }
 
   @Delete(':packId')
