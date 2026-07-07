@@ -81,12 +81,29 @@ function main(): void {
   const threshold = parseFloat(arg('threshold', '0.5')!);
   const holdout = parseFloat(arg('holdout', '0.2')!);
   const seed = parseInt(arg('seed', '42')!, 10);
+  // Drop teacher positives below this confidence to a negative label — the
+  // cheap precision knob against an over-lenient teacher (see the docs). 0 =
+  // trust every teacher positive (the raw silver label).
+  const minConfidence = parseFloat(arg('min-confidence', '0')!);
 
-  const rows: SilverExample[] = readFileSync(dataPath, 'utf8')
+  const raw: SilverExample[] = readFileSync(dataPath, 'utf8')
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l) as SilverExample);
-  if (rows.length === 0) throw new Error(`no rows in ${dataPath}`);
+  if (raw.length === 0) throw new Error(`no rows in ${dataPath}`);
+  // Re-threshold the label offline (no re-labeling spend) using persisted
+  // maxConfidence. A positive with confidence below the gate becomes negative.
+  const rows: SilverExample[] = raw.map((r) =>
+    r.label === 1 && minConfidence > 0 && (r.maxConfidence ?? 1) < minConfidence
+      ? { ...r, label: 0 }
+      : r,
+  );
+  if (minConfidence > 0) {
+    const flipped = rows.filter((r, i) => r.label !== raw[i].label).length;
+    console.error(
+      `[train] min-confidence ${minConfidence}: flipped ${flipped} weak positive(s) → negative`,
+    );
+  }
 
   const train = rows.filter((r) => !inHoldout(r.sha, holdout, seed));
   const test = rows.filter((r) => inHoldout(r.sha, holdout, seed));

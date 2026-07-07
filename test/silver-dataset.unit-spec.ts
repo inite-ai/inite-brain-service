@@ -51,8 +51,8 @@ describe('buildSilverExample', () => {
     const ex = buildSilverExample({
       commit: commit({ sha: 'a', message: 'feat: x\n\nbecause it avoids drift' }),
       candidates: [
-        candidate({ kind: 'decided' }),
-        candidate({ kind: 'because' }),
+        candidate({ kind: 'decided', confidence: 0.9 }),
+        candidate({ kind: 'because', confidence: 0.6 }),
         candidate({ kind: 'because' }),
       ],
       classifier,
@@ -61,6 +61,7 @@ describe('buildSilverExample', () => {
     expect(ex.candidateCount).toBe(3);
     expect([...ex.kinds].sort()).toEqual(['because', 'decided']);
     expect(ex.heuristic.likelyDecision).toBe(true);
+    expect(ex.maxConfidence).toBe(0.9); // max over candidates that carry one
   });
   it('labels 0 when the teacher extracts nothing', () => {
     const ex = buildSilverExample({
@@ -70,6 +71,7 @@ describe('buildSilverExample', () => {
     });
     expect(ex.label).toBe(0);
     expect(ex.kinds).toEqual([]);
+    expect(ex.maxConfidence).toBeNull();
     expect(ex.heuristic.likelyDecision).toBe(false); // heuristic also rejects
   });
 });

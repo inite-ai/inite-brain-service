@@ -127,9 +127,44 @@ Without `--gate-model`, capture uses `HeuristicDecisionClassifier` as before.
 - `scripts/train-decision-gate.ts` (`pnpm train:decision-gate`), and the
   `--gate-model` flag on `scripts/capture-decisions.ts`.
 
+## Findings from the first real run (2026-07-07, gpt-4o-mini teacher)
+
+- **A disciplined repo can't train the gate alone.** Labeling brain's own 385
+  commits gave **384 positive / 1 negative** — nearly every commit here carries a
+  real "why", so the split is degenerate and both heuristic and a trained model
+  score ~100% trivially. You need diverse NEGATIVES.
+- **Get negatives from `label:commitpackft`.** Labeling 800 CommitPackFT commits
+  (8 languages) surfaced the real bottleneck: the gpt-4o-mini teacher is
+  **over-lenient** — it manufactures a `decided` from a bare "what" subject, so
+  it labeled ~97% positive while the heuristic (which requires a body / trailer /
+  rationale) rejected 704 of them. Teacher **precision**, not the student, is the
+  limiter on raw silver labels.
+- **The confidence gate fixes it, offline.** `buildSilverExample` persists
+  `maxConfidence`, so `train:decision-gate --min-confidence <t>` re-labels weak
+  positives to negative WITHOUT re-spending on the LLM. Sweep on the combined
+  1,185-row corpus (brain + CommitPackFT):
+
+  | `--min-confidence` | weak pos → neg | heuristic F1 | **model F1** |
+  |---|---|---|---|
+  | 0 (raw teacher) | 0 | 58.2 | 99.4 *(labels ~98% pos — degenerate)* |
+  | **0.9** | 337 | 66.9 | **84.1** (P 87.8 / R 80.7) |
+  | 0.95 | 1,095 | 4.9 | 0.0 *(over-pruned)* |
+
+  **Recommended: `--min-confidence 0.9`.** It removes the teacher's over-labeling,
+  balances the corpus, and the trained gate **beats the heuristic by ~17 F1
+  points** with real precision/recall — the track-C payoff.
+
+### Recommended run
+```bash
+OPENAI_API_KEY=... pnpm label:decisions   -- --range <big-range> --out data/code-memory/silver-brain.jsonl
+OPENAI_API_KEY=... pnpm label:commitpackft -- --per-lang 100 --out data/code-memory/silver-cpft.jsonl
+cat data/code-memory/silver-*.jsonl > data/code-memory/silver-all.jsonl
+pnpm train:decision-gate -- --data data/code-memory/silver-all.jsonl \
+  --out data/code-memory/decision-gate.model.json --min-confidence 0.9
+pnpm capture:decisions -- --range origin/main..HEAD --gate-model data/code-memory/decision-gate.model.json ...
+```
+
 ### Remaining
-Run `label:decisions` over real history to produce a real corpus, train, and
-compare F1 vs the heuristic on a hand-checked slice; tune `--threshold` for the
-precision/recall trade-off the gate wants (higher threshold = fewer wasted LLM
-calls, more missed "why"). Optionally add a multi-label (`kinds`) head or an
-ONNX BiLSTM/DistilBERT student behind the same seam.
+Tune `--min-confidence` / `--threshold` on a hand-checked slice; a stronger
+teacher model raises the ceiling further. Optionally add a multi-label (`kinds`)
+head or an ONNX BiLSTM/DistilBERT student behind the same seam.

@@ -37,6 +37,11 @@ export interface SilverExample {
   /** Distinct kinds the teacher found — fodder for a future multi-label head. */
   kinds: DecisionKind[];
   candidateCount: number;
+  /** Max confidence across the teacher's candidates (null if none carried one).
+   *  Persisted so the label threshold can be RE-TUNED offline (drop weak
+   *  positives) without re-spending on the LLM — the teacher over-labels bare
+   *  "what" commits, so a confidence gate is the cheap precision knob. */
+  maxConfidence: number | null;
   /** Deterministic cheap features (also the heuristic's substrate). */
   signals: Layer1Signals;
   /** Current heuristic verdict — for heuristic-vs-teacher agreement analysis. */
@@ -62,12 +67,16 @@ export function buildSilverExample(args: {
   const { commit, candidates, classifier } = args;
   const kinds = [...new Set(candidates.map((c) => c.kind))];
   const verdict = classifier.classify(commit);
+  const confidences = candidates
+    .map((c) => c.confidence)
+    .filter((c): c is number => typeof c === 'number');
   return {
     sha: commit.sha,
     text: commitText(commit),
     label: candidates.length > 0 ? 1 : 0,
     kinds,
     candidateCount: candidates.length,
+    maxConfidence: confidences.length > 0 ? Math.max(...confidences) : null,
     signals: parseCommitSignals(commit),
     heuristic: {
       likelyDecision: verdict.likelyDecision,
