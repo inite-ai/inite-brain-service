@@ -33,6 +33,7 @@
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
     "bench:router": "ts-node -r tsconfig-paths/register scripts/bench-chat-router.ts",
     "capture:decisions": "ts-node -r tsconfig-paths/register scripts/capture-decisions.ts",
+    "label:decisions": "ts-node -r tsconfig-paths/register scripts/label-decisions.ts",
     "pack:validate": "ts-node -r tsconfig-paths/register scripts/validate-pack.ts",
     "pack:install": "ts-node -r tsconfig-paths/register scripts/install-pack.ts",
     "pack:sign": "ts-node -r tsconfig-paths/register scripts/sign-pack.ts",

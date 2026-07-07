@@ -9,3 +9,6 @@ coverage/
 .vscode/
 .idea/
 *.tsbuildinfo
+
+# Generated code-memory silver datasets (track C distillation)
+data/code-memory/*.jsonl
