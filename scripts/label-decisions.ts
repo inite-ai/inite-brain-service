@@ -24,6 +24,7 @@ import {
   LlmDecisionExtractor,
   makeOpenAiCompleter,
 } from '../src/code-memory/capture/llm-extractor';
+import { LlmDecisionVerifier } from '../src/code-memory/capture/llm-verifier';
 import { labelCommits } from '../src/code-memory/capture/silver-dataset';
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -49,16 +50,28 @@ async function main(): Promise<void> {
   mkdirSync(dirname(out), { recursive: true });
   const stream = createWriteStream(out, { flags: 'w' });
 
+  // --verify adds a strict LLM-judge pass (a stronger teacher — raises
+  // precision against the extractor's over-labeling). --verify-model overrides.
+  const verify = process.argv.includes('--verify');
+  const verifyModel = arg('verify-model', model)!;
   const summary = await labelCommits({
     commits,
     extractor: new LlmDecisionExtractor(
       makeOpenAiCompleter({ apiKey: openAiKey, model }),
     ),
     classifier: new HeuristicDecisionClassifier(),
+    ...(verify
+      ? {
+          verifier: new LlmDecisionVerifier(
+            makeOpenAiCompleter({ apiKey: openAiKey, model: verifyModel }),
+          ),
+        }
+      : {}),
     emit: (ex) => stream.write(`${JSON.stringify(ex)}\n`),
     concurrency,
     log: (m) => console.error(`[label] ${m}`),
   });
+  if (verify) console.error(`[label] verification ON (judge=${verifyModel})`);
 
   await new Promise<void>((resolve, reject) => {
     stream.end((err?: Error | null) => (err ? reject(err) : resolve()));
