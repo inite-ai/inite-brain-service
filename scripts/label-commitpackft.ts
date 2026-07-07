@@ -23,6 +23,7 @@ import {
   LlmDecisionExtractor,
   makeOpenAiCompleter,
 } from '../src/code-memory/capture/llm-extractor';
+import { LlmDecisionVerifier } from '../src/code-memory/capture/llm-verifier';
 import { labelCommits } from '../src/code-memory/capture/silver-dataset';
 import type { CommitInput } from '../src/code-memory/capture/types';
 
@@ -91,16 +92,29 @@ async function main(): Promise<void> {
 
   mkdirSync(dirname(out), { recursive: true });
   const stream = createWriteStream(out, { flags: 'w' });
+  const verify = process.argv.includes('--verify');
+  const verifyModel = arg('verify-model', model)!;
   const summary = await labelCommits({
     commits,
     extractor: new LlmDecisionExtractor(
       makeOpenAiCompleter({ apiKey: process.env.OPENAI_API_KEY, model }),
     ),
     classifier: new HeuristicDecisionClassifier(),
+    ...(verify
+      ? {
+          verifier: new LlmDecisionVerifier(
+            makeOpenAiCompleter({
+              apiKey: process.env.OPENAI_API_KEY,
+              model: verifyModel,
+            }),
+          ),
+        }
+      : {}),
     emit: (ex) => stream.write(`${JSON.stringify(ex)}\n`),
     concurrency,
     log: (m) => console.error(`[cpft] ${m}`),
   });
+  if (verify) console.error(`[cpft] verification ON (judge=${verifyModel})`);
   await new Promise<void>((resolve, reject) => {
     stream.end((err?: Error | null) => (err ? reject(err) : resolve()));
   });

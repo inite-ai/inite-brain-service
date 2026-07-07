@@ -6,6 +6,7 @@ import type {
   DecisionKind,
   Layer1Signals,
 } from './types';
+import type { DecisionVerifier } from './llm-verifier';
 import { isMergeCommit, parseCommitSignals } from './commit-signals';
 
 /**
@@ -113,10 +114,13 @@ export async function labelCommits(opts: {
   extractor: DecisionExtractor;
   classifier: DecisionClassifier;
   emit: (ex: SilverExample) => void;
+  /** Optional strict second pass (LLM-judge) that filters over-labeled
+   *  candidates + calibrates confidence — a stronger teacher. Fail-open. */
+  verifier?: DecisionVerifier;
   concurrency?: number;
   log?: (msg: string) => void;
 }): Promise<LabelSummary> {
-  const { commits, extractor, classifier, emit } = opts;
+  const { commits, extractor, classifier, emit, verifier } = opts;
   const log = opts.log ?? (() => {});
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const summary: LabelSummary = {
@@ -147,6 +151,14 @@ export async function labelCommits(opts: {
       summary.failures += 1;
       log(`label failed ${commit.sha.slice(0, 8)}: ${(e as Error).message}`);
       return;
+    }
+    if (verifier) {
+      try {
+        candidates = await verifier.rescore(commit, candidates);
+      } catch (e) {
+        // Fail-open: a judge failure keeps the raw candidates, never drops them.
+        log(`verify failed ${commit.sha.slice(0, 8)} (keeping raw): ${(e as Error).message}`);
+      }
     }
     const ex = buildSilverExample({ commit, candidates, classifier });
     emit(ex);

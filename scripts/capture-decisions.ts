@@ -28,6 +28,7 @@ import {
   LlmDecisionExtractor,
   makeOpenAiCompleter,
 } from '../src/code-memory/capture/llm-extractor';
+import { LlmDecisionVerifier } from '../src/code-memory/capture/llm-verifier';
 import type { DecisionClassifier } from '../src/code-memory/capture/types';
 import { HttpDecisionSink } from '../src/code-memory/capture/http-sink';
 import { runCapturePipeline } from '../src/code-memory/capture/capture-pipeline';
@@ -93,14 +94,25 @@ async function main(): Promise<void> {
     },
   });
 
+  // --verify adds a strict LLM-judge pass that filters over-labeled candidates
+  // before they're recorded (raises precision at the cost of one call/commit).
+  const verify = process.argv.includes('--verify');
   const summary = await runCapturePipeline({
     commits,
     classifier,
     extractor,
+    ...(verify
+      ? {
+          verifier: new LlmDecisionVerifier(
+            makeOpenAiCompleter({ apiKey: openAiKey, model }),
+          ),
+        }
+      : {}),
     sink,
     refineAnchor,
     log: (m) => console.error(`[capture] ${m}`),
   });
+  if (verify) console.error(`[capture] verification ON (judge=${model})`);
 
   console.error(`[capture] done: ${JSON.stringify(summary)}`);
 }

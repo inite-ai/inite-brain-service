@@ -5,6 +5,7 @@ import type {
   DecisionExtractor,
   DecisionSink,
 } from './types';
+import type { DecisionVerifier } from './llm-verifier';
 import { isMergeCommit } from './commit-signals';
 
 /**
@@ -23,6 +24,9 @@ export async function runCapturePipeline(opts: {
   commits: CommitInput[];
   classifier: DecisionClassifier;
   extractor: DecisionExtractor;
+  /** Optional strict LLM-judge pass — filters over-labeled candidates before
+   *  they're recorded (raises precision). Fail-open. */
+  verifier?: DecisionVerifier;
   sink: DecisionSink;
   /**
    * Optional Phase-2 anchor refinement — upgrade a candidate's file anchor to a
@@ -66,6 +70,14 @@ export async function runCapturePipeline(opts: {
       summary.failures += 1;
       log(`extract failed ${short(commit.sha)}: ${(e as Error).message}`);
       continue;
+    }
+    if (opts.verifier) {
+      try {
+        candidates = await opts.verifier.rescore(commit, candidates);
+      } catch (e) {
+        // Fail-open: keep the raw candidates if the judge errors.
+        log(`verify failed ${short(commit.sha)} (keeping raw): ${(e as Error).message}`);
+      }
     }
     summary.extracted += candidates.length;
 

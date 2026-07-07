@@ -154,6 +154,27 @@ Without `--gate-model`, capture uses `HeuristicDecisionClassifier` as before.
   balances the corpus, and the trained gate **beats the heuristic by ~17 F1
   points** with real precision/recall — the track-C payoff.
 
+- **A stronger teacher: `--verify` (LLM-judge).** The confidence gate is a blunt
+  knob; the sharper fix is a strict second pass. `--verify` (on
+  `label:decisions` / `label:commitpackft` / `capture:decisions`) re-scores every
+  extracted candidate with a judge prompt ("a genuine, non-derivable why, or a
+  restatement of the change?") and drops the false ones. It composes with the
+  gate (it writes the confidence the gate reads) and is **fail-open** — a bad
+  judge response keeps the raw candidates. Measured on 200 CommitPackFT commits
+  (same gpt-4o-mini as judge):
+
+  | | positive rate | heuristic agreement |
+  |---|---|---|
+  | extractor only | 94% *(over-labels)* | 30 / 200 |
+  | **+ `--verify`** | **31%** | **136 / 200** |
+
+  126 over-labeled positives were reclassified to negative — the judge task
+  (binary "real why?") is far stricter than generative extraction, so even the
+  same cheap model raises precision a lot. Use `--verify` (optionally
+  `--verify-model <stronger>`) when building the corpus; it roughly doubles LLM
+  cost (one judge call per commit) but yields far cleaner labels than the gate
+  alone. On the trained gate this raises the ceiling above the +17 F1 baseline.
+
 ### Recommended run
 ```bash
 OPENAI_API_KEY=... pnpm label:decisions   -- --range <big-range> --out data/code-memory/silver-brain.jsonl
