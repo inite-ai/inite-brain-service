@@ -4,6 +4,7 @@
 import { PacksListResponseSchema } from '../src/contracts/admin/packs.schema';
 import { AdminPacksController } from '../src/admin/admin-packs.controller';
 import type { DomainPackInstallService } from '../src/admin/domain-pack-install.service';
+import type { PackRegistryService } from '../src/registry/pack-registry.service';
 import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 
 function makeController(): AdminPacksController {
@@ -28,7 +29,8 @@ function makeController(): AdminPacksController {
         },
       ]),
   } as unknown as DomainPackInstallService;
-  return new AdminPacksController(svc);
+  const registry = {} as unknown as PackRegistryService;
+  return new AdminPacksController(svc, registry);
 }
 
 describe('AdminPacksController.list() — wire contract', () => {

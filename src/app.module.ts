@@ -26,6 +26,7 @@ import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
 import { CommunityModule } from './communities/community.module';
 import { StatsModule } from './stats/stats.module';
+import { RegistryModule } from './registry/registry.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { StatsModule } from './stats/stats.module';
     JobsModule,
     CommunityModule,
     StatsModule,
+    RegistryModule,
   ],
   controllers: [HealthController],
   providers: [
