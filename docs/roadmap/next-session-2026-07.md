@@ -14,7 +14,7 @@
    and **`maxparams_program.md`**. This brief assumes them.
 3. Acceptance bar for every PR (unchanged): `pnpm exec tsc --noEmit` ·
    `pnpm typecheck` · `pnpm lint` (max-params=3, complexity=25) · `pnpm test` ·
-   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **805 unit / 158
+   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **823 unit / 160
    e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`/`#96`/`#101`/`#103`).
 4. Workflow (works, use verbatim): branch off main → small commits → PR with a
    conventional title → wait for `build-test` green (only required check;
@@ -81,9 +81,9 @@ the core product loop.
 
 ### B. Consume `extractionProfile` / `evalFixtures` from a pack — ✅ DONE (`#93`)
 `extractionProfile` is now consumed end-to-end via the **real_estate** pack (see
-"Shipped 2026-07-07"). Only `evalFixtures` remains forward-compat (stored, not
-read) — wire it the same way (pack → snapshot → eval harness) when a pack needs
-domain-specific eval fixtures; no second-domain decision blocks it anymore.
+"Shipped 2026-07-07"). `evalFixtures` is now also consumed (`#108`): `POST /v1/admin/packs/:id/eval`
+runs a pack's fixtures through the live extractor and scores pass/fail;
+real_estate ships three. Nothing forward-compat remains in the manifest.
 
 ### C. Trained Layer-1 gate — DONE + PROVEN on real data (`#101`/`#103`/`#105`)
 Full pipeline ships: `pnpm label:decisions` + `pnpm label:commitpackft` (Layer-2
@@ -98,8 +98,10 @@ gpt-4o-mini teacher over-labels, so `SilverExample.maxConfidence` +
 `--min-confidence 0.9`, the trained gate **beats the heuristic by ~17 F1**
 (84.1 vs 66.9). Details + runbook in `docs/code-memory/distillation-dataset.md`;
 corpus research in the `code-memory-domain` memory (don't re-run deep-research).
-**Remaining (optional):** stronger teacher model, a multi-label `kinds` head, an
-ONNX student, and a hand-checked slice for final threshold calibration.
+A **stronger teacher** shipped too (`#107`): `--verify` adds a strict LLM-judge
+pass that raised precision (positive rate 94%→31% on CommitPackFT, same cheap
+model). **Remaining (optional):** a `--verify`+train run on real data, an ONNX
+student, a multi-label `kinds` head, and hand-checked threshold calibration.
 
 ### D. Older backlog (from prior briefs, still valid)
 - **LoCoMo** full paid run + published numbers (~$110, 2-4h) — the one item left
