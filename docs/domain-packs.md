@@ -225,6 +225,8 @@ industry packs (installed per-tenant, published to the registry via
 | `fintech` | financial-services regulation | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period |
 | `medical` | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with |
 | `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on |
+| `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes |
+| `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location |
 
 Sources: `src/ai/domain-packs/*.pack.ts` (the `FIRST_PARTY_PACKS` list) →
 committed JSON in `packs/*.pack.json` (drift-guarded by

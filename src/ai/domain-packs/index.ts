@@ -39,11 +39,15 @@ export * from './real-estate.pack';
 export * from './fintech.pack';
 export * from './medical.pack';
 export * from './legal.pack';
+export * from './insurance.pack';
+export * from './hr.pack';
 
 import { REAL_ESTATE_PACK } from './real-estate.pack';
 import { FINTECH_PACK } from './fintech.pack';
 import { MEDICAL_PACK } from './medical.pack';
 import { LEGAL_PACK } from './legal.pack';
+import { INSURANCE_PACK } from './insurance.pack';
+import { HR_PACK } from './hr.pack';
 
 /** First-party distributable packs shipped in-repo (packs/*.json). The industry
  *  ontology library — distinct from BUILTIN_PACKS (globally seeded). */
@@ -52,4 +56,6 @@ export const FIRST_PARTY_PACKS: DomainPackManifest[] = [
   FINTECH_PACK,
   MEDICAL_PACK,
   LEGAL_PACK,
+  INSURANCE_PACK,
+  HR_PACK,
 ];
