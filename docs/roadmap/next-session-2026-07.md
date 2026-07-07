@@ -14,8 +14,8 @@
    and **`maxparams_program.md`**. This brief assumes them.
 3. Acceptance bar for every PR (unchanged): `pnpm exec tsc --noEmit` ·
    `pnpm typecheck` · `pnpm lint` (max-params=3, complexity=25) · `pnpm test` ·
-   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **786 unit / 150
-   e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`).
+   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **790 unit / 158
+   e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`/`#96`).
 4. Workflow (works, use verbatim): branch off main → small commits → PR with a
    conventional title → wait for `build-test` green (only required check;
    `summarize` 403 is ignored) → `gh pr merge <n> --squash --admin
@@ -64,15 +64,20 @@
   pragmas (`#94`): `JobRunService.list` and `DreamsService.runForTenantInner`
   split into helpers, zero behaviour change. The 2 `it.skip` in
   `concurrency.real-e2e` stay skipped (infra-blocked — see track D below).
+- **Track A — global pack registry** (`#96` core + `#97` CLI/seed/docs). A
+  first-class in-brain registry (not a static JSON index): `registry_pack` in the
+  `system` DB (migration 0042, `withAdminDb`); publish → discover →
+  install-from-registry; version immutability + yank-not-delete + end-to-end
+  trust; new `registry:publish` scope; `pnpm pack:publish` / `pack:search` /
+  `pack:install --registry` / `registry:seed`. See `docs/domain-packs.md`.
 
 ## Open tracks — each needs a DECISION first, then code
 
-### A. Pack discovery registry
-**Decision needed:** where does a catalogue of installable packs live, and who
-curates it? A curated JSON index served from an endpoint is the cheap first cut;
-a full registry service is the big version. Nothing to build until that's chosen.
-Entry points once decided: `DomainPackInstallService` (add `installFromRegistry`),
-`AdminPacksController`.
+### A. Pack discovery registry — ✅ DONE (`#96`/`#97`)
+Shipped as a full in-brain registry (see "Shipped 2026-07-07"). Possible
+follow-ons if ever needed: a browsable UI over `/v1/registry`, cross-instance
+federation/mirroring, or download-count/popularity ranking — none required for
+the core product loop.
 
 ### B. Consume `extractionProfile` / `evalFixtures` from a pack — ✅ DONE (`#93`)
 `extractionProfile` is now consumed end-to-end via the **real_estate** pack (see
@@ -107,9 +112,10 @@ reference), not code.
   `src/admin/admin-packs.controller.ts`.
 
 ## Recommendation
-B and the D-refactor shipped 2026-07-07 (`#93`/`#94`). Of what's left: **A (pack
-registry, cheap JSON-index first cut)** is the highest-signal code track and the
-natural follow-on to the now-proven pack machine. **C (BiLSTM)** needs a labeled
-commit corpus first (data/ML, not an app change). **D (LoCoMo)** is a paid
-one-off (~$110) — confirm with the user before spending. `evalFixtures`
-consumption mirrors the shipped `extractionProfile` wiring when a pack needs it.
+B, the D-refactor, and A (the full pack registry) shipped 2026-07-07
+(`#93`/`#94`/`#96`/`#97`). Of what's left: **C (BiLSTM)** needs a labeled commit
+corpus first (data/ML, not an app change) — the next step is a data plan, not
+code. **D (LoCoMo)** is a paid one-off (~$110) — confirm with the user before
+spending. **`evalFixtures`** consumption mirrors the now-shipped
+`extractionProfile` wiring (pack → snapshot → eval harness) and is the smallest
+remaining code track if a pack needs domain-specific fixtures.
