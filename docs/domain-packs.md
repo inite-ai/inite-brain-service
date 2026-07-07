@@ -135,4 +135,48 @@ real-estate.pack.ts`, distributable JSON at `packs/real-estate.pack.json`) — a
 DISTRIBUTABLE pack (installed per-tenant, deliberately NOT a builtin so its
 domain predicates don't seed into unrelated tenants).
 
-Still ahead: a discovery **registry**; consuming `evalFixtures` at runtime.
+## The registry (global catalogue)
+
+Packs are published to and installed from a **global registry** — a shared,
+tenant-agnostic catalogue in the `system` database (distinct from `domain_pack`,
+which records what a tenant has INSTALLED). It closes the loop the pack machine
+exists for: **publish → discover → install**.
+
+Invariants (supply-chain safety, npm/crates.io-style):
+
+- **Version immutability** — a `(packId, version)` is content-addressed by
+  `checksum`. Republishing the same version with different content → `409`; an
+  identical republish is idempotent.
+- **Yank, not delete** — a bad version is flagged `yanked` (dropped from
+  latest-resolution + default listing, refused for a pinned install) but never
+  removed, so pinned installs stay reproducible. `unyank` restores it.
+- **Trust end-to-end** — the manifest's `signature`/`publisher` are stored
+  as-is; cryptographic verification happens at **install** time against the
+  installing tenant's trust store. `PACK_REGISTRY_REQUIRE_SIGNATURE=true` gates
+  publishing to signed packs.
+
+Surface:
+
+- **Discovery** (`brain:read`): `GET /v1/registry/packs[?q=&tag=&publisher=]`,
+  `GET /v1/registry/packs/:id` (all versions + latest), `GET
+  /v1/registry/packs/:id/:version` (`:version` may be `latest`).
+- **Publish / yank** (`registry:publish` — a scope distinct from `brain:admin`,
+  because it mutates the shared catalogue): `POST /v1/admin/registry/packs`,
+  `POST /v1/admin/registry/packs/:id/:version/{yank,unyank}`.
+- **Install from registry** (`brain:admin`): `POST /v1/admin/packs/from-registry
+  {packId, version?}` — resolves latest-non-yanked (or a pin) and installs via
+  the normal path, pinning the registry checksum.
+
+CLI:
+
+```bash
+pnpm pack:publish  -- --brain-url $URL --file packs/real-estate.pack.json \
+                      --keywords real-estate,property   # needs registry:publish
+pnpm pack:search   -- --brain-url $URL --q real          # browse (brain:read)
+pnpm pack:search   -- --brain-url $URL --versions real_estate
+pnpm pack:install  -- --brain-url $URL --registry real_estate[@0.2.0]  # brain:admin
+pnpm registry:seed -- --brain-url $URL                   # publish all packs/*.json
+```
+
+Still ahead: consuming `evalFixtures` at runtime (the same wiring as
+`extractionProfile`).
