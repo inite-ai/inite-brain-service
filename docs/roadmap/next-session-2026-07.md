@@ -14,7 +14,7 @@
    and **`maxparams_program.md`**. This brief assumes them.
 3. Acceptance bar for every PR (unchanged): `pnpm exec tsc --noEmit` ·
    `pnpm typecheck` · `pnpm lint` (max-params=3, complexity=25) · `pnpm test` ·
-   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **823 unit / 160
+   `pnpm test:e2e` · `pnpm test:e2e:jobs`. Current baseline: **848 unit / 163
    e2e / 9 jobs** (was 772/146/9 before `#93`/`#94`/`#96`/`#101`/`#103`).
 4. Workflow (works, use verbatim): branch off main → small commits → PR with a
    conventional title → wait for `build-test` green (only required check;
@@ -83,7 +83,10 @@ the core product loop.
 `extractionProfile` is now consumed end-to-end via the **real_estate** pack (see
 "Shipped 2026-07-07"). `evalFixtures` is now also consumed (`#108`): `POST /v1/admin/packs/:id/eval`
 runs a pack's fixtures through the live extractor and scores pass/fail;
-real_estate ships three. Nothing forward-compat remains in the manifest.
+real_estate ships three. Nothing forward-compat remains in the manifest. And an
+INDUSTRY PACK LIBRARY shipped (`#112`): fintech / medical / legal, each a complete
+distributable pack (predicates + extractionProfile + evalFixtures, `packs/*.json`,
+`FIRST_PARTY_PACKS`).
 
 ### C. Trained Layer-1 gate — DONE + PROVEN on real data (`#101`/`#103`/`#105`)
 Full pipeline ships: `pnpm label:decisions` + `pnpm label:commitpackft` (Layer-2
@@ -98,10 +101,12 @@ gpt-4o-mini teacher over-labels, so `SilverExample.maxConfidence` +
 `--min-confidence 0.9`, the trained gate **beats the heuristic by ~17 F1**
 (84.1 vs 66.9). Details + runbook in `docs/code-memory/distillation-dataset.md`;
 corpus research in the `code-memory-domain` memory (don't re-run deep-research).
-A **stronger teacher** shipped too (`#107`): `--verify` adds a strict LLM-judge
-pass that raised precision (positive rate 94%→31% on CommitPackFT, same cheap
-model). **Remaining (optional):** a `--verify`+train run on real data, an ONNX
-student, a multi-label `kinds` head, and hand-checked threshold calibration.
+C is now PRODUCTIONIZED (`#110`/`#111`): multi-label `kinds` heads, a frozen
+human golden, and — after the golden caught that the model alone LOSES to the
+heuristic — a **HybridDecisionClassifier (heuristic OR model)** that beats both
+(golden F1 66.7 vs 62.1), a shipped default model (`models/decision-gate.model.json`,
+~97 KB), the hybrid as the capture default, and a CI regression guard. Track C is
+finished. **Remaining (optional):** ONNX student, per-repo tuning.
 
 ### D. Older backlog (from prior briefs, still valid)
 - **LoCoMo** full paid run + published numbers (~$110, 2-4h) — the one item left
@@ -124,8 +129,8 @@ student, a multi-label `kinds` head, and hand-checked threshold calibration.
 ## Recommendation
 B, the D-refactor, A (the full pack registry), and track C's **entire code path**
 (silver harness + trained gate, train + serve) shipped 2026-07-07
-(`#93`/`#94`/`#96`/`#97`/`#101`/`#103`). Of what's left: **C** is proven (trained gate beats the heuristic +17 F1); only
-optional polish remains (stronger teacher, ONNX student, threshold calibration). **D (LoCoMo)** is a
+(`#93`/`#94`/`#96`/`#97`/`#101`/`#103`). Of what's left: **C** is proven (trained gate beats the heuristic +17 F1); C is PRODUCTIONIZED (#110/#111) and an industry pack library shipped (#112). Only
+LoCoMo (D, paid ~$110) remains as a major track; optional: more industries, ONNX. **D (LoCoMo)** is a
 paid one-off (~$110) — confirm before spending. **`evalFixtures`** consumption
 mirrors the shipped `extractionProfile` wiring (pack → snapshot → eval harness)
 and is the smallest remaining pure-code track if a pack needs fixtures.
