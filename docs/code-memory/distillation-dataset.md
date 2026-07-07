@@ -175,6 +175,33 @@ Without `--gate-model`, capture uses `HeuristicDecisionClassifier` as before.
   cost (one judge call per commit) but yields far cleaner labels than the gate
   alone. On the trained gate this raises the ceiling above the +17 F1 baseline.
 
+## The default gate: hybrid (heuristic OR model) + a shipped model
+
+Honest finding from evaluating on the **frozen human-labeled golden**
+(`gate-golden.ts`, 40 cases), not the teacher's own noisy holdout: a model
+trained on brain + verified CommitPackFT **loses to the heuristic** there
+(F1 51.9 vs 62.1) — low recall, because brain's history is all-positive (no
+in-distribution negatives) and CommitPackFT is a different style. The teacher-
+holdout "+17 F1" flattered the model; the golden caught the real regression.
+
+But the heuristic and the model miss **different** positives (both keep precision
+1.0 on the golden), so the union wins. The production gate is therefore a
+**`HybridDecisionClassifier` = heuristic OR trained model**:
+
+| gate | golden P | golden R | golden F1 |
+|---|---|---|---|
+| heuristic | 100 | 45 | 62.1 |
+| model only | 100 | 35 | 51.9 |
+| **hybrid** | **100** | **50** | **66.7** |
+
+A **shipped default model** (`models/decision-gate.model.json`, binary-only,
+~97 KB, trained on brain + verified CommitPackFT then `--prune 0.01 --round 3
+--binary-only`) makes this the batteries-included default:
+`capture:decisions` uses the hybrid automatically; `--gate-model <path>` swaps
+the model, `--trained-only` drops the heuristic, `--heuristic` forces heuristic.
+`test/gate-default-model.unit-spec.ts` is the regression guard — the shipped
+model's hybrid MUST beat the heuristic on the golden or CI fails.
+
 ### Recommended run
 ```bash
 OPENAI_API_KEY=... pnpm label:decisions   -- --range <big-range> --out data/code-memory/silver-brain.jsonl
