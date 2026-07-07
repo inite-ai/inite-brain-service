@@ -31,7 +31,25 @@ export * from './signature';
 export * from './semver';
 export * from './eval-fixture';
 export * from './code-memory.pack';
-// real-estate is a DISTRIBUTABLE pack (installed per-tenant at runtime), not a
-// builtin — exported for the JSON generator + tests, deliberately NOT added to
-// BUILTIN_PACKS so its domain predicates don't seed into every tenant.
+// DISTRIBUTABLE industry packs (installed per-tenant at runtime), NOT builtins —
+// exported for the JSON generator + tests, deliberately kept out of BUILTIN_PACKS
+// so their domain predicates don't seed into every tenant. Shipped as JSON in
+// packs/ and published to the registry via `pnpm registry:seed`.
 export * from './real-estate.pack';
+export * from './fintech.pack';
+export * from './medical.pack';
+export * from './legal.pack';
+
+import { REAL_ESTATE_PACK } from './real-estate.pack';
+import { FINTECH_PACK } from './fintech.pack';
+import { MEDICAL_PACK } from './medical.pack';
+import { LEGAL_PACK } from './legal.pack';
+
+/** First-party distributable packs shipped in-repo (packs/*.json). The industry
+ *  ontology library — distinct from BUILTIN_PACKS (globally seeded). */
+export const FIRST_PARTY_PACKS: DomainPackManifest[] = [
+  REAL_ESTATE_PACK,
+  FINTECH_PACK,
+  MEDICAL_PACK,
+  LEGAL_PACK,
+];

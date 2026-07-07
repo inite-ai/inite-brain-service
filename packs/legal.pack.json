@@ -1,0 +1,115 @@
+{
+  "id": "legal",
+  "version": "0.1.0",
+  "description": "Legal / contracts ontology — governing law, parties, obligations, and term of agreements, with a domain extraction profile.",
+  "predicates": [
+    {
+      "localId": "governed_by",
+      "displayLabel": "governed by",
+      "description": "TYPE   subject is an agreement/case; value is the governing law/jurisdiction\nADMIT  text states the governing law or jurisdiction (\"governed by the\n       laws of England and Wales\", \"subject to Delaware law\")\nVALUE  the jurisdiction/law, verbatim (\"England and Wales\", \"Delaware\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "party_to",
+      "displayLabel": "party to",
+      "description": "TYPE   subject is an agreement; value is a named party\nADMIT  text names a party to the agreement (\"between Acme Corp and Beta\n       LLC\", \"the Supplier\")\nVALUE  one party per fact, verbatim (\"Acme Corp\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "obligation",
+      "displayLabel": "obligation",
+      "description": "TYPE   subject is a party/agreement; value is a duty/obligation\nADMIT  text states an obligation or covenant (\"shall deliver within 30\n       days\", \"must maintain insurance\")\nVALUE  the obligation, verbatim (\"deliver within 30 days\")",
+      "datatype": "string",
+      "semantics": "append_only",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "effective_from",
+      "displayLabel": "effective from",
+      "description": "TYPE   subject is an agreement; value is the effective date\nADMIT  text states when the agreement takes effect (\"effective 1 January\n       2026\", \"commences on signing\")\nVALUE  the effective date/term, verbatim (\"1 January 2026\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    },
+    {
+      "localId": "terminates_on",
+      "displayLabel": "terminates on",
+      "description": "TYPE   subject is an agreement; value is a termination date/condition\nADMIT  text states when/how the agreement terminates (\"terminates 31\n       December 2027\", \"on 90 days notice\")\nVALUE  the termination date/condition, verbatim (\"90 days notice\")",
+      "datatype": "string",
+      "semantics": "single_active",
+      "decayHalfLifeDays": null,
+      "piiClass": "none",
+      "status": "active"
+    }
+  ],
+  "extractionProfile": {
+    "guidance": "Legal inputs describe AGREEMENTS or contractual relationships.\nTreat the named agreement (or the parties) as the SUBJECT entity. Prefer the\nlegal__* predicates for governing law (legal__governed_by), parties\n(legal__party_to), obligations/covenants (legal__obligation), effective date\n(legal__effective_from), and termination (legal__terminates_on). Copy\njurisdictions, party names, dates, and obligation clauses VERBATIM — \"England\nand Wales\" not \"UK law\", \"30 days\" not \"a month\". When two named parties are in\nan agreement, emit an edge between them in addition to the party facts.",
+    "fewShot": [
+      {
+        "text": "This Agreement between Acme Corp and Beta LLC is governed by the laws of Delaware and effective 1 January 2026.",
+        "note": "→ legal__party_to='Acme Corp', legal__party_to='Beta LLC', legal__governed_by='Delaware', legal__effective_from='1 January 2026'; edge (Acme Corp, party_with, Beta LLC)."
+      },
+      {
+        "text": "The Supplier shall deliver within 30 days and must maintain insurance.",
+        "note": "→ legal__obligation='deliver within 30 days', legal__obligation='maintain insurance'."
+      },
+      {
+        "text": "The contract terminates on 90 days written notice.",
+        "note": "→ legal__terminates_on='90 days written notice'."
+      }
+    ]
+  },
+  "evalFixtures": [
+    {
+      "id": "governing-law",
+      "description": "the governing law is extracted",
+      "text": "This Agreement is governed by the laws of Delaware.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "governed_by",
+            "objectIncludes": "Delaware"
+          }
+        ]
+      }
+    },
+    {
+      "id": "obligation",
+      "description": "a contractual obligation is captured",
+      "text": "The Supplier shall deliver within 30 days.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "obligation",
+            "objectIncludes": "30 days"
+          }
+        ]
+      }
+    },
+    {
+      "id": "term",
+      "description": "the effective date is captured",
+      "text": "This Agreement is effective 1 January 2026.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "effective_from",
+            "objectIncludes": "1 January 2026"
+          }
+        ]
+      }
+    }
+  ]
+}
