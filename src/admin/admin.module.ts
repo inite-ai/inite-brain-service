@@ -29,6 +29,7 @@ import { ThrottlerObservabilityInterceptor } from './throttler-observability.int
 import { AdminPacksController } from './admin-packs.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
+import { RegistryModule } from '../registry/registry.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
 import { ScenarioWriteService } from './scenario-write.service';
@@ -59,6 +60,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     // controller and the whole app refuses to boot.
     CompactionModule,
     CodeMemoryModule,
+    // AdminPacksController resolves manifests from the global registry for
+    // POST /v1/admin/packs/from-registry.
+    RegistryModule,
   ],
   controllers: [
     AdminController,

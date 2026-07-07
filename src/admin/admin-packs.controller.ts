@@ -11,6 +11,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { DomainPackInstallService } from './domain-pack-install.service';
+import { PackRegistryService } from '../registry/pack-registry.service';
 import type { DomainPackManifest } from '../ai/domain-packs';
 import type {
   InstallPackResponse,
@@ -28,7 +29,10 @@ import type {
 @Controller('v1/admin/packs')
 @UseGuards(ApiKeyGuard)
 export class AdminPacksController {
-  constructor(private readonly packs: DomainPackInstallService) {}
+  constructor(
+    private readonly packs: DomainPackInstallService,
+    private readonly registry: PackRegistryService,
+  ) {}
 
   @Get()
   @RequireScopes('brain:admin')
@@ -48,6 +52,25 @@ export class AdminPacksController {
   ): Promise<InstallPackResponse> {
     return this.packs.install(req.brainAuth.companyId, body?.manifest, {
       expectedChecksum: body?.expectedChecksum,
+    });
+  }
+
+  /** Install a pack from the GLOBAL registry into this tenant. Resolves the
+   *  manifest (latest non-yanked, or a pinned version) and installs it through
+   *  the same path as a direct install, pinning the registry checksum so the
+   *  content that gets installed is exactly what the registry served. */
+  @Post('from-registry')
+  @RequireScopes('brain:admin')
+  async installFromRegistry(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { packId: string; version?: string },
+  ): Promise<InstallPackResponse> {
+    const { manifest, checksum } = await this.registry.resolveForInstall(
+      body?.packId,
+      body?.version,
+    );
+    return this.packs.install(req.brainAuth.companyId, manifest, {
+      expectedChecksum: checksum,
     });
   }
 
