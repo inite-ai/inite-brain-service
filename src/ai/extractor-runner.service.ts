@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
 import { PredicateDefinition } from './predicate-registry.service';
+import type { PackExtractionProfile } from './predicate-registry-internals/types';
 import { ExtractorLlmService } from './extractor-llm.service';
 import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
@@ -21,7 +22,11 @@ import {
 } from './extractor-internals/grounding';
 import { validateEdges } from './extractor-internals/edge-validator';
 
-type Snapshot = { versionHash: string; active: PredicateDefinition[] };
+type Snapshot = {
+  versionHash: string;
+  active: PredicateDefinition[];
+  extractionProfiles?: PackExtractionProfile[];
+};
 
 /**
  * ExtractorRunnerService — the extraction engine. Sequences the local

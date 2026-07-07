@@ -83,6 +83,36 @@ describe('validatePack', () => {
       validatePack(pack({ predicates: [packPredicate('a__b')] })),
     ).toThrow(DomainPackError);
   });
+  it('accepts a well-formed extractionProfile', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          extractionProfile: {
+            guidance: 'read this domain carefully',
+            fewShot: [{ text: 'sample', note: 'what to extract' }],
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+  it('rejects a non-string extractionProfile.guidance', () => {
+    expect(() =>
+      validatePack(
+        pack({ extractionProfile: { guidance: 42 as unknown as string } }),
+      ),
+    ).toThrow(/guidance must be a string/);
+  });
+  it('rejects a malformed extractionProfile.fewShot entry', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          extractionProfile: {
+            fewShot: [{ text: 'ok' } as unknown as { text: string; note: string }],
+          },
+        }),
+      ),
+    ).toThrow(/fewShot entries must be/);
+  });
 });
 
 describe('assembleSeed', () => {

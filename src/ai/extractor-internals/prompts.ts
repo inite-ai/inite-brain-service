@@ -1,4 +1,5 @@
 import type { PredicateDefinition } from '../predicate-registry.service';
+import type { PackExtractionProfile } from '../predicate-registry-internals/types';
 import { ENTITY_TYPE_VOCABULARY } from './types';
 
 /**
@@ -100,6 +101,42 @@ export function renderPredicateCard(p: PredicateDefinition): string {
 export function buildSystemPrompt(predicates: PredicateDefinition[]): string {
   return (
     EXTRACTION_PROMPT_HEADER + predicates.map(renderPredicateCard).join('\n')
+  );
+}
+
+/**
+ * Render the tenant's active Domain Pack extraction profiles as a trailing
+ * system-prompt section. Returns '' when no pack ships a profile (the common
+ * case), so the prompt is byte-identical to pre-pack behaviour. Placed AFTER
+ * the predicate vocabulary: guidance + few-shot reinforce how to read a
+ * domain's text, but the VERBATIM RULE and strict schema in the header still
+ * govern — this block is advisory.
+ */
+export function renderExtractionProfiles(
+  profiles: PackExtractionProfile[],
+): string {
+  const withContent = profiles.filter(
+    (p) => p.profile.guidance || (p.profile.fewShot?.length ?? 0) > 0,
+  );
+  if (withContent.length === 0) return '';
+  const blocks = withContent.map(({ packId, profile }) => {
+    const parts: string[] = [`[pack: ${packId}]`];
+    if (profile.guidance) parts.push(profile.guidance.trim());
+    if (profile.fewShot?.length) {
+      parts.push('EXAMPLES');
+      for (const ex of profile.fewShot) {
+        parts.push(`• "${ex.text}"\n    → ${ex.note}`);
+      }
+    }
+    return parts.join('\n');
+  });
+  return (
+    '\n\nDOMAIN EXTRACTION GUIDANCE\n' +
+    'Installed domain packs contribute the domain-specific guidance below. ' +
+    'Apply it when the input matches the domain. It NEVER overrides the ' +
+    'VERBATIM RULE or the strict output schema above.\n\n' +
+    blocks.join('\n\n') +
+    '\n'
   );
 }
 

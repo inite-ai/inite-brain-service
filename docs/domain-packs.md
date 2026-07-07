@@ -96,9 +96,6 @@ anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
   `packChecksum` (sha256 of the canonical, key-sorted manifest). Pass
   `expectedChecksum` (or `pnpm pack:install --verify`) and the server rejects a
   mismatch: "the manifest I install is the one I reviewed".
-- **Forward-compat manifest fields** — `extractionProfile` (prompt/few-shot for
-  the extractor) and `evalFixtures` are carried + stored, not yet consumed.
-
 - **Publisher signatures** (shipped) — an ed25519 `signature` (+ `publisher`)
   over the canonical manifest proves authorship, not just integrity. Sign with
   `pnpm pack:sign --key priv.pem --publisher acme`; the server verifies against
@@ -106,5 +103,36 @@ anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
   signing (`DOMAIN_PACK_REQUIRE_SIGNATURE=true`). Unknown publisher / bad
   signature → install rejected.
 
-Still ahead: a discovery **registry**; consuming `extractionProfile` /
-`evalFixtures` at runtime.
+## Extraction profiles (consumed)
+
+A pack MAY ship an `extractionProfile` — domain-specific tuning for the LLM
+extractor — and, unlike the still-forward-compat `evalFixtures`, it is now
+**consumed at extract time**:
+
+```jsonc
+"extractionProfile": {
+  "guidance": "Real-estate inputs describe properties. Prefer real_estate__* …",
+  "fewShot": [
+    { "text": "12 Elm St is zoned R-2.", "note": "→ real_estate__zoned_as='R-2'" }
+  ]
+}
+```
+
+- `guidance` — domain framing appended to the extractor system prompt.
+- `fewShot` — `{ text, note }` examples rendered as illustrative TEXT (never a
+  schema-constrained turn, so they can't break the strict output schema).
+
+Flow: install stores the manifest in `domain_pack`; the predicate registry's
+`loadFresh` reads every active pack's profile onto the tenant snapshot
+(`extractionProfiles`); `ExtractorLlmService.composeSystemPrompt` appends a
+`DOMAIN EXTRACTION GUIDANCE` section AFTER the predicate vocabulary. It is
+advisory — the VERBATIM RULE and strict schema still govern. Profiles from
+builtin packs (always active) and runtime-installed packs (active `domain_pack`
+row) are both included; uninstall drops them.
+
+The first pack to use this is **real_estate** (`src/ai/domain-packs/
+real-estate.pack.ts`, distributable JSON at `packs/real-estate.pack.json`) — a
+DISTRIBUTABLE pack (installed per-tenant, deliberately NOT a builtin so its
+domain predicates don't seed into unrelated tenants).
+
+Still ahead: a discovery **registry**; consuming `evalFixtures` at runtime.

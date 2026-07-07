@@ -10,6 +10,7 @@ import {
   CANONICALIZE_REPORT_FLOOR,
   DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD,
   DEFAULT_FALLBACK,
+  type PackExtractionProfile,
   type PiiClass,
   type PredicateDefinition,
   type PredicateSnapshot,
@@ -19,7 +20,7 @@ import {
 // Core + installed Domain Packs (namespaced predicates), assembled + collision-
 // checked at load. The registry seeds / falls back on the MERGED set so a pack's
 // predicates are bootstrapped into every tenant. See src/ai/domain-packs.
-import { SEED_PREDICATES } from './domain-packs';
+import { BUILTIN_PACKS, SEED_PREDICATES } from './domain-packs';
 import {
   computeHash,
   deserializeFromRow,
@@ -505,8 +506,37 @@ export class PredicateRegistryService {
         }
       }
 
+      // Extraction profiles active for this tenant: builtin packs that ship one
+      // (always active — seeded globally) + runtime-installed packs whose
+      // domain_pack row is 'active'. Consumed by the extractor prompt. A read
+      // failure degrades to builtins-only — extraction must not break because a
+      // pack-table read hiccuped.
+      const extractionProfiles: PackExtractionProfile[] = BUILTIN_PACKS.filter(
+        (p) => p.extractionProfile,
+      ).map((p) => ({ packId: p.id, profile: p.extractionProfile! }));
+      try {
+        const [packRows] = await db.query<[Array<Record<string, unknown>>]>(
+          `SELECT packId, manifest FROM domain_pack WHERE status = 'active'`,
+        );
+        for (const r of (packRows as Array<Record<string, unknown>>) ?? []) {
+          const manifest = r.manifest as
+            | { extractionProfile?: PackExtractionProfile['profile'] }
+            | undefined;
+          if (manifest?.extractionProfile) {
+            extractionProfiles.push({
+              packId: String(r.packId),
+              profile: manifest.extractionProfile,
+            });
+          }
+        }
+      } catch (e) {
+        this.logger.warn(
+          `loadFresh: reading domain_pack extraction profiles failed (${(e as Error).message}); using builtin profiles only`,
+        );
+      }
+
       const versionHash = computeHash(active);
-      return { versionHash, active, byId, aliasMap, embeddings };
+      return { versionHash, active, byId, aliasMap, embeddings, extractionProfiles };
     });
   }
 

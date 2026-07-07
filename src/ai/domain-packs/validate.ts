@@ -45,6 +45,50 @@ export function validatePack(pack: DomainPackManifest): void {
     }
     seen.add(p.localId);
   }
+  if (pack.extractionProfile !== undefined) {
+    validateExtractionProfile(pack.id, pack.extractionProfile);
+  }
+}
+
+/**
+ * Validate a pack's extraction profile shape (it's consumed into the extractor
+ * prompt, so a malformed one is a boot/install-time error, not silent). Kept
+ * permissive — only structural shape is enforced.
+ */
+function validateExtractionProfile(packId: string, profile: unknown): void {
+  if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) {
+    throw new DomainPackError(
+      `pack "${packId}" extractionProfile must be an object`,
+    );
+  }
+  const { guidance, fewShot } = profile as {
+    guidance?: unknown;
+    fewShot?: unknown;
+  };
+  if (guidance !== undefined && typeof guidance !== 'string') {
+    throw new DomainPackError(
+      `pack "${packId}" extractionProfile.guidance must be a string`,
+    );
+  }
+  if (fewShot !== undefined) {
+    if (!Array.isArray(fewShot)) {
+      throw new DomainPackError(
+        `pack "${packId}" extractionProfile.fewShot must be an array`,
+      );
+    }
+    for (const ex of fewShot) {
+      if (
+        typeof ex !== 'object' ||
+        ex === null ||
+        typeof (ex as { text?: unknown }).text !== 'string' ||
+        typeof (ex as { note?: unknown }).note !== 'string'
+      ) {
+        throw new DomainPackError(
+          `pack "${packId}" extractionProfile.fewShot entries must be { text: string, note: string }`,
+        );
+      }
+    }
+  }
 }
 
 /**

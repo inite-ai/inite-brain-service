@@ -6,10 +6,12 @@ import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateDefinition } from './predicate-registry.service';
+import type { PackExtractionProfile } from './predicate-registry-internals/types';
 import {
   EXTRACTION_PROMPT_HEADER,
   buildExtractionSchema,
   buildSystemPrompt,
+  renderExtractionProfiles,
   renderPredicateCard,
 } from './extractor-internals/prompts';
 
@@ -73,11 +75,16 @@ export class ExtractorLlmService {
     return this.model;
   }
 
-  composeSystemPrompt(snapshot: { active: PredicateDefinition[] }): string {
-    return this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
-      ? buildSystemPrompt(snapshot.active)
-      : this.systemPromptHeader +
+  composeSystemPrompt(snapshot: {
+    active: PredicateDefinition[];
+    extractionProfiles?: PackExtractionProfile[];
+  }): string {
+    const base =
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
+        ? buildSystemPrompt(snapshot.active)
+        : this.systemPromptHeader +
           snapshot.active.map(renderPredicateCard).join('\n');
+    return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
   }
 
   async callLlm(
