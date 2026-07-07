@@ -127,4 +127,24 @@ encumbrance, ALSO emit an edge to that party (e.g. Property —held_by→ Bank).
       },
     ],
   },
+  evalFixtures: [
+    {
+      id: 'zoning',
+      description: 'zoning code is extracted from a parcel mention',
+      text: 'The parcel at 12 Elm St is zoned R-2.',
+      expect: { facts: [{ predicate: 'zoned_as', objectIncludes: 'R-2' }] },
+    },
+    {
+      id: 'valuation',
+      description: 'appraised value is captured verbatim with currency',
+      text: 'The property at 8 Oak Ave was appraised at $840,000.',
+      expect: { facts: [{ predicate: 'valued_at', objectIncludes: '$840,000' }] },
+    },
+    {
+      id: 'tenure',
+      description: 'ownership tenure is captured',
+      text: 'Unit 4B is held on a leasehold basis.',
+      expect: { facts: [{ predicate: 'tenure_type', objectIncludes: 'leasehold' }] },
+    },
+  ],
 };

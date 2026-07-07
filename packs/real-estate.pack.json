@@ -80,5 +80,46 @@
         "note": "property 'The warehouse' → real_estate__built_in='1998', real_estate__listed_at='$1.5M', real_estate__encumbered_by='easement'."
       }
     ]
-  }
+  },
+  "evalFixtures": [
+    {
+      "id": "zoning",
+      "description": "zoning code is extracted from a parcel mention",
+      "text": "The parcel at 12 Elm St is zoned R-2.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "zoned_as",
+            "objectIncludes": "R-2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "valuation",
+      "description": "appraised value is captured verbatim with currency",
+      "text": "The property at 8 Oak Ave was appraised at $840,000.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "valued_at",
+            "objectIncludes": "$840,000"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tenure",
+      "description": "ownership tenure is captured",
+      "text": "Unit 4B is held on a leasehold basis.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "tenure_type",
+            "objectIncludes": "leasehold"
+          }
+        ]
+      }
+    }
+  ]
 }

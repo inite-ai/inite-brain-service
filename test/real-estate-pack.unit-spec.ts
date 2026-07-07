@@ -47,6 +47,17 @@ describe('real-estate pack', () => {
     }
   });
 
+  it('ships eval fixtures with pack-local predicate expectations', () => {
+    const fx = REAL_ESTATE_PACK.evalFixtures;
+    expect(fx).toBeDefined();
+    expect(fx!.length).toBeGreaterThan(0);
+    for (const f of fx!) {
+      expect(typeof f.id).toBe('string');
+      expect(typeof f.text).toBe('string');
+    }
+    expect(fx!.some((f) => f.id === 'zoning')).toBe(true);
+  });
+
   it('is DISTRIBUTABLE — deliberately NOT a builtin pack', () => {
     // Builtins seed into every tenant; real-estate must be installed per-tenant
     // so its domain predicates don't pollute unrelated tenants' extraction.

@@ -48,6 +48,63 @@ export function validatePack(pack: DomainPackManifest): void {
   if (pack.extractionProfile !== undefined) {
     validateExtractionProfile(pack.id, pack.extractionProfile);
   }
+  if (pack.evalFixtures !== undefined) {
+    validateEvalFixtures(pack.id, pack.evalFixtures);
+  }
+}
+
+/** Validate a pack's eval fixtures (consumed by the eval runner, so a malformed
+ *  one is a boot/install-time error). Structural only. */
+function validateEvalFixtures(packId: string, fixtures: unknown): void {
+  if (!Array.isArray(fixtures)) {
+    throw new DomainPackError(`pack "${packId}" evalFixtures must be an array`);
+  }
+  const ids = new Set<string>();
+  for (const f of fixtures) {
+    const fx = f as { id?: unknown; text?: unknown; expect?: unknown };
+    if (typeof fx.id !== 'string' || !fx.id) {
+      throw new DomainPackError(
+        `pack "${packId}" evalFixtures entries need a non-empty string id`,
+      );
+    }
+    if (ids.has(fx.id)) {
+      throw new DomainPackError(
+        `pack "${packId}" evalFixtures has duplicate id "${fx.id}"`,
+      );
+    }
+    ids.add(fx.id);
+    if (typeof fx.text !== 'string' || !fx.text) {
+      throw new DomainPackError(
+        `pack "${packId}" evalFixture "${fx.id}" needs a non-empty text`,
+      );
+    }
+    if (
+      typeof fx.expect !== 'object' ||
+      fx.expect === null ||
+      Array.isArray(fx.expect)
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" evalFixture "${fx.id}" needs an expect object`,
+      );
+    }
+    const facts = (fx.expect as { facts?: unknown }).facts;
+    if (facts !== undefined) {
+      if (!Array.isArray(facts)) {
+        throw new DomainPackError(
+          `pack "${packId}" evalFixture "${fx.id}" expect.facts must be an array`,
+        );
+      }
+      for (const want of facts) {
+        if (
+          typeof (want as { predicate?: unknown })?.predicate !== 'string'
+        ) {
+          throw new DomainPackError(
+            `pack "${packId}" evalFixture "${fx.id}" expect.facts entries need a string predicate`,
+          );
+        }
+      }
+    }
+  }
 }
 
 /**

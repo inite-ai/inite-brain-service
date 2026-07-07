@@ -30,7 +30,8 @@ function makeController(): AdminPacksController {
       ]),
   } as unknown as DomainPackInstallService;
   const registry = {} as unknown as PackRegistryService;
-  return new AdminPacksController(svc, registry);
+  const packEval = {} as unknown as import('../src/admin/pack-eval.service').PackEvalService;
+  return new AdminPacksController(svc, registry, packEval);
 }
 
 describe('AdminPacksController.list() — wire contract', () => {
