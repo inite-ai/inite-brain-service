@@ -100,6 +100,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Body size cap (main.ts useBodyParser) ─────────────────────────
   validateBodySize(env, errors);
 
+  // ── Pack supply-chain knobs ───────────────────────────────────────
+  validatePackTrustEnv(env, errors);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
@@ -181,6 +184,64 @@ function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
       'MAX_BODY_SIZE must be a byte count or a b/kb/mb size (e.g. "1mb", ' +
         '"512kb", "1048576") — gb/tb and other units are rejected.',
     );
+  }
+}
+
+/**
+ * Values the pack-trust boolean flags accept. Everything else hard-errors
+ * at boot: DOMAIN_PACK_REQUIRE_SIGNATURE=yes (or =enabled, or a typo)
+ * silently DISABLING signature enforcement is a fail-open on a
+ * supply-chain control — the one shape of bug this validator exists for.
+ */
+const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
+
+/**
+ * Parse a boolean env flag accepting BOTH house idioms ('1' and 'true',
+ * case-insensitive). The repo historically mixed `=== '1'` and
+ * `=== 'true'` per file; for security-relevant flags that split is a
+ * fail-open trap (`DOMAIN_PACK_REQUIRE_SIGNATURE=1` silently parsed as
+ * false by a 'true'-only check). Values outside FLAG_VALUES are rejected
+ * at boot by validatePackTrustEnv for the pack-trust flags.
+ */
+export function envFlagEnabled(value: string | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
+  for (const name of [
+    'DOMAIN_PACK_REQUIRE_SIGNATURE',
+    'PACK_REGISTRY_REQUIRE_SIGNATURE',
+  ]) {
+    const v = env[name];
+    if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
+      errors.push(
+        `${name} must be one of 1/0/true/false (got "${v}") — an ` +
+          'unrecognized value would silently disable signature enforcement.',
+      );
+    }
+  }
+
+  const trusted = env.DOMAIN_PACK_TRUSTED_KEYS;
+  if (trusted !== undefined && trusted.trim() !== '') {
+    try {
+      const parsed = JSON.parse(trusted);
+      if (
+        parsed === null ||
+        typeof parsed !== 'object' ||
+        Array.isArray(parsed) ||
+        Object.values(parsed).some((k) => typeof k !== 'string')
+      ) {
+        errors.push(
+          'DOMAIN_PACK_TRUSTED_KEYS must be a JSON object mapping publisher → PEM public key',
+        );
+      }
+    } catch (e) {
+      errors.push(
+        `DOMAIN_PACK_TRUSTED_KEYS is not valid JSON: ${(e as Error).message} — ` +
+          'a malformed trust store makes every signed pack "unknown publisher".',
+      );
+    }
   }
 }
 

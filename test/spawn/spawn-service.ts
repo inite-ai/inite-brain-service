@@ -83,6 +83,14 @@ export async function spawnService(opts: SpawnOptions = {}): Promise<SpawnedServ
     // tier too so the harness isn't self-throttled.
     THROTTLE_EXPENSIVE_LIMIT: '100000',
     THROTTLE_EXPENSIVE_TTL_MS: '60000',
+    // Per-route @Throttle() decorators (e.g. /v1/search's expensive
+    // {limit:10}) hardcode their limits — the env knobs above can't
+    // override them, and the nightly eval 429'd on /v1/search for 12
+    // straight days because of it. THROTTLE_DISABLED is the only switch
+    // that beats decorators (TenantThrottlerGuard.shouldSkip); it is
+    // inert under NODE_ENV=production, and the in-process fixture
+    // (test/app-fixture.ts) already sets it.
+    THROTTLE_DISABLED: '1',
     BRAIN_API_KEYS: JSON.stringify(allKeys),
     FORGET_HMAC_KEY: 'test-hmac-key-must-be-at-least-32-chars',
     // Spec-supplied overrides land last so a spec can override anything

@@ -163,3 +163,53 @@ describe('McpService.health — unauthenticated probe payload', () => {
     expect(health.embedder).toBe('openai:text-embedding-3-small (1536d)');
   });
 });
+
+describe('retract_fact — caller scopes reach FactsService', () => {
+  // Regression: the MCP path used to call facts.retract WITHOUT
+  // callerScopes; FactsService treats undefined as a legacy in-process
+  // caller and SKIPS the predicate-class gate (billing_event /
+  // human_declared / legal-source require brain:admin) — so a bare
+  // brain:write MCP key could retract admin-class facts the HTTP path
+  // would 403. Pin that the tool forwards the caller's scopes.
+  it('forwards the MCP caller scope set to facts.retract', async () => {
+    const captured: unknown[] = [];
+    const handlers: Record<
+      string,
+      (args: Record<string, unknown>) => Promise<unknown>
+    > = {};
+    const fakeServer = {
+      registerTool: (
+        name: string,
+        _meta: unknown,
+        cb: (args: Record<string, unknown>) => Promise<unknown>,
+      ) => {
+        handlers[name] = cb;
+      },
+    };
+    const scopes: BrainScope[] = ['brain:read', 'brain:write'];
+
+    const { registerWriteTools } = await import('../src/mcp/write-tools');
+    registerWriteTools({
+      server: fakeServer as never,
+      companyId: 'co_test',
+      scopes,
+      deps: {
+        ingest: {} as never,
+        procedural: {} as never,
+        facts: {
+          retract: async (o: unknown) => {
+            captured.push(o);
+            return { factId: 'knowledge_fact:x', retractedAt: 'now' };
+          },
+        } as never,
+      },
+    });
+
+    await handlers['retract_fact']({ factId: 'x', reason: 'test' });
+
+    expect(captured).toHaveLength(1);
+    expect((captured[0] as { callerScopes?: unknown }).callerScopes).toEqual(
+      scopes,
+    );
+  });
+});

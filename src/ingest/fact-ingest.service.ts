@@ -85,6 +85,9 @@ export class FactIngestService {
       if (result?.competingFactIds) {
         out.competingFactIds = (result.competingFactIds as unknown[]).map(String);
       }
+      if (result?.supersededByFactId) {
+        out.supersededByFactId = String(result.supersededByFactId);
+      }
       if (dto.explain === true && factId && result?.bestOpponentId) {
         out.conflictExplanation = buildConflictExplanation({
           outcome: outcome as 'SUPERSEDED' | 'COMPETING',

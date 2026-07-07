@@ -83,6 +83,15 @@ export class ExtractorService {
     });
 
     const result = await this.runner.run(trimmed, companyId, snapshot);
+    if (!result) {
+      // Transient LLM failure (null JSON / all SC passes failed). Return
+      // empty WITHOUT caching — the no-TTL LRU would otherwise pin this
+      // negative result for the (text, tenant, vocab) key and every
+      // identical re-ingest would silently extract nothing (restores the
+      // pre-#64 "failed extractions are never memoised" behaviour).
+      traceArtifact('extractor.llm_failure_uncached', { key: cacheKey });
+      return { entities: [], facts: [], edges: [] };
+    }
     this.extractionCache.set(cacheKey, result);
     return result;
   }

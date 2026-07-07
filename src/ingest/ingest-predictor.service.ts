@@ -53,8 +53,13 @@ export class IngestPredictionService {
   async predict(
     companyId: string,
     args: PredictResolveArgs,
+    callerScopes: readonly string[],
   ): Promise<PredictResolveResult> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    // Scoped pool, not root: opposingFacts carry raw `object` values, so
+    // the preflight must sit behind the same DB-level PII fence
+    // ($caller_scopes, migration 0005) as the read surface — this path
+    // is MCP-only (detect_contradiction) and used to bypass it.
+    return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const entityId = await this.lookupEntity(db, args.entityRef);
       if (!entityId) {
         return {

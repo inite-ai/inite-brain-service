@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { envFlagEnabled } from '../common/env-validation';
 import {
   DomainPackError,
   packChecksum,
@@ -61,7 +62,10 @@ export class PackRegistryService {
   constructor(private readonly surreal: SurrealService) {}
 
   private requireSignature(): boolean {
-    return process.env.PACK_REGISTRY_REQUIRE_SIGNATURE === 'true';
+    // envFlagEnabled accepts both '1' and 'true' — a 'true'-only check
+    // silently disabled enforcement for operators using the house '1'
+    // idiom (fail-open on a supply-chain control).
+    return envFlagEnabled(process.env.PACK_REGISTRY_REQUIRE_SIGNATURE);
   }
 
   /** Publish a pack version into the global catalogue. Validates the manifest,
