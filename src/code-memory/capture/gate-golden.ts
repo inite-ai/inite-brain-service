@@ -1,4 +1,4 @@
-import type { CommitInput, DecisionKind } from './types';
+import type { CommitInput, DecisionClassifier, DecisionKind } from './types';
 import { parseCommitSignals } from './commit-signals';
 import { commitText } from './silver-dataset';
 import { HeuristicDecisionClassifier } from './heuristic-classifier';
@@ -227,13 +227,20 @@ export function evaluateModelOnGolden(
   return prf(preds, golden.map((c) => c.label));
 }
 
+/** Score any DecisionClassifier (heuristic / trained / hybrid) on the golden. */
+export function evaluateClassifierOnGolden(
+  classifier: DecisionClassifier,
+  golden: GoldenCase[] = GATE_GOLDEN,
+): GateEvalMetrics {
+  const preds = golden.map((c) =>
+    classifier.classify(goldenCommit(c)).likelyDecision ? 1 : 0,
+  );
+  return prf(preds, golden.map((c) => c.label));
+}
+
 /** Score the deterministic heuristic against the golden set (the baseline). */
 export function evaluateHeuristicOnGolden(
   golden: GoldenCase[] = GATE_GOLDEN,
 ): GateEvalMetrics {
-  const h = new HeuristicDecisionClassifier();
-  const preds = golden.map((c) =>
-    h.classify(goldenCommit(c)).likelyDecision ? 1 : 0,
-  );
-  return prf(preds, golden.map((c) => c.label));
+  return evaluateClassifierOnGolden(new HeuristicDecisionClassifier(), golden);
 }

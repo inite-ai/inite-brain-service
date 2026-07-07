@@ -71,6 +71,23 @@ function prf(preds: number[], labels: number[]): {
   };
 }
 
+/** Shrink a model in place: drop tiny weights, round the rest. */
+function compactModel(
+  model: { bias: number; weights: Record<string, number>; kinds?: Record<string, { bias: number; weights: Record<string, number> }> },
+  prune: number,
+  round: number,
+): void {
+  const factor = round > 0 ? 10 ** round : 0;
+  const shrink = (w: Record<string, number>) => {
+    for (const k of Object.keys(w)) {
+      if (prune > 0 && Math.abs(w[k]) < prune) delete w[k];
+      else if (factor) w[k] = Math.round(w[k] * factor) / factor;
+    }
+  };
+  shrink(model.weights);
+  for (const head of Object.values(model.kinds ?? {})) shrink(head.weights);
+}
+
 function fmt(m: { accuracy: number; precision: number; recall: number; f1: number }): string {
   const p = (x: number) => (x * 100).toFixed(1);
   return `acc ${p(m.accuracy)}  P ${p(m.precision)}  R ${p(m.recall)}  F1 ${p(m.f1)}`;
@@ -85,6 +102,10 @@ function main(): void {
   const threshold = parseFloat(arg('threshold', '0.5')!);
   const holdout = parseFloat(arg('holdout', '0.2')!);
   const seed = parseInt(arg('seed', '42')!, 10);
+  // Shrink the artifact for shipping: drop |w| below --prune and round the rest
+  // to --round decimals. Tiny effect on a gate; large effect on file size.
+  const prune = parseFloat(arg('prune', '0')!);
+  const round = parseInt(arg('round', '0')!, 10);
   // Drop teacher positives below this confidence to a negative label — the
   // cheap precision knob against an over-lenient teacher (see the docs). 0 =
   // trust every teacher positive (the raw silver label).
@@ -157,10 +178,19 @@ function main(): void {
   console.error(`[train] golden heuristic:  ${fmt(goldenHeur)}`);
   console.error(`[train] golden model:      ${fmt(goldenModel)}`);
 
+  // The gate only needs the binary head; --binary-only strips the (larger)
+  // per-kind heads so a shipped default model stays small. Kinds stay a
+  // trainable capability (omit the flag to keep them).
+  if (process.argv.includes('--binary-only')) {
+    delete model.kinds;
+    delete model.kindThreshold;
+    model.version = 1;
+  }
+  if (prune > 0 || round > 0) compactModel(model, prune, round);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, `${JSON.stringify(model)}\n`);
   const size = Object.keys(model.weights).length;
-  console.error(`[train] wrote ${outPath} (${size} non-zero weights)`);
+  console.error(`[train] wrote ${outPath} (${size} non-zero binary weights)`);
 }
 
 try {

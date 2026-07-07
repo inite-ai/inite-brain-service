@@ -18,12 +18,13 @@
  *
  * Anchors are file-level in Phase 1; symbol-level (SCIP) is Phase 2.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readCommits } from '../src/code-memory/capture/git-commits';
 import { makeSymbolAnchorRefiner } from '../src/code-memory/anchor/refine';
 import { HeuristicDecisionClassifier } from '../src/code-memory/capture/heuristic-classifier';
 import { TrainedDecisionClassifier } from '../src/code-memory/capture/gate-classifier';
+import { HybridDecisionClassifier } from '../src/code-memory/capture/hybrid-classifier';
 import {
   LlmDecisionExtractor,
   makeOpenAiCompleter,
@@ -42,6 +43,32 @@ function arg(name: string, fallback?: string): string | undefined {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
+/** The batteries-included default gate model shipped in the repo. */
+const DEFAULT_GATE_MODEL = join(__dirname, '..', 'models', 'decision-gate.model.json');
+
+function selectGate(): { classifier: DecisionClassifier; gateLabel: string } {
+  const heuristic = new HeuristicDecisionClassifier();
+  if (process.argv.includes('--heuristic')) {
+    return { classifier: heuristic, gateLabel: 'heuristic (forced)' };
+  }
+  const modelPath =
+    arg('gate-model') ??
+    (existsSync(DEFAULT_GATE_MODEL) ? DEFAULT_GATE_MODEL : undefined);
+  if (!modelPath) {
+    return { classifier: heuristic, gateLabel: 'heuristic (no model)' };
+  }
+  const model = TrainedDecisionClassifier.fromJson(
+    JSON.parse(readFileSync(modelPath, 'utf8')),
+  );
+  if (process.argv.includes('--trained-only')) {
+    return { classifier: model, gateLabel: `trained-only (${modelPath})` };
+  }
+  return {
+    classifier: new HybridDecisionClassifier(heuristic, model),
+    gateLabel: `hybrid heuristic+model (${modelPath})`,
+  };
+}
+
 async function main(): Promise<void> {
   const range = arg('range', 'origin/main..HEAD')!;
   const brainUrl = arg('brain-url', process.env.BRAIN_URL);
@@ -58,17 +85,11 @@ async function main(): Promise<void> {
   const commits = readCommits({ range });
   console.error(`[capture] ${commits.length} commit(s) in ${range}`);
 
-  // Layer-1 gate: the trained student (track C) when a model is supplied,
-  // else the deterministic heuristic. Same DecisionClassifier seam either way.
-  const gateModelPath = arg('gate-model');
-  const classifier: DecisionClassifier = gateModelPath
-    ? TrainedDecisionClassifier.fromJson(
-        JSON.parse(readFileSync(gateModelPath, 'utf8')),
-      )
-    : new HeuristicDecisionClassifier();
-  console.error(
-    `[capture] Layer-1 gate: ${gateModelPath ? `trained (${gateModelPath})` : 'heuristic'}`,
-  );
+  // Layer-1 gate. Default = HYBRID (heuristic OR the shipped trained model) — it
+  // beats either alone on the golden. Flags: --gate-model <path> swaps the model,
+  // --trained-only drops the heuristic, --heuristic forces heuristic-only.
+  const { classifier, gateLabel } = selectGate();
+  console.error(`[capture] Layer-1 gate: ${gateLabel}`);
 
   const extractor = new LlmDecisionExtractor(
     makeOpenAiCompleter({ apiKey: openAiKey, model }),
