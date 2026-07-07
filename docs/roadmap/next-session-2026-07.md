@@ -1,4 +1,6 @@
-# Next-session command — after the code-memory domain (2026-07-07)
+# Next-session command — after the code-memory domain (2026-07-07) — SUPERSEDED
+
+> HISTORICAL — superseded by `next-session-2026-07b.md`. Most open tracks here shipped.
 
 > Self-contained brief. **Open this first.** Picks up after the session that
 > (a) finished the `max-params=3` program and (b) built the entire **code-memory
