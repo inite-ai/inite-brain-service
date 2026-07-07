@@ -1,4 +1,9 @@
-import type { CommitInput, DecisionClassifier, Layer1Verdict } from './types';
+import type {
+  CommitInput,
+  DecisionClassifier,
+  DecisionKind,
+  Layer1Verdict,
+} from './types';
 import { parseCommitSignals } from './commit-signals';
 import { commitText } from './silver-dataset';
 import {
@@ -6,6 +11,14 @@ import {
   featurize,
   type FeatureConfig,
 } from './gate-features';
+
+/** The decision kinds the multi-label heads predict, in a stable order. */
+export const GATE_KINDS: DecisionKind[] = [
+  'decided',
+  'because',
+  'invariant',
+  'gotcha',
+];
 
 /**
  * Code-memory track C — the trained Layer-1 gate model + serving classifier.
@@ -20,32 +33,61 @@ import {
  * ever demand — the pipeline never changes.
  */
 
+/** One logistic-regression head: bias + sparse bucket→weight map. */
+export interface LinearHead {
+  bias: number;
+  weights: Record<string, number>;
+}
+
 /** Serialised trained gate. `weights` is sparse (bucket index → weight); only
- *  buckets the trainer touched are stored. Portable JSON, no vocabulary. */
+ *  buckets the trainer touched are stored. Portable JSON, no vocabulary.
+ *  v2 adds optional per-kind one-vs-rest heads (multi-label). */
 export interface GateModel {
-  version: 1;
+  version: 1 | 2;
   config: FeatureConfig;
   /** Admit when P(decision) >= threshold. */
   threshold: number;
   bias: number;
   weights: Record<string, number>;
+  /** Per-kind heads (v2). Absent on v1 models. */
+  kinds?: Partial<Record<DecisionKind, LinearHead>>;
+  /** Threshold for the per-kind heads (default 0.5). */
+  kindThreshold?: number;
 }
 
 function sigmoid(z: number): number {
   return 1 / (1 + Math.exp(-z));
 }
 
-/** P(decision-bearing) for a feature map under a model. */
+/** Score a single linear head over a feature map. */
+function scoreHead(head: LinearHead, feats: Map<number, number>): number {
+  let z = head.bias;
+  for (const [idx, val] of feats) {
+    const w = head.weights[idx];
+    if (w) z += w * val;
+  }
+  return sigmoid(z);
+}
+
+/** P(decision-bearing) for a feature map under a model (the binary gate head). */
 export function predictProba(
   model: GateModel,
   feats: Map<number, number>,
 ): number {
-  let z = model.bias;
-  for (const [idx, val] of feats) {
-    const w = model.weights[idx];
-    if (w) z += w * val;
+  return scoreHead({ bias: model.bias, weights: model.weights }, feats);
+}
+
+/** P(kind) for each per-kind head the model carries. Empty for a v1 model. */
+export function predictKindProbas(
+  model: GateModel,
+  feats: Map<number, number>,
+): Partial<Record<DecisionKind, number>> {
+  const out: Partial<Record<DecisionKind, number>> = {};
+  for (const kind of GATE_KINDS) {
+    const head = model.kinds?.[kind];
+    if (head) out[kind] = scoreHead(head, feats);
   }
-  return sigmoid(z);
+  return out;
 }
 
 export interface GateMetrics {
@@ -101,7 +143,7 @@ export class TrainedDecisionClassifier implements DecisionClassifier {
     const m = raw as Partial<GateModel>;
     if (
       !m ||
-      m.version !== 1 ||
+      (m.version !== 1 && m.version !== 2) ||
       typeof m.bias !== 'number' ||
       typeof m.threshold !== 'number' ||
       typeof m.weights !== 'object' ||
@@ -112,6 +154,14 @@ export class TrainedDecisionClassifier implements DecisionClassifier {
       throw new Error('invalid gate model JSON');
     }
     return new TrainedDecisionClassifier(m as GateModel);
+  }
+
+  private features(commit: CommitInput): Map<number, number> {
+    return featurize(
+      commitText(commit),
+      parseCommitSignals(commit),
+      this.model.config ?? DEFAULT_FEATURE_CONFIG,
+    );
   }
 
   classify(commit: CommitInput): Layer1Verdict {
@@ -125,5 +175,17 @@ export class TrainedDecisionClassifier implements DecisionClassifier {
       reason: `trained gate p=${p.toFixed(3)} (thr ${this.model.threshold})`,
       signals,
     };
+  }
+
+  /** Per-kind probabilities (empty for a v1 model). */
+  predictKinds(commit: CommitInput): Partial<Record<DecisionKind, number>> {
+    return predictKindProbas(this.model, this.features(commit));
+  }
+
+  /** The decision kinds whose head clears the model's kind threshold. */
+  classifyKinds(commit: CommitInput): DecisionKind[] {
+    const thr = this.model.kindThreshold ?? 0.5;
+    const probas = this.predictKinds(commit);
+    return GATE_KINDS.filter((k) => (probas[k] ?? 0) >= thr);
   }
 }

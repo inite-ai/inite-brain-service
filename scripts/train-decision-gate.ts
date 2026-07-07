@@ -20,6 +20,10 @@ import { dirname } from 'node:path';
 import { featurize } from '../src/code-memory/capture/gate-features';
 import { evaluateGate } from '../src/code-memory/capture/gate-classifier';
 import { trainGate } from '../src/code-memory/capture/gate-train';
+import {
+  evaluateHeuristicOnGolden,
+  evaluateModelOnGolden,
+} from '../src/code-memory/capture/gate-golden';
 import type { SilverExample } from '../src/code-memory/capture/silver-dataset';
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -116,9 +120,19 @@ function main(): void {
   }
 
   const model = trainGate(
-    train.map((r) => ({ text: r.text, signals: r.signals, label: r.label })),
+    train.map((r) => ({
+      text: r.text,
+      signals: r.signals,
+      label: r.label,
+      kinds: r.kinds,
+    })),
     { epochs, learningRate, l2, threshold, seed },
   );
+  if (model.kinds) {
+    console.error(
+      `[train] multi-label heads: ${Object.keys(model.kinds).join(', ')}`,
+    );
+  }
 
   const testFeats = test.map((r) => ({
     feats: featurize(r.text, r.signals, model.config),
@@ -135,6 +149,13 @@ function main(): void {
   console.error(
     `[train] model F1 − heuristic F1 = ${((modelMetrics.f1 - heurMetrics.f1) * 100).toFixed(1)} pts`,
   );
+
+  // Independent check against the frozen, hand-labeled golden (human truth) —
+  // the shipping quality bar, unaffected by teacher-label noise in the corpus.
+  const goldenModel = evaluateModelOnGolden(model);
+  const goldenHeur = evaluateHeuristicOnGolden();
+  console.error(`[train] golden heuristic:  ${fmt(goldenHeur)}`);
+  console.error(`[train] golden model:      ${fmt(goldenModel)}`);
 
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, `${JSON.stringify(model)}\n`);

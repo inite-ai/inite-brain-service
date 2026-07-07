@@ -1,25 +1,27 @@
-import type { Layer1Signals } from './types';
+import type { DecisionKind, Layer1Signals } from './types';
 import {
   DEFAULT_FEATURE_CONFIG,
   featurize,
   type FeatureConfig,
 } from './gate-features';
-import type { GateModel } from './gate-classifier';
+import { GATE_KINDS, type GateModel, type LinearHead } from './gate-classifier';
 
 /**
  * Code-memory track C — train the Layer-1 gate (logistic regression, SGD).
  * (docs/code-memory/distillation-dataset.md)
  *
  * Pure + deterministic (seeded PRNG shuffle) so training is reproducible and
- * unit-testable offline. Trains on the silver labels the harness distilled from
- * the Layer-2 teacher; the resulting {@link GateModel} serves behind
- * TrainedDecisionClassifier.
+ * unit-testable offline. Trains the binary decision-bearing head plus, when the
+ * silver examples carry `kinds`, one-vs-rest heads for each decision kind
+ * (decided/because/invariant/gotcha) — a multi-label view for routing/analytics.
  */
 
 export interface TrainExample {
   text: string;
   signals: Layer1Signals;
   label: 0 | 1;
+  /** Decision kinds the teacher found (for the multi-label heads). */
+  kinds?: DecisionKind[];
 }
 
 export interface TrainOptions {
@@ -28,9 +30,12 @@ export interface TrainOptions {
   learningRate?: number;
   l2?: number;
   threshold?: number;
+  /** Threshold for the per-kind heads (default 0.5). */
+  kindThreshold?: number;
   seed?: number;
-  /** Drop weights with |w| below this after training to shrink the artifact. */
   pruneBelow?: number;
+  /** Set false to skip the per-kind heads even when examples carry kinds. */
+  trainKinds?: boolean;
 }
 
 /** Deterministic PRNG (mulberry32) — reproducible shuffles without Math.random. */
@@ -52,32 +57,28 @@ function shuffle<T>(arr: T[], rng: () => number): void {
   }
 }
 
-export function trainGate(
-  examples: TrainExample[],
-  opts: TrainOptions = {},
-): GateModel {
-  const config = opts.config ?? DEFAULT_FEATURE_CONFIG;
-  const epochs = opts.epochs ?? 25;
-  const lr = opts.learningRate ?? 0.1;
-  const l2 = opts.l2 ?? 1e-4;
-  const threshold = opts.threshold ?? 0.5;
-  const pruneBelow = opts.pruneBelow ?? 1e-5;
-  const rng = mulberry32(opts.seed ?? 42);
-
-  const feats = examples.map((e) => featurize(e.text, e.signals, config));
+/** Train one logistic-regression head over pre-featurized examples. */
+function trainLogistic(
+  feats: Array<Map<number, number>>,
+  targets: number[],
+  opts: Required<
+    Pick<TrainOptions, 'epochs' | 'learningRate' | 'l2' | 'seed' | 'pruneBelow'>
+  >,
+): LinearHead {
+  const { epochs, learningRate: lr, l2, seed, pruneBelow } = opts;
+  const rng = mulberry32(seed);
   const weights = new Map<number, number>();
   let bias = 0;
-  const order = examples.map((_, i) => i);
-
+  const order = feats.map((_, i) => i);
   for (let epoch = 0; epoch < epochs; epoch++) {
     shuffle(order, rng);
     for (const i of order) {
       const f = feats[i];
-      const y = examples[i].label;
+      const y = targets[i];
       let z = bias;
       for (const [k, v] of f) z += (weights.get(k) ?? 0) * v;
       const p = 1 / (1 + Math.exp(-z));
-      const g = p - y; // dLoss/dz for logistic loss
+      const g = p - y;
       bias -= lr * g;
       for (const [k, v] of f) {
         const w = weights.get(k) ?? 0;
@@ -85,10 +86,60 @@ export function trainGate(
       }
     }
   }
-
   const sparse: Record<string, number> = {};
   for (const [k, w] of weights) {
     if (Math.abs(w) >= pruneBelow) sparse[k] = w;
   }
-  return { version: 1, config, threshold, bias, weights: sparse };
+  return { bias, weights: sparse };
+}
+
+export function trainGate(
+  examples: TrainExample[],
+  opts: TrainOptions = {},
+): GateModel {
+  const config = opts.config ?? DEFAULT_FEATURE_CONFIG;
+  const seed = opts.seed ?? 42;
+  const base = {
+    epochs: opts.epochs ?? 25,
+    learningRate: opts.learningRate ?? 0.1,
+    l2: opts.l2 ?? 1e-4,
+    pruneBelow: opts.pruneBelow ?? 1e-5,
+  };
+  const feats = examples.map((e) => featurize(e.text, e.signals, config));
+
+  // Binary decision-bearing head (seed unchanged → same weights as a v1 train).
+  const binary = trainLogistic(feats, examples.map((e) => e.label), {
+    ...base,
+    seed,
+  });
+
+  const model: GateModel = {
+    version: 1,
+    config,
+    threshold: opts.threshold ?? 0.5,
+    bias: binary.bias,
+    weights: binary.weights,
+  };
+
+  // Per-kind one-vs-rest heads when the corpus carries kinds.
+  const trainKinds =
+    opts.trainKinds !== false &&
+    examples.some((e) => e.kinds && e.kinds.length > 0);
+  if (trainKinds) {
+    const kinds: Partial<Record<DecisionKind, LinearHead>> = {};
+    GATE_KINDS.forEach((kind, i) => {
+      const targets = examples.map((e) => (e.kinds?.includes(kind) ? 1 : 0));
+      if (targets.some((t) => t === 1)) {
+        // Distinct seed per head so they don't share a shuffle sequence.
+        kinds[kind] = trainLogistic(feats, targets, { ...base, seed: seed + i + 1 });
+      }
+    });
+    if (Object.keys(kinds).length > 0) {
+      model.version = 2;
+      model.kinds = kinds;
+      model.kindThreshold = opts.kindThreshold ?? 0.5;
+    }
+  }
+
+  return model;
 }
