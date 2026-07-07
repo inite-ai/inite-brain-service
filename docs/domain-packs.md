@@ -166,6 +166,8 @@ Surface:
 - **Install from registry** (`brain:admin`): `POST /v1/admin/packs/from-registry
   {packId, version?}` — resolves latest-non-yanked (or a pin) and installs via
   the normal path, pinning the registry checksum.
+- **Browse** (public, no auth): `GET /registry/ui` — a server-rendered HTML
+  catalogue of published packs (ids, versions, keywords, install hint).
 
 CLI:
 

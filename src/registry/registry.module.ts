@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PackRegistryService } from './pack-registry.service';
 import { RegistryController } from './registry.controller';
 import { AdminRegistryController } from './admin-registry.controller';
+import { RegistryUiController } from './registry-ui.controller';
 
 /**
  * The GLOBAL Domain Pack registry (docs/domain-packs.md): a shared catalogue of
@@ -14,7 +15,7 @@ import { AdminRegistryController } from './admin-registry.controller';
  */
 @Module({
   imports: [AuthModule],
-  controllers: [RegistryController, AdminRegistryController],
+  controllers: [RegistryController, AdminRegistryController, RegistryUiController],
   providers: [PackRegistryService],
   exports: [PackRegistryService],
 })
