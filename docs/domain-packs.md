@@ -211,3 +211,23 @@ POST /v1/admin/packs/:packId/eval   (brain:admin)
 
 `real_estate` ships three fixtures (zoning / valuation / tenure) as the
 demonstrator. Nothing forward-compat remains in the manifest.
+
+## First-party pack library (industries)
+
+Beyond the builtin `code_memory`, brain ships a library of DISTRIBUTABLE
+industry packs (installed per-tenant, published to the registry via
+`pnpm registry:seed`) — each a complete ontology with predicates +
+`extractionProfile` + `evalFixtures`, not a stub:
+
+| pack | domain | predicates (namespaced `<id>__*`) |
+|---|---|---|
+| `real_estate` | property | zoned_as, valued_at, listed_at, encumbered_by, tenure_type, built_in |
+| `fintech` | financial-services regulation | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period |
+| `medical` | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with |
+| `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on |
+
+Sources: `src/ai/domain-packs/*.pack.ts` (the `FIRST_PARTY_PACKS` list) →
+committed JSON in `packs/*.pack.json` (drift-guarded by
+`test/industry-packs.unit-spec.ts`). Install one with
+`pnpm pack:install -- --registry fintech` (after `registry:seed`) or
+`--file packs/fintech.pack.json`.
