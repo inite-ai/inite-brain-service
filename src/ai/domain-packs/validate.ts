@@ -14,6 +14,26 @@ import {
 
 const SNAKE = /^[a-z][a-z0-9_]*$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
+// Mirror the DB-level ASSERTs (0011_predicate_registry). validatePack runs
+// BEFORE the domain_pack row is written and predicates are seeded, so an
+// invalid enum here would otherwise surface as a raw Surreal ASSERT error
+// (HTTP 500 + a half-installed pack) rather than a clean 400.
+const SEMANTICS = new Set(['append_only', 'single_active', 'bitemporal']);
+const PII_CLASSES = new Set([
+  'none',
+  'identifier',
+  'behavioral',
+  'text',
+  'sensitive',
+]);
+const DATATYPES = new Set([
+  'string',
+  'number',
+  'date',
+  'datetime',
+  'enum',
+  'json',
+]);
 
 export class DomainPackError extends Error {}
 
@@ -23,16 +43,29 @@ export function validatePack(pack: DomainPackManifest): void {
       `pack id "${pack.id}" must be snake_case and must not contain "${PACK_NAMESPACE_SEP}"`,
     );
   }
+  // A trailing underscore lets `foo_`'s composed prefix (`foo___`) collide
+  // with `foo`'s uninstall prefix (`foo__`) — reject it up front.
+  if (pack.id.endsWith('_')) {
+    throw new DomainPackError(
+      `pack id "${pack.id}" must not end with an underscore`,
+    );
+  }
   if (!SEMVER.test(pack.version)) {
     throw new DomainPackError(
       `pack "${pack.id}" version "${pack.version}" must be semver MAJOR.MINOR.PATCH`,
     );
+  }
+  if (!Array.isArray(pack.predicates)) {
+    throw new DomainPackError(`pack "${pack.id}" predicates must be an array`);
   }
   if (pack.predicates.length === 0) {
     throw new DomainPackError(`pack "${pack.id}" declares no predicates`);
   }
   const seen = new Set<string>();
   for (const p of pack.predicates) {
+    if (p === null || typeof p !== 'object') {
+      throw new DomainPackError(`pack "${pack.id}" predicate entries must be objects`);
+    }
     if (!SNAKE.test(p.localId) || p.localId.includes(PACK_NAMESPACE_SEP)) {
       throw new DomainPackError(
         `pack "${pack.id}" localId "${p.localId}" must be snake_case and must not contain "${PACK_NAMESPACE_SEP}"`,
@@ -44,6 +77,21 @@ export function validatePack(pack: DomainPackManifest): void {
       );
     }
     seen.add(p.localId);
+    if (!SEMANTICS.has(p.semantics as string)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" predicate "${p.localId}" semantics "${p.semantics}" must be one of ${[...SEMANTICS].join('|')}`,
+      );
+    }
+    if (!PII_CLASSES.has(p.piiClass as string)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" predicate "${p.localId}" piiClass "${p.piiClass}" must be one of ${[...PII_CLASSES].join('|')}`,
+      );
+    }
+    if (p.datatype !== undefined && !DATATYPES.has(p.datatype as string)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" predicate "${p.localId}" datatype "${p.datatype}" must be one of ${[...DATATYPES].join('|')}`,
+      );
+    }
   }
   if (pack.extractionProfile !== undefined) {
     validateExtractionProfile(pack.id, pack.extractionProfile);

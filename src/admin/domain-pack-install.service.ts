@@ -13,8 +13,10 @@ import type { PredicateDefinition } from '../ai/predicate-registry-internals/typ
 import {
   assertPackTrust,
   BUILTIN_PACKS,
+  compareSemver,
   composePredicateId,
   DomainPackError,
+  PACK_NAMESPACE_SEP,
   packChecksum,
   validatePack,
   type DomainPackManifest,
@@ -152,16 +154,37 @@ export class DomainPackInstallService {
       };
     });
 
+    const prefix = `${manifest.id}${PACK_NAMESPACE_SEP}`;
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
       const [existing] = await db.query<[any[]]>(
-        `SELECT id FROM domain_pack WHERE packId = $packId LIMIT 1`,
+        `SELECT id, version FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
       const row = ((existing as any[]) ?? [])[0];
       if (row) {
+        // Reject a silent version downgrade — an out-of-order replay or a
+        // stale artifact must not quietly roll a tenant's ontology back.
+        if (compareSemver(manifest.version, String(row.version)) < 0) {
+          throw new BadRequestException(
+            `pack "${manifest.id}" v${manifest.version} is older than the installed v${row.version}; refusing to downgrade`,
+          );
+        }
         await db.query(
           `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()`,
           { id: row.id, version: manifest.version, manifest, checksum },
+        );
+        // Reinstall after uninstall: uninstall DEPRECATED this pack's
+        // predicates; seedMissingPredicates skips them (they exist by id),
+        // so without this they'd stay out of the active snapshot forever —
+        // the pack would read as installed but extract nothing. Reactivate
+        // the pack-owned rows we deprecated (createdBy='admin' guards
+        // against reviving an operator's manual deprecation of a core id).
+        await db.query(
+          `UPDATE knowledge_predicate SET status = 'active'
+             WHERE string::starts_with(predicateId, $prefix)
+               AND status = 'deprecated'
+               AND createdBy = 'admin'`,
+          { prefix },
         );
       } else {
         await db.query(`CREATE domain_pack CONTENT $content`, {

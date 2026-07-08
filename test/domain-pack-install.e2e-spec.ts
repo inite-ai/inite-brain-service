@@ -121,4 +121,55 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     const r = await f.http.delete('/v1/admin/packs/code_memory').set(auth());
     expect(r.status).toBe(400);
   });
+
+  it('reinstall after uninstall REACTIVATES the deprecated predicate (not inert)', async () => {
+    // 'medical' was uninstalled above → its predicate is deprecated.
+    const before = await f.http.get('/v1/admin/predicates').set(auth());
+    const depd = (before.body.predicates ?? []).find(
+      (p: any) => p.predicateId === 'medical__diagnosis',
+    );
+    expect(depd?.status).toBe('deprecated');
+
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: MEDICAL_MANIFEST });
+    expect([200, 201]).toContain(r.status);
+
+    // The pack must be USABLE again — the predicate back in the active set,
+    // not lingering deprecated (which read as "installed but extracts
+    // nothing" pre-fix).
+    const after = await f.http.get('/v1/admin/predicates').set(auth());
+    const react = (after.body.predicates ?? []).find(
+      (p: any) => p.predicateId === 'medical__diagnosis',
+    );
+    expect(react?.status).toBe('active');
+  });
+
+  it('rejects a version downgrade', async () => {
+    // medical is at 1.0.0 (reinstalled above). A 0.9.0 install must 400.
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: { ...MEDICAL_MANIFEST, version: '0.9.0' } });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(/downgrade/i);
+  });
+
+  it('rejects a manifest with an invalid enum as a 400, not a 500', async () => {
+    const bad = {
+      ...MEDICAL_MANIFEST,
+      id: 'badenum',
+      version: '1.0.0',
+      predicates: [
+        { ...MEDICAL_MANIFEST.predicates[0], semantics: 'sometimes' },
+      ],
+    };
+    const r = await f.http
+      .post('/v1/admin/packs')
+      .set(auth())
+      .send({ manifest: bad });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(/semantics/);
+  });
 });
