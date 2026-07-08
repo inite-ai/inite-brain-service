@@ -23,6 +23,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "lint:ci": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
     "test": "jest --config ./test/jest-unit.json",
     "test:unit": "jest --config ./test/jest-unit.json",
     "test:watch": "jest --config ./test/jest-unit.json --watch",
@@ -48,7 +49,6 @@
     "test:eval:json": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=json-directory",
     "directory:fetch:wikidata": "ts-node -r tsconfig-paths/register scripts/fetch-wikidata-directory.ts",
     "test:eval:dreams": "pnpm build && DREAMS_E2E_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=dreams.real",
-    "schema:apply": "ts-node -r tsconfig-paths/register scripts/apply-schema.ts",
     "skills:build": "ts-node -T scripts/build-skill-versions.ts",
     "skills:bump": "ts-node -T scripts/bump-skill-versions.ts --staged",
     "skills:pack": "pnpm skills:build && ts-node -T scripts/package-skills.ts"

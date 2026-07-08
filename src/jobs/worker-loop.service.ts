@@ -3,7 +3,7 @@ import {
   Logger,
   Optional,
   OnModuleInit,
-  OnApplicationShutdown,
+  BeforeApplicationShutdown,
 } from '@nestjs/common';
 import { LeaderLeaseService } from './leader-lease.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -26,7 +26,9 @@ export type { JobContext, JobHandler } from './worker-loop.types';
  * up. Cadence/enabled flags read from the environment.
  */
 @Injectable()
-export class WorkerLoopService implements OnModuleInit, OnApplicationShutdown {
+export class WorkerLoopService
+  implements OnModuleInit, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(WorkerLoopService.name);
   private readonly handlers = new Map<JobType, RegisteredHandler>();
   private readonly enabled =
@@ -111,7 +113,12 @@ export class WorkerLoopService implements OnModuleInit, OnApplicationShutdown {
     this.poller.startDecay();
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  // beforeApplicationShutdown (phase 2), NOT onApplicationShutdown (phase 3):
+  // the lease release below is a DB write, and SurrealService closes the pool
+  // in onApplicationShutdown. Running here guarantees the pool is still open
+  // when we release — otherwise the lease zombied for a full TTL on every
+  // deploy and in-flight jobs were orphaned.
+  async beforeApplicationShutdown(): Promise<void> {
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
     this.poller.stopDecay();
     this.abortController.abort();
