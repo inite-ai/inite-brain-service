@@ -4,12 +4,12 @@ Brain stores every fact along two independent time axes. Together they answer tw
 
 | Axis | Field pair | Answers |
 | --- | --- | --- |
-| Valid time | `validFrom` / `validUntil` | "When was this true in the real world?" |
-| Transaction time | `recordedAt` / `retractedAt` | "When did brain know about it / when did brain learn it was wrong?" |
+| Valid time | `validFrom` / `validUntil` | “When was this true in the real world?” |
+| Transaction time | `recordedAt` / `retractedAt` | “When did brain know about it / when did brain learn it was wrong?” |
 
-Both are first-class. You can ask "what was Alice's tier on March 15" (valid time) AND "what did brain believe on April 1" (transaction time). The default search treats now as both axes.
+Both are first-class. You can ask “what was Alice's tier on March 15” (valid time) AND “what did brain believe on April 1” (transaction time). The default search treats now as both axes.
 
-## Default = "actual now"
+## Default = “actual now”
 
 Without `asOf`, every read returns only facts whose valid window contains *now* AND that brain currently believes:
 
@@ -52,15 +52,15 @@ B:   [───]              → contains         → resolve by score
 
 ## Reading retracted rows
 
-`get_entity_timeline` and `GET /v1/entities/:id/timeline` return retracted facts too — `status: 'retracted'` with a `retractedAt` and `retractionReason`. By default search hides them; ask explicitly for "what changed" / "history" to expose them.
+`get_entity_timeline` and `GET /v1/entities/:id/timeline` return retracted facts too — `status: 'retracted'` with a `retractedAt` and `retractionReason`. By default search hides them; ask explicitly for “what changed” / “history” to expose them.
 
-Never delete-claim a retracted fact. Brain keeps the audit trail so the user can see "we used to believe X, then learned otherwise."
+Never delete-claim a retracted fact. Brain keeps the audit trail so the user can see “we used to believe X, then learned otherwise.”
 
 ## Pitfalls
 
-- **Sticky `asOf`** — drop it on follow-up turns unless the user says "still as of X".
+- **Sticky `asOf`** — drop it on follow-up turns unless the user says “still as of X”.
 - **Treating `validUntil` as expiry** — a fact with `validUntil = 2026-04-01` was true *up to* that moment. Bitemporally correct, not stale.
-- **Confusing the axes** — "what was true in March" (valid time) ≠ "what brain knew in March" (transaction time). For transaction-time-only queries, pull the full timeline and filter client-side.
+- **Confusing the axes** — “what was true in March” (valid time) ≠ “what brain knew in March” (transaction time). For transaction-time-only queries, pull the full timeline and filter client-side.
 
 ## Related
 

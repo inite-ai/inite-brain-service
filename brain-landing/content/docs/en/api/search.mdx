@@ -113,7 +113,7 @@ No JS post-filter, no double round-trip.
 
 ## PII gating
 
-If the caller's API key lacks `brain:read_pii`, sensitive predicates (`email`, `phone`, `dob`, `address`) return with `object: null`. The predicate is still visible — that's the "we have this data, you don't have rights" signal. Tighter than 403 because you can still rank entities by the *presence* of identifying facts.
+If the caller's API key lacks `brain:read_pii`, sensitive predicates (`email`, `phone`, `dob`, `address`) return with `object: null`. The predicate is still visible — that's the “we have this data, you don't have rights” signal. Tighter than 403 because you can still rank entities by the *presence* of identifying facts.
 
 ## Per-leg CI
 

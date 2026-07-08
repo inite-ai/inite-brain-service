@@ -21,17 +21,17 @@ faqs:
 
 ## The one job vector search does well
 
-Embed a query, embed your documents, return the nearest neighbours. For "find me passages about X," this is hard to beat. The failure isn't the technique — it's scope creep. Teams reach for a vector store as the agent's *memory*, and then ask it questions it was never built to answer.
+Embed a query, embed your documents, return the nearest neighbours. For “find me passages about X,” this is hard to beat. The failure isn't the technique — it's scope creep. Teams reach for a vector store as the agent's *memory*, and then ask it questions it was never built to answer.
 
 ## Four questions embeddings can't answer
 
-**"What is true *now*?"** A vector store returns whatever is most similar, even if it's stale. There's no notion of a fact being superseded — only of text being nearby.
+**“What is true *now*?”** A vector store returns whatever is most similar, even if it's stale. There's no notion of a fact being superseded — only of text being nearby.
 
-**"What was true in March?"** No time axis. A chunk written last year and a chunk written today are ranked the same way. Memory without time is just a pile.
+**“What was true in March?”** No time axis. A chunk written last year and a chunk written today are ranked the same way. Memory without time is just a pile.
 
-**"Two sources disagree — which wins?"** Re-embedding overwrites. The newest vector silently replaces the old one. No scoring, no "these conflict," no record that there was ever a disagreement.
+**“Two sources disagree — which wins?”** Re-embedding overwrites. The newest vector silently replaces the old one. No scoring, no “these conflict,” no record that there was ever a disagreement.
 
-**"Delete this user."** You can drop a row, but embeddings of their data may live in other chunks, and there's no cascade through relationships. "I think it's gone" is not a GDPR answer.
+**“Delete this user.”** You can drop a row, but embeddings of their data may live in other chunks, and there's no cascade through relationships. “I think it's gone” is not a GDPR answer.
 
 ## The fix is structure, not a bigger model
 

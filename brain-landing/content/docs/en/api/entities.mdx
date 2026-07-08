@@ -84,7 +84,7 @@ Hard cascade. Synchronous. Deletes:
 - Every embedding row (vector + HyPE alt-embedding)
 - Every artifact (profile, digest)
 
-Leaves only an HMAC-hash tombstone in `forgotten_entity`. The tombstone proves "we honored the request" without keeping the entity id in plaintext.
+Leaves only an HMAC-hash tombstone in `forgotten_entity`. The tombstone proves “we honored the request” without keeping the entity id in plaintext.
 
 **Requires `brain:write` AND a separately-granted forget permission.** Audited per-call.
 

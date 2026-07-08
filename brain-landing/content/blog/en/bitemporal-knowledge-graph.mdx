@@ -21,14 +21,14 @@ faqs:
 
 ## Two clocks, not one
 
-Most systems store one timestamp per record: when it was written. That answers "when did this change," but it can't answer "when did this *become* true" separately from "when did we *find out*." Those are two different questions, and conflating them is how audit trails quietly lie.
+Most systems store one timestamp per record: when it was written. That answers “when did this change,” but it can't answer “when did this *become* true” separately from “when did we *find out*.” Those are two different questions, and conflating them is how audit trails quietly lie.
 
 A bitemporal knowledge graph keeps both:
 
 - **Valid time** — the interval during which a fact holds in the real world.
 - **Transaction time** — the interval during which the system believed it.
 
-Every fact is a small claim with both stamps. "Acme is on the growth plan" is true *in the world* from March 10, but Brain only *recorded* it on March 12.
+Every fact is a small claim with both stamps. “Acme is on the growth plan” is true *in the world* from March 10, but Brain only *recorded* it on March 12.
 
 ## The correction problem
 
@@ -39,13 +39,13 @@ Here is the scenario that breaks single-clock systems. A customer switched plans
 | starter | Jan 1 → Mar 10 | Jan 1 → (capped Mar 12) |
 | growth | Mar 10 → now | Mar 12 → now |
 
-Now ask: *"On March 11, what plan did we think Acme was on?"*
+Now ask: *“On March 11, what plan did we think Acme was on?”*
 
 The honest answer is **starter** — because the switch wasn't recorded until the 12th. A single-clock store can't produce that answer. Once you write the correction, it looks like you always knew. Bitemporal keeps transaction time independent, so replaying March 11 returns what you actually knew on March 11.
 
 ## Why agents care
 
-An AI agent makes decisions on the memory it has at that instant. When a decision looks wrong in hindsight, "what did the agent know" is the first question — and the only useful answer is the state of memory *then*, before any later correction.
+An AI agent makes decisions on the memory it has at that instant. When a decision looks wrong in hindsight, “what did the agent know” is the first question — and the only useful answer is the state of memory *then*, before any later correction.
 
 - **Audit** — prove what the agent could have known at decision time.
 - **Replay** — reconstruct a past run exactly, bugs included.
