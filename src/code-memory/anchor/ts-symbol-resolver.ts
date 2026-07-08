@@ -22,6 +22,18 @@ export interface SymbolSpan {
   endLine: number;
 }
 
+const TS_JS_EXT = /\.(mts|cts|tsx?|jsx?|mjs|cjs)$/i; // ts tsx mts cts js jsx mjs cjs
+
+/**
+ * Only TS/JS files get an AST symbol walk. Anything else (.py / .go / .rs / .md)
+ * must NOT be fed to the TS parser: it would "succeed" and emit garbage symbol
+ * spans from misparsed tokens, poisoning anchors. The docstring always promised
+ * "non-TS/JS files get no symbols" — this enforces it.
+ */
+export function isTsJsSource(fileName: string): boolean {
+  return TS_JS_EXT.test(fileName);
+}
+
 function scriptKindFor(fileName: string): ts.ScriptKind {
   if (fileName.endsWith('.tsx')) return ts.ScriptKind.TSX;
   if (fileName.endsWith('.jsx')) return ts.ScriptKind.JSX;
@@ -59,8 +71,10 @@ function declaredName(node: ts.Node): { name: string; kind: string } | null {
   return null;
 }
 
-/** All named symbol spans in a source file, outermost-first. */
+/** All named symbol spans in a source file, outermost-first. Non-TS/JS files
+ *  get no symbols — the caller falls back to a file-level anchor. */
 export function listSymbols(source: string, fileName = 'file.ts'): SymbolSpan[] {
+  if (!isTsJsSource(fileName)) return [];
   const sf = ts.createSourceFile(
     fileName,
     source,

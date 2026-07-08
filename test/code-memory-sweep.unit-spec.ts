@@ -4,6 +4,7 @@
 import {
   buildAnchorVerdicts,
   heuristicChoose,
+  SweepBlastRadiusError,
 } from '../src/code-memory/anchor/sweep';
 
 const SRC = `export class FactResolverService {
@@ -29,6 +30,15 @@ describe('heuristicChoose', () => {
   });
   it('declines when nothing meaningfully overlaps', () => {
     expect(heuristicChoose(['helper', 'other'], 'Zzz.Qqq')).toBeNull();
+  });
+  it('declines a weak stem match (get_user → get_post is not a rename)', () => {
+    expect(heuristicChoose(['get_post', 'other'], 'get_user')).toBeNull();
+  });
+  it('declines when two candidates tie on the top prefix (ambiguous)', () => {
+    // Both share "handle" (6) with the gone "handleThing" — don't guess.
+    expect(
+      heuristicChoose(['handleFoo', 'handleBar'], 'handleThing'),
+    ).toBeNull();
   });
 });
 
@@ -74,5 +84,36 @@ describe('buildAnchorVerdicts', () => {
       choose: heuristicChoose,
     });
     expect(v[0]).toMatchObject({ action: 'invalidate' });
+  });
+
+  it('refuses a mass-invalidate blast radius (misconfigured run)', () => {
+    // 12 anchors, none of whose files exist → 100% would invalidate. That's a
+    // wrong-cwd run, not a real deletion — abort instead of retracting all.
+    const anchors = Array.from({ length: 12 }, (_, i) => `gone_${i}.ts#Foo.bar`);
+    expect(() =>
+      buildAnchorVerdicts({ anchors, readFile: () => null, choose: heuristicChoose }),
+    ).toThrow(SweepBlastRadiusError);
+  });
+
+  it('does not guard a small anchor set (legitimately high ratio)', () => {
+    // Below minAnchorsForGuard — 2 gone files must not trip the guard.
+    const v = buildAnchorVerdicts({
+      anchors: ['gone_a.ts#Foo.bar', 'gone_b.ts#Baz.qux'],
+      readFile: () => null,
+      choose: heuristicChoose,
+    });
+    expect(v.every((x) => x.action === 'invalidate')).toBe(true);
+  });
+
+  it('honors the override for a confirmed mass removal', () => {
+    const anchors = Array.from({ length: 12 }, (_, i) => `gone_${i}.ts#Foo.bar`);
+    const v = buildAnchorVerdicts({
+      anchors,
+      readFile: () => null,
+      choose: heuristicChoose,
+      maxInvalidateRatio: 1,
+    });
+    expect(v).toHaveLength(12);
+    expect(v.every((x) => x.action === 'invalidate')).toBe(true);
   });
 });

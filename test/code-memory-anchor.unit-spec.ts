@@ -72,6 +72,20 @@ describe('ts-symbol-resolver', () => {
   it('non-TS content yields no symbols (caller falls back to file anchor)', () => {
     expect(listSymbols('plain text, not code', 'notes.md')).toEqual([]);
   });
+
+  it('gates by extension: a .py file is not parsed as TS (no garbage symbols)', () => {
+    // Python that the TS parser would happily misparse into junk spans.
+    const py = [
+      'class Foo:',
+      '    def bar(self):',
+      '        return 1',
+      'def baz():',
+      '    return 2',
+    ].join('\n');
+    expect(listSymbols(py, 'thing.py')).toEqual([]);
+    // But the SAME text under a .ts name still parses (gate is by extension).
+    expect(listSymbols(py, 'thing.ts').length).toBeGreaterThan(0);
+  });
 });
 
 describe('symbol-id', () => {

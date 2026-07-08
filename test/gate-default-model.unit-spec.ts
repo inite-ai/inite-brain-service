@@ -17,6 +17,13 @@ import {
 
 const MODEL_PATH = join(__dirname, '..', 'models', 'decision-gate.model.json');
 
+// Ratchet: the shipped hybrid currently scores golden F1 0.6667 (prec 1.0, rec
+// 0.5). "Beats the heuristic" (0.621) alone is too loose a guard — a retrain
+// could silently regress to e.g. 0.638 and still pass. Pin an absolute floor so
+// a real regression fails CI. Raise this (never lower) when a better model
+// ships.
+const SHIPPED_GOLDEN_F1_FLOOR = 0.66;
+
 describe('shipped default gate model', () => {
   const model = TrainedDecisionClassifier.fromJson(
     JSON.parse(readFileSync(MODEL_PATH, 'utf8')),
@@ -45,5 +52,14 @@ describe('shipped default gate model', () => {
     expect(hy.precision).toBeGreaterThanOrEqual(h.precision);
     // The hybrid recall covers everything the heuristic caught, plus more.
     expect(hy.recall).toBeGreaterThan(h.recall);
+  });
+
+  it('holds the absolute golden F1 ratchet (catches a silent regression)', () => {
+    const hybrid = new HybridDecisionClassifier(
+      new HeuristicDecisionClassifier(),
+      model,
+    );
+    const hy = evaluateClassifierOnGolden(hybrid);
+    expect(hy.f1).toBeGreaterThanOrEqual(SHIPPED_GOLDEN_F1_FLOOR);
   });
 });
