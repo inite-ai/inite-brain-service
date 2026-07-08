@@ -25,8 +25,12 @@ import {
 @Injectable()
 export class CalibrationRefitService implements OnModuleInit {
   private readonly logger = new Logger(CalibrationRefitService.name);
+  // Enabled ONLY on literal 'true' (the pre-#62 contract): '0'/'off'/'no'
+  // must disable, not silently re-enable the nightly crons. `!== 'false'`
+  // would treat every non-'false' value — including the house '0'
+  // convention — as enabled.
   private readonly enabled =
-    (process.env.CALIBRATION_NIGHTLY_REFIT ?? 'true').toLowerCase() !== 'false';
+    (process.env.CALIBRATION_NIGHTLY_REFIT ?? 'true').toLowerCase() === 'true';
 
   constructor(
     private readonly runner: CalibrationRefitRunnerService,

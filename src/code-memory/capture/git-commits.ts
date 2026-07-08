@@ -44,6 +44,13 @@ export function readCommits(opts: {
     [
       'log',
       opts.range,
+      // Oldest-first. git log defaults to newest-first, which would replay
+      // a batch range backwards: with single_active supersede the OLDEST
+      // decision would land last and displace the newer ones on the same
+      // anchor. Server-side migration 0043 also guards against backdated
+      // supersede, but emitting in true order keeps every outcome INSERTED/
+      // SUPERSEDED instead of leaning on the INSERTED_HISTORICAL fallback.
+      '--reverse',
       '--no-merges',
       '--name-only',
       `--format=${GIT_FORMAT}`,

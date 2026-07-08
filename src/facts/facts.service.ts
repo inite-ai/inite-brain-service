@@ -299,9 +299,18 @@ export class FactsService {
     opts: {
       predicate?: string;
       asOf?: string;
+      /** Caller's scopes — binds the DB-level PII fence (migration 0005). */
+      callerScopes?: readonly string[];
     } = {},
   ): Promise<ListCompetingResult> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    // Scoped pool when the caller identifies itself (the MCP path — the
+    // only consumer today): competing rows carry raw `object` values, so
+    // they must respect the $caller_scopes PII fence like every other read.
+    const run = <T>(fn: (db: Surreal) => Promise<T>) =>
+      opts.callerScopes
+        ? this.surreal.withScopedCompany(companyId, opts.callerScopes, fn)
+        : this.surreal.withCompany(companyId, fn);
+    return run(async (db) => {
       const ref = this.normalizeEntityId(entityIdRaw);
       const asOf = opts.asOf ? new Date(opts.asOf) : null;
 

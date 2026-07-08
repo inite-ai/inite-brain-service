@@ -35,6 +35,7 @@ export class MemoryDiffService {
   async diff(
     companyId: string,
     args: MemoryDiffArgs,
+    callerScopes: readonly string[],
   ): Promise<MemoryDiffResult> {
     const from = new Date(args.from);
     const to = new Date(args.to);
@@ -45,7 +46,11 @@ export class MemoryDiffService {
       throw new Error('memory_diff: from must be strictly before to');
     }
 
-    return this.surreal.withCompany(companyId, async (db) => {
+    // Scoped pool, not root: the diff SELECTs fact `object` values, so it
+    // must sit behind the same DB-level PII fence ($caller_scopes,
+    // migration 0005) as every other read surface — memory_diff is
+    // MCP-only and used to be the one read that bypassed it.
+    return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const scoping = buildScoping(args);
 
       // CREATED: facts whose recordedAt landed in [from, to). We don't

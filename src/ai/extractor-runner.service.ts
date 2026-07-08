@@ -55,12 +55,22 @@ export class ExtractorRunnerService {
     return this.llm.scPasses;
   }
 
-  /** Run the extraction for an already-clamped input + loaded snapshot. */
+  /**
+   * Run the extraction for an already-clamped input + loaded snapshot.
+   *
+   * Returns null when the LLM produced nothing usable (null/non-JSON
+   * response, or every self-consistency pass failed) — a TRANSIENT
+   * failure, not "this text contains no facts". The caller must not
+   * cache a null: memoising it would pin an empty extraction for the
+   * (text, tenant, vocab) key until LRU eviction, silently dropping
+   * facts on every identical re-ingest (pre-#64 behaviour was exactly
+   * "don't cache these paths").
+   */
   async run(
     trimmed: string,
     companyId: string,
     snapshot: Snapshot,
-  ): Promise<ExtractionResult> {
+  ): Promise<ExtractionResult | null> {
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
 
     const skip = await this.local.trySkip(companyId, trimmed);
@@ -77,7 +87,7 @@ export class ExtractorRunnerService {
     }
 
     const rawJson = await this.llm.callLlm(trimmed, systemPrompt, 0.1);
-    if (!rawJson) return { entities: [], facts: [], edges: [] };
+    if (!rawJson) return null;
     return this.assembleResult({ companyId, trimmed, snapshot, rawJson });
   }
 
@@ -86,7 +96,7 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
-  }): Promise<ExtractionResult> {
+  }): Promise<ExtractionResult | null> {
     const N = this.llm.scPasses;
     // Even temperature spread across [0.1, 0.7].
     const temperatures = Array.from(
@@ -117,7 +127,9 @@ export class ExtractorRunnerService {
       ),
     );
     const surviving = results.filter((r): r is ExtractionResult => !!r);
-    if (surviving.length === 0) return { entities: [], facts: [], edges: [] };
+    // Every pass failed → transient LLM trouble, not an empty text. Null
+    // tells the caller to skip the cache (see run()'s contract).
+    if (surviving.length === 0) return null;
 
     const passFacts = surviving.map((r) =>
       r.facts.map((f) => ({ predicate: f.predicate, object: f.object })),

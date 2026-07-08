@@ -267,12 +267,16 @@ function registerSearchTools({
       },
     },
     async (args) => {
-      const out = await deps.memoryDiff.diff(companyId, {
-        from: args.from,
-        to: args.to,
-        entityIds: args.entityIds,
-        predicates: args.predicates,
-      });
+      const out = await deps.memoryDiff.diff(
+        companyId,
+        {
+          from: args.from,
+          to: args.to,
+          entityIds: args.entityIds,
+          predicates: args.predicates,
+        },
+        scopes,
+      );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,
@@ -418,6 +422,7 @@ function registerEntityReadTools({
       const out = await deps.facts.listCompeting(companyId, args.entityId, {
         predicate: args.predicate,
         asOf: args.asOf,
+        callerScopes: scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -426,44 +431,7 @@ function registerEntityReadTools({
     },
   );
 
-  // ── detect_contradiction ──────────────────────────────────────────
-  server.registerTool(
-    'detect_contradiction',
-    {
-      title: 'Predict the conflict-resolver outcome for a candidate fact',
-      description:
-        "Dry-run preflight against fn::resolve_fact. Answers \"if I were to record this fact right now, what would the resolver decide?\" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Use before record_fact when the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: source_trust uses the seed table, not the learned per-tenant rate from migration 0022 — predictions can differ from the live resolver when an operator has tuned source_trust against extraction quality.",
-      inputSchema: {
-        entityRef: z.union([
-          z.object({ vertical: z.string(), id: z.string() }),
-          z.object({ entityId: z.string() }),
-        ]),
-        predicate: z.string(),
-        object: z.string(),
-        validFrom: z.string().datetime(),
-        validUntil: z.string().datetime().optional(),
-        confidence: z.number().min(0).max(1).optional(),
-        sourceVertical: z
-          .string()
-          .describe('Vertical attributed as source (matches record_fact)'),
-      },
-    },
-    async (args) => {
-      const out = await deps.predictor.predict(companyId, {
-        entityRef: args.entityRef as any,
-        predicate: args.predicate,
-        object: args.object,
-        validFrom: args.validFrom,
-        validUntil: args.validUntil,
-        confidence: args.confidence,
-        source: { vertical: args.sourceVertical },
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
-      };
-    },
-  );
+  registerDetectContradictionTool({ server, companyId, scopes, deps });
 
   // ── find_related_entities ─────────────────────────────────────────
   server.registerTool(
@@ -486,6 +454,57 @@ function registerEntityReadTools({
         kind: args.kind,
         scopes,
       });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: out as any,
+      };
+    },
+  );
+}
+
+// Split out of registerEntityReadTools (max-lines-per-function): the
+// preflight dry-run tool for fn::resolve_fact.
+function registerDetectContradictionTool({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  server.registerTool(
+    'detect_contradiction',
+    {
+      title: 'Predict the conflict-resolver outcome for a candidate fact',
+      description:
+        "Dry-run preflight against fn::resolve_fact. Answers \"if I were to record this fact right now, what would the resolver decide?\" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Use before record_fact when the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: source_trust uses the seed table, not the learned per-tenant rate from migration 0022 — predictions can differ from the live resolver when an operator has tuned source_trust against extraction quality.",
+      inputSchema: {
+        entityRef: z.union([
+          z.object({ vertical: z.string(), id: z.string() }),
+          z.object({ entityId: z.string() }),
+        ]),
+        predicate: z.string(),
+        object: z.string(),
+        validFrom: z.string().datetime(),
+        validUntil: z.string().datetime().optional(),
+        confidence: z.number().min(0).max(1).optional(),
+        sourceVertical: z
+          .string()
+          .describe('Vertical attributed as source (matches record_fact)'),
+      },
+    },
+    async (args) => {
+      const out = await deps.predictor.predict(
+        companyId,
+        {
+          entityRef: args.entityRef as any,
+          predicate: args.predicate,
+          object: args.object,
+          validFrom: args.validFrom,
+          validUntil: args.validUntil,
+          confidence: args.confidence,
+          source: { vertical: args.sourceVertical },
+        },
+        scopes,
+      );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,

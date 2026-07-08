@@ -145,7 +145,7 @@ describe('MemoryDiffService.diff — window math', () => {
     const out = await diff.diff(f.companyId, {
       from: T1.toISOString(),
       to: T3.toISOString(),
-    });
+    }, ['brain:read', 'brain:read_pii']);
 
     expect(out.from).toBe(T1.toISOString());
     expect(out.to).toBe(T3.toISOString());
@@ -192,7 +192,7 @@ describe('MemoryDiffService.diff — window math', () => {
     const out = await diff.diff(f.companyId, {
       from: new Date('2025-01-01T00:00:00Z').toISOString(),
       to: new Date('2025-12-31T00:00:00Z').toISOString(),
-    });
+    }, ['brain:read', 'brain:read_pii']);
     expect(out.createdFacts).toHaveLength(0);
     expect(out.retractedFacts).toHaveLength(0);
     expect(out.changedFacts).toHaveLength(0);
@@ -202,10 +202,14 @@ describe('MemoryDiffService.diff — window math', () => {
   it('rejects from >= to', async () => {
     const diff = f.app.get(MemoryDiffService);
     await expect(
-      diff.diff(f.companyId, {
-        from: T2.toISOString(),
-        to: T1.toISOString(),
-      }),
+      diff.diff(
+        f.companyId,
+        {
+          from: T2.toISOString(),
+          to: T1.toISOString(),
+        },
+        ['brain:read', 'brain:read_pii'],
+      ),
     ).rejects.toThrow(/strictly before/);
   });
 
@@ -215,7 +219,7 @@ describe('MemoryDiffService.diff — window math', () => {
       from: T1.toISOString(),
       to: T3.toISOString(),
       predicates: ['tier'],
-    });
+    }, ['brain:read', 'brain:read_pii']);
     expect(out.createdFacts.map((f) => f.factId)).toEqual([
       'knowledge_fact:md_t2_replacement',
     ]);

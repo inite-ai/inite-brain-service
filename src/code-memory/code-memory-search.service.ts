@@ -47,6 +47,11 @@ export class CodeMemorySearchService {
       opts.companyId,
       opts.scopes,
       async (db) => {
+        // retractedAt IS NONE + the bitemporal validity window mirror
+        // /v1/search's default-now filters (search/internals/where-builder.ts):
+        // without them an invalidated anchor's facts (retractedAt set but
+        // status left 'active' by older writes) and future-dated decisions
+        // would surface in recall while every other read path hides them.
         const [rows] = await db.query<[any[]]>(
           `SELECT
              predicate,
@@ -57,7 +62,10 @@ export class CodeMemorySearchService {
            FROM knowledge_fact
            WHERE string::starts_with(predicate, $prefix)
              AND status = 'active'
+             AND retractedAt IS NONE
              AND embedding != NONE
+             AND validFrom <= time::now()
+             AND (validUntil IS NONE OR validUntil > time::now())
            ORDER BY score DESC
            LIMIT $limit`,
           { embedding, prefix: this.prefix, limit },

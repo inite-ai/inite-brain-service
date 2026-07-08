@@ -72,11 +72,22 @@ export class CodeMemoryAnchorService {
     return this.surreal.withCompany(companyId, async (db) => {
       const entityId = await this.resolveEntity(db, anchor);
       if (!entityId) return 0;
+      // status = 'retracted' matches the canonical retract shape
+      // (facts.service.ts) — recall_decisions filters by status, so a
+      // retractedAt-only write would leave invalidated decisions in
+      // semantic recall forever. Scoping to status = 'active' (not just
+      // retractedAt IS NONE) keeps superseded rows untouched: they carry
+      // the retractionReason = 'superseded' sentinel that revive +
+      // calibration depend on, and they are already out of every read.
       const [updated] = await db.query<[any[]]>(
         `UPDATE knowledge_fact
-           SET retractedAt = time::now(), retractionReason = $reason
+           SET status = 'retracted',
+               retractedAt = time::now(),
+               retractedBy = 'system',
+               retractionReason = $reason
            WHERE entityId = type::record('knowledge_entity', $eid)
              AND string::starts_with(predicate, $prefix)
+             AND status = 'active'
              AND retractedAt IS NONE
            RETURN AFTER`,
         { eid: idTail(entityId), prefix: this.prefix, reason },

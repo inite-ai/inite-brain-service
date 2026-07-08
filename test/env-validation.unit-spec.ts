@@ -65,3 +65,46 @@ describe('validateEnv — THROTTLE_DISABLED is test-only', () => {
     expect(() => validateEnv(env)).not.toThrow();
   });
 });
+
+describe('validateEnv — pack supply-chain knobs', () => {
+  it('accepts 1/0/true/false for the require-signature flags', () => {
+    for (const v of ['1', '0', 'true', 'false']) {
+      const env = baseProdEnv();
+      env.DOMAIN_PACK_REQUIRE_SIGNATURE = v;
+      env.PACK_REGISTRY_REQUIRE_SIGNATURE = v;
+      expect(() => validateEnv(env)).not.toThrow();
+    }
+  });
+
+  it('rejects unrecognized require-signature values (silent fail-open)', () => {
+    const env = baseProdEnv();
+    // 'yes' would parse as FALSE under a 1/true check — enforcement
+    // silently off. That must be a boot error, not a policy downgrade.
+    env.DOMAIN_PACK_REQUIRE_SIGNATURE = 'yes';
+    expect(() => validateEnv(env)).toThrow(/DOMAIN_PACK_REQUIRE_SIGNATURE/);
+
+    const env2 = baseProdEnv();
+    env2.PACK_REGISTRY_REQUIRE_SIGNATURE = 'enabled';
+    expect(() => validateEnv(env2)).toThrow(/PACK_REGISTRY_REQUIRE_SIGNATURE/);
+  });
+
+  it('rejects malformed DOMAIN_PACK_TRUSTED_KEYS JSON', () => {
+    const env = baseProdEnv();
+    env.DOMAIN_PACK_TRUSTED_KEYS = '{"acme": '; // truncated
+    expect(() => validateEnv(env)).toThrow(/DOMAIN_PACK_TRUSTED_KEYS/);
+  });
+
+  it('rejects a trust store that is not publisher→string', () => {
+    const env = baseProdEnv();
+    env.DOMAIN_PACK_TRUSTED_KEYS = JSON.stringify({ acme: 42 });
+    expect(() => validateEnv(env)).toThrow(/DOMAIN_PACK_TRUSTED_KEYS/);
+  });
+
+  it('accepts a valid trust store', () => {
+    const env = baseProdEnv();
+    env.DOMAIN_PACK_TRUSTED_KEYS = JSON.stringify({
+      acme: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----',
+    });
+    expect(() => validateEnv(env)).not.toThrow();
+  });
+});

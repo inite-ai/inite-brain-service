@@ -147,10 +147,15 @@ export class McpService {
       deps: { entities: this.entities, codeSearch: this.codeSearch },
     });
     if (scopes.includes('brain:write')) {
-      registerWriteTools(server, companyId, {
-        ingest: this.ingest,
-        facts: this.facts,
-        procedural: this.procedural,
+      registerWriteTools({
+        server,
+        companyId,
+        scopes,
+        deps: {
+          ingest: this.ingest,
+          facts: this.facts,
+          procedural: this.procedural,
+        },
       });
       registerCodeMemoryWriteTools({
         server,

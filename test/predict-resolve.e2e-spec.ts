@@ -37,7 +37,7 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       validFrom: '2026-05-01T00:00:00Z',
       confidence: 0.9,
       source: { vertical: 'rent' },
-    });
+    }, ['brain:read', 'brain:read_pii']);
     expect(out.wouldOutcome).toBe('INSERTED');
     expect(out.opposingFacts).toHaveLength(0);
     expect(out.reasoning).toMatch(/no existing entity/i);
@@ -66,7 +66,7 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       validFrom: '2026-02-01T00:00:00Z',
       confidence: 0.95,
       source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    }, ['brain:read', 'brain:read_pii']);
     // single_active with overlap → either SUPERSEDED (gap > margin) or
     // COMPETING. The exact verdict depends on weight tuning; assert
     // either-or AND that we surfaced the opposing fact.
@@ -123,7 +123,7 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       validFrom: '2026-02-01T00:00:00Z',
       confidence: 0,
       source: { vertical: 'rent' },
-    });
+    }, ['brain:read', 'brain:read_pii']);
     // We can't bank on REJECTED across all envs, but we can assert
     // the predictor returned ONE of the four canonical outcomes and
     // included a reasoning string. The dedicated REJECTED branch is
@@ -144,7 +144,7 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       validFrom: '2026-01-01T00:00:00Z',
       confidence: 0.7,
       source: { vertical: 'rent' },
-    });
+    }, ['brain:read', 'brain:read_pii']);
     expect(out.predicatePolicy.semantics).toMatch(
       /^(single_active|append_only|bitemporal)$/,
     );

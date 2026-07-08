@@ -4,6 +4,7 @@ import type { IngestService } from '../ingest/ingest.service';
 import type { FactsService } from '../facts/facts.service';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import type { EntitiesService } from '../entities/entities.service';
+import type { BrainScope } from '../auth/api-key.types';
 
 export interface WriteToolDeps {
   ingest: IngestService;
@@ -21,11 +22,17 @@ export interface AdminToolDeps {
  * bound to one tenant. buildServer only calls this when the caller holds
  * brain:write. Same `server.registerTool` pattern as community-tools.ts.
  */
-export function registerWriteTools(
-  server: McpServer,
-  companyId: string,
-  deps: WriteToolDeps,
-): void {
+export function registerWriteTools({
+  server,
+  companyId,
+  deps,
+  scopes,
+}: {
+  server: McpServer;
+  companyId: string;
+  deps: WriteToolDeps;
+  scopes: BrainScope[];
+}): void {
   // ── record_fact ────────────────────────────────────────────────
   server.registerTool(
     'record_fact',
@@ -116,6 +123,11 @@ export function registerWriteTools(
       },
     },
     async (args) => {
+      // callerScopes gates predicate-class elevation (billing_event /
+      // human_declared / legal-source need brain:admin) — same fence as
+      // the HTTP path in facts.controller.ts. Omitting it would skip
+      // the check entirely (FactsService treats undefined as a legacy
+      // in-process caller).
       const out = await deps.facts.retract({
         companyId,
         factId: args.factId,
@@ -123,6 +135,7 @@ export function registerWriteTools(
           reason: args.reason,
           retractedBy: { source: 'system' },
         },
+        callerScopes: scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

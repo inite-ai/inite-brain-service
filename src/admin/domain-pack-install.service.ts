@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
@@ -60,7 +61,14 @@ export class DomainPackInstallService {
   private trustedKeys(): Record<string, string> {
     try {
       return JSON.parse(process.env.DOMAIN_PACK_TRUSTED_KEYS ?? '{}');
-    } catch {
+    } catch (e) {
+      // Loud, not silent: a JSON typo here empties the trust store and
+      // every signed pack starts failing as "unknown publisher" with no
+      // hint at the real cause. validateEnv also rejects this at boot;
+      // the log covers env drift after start.
+      this.logger.error(
+        `DOMAIN_PACK_TRUSTED_KEYS is not valid JSON (${(e as Error).message}) — treating trust store as EMPTY`,
+      );
       return {};
     }
   }
@@ -120,7 +128,9 @@ export class DomainPackInstallService {
       assertPackTrust({
         manifest,
         trustedKeys: this.trustedKeys(),
-        requireSignature: process.env.DOMAIN_PACK_REQUIRE_SIGNATURE === 'true',
+        requireSignature: envFlagEnabled(
+          process.env.DOMAIN_PACK_REQUIRE_SIGNATURE,
+        ),
       });
     } catch (e) {
       if (e instanceof DomainPackError) throw new BadRequestException(e.message);
