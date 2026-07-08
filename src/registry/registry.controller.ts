@@ -29,13 +29,20 @@ export class RegistryController {
   @RequireScopes('brain:read')
   async list(
     @Query()
-    query: { q?: string; publisher?: string; tag?: string; limit?: string },
+    query: {
+      q?: string;
+      publisher?: string;
+      tag?: string;
+      limit?: string;
+      offset?: string;
+    },
   ): Promise<RegistryListResponse> {
     const packs = await this.registry.list({
       q: query.q,
       publisher: query.publisher,
       tag: query.tag,
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
+      offset: query.offset ? parseInt(query.offset, 10) : undefined,
     });
     return { packs };
   }

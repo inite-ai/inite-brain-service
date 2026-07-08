@@ -6,8 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { envFlagEnabled } from '../common/env-validation';
 import {
+  BUILTIN_PACKS,
   DomainPackError,
   packChecksum,
   pickLatestVersion,
@@ -58,6 +60,7 @@ interface RegistryRow {
 @Injectable()
 export class PackRegistryService {
   private readonly logger = new Logger(PackRegistryService.name);
+  private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
   constructor(private readonly surreal: SurrealService) {}
 
@@ -87,6 +90,14 @@ export class PackRegistryService {
       if (e instanceof DomainPackError) throw new BadRequestException(e.message);
       throw e;
     }
+    // A builtin pack id is globally seeded, not installable from the registry —
+    // publishing one would let anyone squat the reserved namespace and shadow
+    // core ontology at the discovery layer.
+    if (this.builtinIds.has(manifest.id)) {
+      throw new BadRequestException(
+        `pack id "${manifest.id}" is reserved by a builtin pack and cannot be published`,
+      );
+    }
     if (this.requireSignature() && !manifest.signature) {
       throw new BadRequestException(
         `pack "${manifest.id}" is unsigned but this registry requires signed packs`,
@@ -98,56 +109,65 @@ export class PackRegistryService {
         `checksum mismatch: expected ${input.expectedChecksum}, computed ${checksum}`,
       );
     }
-    const keywords = (input.keywords ?? [])
+    // Guard against a non-array keywords body ({} / string): .map would throw a
+    // raw 500. Coerce to [] and normalize.
+    const keywords = (Array.isArray(input.keywords) ? input.keywords : [])
       .map((k) => String(k).trim().toLowerCase())
       .filter(Boolean);
 
-    return this.surreal.withAdminDb(async (db) => {
-      const [existing] = await db.query<[RegistryRow[]]>(
-        `SELECT packId, version, checksum FROM registry_pack
-           WHERE packId = $packId AND version = $version LIMIT 1`,
-        { packId: manifest.id, version: manifest.version },
-      );
-      const prior = ((existing as RegistryRow[]) ?? [])[0];
-      if (prior) {
-        if (prior.checksum === checksum) {
-          // Idempotent republish of identical content.
-          return {
-            packId: manifest.id,
-            version: manifest.version,
-            checksum,
-            created: false,
-          };
-        }
-        throw new ConflictException(
-          `pack "${manifest.id}" version ${manifest.version} is already published with different content (immutable)`,
+    // Concurrent publishes of the same (packId, version) both pass the SELECT
+    // (no prior) and race to CREATE; the UNIQUE index turns the loser's write
+    // into a violation. retryOnUniqueViolation re-runs the closure — the retry's
+    // SELECT now sees the winner's row and resolves to idempotent-or-409 instead
+    // of surfacing a raw 500.
+    return this.surreal.withAdminDb((db) =>
+      retryOnUniqueViolation(async () => {
+        const [existing] = await db.query<[RegistryRow[]]>(
+          `SELECT packId, version, checksum FROM registry_pack
+             WHERE packId = $packId AND version = $version LIMIT 1`,
+          { packId: manifest.id, version: manifest.version },
         );
-      }
-      // option<string> fields reject a JS null under SCHEMAFULL ("Found NULL,
-      // expected option<...>") — omit them when absent so they store as NONE.
-      const content: Record<string, unknown> = {
-        packId: manifest.id,
-        version: manifest.version,
-        manifest,
-        checksum,
-        description: manifest.description ?? '',
-        keywords,
-        signed: Boolean(manifest.signature),
-        yanked: false,
-      };
-      if (manifest.publisher) content.publisher = manifest.publisher;
-      if (input.publishedBy) content.publishedBy = input.publishedBy;
-      await db.query(`CREATE registry_pack CONTENT $content`, { content });
-      this.logger.log(
-        `Published pack ${manifest.id} v${manifest.version} (checksum ${checksum.slice(0, 12)}…)`,
-      );
-      return {
-        packId: manifest.id,
-        version: manifest.version,
-        checksum,
-        created: true,
-      };
-    });
+        const prior = ((existing as RegistryRow[]) ?? [])[0];
+        if (prior) {
+          if (prior.checksum === checksum) {
+            // Idempotent republish of identical content.
+            return {
+              packId: manifest.id,
+              version: manifest.version,
+              checksum,
+              created: false,
+            };
+          }
+          throw new ConflictException(
+            `pack "${manifest.id}" version ${manifest.version} is already published with different content (immutable)`,
+          );
+        }
+        // option<string> fields reject a JS null under SCHEMAFULL ("Found NULL,
+        // expected option<...>") — omit them when absent so they store as NONE.
+        const content: Record<string, unknown> = {
+          packId: manifest.id,
+          version: manifest.version,
+          manifest,
+          checksum,
+          description: manifest.description ?? '',
+          keywords,
+          signed: Boolean(manifest.signature),
+          yanked: false,
+        };
+        if (manifest.publisher) content.publisher = manifest.publisher;
+        if (input.publishedBy) content.publishedBy = input.publishedBy;
+        await db.query(`CREATE registry_pack CONTENT $content`, { content });
+        this.logger.log(
+          `Published pack ${manifest.id} v${manifest.version} (checksum ${checksum.slice(0, 12)}…)`,
+        );
+        return {
+          packId: manifest.id,
+          version: manifest.version,
+          checksum,
+          created: true,
+        };
+      }),
+    );
   }
 
   /** Catalogue listing — one entry per pack (its latest non-yanked version),
@@ -158,8 +178,11 @@ export class PackRegistryService {
     publisher?: string;
     tag?: string;
     limit?: number;
+    offset?: number;
   }): Promise<RegistryPackSummary[]> {
-    const rows = await this.allRows();
+    // Manifest-less projection: the summary needs none of the (potentially
+    // large) manifest JSON, and this path serves the public UI on every hit.
+    const rows = await this.allRows({ includeManifest: false });
     const byPack = new Map<string, RegistryRow[]>();
     for (const r of rows) {
       const arr = byPack.get(r.packId) ?? [];
@@ -195,13 +218,19 @@ export class PackRegistryService {
       return true;
     });
     out.sort((a, b) => a.packId.localeCompare(b.packId));
+    // Offset + capped limit: a catalogue larger than one page was previously
+    // truncated at the 500th pack with no way to reach the rest. Clients page by
+    // advancing offset until an empty page comes back.
+    const offset = Math.max(filter.offset ?? 0, 0);
     const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
-    return out.slice(0, limit);
+    return out.slice(offset, offset + limit);
   }
 
   /** All versions of one pack, newest-first, with the latest non-yanked flagged. */
   async getVersions(packId: string): Promise<RegistryVersionsResponse> {
-    const rows = (await this.allRows()).filter((r) => r.packId === packId);
+    // packId-scoped + manifest-less: version metadata carries no manifest, and
+    // the packId index avoids a full-table scan.
+    const rows = await this.rowsForPack(packId, { includeManifest: false });
     const versions = rows
       .map((r) => this.toVersion(r))
       .sort((a, b) => compareSemver(b.version, a.version));
@@ -300,12 +329,13 @@ export class PackRegistryService {
     });
   }
 
-  /** Find one row: exact version, or the latest non-yanked when version omitted. */
+  /** Find one row (WITH manifest — this feeds getManifest/resolveForInstall):
+   *  exact version, or the latest non-yanked when version omitted. */
   private async findRow(
     packId: string,
     version?: string,
   ): Promise<RegistryRow | null> {
-    const rows = (await this.allRows()).filter((r) => r.packId === packId);
+    const rows = await this.rowsForPack(packId, { includeManifest: true });
     if (rows.length === 0) return null;
     if (version) return rows.find((r) => r.version === version) ?? null;
     const latest = pickLatestVersion(
@@ -314,12 +344,35 @@ export class PackRegistryService {
     return latest ? (rows.find((r) => r.version === latest) ?? null) : null;
   }
 
-  private async allRows(): Promise<RegistryRow[]> {
+  /** Manifest is the one heavy column; every read path except manifest
+   *  inspection / install-resolution wants it dropped. */
+  private projection(includeManifest: boolean): string {
+    return `packId, version,${includeManifest ? ' manifest,' : ''} checksum,
+            description, keywords, publisher, signed, yanked, yankReason,
+            publishedAt`;
+  }
+
+  /** One pack's rows, packId-index scoped (no full-table scan). */
+  private async rowsForPack(
+    packId: string,
+    opts: { includeManifest: boolean },
+  ): Promise<RegistryRow[]> {
     return this.surreal.withAdminDb(async (db) => {
       const [rows] = await db.query<[RegistryRow[]]>(
-        `SELECT packId, version, manifest, checksum, description, keywords,
-                publisher, signed, yanked, yankReason, publishedAt
-           FROM registry_pack`,
+        `SELECT ${this.projection(opts.includeManifest)} FROM registry_pack
+           WHERE packId = $packId`,
+        { packId },
+      );
+      return (rows as RegistryRow[]) ?? [];
+    });
+  }
+
+  private async allRows(
+    opts: { includeManifest: boolean } = { includeManifest: true },
+  ): Promise<RegistryRow[]> {
+    return this.surreal.withAdminDb(async (db) => {
+      const [rows] = await db.query<[RegistryRow[]]>(
+        `SELECT ${this.projection(opts.includeManifest)} FROM registry_pack`,
       );
       return (rows as RegistryRow[]) ?? [];
     });

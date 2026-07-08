@@ -165,4 +165,50 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .send({ packId: 'no_such_pack_xyz' });
     expect(r.status).toBe(404);
   });
+
+  it('rejects publishing a builtin pack id (namespace squatting)', async () => {
+    const r = await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({ manifest: { ...bump('1.0.0'), id: 'code_memory' } });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(/reserved|builtin/i);
+  });
+
+  it('does not 500 on a non-array keywords body (coerces to empty)', async () => {
+    const r = await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({
+        manifest: { ...PACK, id: 'kw_guard_e2e', version: '0.1.0' },
+        keywords: 'not-an-array',
+      });
+    expect([200, 201]).toContain(r.status);
+    const versions = await reader.http
+      .get('/v1/registry/packs/kw_guard_e2e')
+      .set(auth(reader));
+    expect(versions.body.versions[0].keywords).toEqual([]);
+  });
+
+  it('paginates the catalogue with offset (packs beyond a page stay reachable)', async () => {
+    // Two distinct packs → page size 1 must surface each via offset.
+    for (const id of ['pg_a_e2e', 'pg_b_e2e']) {
+      await pub.http
+        .post('/v1/admin/registry/packs')
+        .set(auth(pub))
+        .send({ manifest: { ...PACK, id, version: '0.1.0' } });
+    }
+    const page1 = await reader.http
+      .get('/v1/registry/packs?q=pg_&limit=1&offset=0')
+      .set(auth(reader));
+    const page2 = await reader.http
+      .get('/v1/registry/packs?q=pg_&limit=1&offset=1')
+      .set(auth(reader));
+    expect(page1.body.packs).toHaveLength(1);
+    expect(page2.body.packs).toHaveLength(1);
+    // Sorted by packId → distinct, non-overlapping pages.
+    expect(page1.body.packs[0].packId).not.toBe(page2.body.packs[0].packId);
+    const seen = [page1.body.packs[0].packId, page2.body.packs[0].packId].sort();
+    expect(seen).toEqual(['pg_a_e2e', 'pg_b_e2e']);
+  });
 });
