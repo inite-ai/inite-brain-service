@@ -60,6 +60,53 @@ export function sourceTrustFor(source: {
   return SOURCE_TRUST.default;
 }
 
+const EVIDENCE_KINDS = new Set([
+  'event',
+  'message',
+  'conversation',
+  'url',
+  'document',
+  'commit',
+  'other',
+]);
+const EVIDENCE_MAX_ITEMS = 10;
+const EVIDENCE_MAX_REF = 512;
+const EVIDENCE_MAX_NOTE = 512;
+
+/**
+ * Shape-check for `source.evidence` (SourceEvidence[]). Returns a
+ * human-readable error string, or null when valid/absent. Lives here (not
+ * class-validator) because `source` is an opaque @IsObject — the global
+ * whitelist pipe would strip a nested union. Caps keep the FLEXIBLE
+ * source object from becoming an unbounded blob on the hot write path.
+ */
+export function evidenceValidationError(evidence: unknown): string | null {
+  if (evidence === undefined) return null;
+  if (!Array.isArray(evidence)) return 'source.evidence must be an array';
+  if (evidence.length > EVIDENCE_MAX_ITEMS) {
+    return `source.evidence must have at most ${EVIDENCE_MAX_ITEMS} entries`;
+  }
+  for (const [i, e] of evidence.entries()) {
+    if (e === null || typeof e !== 'object' || Array.isArray(e)) {
+      return `source.evidence[${i}] must be an object`;
+    }
+    const { kind, ref, note } = e as Record<string, unknown>;
+    if (typeof kind !== 'string' || !EVIDENCE_KINDS.has(kind)) {
+      return `source.evidence[${i}].kind must be one of ${[...EVIDENCE_KINDS].join('|')}`;
+    }
+    if (typeof ref !== 'string' || ref.length === 0 || ref.length > EVIDENCE_MAX_REF) {
+      return `source.evidence[${i}].ref must be a non-empty string of at most ${EVIDENCE_MAX_REF} chars`;
+    }
+    if (
+      note !== undefined &&
+      (typeof note !== 'string' || note.length > EVIDENCE_MAX_NOTE)
+    ) {
+      return `source.evidence[${i}].note must be a string of at most ${EVIDENCE_MAX_NOTE} chars`;
+    }
+  }
+  return null;
+}
+
 /**
  * Gate for the HyPE post-INSERT alt-embedding UPDATE. We only generate +
  * write the hypothetical-question embedding when a fact was actually

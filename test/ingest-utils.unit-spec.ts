@@ -4,6 +4,7 @@ import {
   redactPii,
   sourceTrustFor,
   shouldWriteHypeAltEmbedding,
+  evidenceValidationError,
 } from '../src/ingest/ingest-utils';
 import { SOURCE_TRUST } from '../src/ingest/conflict-resolver';
 
@@ -114,5 +115,57 @@ describe('shouldWriteHypeAltEmbedding', () => {
     ]) {
       expect(shouldWriteHypeAltEmbedding(outcome, true, 'fact:1')).toBe(false);
     }
+  });
+});
+
+describe('evidenceValidationError', () => {
+  const good = { kind: 'url', ref: 'https://example.com/doc' };
+
+  it('accepts absent evidence', () => {
+    expect(evidenceValidationError(undefined)).toBeNull();
+  });
+
+  it('accepts a valid list with optional note', () => {
+    expect(
+      evidenceValidationError([
+        good,
+        { kind: 'commit', ref: 'a'.repeat(40), note: 'introduced the invariant' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('rejects non-array evidence', () => {
+    expect(evidenceValidationError({})).toMatch(/must be an array/);
+  });
+
+  it('rejects more than 10 entries', () => {
+    expect(evidenceValidationError(Array(11).fill(good))).toMatch(/at most 10/);
+  });
+
+  it('rejects an unknown kind', () => {
+    expect(evidenceValidationError([{ kind: 'rumor', ref: 'x' }])).toMatch(
+      /kind must be one of/,
+    );
+  });
+
+  it('rejects a missing / empty / oversized ref', () => {
+    expect(evidenceValidationError([{ kind: 'url' }])).toMatch(/ref/);
+    expect(evidenceValidationError([{ kind: 'url', ref: '' }])).toMatch(/ref/);
+    expect(
+      evidenceValidationError([{ kind: 'url', ref: 'a'.repeat(513) }]),
+    ).toMatch(/ref/);
+  });
+
+  it('rejects a non-string or oversized note', () => {
+    expect(
+      evidenceValidationError([{ ...good, note: 42 as unknown as string }]),
+    ).toMatch(/note/);
+    expect(
+      evidenceValidationError([{ ...good, note: 'a'.repeat(513) }]),
+    ).toMatch(/note/);
+  });
+
+  it('rejects non-object entries', () => {
+    expect(evidenceValidationError(['x'])).toMatch(/must be an object/);
   });
 });

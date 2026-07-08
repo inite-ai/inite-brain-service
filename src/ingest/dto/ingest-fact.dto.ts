@@ -24,12 +24,36 @@ export interface EntityRef {
   entityId?: string;
 }
 
+/**
+ * One supporting observation behind a fact — a typed pointer to where the
+ * claim came from (an event row, a message, a URL, a document, a commit…).
+ * Stored verbatim inside `knowledge_fact.source` (FLEXIBLE), so it needs
+ * no migration and survives round-trips. Shape-checked in
+ * FactIngestService (see evidenceValidationError in ingest-utils.ts) —
+ * class-validator can't nest into the opaque source object.
+ */
+export interface SourceEvidence {
+  kind:
+    | 'event'
+    | 'message'
+    | 'conversation'
+    | 'url'
+    | 'document'
+    | 'commit'
+    | 'other';
+  /** The pointer itself — id, URL, path, sha… ≤512 chars. */
+  ref: string;
+  note?: string;
+}
+
 export interface FactSource {
   vertical: string;
   eventId?: string;
   conversationId?: string;
   messageId?: string;
   recorder?: string;
+  /** Supporting observations behind the claim — ≤10 entries. */
+  evidence?: SourceEvidence[];
 }
 
 export class IngestFactDto {

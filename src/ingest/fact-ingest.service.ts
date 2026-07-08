@@ -8,6 +8,7 @@ import {
 } from './conflict-explainer';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
+import { evidenceValidationError } from './ingest-utils';
 
 /**
  * The typed direct-ingest path (`ingestFact`): a single fully-specified fact
@@ -38,6 +39,12 @@ export class FactIngestService {
           'validUntil must be strictly after validFrom',
         );
       }
+    }
+    // source is an opaque @IsObject (union shape) — nested evidence[] must
+    // be shape-checked here, not by class-validator.
+    const evidenceError = evidenceValidationError(dto.source?.evidence);
+    if (evidenceError) {
+      throw new BadRequestException(evidenceError);
     }
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
