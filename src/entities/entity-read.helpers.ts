@@ -68,6 +68,9 @@ export function activeFactWhere(asOf: Date | null): {
   clauses: string[];
   params: Record<string, unknown>;
 } {
+  // 'corroborating' rows (migration 0047) are audit records of a second
+  // claim — the incumbent (which carries the corroboration counter) is
+  // the fact to surface; both branches hide the duplicates.
   if (asOf) {
     return {
       clauses: [
@@ -75,9 +78,13 @@ export function activeFactWhere(asOf: Date | null): {
         `(retractedAt IS NONE OR retractedAt > $asOf)`,
         `validFrom <= $asOf`,
         `(validUntil IS NONE OR validUntil > $asOf)`,
+        `status != 'corroborating'`,
       ],
       params: { asOf },
     };
   }
-  return { clauses: [`retractedAt IS NONE`], params: {} };
+  return {
+    clauses: [`retractedAt IS NONE`, `status != 'corroborating'`],
+    params: {},
+  };
 }

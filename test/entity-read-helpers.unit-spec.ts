@@ -90,7 +90,12 @@ describe('blockedPredicates', () => {
 describe('activeFactWhere', () => {
   it('without asOf, gates on believed-now (retractedAt IS NONE) and binds no params', () => {
     const { clauses, params } = activeFactWhere(null);
-    expect(clauses).toEqual(['retractedAt IS NONE']);
+    expect(clauses).toEqual([
+      'retractedAt IS NONE',
+      // Corroborating rows (migration 0047) are audit records of a second
+      // claim — hidden from profile reads; the incumbent carries the fact.
+      "status != 'corroborating'",
+    ]);
     expect(params).toEqual({});
   });
 
@@ -102,6 +107,7 @@ describe('activeFactWhere', () => {
       '(retractedAt IS NONE OR retractedAt > $asOf)',
       'validFrom <= $asOf',
       '(validUntil IS NONE OR validUntil > $asOf)',
+      "status != 'corroborating'",
     ]);
     expect(params).toEqual({ asOf });
   });
