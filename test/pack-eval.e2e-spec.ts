@@ -61,4 +61,40 @@ describe('/v1/admin/packs/:id/eval — pack eval fixtures (e2e)', () => {
     const r = await f.http.post('/v1/admin/packs/no_such_pack/eval').set(auth());
     expect(r.status).toBe(404);
   });
+
+  it('caps the fixtures run per request (cost bomb guard)', async () => {
+    // A pack shipping more than MAX_EVAL_FIXTURES fixtures must run only the
+    // cap's worth — each fixture is one live extractor call.
+    const fixtures = Array.from({ length: 60 }, (_, i) => ({
+      id: `fx_${i}`,
+      text: `sample input ${i}`,
+      expect: { facts: [{ predicate: 'capcheck__thing' }] },
+    }));
+    const manifest = {
+      id: 'capcheck',
+      version: '1.0.0',
+      description: 'Cap-guard test pack.',
+      predicates: [
+        {
+          localId: 'thing',
+          displayLabel: 'thing',
+          description: 'x',
+          datatype: 'string',
+          semantics: 'append_only',
+          decayHalfLifeDays: null,
+          piiClass: 'none',
+          status: 'active',
+        },
+      ],
+      evalFixtures: fixtures,
+    };
+    await f.http.post('/v1/admin/packs').set(auth()).send({ manifest });
+    f.extractor.setScript(null);
+
+    const r = await f.http.post('/v1/admin/packs/capcheck/eval').set(auth());
+    expect(r.status).toBe(201);
+    // 60 declared, capped at MAX_EVAL_FIXTURES (50).
+    expect(r.body.total).toBe(50);
+    expect(r.body.results).toHaveLength(50);
+  });
 });

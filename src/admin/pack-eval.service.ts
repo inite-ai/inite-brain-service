@@ -16,6 +16,12 @@ import {
  * pack's predicates + extractionProfile active for the tenant) and scored
  * against its expectations. Mirrors the extractionProfile wiring.
  */
+/** Hard ceiling on fixtures run per eval request. Each fixture is one live
+ *  extractor (LLM) call, so an installed pack shipping thousands of fixtures
+ *  would turn a single request into thousands of paid calls. Cap + log the
+ *  overflow (no silent truncation) — the route is also @Throttle({expensive}). */
+const MAX_EVAL_FIXTURES = 50;
+
 @Injectable()
 export class PackEvalService {
   private readonly logger = new Logger(PackEvalService.name);
@@ -32,7 +38,13 @@ export class PackEvalService {
         `pack "${packId}" is not a builtin and is not installed for this tenant`,
       );
     }
-    const fixtures = manifest.evalFixtures ?? [];
+    const declared = manifest.evalFixtures ?? [];
+    const fixtures = declared.slice(0, MAX_EVAL_FIXTURES);
+    if (declared.length > fixtures.length) {
+      this.logger.warn(
+        `pack eval ${manifest.id}: ${declared.length} fixtures declared, running first ${fixtures.length} (MAX_EVAL_FIXTURES cap)`,
+      );
+    }
     const results = [];
     for (const fixture of fixtures) {
       const extraction = await this.extractor.extract(fixture.text, companyId);
