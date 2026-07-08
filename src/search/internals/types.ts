@@ -47,6 +47,23 @@ export interface FactRow {
   simScore?: number;
   bm25Score?: number;
   /**
+   * Write-time source-trust snapshot (migration 0044) — read straight
+   * off the row so trust can enter ranking without a join. Absent on
+   * pre-0044 facts (degrades to the neutral 0.5 in scoring).
+   */
+  trustSnapshot?: {
+    sourceKey?: string;
+    domain?: string;
+    declaredTrust?: number;
+    learnedTrust?: number;
+    authority?: number;
+  } | null;
+  /** Cross-source confirmation counter (migration 0047), incumbent-side. */
+  corroboration?: {
+    count?: number;
+    sourceKeys?: string[];
+  } | null;
+  /**
    * Set of stages that surfaced this row. Multi-stage hits are common
    * (e.g. hype + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.
@@ -81,6 +98,22 @@ export interface ScoreBreakdown {
   conformalPValue?: number;
   decay: number;
   predBoost: number;
+  /**
+   * Source-reputation track, Phase 5: the "because" decomposition of the
+   * fact's trust as it entered ranking. sourceReputation is the
+   * write-time snapshot ladder (learnedTrust ?? declaredTrust ?? 0.5 —
+   * pre-0044 facts land on the neutral); trustFactor/corroborationFactor
+   * are the multiplicative terms applied to finalScore (both exactly 1.0
+   * while SEARCH_TRUST_BETA / SEARCH_CORROBORATION_GAMMA stay 0).
+   */
+  factTrust?: {
+    sourceReputation: number;
+    authority: number;
+    corroborationCount: number;
+    evidenceCount: number;
+    trustFactor: number;
+    corroborationFactor: number;
+  };
   finalScore: number;
   stages: RetrievalStage[];
 }

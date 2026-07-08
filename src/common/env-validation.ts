@@ -103,6 +103,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Pack supply-chain knobs ───────────────────────────────────────
   validatePackTrustEnv(env, errors);
 
+  // ── fact_trust ranking knobs (source-reputation Phase 5) ──────────
+  nonNegativeFloat(env, 'SEARCH_TRUST_BETA', errors);
+  nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
+  nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
@@ -271,5 +276,18 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): vo
   if (v === undefined) return;
   if (!/^\d+$/.test(v) || parseInt(v, 10) < 1) {
     errors.push(`${name} must be a positive integer`);
+  }
+}
+
+function nonNegativeFloat(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  errors: string[],
+): void {
+  const v = env[name];
+  if (v === undefined) return;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) {
+    errors.push(`${name} must be a non-negative number`);
   }
 }

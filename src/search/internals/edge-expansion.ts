@@ -223,6 +223,7 @@ export async function expandViaEdges({
         SELECT
           id, entityId, predicate, object, confidence,
           validFrom, validUntil, recordedAt, retractedAt, status, source,
+        trustSnapshot, corroboration,
           entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity
         FROM knowledge_fact
         WHERE entityId INSIDE $entityIds

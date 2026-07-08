@@ -34,6 +34,10 @@ export interface Citation {
   canonicalName: string;
   predicate: string;
   object: string;
+  /** Who claimed it — the write-time sourceKey (trustSnapshot). Lets a
+   *  caller chase the citation to get_source_reputation. Absent on
+   *  pre-0044 facts. */
+  sourceKey?: string;
 }
 
 export type SynthesisReason =
@@ -112,6 +116,7 @@ export class SynthesizeService {
   private readonly limiter: Semaphore;
   private readonly defaultGuardrails: SynthesisGuardrails;
   private readonly minCalibratedConfidence: number;
+  private readonly minFactTrust: number;
 
   constructor(
     private readonly search: SearchService,
@@ -156,6 +161,13 @@ export class SynthesizeService {
     this.minCalibratedConfidence = parseFloat(
       this.configService.get<string>('SYNTHESIZE_MIN_CONFIDENCE', '0.30'),
     );
+    // Source-reputation Phase 5: citation floor on the write-time source
+    // reputation (factTrust.sourceReputation). Default 0 = off; facts
+    // without a snapshot sit on the neutral 0.5, so floors ≤ 0.5 only
+    // ever drop facts whose source has genuinely EARNED distrust.
+    this.minFactTrust = parseFloat(
+      this.configService.get<string>('SYNTHESIZE_MIN_FACT_TRUST', '0'),
+    );
   }
 
   async synthesize({
@@ -193,6 +205,7 @@ export class SynthesizeService {
     // default floor of 0 this is a no-op.
     const guardrail = applyConformalGuardrail(searchResult.results, {
       minCalibratedConfidence: this.minCalibratedConfidence,
+      minFactTrust: this.minFactTrust,
     });
     const results = guardrail.kept;
     if (guardrail.droppedCount > 0) {
@@ -564,6 +577,7 @@ function buildFactIndex(results: SearchHit[]): FactIndexResult {
         canonicalName: r.canonicalName,
         predicate: f.predicate,
         object: f.object,
+        ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
       });
       factLines.push(
         `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}`,

@@ -24,6 +24,10 @@ export interface SearchHit {
     validFrom: string;
     validUntil?: string;
     status: string;
+    /** Write-time source key (trustSnapshot, migration 0044) — lets a
+     *  caller chase a citation back to WHO claimed it. Absent on
+     *  pre-0044 facts. */
+    sourceKey?: string;
     score: number;
     breakdown?: ScoreBreakdown;
   }>;
