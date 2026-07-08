@@ -22,6 +22,8 @@ import {
   registerCodeMemoryReadTools,
   registerCodeMemoryWriteTools,
 } from './code-memory-tools';
+import { registerSourceReadTools } from './source-tools';
+import { SourcesService } from '../sources/sources.service';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -43,6 +45,7 @@ const HEALTH_TOOLS = [
   'find_entity_communities',
   'why',
   'recall_decisions',
+  'get_source_reputation',
 ];
 
 /**
@@ -81,6 +84,7 @@ export class McpService {
     private readonly procedural: ProceduralMemoryService,
     private readonly communities: CommunityService,
     private readonly codeSearch: CodeMemorySearchService,
+    private readonly sources: SourcesService,
     private readonly embedder: EmbedderService,
   ) {}
 
@@ -145,6 +149,11 @@ export class McpService {
       companyId,
       scopes,
       deps: { entities: this.entities, codeSearch: this.codeSearch },
+    });
+    registerSourceReadTools({
+      server,
+      companyId,
+      deps: { sources: this.sources },
     });
     if (scopes.includes('brain:write')) {
       registerWriteTools({

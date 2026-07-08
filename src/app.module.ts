@@ -27,6 +27,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { CommunityModule } from './communities/community.module';
 import { StatsModule } from './stats/stats.module';
 import { RegistryModule } from './registry/registry.module';
+import { SourcesModule } from './sources/sources.module';
 
 @Module({
   imports: [
@@ -93,6 +94,7 @@ import { RegistryModule } from './registry/registry.module';
     CommunityModule,
     StatsModule,
     RegistryModule,
+    SourcesModule,
   ],
   controllers: [HealthController],
   providers: [
