@@ -9,6 +9,13 @@ export type IngestOutcome =
    * decision) and displaced nothing. See migration 0043.
    */
   | 'INSERTED_HISTORICAL'
+  /**
+   * The same claim (exact object) already stands from a DIFFERENT source:
+   * the new row was kept as a `corroborating` audit record and the
+   * incumbent's `corroboration` counter grew — independent confirmation,
+   * not a conflict. See migration 0047.
+   */
+  | 'CORROBORATED'
   | 'SUPERSEDED'
   | 'COMPETING'
   | 'REJECTED';
@@ -24,6 +31,8 @@ export interface IngestResult {
    * row's interval).
    */
   supersededByFactId?: string;
+  /** CORROBORATED only: the incumbent fact this claim confirmed. */
+  corroboratedFactId?: string;
   reason?: string;
   /**
    * Populated only when the IngestFactDto carried `explain: true` AND

@@ -90,7 +90,8 @@ export function buildBaseWhere({
       `AND (retractedAt IS NONE OR retractedAt > $asOf)
          AND validFrom <= $asOf
          AND (validUntil IS NONE OR validUntil > $asOf)
-         AND status != 'compacted'`,
+         AND status != 'compacted'
+         AND status != 'corroborating'`,
     );
     params.asOf = asOf;
   } else if (!dto.includeStale) {
@@ -106,10 +107,15 @@ export function buildBaseWhere({
     // fact whose interval still covers now: the `validUntil > now` guard
     // (already required above) means a normally-closed supersede, where
     // validUntil <= now, stays hidden; only the future-gap prior survives.
+    // 'corroborating' rows (migration 0047) are audit records of a second
+    // claim — the incumbent carries the surfaced fact; showing both would
+    // duplicate results. Hidden wherever 'compacted' is hidden; the audit
+    // shape (includeStale) still returns them.
     clauses.push(
       `AND validFrom <= time::now()
          AND (validUntil IS NONE OR validUntil > time::now())
          AND status != 'compacted'
+         AND status != 'corroborating'
          AND (status != 'superseded' OR validUntil > time::now())`,
     );
   }

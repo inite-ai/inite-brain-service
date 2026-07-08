@@ -195,12 +195,14 @@ export async function fetchFactsForEntities({
        AND (retractedAt IS NONE OR retractedAt > $asOf)
        AND validFrom <= $asOf
        AND (validUntil IS NONE OR validUntil > $asOf)
-       AND status != 'compacted'`
+       AND status != 'compacted'
+       AND status != 'corroborating'`
     : `entityId INSIDE $ids
        AND retractedAt IS NONE
        AND validFrom <= time::now()
        AND (validUntil IS NONE OR validUntil > time::now())
-       AND status != 'compacted'`;
+       AND status != 'compacted'
+       AND status != 'corroborating'`;
   const params: Record<string, unknown> = {
     ids: rids,
     ...(asOf ? { asOf: new Date(asOf) } : {}),

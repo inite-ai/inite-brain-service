@@ -188,7 +188,10 @@ export class CalibrationRefitRunnerService {
       const events = (rows ?? []).map((r) => ({
         sourceKey: `${r.vertical}:${r.recorder ?? '_'}`,
         domain: r.predicate,
-        win: r.status === 'active' ? 1 : 0,
+        // A corroborating row (migration 0047) is independent agreement
+        // with a standing fact — evidence of reliability, counted as a win
+        // for its source. (It used to count as neither.)
+        win: r.status === 'active' || r.status === 'corroborating' ? 1 : 0,
         loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
         recordedAt: r.recordedAt,
       }));
