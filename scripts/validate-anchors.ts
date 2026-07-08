@@ -44,6 +44,8 @@ async function main(): Promise<void> {
   };
   console.error(`[anchors] ${anchors.length} anchor(s) to check`);
 
+  // --force bypasses the blast-radius guard for a confirmed mass removal.
+  const force = process.argv.includes('--force');
   const verdicts = buildAnchorVerdicts({
     anchors: anchors.map((a) => a.anchor),
     readFile: (p) => {
@@ -54,6 +56,7 @@ async function main(): Promise<void> {
       }
     },
     choose: heuristicChoose,
+    ...(force ? { maxInvalidateRatio: 1 } : {}),
   });
   const actionable = verdicts.filter((v) => v.action !== 'ok');
   console.error(

@@ -17,23 +17,30 @@ type FetchLike = (
     method: string;
     headers: Record<string, string>;
     body: string;
+    signal?: AbortSignal;
   },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
 
 const CODE_VERTICAL = 'code';
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class HttpDecisionSink implements DecisionSink {
   private readonly fetchImpl: FetchLike;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly opts: {
       baseUrl: string;
       apiKey: string;
       fetchImpl?: FetchLike;
+      /** Per-request timeout; a hung server must not stall a CI capture hook
+       *  for hours. Default 15s. */
+      timeoutMs?: number;
     },
   ) {
     this.fetchImpl =
       opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   async record(candidate: DecisionCandidate): Promise<{ outcome: string }> {
@@ -52,14 +59,27 @@ export class HttpDecisionSink implements DecisionSink {
         ...(candidate.location ? { messageId: candidate.location } : {}),
       },
     };
-    const res = await this.fetchImpl(`${this.opts.baseUrl}/v1/ingest/fact`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${this.opts.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), this.timeoutMs);
+    let res: { ok: boolean; status: number; json: () => Promise<any> };
+    try {
+      res = await this.fetchImpl(`${this.opts.baseUrl}/v1/ingest/fact`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.opts.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+    } catch (e) {
+      if (ac.signal.aborted) {
+        throw new Error(`ingest POST timed out after ${this.timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       throw new Error(`ingest POST failed: ${res.status}`);
     }

@@ -139,6 +139,31 @@ describe('HttpDecisionSink', () => {
       }),
     ).rejects.toThrow(/503/);
   });
+
+  it('times out a hung request instead of hanging forever', async () => {
+    // A server that never responds; the sink must abort on its own timer so a
+    // CI capture hook can't stall for hours.
+    const sink = new HttpDecisionSink({
+      baseUrl: 'https://brain.test',
+      apiKey: 'k',
+      timeoutMs: 20,
+      fetchImpl: (_url: string, init: any) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new Error('aborted')),
+          );
+        }) as any,
+    });
+    await expect(
+      sink.record({
+        kind: 'gotcha',
+        text: 'g',
+        anchor: 'a.ts',
+        commit: 'c',
+        validFrom: '2026-06-28T10:00:00Z',
+      }),
+    ).rejects.toThrow(/timed out/);
+  });
 });
 
 describe('parseGitLog', () => {
