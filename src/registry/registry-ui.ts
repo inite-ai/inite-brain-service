@@ -7,8 +7,11 @@ import type { RegistryPackSummary } from '../contracts/registry/registry.schema'
  * summaries. All dynamic values are HTML-escaped.
  */
 
-function esc(s: string): string {
-  return s
+function esc(s: unknown): string {
+  // Coerce first: a non-string value (e.g. a numeric description that slipped
+  // past the DB projection) would otherwise throw `.replace is not a function`
+  // and 500 the public page.
+  return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

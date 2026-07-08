@@ -40,4 +40,16 @@ describe('renderRegistryPage', () => {
     const html = renderRegistryPage([]);
     expect(html).toContain('No packs published yet');
   });
+
+  it('does not throw on a non-string field slipping through (coerces, no 500)', () => {
+    // A numeric description / null publisher from a hand-written DB row must
+    // render, not crash the public page with ".replace is not a function".
+    const rogue = pack({
+      description: 42 as unknown as string,
+      publisher: null,
+      latestVersion: 1.0 as unknown as string,
+    });
+    expect(() => renderRegistryPage([rogue])).not.toThrow();
+    expect(renderRegistryPage([rogue])).toContain('42');
+  });
 });
