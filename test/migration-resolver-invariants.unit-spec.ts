@@ -56,10 +56,13 @@ describe('GATE: live fn::resolve_fact invariants', () => {
   });
 
   it('scores opponent source-trust from the learned rate, NOT a hardcoded 0.5', () => {
-    // 0022's fix: fn::source_trust_for(fn::source_key_of(source)). A
-    // reverted baseline would reintroduce `$w_source_trust * 0.5`.
+    // 0022's fix scored the opponent from the learned rate
+    // (fn::source_trust_for); 0045 sharpened it to the DOMAIN-scoped
+    // ladder (fn::source_trust_scoped, falling back to the global rate
+    // then 0.5). A reverted baseline would reintroduce
+    // `$w_source_trust * 0.5`.
     expect(head.body).toContain(
-      'fn::source_trust_for(fn::source_key_of(source))',
+      'fn::source_trust_scoped(fn::source_key_of(source), $predicate)',
     );
     expect(head.body).not.toMatch(/\$w_source_trust \* 0\.5/);
   });

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Surreal } from 'surrealdb';
 import { ApiKeyService } from '../../auth/api-key.service';
 import { SurrealService } from '../../db/surreal.service';
 import {
@@ -150,6 +151,16 @@ export class CalibrationRefitRunnerService {
     });
   }
 
+  /**
+   * Recompute learned source trust for one tenant at BOTH grains: the
+   * global per-source rate (domain NONE — what existed pre-0045) and the
+   * domain-scoped rate ((sourceKey, domain), domain = predicate for now).
+   * fn::source_trust_scoped resolves scoped → global → 0.5, so scoped rows
+   * simply sharpen the picture where a source has enough same-predicate
+   * history. Rate movements (or first sightings) append to
+   * source_trust_history — the reputation-over-time trail; the hot
+   * source_trust row stays an in-place UPSERT cache.
+   */
   private async refitSourceTrustForTenant(companyId: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
@@ -157,13 +168,16 @@ export class CalibrationRefitRunnerService {
           Array<{
             vertical: string | null;
             recorder: string | null;
+            predicate: string;
             status: string;
+            recordedAt: string | Date;
           }>,
         ]
       >(
         `SELECT
             source.vertical AS vertical,
             source.recorder AS recorder,
+            predicate,
             status,
             recordedAt
           FROM knowledge_fact
@@ -173,38 +187,93 @@ export class CalibrationRefitRunnerService {
       );
       const events = (rows ?? []).map((r) => ({
         sourceKey: `${r.vertical}:${r.recorder ?? '_'}`,
+        domain: r.predicate,
         win: r.status === 'active' ? 1 : 0,
         loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
+        recordedAt: r.recordedAt,
       }));
-      const summary = aggregateBySourceKey(events);
+      const summary = aggregateByScope(events);
+
+      // Prior rates in one read — the |Δ| > 0.01 history gate needs them,
+      // and per-scope SELECTs would be N extra round-trips.
+      const [existingRows] = await db.query<
+        [Array<{ sourceKey: string; domain: string | null; agreementRate: number }>]
+      >(`SELECT sourceKey, domain, agreementRate FROM source_trust;`);
+      const prior = new Map<string, number>();
+      for (const r of existingRows ?? []) {
+        prior.set(scopeKeyOf(r.sourceKey, r.domain ?? null), r.agreementRate);
+      }
 
       let upsertedHere = 0;
-      for (const { sourceKey, wins, losses } of summary) {
-        const sampleCount = wins + losses;
-        if (sampleCount === 0) continue;
-        const rate = wins / sampleCount;
-        await db.query(
-          `LET $existing = (SELECT id FROM source_trust
-              WHERE sourceKey = $k LIMIT 1)[0];
-           IF $existing IS NONE THEN
-             CREATE source_trust CONTENT {
-               sourceKey: $k,
-               agreementRate: $r,
-               sampleCount: $sc,
-               lastUpdated: time::now()
-             }
-           ELSE
-             UPDATE $existing.id SET
-               agreementRate = $r,
-               sampleCount = $sc,
-               lastUpdated = time::now()
-           END;`,
-          { k: sourceKey, r: rate, sc: sampleCount },
-        );
+      for (const scope of summary) {
+        if (scope.wins + scope.losses === 0) continue;
+        await this.upsertTrustScope(db, {
+          ...scope,
+          prevRate: prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null,
+        });
         upsertedHere++;
       }
       return upsertedHere;
     });
+  }
+
+  /** UPSERT one (sourceKey, domain) trust row + append history when the
+   *  rate moved (or the scope is first seen). `domain: null` = the global
+   *  row; SurrealDB option<> rejects JS null, so the global variant omits
+   *  the field entirely and matches with `domain IS NONE`. */
+  private async upsertTrustScope(
+    db: Surreal,
+    scope: TrustScope & { prevRate: number | null },
+  ): Promise<void> {
+    const sampleCount = scope.wins + scope.losses;
+    const rate = scope.wins / sampleCount;
+    const isGlobal = scope.domain === null;
+    const params: Record<string, unknown> = {
+      k: scope.sourceKey,
+      r: rate,
+      sc: sampleCount,
+      w: scope.wins,
+      l: scope.losses,
+      ls: scope.lastSeenAt,
+      ...(isGlobal ? {} : { d: scope.domain }),
+    };
+    const domainWhere = isGlobal ? 'domain IS NONE' : 'domain = $d';
+    await db.query(
+      `LET $existing = (SELECT id FROM source_trust
+          WHERE sourceKey = $k AND ${domainWhere} LIMIT 1)[0];
+       IF $existing IS NONE THEN
+         CREATE source_trust CONTENT {
+           sourceKey: $k,
+           ${isGlobal ? '' : 'domain: $d,'}
+           agreementRate: $r,
+           sampleCount: $sc,
+           winCount: $w,
+           lossCount: $l,
+           lastSeenAt: $ls,
+           lastUpdated: time::now()
+         }
+       ELSE
+         UPDATE $existing.id SET
+           agreementRate = $r,
+           sampleCount = $sc,
+           winCount = $w,
+           lossCount = $l,
+           lastSeenAt = $ls,
+           lastUpdated = time::now()
+       END;`,
+      params,
+    );
+    if (scope.prevRate === null || Math.abs(scope.prevRate - rate) > 0.01) {
+      await db.query(
+        `CREATE source_trust_history CONTENT {
+            sourceKey: $k,
+            ${isGlobal ? '' : 'domain: $d,'}
+            agreementRate: $r,
+            sampleCount: $sc
+         };`,
+        params,
+      );
+    }
   }
 
   private async collectCalibrationPairsForTenant(
@@ -298,26 +367,58 @@ export function isCorrect(row: {
   return true;
 }
 
+export interface TrustScope {
+  sourceKey: string;
+  /** null = the global per-source rate (domain NONE in the DB). */
+  domain: string | null;
+  wins: number;
+  losses: number;
+  lastSeenAt: Date;
+}
+
+/** Map key for a (sourceKey, domain) scope — NUL can't appear in either. */
+export function scopeKeyOf(sourceKey: string, domain: string | null): string {
+  return `${sourceKey}\u0000${domain ?? ''}`;
+}
+
 /**
- * Roll up per-row {win, loss} tuples into {wins, losses} per
- * sourceKey. Exported so the unit test can exercise the math
- * without a SurrealDB round-trip.
+ * Roll up per-row {win, loss} tuples into {wins, losses, lastSeenAt} at
+ * BOTH reputation grains: (sourceKey, domain) and the global
+ * (sourceKey, null). Every row feeds both — the global rate stays exactly
+ * the pre-0045 blended number while scoped rows sharpen it per domain.
+ * Exported so the unit test can exercise the math without a SurrealDB
+ * round-trip.
  */
-export function aggregateBySourceKey(
-  rows: ReadonlyArray<{ sourceKey: string; win: number; loss: number }>,
-): Array<{ sourceKey: string; wins: number; losses: number }> {
-  const byKey = new Map<string, { wins: number; losses: number }>();
+export function aggregateByScope(
+  rows: ReadonlyArray<{
+    sourceKey: string;
+    domain: string;
+    win: number;
+    loss: number;
+    recordedAt: string | Date;
+  }>,
+): TrustScope[] {
+  const byScope = new Map<string, TrustScope>();
   for (const r of rows) {
-    const acc = byKey.get(r.sourceKey) ?? { wins: 0, losses: 0 };
-    acc.wins += r.win;
-    acc.losses += r.loss;
-    byKey.set(r.sourceKey, acc);
+    const seenAt = new Date(r.recordedAt);
+    for (const domain of [r.domain, null] as Array<string | null>) {
+      const key = scopeKeyOf(r.sourceKey, domain);
+      const acc =
+        byScope.get(key) ??
+        ({
+          sourceKey: r.sourceKey,
+          domain,
+          wins: 0,
+          losses: 0,
+          lastSeenAt: seenAt,
+        } satisfies TrustScope);
+      acc.wins += r.win;
+      acc.losses += r.loss;
+      if (seenAt.getTime() > acc.lastSeenAt.getTime()) acc.lastSeenAt = seenAt;
+      byScope.set(key, acc);
+    }
   }
-  return [...byKey.entries()].map(([sourceKey, v]) => ({
-    sourceKey,
-    wins: v.wins,
-    losses: v.losses,
-  }));
+  return [...byScope.values()];
 }
 
 function clamp01(x: number): number {
