@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
@@ -30,7 +35,7 @@ export {
  * physically impossible from outside `withCompany`.
  */
 @Injectable()
-export class SurrealService implements OnModuleInit, OnModuleDestroy {
+export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(SurrealService.name);
   // Two pools — admin (root) and scoped (brain_caller user).
   // Caller-facing reads route through scopedPool so PERMISSIONS clauses
@@ -226,7 +231,12 @@ export class SurrealService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  async onModuleDestroy() {
+  // Close the pool in onApplicationShutdown (the LAST lifecycle phase), not
+  // onModuleDestroy (the FIRST). Consumers that release DB-backed state on
+  // shutdown — the worker loop's lease release (beforeApplicationShutdown),
+  // any onModuleDestroy DB touch — must find the pool still open. Closing here
+  // guarantees the pool outlives every earlier-phase shutdown hook.
+  async onApplicationShutdown() {
     await Promise.all(
       this.all.map((c) =>
         c.close().catch((e: unknown) => {

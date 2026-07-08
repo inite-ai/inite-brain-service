@@ -77,6 +77,13 @@ export class PredicateRegistryService {
   // two cold reads don't both run the seed (which would CREATE duplicate
   // knowledge_predicate rows; no unique constraint protects against it).
   private readonly bootstrapInFlight = new Map<string, Promise<void>>();
+  // In-flight snapshot load per tenant — on a cold/expired cache a burst of
+  // concurrent requests would each run loadFresh (a full predicate SELECT +
+  // batched embeds). Dedupe so the herd shares one load and the rest await it.
+  private readonly snapshotInFlight = new Map<
+    string,
+    Promise<PredicateSnapshot>
+  >();
 
   private readonly canonicalizeThreshold: number;
 
@@ -230,9 +237,18 @@ export class PredicateRegistryService {
     if (cached && Date.now() - cached.loadedAt < SNAPSHOT_TTL_MS) {
       return cached.snapshot;
     }
-    const snapshot = await this.loadFresh(companyId);
-    this.cache.set(companyId, { snapshot, loadedAt: Date.now() });
-    return snapshot;
+    // Dedupe a thundering herd on the cold path: the first caller starts the
+    // load and registers the promise; concurrent callers await the same one.
+    const inFlight = this.snapshotInFlight.get(companyId);
+    if (inFlight) return inFlight;
+    const load = this.loadFresh(companyId)
+      .then((snapshot) => {
+        this.cache.set(companyId, { snapshot, loadedAt: Date.now() });
+        return snapshot;
+      })
+      .finally(() => this.snapshotInFlight.delete(companyId));
+    this.snapshotInFlight.set(companyId, load);
+    return load;
   }
 
   /**

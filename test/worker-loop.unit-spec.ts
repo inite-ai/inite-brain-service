@@ -102,6 +102,28 @@ describe('WorkerLoopService.register', () => {
   });
 });
 
+describe('WorkerLoopService shutdown ordering', () => {
+  // The lease release is a DB write; SurrealService closes the pool in
+  // onApplicationShutdown (phase 3). The worker MUST release in
+  // beforeApplicationShutdown (phase 2) so the pool is still open — a rename
+  // back to onApplicationShutdown reintroduces the zombie-lease-on-deploy bug.
+  it('releases in beforeApplicationShutdown, not onApplicationShutdown', () => {
+    const svc = new WorkerLoopService(undefined as never);
+    expect(typeof (svc as unknown as Record<string, unknown>)
+      .beforeApplicationShutdown).toBe('function');
+    expect((svc as unknown as Record<string, unknown>)
+      .onApplicationShutdown).toBeUndefined();
+  });
+
+  it('beforeApplicationShutdown stops the poller and resolves', async () => {
+    const stopDecay = jest.fn();
+    const poller = { stopDecay, startDecay: jest.fn(), hasClaim: false };
+    const svc = new WorkerLoopService(poller as never);
+    await expect(svc.beforeApplicationShutdown()).resolves.toBeUndefined();
+    expect(stopDecay).toHaveBeenCalled();
+  });
+});
+
 describe('JobDispatcherService.dispatch', () => {
   it('routes a successful handler result to complete()', async () => {
     const claim = makeJobClaim();

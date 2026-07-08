@@ -49,7 +49,10 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Lint
-        run: pnpm lint
+        # lint:ci has no --fix and fails on any warning, so a fixable violation
+        # gates the build instead of being silently auto-fixed in CI (where the
+        # fix is thrown away — the working tree isn't committed back).
+        run: pnpm lint:ci
 
       # Typecheck the WHOLE project, tests included. `nest build` only
       # compiles src/ (tsconfig.json excludes test/), so before this step a
@@ -228,7 +231,7 @@ jobs:
         run: |
           docker network create brain-ci
           docker run -d --name surreal --network brain-ci \
-            surrealdb/surrealdb:v2.2.8 \
+            surrealdb/surrealdb:v3.1.5 \
             start --user=root --pass=root --bind=0.0.0.0:8000 memory
           sleep 5
           docker run -d --name brain --network brain-ci -p 3030:3000 \
