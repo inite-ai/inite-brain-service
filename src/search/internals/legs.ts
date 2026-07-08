@@ -36,6 +36,7 @@ export async function runVectorLeg({
       SELECT
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
+        trustSnapshot, corroboration,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         math::max([
           vector::similarity::cosine(embedding, $q),
@@ -97,6 +98,7 @@ export async function runLexicalLeg({
       SELECT
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
+        trustSnapshot, corroboration,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         math::max([search::score(1), search::score(2)]) AS bm25Score
       FROM knowledge_fact

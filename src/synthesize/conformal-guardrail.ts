@@ -34,6 +34,14 @@ export interface ConformalGuardrailConfig {
    * production deployments override via `SYNTHESIZE_MIN_CONFIDENCE`.
    */
   minCalibratedConfidence: number;
+  /**
+   * Source-reputation Phase 5: minimum write-time source reputation
+   * (breakdown.factTrust.sourceReputation — the learned/declared ladder)
+   * for citation eligibility. 0 = off (default,
+   * `SYNTHESIZE_MIN_FACT_TRUST`). Facts without a breakdown sit on the
+   * neutral 0.5, so floors ≤ 0.5 never drop unscored facts.
+   */
+  minFactTrust?: number;
 }
 
 export interface ConformalGuardrailResult {
@@ -54,7 +62,8 @@ export function applyConformalGuardrail(
   hits: readonly SearchHit[],
   cfg: ConformalGuardrailConfig,
 ): ConformalGuardrailResult {
-  if (cfg.minCalibratedConfidence <= 0) {
+  const trustFloor = cfg.minFactTrust ?? 0;
+  if (cfg.minCalibratedConfidence <= 0 && trustFloor <= 0) {
     return { kept: [...hits], droppedCount: 0 };
   }
   const floor = cfg.minCalibratedConfidence;
@@ -68,9 +77,18 @@ export function applyConformalGuardrail(
       // fact used to bypass the floor entirely, which let low-confidence
       // evidence reach the generator whenever the breakdown was absent.
       const score = f.breakdown?.calibratedConfidence ?? f.confidence;
-      if (score >= floor) return true;
-      droppedCount += 1;
-      return false;
+      if (score < floor) {
+        droppedCount += 1;
+        return false;
+      }
+      // Source-reputation floor: unscored facts fall back to the neutral
+      // 0.5 — same "can't slip past" reasoning as above.
+      const trust = f.breakdown?.factTrust?.sourceReputation ?? 0.5;
+      if (trust < trustFloor) {
+        droppedCount += 1;
+        return false;
+      }
+      return true;
     });
     if (filteredFacts.length === 0) continue;
     kept.push({ ...hit, facts: filteredFacts });

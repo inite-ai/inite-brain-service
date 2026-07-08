@@ -74,6 +74,7 @@ export function assembleHits({
           validFrom: row.validFrom,
           validUntil: row.validUntil ?? undefined,
           status: row.status,
+          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
           score,
           breakdown,
         }));
@@ -99,6 +100,7 @@ export function assembleHits({
           validFrom: row.validFrom,
           validUntil: row.validUntil ?? undefined,
           status: row.status,
+          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
           score: 0,
           breakdown: {
             fusedScore: 0,

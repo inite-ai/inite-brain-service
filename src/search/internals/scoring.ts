@@ -56,13 +56,27 @@ export interface ScoreRowsOptions {
   predicateDist: PredicateDistribution | null;
   now: number;
   calibrator?: ConfidenceCalibrator | null;
+  /**
+   * Source-reputation track, Phase 5 — read-time fact_trust. β scales the
+   * write-time source-reputation snapshot into ranking
+   * (`× (1 + β·(trust − 0.5))`), γ scales cross-source corroboration
+   * (`× (1 + γ·min(count, 3))`). Both default 0 → factors exactly 1.0 →
+   * byte-identical ranking; facts without a snapshot sit on the neutral
+   * 0.5, so they are unaffected at ANY β.
+   */
+  trustBeta?: number;
+  corroborationGamma?: number;
 }
+
+const CORROBORATION_CAP = 3;
 
 export function scoreRows({
   rows,
   predicateDist,
   now,
   calibrator = null,
+  trustBeta = 0,
+  corroborationGamma = 0,
 }: ScoreRowsOptions): ScoredRow[] {
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
@@ -79,7 +93,45 @@ export function scoreRows({
     const calibratedConfidence = calibrator
       ? calibrator.calibrate(row.confidence)
       : row.confidence;
-    const finalScore = row.fusedScore * decay * calibratedConfidence * predBoost;
+
+    // fact_trust (Phase 5): the write-time snapshot ladder. Multiplicative
+    // ranking semantics, kept OUT of the resolver's weighted sum — see the
+    // source-reputation track design.
+    //
+    // fn::resolve_fact ALWAYS stamps learnedTrust — including the neutral
+    // 0.5 fallback when the source has <8 samples — so a bare
+    // `learned ?? declared` would shadow the declared tier heuristic
+    // forever. A learned value of EXACTLY 0.5 is indistinguishable from
+    // (and ranking-equivalent to) "no signal" (β·(0.5−0.5) = 0), so it
+    // defers to the declared tier; any other learned value wins.
+    const snapshot = row.trustSnapshot ?? null;
+    const learned =
+      snapshot?.learnedTrust !== undefined && snapshot.learnedTrust !== 0.5
+        ? snapshot.learnedTrust
+        : undefined;
+    const sourceReputation = learned ?? snapshot?.declaredTrust ?? 0.5;
+    const corroborationCount = row.corroboration?.count ?? 0;
+    const trustFactor = 1 + trustBeta * (sourceReputation - 0.5);
+    const corroborationFactor =
+      1 + corroborationGamma * Math.min(corroborationCount, CORROBORATION_CAP);
+    const factTrust = {
+      sourceReputation,
+      authority: snapshot?.authority ?? 0,
+      corroborationCount,
+      evidenceCount: Array.isArray(row.source?.evidence)
+        ? row.source.evidence.length
+        : 0,
+      trustFactor,
+      corroborationFactor,
+    };
+
+    const finalScore =
+      row.fusedScore *
+      decay *
+      calibratedConfidence *
+      predBoost *
+      trustFactor *
+      corroborationFactor;
     return {
       row,
       score: finalScore,
@@ -89,6 +141,7 @@ export function scoreRows({
         calibratedConfidence,
         decay,
         predBoost,
+        factTrust,
         finalScore,
         stages: row.stages ?? [],
       },

@@ -33,6 +33,13 @@ import { PipelineContext } from './pipeline-context';
 export class SearchRetrievalService {
   private readonly logger = new Logger(SearchRetrievalService.name);
   private readonly budgets: StageBudgets = resolveStageBudgets();
+  // Source-reputation Phase 5 — both default 0 so ranking stays
+  // byte-identical until an operator opts in. Validated at boot
+  // (env-validation); the local guard covers post-boot env drift.
+  private readonly trustBeta = nonNegativeFloatEnv('SEARCH_TRUST_BETA');
+  private readonly corroborationGamma = nonNegativeFloatEnv(
+    'SEARCH_CORROBORATION_GAMMA',
+  );
 
   constructor(
     private readonly embedder: EmbedderService,
@@ -138,7 +145,15 @@ export class SearchRetrievalService {
       calibrator: {
         calibrate: (raw: number) => this.calibration.calibrate(raw),
       },
+      trustBeta: this.trustBeta,
+      corroborationGamma: this.corroborationGamma,
     });
     return bucketByEntity(scored);
   }
+}
+
+/** Optional non-negative float env knob; unset/invalid → 0 (feature off). */
+function nonNegativeFloatEnv(name: string): number {
+  const v = Number(process.env[name] ?? 0);
+  return Number.isFinite(v) && v > 0 ? v : 0;
 }
