@@ -172,4 +172,71 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     expect(r.status).toBe(400);
     expect(JSON.stringify(r.body)).toMatch(/semantics/);
   });
+
+  it('upgrade applies redefined predicates, deprecates dropped ones, seeds new ones', async () => {
+    // Install v1.0.0 with two predicates.
+    const v1 = {
+      id: 'oncology',
+      version: '1.0.0',
+      description: 'Oncology pack (upgrade test).',
+      predicates: [
+        {
+          localId: 'stage',
+          displayLabel: 'stage',
+          description: 'tumor stage',
+          datatype: 'string',
+          semantics: 'single_active',
+          decayHalfLifeDays: null,
+          piiClass: 'none',
+          status: 'active',
+        },
+        {
+          localId: 'marker',
+          displayLabel: 'marker',
+          description: 'biomarker',
+          datatype: 'string',
+          semantics: 'append_only',
+          decayHalfLifeDays: null,
+          piiClass: 'none',
+          status: 'active',
+        },
+      ],
+    };
+    const i1 = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: v1 });
+    expect([200, 201]).toContain(i1.status);
+
+    // Upgrade to v1.1.0: redefine 'stage' (piiClass none→sensitive), DROP
+    // 'marker', ADD 'regimen'.
+    const v2 = {
+      ...v1,
+      version: '1.1.0',
+      predicates: [
+        { ...v1.predicates[0], piiClass: 'sensitive', description: 'tumor stage (revised)' },
+        {
+          localId: 'regimen',
+          displayLabel: 'regimen',
+          description: 'treatment regimen',
+          datatype: 'string',
+          semantics: 'append_only',
+          decayHalfLifeDays: null,
+          piiClass: 'none',
+          status: 'active',
+        },
+      ],
+    };
+    const i2 = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: v2 });
+    expect([200, 201]).toContain(i2.status);
+
+    const preds = await f.http.get('/v1/admin/predicates').set(auth());
+    const byId = new Map(
+      (preds.body.predicates ?? []).map((p: any) => [p.predicateId, p]),
+    );
+    // Redefined: definition is no longer frozen at first-install values.
+    expect((byId.get('oncology__stage') as any)?.piiClass).toBe('sensitive');
+    expect((byId.get('oncology__stage') as any)?.status).toBe('active');
+    // Dropped predicate is deprecated (fact survival is separate) — not active.
+    expect((byId.get('oncology__marker') as any)?.status).toBe('deprecated');
+    // Added predicate seeded active.
+    expect((byId.get('oncology__regimen') as any)?.status).toBe('active');
+  });
 });

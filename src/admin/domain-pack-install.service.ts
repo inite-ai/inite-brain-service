@@ -4,19 +4,21 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
+import { embeddingTextFor, serializeForInsert } from '../ai/predicate-registry-internals/db-mapping';
 import type { PredicateDefinition } from '../ai/predicate-registry-internals/types';
 import {
   assertPackTrust,
   BUILTIN_PACKS,
   compareSemver,
   composePredicateId,
+  diffPackUpgrade,
   DomainPackError,
-  PACK_NAMESPACE_SEP,
   packChecksum,
   validatePack,
   type DomainPackManifest,
@@ -154,10 +156,10 @@ export class DomainPackInstallService {
       };
     });
 
-    const prefix = `${manifest.id}${PACK_NAMESPACE_SEP}`;
+    const newIds = predicates.map((p) => p.predicateId);
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
       const [existing] = await db.query<[any[]]>(
-        `SELECT id, version FROM domain_pack WHERE packId = $packId LIMIT 1`,
+        `SELECT id, version, manifest FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
       const row = ((existing as any[]) ?? [])[0];
@@ -169,23 +171,48 @@ export class DomainPackInstallService {
             `pack "${manifest.id}" v${manifest.version} is older than the installed v${row.version}; refusing to downgrade`,
           );
         }
+        const { changed, removedIds } = diffPackUpgrade(
+          manifest.id,
+          row.manifest as DomainPackManifest | undefined,
+          manifest,
+        );
         await db.query(
           `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()`,
           { id: row.id, version: manifest.version, manifest, checksum },
         );
-        // Reinstall after uninstall: uninstall DEPRECATED this pack's
-        // predicates; seedMissingPredicates skips them (they exist by id),
-        // so without this they'd stay out of the active snapshot forever —
-        // the pack would read as installed but extract nothing. Reactivate
-        // the pack-owned rows we deprecated (createdBy='admin' guards
+        // Reinstall/upgrade: uninstall DEPRECATED this pack's predicates and
+        // seedMissingPredicates skips them (they exist by id), so without this
+        // they'd stay out of the active snapshot forever — the pack would read
+        // as installed but extract nothing. Reactivate the pack-owned rows the
+        // NEW manifest still declares (scoped to $newIds, so a predicate this
+        // upgrade dropped is NOT revived below; createdBy='admin' guards
         // against reviving an operator's manual deprecation of a core id).
-        await db.query(
-          `UPDATE knowledge_predicate SET status = 'active'
-             WHERE string::starts_with(predicateId, $prefix)
-               AND status = 'deprecated'
-               AND createdBy = 'admin'`,
-          { prefix },
-        );
+        if (newIds.length) {
+          await db.query(
+            `UPDATE knowledge_predicate SET status = 'active', updatedAt = time::now()
+               WHERE predicateId IN $newIds
+                 AND status = 'deprecated'
+                 AND createdBy = 'admin'`,
+            { newIds },
+          );
+        }
+        // Apply redefined predicates. seedMissingPredicates only CREATEs absent
+        // ids, so an upgrade that edits a predicate (piiClass, semantics,
+        // description, …) would otherwise leave the tenant frozen at
+        // first-install values. MERGE preserves createdAt/version; re-embed the
+        // card since the description feeds the embedding.
+        await this.applyChangedPredicates(db, manifest.id, changed);
+        // Deprecate predicates the new manifest dropped (present before, gone
+        // now) — facts on them survive; they just leave the active vocab.
+        if (removedIds.length) {
+          await db.query(
+            `UPDATE knowledge_predicate SET status = 'deprecated', updatedAt = time::now()
+               WHERE predicateId IN $removedIds
+                 AND status != 'deprecated'
+                 AND createdBy = 'admin'`,
+            { removedIds },
+          );
+        }
       } else {
         await db.query(`CREATE domain_pack CONTENT $content`, {
           content: {
@@ -215,6 +242,42 @@ export class DomainPackInstallService {
       predicatesSeeded: seeded,
       checksum,
     };
+  }
+
+  /** Re-write redefined pack predicates on upgrade. MERGE (not CONTENT) so
+   *  createdAt/version survive; re-embed since the card text changed. Scoped to
+   *  createdBy='admin' so an operator's edits to a same-named row aren't
+   *  clobbered. */
+  private async applyChangedPredicates(
+    db: Surreal,
+    packId: string,
+    changed: PredicateDefinition[],
+  ): Promise<void> {
+    if (changed.length === 0) return;
+    let embeddings: Array<number[] | null>;
+    try {
+      embeddings = await this.embedder.embedMany(
+        changed.map((p) => embeddingTextFor(p)),
+      );
+    } catch {
+      embeddings = changed.map(() => null);
+    }
+    for (let i = 0; i < changed.length; i++) {
+      await db.query(
+        `UPDATE knowledge_predicate MERGE $content
+           WHERE predicateId = $pid AND createdBy = 'admin'`,
+        {
+          pid: changed[i].predicateId,
+          content: {
+            ...serializeForInsert(changed[i]),
+            ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
+          },
+        },
+      );
+    }
+    this.logger.log(
+      `[pack ${packId}] applied ${changed.length} redefined predicate(s)`,
+    );
   }
 
   async uninstall(
