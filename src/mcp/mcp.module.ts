@@ -12,6 +12,7 @@ import { SummarizeEntityModule } from '../summarize-entity/summarize-entity.modu
 import { ProceduralModule } from '../procedural/procedural.module';
 import { CommunityModule } from '../communities/community.module';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
+import { SourcesModule } from '../sources/sources.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { CodeMemoryModule } from '../code-memory/code-memory.module';
     ProceduralModule,
     CommunityModule,
     CodeMemoryModule,
+    SourcesModule,
   ],
   controllers: [McpController],
   providers: [McpService],
