@@ -1,10 +1,27 @@
 import { createHash } from 'node:crypto';
 import type {
+  PackExtractionProfile,
   PiiClass,
   PredicateDefinition,
   PredicateStatus,
   Semantics,
 } from './types';
+
+/** Deterministic (recursively key-sorted) JSON — so the profile hash is stable
+ *  regardless of manifest key order. Local copy to keep db-mapping dependency-free. */
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`)
+    .join(',')}}`;
+}
 
 /**
  * SurrealDB v2 SCHEMAFULL rejects JS null for `option<...>` fields with
@@ -84,11 +101,20 @@ export function embeddingTextFor(p: PredicateDefinition): string {
 }
 
 /**
- * Stable hash of the active-row-set. Pinned to extractor traces so a
- * downstream audit can correlate an extraction with the exact
- * registry state it was made against.
+ * Stable hash of the extractor-relevant registry state. Pinned to extractor
+ * traces (and used as the extractor cache's vocab key) so a downstream audit
+ * can correlate an extraction with the exact state it was made against.
+ *
+ * Folds in the active-row-set AND the active extraction profiles: a pack
+ * upgrade that edits only its extractionProfile (guidance / few-shot) leaves
+ * every predicate row unchanged, so hashing rows alone would keep the same
+ * versionHash and the extractor cache would serve extractions made against the
+ * OLD profile. The profiles tune the prompt, so they belong in the key.
  */
-export function computeHash(rows: PredicateDefinition[]): string {
+export function computeHash(
+  rows: PredicateDefinition[],
+  extractionProfiles: PackExtractionProfile[] = [],
+): string {
   const sorted = [...rows].sort((a, b) =>
     a.predicateId.localeCompare(b.predicateId),
   );
@@ -98,5 +124,12 @@ export function computeHash(rows: PredicateDefinition[]): string {
         `${p.predicateId}|${p.semantics}|${p.decayHalfLifeDays}|${p.piiClass}|${p.requiresScope ?? ''}|${p.status}`,
     )
     .join('\n');
-  return createHash('sha256').update(payload).digest('hex').slice(0, 16);
+  const profilePayload = [...extractionProfiles]
+    .sort((a, b) => a.packId.localeCompare(b.packId))
+    .map((p) => `${p.packId}=${stableJson(p.profile)}`)
+    .join('\n');
+  return createHash('sha256')
+    .update(`${payload}\n##profiles##\n${profilePayload}`)
+    .digest('hex')
+    .slice(0, 16);
 }

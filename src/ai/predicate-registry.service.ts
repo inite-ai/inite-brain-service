@@ -535,7 +535,9 @@ export class PredicateRegistryService {
         );
       }
 
-      const versionHash = computeHash(active);
+      // Fold extraction profiles into the hash: a profile-only pack upgrade
+      // must bust the extractor cache even though no predicate row changed.
+      const versionHash = computeHash(active, extractionProfiles);
       return { versionHash, active, byId, aliasMap, embeddings, extractionProfiles };
     });
   }

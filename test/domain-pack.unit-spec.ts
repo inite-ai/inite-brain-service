@@ -5,12 +5,14 @@
 import {
   assembleSeed,
   composePredicateId,
+  diffPackUpgrade,
   packChecksum,
   validatePack,
   DomainPackError,
   type DomainPackManifest,
   type PackPredicate,
 } from '../src/ai/domain-packs';
+import { computeHash } from '../src/ai/predicate-registry-internals/db-mapping';
 import {
   CODE_MEMORY_PACK,
   CODE_MEMORY_PREDICATE_IDS,
@@ -177,6 +179,88 @@ describe('packChecksum', () => {
     const a = pack({ version: '1.0.0' });
     const c = pack({ version: '1.0.1' });
     expect(packChecksum(a)).not.toBe(packChecksum(c));
+  });
+});
+
+describe('diffPackUpgrade', () => {
+  it('detects a redefined predicate (piiClass change) as changed', () => {
+    const prior = pack({ id: 'med', predicates: [packPredicate('dx')] });
+    const bumped = {
+      ...packPredicate('dx'),
+      piiClass: 'sensitive' as const,
+    };
+    const next = pack({ id: 'med', predicates: [bumped] });
+    const { changed, removedIds } = diffPackUpgrade('med', prior, next);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].predicateId).toBe('med__dx');
+    expect(changed[0].piiClass).toBe('sensitive');
+    expect(changed[0].createdBy).toBe('admin');
+    expect(removedIds).toEqual([]);
+  });
+
+  it('flags a predicate dropped by the new manifest as removed', () => {
+    const prior = pack({
+      id: 'med',
+      predicates: [packPredicate('dx'), packPredicate('rx')],
+    });
+    const next = pack({ id: 'med', predicates: [packPredicate('dx')] });
+    const { changed, removedIds } = diffPackUpgrade('med', prior, next);
+    expect(changed).toEqual([]);
+    expect(removedIds).toEqual(['med__rx']);
+  });
+
+  it('leaves genuinely new predicates to seedMissingPredicates (not "changed")', () => {
+    const prior = pack({ id: 'med', predicates: [packPredicate('dx')] });
+    const next = pack({
+      id: 'med',
+      predicates: [packPredicate('dx'), packPredicate('rx')],
+    });
+    const { changed, removedIds } = diffPackUpgrade('med', prior, next);
+    expect(changed).toEqual([]);
+    expect(removedIds).toEqual([]);
+  });
+
+  it('is a no-op when the manifest is unchanged', () => {
+    const p = pack({ id: 'med', predicates: [packPredicate('dx')] });
+    const { changed, removedIds } = diffPackUpgrade('med', p, p);
+    expect(changed).toEqual([]);
+    expect(removedIds).toEqual([]);
+  });
+
+  it('treats an absent prior manifest as all-additions', () => {
+    const next = pack({ id: 'med', predicates: [packPredicate('dx')] });
+    const { changed, removedIds } = diffPackUpgrade('med', undefined, next);
+    expect(changed).toEqual([]);
+    expect(removedIds).toEqual([]);
+  });
+});
+
+describe('computeHash', () => {
+  const preds = [corePredicate('name')];
+  it('folds extraction profiles into the hash (profile-only change busts it)', () => {
+    const bare = computeHash(preds);
+    const withProfile = computeHash(preds, [
+      { packId: 'med', profile: { guidance: 'v1' } },
+    ]);
+    const withProfileV2 = computeHash(preds, [
+      { packId: 'med', profile: { guidance: 'v2' } },
+    ]);
+    expect(withProfile).not.toBe(bare);
+    expect(withProfileV2).not.toBe(withProfile);
+  });
+  it('is stable regardless of profile order', () => {
+    const a = computeHash(preds, [
+      { packId: 'a', profile: { guidance: 'x' } },
+      { packId: 'b', profile: { guidance: 'y' } },
+    ]);
+    const b = computeHash(preds, [
+      { packId: 'b', profile: { guidance: 'y' } },
+      { packId: 'a', profile: { guidance: 'x' } },
+    ]);
+    expect(a).toBe(b);
+  });
+  it('empty profiles === omitted profiles (byte-identical, no-op for profileless tenants)', () => {
+    expect(computeHash(preds, [])).toBe(computeHash(preds));
   });
 });
 
