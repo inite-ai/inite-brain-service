@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { DomainPackInstallService } from './domain-pack-install.service';
@@ -80,6 +81,10 @@ export class AdminPacksController {
    *  scores whether extraction (with the pack's predicates + extractionProfile
    *  active) still meets the pack's own expectations. */
   @Post(':packId/eval')
+  // Heaviest admin route: up to MAX_EVAL_FIXTURES live extractor (LLM) calls
+  // per request. Tightest expensive bucket so it can't be looped into a cost
+  // spike even by an authorized admin.
+  @Throttle({ expensive: { limit: 3, ttl: 60_000 } })
   @RequireScopes('brain:admin')
   async eval(
     @Req() req: AuthenticatedRequest,
