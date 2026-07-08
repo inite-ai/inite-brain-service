@@ -83,6 +83,22 @@ describe('validatePack', () => {
       validatePack(pack({ predicates: [packPredicate('a__b')] })),
     ).toThrow(DomainPackError);
   });
+  it('rejects a pack id ending in underscore (uninstall-prefix collision)', () => {
+    expect(() => validatePack(pack({ id: 'foo_' }))).toThrow(/underscore/);
+  });
+  it('rejects a bad semantics enum (would be a DB ASSERT 500 mid-install)', () => {
+    const bad = { ...packPredicate('x'), semantics: 'sometimes' as never };
+    expect(() => validatePack(pack({ predicates: [bad] }))).toThrow(/semantics/);
+  });
+  it('rejects a bad piiClass enum', () => {
+    const bad = { ...packPredicate('x'), piiClass: 'secret' as never };
+    expect(() => validatePack(pack({ predicates: [bad] }))).toThrow(/piiClass/);
+  });
+  it('rejects a non-array predicates field', () => {
+    expect(() =>
+      validatePack(pack({ predicates: 42 as never })),
+    ).toThrow(/must be an array/);
+  });
   it('accepts a well-formed extractionProfile', () => {
     expect(() =>
       validatePack(
