@@ -1,34 +1,64 @@
 import {
-  aggregateBySourceKey,
+  aggregateByScope,
+  scopeKeyOf,
   isCorrect,
 } from '../src/ai/calibration/calibration-refit-runner.service';
 
 describe('calibration-refit pure helpers', () => {
-  describe('aggregateBySourceKey', () => {
-    it('rolls wins + losses per sourceKey', () => {
-      const out = aggregateBySourceKey([
-        { sourceKey: 'rent:bot', win: 1, loss: 0 },
-        { sourceKey: 'rent:bot', win: 1, loss: 0 },
-        { sourceKey: 'rent:bot', win: 0, loss: 1 },
-        { sourceKey: 'shop:cli', win: 0, loss: 1 },
+  describe('aggregateByScope', () => {
+    const T1 = '2026-01-01T00:00:00Z';
+    const T2 = '2026-02-01T00:00:00Z';
+
+    it('rolls wins + losses at BOTH grains: (sourceKey, domain) and global', () => {
+      const out = aggregateByScope([
+        { sourceKey: 'rent:bot', domain: 'status', win: 1, loss: 0, recordedAt: T1 },
+        { sourceKey: 'rent:bot', domain: 'status', win: 1, loss: 0, recordedAt: T2 },
+        { sourceKey: 'rent:bot', domain: 'address', win: 0, loss: 1, recordedAt: T1 },
+        { sourceKey: 'shop:cli', domain: 'status', win: 0, loss: 1, recordedAt: T1 },
       ]);
-      const rent = out.find((r) => r.sourceKey === 'rent:bot');
-      const shop = out.find((r) => r.sourceKey === 'shop:cli');
-      expect(rent).toEqual({ sourceKey: 'rent:bot', wins: 2, losses: 1 });
-      expect(shop).toEqual({ sourceKey: 'shop:cli', wins: 0, losses: 1 });
+      const byKey = new Map(out.map((s) => [scopeKeyOf(s.sourceKey, s.domain), s]));
+
+      // Scoped rows: the broker analogy — great on one predicate, weak on
+      // another, and the two never blend.
+      expect(byKey.get(scopeKeyOf('rent:bot', 'status'))).toMatchObject({
+        wins: 2,
+        losses: 0,
+      });
+      expect(byKey.get(scopeKeyOf('rent:bot', 'address'))).toMatchObject({
+        wins: 0,
+        losses: 1,
+      });
+      // Global row = the pre-0045 blended rate, untouched in meaning.
+      expect(byKey.get(scopeKeyOf('rent:bot', null))).toMatchObject({
+        wins: 2,
+        losses: 1,
+      });
+      expect(byKey.get(scopeKeyOf('shop:cli', null))).toMatchObject({
+        wins: 0,
+        losses: 1,
+      });
+    });
+
+    it('tracks lastSeenAt as the max recordedAt per scope', () => {
+      const out = aggregateByScope([
+        { sourceKey: 'k', domain: 'status', win: 1, loss: 0, recordedAt: T2 },
+        { sourceKey: 'k', domain: 'status', win: 1, loss: 0, recordedAt: T1 },
+      ]);
+      for (const scope of out) {
+        expect(scope.lastSeenAt.toISOString()).toBe(new Date(T2).toISOString());
+      }
     });
 
     it('returns empty array for empty input', () => {
-      expect(aggregateBySourceKey([])).toEqual([]);
+      expect(aggregateByScope([])).toEqual([]);
     });
 
-    it('keeps every sourceKey, including those with only losses', () => {
-      const out = aggregateBySourceKey([
-        { sourceKey: 'k1', win: 0, loss: 1 },
+    it('keeps loss-only scopes', () => {
+      const out = aggregateByScope([
+        { sourceKey: 'k1', domain: 'tier', win: 0, loss: 1, recordedAt: T1 },
       ]);
-      expect(out).toHaveLength(1);
-      expect(out[0].wins).toBe(0);
-      expect(out[0].losses).toBe(1);
+      expect(out).toHaveLength(2); // scoped + global
+      expect(out.every((s) => s.wins === 0 && s.losses === 1)).toBe(true);
     });
   });
 
