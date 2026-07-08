@@ -19,6 +19,21 @@
  *   - privacy-leakage-mia-auc: lower is better — block on RISE > 0.05.
  *   - other / unrecognized metrics: drop > 0.05 (conservative default).
  *
+ * CI-aware widening: when the BASELINE row carries a bootstrap CI
+ * (ciLower/ciUpper — written by the eval harness alongside n), the
+ * allowed drop widens by the baseline's own downward CI half-width:
+ *   allowedDrop = flatTolerance + (baseline.value - baseline.ciLower)
+ * i.e. "regression = below the baseline's own noise band by more than
+ * the flat tolerance". Rationale: a flat 0.03 on a 10-sample vertical
+ * is below ONE flipped case (0.10) — the 2026-07 estate false alarm was
+ * a knife-edge ranking pair wobbling inside the baseline's own
+ * [0.70–1.00] bootstrap band. A value the baseline itself could have
+ * produced is not a regression. Small-n verticals (wide CI) get slack
+ * proportional to their noise; big-n metrics stay tight (overall n=262:
+ * 0.03 + 0.031). Hard correctness gates (tolerance < 0.03) never widen.
+ * For lower-is-better metrics the mirror applies with ciUpper. Rows
+ * without CI data keep the flat tolerance.
+ *
  * Missing-in-current is treated as a regression (metric disappeared).
  * New-in-current is reported as "added" but never blocks.
  *
@@ -32,6 +47,10 @@ interface MetricRow {
   name: string;
   value: number | null;
   threshold?: number;
+  /** Bootstrap CI bounds + sample size, when the harness computed them. */
+  ciLower?: number;
+  ciUpper?: number;
+  n?: number;
 }
 interface VerticalBlock {
   vertical: string;
@@ -124,7 +143,23 @@ function diffMetrics(scope: string, base: MetricRow[], cur: MetricRow[]): Findin
     }
     if (b.value === null || c.value === null) continue; // null = no data, can't compare
     const delta = c.value - b.value;
-    const regressed = tol.lowerIsBetter ? delta > tol.drop : delta < -tol.drop;
+    // CI-aware widening (see header): the baseline's own bootstrap
+    // half-width is the noise floor — a current value inside the band
+    // the baseline could have produced is not a regression. Hard-fail
+    // metrics (drop 0.0/0.01) stay hard: correctness gates are
+    // pass/fail, not sampled rankings.
+    const ciSlack =
+      tol.drop >= 0.03
+        ? tol.lowerIsBetter
+          ? b.ciUpper !== undefined
+            ? b.ciUpper - b.value
+            : 0
+          : b.ciLower !== undefined
+            ? b.value - b.ciLower
+            : 0
+        : 0;
+    const allowedDrop = tol.drop + ciSlack;
+    const regressed = tol.lowerIsBetter ? delta > allowedDrop : delta < -allowedDrop;
     if (regressed) {
       findings.push({
         scope,
@@ -132,7 +167,7 @@ function diffMetrics(scope: string, base: MetricRow[], cur: MetricRow[]): Findin
         baseline: b.value,
         current: c.value,
         delta,
-        tolerance: tol.drop,
+        tolerance: allowedDrop,
         direction: tol.lowerIsBetter ? 'lower_is_better' : 'higher_is_better',
         kind: 'regression',
       });
