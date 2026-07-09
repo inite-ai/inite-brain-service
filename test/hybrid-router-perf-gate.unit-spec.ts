@@ -88,7 +88,7 @@ describe('Hybrid router perf gate', () => {
     expect(t).toBeLessThan(500);
   });
 
-  it('shouldSkipLLM — under 10µs/call avg', () => {
+  it('shouldSkipLLM — under 40µs/call avg', () => {
     const t = timeMicroseconds(() =>
       shouldSkipLLM({
         intent: 'ask',
@@ -101,7 +101,11 @@ describe('Hybrid router perf gate', () => {
         localCollapses: [],
       }),
     );
-    expect(t).toBeLessThan(10);
+    // ~1µs isolated (see `pnpm bench:router`); 40µs absorbs the GC/CPU
+    // contention spikes of concurrent jest workers on shared CI runners (it
+    // flaked repeatedly at the old 10µs, hitting ~20µs under load) while still
+    // catching a 10×+ regression. Consistent with the 20-50µs sibling gates.
+    expect(t).toBeLessThan(40);
   });
 
   it('combined local path stays under 2000µs end-to-end avg', () => {
