@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0](https://github.com/inite-ai/inite-brain-service/compare/v0.4.0...v0.5.0) (2026-07-09)
+
+
+### Features
+
+* **documents:** Source → Indexer → Candidates → Brain document pipeline ([#140](https://github.com/inite-ai/inite-brain-service/issues/140)) ([4597261](https://github.com/inite-ai/inite-brain-service/commit/4597261e9263e69071a3b03d1c4ba8ce82aa4e12))
+
 ## [0.4.0](https://github.com/inite-ai/inite-brain-service/compare/v0.3.0...v0.4.0) (2026-07-09)
 
 
