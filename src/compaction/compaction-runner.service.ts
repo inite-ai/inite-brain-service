@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import {
   ConcatSummaryGenerator,
@@ -87,9 +88,14 @@ export class CompactionRunnerService {
    *   3. UPDATE old facts: status = 'compacted', embedding = NONE.
    */
   async compactCompany(companyId: string): Promise<CompactionStats> {
+    // A Date param serialises as a native SurrealDB datetime. The previous
+    // `d$cutoff` cast + ISO-string param was a 2.x idiom — SurrealDB 3.x
+    // fails to PARSE it ("Unexpected token `a parameter`"), which made
+    // every compaction pass throw (and log-and-skip) since the 3.1.5
+    // upgrade. Caught by the promotion e2e reusing the same idiom.
     const cutoff = new Date(
       Date.now() - this.hotRetentionDays * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    );
 
     return this.surreal.withCompany(companyId, async (db) => {
       // Step 1: pull candidate facts with their bodies, so the summarizer
@@ -101,8 +107,8 @@ export class CompactionRunnerService {
            FROM knowledge_fact
            WHERE status != 'compacted'
              AND embedding != NONE
-             AND ((validUntil != NONE AND validUntil < d$cutoff)
-                  OR (retractedAt != NONE AND retractedAt < d$cutoff))
+             AND ((validUntil != NONE AND validUntil < $cutoff)
+                  OR (retractedAt != NONE AND retractedAt < $cutoff))
            ORDER BY validFrom ASC
            LIMIT 1000`,
         { cutoff },
@@ -118,8 +124,12 @@ export class CompactionRunnerService {
         summariesCreated = await this.createSummaries(db, candidates);
       }
 
-      // Step 3: mark + drop embeddings on the originals
-      const ids = candidates.map((c) => String(c.id));
+      // Step 3: mark + drop embeddings on the originals. Record-id params,
+      // not strings — SurrealDB 3.x no longer coerces string↔record in
+      // comparisons, so a string list here matches NOTHING and the whole
+      // pass silently no-ops (second half of the same 3.1.5 regression as
+      // the `d$cutoff` parse error above).
+      const ids = candidates.map((c) => new StringRecordId(String(c.id)));
       await db.query(
         `UPDATE knowledge_fact
            SET status = 'compacted', embedding = NONE
@@ -162,13 +172,16 @@ export class CompactionRunnerService {
       const sorted = [...group].sort((a, b) =>
         a.validFrom < b.validFrom ? -1 : 1,
       );
+      // The SDK returns datetime columns as Date objects; FactToSummarize
+      // (and the concat generator's `.slice`) expect ISO strings — without
+      // the normalisation every summary rollup threw a TypeError.
       const summaryText = await this.summaryGenerator.generate(
         sorted.map((g) => ({
           factId: String(g.id),
           predicate: g.predicate,
           object: g.object,
-          validFrom: g.validFrom,
-          validUntil: g.validUntil ?? undefined,
+          validFrom: isoOf(g.validFrom),
+          validUntil: g.validUntil ? isoOf(g.validUntil) : undefined,
           confidence: g.confidence,
         }) satisfies FactToSummarize),
       );
@@ -194,4 +207,8 @@ export class CompactionRunnerService {
     }
     return created;
   }
+}
+
+function isoOf(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : String(v);
 }
