@@ -13,6 +13,7 @@ import { ProceduralModule } from '../procedural/procedural.module';
 import { CommunityModule } from '../communities/community.module';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { SourcesModule } from '../sources/sources.module';
+import { DocumentsModule } from '../documents/documents.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SourcesModule } from '../sources/sources.module';
     CommunityModule,
     CodeMemoryModule,
     SourcesModule,
+    DocumentsModule,
   ],
   controllers: [McpController],
   providers: [McpService],

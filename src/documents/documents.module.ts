@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
-import { IngestModule } from '../ingest/ingest.module';
+import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { IndexersModule } from '../indexers/indexers.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsIngestController } from './documents-ingest.controller';
@@ -14,16 +14,17 @@ import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
 import { DocumentReindexService } from './document-reindex.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
+import { MentionViaDocumentService } from './mention-via-document.service';
 
 /**
  * The Source → Indexer → Candidates → Brain pipeline (migrations
- * 0048–0050). Depends on IngestModule for the write primitives — the
+ * 0048–0050). Depends on IngestCoreModule for the write primitives — the
  * Brain step drives the SAME EntityUpsertService / FactResolverService /
  * fn::resolve_fact the mention path uses — and on IndexersModule for the
  * dedicated extraction + relevance routing machinery.
  */
 @Module({
-  imports: [AiModule, IngestModule, IndexersModule],
+  imports: [AiModule, IngestCoreModule, IndexersModule],
   controllers: [DocumentsController, DocumentsIngestController],
   providers: [
     DocumentStoreService,
@@ -36,7 +37,13 @@ import { CandidateSweeperService } from './candidate-sweeper.service';
     DocumentAsyncService,
     DocumentReindexService,
     CandidateSweeperService,
+    MentionViaDocumentService,
   ],
-  exports: [DocumentIngestService, DocumentStoreService, CandidateStoreService],
+  exports: [
+    DocumentIngestService,
+    DocumentStoreService,
+    CandidateStoreService,
+    MentionViaDocumentService,
+  ],
 })
 export class DocumentsModule {}

@@ -45,6 +45,7 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     {} as never,
     stubEmbedder as never,
+    {} as never,
   );
   return svc.buildServer('co_test', scopes);
 }
@@ -150,6 +151,7 @@ describe('McpService.health — unauthenticated probe payload', () => {
       {} as never,
       {} as never,
       stubEmbedder as never,
+      {} as never,
     );
     const health = svc.health();
     expect(health.ok).toBe(true);
