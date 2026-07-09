@@ -1,0 +1,94 @@
+---
+title: "A fact is not true: source reputation for agent memory"
+seoTitle: "Source reputation for AI agent memory, explained"
+description: "An agent's memory that can't say who claimed a fact, and how much to trust them in this context, will confidently lie. Here is how to model source reputation as a first-class citizen — domain-scoped, snapshotted, and stored with its reasons."
+date: "2026-07-09"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["source reputation", "trust", "agent memory", "knowledge graph", "provenance"]
+directAnswer: "Source reputation is a per-source, per-domain trust score that an agent's memory attaches to every stored fact at write time. It is not the fact's confidence — it answers 'how reliable is whoever claimed this, on this topic?' A memory that tracks it can weigh disagreeing sources, corroborate agreement, and explain why one claim won."
+definitionSentence: "Source reputation is a domain-scoped estimate of how reliable a given source has been for a given kind of claim, snapshotted onto each fact when it is written so the trust that drove a decision can always be replayed."
+faqs:
+  - question: "Isn't source reputation the same as a fact's confidence score?"
+    answer: "No. Confidence is about the claim itself — how sure the extractor is that the text says what it says. Reputation is about the claimant — how reliable this source has been for this kind of claim over time. A high-confidence extraction from an unreliable source is still a low-trust fact. Keeping the two separate is what lets you reason about disagreement instead of averaging it away."
+  - question: "Why should reputation be domain-scoped instead of one number per source?"
+    answer: "Because sources are lopsided. A broker may be excellent on listing prices and useless on zoning law; a government registry is authoritative on ownership and silent on sentiment. A single global score blends those into a lie. Scoping reputation to the kind of claim — the predicate — lets the same source be trusted here and doubted there."
+  - question: "What does it mean to snapshot reputation at write time?"
+    answer: "When a fact is stored, the memory records the reputation reading as it was at that moment, not a live pointer. Replay the graph six months later and you see the trust that actually drove the decision, not today's revised opinion. Reputation still evolves — but in an append-only history, never by silently rewriting what an old fact was trusted at."
+  - question: "How do two sources agreeing change trust?"
+    answer: "Agreement should reinforce, not duel. When a different source asserts the same value, the memory marks it as corroborating and increments a corroboration count on the incumbent fact rather than running a conflict. More independent sources saying the same thing is a stronger signal than any single one — and at read time that count can lift the fact's ranking."
+---
+
+Give an agent a memory and it will happily tell you things. The dangerous part
+is *how* happily. Ask most "memory" layers where a fact came from and how much
+to believe it, and you get a shrug: it was similar to your query, so here it is.
+
+That's fine until two of your sources disagree, or one of them is a scraper that
+guesses, or a user corrects something a system got wrong. Then a memory that
+can't reason about *who said what, and how much to trust them here* doesn't stay
+quiet — it confidently lies.
+
+## Trust is not confidence
+
+The usual move is to slap a single confidence number on a fact and call it done.
+But confidence and trust answer different questions:
+
+- **Confidence** — did the extractor read the text correctly? "The message says
+  the plan is *growth*." A property of the *claim*.
+- **Reputation** — how reliable is whoever made the claim, on this kind of
+  claim? A property of the *source*.
+
+A crisp, high-confidence extraction from a source that's usually wrong is still a
+low-trust fact. Collapse the two into one number and you can't tell "the model
+is unsure" from "the source is unreliable" — and those need opposite responses.
+
+## Reputation is lopsided, so scope it
+
+A source is rarely uniformly good. A broker nails `listing_price` and invents
+`zoned_as`. A government registry is authoritative on `owner` and knows nothing
+about how a tenant *feels*. One global score per source averages the sharp parts
+away.
+
+So reputation is **domain-scoped** — per (source, predicate). The lookup is a
+simple ladder: use the source's score for *this kind of claim* if there's enough
+history, else fall back to its overall track record, else stay neutral. The same
+source can be trusted on one predicate and doubted on the next, which is how
+reliability actually works.
+
+## Snapshot the number, keep the history
+
+Reputation changes as a source earns or loses credibility. The temptation is to
+keep one live score and read it whenever you need it — which means every past
+decision silently inherits today's opinion.
+
+Instead, **snapshot** the reputation onto the fact at write time. Replay the
+graph months later and you see the trust that actually drove the decision, not a
+revised one. The score keeps evolving in an append-only history; the fact
+remembers what it was trusted at. That's the difference between an auditable
+memory and one that quietly rewrites its own past.
+
+## Store the *because*, not just a verdict
+
+When two claims compete, the winner shouldn't be a bare boolean. Alongside the
+outcome, keep the decomposition: which dimension dominated — reputation,
+recency, authority — by how much, and who the runner-up was. A fact that can
+explain *why it won* is one you can debug; a fact that just asserts is one you
+have to trust blindly, which is the whole problem again.
+
+## Agreement should reinforce, not fight
+
+Not every second claim is a conflict. When a *different* source asserts the same
+value, that's corroboration, not a duel — the memory reinforces the incumbent
+and counts the agreement instead of picking a fight. Three independent sources
+saying the same thing is a stronger signal than any one of them, and that count
+can lift the fact when it matters.
+
+## The one-line version
+
+> A fact isn't *true*. It's **claimed by a source, extracted from evidence, and
+> trusted under context.**
+
+Model that — reputation separate from confidence, scoped to the domain,
+snapshotted with its reasons, reinforced by agreement — and your agent's memory
+stops confidently lying. It starts telling you not just *what* it knows, but
+*how much to bet on it, and why.*

@@ -1,0 +1,81 @@
+---
+title: "Domain Packs: extend an agent's ontology without forking"
+seoTitle: "Domain Packs — pluggable ontology for AI agent memory"
+description: "A general-purpose agent memory speaks a generic vocabulary. Real domains — real estate, medicine, law — need their own. Domain Packs add that vocabulary as versioned, signed, installable modules, with no fork of the core."
+date: "2026-07-09"
+author: "INITE Brain Team"
+category: "Engineering"
+tags: ["domain packs", "ontology", "agent memory", "knowledge graph", "extensibility"]
+directAnswer: "A Domain Pack is a versioned, signed manifest of domain-specific predicates (and extraction guidance) that installs into an agent's memory at runtime. It extends the shared ontology — teaching the memory to store 'zoned_as' or 'diagnosis' as first-class typed facts — without forking the core or redeploying."
+definitionSentence: "A Domain Pack is a pluggable, versioned bundle of ontology — namespaced predicates plus extraction hints — that a tenant installs to teach its agent memory the vocabulary of a specific domain."
+faqs:
+  - question: "Why not just store domain facts as free text?"
+    answer: "Free text can't be queried by relationship, deduplicated, conflict-resolved, or PII-gated. A typed predicate like real_estate__zoned_as gives the fact a shape: a datatype, conflict semantics, a PII class, and a place in the graph. Domain Packs are how you add those types for a vertical without hard-coding every industry into the core."
+  - question: "How do packs avoid colliding with each other or with core predicates?"
+    answer: "Every pack predicate is namespaced as <packId>__<localId>, so real_estate__status and hr__status never clash, and neither can shadow a core predicate. The loader validates and refuses any id collision at install rather than silently overriding — a misconfigured pack fails loudly, it doesn't corrupt the vocabulary."
+  - question: "Can I trust a pack I install from a registry?"
+    answer: "Packs are content-addressed by checksum and can be signed with an ed25519 publisher key. On install the memory recomputes the checksum from the manifest it received and verifies the signature against the tenant's trust store, fail-closed. You install exactly the bytes you reviewed, from a publisher you chose to trust."
+  - question: "What happens to my data when a pack is upgraded or removed?"
+    answer: "Facts always survive. Uninstalling a pack deprecates its predicates — they leave the active vocabulary but the recorded facts stay. Upgrading applies the manifest diff: changed predicate definitions are re-applied, dropped ones are deprecated, new ones seeded. The ontology moves forward without orphaning history."
+---
+
+A general-purpose agent memory has to speak a generic language: `name`,
+`status`, `preference`, `located_in`. That's the right default — it works
+everywhere. It's also not enough the moment your agent works somewhere
+*specific*.
+
+A real-estate agent needs to remember that a property is `zoned_as R-2` and
+`valued_at $540k`. A clinical assistant needs `diagnosis` and `medication`, each
+carrying the right PII class. You can bolt these on by forking the core and
+hard-coding a vocabulary — and then you own a fork forever. Domain Packs are the
+alternative.
+
+## Ontology as a module, not a fork
+
+A Domain Pack is a manifest: a versioned bundle of **predicates** the memory
+should understand, each with its datatype, conflict semantics, and PII class —
+plus optional **extraction guidance** that tunes how the model pulls those facts
+out of text. Install it into a tenant and, with no redeploy, the memory starts
+storing those facts as first-class, typed, queryable citizens of the graph.
+
+The core stays generic. The vertical vocabulary rides on top, per tenant, as
+data.
+
+## Namespacing keeps it safe
+
+Two packs will eventually both want a predicate called `status`. So every pack
+predicate is stored namespaced — `<packId>__<localId>` — which means
+`real_estate__status` and `hr__status` coexist, and neither can shadow a core
+predicate. The loader checks this at install and **refuses any collision** rather
+than silently overriding. A bad pack fails loudly; it never quietly corrupts the
+vocabulary another pack or the core depends on.
+
+## Versioned, signed, distributable
+
+Because a pack is just a manifest, it can travel. It's content-addressed by
+checksum, so republishing the same version with different bytes is rejected —
+versions are immutable. It can be **signed** with a publisher key; on install the
+memory recomputes the checksum and verifies the signature against the tenant's
+trust store, fail-closed. And it can live in a **global registry** — publish a
+version, discover it, install the latest non-yanked or pin an exact one. It's
+the npm-for-ontology pattern, with the supply-chain hygiene that implies.
+
+Out of the box there's a six-pack industry library — real estate, fintech,
+medical, legal, insurance, HR — as a starting point you can install, fork, or
+ignore.
+
+## Upgrades that don't orphan history
+
+Ontologies drift. A pack gets a new predicate, retires an old one, tightens a PII
+class. The upgrade path applies the **diff**: changed definitions are re-applied,
+dropped predicates are deprecated (not deleted — their facts survive), new ones
+are seeded. Uninstalling is the same discipline: predicates leave the active
+vocabulary, the recorded facts stay put. You can evolve what your agent
+understands without losing what it already knows.
+
+## The shape of the idea
+
+Keep the core small and generic. Push the domain into versioned, signed,
+installable modules that namespace cleanly and never orphan a fact. Your agent
+learns to speak medicine, or law, or real estate — and you never fork a line of
+the memory to do it.
