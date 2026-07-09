@@ -75,6 +75,7 @@ export class SearchRetrievalService {
                   query: ctx.dto.query,
                   k: ctx.candidateK,
                   baseWhere,
+                  logger: this.logger,
                 }),
                 this.runExpansionLegs(db, ctx, baseWhere),
               ]);
@@ -157,6 +158,7 @@ export class SearchRetrievalService {
           query: alt,
           k: ctx.candidateK,
           baseWhere,
+          logger: this.logger,
         }).catch((e: Error) => {
           this.logger.warn(`expansion leg failed: ${e.message}`);
           return [] as FactRow[];

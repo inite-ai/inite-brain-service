@@ -22,6 +22,8 @@ export interface RunVectorLegOptions {
   query: string;
   k: number;
   baseWhere: { sql: string; params: Record<string, unknown> };
+  /** For the HNSW-fallback warning; the leg stays silent without it. */
+  logger?: { warn: (msg: string) => void };
 }
 
 export async function runVectorLeg({
@@ -30,8 +32,23 @@ export async function runVectorLeg({
   query,
   k,
   baseWhere,
+  logger,
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
+  // HNSW path (opt-in): approximate KNN over the per-tenant indexes
+  // created by POST /v1/admin/maintenance/hnsw. Any failure — most
+  // commonly "no index on this tenant yet" — falls back to the exact
+  // full scan below, so the flag can be flipped globally while tenants
+  // are indexed one by one.
+  if (process.env.SEARCH_HNSW_ENABLED === '1') {
+    try {
+      return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere });
+    } catch (e) {
+      logger?.warn(
+        `hnsw vector leg fell back to full scan: ${(e as Error).message}`,
+      );
+    }
+  }
   const sql = `
       SELECT
         id, entityId, predicate, object, confidence,
@@ -54,6 +71,83 @@ export async function runVectorLeg({
     k,
   });
   return (rows as FactRow[]) ?? [];
+}
+
+/**
+ * HNSW KNN variant of the vector leg. Two KNN queries — the main
+ * `embedding` index and the HyPE `altEmbedding` index — merged by max
+ * cosine, mirroring the full scan's `math::max(cos, altCos)`. The KNN
+ * operator picks candidates BEFORE the WHERE filters apply, so both
+ * queries over-fetch (`SEARCH_HNSW_OVERFETCH × k`, capped 1000) to keep
+ * filtered recall up; `SEARCH_HNSW_EF` is the HNSW search width. Throws
+ * when the tenant has no index — the caller falls back to the scan.
+ */
+async function runVectorLegKnn({
+  db,
+  queryEmbedding,
+  k,
+  baseWhere,
+}: {
+  db: Surreal;
+  queryEmbedding: number[];
+  k: number;
+  baseWhere: { sql: string; params: Record<string, unknown> };
+}): Promise<FactRow[]> {
+  const ef = positiveIntEnv('SEARCH_HNSW_EF', 100);
+  const overfetch = positiveIntEnv('SEARCH_HNSW_OVERFETCH', 4);
+  const kOver = Math.min(k * overfetch, 1000);
+  const projection = `
+        id, entityId, predicate, object, confidence,
+        validFrom, validUntil, recordedAt, retractedAt, status, source,
+        trustSnapshot, corroboration,
+        entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
+  // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
+  const [mainRows, altRows] = await Promise.all([
+    db
+      .query<[FactRow[]]>(
+        `SELECT ${projection},
+                vector::similarity::cosine(embedding, $q) AS simScore
+           FROM knowledge_fact
+           WHERE embedding <|${kOver},${ef}|> $q
+             ${baseWhere.sql}
+           ORDER BY simScore DESC
+           LIMIT $k`,
+        { ...baseWhere.params, q: queryEmbedding, k },
+      )
+      .then(([rows]) => (rows as FactRow[]) ?? []),
+    db
+      .query<[FactRow[]]>(
+        `SELECT ${projection},
+                vector::similarity::cosine(altEmbedding, $q) AS simScore
+           FROM knowledge_fact
+           WHERE altEmbedding <|${kOver},${ef}|> $q
+             ${baseWhere.sql}
+           ORDER BY simScore DESC
+           LIMIT $k`,
+        { ...baseWhere.params, q: queryEmbedding, k },
+      )
+      .then(([rows]) => (rows as FactRow[]) ?? []),
+  ]);
+  // Max-cosine merge across the two indexes — same semantics as the full
+  // scan's math::max; no stage tag, both are the plain vector leg.
+  const byId = new Map<string, FactRow>();
+  for (const r of mainRows) byId.set(String(r.id), r);
+  for (const r of altRows) {
+    const key = String(r.id);
+    const prior = byId.get(key);
+    if (!prior) byId.set(key, r);
+    else if ((r.simScore ?? -1) > (prior.simScore ?? -1)) {
+      prior.simScore = r.simScore;
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => (b.simScore ?? -1) - (a.simScore ?? -1))
+    .slice(0, k);
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
 /**

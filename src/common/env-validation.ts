@@ -117,6 +117,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MAX_GROUPS', errors);
 
+  // ── HNSW vector leg ────────────────────────────────────────────────
+  positiveInt(env, 'SEARCH_HNSW_EF', errors);
+  positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
+
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
   positiveInt(env, 'DOC_CHUNK_TARGET_CHARS', errors);

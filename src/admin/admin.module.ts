@@ -28,6 +28,8 @@ import { ThrottlerObservabilityService } from './throttler-observability.service
 import { ThrottlerObservabilityInterceptor } from './throttler-observability.interceptor';
 import { AdminPacksController } from './admin-packs.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
+import { AdminHnswController } from './admin-hnsw.controller';
+import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
 import { IndexersModule } from '../indexers/indexers.module';
@@ -79,9 +81,11 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminInfraController,
     AdminPacksController,
     AdminCodeMemoryController,
+    AdminHnswController,
   ],
   providers: [
     AdminService,
+    HnswMaintenanceService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,
