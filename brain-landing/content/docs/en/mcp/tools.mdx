@@ -1,6 +1,6 @@
 # MCP tools reference
 
-The server registers **25 tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 18 read (`brain:read`), 6 more with `brain:write`, and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated in the repo's `docs/roadmap/mcp-and-memory.md`.
+The server registers **26 tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 18 read (`brain:read`), 7 more with `brain:write` (one of which, `ingest_document`, is registered only when `DOCUMENT_INGEST_ENABLED=1`), and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated in the repo's `docs/roadmap/mcp-and-memory.md`.
 
 ## search_knowledge
 

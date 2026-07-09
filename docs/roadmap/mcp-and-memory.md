@@ -4,8 +4,9 @@
 > Phases 1–4 are all landed: `memory_diff`, `summarize_entity`,
 > `get_competing_facts`, `detect_contradiction`, procedural memory, MCP
 > resources (`brain://entity/...`), sampling, the new skills, and the
-> ClaudeMcpAgent. The live MCP surface is **25 tools** (18 read / 24 with
-> write / 25 with admin) + 2 resources. The only genuinely-open items are:
+> ClaudeMcpAgent. The live MCP surface is **26 tools** (18 read / 25 with
+> write / 26 with admin) + 2 resources — the 26th, `ingest_document`, is
+> registered only when `DOCUMENT_INGEST_ENABLED=1`. The only genuinely-open items are:
 > the full paid LoCoMo run + published numbers (Phase 5.2), optional
 > BERTScore (5.3), and MCP resource *subscribe* (4.2, deferred to v2). Read
 > the rest as a record of what was built, not work to redo.
