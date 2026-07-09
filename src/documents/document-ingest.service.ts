@@ -92,6 +92,24 @@ export class DocumentIngestService {
     return commit;
   }
 
+  /**
+   * Commit ONLY when every run for the document is terminal — the
+   * external-candidates path shares the async queue's deferral rule so a
+   * remote submission doesn't slice a half-finished fan-out's merge.
+   */
+  async commitIfSettled(
+    companyId: string,
+    docId: string,
+  ): Promise<(CommitResult & { deferred: boolean }) | null> {
+    const doc = await this.store.getById(companyId, docId);
+    if (!doc) return null;
+    const commit = await this.commit.commitIfRunsSettled(companyId, doc);
+    if (commit.committed) {
+      await this.store.setStatus({ companyId, docId: doc.id, status: 'committed' });
+    }
+    return commit;
+  }
+
   private shapeResponse(p: {
     doc: { id: string };
     chunks: unknown[];

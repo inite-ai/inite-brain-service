@@ -35,14 +35,20 @@ export interface CandidateProvenance {
   model: string | null;
 }
 
+/**
+ * `ungrounded` marks a candidate whose spans could NOT be re-validated
+ * against stored text (external submission on a storeContent:false
+ * document). Absent = grounded or produced in-process.
+ */
 export interface CandidateEntity extends ExtractedEntity {
   /** Position within the producing run's entity list (extractor order). */
   entityIndex: number;
+  ungrounded?: boolean;
 }
 
-export type CandidateFact = ExtractedFact;
+export type CandidateFact = ExtractedFact & { ungrounded?: boolean };
 
-export type CandidateRelation = ExtractedEdge;
+export type CandidateRelation = ExtractedEdge & { ungrounded?: boolean };
 
 /**
  * One indexer's reading of one chunk. entityIndex references are LOCAL to

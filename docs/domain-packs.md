@@ -24,6 +24,7 @@ interface DomainPackManifest {
   version: string;       // semver MAJOR.MINOR.PATCH — bump to ship an update
   description: string;
   predicates: PackPredicate[];   // the ontology this pack contributes
+  indexer?: IndexerDescriptor;   // document-pipeline execution (see below)
 }
 
 type PackPredicate = {
@@ -134,6 +135,45 @@ The first pack to use this is **real_estate** (`src/ai/domain-packs/
 real-estate.pack.ts`, distributable JSON at `packs/real-estate.pack.json`) — a
 DISTRIBUTABLE pack (installed per-tenant, deliberately NOT a builtin so its
 domain predicates don't seed into unrelated tenants).
+
+## Indexer descriptor
+
+A pack MAY declare how it participates in the
+[document pipeline](document-pipeline.md) via the optional `indexer` field —
+data inside the signed manifest, so signature / checksum / version-immutability
+cover it with no extra machinery:
+
+```jsonc
+"indexer": {
+  "mode": "dedicated",              // 'virtual' (default) | 'dedicated' | 'external'
+  "relevance": {                    // routing triggers (dedicated/external only)
+    "keywords": ["zoned", "listing"],
+    "verticals": ["crm"],           // subscribe to contextRef.vertical values
+    "description": "Real-estate documents: listings, zoning, valuations",
+    "threshold": 0.3,               // cosine gate for the description layer
+    "alwaysRun": false              // config-based subscription (bypass router)
+  },
+  "dedicated": {
+    "includeCorePredicates": true,  // entity typing needs the core cards
+    "model": "gpt-4o",              // per-pack model override
+    "scPasses": 3                   // per-pack self-consistency budget
+  }
+}
+```
+
+- **`virtual`** (absent descriptor) — the pack rides the single union
+  extraction call; its facts are attributed by predicate namespace at zero
+  extra LLM cost. This is already "N indexers per document" semantically.
+- **`dedicated`** — the pack gets its OWN extraction run over a pack-filtered
+  vocabulary + profile: a whole prompt budget for one domain, per-domain model
+  choice, independent failure, a distinct cache/calibration identity. Gated
+  per document by the relevance router; opt in when
+  `POST /v1/admin/packs/:id/eval?mode=dedicated` beats `?mode=union` on the
+  pack's own fixtures.
+- **`external`** — the pack IS a registration for a remote indexer that stages
+  candidates via `POST /v1/documents/:id/candidates` (scope `indexer:write`);
+  no in-process extraction runs for it. The builtin `code_memory` pack is the
+  reference external indexer — its capture pipeline runs where the code lives.
 
 ## The registry (global catalogue)
 

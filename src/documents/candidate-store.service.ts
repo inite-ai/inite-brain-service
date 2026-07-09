@@ -128,6 +128,7 @@ export class CandidateStoreService {
             name: e.name,
             type: e.type,
             canonical: e.canonical,
+            ungrounded: e.ungrounded,
             indexerId: prov.indexerId,
             packVersion: prov.packVersion,
             executionMode: prov.executionMode,
@@ -145,6 +146,7 @@ export class CandidateStoreService {
             predicate: f.predicate,
             object: f.object,
             clause: f.clause,
+            ungrounded: f.ungrounded,
             extractionEntropy: f.extractionEntropy,
             extractionAgreement: f.extractionAgreement,
             indexerId:

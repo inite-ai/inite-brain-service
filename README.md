@@ -210,7 +210,7 @@ runs on any host.
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) |
+| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [Document pipeline](docs/document-pipeline.md) |
 | **Extend it** | [Domain Packs](docs/domain-packs.md) · [Pack distribution & registry](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |

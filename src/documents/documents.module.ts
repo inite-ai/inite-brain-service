@@ -4,6 +4,8 @@ import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { IndexersModule } from '../indexers/indexers.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsIngestController } from './documents-ingest.controller';
+import { ExternalCandidatesController } from './external-candidates.controller';
+import { ExternalCandidatesService } from './external-candidates.service';
 import { DocumentStoreService } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { IndexerRunService } from './indexer-run.service';
@@ -25,7 +27,11 @@ import { MentionViaDocumentService } from './mention-via-document.service';
  */
 @Module({
   imports: [AiModule, IngestCoreModule, IndexersModule],
-  controllers: [DocumentsController, DocumentsIngestController],
+  controllers: [
+    DocumentsController,
+    DocumentsIngestController,
+    ExternalCandidatesController,
+  ],
   providers: [
     DocumentStoreService,
     CandidateStoreService,
@@ -38,6 +44,7 @@ import { MentionViaDocumentService } from './mention-via-document.service';
     DocumentReindexService,
     CandidateSweeperService,
     MentionViaDocumentService,
+    ExternalCandidatesService,
   ],
   exports: [
     DocumentIngestService,
