@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
+import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 
 /**
  * Cross-encoder reranker via Cohere Rerank v3.5.
@@ -48,12 +49,20 @@ export class CrossEncoderService {
   private readonly endpoint: string;
   private readonly timeoutMs: number;
   private readonly limiter: Semaphore;
+  private readonly localEnabled: boolean;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly local?: LocalCrossEncoderProvider,
+  ) {
     this.enabled =
       this.configService.get<string>('SEARCH_CROSS_ENCODER_ENABLED', '0') ===
       '1';
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
+    // Local fallback is opt-in and only matters when the primary (Cohere) path
+    // isn't configured — a self-hoster with no rerank vendor.
+    this.localEnabled =
+      this.configService.get<string>('SEARCH_CROSS_ENCODER_LOCAL', '0') === '1';
     this.model = this.configService.get<string>(
       'SEARCH_CROSS_ENCODER_MODEL',
       'rerank-v3.5',
@@ -74,8 +83,16 @@ export class CrossEncoderService {
     );
   }
 
-  isEnabled(): boolean {
+  /** Cohere (primary) path is configured. */
+  private cohereConfigured(): boolean {
     return this.enabled && !!this.apiKey;
+  }
+
+  /** Whether the rerank stage should run at all — the caller gates on this.
+   *  True when EITHER the Cohere path is configured OR the local fallback is
+   *  opted in and wired. */
+  isEnabled(): boolean {
+    return this.cohereConfigured() || (this.localEnabled && !!this.local);
   }
 
   /**
@@ -88,7 +105,16 @@ export class CrossEncoderService {
     candidates: CrossEncoderCandidate[],
   ): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
-    if (!this.isEnabled() || candidates.length <= 1 || !query.trim()) {
+    if (candidates.length <= 1 || !query.trim()) {
+      return identity;
+    }
+    // Primary path is Cohere. When that isn't configured, fall back to the
+    // local cross-encoder if opted in — a self-hoster with no rerank vendor
+    // still gets a joint-encoder pass.
+    if (!this.cohereConfigured()) {
+      if (this.localEnabled && this.local) {
+        return this.rerankLocal(query, candidates, identity);
+      }
       return identity;
     }
 
@@ -160,6 +186,37 @@ export class CrossEncoderService {
       return identity;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Local-model rerank branch. Scores each candidate with the local
+   * cross-encoder and returns the descending-relevance permutation. Any failure
+   * (warmup miss, mismatched score count) falls back to identity — retrieval
+   * never breaks because the optional local reranker hiccupped, same contract
+   * as the Cohere path.
+   */
+  private async rerankLocal(
+    query: string,
+    candidates: CrossEncoderCandidate[],
+    identity: number[],
+  ): Promise<number[]> {
+    const documents = candidates.map((c) =>
+      c.body ? `${c.label}\n${c.body}` : c.label,
+    );
+    try {
+      const scores = await this.limiter.run(() =>
+        this.local!.score(query, documents),
+      );
+      if (scores.length !== candidates.length) return identity;
+      return candidates
+        .map((_, i) => i)
+        .sort((a, b) => scores[b] - scores[a]);
+    } catch (e) {
+      this.logger.warn(
+        `Local cross-encoder failed: ${(e as Error).message} — falling back to identity`,
+      );
+      return identity;
     }
   }
 }
