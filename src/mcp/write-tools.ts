@@ -6,6 +6,7 @@ import type { FactsService } from '../facts/facts.service';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { DocumentIngestService } from '../documents/document-ingest.service';
+import type { FeedbackService } from '../feedback/feedback.service';
 import { DOC_TEXT_HARD_CAP } from '../documents/dto/ingest-document.dto';
 import { docMaxChars } from '../documents/documents-gate';
 import type { BrainScope } from '../auth/api-key.types';
@@ -15,6 +16,7 @@ export interface WriteToolDeps {
   facts: FactsService;
   procedural: ProceduralMemoryService;
   documents?: DocumentIngestService;
+  feedback?: FeedbackService;
 }
 
 export interface AdminToolDeps {
@@ -32,11 +34,14 @@ export function registerWriteTools({
   companyId,
   deps,
   scopes,
+  actorKeyHash,
 }: {
   server: McpServer;
   companyId: string;
   deps: WriteToolDeps;
   scopes: BrainScope[];
+  /** Caller key hash — actor identity for record_feedback's one-vote fence. */
+  actorKeyHash?: string;
 }): void {
   // ── record_fact ────────────────────────────────────────────────
   server.registerTool(
@@ -155,6 +160,37 @@ export function registerWriteTools({
       };
     },
   );
+
+  // ── record_feedback ────────────────────────────────────────────
+  if (deps.feedback) {
+    const feedback = deps.feedback;
+    server.registerTool(
+      'record_feedback',
+      {
+        title: 'Report whether a retrieved fact was useful',
+        description:
+          "Close the retrieval loop: after using a fact from search_knowledge / synthesize, report 'helpful' (it answered the question), 'incorrect' (the fact is wrong — counts against its source's learned reputation at the nightly refit), or 'not_helpful' (irrelevant hit; stored, but not a reliability signal). One standing vote per caller key per fact — repeat calls replace your previous verdict.",
+        inputSchema: {
+          factId: z.string(),
+          verdict: z.enum(['helpful', 'not_helpful', 'incorrect']),
+          reason: z.string().max(1000).optional(),
+        },
+      },
+      async (args) => {
+        const out = await feedback.record({
+          companyId,
+          factId: args.factId,
+          verdict: args.verdict,
+          reason: args.reason,
+          actor: actorKeyHash ?? `mcp:${companyId}`,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          structuredContent: out as any,
+        };
+      },
+    );
+  }
 
   // ── record_procedure ───────────────────────────────────────────
   server.registerTool(

@@ -53,6 +53,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/facts/:id/retract` | Mark a fact retracted with reason; survives in audit trail. |
+| `POST /v1/feedback` | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. Also on MCP as `record_feedback`. |
 | `POST /v1/entities/:id/forget` | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained. |
 
 ## Background work

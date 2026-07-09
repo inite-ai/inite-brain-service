@@ -87,6 +87,17 @@ pairs from different origins go to an LLM judge, and a `same_assertion`
 verdict applies the identical corroboration write — the counter still only
 grows per distinct origin.
 
+## Retrieval feedback (0054)
+
+Consumers close the loop through `POST /v1/feedback` (MCP:
+`record_feedback`): `helpful` counts as a win for the fact's source at the
+nightly refit, `incorrect` as a loss — the same currency as
+supersede/corroboration outcomes, so feedback moves ranking through the
+already-shipped `SEARCH_TRUST_BETA` multiplier. One standing vote per
+(fact, caller key) — repeat feedback replaces the verdict, so a single
+consumer cannot farm its own source's rate. `not_helpful` is stored as a
+relevance signal but deliberately does not touch reliability.
+
 ## Trust at read time (opt-in)
 
 By default, retrieval is unchanged. Three env flags let trust move rankings:

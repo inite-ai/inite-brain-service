@@ -193,6 +193,13 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly feedbackCount = new Counter({
+    name: 'brain_feedback_total',
+    help: 'Retrieval feedback verdicts recorded',
+    labelNames: ['verdict'] as const,
+    registers: [this.registry],
+  });
+
   readonly openaiTokens = new Counter({
     name: 'brain_openai_tokens_total',
     help: 'OpenAI tokens consumed, by call kind and token type',
@@ -417,6 +424,10 @@ export class MetricsService implements OnModuleInit {
 
   countPromoted(n: number): void {
     if (n > 0) this.promotionFacts.inc(n);
+  }
+
+  countFeedback(verdict: 'helpful' | 'not_helpful' | 'incorrect'): void {
+    this.feedbackCount.inc({ verdict } as LabelValues<'verdict'>);
   }
 
   countDocument(result: 'created' | 'deduplicated' | 'failed'): void {
