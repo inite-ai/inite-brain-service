@@ -66,6 +66,14 @@ export interface ScoreRowsOptions {
    */
   trustBeta?: number;
   corroborationGamma?: number;
+  /**
+   * δ scales the registry-declared source authority (0..1, stamped into
+   * trustSnapshot at write time) into ranking (`× (1 + δ·authority)`).
+   * Unlike trust, authority has no neutral midpoint — 0 means "no declared
+   * authority", so facts without a registry entry are unaffected at ANY δ.
+   * Default 0 → factor exactly 1.0 → byte-identical ranking.
+   */
+  authorityDelta?: number;
 }
 
 const CORROBORATION_CAP = 3;
@@ -77,6 +85,7 @@ export function scoreRows({
   calibrator = null,
   trustBeta = 0,
   corroborationGamma = 0,
+  authorityDelta = 0,
 }: ScoreRowsOptions): ScoredRow[] {
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
@@ -111,18 +120,21 @@ export function scoreRows({
         : undefined;
     const sourceReputation = learned ?? snapshot?.declaredTrust ?? 0.5;
     const corroborationCount = row.corroboration?.count ?? 0;
+    const authority = snapshot?.authority ?? 0;
     const trustFactor = 1 + trustBeta * (sourceReputation - 0.5);
     const corroborationFactor =
       1 + corroborationGamma * Math.min(corroborationCount, CORROBORATION_CAP);
+    const authorityFactor = 1 + authorityDelta * authority;
     const factTrust = {
       sourceReputation,
-      authority: snapshot?.authority ?? 0,
+      authority,
       corroborationCount,
       evidenceCount: Array.isArray(row.source?.evidence)
         ? row.source.evidence.length
         : 0,
       trustFactor,
       corroborationFactor,
+      authorityFactor,
     };
 
     const finalScore =
@@ -131,7 +143,8 @@ export function scoreRows({
       calibratedConfidence *
       predBoost *
       trustFactor *
-      corroborationFactor;
+      corroborationFactor *
+      authorityFactor;
     return {
       row,
       score: finalScore,

@@ -82,12 +82,15 @@ is the ordinary supersede-refresh.)
 
 ## Trust at read time (opt-in)
 
-By default, retrieval is unchanged. Two env flags let trust move rankings:
+By default, retrieval is unchanged. Three env flags let trust move rankings:
 
 - `SEARCH_TRUST_BETA` (β, default `0`) — scales a source-reputation multiplier.
 - `SEARCH_CORROBORATION_GAMMA` (γ, default `0`) — rewards corroboration count.
+- `SEARCH_AUTHORITY_DELTA` (δ, default `0`) — rewards registry-declared source
+  authority (facts from unregistered sources carry authority 0 and are
+  unaffected at any δ).
 
-The final score is multiplied by `(1 + β·(reputation − 0.5)) · (1 + γ·min(corroborationCount, 3))`,
+The final score is multiplied by `(1 + β·(reputation − 0.5)) · (1 + γ·min(corroborationCount, 3)) · (1 + δ·authority)`,
 so at the defaults it's a byte-for-byte no-op. When `explain` is on, the
 response carries the `factTrust` decomposition (reputation, authority, freshness,
 calibrated confidence, corroboration, evidence count). A separate

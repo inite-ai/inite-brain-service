@@ -113,6 +113,11 @@ export interface ScoreBreakdown {
     evidenceCount: number;
     trustFactor: number;
     corroborationFactor: number;
+    /**
+     * Multiplicative term `1 + δ·authority` (SEARCH_AUTHORITY_DELTA);
+     * exactly 1.0 while δ stays 0 or the source has no registry entry.
+     */
+    authorityFactor?: number;
   };
   finalScore: number;
   stages: RetrievalStage[];
