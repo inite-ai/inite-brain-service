@@ -42,7 +42,8 @@ export class StubEmbedder
  * extraction results call setScript() before exercising ingest-mention.
  */
 export class StubExtractor
-  implements Pick<ExtractorService, 'extract' | 'modelId'>
+  implements
+    Pick<ExtractorService, 'extract' | 'modelId' | 'vocabularyVersionHash'>
 {
   private script: ExtractionResult | null = null;
 
@@ -52,6 +53,11 @@ export class StubExtractor
 
   modelId(): string {
     return 'stub-extractor';
+  }
+
+  // Recorded on indexer_run rows by the document pipeline.
+  async vocabularyVersionHash(_companyId: string): Promise<string | undefined> {
+    return 'stub-vocab';
   }
 
   async extract(

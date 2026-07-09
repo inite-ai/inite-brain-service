@@ -193,8 +193,10 @@ export class CandidateStoreService {
     Array<{ runId: string; packId: string; packVersion: string; status: string }>
   > {
     return this.surreal.withCompany(companyId, async (db) => {
+      // SurrealDB 3.x: the ORDER BY field must be in the projection
+      // ("Missing order idiom" otherwise) — createdAt rides along.
       const [rows] = await db.query<[any[]]>(
-        `SELECT id, packId, packVersion, status FROM indexer_run
+        `SELECT id, packId, packVersion, status, createdAt FROM indexer_run
          WHERE docId = type::record('source_document', $doc)
          ORDER BY createdAt ASC`,
         { doc: idTailOf(docId) },
