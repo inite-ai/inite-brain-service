@@ -64,6 +64,13 @@ export interface FactRow {
     sourceKeys?: string[];
   } | null;
   /**
+   * Usage reinforcement (migration 0053): most recent time search
+   * surfaced this fact, attached by enrichWithUsage when
+   * SEARCH_USAGE_DECAY_ENABLED is on. Absent → decay from recordedAt
+   * exactly as before.
+   */
+  lastReadAt?: string;
+  /**
    * Set of stages that surfaced this row. Multi-stage hits are common
    * (e.g. hype + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.

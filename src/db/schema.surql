@@ -63,6 +63,20 @@ DEFINE INDEX IF NOT EXISTS fact_entity_pred_idx   ON knowledge_fact FIELDS entit
 -- DEFINE INDEX fact_embedding_idx ON knowledge_fact FIELDS embedding
 --   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
 
+-- ─── FactUsage (usage-based reinforcement, migration 0053) ──────────────
+-- "This fact was surfaced by search." Separate table (NOT fields on
+-- knowledge_fact) so per-search stamps stay out of the CHANGEFEED audit
+-- mirror, the artifact dirty-event, and the ingest KeyedMutex. Written
+-- fire-and-forget behind SEARCH_USAGE_RECORDING_ENABLED; consumed by
+-- scoring decay behind SEARCH_USAGE_DECAY_ENABLED.
+DEFINE TABLE IF NOT EXISTS fact_usage SCHEMAFULL;
+
+DEFINE FIELD IF NOT EXISTS factId     ON fact_usage TYPE record<knowledge_fact>;
+DEFINE FIELD IF NOT EXISTS readCount  ON fact_usage TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS lastReadAt ON fact_usage TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS fact_usage_fact_idx ON fact_usage FIELDS factId UNIQUE;
+
 -- ─── KnowledgeEdge ───────────────────────────────────────────────────────
 -- Surreal graph relations are first-class. We model edges as a `RELATE`-able
 -- table so we can use both property-based queries and graph traversal.

@@ -80,6 +80,14 @@ export class EntityForgetService {
       const edgesDeleted = edgeIds.length;
 
       // Cascade hard-delete. Embedding columns die with the rows.
+      // fact_usage rows (migration 0053) are keyed by fact record —
+      // resolve their cascade BEFORE the facts go, the record traversal
+      // dies with them.
+      await db.query(
+        `DELETE fact_usage
+         WHERE factId.entityId = type::record('knowledge_entity', $rid)`,
+        { rid: ref.id },
+      );
       await db.query(
         `DELETE knowledge_fact
          WHERE entityId = type::record('knowledge_entity', $rid)`,

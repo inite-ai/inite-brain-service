@@ -89,7 +89,18 @@ export function scoreRows({
 }: ScoreRowsOptions): ScoredRow[] {
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
-    const ageDays = (now - new Date(row.recordedAt).getTime()) / 86_400_000;
+    // Usage reinforcement: when the pipeline attached a lastReadAt
+    // (SEARCH_USAGE_DECAY_ENABLED → enrichWithUsage), the decay clock
+    // restarts at the most recent retrieval — memory that keeps getting
+    // used stays fresh. Unenriched rows decay from recordedAt exactly
+    // as before, so the flag off is byte-identical.
+    const freshAnchor = row.lastReadAt
+      ? Math.max(
+          new Date(row.recordedAt).getTime(),
+          new Date(row.lastReadAt).getTime(),
+        )
+      : new Date(row.recordedAt).getTime();
+    const ageDays = (now - freshAnchor) / 86_400_000;
     const decay =
       policy.decayHalfLifeDays === null
         ? 1
