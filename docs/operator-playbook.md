@@ -11,11 +11,12 @@ This is the day-2 manual for the people who keep brain running. If you're trying
 5. [Run a forget (GDPR)](#run-a-forget-gdpr)
 6. [Monitor: metrics + logs](#monitor-metrics--logs)
 7. [Run dreams off-cycle](#run-dreams-off-cycle)
-8. [Run compaction off-cycle](#run-compaction-off-cycle)
-9. [Drain a stuck job queue](#drain-a-stuck-job-queue)
-10. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
-11. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
-12. [Restore from event replay](#restore-from-event-replay)
+8. [Enable dreams in production (staged checklist)](#enable-dreams-in-production-staged-checklist)
+9. [Run compaction off-cycle](#run-compaction-off-cycle)
+10. [Drain a stuck job queue](#drain-a-stuck-job-queue)
+11. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
+12. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
+13. [Restore from event replay](#restore-from-event-replay)
 
 ---
 
@@ -134,6 +135,32 @@ Watch for:
 When NOT to enable dreams:
 - Tenants with very few entities (< ~50). The dedup cosine kNN doesn't have enough neighbours to be useful and you pay the LLM judge cost on basically every pair.
 - Workloads where competing facts are intentional (e.g. multi-source CRM where two sources disagree by design until human reconciliation). Run dedup but not resolve.
+
+## Enable dreams in production (staged checklist)
+
+Every hygiene loop ships dark (`DREAMS_ENABLED=0`, `DREAMS_DEDUP_ENABLED=0`, `DREAMS_RESOLVE_ENABLED=0`, `COMPACTION_SUMMARIES=false`) — a default deploy does no entity dedup, no competing-fact auto-resolution, no summary rollups. Turn them on one stage at a time, roughly a week apart, and let the metrics tell you when the previous stage is trustworthy.
+
+**Prerequisites (all stages):**
+
+- Migration **0052** applied — dreams-resolve writes `retractedBy='dreams'`, which the pre-0052 field ASSERT rejects. Without it stage 2 fails on its first resolution.
+- The memory-quality gauges are on your dashboard (`brain_memory_facts{status="competing"}`, `brain_memory_stale_active_facts`) — they are the before/after evidence for each stage.
+- Nightly quality eval green for the trailing week (`quality-eval` CI job) so a hygiene regression is attributable.
+
+**Stage 1 — dedup (`DREAMS_ENABLED=1`, `DREAMS_DEDUP_ENABLED=1`):**
+
+- Defaults are conservative (`DREAMS_DEDUP_MAX_PAIRS=50`, cosine ≥0.92, LLM judge). Merges are reversible `identity_of` edges — spot-check a few via `find_related_entities` before trusting the loop.
+- Watch `brain_dreams_emitted_total{kind="identity_link"}`: a one-off spike after a batch ingest is healthy; a recurring spike means upstream extraction fragments identities.
+
+**Stage 2 — resolve (`DREAMS_RESOLVE_ENABLED=1`), after ≥1 clean week of stage 1:**
+
+- Keep `DREAMS_RESOLVE_MIN_AGE_DAYS=7` and `DREAMS_RESOLVE_MAX_PAIRS=20` — the loop only adjudicates exactly-2-way pairs and defaults to "unsure", so cost and blast radius stay bounded.
+- Success signal: `brain_memory_facts{status="competing"}` trends down while the WARN-level unsure rate stays low. High unsure = the LLM can't disambiguate your domain; clear the backlog manually (`get_competing_facts` + `retract_fact`) instead of raising the caps.
+
+**Stage 3 — summaries (`COMPACTION_SUMMARIES=true`, optionally `DREAMS_LLM_SUMMARY_ENABLED=1`):**
+
+- Only after stages 1–2 are boring. The default generator is concat; the LLM generator falls back to concat on any error, so flipping `DREAMS_LLM_SUMMARY_ENABLED` is safe.
+
+**Rollback:** set the flags back to `0` — the loops simply stop at the next cron; nothing to migrate back. Already-applied resolutions are auditable (`retractedBy='dreams'`, `conflictTrace`) and individually reversible: retracting the winner revives the superseded fact with its prior interval.
 
 ## Run compaction off-cycle
 
