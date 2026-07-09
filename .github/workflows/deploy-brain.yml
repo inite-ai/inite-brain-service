@@ -220,6 +220,17 @@ jobs:
                 - SEARCH_STAGE_BUDGET_RERANK_MS=4000
                 - SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS=2000
                 - SEARCH_STAGE_BUDGET_BACKFILL_MS=2000
+                # Source-reputation trust at read time (source-reputation phase
+                # 5, docs/source-reputation.md). finalScore ×= (1 + β·(trust−0.5))
+                # × (1 + γ·min(corroboration, 3)). Turned ON after the quality
+                # eval was rerun with the flags set: overall recall@1 0.9466,
+                # recall@3 0.9885, MRR 0.9683 (n=262) — within tolerance of the
+                # trust-off baseline, delta-gate green. Conservative values:
+                # neutral sources (learnedTrust 0.5, no corroboration) stay a
+                # ×1.0 no-op, so the effect ramps gracefully as the nightly
+                # refit accumulates domain-scoped reputation.
+                - SEARCH_TRUST_BETA=0.15
+                - SEARCH_CORROBORATION_GAMMA=0.1
                 # ── Hybrid pipeline knobs ────────────────────────────────
                 # Chat router (Sprints 1-4.5): cache, embedding hints,
                 # collapse cache, intent classification, skip gate.
