@@ -231,6 +231,26 @@ jobs:
                 # refit accumulates domain-scoped reputation.
                 - SEARCH_TRUST_BETA=0.15
                 - SEARCH_CORROBORATION_GAMMA=0.1
+                # ── Document pipeline (Source → Indexer → Candidates → Brain,
+                # docs/document-pipeline.md) ─────────────────────────────
+                # Master switch: POST /v1/ingest/document + the /v1/documents/*
+                # surface + the MCP ingest_document tool. Additive endpoints.
+                - DOCUMENT_INGEST_ENABLED=1
+                # Dedicated per-pack indexer runs + relevance router + the
+                # async (queue-driven) fan-out. LLM fan-out is capped by
+                # MAX_DEDICATED_INDEXERS_PER_DOC (default 8).
+                - DOCUMENT_MULTI_INDEXER_ENABLED=1
+                # Route live mention ingestion through the pipeline (response
+                # contract preserved). Safe to enable now that the indexer_run
+                # reopen/reaper (#142) makes a crashed run recoverable.
+                - INGEST_MENTION_VIA_DOCUMENT=1
+                # Backfill stored documents with a pack's vocabulary on
+                # install/upgrade (bounded by REINDEX_MAX_DOCS_PER_RUN=500).
+                - REINDEX_ON_PACK_INSTALL=1
+                # Deliberately NOT set (default off): DOCUMENT_ALLOW_UNGROUNDED_
+                # EXTERNAL (security opt-in — lets external indexers stage
+                # unverifiable spans) and SEARCH_CROSS_ENCODER_LOCAL (prod uses
+                # the LLM reranker; no Cohere/cross-encoder configured).
                 # ── Hybrid pipeline knobs ────────────────────────────────
                 # Chat router (Sprints 1-4.5): cache, embedding hints,
                 # collapse cache, intent classification, skip gate.
