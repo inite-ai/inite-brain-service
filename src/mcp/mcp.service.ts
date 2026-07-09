@@ -31,6 +31,7 @@ const MCP_SERVER_VERSION = '0.3.0';
 const HEALTH_TOOLS = [
   'search_knowledge',
   'search_multi_hop',
+  'graph_retrieve',
   'synthesize',
   'memory_diff',
   'get_entity_profile',

@@ -71,6 +71,7 @@ function resourceNames(server: McpServer): string[] {
 const READ_BASELINE = [
   'search_knowledge',
   'search_multi_hop',
+  'graph_retrieve',
   'synthesize',
   'memory_diff',
   'get_entity_profile',
