@@ -18,6 +18,9 @@ export const DEFAULT_STAGE_BUDGET_MS = {
   rerank: 4000,
   crossEncoder: 2000,
   backfill: 2000,
+  // One cached-miss LLM round trip; on timeout the original-query legs
+  // serve the request alone.
+  queryExpansion: 1500,
 } as const;
 
 export type StageBudgets = Record<keyof typeof DEFAULT_STAGE_BUDGET_MS, number>;
@@ -39,6 +42,10 @@ export function resolveStageBudgets(env = process.env): StageBudgets {
     backfill: fromEnv(
       'SEARCH_STAGE_BUDGET_BACKFILL_MS',
       DEFAULT_STAGE_BUDGET_MS.backfill,
+    ),
+    queryExpansion: fromEnv(
+      'SEARCH_STAGE_BUDGET_QUERY_EXPANSION_MS',
+      DEFAULT_STAGE_BUDGET_MS.queryExpansion,
     ),
   };
 }

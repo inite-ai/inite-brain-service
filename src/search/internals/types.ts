@@ -12,6 +12,7 @@
 export type RetrievalStage =
   | 'hype'
   | 'lexical'
+  | 'query_expansion'
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'

@@ -57,6 +57,33 @@ export async function runVectorLeg({
 }
 
 /**
+ * Merge alternative-query vector hits into the primary vector leg's
+ * rows: a fact both legs found keeps one row with the max simScore; a
+ * fact only a reformulation found joins the pool pre-tagged
+ * 'query_expansion' so DecisionLog can attribute it (fusion appends its
+ * own 'hype' tag after — insertion order keeps expansion dominant).
+ */
+export function mergeVectorRows(
+  primary: FactRow[],
+  altRows: FactRow[],
+): FactRow[] {
+  const byId = new Map<string, FactRow>();
+  for (const r of primary) byId.set(String(r.id), r);
+  for (const r of altRows) {
+    const key = String(r.id);
+    const prior = byId.get(key);
+    if (prior) {
+      if ((r.simScore ?? -1) > (prior.simScore ?? -1)) {
+        prior.simScore = r.simScore;
+      }
+    } else {
+      byId.set(key, { ...r, stages: ['query_expansion'] });
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
  * Lexical leg — BM25 over the `searchHaystack` (predicate + object,
  * migration 0007) and `object` (legacy index, migration 0002) via the
  * `@N@` per-index score operator. Two scored fields combined with

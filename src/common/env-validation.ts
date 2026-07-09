@@ -109,6 +109,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
+  // ── Read-side query expansion ──────────────────────────────────────
+  positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
+
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
   positiveInt(env, 'DOC_CHUNK_TARGET_CHARS', errors);
