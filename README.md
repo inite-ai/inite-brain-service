@@ -48,6 +48,16 @@ a system of record*.
   cross-encoder → listwise LLM rerank with self-consistency.
 - **Conflict-aware ingest.** Two ingests for one fact go through a scored
   ladder; close calls land as `COMPETING`, not a silent overwrite.
+- **Source-aware trust.** A fact isn't *true* — it's *claimed by a source,
+  trusted under context*. Every fact records who claimed it plus a reputation
+  snapshot taken at write time; reputation is **domain-scoped** (a source strong
+  on one predicate isn't trusted blindly on another), agreement across sources
+  **corroborates**, and the trust that moves a ranking is stored with its
+  "because" decomposition — never recomputed behind your back.
+- **Pluggable ontology.** Domain Packs extend the predicate registry without
+  forking core: a signed, versioned manifest format, a six-pack industry library
+  (real-estate, fintech, medical, legal, insurance, HR), and a global pack
+  registry to publish and install them per tenant at runtime.
 - **A forget that deletes.** GDPR erasure is a synchronous hard cascade —
   facts, edges, and embeddings gone, only an HMAC tombstone left to prove it.
 - **Native MCP.** A per-tenant Streamable HTTP endpoint with scope-aware tools.
@@ -142,7 +152,7 @@ Methodology: [`docs/eval.md`](docs/eval.md).
 
 ## Stack
 
-NestJS 11 + TypeScript on Node 22 · SurrealDB 2.3 (HNSW + BM25, one database
+NestJS 11 + TypeScript on Node 22 · SurrealDB 3.x (HNSW + BM25, one database
 per tenant) · BGE-M3 embeddings (ONNX, runs locally in a worker thread) ·
 OpenAI `gpt-4o-mini` for extraction / synthesize / verifier · optional Cohere
 Rerank · a SurrealDB-native job queue · OpenTelemetry. Ships as a Docker image;
@@ -153,7 +163,8 @@ runs on any host.
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) |
+| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) |
+| **Extend it** | [Domain Packs](docs/domain-packs.md) · [Pack distribution & registry](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
 
@@ -184,8 +195,10 @@ public issue — see [`SECURITY.md`](SECURITY.md).
 ## Roadmap
 
 Shipped: bitemporal graph, hybrid retrieval pipeline, conflict resolution,
-identity merge, GDPR forget, native MCP, eval-gated CI, off-hours self-improvement
-(dreams).
+domain-scoped source reputation + cross-source corroboration, identity merge,
+GDPR forget, native MCP, Domain Packs (industry library + signed global
+registry), code memory (record *why* a decision was made, drift-resistant symbol
+anchors), eval-gated CI, off-hours self-improvement (dreams).
 
 Exploring (issues + ideas welcome): HNSW on by default for large tenants,
 multi-hop edge-expansion by default, a local cross-encoder fallback, per-leg
