@@ -1,0 +1,80 @@
+---
+title: "Code memory: teach your agent why the code is the way it is"
+seoTitle: "Code memory for AI agents — remember decisions, not just code"
+description: "A coding agent can read the whole repo and still not know why a line exists. Code memory captures the decisions, gotchas, and invariants behind the code — and anchors them to symbols so they survive a refactor."
+date: "2026-07-09"
+author: "INITE Brain Team"
+category: "Engineering"
+tags: ["code memory", "coding agents", "knowledge graph", "developer tools", "AI agents"]
+directAnswer: "Code memory is a layer that remembers the reasoning behind code — the decisions, trade-offs, gotchas, and invariants — rather than indexing the code itself. It captures that 'why' from commits and conversations, gates out the noise, and anchors each note to a code symbol so it survives renames and moves."
+definitionSentence: "Code memory is a store of the decisions and constraints behind a codebase — why a thing is the way it is — anchored to durable symbol identities so the knowledge follows the code through refactors instead of rotting against line numbers."
+faqs:
+  - question: "How is code memory different from a code search or RAG-over-repo index?"
+    answer: "A code index answers 'where is this code?' — it embeds the source and retrieves similar snippets. Code memory answers 'why is this code?' — the reasoning that isn't in the source at all: the trade-off you made, the gotcha you hit, the invariant that must hold. The agent can already read the repo; what it can't read is the decision that produced it."
+  - question: "Won't capturing every commit just create noise?"
+    answer: "Which is why capture is gated. A layered classifier decides whether a commit or message actually carries a decision, rationale, invariant, or gotcha before anything is stored — most 'bump deps' and 'fix typo' commits are dropped. Only the reasoning-bearing changes become memory, so recall stays high without burying the signal."
+  - question: "What happens to a note when the code it refers to gets refactored?"
+    answer: "It's anchored to a symbol path, not a line number. A note attached to a function follows that function when it moves or the file is reformatted. When a symbol genuinely disappears, a re-validation sweep tries to re-anchor it to its renamed match and, only if there's no plausible one, retires it — so the memory doesn't quietly point at the wrong code."
+  - question: "Does the code or source ever leave my machine?"
+    answer: "No. Capture runs client-side: the classifier and extraction happen where the code lives, and only the resulting note plus a symbol anchor and provenance travel to the memory. Raw source never crosses the wire."
+---
+
+Point a coding agent at your repo and it can read every line. Ask it *why* a
+particular line exists and it's stuck — because the answer was never in the code.
+It was in a commit message that scrolled away, a review comment, a Slack thread,
+someone's head. The code is the *what*. The expensive, easily-lost part is the
+*why*.
+
+## Indexing the repo is the wrong layer
+
+The reflex is RAG-over-repo: embed the source, retrieve similar snippets. That's
+a fine code *search*. It's a useless *memory*, because the thing you keep
+re-learning isn't the code — the agent can read that — it's the reasoning that
+produced it:
+
+- **Decisions** — "we funnel all token checks through one guard."
+- **Rationale** — "because three middlewares had drifted and disagreed on
+  expiry."
+- **Invariants** — "every migration must be idempotent."
+- **Gotchas** — "SCHEMAFULL rejects a JS null for `option<>` — emit NONE."
+
+None of that is recoverable from the diff. Re-indexing the source a thousand
+times will never surface it, because it isn't there.
+
+## Capture the why, gate out the noise
+
+Most commits carry no decision — `bump deps`, `run prettier`, `fix typo`. If you
+store all of them you bury the signal. So capture is **gated**: a layered
+classifier decides whether a change actually carries a decision, rationale,
+invariant, or gotcha before anything is written, and only the reasoning-bearing
+ones become memory. The cheap heuristic catches the obvious cases; a trained
+gate handles the ones where the reason hides in the subject line. The result is
+a memory that's dense with *why* and light on noise.
+
+And it runs where the code does. Classification and extraction happen
+client-side; only the finished note, a symbol anchor, and provenance travel to
+the store. Raw source never leaves the machine.
+
+## Anchor to symbols, not line numbers
+
+Here's what kills most code-adjacent notes: they're pinned to a file and a line,
+and the first `git pull` or formatter run moves the line out from under them. A
+week later the note points at the wrong code, which is worse than no note.
+
+Code memory anchors to a **symbol path** —
+`FactResolverService.resolve`, not `file.ts:184`. Reformat the file, move the
+function, shift a hundred lines: the anchor still resolves. When a symbol
+genuinely disappears, a re-validation sweep tries to re-anchor it to its renamed
+match — `resolv` → `resolve` — and only retires the note if there's no plausible
+one. A blast-radius guard refuses to mass-invalidate when a sweep is
+misconfigured, so a run from the wrong directory can't wipe your notes.
+
+## Why it compounds
+
+Every decision an agent captures makes the next one cheaper. The next time it
+touches that guard, the reason it exists is right there — anchored to the guard,
+not lost in history. Give your agent a memory for *why*, and it stops re-deriving
+the same conclusions, or worse, undoing them.
+
+The code says what. Code memory says why — and keeps saying it after the
+refactor.
