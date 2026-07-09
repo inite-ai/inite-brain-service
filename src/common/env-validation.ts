@@ -115,6 +115,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'CANDIDATE_PENDING_TTL_DAYS', errors);
   positiveInt(env, 'REINDEX_MAX_DOCS_PER_RUN', errors);
   positiveInt(env, 'INDEXER_RUN_STALE_MINUTES', errors);
+  positiveInt(env, 'MAX_DEDICATED_INDEXERS_PER_DOC', errors);
   nonNegativeFloat(env, 'CANDIDATE_MIN_CONFIDENCE', errors);
 
   for (const w of warnings) log.warn(w);

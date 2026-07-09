@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
+import { envFlagEnabled } from '../common/env-validation';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 
 /**
@@ -70,8 +71,9 @@ export class CrossEncoderService
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
     // Local fallback is opt-in and only matters when the primary (Cohere) path
     // isn't configured — a self-hoster with no rerank vendor.
-    this.localEnabled =
-      this.configService.get<string>('SEARCH_CROSS_ENCODER_LOCAL', '0') === '1';
+    this.localEnabled = envFlagEnabled(
+      this.configService.get<string>('SEARCH_CROSS_ENCODER_LOCAL'),
+    );
     this.model = this.configService.get<string>(
       'SEARCH_CROSS_ENCODER_MODEL',
       'rerank-v3.5',

@@ -56,6 +56,10 @@ export class DocumentReindexService implements OnModuleInit {
     const { enqueued } = await this.enqueueReindex(companyId, {
       packId,
       packVersion: binding.packVersion,
+      // Admin is an explicit re-run request — a fresh nonce so a completed
+      // backfill's succeeded job_run row doesn't dedup it away forever
+      // (the install hook keeps the stable 'start' key = install-idempotent).
+      nonce: new Date().toISOString().slice(0, 13), // hour-granularity
     });
     return { enqueued, packVersion: binding.packVersion };
   }
@@ -63,14 +67,15 @@ export class DocumentReindexService implements OnModuleInit {
   /** Enqueue a backfill for one pack (install hook + admin endpoint). */
   async enqueueReindex(
     companyId: string,
-    p: { packId: string; packVersion: string; cursor?: string },
+    p: { packId: string; packVersion: string; cursor?: string; nonce?: string },
   ): Promise<{ enqueued: boolean }> {
     if (!this.claim) return { enqueued: false };
+    const suffix = p.cursor ?? (p.nonce ? `start_${p.nonce}` : 'start');
     const { created } = await this.claim.enqueue({
       jobType: 'reindex_documents',
       companyId,
       triggeredBy: 'manual',
-      dedupKey: `reindex_${p.packId}_${p.packVersion}_${p.cursor ?? 'start'}`,
+      dedupKey: `reindex_${p.packId}_${p.packVersion}_${suffix}`,
       payload: { packId: p.packId, packVersion: p.packVersion, cursor: p.cursor },
     });
     return { enqueued: created };
@@ -94,7 +99,12 @@ export class DocumentReindexService implements OnModuleInit {
     let skipped = 0;
     let lastDocId = cursor;
     for (const doc of docs) {
-      if (ctx.abortSignal.aborted) break;
+      if (ctx.abortSignal.aborted) {
+        // A deploy mid-backfill must not look like "exhausted". Throw so the
+        // job requeues and resumes from its original cursor (already-committed
+        // docs skip via the run ledger) instead of silently truncating.
+        throw new Error('aborted');
+      }
       lastDocId = doc.id;
       const chunks = await this.store.getChunks(ctx.companyId, doc.id);
       if (chunks.length === 0) {
@@ -118,7 +128,9 @@ export class DocumentReindexService implements OnModuleInit {
       await this.commit.commitIfRunsSettled(ctx.companyId, doc);
     }
 
-    const exhausted = docs.length < budget || ctx.abortSignal.aborted;
+    // Abort throws above, so reaching here means a clean pass: exhausted iff
+    // this batch didn't fill the budget (no more documents to walk).
+    const exhausted = docs.length < budget;
     if (!exhausted && lastDocId) {
       await this.enqueueReindex(ctx.companyId, {
         packId,

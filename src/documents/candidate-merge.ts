@@ -85,9 +85,26 @@ export function mergeCandidates(rows: CandidateRow[]): MergeResult {
   return { entities, facts, relations, rejected: ctx.rejected };
 }
 
-/** Entities: (run, chunk, entityIndex) → global (type, folded name) key. */
+/**
+ * Entities: (run, chunk, entityIndex) → global entity key.
+ *
+ * Keying on `canonical ?? name` is asymmetric between indexers — one
+ * indexer emitting a bare name and another emitting the same entity WITH a
+ * canonical would land in different groups, so the cross-indexer fold the
+ * merge exists for silently fails. Instead, treat BOTH the folded name and
+ * the folded canonical as ALIASES of one entity and union any candidates
+ * that share an alias (within a type). Two indexers agree if they overlap on
+ * either surface.
+ */
 function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] {
-  const entities = new Map<string, MergedEntity>();
+  const dsu = new AliasUnionFind();
+  const items: Array<{
+    row: CandidateRow;
+    name: string;
+    canonical?: string;
+    nameKey: string;
+  }> = [];
+  // Pass 1: register aliases and union each candidate's own aliases.
   for (const row of rows) {
     if (row.kind !== 'entity') continue;
     const p = row.payload;
@@ -95,24 +112,72 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
       ctx.rejected.push({ candidateId: row.id, kind: 'entity', reason: 'malformed_entity' });
       continue;
     }
-    const key = entityKeyOf(p.type, p.canonical ?? p.name);
-    ctx.scopeToKey.set(scopeRef(row.runId, row.chunkSeq, p.entityIndex), key);
+    const type = normalizeType(p.type);
+    const nameKey = joinKey(type, foldName(p.name));
+    const canonical =
+      typeof p.canonical === 'string' && p.canonical.trim()
+        ? p.canonical
+        : undefined;
+    dsu.add(nameKey);
+    if (canonical) dsu.union(nameKey, joinKey(type, foldName(canonical)));
+    items.push({ row, name: p.name, canonical, nameKey });
+  }
+  // Pass 2: group by DSU root (stable) — roots are final after all unions.
+  const entities = new Map<string, MergedEntity>();
+  for (const it of items) {
+    const key = dsu.find(it.nameKey);
+    ctx.scopeToKey.set(
+      scopeRef(it.row.runId, it.row.chunkSeq, it.row.payload.entityIndex),
+      key,
+    );
     const existing = entities.get(key);
     if (existing) {
-      existing.candidateIds.push(row.id);
-      // Prefer a canonical clue over none.
-      if (!existing.canonical && p.canonical) existing.canonical = p.canonical;
+      existing.candidateIds.push(it.row.id);
+      if (!existing.canonical && it.canonical) existing.canonical = it.canonical;
     } else {
       entities.set(key, {
         key,
-        name: p.name,
-        type: normalizeType(p.type),
-        canonical: p.canonical,
-        candidateIds: [row.id],
+        name: it.name,
+        type: normalizeType(it.row.payload.type),
+        canonical: it.canonical,
+        candidateIds: [it.row.id],
       });
     }
   }
   return [...entities.values()];
+}
+
+/** Minimal union-find over alias strings — folds entities that share a name
+ *  or canonical alias. Root is the smallest alias for determinism. */
+class AliasUnionFind {
+  private parent = new Map<string, string>();
+  add(x: string): void {
+    if (!this.parent.has(x)) this.parent.set(x, x);
+  }
+  find(x: string): string {
+    this.add(x);
+    let root = x;
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
+    // Path-compress.
+    let cur = x;
+    while (this.parent.get(cur) !== root) {
+      const next = this.parent.get(cur)!;
+      this.parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+  union(a: string, b: string): void {
+    this.add(a);
+    this.add(b);
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra === rb) return;
+    // Deterministic root: the lexicographically smaller alias wins, so the
+    // group key doesn't depend on candidate order.
+    const [root, child] = ra < rb ? [ra, rb] : [rb, ra];
+    this.parent.set(child, root);
+  }
 }
 
 /**
@@ -232,10 +297,6 @@ export function incomingFactsFor(
   return merge.facts
     .filter((f) => f.entityKey === entityKey)
     .map((f) => `${f.predicate}: ${f.object}`);
-}
-
-function entityKeyOf(type: unknown, name: string): string {
-  return joinKey(normalizeType(type), foldName(name));
 }
 
 function normalizeType(type: unknown): string {
