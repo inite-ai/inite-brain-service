@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { execSync } from 'node:child_process'
 import { SITE_URL } from '../lib/seo'
-import { LANGS } from '../lib/i18n'
+import { LANGS, DEFAULT_LANG } from '../lib/i18n'
 import { DOCS_PAGES } from '../lib/docs-nav'
 import { getBlogSlugs } from '../lib/blog'
 
@@ -23,9 +23,14 @@ function gitMtime(relPath: string): Date | undefined {
 
 function alternates(pathNoLang: string) {
   return {
-    languages: Object.fromEntries(
-      LANGS.map((l) => [l, `${SITE_URL}/${l}${pathNoLang}`]),
-    ),
+    languages: {
+      ...Object.fromEntries(
+        LANGS.map((l) => [l, `${SITE_URL}/${l}${pathNoLang}`]),
+      ),
+      // x-default: the version a search engine serves when no language
+      // matches the user's locale. Points at the default-language URL.
+      'x-default': `${SITE_URL}/${DEFAULT_LANG}${pathNoLang}`,
+    },
   }
 }
 
