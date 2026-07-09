@@ -46,12 +46,12 @@ DEFINE FIELD IF NOT EXISTS recordedAt       ON knowledge_fact TYPE datetime DEFA
 DEFINE FIELD IF NOT EXISTS retractedAt      ON knowledge_fact TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS retractionReason ON knowledge_fact TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS retractedBy      ON knowledge_fact TYPE option<string>
-  ASSERT $value = NONE OR $value INSIDE ['human','system','cascade'];
+  ASSERT $value = NONE OR $value INSIDE ['human','system','cascade','dreams'];
 DEFINE FIELD IF NOT EXISTS supersededBy     ON knowledge_fact TYPE option<record<knowledge_fact>>;
 DEFINE FIELD IF NOT EXISTS source           ON knowledge_fact FLEXIBLE TYPE object;
 DEFINE FIELD IF NOT EXISTS derivedFrom      ON knowledge_fact TYPE option<array<record<knowledge_fact>>>;
 DEFINE FIELD IF NOT EXISTS status           ON knowledge_fact TYPE string DEFAULT 'active'
-  ASSERT $value INSIDE ['active','competing','retracted','superseded','compacted'];
+  ASSERT $value INSIDE ['active','competing','retracted','superseded','compacted','corroborating'];
 DEFINE FIELD IF NOT EXISTS embedding        ON knowledge_fact TYPE option<array<float>>;
 
 DEFINE INDEX IF NOT EXISTS fact_entity_idx        ON knowledge_fact FIELDS entityId;
