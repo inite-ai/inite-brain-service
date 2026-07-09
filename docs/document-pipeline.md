@@ -37,7 +37,11 @@ pointer back to the container.
   cannot be re-indexed or span-re-validated later — an explicit privacy
   trade. `DELETE /v1/documents/:id/content` purges chunks after the fact
   (header + hash survive so dedupe and provenance pointers keep working);
-  `retainUntil` does the same on a schedule via the nightly sweeper.
+  `retainUntil` does the same on a schedule via the nightly sweeper. Either
+  purge path also stamps `source.provenancePurged: true` on the facts
+  committed from that document — the claims stay believed (no retraction),
+  but operators can tell them apart from facts whose source text is still
+  retrievable.
 
 ## Indexer
 

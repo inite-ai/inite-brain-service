@@ -7,6 +7,8 @@
  * privacy trade, and the mention-via-document wrapper's response parity.
  */
 import { AppFixture, createApp } from './app-fixture';
+import { SurrealService } from '../src/db/surreal.service';
+import { StringRecordId } from 'surrealdb';
 import type { ExtractionResult } from '../src/ai/extractor.service';
 
 describe('documents pipeline (e2e)', () => {
@@ -192,6 +194,44 @@ describe('documents pipeline (e2e)', () => {
       .set(auth());
     expect(doc.body.hasContent).toBe(false);
     expect(doc.body.chunks ?? []).toHaveLength(0);
+  });
+
+  it('purging document content flags derived facts, never retracts them', async () => {
+    f.extractor.setScript({
+      entities: [{ name: 'Purge Probe Inc', type: 'customer' }],
+      facts: [
+        { entityIndex: 0, predicate: 'tier', object: 'bronze', confidence: 0.9 },
+      ],
+      edges: [],
+    });
+    const r = await postDocument({
+      text: 'Purge probe: bronze tier contract.',
+      contextRef: { vertical: 'docs_purge' },
+    });
+    expect(r.status).toBe(201);
+    const factId = r.body.committed.factIds[0] as string;
+
+    const purge = await f.http
+      .delete(`/v1/documents/${encodeURIComponent(r.body.documentId)}/content`)
+      .set(auth());
+    expect(purge.status).toBe(200);
+    expect(purge.body.purged).toBe(true);
+
+    // The claim survives (still active); only its provenance is marked
+    // no-longer-reproducible.
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ status: string; source: Record<string, unknown> }>]
+      >(`SELECT status, source FROM $fact`, {
+        fact: new StringRecordId(factId),
+      });
+      const fact = (
+        rows as Array<{ status: string; source: Record<string, unknown> }>
+      )[0];
+      expect(fact.status).toBe('active');
+      expect(fact.source.provenancePurged).toBe(true);
+    });
   });
 
   it('mention wrapper preserves the mention response contract', async () => {

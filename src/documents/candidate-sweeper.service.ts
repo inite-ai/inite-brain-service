@@ -5,6 +5,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { CandidateStoreService } from './candidate-store.service';
+import { markFactsProvenancePurged } from './document-store.service';
 import { idTailOf as idTail } from '../ingest/ingest-utils';
 
 /**
@@ -106,6 +107,7 @@ export class CandidateSweeperService implements OnModuleInit {
            AND status != 'purged'`,
       );
       const purgeIds = ((purgedDocs as any[]) ?? []).map(String);
+      let factsFlagged = 0;
       for (const docId of purgeIds) {
         const tail = docId.slice(docId.indexOf(':') + 1);
         await db.query(
@@ -114,11 +116,12 @@ export class CandidateSweeperService implements OnModuleInit {
              SET status = 'purged', hasContent = false;`,
           { doc: tail },
         );
+        factsFlagged += await markFactsProvenancePurged(db, docId);
       }
       this.logger.log(
-        `candidate sweep ${companyId}: expired=${expired} deleted=${deleted} purgedDocs=${purgeIds.length}`,
+        `candidate sweep ${companyId}: expired=${expired} deleted=${deleted} purgedDocs=${purgeIds.length} factsFlagged=${factsFlagged}`,
       );
-      return { expired, deleted, purgedDocs: purgeIds.length };
+      return { expired, deleted, purgedDocs: purgeIds.length, factsFlagged };
     });
   }
 
