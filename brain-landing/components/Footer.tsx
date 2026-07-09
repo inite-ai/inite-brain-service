@@ -50,7 +50,7 @@ export function Footer({ lang }: Props) {
               <span className="w-1 h-1 rounded-full bg-[var(--signal)]" />
             </span>
             <span className="u-mono text-[12px] font-semibold tracking-[0.06em] text-[var(--text)]">
-              INITE<span className="text-[var(--text-faint)]">//</span>BRAIN
+              INITE<span className="text-[var(--text-faint)]">{'//'}</span>BRAIN
             </span>
           </div>
           <p className="mt-3 text-[12px] leading-relaxed text-[var(--text-faint)] max-w-[14rem]">

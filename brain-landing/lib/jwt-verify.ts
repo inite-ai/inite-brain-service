@@ -48,7 +48,7 @@ export async function verifyAccessToken(
     if (!payload.sub) return null
     return payload as VerifiedToken
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error('[jwt-verify] Failed:', (err as Error).message)
     return null
   }

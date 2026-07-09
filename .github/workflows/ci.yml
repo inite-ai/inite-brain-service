@@ -92,6 +92,13 @@ jobs:
         working-directory: brain-landing
         run: pnpm lint:i18n
 
+      # Full ESLint over the whole landing app (Next 16 removed `next lint`, so
+      # this is eslint-config-next via the flat config). Gates on errors; the
+      # stricter react-hooks-7 rules are warnings tracked as tech debt.
+      - name: Lint brain-landing (full)
+        working-directory: brain-landing
+        run: pnpm lint
+
       - name: Test brain-landing (sitemap + locale parity)
         working-directory: brain-landing
         run: pnpm test
