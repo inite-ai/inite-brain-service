@@ -1,4 +1,10 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
@@ -41,7 +47,9 @@ export interface CrossEncoderCandidate {
 }
 
 @Injectable()
-export class CrossEncoderService {
+export class CrossEncoderService
+  implements OnApplicationBootstrap, OnApplicationShutdown
+{
   private readonly logger = new Logger(CrossEncoderService.name);
   private readonly enabled: boolean;
   private readonly apiKey: string | undefined;
@@ -50,6 +58,7 @@ export class CrossEncoderService {
   private readonly timeoutMs: number;
   private readonly limiter: Semaphore;
   private readonly localEnabled: boolean;
+  private readonly localDeadlineMs: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -81,11 +90,45 @@ export class CrossEncoderService {
         10,
       ),
     );
+    // The local worker's scoring loop stops at this deadline so it never
+    // outruns the rerank stage budget (whose withStageBudget wrapper would
+    // otherwise drop the result while the worker kept burning CPU).
+    this.localDeadlineMs = parseInt(
+      this.configService.get<string>(
+        'SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS',
+        '2000',
+      ),
+      10,
+    );
   }
 
   /** Cohere (primary) path is configured. */
   private cohereConfigured(): boolean {
     return this.enabled && !!this.apiKey;
+  }
+
+  /** True when the LOCAL cross-encoder is the active path (no Cohere key).
+   *  The caller uses a tighter candidate window for local inference. */
+  isLocalOnly(): boolean {
+    return !this.cohereConfigured() && this.localEnabled && !!this.local;
+  }
+
+  /** Best-effort boot warmup so the ~279MB model download isn't paid in the
+   *  first query's request path. No-op unless the local path is active. */
+  async warmupLocal(): Promise<void> {
+    if (this.isLocalOnly() && this.local) {
+      await this.local.warmup().catch(() => undefined);
+    }
+  }
+
+  onApplicationBootstrap(): void {
+    // Fire-and-forget: warm the model in the worker so it's ready before the
+    // first query, without blocking boot. No-op unless the local path is on.
+    void this.warmupLocal();
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    await this.local?.terminate().catch(() => undefined);
   }
 
   /** Whether the rerank stage should run at all — the caller gates on this.
@@ -206,12 +249,15 @@ export class CrossEncoderService {
     );
     try {
       const scores = await this.limiter.run(() =>
-        this.local!.score(query, documents),
+        this.local!.score(query, documents, this.localDeadlineMs),
       );
       if (scores.length !== candidates.length) return identity;
+      // `|| 0` keeps the sort stable when two scores tie or are both
+      // -Infinity (docs the deadline left unscored) — their difference is
+      // NaN, which would otherwise make the comparator non-deterministic.
       return candidates
         .map((_, i) => i)
-        .sort((a, b) => scores[b] - scores[a]);
+        .sort((a, b) => scores[b] - scores[a] || 0);
     } catch (e) {
       this.logger.warn(
         `Local cross-encoder failed: ${(e as Error).message} — falling back to identity`,

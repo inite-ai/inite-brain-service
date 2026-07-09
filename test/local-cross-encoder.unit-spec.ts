@@ -77,4 +77,36 @@ describe('CrossEncoderService — local fallback', () => {
     expect(await s.rerank('q', cands(1))).toEqual([0]);
     expect(await s.rerank('  ', cands(2))).toEqual([0, 1]);
   });
+
+  it('isLocalOnly() reflects the active path', () => {
+    // Local flag on, no Cohere → local path is active.
+    expect(
+      new CrossEncoderService(
+        cfg({ SEARCH_CROSS_ENCODER_LOCAL: '1' }),
+        stubLocal([]),
+      ).isLocalOnly(),
+    ).toBe(true);
+    // Cohere configured → local is NOT the active path even if flagged.
+    expect(
+      new CrossEncoderService(
+        cfg({
+          SEARCH_CROSS_ENCODER_LOCAL: '1',
+          SEARCH_CROSS_ENCODER_ENABLED: '1',
+          COHERE_API_KEY: 'k',
+        }),
+        stubLocal([]),
+      ).isLocalOnly(),
+    ).toBe(false);
+  });
+
+  it('ranks deadline-unscored (-Infinity) docs last, stably', async () => {
+    // The worker fills docs it couldn't score before the deadline with
+    // -Infinity; the comparator must keep a valid, stable permutation.
+    const s = new CrossEncoderService(
+      cfg({ SEARCH_CROSS_ENCODER_LOCAL: '1' }),
+      stubLocal([2.0, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, 3.0]),
+    );
+    // scored: idx3 (3.0) > idx0 (2.0); unscored idx1, idx2 tail in order.
+    expect(await s.rerank('q', cands(4))).toEqual([3, 0, 1, 2]);
+  });
 });

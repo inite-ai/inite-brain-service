@@ -58,6 +58,15 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
   warmupPromise = (async () => {
     dimensions = cfg.dimensions;
     const transformers = await import('@xenova/transformers');
+    // transformers.js v2 ignores TRANSFORMERS_CACHE / HF_HOME and defaults to
+    // a root-owned dir under node_modules — so in Docker the model silently
+    // re-downloads on every restart. Point it at the env cache (the
+    // Dockerfile provisions /app/.cache, node-owned) so the cache sticks.
+    const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
+    if (cacheDir) {
+      (transformers as unknown as { env: { cacheDir?: string } }).env.cacheDir =
+        cacheDir;
+    }
     pipeline = (await transformers.pipeline(
       'feature-extraction',
       cfg.modelId,
