@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0](https://github.com/inite-ai/inite-brain-service/compare/v0.3.0...v0.4.0) (2026-07-09)
+
+
+### Features
+
+* **search:** local cross-encoder reranker fallback (no Cohere key) ([#6](https://github.com/inite-ai/inite-brain-service/issues/6)) ([#139](https://github.com/inite-ai/inite-brain-service/issues/139)) ([bc1bee8](https://github.com/inite-ai/inite-brain-service/commit/bc1bee8af1f83afa66ebcb0f34f38af49b711a2d))
+
+
+### Bug Fixes
+
+* **landing:** add x-default hreflang to the sitemap ([#135](https://github.com/inite-ai/inite-brain-service/issues/135)) ([d4c983e](https://github.com/inite-ai/inite-brain-service/commit/d4c983e0c62182860640bd80a08e88051a40e627))
+* **landing:** full ESLint in CI, replacing removed `next lint` ([#3](https://github.com/inite-ai/inite-brain-service/issues/3)) ([#136](https://github.com/inite-ai/inite-brain-service/issues/136)) ([f656e45](https://github.com/inite-ai/inite-brain-service/commit/f656e45edecab6375f56fde1214097682c65d3b4))
+
 ## [0.3.0](https://github.com/inite-ai/inite-brain-service/compare/v0.2.0...v0.3.0) (2026-07-08)
 
 
