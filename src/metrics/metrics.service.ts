@@ -226,6 +226,43 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Document ingest (Source → Indexer → Candidates → Brain). No packId
+  // label anywhere here — tenant-installed pack ids are unbounded
+  // cardinality; per-pack stats live on indexer_run.stats rows.
+  //   documents: created | deduplicated | failed
+  //   indexer runs: succeeded | failed | skipped_duplicate
+  //   candidates: {kind × decision} — created | committed | merged |
+  //               rejected | expired; commit/merge/reject RATES are
+  //               ratios of this counter.
+  //   commit memory: ok | noop | failed
+  readonly documentsCount = new Counter({
+    name: 'brain_documents_total',
+    help: 'Document ingests by result',
+    labelNames: ['result'] as const,
+    registers: [this.registry],
+  });
+
+  readonly indexerRunsCount = new Counter({
+    name: 'brain_indexer_runs_total',
+    help: 'Indexer runs by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
+  readonly candidatesCount = new Counter({
+    name: 'brain_candidates_total',
+    help: 'Candidate rows by kind and decision',
+    labelNames: ['kind', 'decision'] as const,
+    registers: [this.registry],
+  });
+
+  readonly commitMemoryCount = new Counter({
+    name: 'brain_commit_memory_total',
+    help: 'CommitMemory (Brain step) invocations by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
@@ -311,6 +348,29 @@ export class MetricsService implements OnModuleInit {
 
   countCompacted(n: number): void {
     if (n > 0) this.compactionFacts.inc(n);
+  }
+
+  countDocument(result: 'created' | 'deduplicated' | 'failed'): void {
+    this.documentsCount.inc({ result } as LabelValues<'result'>);
+  }
+
+  countIndexerRun(
+    outcome: 'succeeded' | 'failed' | 'skipped_duplicate',
+  ): void {
+    this.indexerRunsCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countCandidate(kind: string, decision: string, n = 1): void {
+    if (n > 0) {
+      this.candidatesCount.inc(
+        { kind, decision } as LabelValues<'kind' | 'decision'>,
+        n,
+      );
+    }
+  }
+
+  countCommitMemory(outcome: 'ok' | 'noop' | 'failed'): void {
+    this.commitMemoryCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   /**

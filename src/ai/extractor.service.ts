@@ -48,6 +48,20 @@ export class ExtractorService {
     return this.runner.modelId();
   }
 
+  /**
+   * The tenant's predicate-vocabulary version hash — the extraction-cache
+   * identity. Recorded on indexer_run rows so a run is attributable to
+   * the exact vocabulary it extracted with; undefined when the registry
+   * is unreachable (the run still proceeds on the seed vocabulary).
+   */
+  async vocabularyVersionHash(companyId: string): Promise<string | undefined> {
+    try {
+      return (await this.registry.getSnapshot(companyId)).versionHash;
+    } catch {
+      return undefined;
+    }
+  }
+
   async extract(text: string, companyId: string): Promise<ExtractionResult> {
     // Defence in depth — DTOs already cap at 16K, but MCP and the
     // admin-demo inline body shapes don't pass through class-validator.

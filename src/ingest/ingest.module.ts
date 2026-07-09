@@ -30,6 +30,15 @@ import { LinkIngestService } from './link-ingest.service';
     MentionIngestService,
     LinkIngestService,
   ],
-  exports: [IngestService, IngestPredictionService],
+  // Write primitives are exported for the document commit path
+  // (CandidateCommitService drives the SAME entity/fact writers the
+  // mention path uses — one decision engine, no drift).
+  exports: [
+    IngestService,
+    IngestPredictionService,
+    EntityUpsertService,
+    FactEmbeddingService,
+    FactResolverService,
+  ],
 })
 export class IngestModule {}

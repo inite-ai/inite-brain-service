@@ -108,6 +108,14 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
+  // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
+  positiveInt(env, 'DOC_MAX_CHARS', errors);
+  positiveInt(env, 'DOC_CHUNK_TARGET_CHARS', errors);
+  positiveInt(env, 'CANDIDATE_RETENTION_DAYS', errors);
+  positiveInt(env, 'CANDIDATE_PENDING_TTL_DAYS', errors);
+  positiveInt(env, 'REINDEX_MAX_DOCS_PER_RUN', errors);
+  nonNegativeFloat(env, 'CANDIDATE_MIN_CONFIDENCE', errors);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
