@@ -1,6 +1,6 @@
 # Справочник MCP-инструментов
 
-Сервер регистрирует **25 инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 18 на чтение (`brain:read`), ещё 6 с `brain:write` и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен в `docs/roadmap/mcp-and-memory.md` репозитория.
+Сервер регистрирует **26 инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 18 на чтение (`brain:read`), ещё 7 с `brain:write` (один из них, `ingest_document`, регистрируется только при `DOCUMENT_INGEST_ENABLED=1`) и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен в `docs/roadmap/mcp-and-memory.md` репозитория.
 
 ## search_knowledge
 

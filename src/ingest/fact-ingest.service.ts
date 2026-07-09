@@ -46,6 +46,15 @@ export class FactIngestService {
     if (evidenceError) {
       throw new BadRequestException(evidenceError);
     }
+    // `originKey` is content-addressed ORIGIN identity for corroboration
+    // (migration 0050), stamped ONLY by the document/commit path where it
+    // derives from the document's contentHash. A raw fact-ingest caller must
+    // not assert it: a client could otherwise fabricate independent origins
+    // to farm cross-source corroboration (reputation inflation), or crash
+    // the resolver with `originKey: null` → <string>NULL. Strip it so
+    // fn::origin_key_of falls back to fn::source_key_of (0047 behaviour).
+    const source = { ...(dto.source as unknown as Record<string, unknown>) };
+    delete source.originKey;
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
       const entityId = await this.entities.resolveOrCreateEntity(db, dto);
@@ -76,7 +85,7 @@ export class FactIngestService {
         confidence: dto.confidence ?? 0.7,
         validFrom: new Date(dto.validFrom),
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
-        source: dto.source,
+        source: source as unknown as typeof dto.source,
         entropy: undefined,
         recordOutcomeMetric: true,
       });

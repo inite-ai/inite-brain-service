@@ -54,6 +54,10 @@ export interface FactSource {
   recorder?: string;
   /** Supporting observations behind the claim — ≤10 entries. */
   evidence?: SourceEvidence[];
+  // NOTE: `originKey` (corroboration origin identity, migration 0050) is
+  // NOT part of this contract. It is stamped only by the content-addressed
+  // document/commit path; FactIngestService strips any client-supplied
+  // value before resolving. See the strip in fact-ingest.service.ts.
 }
 
 export class IngestFactDto {

@@ -37,6 +37,12 @@ export interface IndexerRunSpec {
   registryVersionHash?: string;
   /** The actual extraction — union or pack-scoped dedicated. */
   extract: (chunkText: string) => Promise<ExtractionResult>;
+  /**
+   * Job abort (pod shutdown / lost claim). Checked between chunks so a
+   * deploy finalizes the run 'failed' instead of orphaning it 'running';
+   * createRun then reopens it on the retry. Absent on the sync HTTP path.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -67,6 +73,7 @@ export class IndexerRunService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
+    abortSignal?: AbortSignal;
   }): Promise<IndexerRunResult> {
     return this.runIndexer({
       companyId: p.companyId,
@@ -78,6 +85,7 @@ export class IndexerRunService {
       model: this.extractor.modelId(),
       registryVersionHash: await this.extractor.vocabularyVersionHash(p.companyId),
       extract: (chunkText) => this.extractor.extract(chunkText, p.companyId),
+      abortSignal: p.abortSignal,
     });
   }
 
@@ -98,6 +106,11 @@ export class IndexerRunService {
     const stats = { chunks: 0, entities: 0, facts: 0, relations: 0, durationMs: 0 };
     try {
       for (const chunk of spec.chunks) {
+        if (spec.abortSignal?.aborted) {
+          // Pod shutdown / lost claim mid-run: fail fast so the run row
+          // becomes terminal (reap-able / reopenable) instead of stuck.
+          throw new Error('aborted');
+        }
         const extraction = await traceSpan(
           'indexer.run.extract',
           () => spec.extract(chunk.text),

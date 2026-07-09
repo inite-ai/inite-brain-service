@@ -4,6 +4,8 @@ import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
+import { CandidateStoreService } from './candidate-store.service';
+import { idTailOf as idTail } from '../ingest/ingest-utils';
 
 /**
  * Nightly hygiene for the Candidates layer — SurrealDB has no row TTL,
@@ -28,6 +30,7 @@ export class CandidateSweeperService implements OnModuleInit {
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
+    private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
   ) {}
@@ -69,7 +72,9 @@ export class CandidateSweeperService implements OnModuleInit {
   private async executeFromQueue(
     ctx: JobContext,
   ): Promise<Record<string, unknown>> {
-    return this.sweepTenant(ctx.companyId);
+    const swept = await this.sweepTenant(ctx.companyId);
+    const reconciled = await this.reconcileRuns(ctx.companyId);
+    return { ...swept, ...reconciled };
   }
 
   async sweepTenant(companyId: string): Promise<Record<string, unknown>> {
@@ -115,6 +120,46 @@ export class CandidateSweeperService implements OnModuleInit {
       );
       return { expired, deleted, purgedDocs: purgeIds.length };
     });
+  }
+
+  /**
+   * Reap indexer_runs stuck 'running' (crashed workers), then re-drive the
+   * commit of any document left with staged candidates in a pre-commit
+   * state. Without this a deploy/crash mid-extraction wedges a document in
+   * 'indexing' forever and its pending candidates silently expire. Runs as
+   * part of the nightly sweep and is idempotent.
+   */
+  async reconcileRuns(companyId: string): Promise<Record<string, unknown>> {
+    const reapedRuns = await this.candidates.reapStaleRuns(companyId);
+    const docs = await this.candidates.findDocsNeedingCommit(companyId);
+    let recommitted = 0;
+    if (this.claim) {
+      const today = new Date().toISOString().slice(0, 10);
+      for (const docId of docs) {
+        try {
+          const { created } = await this.claim.enqueue({
+            jobType: 'commit_document',
+            companyId,
+            triggeredBy: 'cron',
+            // Fresh per-day key so the reconciler isn't collapsed by a
+            // stale succeeded commit_document row on the ledger.
+            dedupKey: `commit_reconcile_${idTail(docId)}_${today}`,
+            payload: { docId },
+          });
+          if (created) recommitted++;
+        } catch (e) {
+          this.logger.warn(
+            `reconcile commit enqueue for ${docId} failed: ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+    if (reapedRuns > 0 || recommitted > 0) {
+      this.logger.log(
+        `run reconcile ${companyId}: reapedRuns=${reapedRuns} recommitted=${recommitted}`,
+      );
+    }
+    return { reapedRuns, recommitted };
   }
 
   /** Count matching candidates, then run the mutation — honest job stats. */

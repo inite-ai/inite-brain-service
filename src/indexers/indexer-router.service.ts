@@ -63,13 +63,28 @@ export class IndexerRouterService {
   ): Promise<IndexerBinding[]> {
     const bindings = await this.bindingsFor(companyId);
     const { selected, needEmbedding } = routeByRules(bindings, input);
+    // Embedding matches are ranked by similarity so the per-document cap
+    // keeps the MOST relevant packs. Rule-selected packs (explicit request /
+    // vertical / alwaysRun / keyword) come first — they are deterministic
+    // triggers, not guesses.
     const viaEmbedding = await this.routeByEmbedding(needEmbedding, input);
-    const all = [...selected, ...viaEmbedding];
+    const ranked = [...selected, ...viaEmbedding];
+    const cap = maxDedicatedPerDoc();
+    const all = ranked.slice(0, cap);
+    if (ranked.length > cap) {
+      this.logger.warn(
+        `router: capped dedicated indexers ${ranked.length}→${cap} for a ${input.vertical} document (dropped ${ranked
+          .slice(cap)
+          .map((b) => b.indexerId)
+          .join(', ')})`,
+      );
+    }
     traceArtifact('indexer.route', {
       vertical: input.vertical,
       requested: input.requested,
       selected: all.map((b) => b.indexerId),
       viaEmbedding: viaEmbedding.map((b) => b.indexerId),
+      cappedFrom: ranked.length,
     });
     return all;
   }
@@ -86,7 +101,7 @@ export class IndexerRouterService {
       this.logger.warn(`router L2 head embed failed: ${(e as Error).message}`);
       return [];
     }
-    const out: IndexerBinding[] = [];
+    const matched: Array<{ binding: IndexerBinding; sim: number }> = [];
     for (const b of candidates) {
       try {
         // Pack descriptions are stable strings — the embedder's LRU makes
@@ -94,7 +109,7 @@ export class IndexerRouterService {
         const descVec = await this.embedder.embed(b.relevance!.description!);
         const sim = cosineSimilarity(headVec, descVec);
         if (sim >= (b.relevance?.threshold ?? DEFAULT_RELEVANCE_THRESHOLD)) {
-          out.push(b);
+          matched.push({ binding: b, sim });
         }
       } catch (e) {
         this.logger.warn(
@@ -102,7 +117,7 @@ export class IndexerRouterService {
         );
       }
     }
-    return out;
+    return matched.sort((a, b) => b.sim - a.sim).map((m) => m.binding);
   }
 
   private async installedManifests(
@@ -124,4 +139,11 @@ export class IndexerRouterService {
       return [];
     }
   }
+}
+
+/** Upper bound on dedicated indexers per document — the LLM-call fan-out is
+ *  chunks × selected packs × sc-passes, so this is the last cost backstop. */
+function maxDedicatedPerDoc(): number {
+  const v = Number(process.env.MAX_DEDICATED_INDEXERS_PER_DOC);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 8;
 }

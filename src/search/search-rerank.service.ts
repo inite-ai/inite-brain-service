@@ -45,11 +45,15 @@ export class SearchRerankService {
     typeDist: { weights: Record<string, number> } | null;
   }): Promise<EntityBucket[]> {
     const RERANK_WINDOW = Math.min(ctx.limit * 2, 20);
+    // The local cross-encoder scores pairs sequentially on a worker thread —
+    // a 50-wide window can't clear the stage budget, so the local path gets a
+    // tighter window (SEARCH_CROSS_ENCODER_LOCAL_WINDOW, default 20). Cohere
+    // batches server-side and keeps the wider SEARCH_CROSS_ENCODER_WINDOW.
+    const configuredWindow = this.crossEncoder.isLocalOnly()
+      ? parseInt(process.env.SEARCH_CROSS_ENCODER_LOCAL_WINDOW ?? '20', 10) || 20
+      : parseInt(process.env.SEARCH_CROSS_ENCODER_WINDOW ?? '50', 10) || 50;
     const CROSS_ENCODER_WINDOW = this.crossEncoder.isEnabled()
-      ? Math.min(
-          parseInt(process.env.SEARCH_CROSS_ENCODER_WINDOW ?? '50', 10) || 50,
-          byEntity.size,
-        )
+      ? Math.min(configuredWindow, byEntity.size)
       : RERANK_WINDOW;
 
     const wideCandidates = [...byEntity.values()]

@@ -155,7 +155,7 @@ describe('external candidates (e2e)', () => {
     expect(r.status).toBe(404);
   });
 
-  it('stages ungrounded (flagged) candidates for storeContent:false documents', async () => {
+  it('rejects storeContent:false submissions by default (spans unverifiable)', async () => {
     const docId = await createDoc(`${DOC_TEXT} Private variant.`, {
       storeContent: false,
       contextRef: { vertical: 'ext_private' },
@@ -164,16 +164,55 @@ describe('external candidates (e2e)', () => {
       .post(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
       .set(auth())
       .send(submission());
-    expect(r.status).toBe(201);
-    expect(r.body.ungrounded).toBe(true);
-    expect(r.body.staged.facts).toBe(1);
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL/);
+  });
 
-    const cands = await f.http
-      .get(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
-      .set(auth());
-    const fact = cands.body.candidates.find(
-      (c: { kind: string }) => c.kind === 'fact',
-    );
-    expect(fact.payload.ungrounded).toBe(true);
+  it('stages ungrounded (flagged) candidates when explicitly opted in', async () => {
+    process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL = '1';
+    try {
+      const docId = await createDoc(`${DOC_TEXT} Opt-in variant.`, {
+        storeContent: false,
+        contextRef: { vertical: 'ext_private_optin' },
+      });
+      const r = await f.http
+        .post(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
+        .set(auth())
+        .send(submission());
+      expect(r.status).toBe(201);
+      expect(r.body.ungrounded).toBe(true);
+      expect(r.body.staged.facts).toBe(1);
+
+      const cands = await f.http
+        .get(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
+        .set(auth());
+      const fact = cands.body.candidates.find(
+        (c: { kind: string }) => c.kind === 'fact',
+      );
+      expect(fact.payload.ungrounded).toBe(true);
+    } finally {
+      delete process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL;
+    }
+  });
+
+  it('rejects a scope-gated core predicate from an external indexer', async () => {
+    const docId = await createDoc(`${DOC_TEXT} Address 12 Baker St.`);
+    const r = await f.http
+      .post(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
+      .set(auth())
+      .send(
+        submission({
+          facts: [
+            {
+              entityIndex: 0,
+              predicate: 'address',
+              object: '12 Baker St',
+              confidence: 0.9,
+            },
+          ],
+        }),
+      );
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/scope-gated core predicate/);
   });
 });

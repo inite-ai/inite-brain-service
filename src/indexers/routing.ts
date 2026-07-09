@@ -55,7 +55,7 @@ export function routeByRules(
       r?.alwaysRun === true ||
       (r?.verticals?.includes(input.vertical) ?? false);
     const l1 =
-      !l0 && (r?.keywords?.some((kw) => head.includes(kw.toLowerCase())) ?? false);
+      !l0 && (r?.keywords?.some((kw) => headMatchesKeyword(head, kw)) ?? false);
     if (l0 || l1) {
       selected.push(b);
     } else if (r?.description) {
@@ -66,6 +66,22 @@ export function routeByRules(
     // requested (L0 above).
   }
   return { selected, needEmbedding };
+}
+
+/**
+ * Whole-token keyword match against the (lowercased) document head. A plain
+ * substring test fires false positives — keyword "hr" matches "three",
+ * "id" matches "hidden" — inflating LLM-call fan-out. Bound the match by
+ * non-alphanumeric edges (Unicode-aware) so only a standalone occurrence
+ * counts. Multi-word keywords are bounded as a whole phrase.
+ */
+export function headMatchesKeyword(head: string, keyword: string): boolean {
+  const kw = keyword.trim().toLowerCase();
+  if (!kw) return false;
+  const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(
+    head,
+  );
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

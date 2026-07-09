@@ -62,6 +62,21 @@ describe('routeByRules', () => {
     expect(out.selected.map((b) => b.indexerId)).toEqual(['real_estate']);
   });
 
+  it('L1: keyword matches whole tokens only, not substrings', () => {
+    // "hr" must not fire on "three"; "id" must not fire on "hidden".
+    const out = routeByRules(
+      [binding('hr', { relevance: { keywords: ['hr', 'id'] } })],
+      { vertical: 'crm', head: 'three hidden thresholds were considered' },
+    );
+    expect(out.selected).toEqual([]);
+    // But a standalone token does fire.
+    const out2 = routeByRules(
+      [binding('hr', { relevance: { keywords: ['hr'] } })],
+      { vertical: 'crm', head: 'the HR team met' },
+    );
+    expect(out2.selected.map((b) => b.indexerId)).toEqual(['hr']);
+  });
+
   it('undecided binding WITH description goes to the embedding layer', () => {
     const out = routeByRules(
       [

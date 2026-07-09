@@ -50,6 +50,45 @@ describe('mergeCandidates', () => {
     expect(out.entities[0].candidateIds).toHaveLength(2);
   });
 
+  it('folds a bare-name entity with a canonical-bearing one via alias union', () => {
+    // Indexer A: name only. Indexer B: same entity, name differs but its
+    // canonical matches A's name. They must land in ONE entity, and a fact
+    // from each must fold into one merged fact.
+    const rows = [
+      row({
+        kind: 'entity',
+        runId: 'indexer_run:rA',
+        payload: { entityIndex: 0, name: 'acme corp', type: 'customer' },
+      }),
+      row({
+        kind: 'entity',
+        runId: 'indexer_run:rB',
+        payload: {
+          entityIndex: 0,
+          name: 'ACME Corporation',
+          canonical: 'Acme Corp',
+          type: 'customer',
+        },
+      }),
+      row({
+        kind: 'fact',
+        runId: 'indexer_run:rA',
+        payload: { entityIndex: 0, predicate: 'tier', object: 'gold', indexerId: '_general' },
+      }),
+      row({
+        kind: 'fact',
+        runId: 'indexer_run:rB',
+        payload: { entityIndex: 0, predicate: 'tier', object: 'gold', indexerId: 'crm' },
+      }),
+    ];
+    const out = mergeCandidates(rows);
+    expect(out.entities).toHaveLength(1);
+    expect(out.entities[0].candidateIds).toHaveLength(2);
+    expect(out.facts).toHaveLength(1);
+    expect(out.facts[0].contributors).toHaveLength(2);
+    expect(out.rejected).toHaveLength(0);
+  });
+
   it('keeps distinct entities distinct (different type or name)', () => {
     const rows = [
       entity('Acme', 0),

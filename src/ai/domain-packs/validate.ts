@@ -148,17 +148,27 @@ function validateRelevance(packId: string, relevance: unknown): void {
       );
     }
   }
+  // Keywords are whole-token matched against the document head (L1). A 1-char
+  // keyword matches nearly every document, defeating the relevance gate and
+  // inflating LLM-call fan-out — require at least 2 chars.
+  if (Array.isArray(r.keywords) && r.keywords.some((s) => String(s).trim().length < 2)) {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.relevance.keywords must each be at least 2 characters`,
+    );
+  }
   if (r.description !== undefined && typeof r.description !== 'string') {
     throw new DomainPackError(
       `pack "${packId}" indexer.relevance.description must be a string`,
     );
   }
+  // Floor the L2 cosine threshold: 0 means "match every document", which
+  // turns the embedding gate into an unconditional run.
   if (
     r.threshold !== undefined &&
-    (typeof r.threshold !== 'number' || r.threshold < 0 || r.threshold > 1)
+    (typeof r.threshold !== 'number' || r.threshold < 0.05 || r.threshold > 1)
   ) {
     throw new DomainPackError(
-      `pack "${packId}" indexer.relevance.threshold must be a number in [0, 1]`,
+      `pack "${packId}" indexer.relevance.threshold must be a number in [0.05, 1]`,
     );
   }
   if (r.alwaysRun !== undefined && typeof r.alwaysRun !== 'boolean') {
