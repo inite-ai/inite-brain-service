@@ -12,6 +12,9 @@ export interface CompactionStats {
   factsCompacted: number;
   summariesCreated: number;
   bytesFreed: number;
+  /** Episodic→semantic promotion leg (COMPACTION_PROMOTION_ENABLED). */
+  factsPromoted?: number;
+  groupsPromoted?: number;
 }
 
 export interface CandidateFactRow {

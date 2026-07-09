@@ -187,6 +187,12 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly promotionFacts = new Counter({
+    name: 'brain_promotion_facts_total',
+    help: 'Number of active facts folded into promotion summaries (sum across tenants)',
+    registers: [this.registry],
+  });
+
   readonly openaiTokens = new Counter({
     name: 'brain_openai_tokens_total',
     help: 'OpenAI tokens consumed, by call kind and token type',
@@ -407,6 +413,10 @@ export class MetricsService implements OnModuleInit {
 
   countCompacted(n: number): void {
     if (n > 0) this.compactionFacts.inc(n);
+  }
+
+  countPromoted(n: number): void {
+    if (n > 0) this.promotionFacts.inc(n);
   }
 
   countDocument(result: 'created' | 'deduplicated' | 'failed'): void {

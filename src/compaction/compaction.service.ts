@@ -4,6 +4,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { type JobContext } from '../jobs/worker-loop.service';
 import { CompactionRunnerService } from './compaction-runner.service';
 import { CompactionQueueService } from './compaction-queue.service';
+import { PromotionRunnerService } from './promotion-runner.service';
 import { CompactionStats } from './compaction.types';
 
 export { SUMMARY_GENERATOR } from './compaction.types';
@@ -33,9 +34,13 @@ export class CompactionService implements OnModuleInit {
   private readonly logger = new Logger(CompactionService.name);
   private compactionInFlight = false;
 
+  // Fourth dep is the episodic→semantic promotion pass (Wave 3) — it
+  // rides the compaction cron/queue rather than owning its own.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly runner: CompactionRunnerService,
     private readonly queue: CompactionQueueService,
+    private readonly promotion: PromotionRunnerService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -43,12 +48,13 @@ export class CompactionService implements OnModuleInit {
     this.queue.register(
       'compaction',
       async (ctx: JobContext) => {
-        const stats = await this.runner.compactCompany(ctx.companyId);
-        this.metrics?.countCompacted(stats.factsCompacted);
+        const stats = await this.compactCompany(ctx.companyId);
         return {
           factsCompacted: stats.factsCompacted,
           summariesCreated: stats.summariesCreated,
           bytesFreed: stats.bytesFreed,
+          factsPromoted: stats.factsPromoted ?? 0,
+          groupsPromoted: stats.groupsPromoted ?? 0,
         };
       },
       // Compaction can take several minutes on large tenants; ttl 15min
@@ -92,7 +98,10 @@ export class CompactionService implements OnModuleInit {
    */
   async compactAll(): Promise<CompactionStats[]> {
     const stats = await this.runner.compactAll(this.queue.knownTenants());
-    for (const s of stats) this.metrics?.countCompacted(s.factsCompacted);
+    for (const s of stats) {
+      this.metrics?.countCompacted(s.factsCompacted);
+      await this.promoteInto(s);
+    }
     return stats;
   }
 
@@ -100,6 +109,23 @@ export class CompactionService implements OnModuleInit {
   async compactCompany(companyId: string): Promise<CompactionStats> {
     const stats = await this.runner.compactCompany(companyId);
     this.metrics?.countCompacted(stats.factsCompacted);
+    await this.promoteInto(stats);
     return stats;
+  }
+
+  /** Episodic→semantic promotion leg — folds its counters into the
+   *  tenant's compaction stats. Never fails the compaction pass. */
+  private async promoteInto(stats: CompactionStats): Promise<void> {
+    if (!this.promotion.isEnabled()) return;
+    try {
+      const promo = await this.promotion.promoteCompany(stats.companyId);
+      stats.factsPromoted = promo.factsPromoted;
+      stats.groupsPromoted = promo.groupsPromoted;
+      this.metrics?.countPromoted(promo.factsPromoted);
+    } catch (e) {
+      this.logger.warn(
+        `promotion failed for ${stats.companyId}: ${(e as Error).message}`,
+      );
+    }
   }
 }

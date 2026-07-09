@@ -112,6 +112,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
+  // ── Episodic→semantic promotion (compaction leg) ───────────────────
+  positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
+  positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
+  positiveInt(env, 'COMPACTION_PROMOTION_MAX_GROUPS', errors);
+
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
   positiveInt(env, 'DOC_CHUNK_TARGET_CHARS', errors);
