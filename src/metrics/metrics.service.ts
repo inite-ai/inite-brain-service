@@ -355,7 +355,12 @@ export class MetricsService implements OnModuleInit {
   }
 
   countIndexerRun(
-    outcome: 'succeeded' | 'failed' | 'skipped_duplicate',
+    outcome:
+      | 'succeeded'
+      | 'failed'
+      | 'skipped_duplicate'
+      | 'reopened'
+      | 'stale_reaped',
   ): void {
     this.indexerRunsCount.inc({ outcome } as LabelValues<'outcome'>);
   }

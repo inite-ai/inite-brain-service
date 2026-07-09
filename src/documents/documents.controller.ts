@@ -1,6 +1,7 @@
 import {
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -10,8 +11,12 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { policyFor } from '../ingest/conflict-resolver';
 import { DocumentStoreService } from './document-store.service';
-import { CandidateStoreService } from './candidate-store.service';
+import {
+  CandidateStoreService,
+  type CandidateRow,
+} from './candidate-store.service';
 import { assertDocumentIngestEnabled } from './documents-gate';
 
 /**
@@ -39,10 +44,19 @@ export class DocumentsController {
     const doc = await this.store.getById(req.brainAuth.companyId, id);
     if (!doc) throw new NotFoundException('document not found');
     const runs = await this.candidates.listRuns(req.brainAuth.companyId, id);
-    const chunks =
-      includeText === '1'
-        ? await this.store.getChunks(req.brainAuth.companyId, id)
-        : undefined;
+    let chunks;
+    if (includeText === '1') {
+      // The raw source text is the document verbatim — it can carry any PII
+      // (addresses, DOB, medical text) that the committed-fact read path
+      // gates behind brain:read_pii. Returning it under plain brain:read
+      // would be a fence bypass, so require the PII scope explicitly.
+      if (!req.brainAuth.scopes.includes('brain:read_pii')) {
+        throw new ForbiddenException(
+          'includeText requires the brain:read_pii scope',
+        );
+      }
+      chunks = await this.store.getChunks(req.brainAuth.companyId, id);
+    }
     return { ...doc, runs, ...(chunks ? { chunks } : {}) };
   }
 
@@ -59,7 +73,10 @@ export class DocumentsController {
       req.brainAuth.companyId,
       id,
     );
-    return { documentId: doc.id, candidates };
+    return {
+      documentId: doc.id,
+      candidates: redactGatedCandidates(candidates, req.brainAuth.scopes),
+    };
   }
 
   @Delete(':id/content')
@@ -70,4 +87,26 @@ export class DocumentsController {
     if (!purged) throw new NotFoundException('document not found');
     return { purged: true };
   }
+}
+
+/**
+ * A candidate's fact object can hold the same PII a committed fact would —
+ * so the candidate audit view must honor the same predicate-scope policy
+ * that passesPolicy applies on the search path. Redact the `object` of any
+ * fact candidate whose predicate requires a scope the caller doesn't hold;
+ * the row (predicate, provenance) stays visible for the audit trail.
+ */
+function redactGatedCandidates(
+  candidates: CandidateRow[],
+  scopes: string[],
+): CandidateRow[] {
+  return candidates.map((c) => {
+    if (c.kind !== 'fact') return c;
+    const requiresScope = policyFor(String(c.payload?.predicate ?? '')).requiresScope;
+    if (!requiresScope || scopes.includes(requiresScope)) return c;
+    return {
+      ...c,
+      payload: { ...c.payload, object: '[redacted]', redacted: true },
+    };
+  });
 }

@@ -7,6 +7,9 @@ import {
 import { IndexerRouterService } from '../indexers/indexer-router.service';
 import { normalizeEntityType } from '../ai/extractor-internals/grounding';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
+import { policyFor } from '../ingest/conflict-resolver';
+import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
+import { envFlagEnabled } from '../common/env-validation';
 import type {
   CandidateBatch,
   CandidateEntity,
@@ -166,8 +169,19 @@ export class ExternalCandidatesService {
     };
 
     if (!doc.hasContent) {
-      // storeContent:false — nothing to verify spans against. Stage the
-      // hypotheses flagged ungrounded; the trade was the caller's.
+      // storeContent:false — there is no stored text to re-ground against,
+      // so an external indexer could stage an arbitrary (entity, predicate,
+      // object) with no verification. That auto-commits into the graph, so
+      // it is opt-in: default-off, operators who deliberately run
+      // content-less external indexers enable it. Grounded (content-bearing)
+      // submissions are unaffected.
+      if (!envFlagEnabled(process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL)) {
+        throw new BadRequestException(
+          'document has no stored content; ungrounded external candidates are disabled ' +
+            '(set DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL=1 to allow unverifiable spans)',
+        );
+      }
+      // Stage the hypotheses flagged ungrounded; the trade was the caller's.
       return {
         batch: {
           provenance,
@@ -251,6 +265,24 @@ function validateFact(f: SubmittedFact, i: number, indexerId: string): void {
     throw new BadRequestException(
       `facts[${i}].predicate "${f.predicate}" is outside the "${indexerId}" namespace`,
     );
+  }
+  // Predicate-class fence (write side): an `indexer:write` key stages
+  // hypotheses — it must not seed high-value CORE facts it could never
+  // retract (retract needs brain:admin). Reject PII-sensitive predicates
+  // (dob/address — requiresScope) and the retract-admin class
+  // (billing_event/human_declared). Pack-namespaced predicates are the
+  // indexer's own vocabulary and are unaffected.
+  if (!f.predicate.includes(PACK_NAMESPACE_SEP)) {
+    if (RETRACT_ADMIN_PREDICATES.has(f.predicate)) {
+      throw new BadRequestException(
+        `facts[${i}].predicate "${f.predicate}" is an operator-attested class; an external indexer cannot seed it`,
+      );
+    }
+    if (policyFor(f.predicate).requiresScope) {
+      throw new BadRequestException(
+        `facts[${i}].predicate "${f.predicate}" is a scope-gated core predicate; an external indexer cannot seed it`,
+      );
+    }
   }
   if (!isBoundedString(f.object, MAX_OBJECT)) {
     throw new BadRequestException(

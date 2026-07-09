@@ -6,6 +6,8 @@ import type { FactsService } from '../facts/facts.service';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { DocumentIngestService } from '../documents/document-ingest.service';
+import { DOC_TEXT_HARD_CAP } from '../documents/dto/ingest-document.dto';
+import { docMaxChars } from '../documents/documents-gate';
 import type { BrainScope } from '../auth/api-key.types';
 
 export interface WriteToolDeps {
@@ -286,7 +288,10 @@ function registerIngestDocumentTool({
           .string()
           .max(64)
           .describe('Container kind: chat | email | markdown | pdf | …'),
-        text: z.string().describe('Normalized document text'),
+        text: z
+          .string()
+          .max(DOC_TEXT_HARD_CAP)
+          .describe('Normalized document text'),
         title: z.string().max(512).optional(),
         originUri: z
           .string()
@@ -305,6 +310,12 @@ function registerIngestDocumentTool({
       },
     },
     async (args) => {
+      // The runtime DOC_MAX_CHARS cap (an operator may lower it below the
+      // static hard cap) only lives on the REST controller; enforce it here
+      // too so the MCP path can't bypass it and burn LLM budget uncapped.
+      if (args.text.length > docMaxChars()) {
+        throw new Error(`text exceeds DOC_MAX_CHARS (${docMaxChars()})`);
+      }
       const out = await documents.ingestDocument(companyId, {
         kind: args.kind,
         text: args.text,

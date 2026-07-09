@@ -14,7 +14,7 @@ import { BrainScope } from '../auth/api-key.types';
  * A leaked write-only key shouldn't be able to delete-by-cascade
  * across those surfaces.
  */
-const RETRACT_ADMIN_PREDICATES = new Set<string>([
+export const RETRACT_ADMIN_PREDICATES = new Set<string>([
   'billing_event',
   'human_declared',
 ]);

@@ -128,6 +128,7 @@ export class DocumentAsyncService implements OnModuleInit {
         doc,
         chunks,
         packId,
+        abortSignal: ctx.abortSignal,
       });
       status = run.status;
     } finally {

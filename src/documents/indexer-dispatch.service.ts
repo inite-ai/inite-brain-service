@@ -82,6 +82,7 @@ export class IndexerDispatchService {
     doc: StoredDocument;
     chunks: DocumentChunk[];
     packId: string;
+    abortSignal?: AbortSignal;
   }): Promise<IndexerRunResult> {
     if (p.packId === GENERAL_INDEXER_ID) {
       return this.runs.runGeneral(p);
@@ -116,6 +117,7 @@ export class IndexerDispatchService {
     doc: StoredDocument;
     chunks: DocumentChunk[];
     binding: IndexerBinding;
+    abortSignal?: AbortSignal;
   }): Promise<IndexerRunResult> {
     const { binding } = p;
     return this.runs.runIndexer({
@@ -133,6 +135,7 @@ export class IndexerDispatchService {
           packId: binding.indexerId,
           options: binding.dedicated,
         }),
+      abortSignal: p.abortSignal,
     });
   }
 }
