@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EmbedderService } from './embedder.service';
 import { ExtractorService } from './extractor.service';
 import { ExtractorRunnerService } from './extractor-runner.service';
@@ -9,6 +10,7 @@ import { RerankerService } from './reranker.service';
 import { HypeService } from './hype.service';
 import { PredicateRouterService } from './predicate-router.service';
 import { CrossEncoderService } from './cross-encoder.service';
+import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 import { PredicateRegistryService } from './predicate-registry.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import { ExtractorCacheService } from './extractor-cache.service';
@@ -43,6 +45,21 @@ import { EntityJudgeService } from './entity-judge.service';
     ExtractorCacheService,
     LocalNerService,
     ExtractionPatternService,
+    {
+      // Local cross-encoder fallback (no-Cohere-key rerank). Construction is
+      // cheap — the ONNX model lazy-loads on first use — so it's always
+      // provided; CrossEncoderService only invokes it when
+      // SEARCH_CROSS_ENCODER_LOCAL=1 and Cohere isn't configured.
+      provide: LocalCrossEncoderProvider,
+      useFactory: (config: ConfigService) =>
+        new LocalCrossEncoderProvider({
+          modelId: config.get<string>(
+            'SEARCH_CROSS_ENCODER_LOCAL_MODEL',
+            'Xenova/bge-reranker-base',
+          ),
+        }),
+      inject: [ConfigService],
+    },
     CalibrationService,
     CalibrationRefitRunnerService,
     CalibrationRefitQueueService,
