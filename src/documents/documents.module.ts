@@ -12,6 +12,7 @@ import { CommitWriterService } from './commit-writer.service';
 import { CandidateCommitService } from './candidate-commit.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
+import { DocumentReindexService } from './document-reindex.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
 
 /**
@@ -33,6 +34,7 @@ import { CandidateSweeperService } from './candidate-sweeper.service';
     CandidateCommitService,
     DocumentIngestService,
     DocumentAsyncService,
+    DocumentReindexService,
     CandidateSweeperService,
   ],
   exports: [DocumentIngestService, DocumentStoreService, CandidateStoreService],

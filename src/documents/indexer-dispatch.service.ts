@@ -61,7 +61,22 @@ export class IndexerDispatchService {
     return results;
   }
 
-  /** Run ONE indexer by pack id — the async job path. */
+  /** Resolve one pack's binding (installed or builtin), or null. */
+  async bindingFor(
+    companyId: string,
+    packId: string,
+  ): Promise<IndexerBinding | null> {
+    const bindings = await this.router.bindingsFor(companyId);
+    return bindings.find((b) => b.indexerId === packId) ?? null;
+  }
+
+  /**
+   * Run ONE indexer by pack id — the async job + re-index path. Any pack
+   * (virtual included) runs as a pack-scoped extraction here: for
+   * backfill, "read old documents with THIS pack's vocabulary" is
+   * exactly the dedicated machinery, whatever the pack's live-ingest
+   * mode is.
+   */
   async runOne(p: {
     companyId: string;
     doc: StoredDocument;
@@ -71,8 +86,7 @@ export class IndexerDispatchService {
     if (p.packId === GENERAL_INDEXER_ID) {
       return this.runs.runGeneral(p);
     }
-    const bindings = await this.router.bindingsFor(p.companyId);
-    const binding = bindings.find((b) => b.indexerId === p.packId);
+    const binding = await this.bindingFor(p.companyId, p.packId);
     if (!binding) {
       throw new Error(`unknown indexer pack "${p.packId}"`);
     }

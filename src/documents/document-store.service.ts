@@ -127,6 +127,27 @@ export class DocumentStoreService {
     });
   }
 
+  /**
+   * Re-indexable documents, id-ordered with an exclusive cursor — the
+   * backfill job's pagination. Only documents with stored content
+   * qualify (storeContent=false was the caller's explicit trade).
+   */
+  async listReindexable(
+    companyId: string,
+    p: { afterId?: string; limit: number },
+  ): Promise<StoredDocument[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT * FROM source_document
+         WHERE hasContent = true AND status != 'purged'
+           ${p.afterId ? `AND id > type::record('source_document', $after)` : ''}
+         ORDER BY id ASC LIMIT $limit`,
+        { after: p.afterId ? idTailOf(p.afterId) : undefined, limit: p.limit },
+      );
+      return (((rows as any[]) ?? []) as Record<string, unknown>[]).map(mapDoc);
+    });
+  }
+
   /** Stored chunks (empty for hasContent=false documents). */
   async getChunks(companyId: string, docId: string): Promise<DocumentChunk[]> {
     return this.surreal.withCompany(companyId, async (db) => {

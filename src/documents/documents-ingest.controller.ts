@@ -14,6 +14,7 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
+import { DocumentReindexService } from './document-reindex.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 import { assertDocumentIngestEnabled, docMaxChars } from './documents-gate';
 
@@ -28,6 +29,7 @@ export class DocumentsIngestController {
   constructor(
     private readonly ingest: DocumentIngestService,
     private readonly async: DocumentAsyncService,
+    private readonly reindex: DocumentReindexService,
   ) {}
 
   @Post('ingest/document')
@@ -52,6 +54,29 @@ export class DocumentsIngestController {
     assertDocumentIngestEnabled();
     const result = await this.ingest.commitPending(req.brainAuth.companyId, id);
     if (!result) throw new NotFoundException('document not found');
+    return result;
+  }
+
+  /** Backfill: run one pack's extraction over the tenant's stored docs. */
+  @Post('admin/documents/reindex')
+  @RequireScopes('brain:admin')
+  async reindexDocuments(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { packId?: string },
+  ) {
+    assertDocumentIngestEnabled();
+    if (!body?.packId || typeof body.packId !== 'string') {
+      throw new BadRequestException('packId is required');
+    }
+    const result = await this.reindex.enqueueForPack(
+      req.brainAuth.companyId,
+      body.packId,
+    );
+    if (!result) {
+      throw new NotFoundException(
+        `pack "${body.packId}" is not installed for this tenant`,
+      );
+    }
     return result;
   }
 
