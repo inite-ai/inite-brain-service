@@ -1,15 +1,18 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { envFlagEnabled } from '../common/env-validation';
 import type { IngestService } from '../ingest/ingest.service';
 import type { FactsService } from '../facts/facts.service';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 import type { EntitiesService } from '../entities/entities.service';
+import type { DocumentIngestService } from '../documents/document-ingest.service';
 import type { BrainScope } from '../auth/api-key.types';
 
 export interface WriteToolDeps {
   ingest: IngestService;
   facts: FactsService;
   procedural: ProceduralMemoryService;
+  documents?: DocumentIngestService;
 }
 
 export interface AdminToolDeps {
@@ -69,6 +72,13 @@ export function registerWriteTools({
       };
     },
   );
+
+  // ── ingest_document ────────────────────────────────────────────
+  // Registered only when the documents pipeline is wired AND enabled —
+  // agents shouldn't see a tool that answers 503.
+  if (deps.documents && envFlagEnabled(process.env.DOCUMENT_INGEST_ENABLED)) {
+    registerIngestDocumentTool({ server, companyId, documents: deps.documents });
+  }
 
   // ── link_entities ──────────────────────────────────────────────
   server.registerTool(
@@ -242,6 +252,69 @@ export function registerAdminTools(
           reason: args.reason,
           requestId: args.requestId,
         },
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: out as any,
+      };
+    },
+  );
+}
+
+/**
+ * The ingest_document registration — split from registerWriteTools to
+ * keep it under the function-size gate. Feeds a normalized document
+ * through Source → Indexer → Candidates → Brain synchronously.
+ */
+function registerIngestDocumentTool({
+  server,
+  companyId,
+  documents,
+}: {
+  server: McpServer;
+  companyId: string;
+  documents: DocumentIngestService;
+}): void {
+  server.registerTool(
+    'ingest_document',
+    {
+      title: 'Ingest a normalized document',
+      description:
+        'Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer (plus relevant domain packs), staged as candidates, and committed through conflict resolution. Prefer this over record_fact for anything longer than one claim.',
+      inputSchema: {
+        kind: z
+          .string()
+          .max(64)
+          .describe('Container kind: chat | email | markdown | pdf | …'),
+        text: z.string().describe('Normalized document text'),
+        title: z.string().max(512).optional(),
+        originUri: z
+          .string()
+          .max(512)
+          .optional()
+          .describe('Pointer back to the raw container'),
+        occurredAt: z
+          .string()
+          .datetime()
+          .describe("The document's own timestamp — becomes facts' validFrom"),
+        vertical: z.string().describe('Vertical attributed as source'),
+        storeContent: z
+          .boolean()
+          .optional()
+          .describe('false keeps only the content hash (no re-indexing later)'),
+      },
+    },
+    async (args) => {
+      const out = await documents.ingestDocument(companyId, {
+        kind: args.kind,
+        text: args.text,
+        title: args.title,
+        originUri: args.originUri,
+        occurredAt: args.occurredAt,
+        contextRef: { vertical: args.vertical, recorder: 'mcp_agent' },
+        storeContent: args.storeContent,
+        indexers: 'general',
+        mode: 'sync',
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

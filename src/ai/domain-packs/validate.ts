@@ -99,6 +99,108 @@ export function validatePack(pack: DomainPackManifest): void {
   if (pack.evalFixtures !== undefined) {
     validateEvalFixtures(pack.id, pack.evalFixtures);
   }
+  if (pack.indexer !== undefined) {
+    validateIndexerDescriptor(pack.id, pack.indexer);
+  }
+}
+
+const INDEXER_MODES = new Set(['virtual', 'dedicated', 'external']);
+
+/**
+ * Validate the indexer-layer descriptor (see IndexerDescriptor in
+ * manifest.ts). Structural only — the descriptor rides inside the signed
+ * manifest, so a malformed one must be a clean 400 at author/install
+ * time, not a routing-time surprise.
+ */
+function validateIndexerDescriptor(packId: string, indexer: unknown): void {
+  if (typeof indexer !== 'object' || indexer === null || Array.isArray(indexer)) {
+    throw new DomainPackError(`pack "${packId}" indexer must be an object`);
+  }
+  const d = indexer as { mode?: unknown; relevance?: unknown; dedicated?: unknown };
+  if (d.mode !== undefined && !INDEXER_MODES.has(d.mode as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.mode "${d.mode}" must be one of ${[...INDEXER_MODES].join('|')}`,
+    );
+  }
+  if (d.relevance !== undefined) validateRelevance(packId, d.relevance);
+  if (d.dedicated !== undefined) validateDedicated(packId, d.dedicated);
+}
+
+function validateRelevance(packId: string, relevance: unknown): void {
+  if (typeof relevance !== 'object' || relevance === null || Array.isArray(relevance)) {
+    throw new DomainPackError(`pack "${packId}" indexer.relevance must be an object`);
+  }
+  const r = relevance as {
+    keywords?: unknown;
+    verticals?: unknown;
+    description?: unknown;
+    threshold?: unknown;
+    alwaysRun?: unknown;
+  };
+  for (const field of ['keywords', 'verticals'] as const) {
+    const v = r[field];
+    if (
+      v !== undefined &&
+      (!Array.isArray(v) || v.some((s) => typeof s !== 'string' || !s))
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" indexer.relevance.${field} must be an array of non-empty strings`,
+      );
+    }
+  }
+  if (r.description !== undefined && typeof r.description !== 'string') {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.relevance.description must be a string`,
+    );
+  }
+  if (
+    r.threshold !== undefined &&
+    (typeof r.threshold !== 'number' || r.threshold < 0 || r.threshold > 1)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.relevance.threshold must be a number in [0, 1]`,
+    );
+  }
+  if (r.alwaysRun !== undefined && typeof r.alwaysRun !== 'boolean') {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.relevance.alwaysRun must be a boolean`,
+    );
+  }
+}
+
+function validateDedicated(packId: string, dedicated: unknown): void {
+  if (typeof dedicated !== 'object' || dedicated === null || Array.isArray(dedicated)) {
+    throw new DomainPackError(`pack "${packId}" indexer.dedicated must be an object`);
+  }
+  const ded = dedicated as {
+    includeCorePredicates?: unknown;
+    model?: unknown;
+    scPasses?: unknown;
+  };
+  if (
+    ded.includeCorePredicates !== undefined &&
+    typeof ded.includeCorePredicates !== 'boolean'
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.dedicated.includeCorePredicates must be a boolean`,
+    );
+  }
+  if (ded.model !== undefined && typeof ded.model !== 'string') {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.dedicated.model must be a string`,
+    );
+  }
+  if (
+    ded.scPasses !== undefined &&
+    (typeof ded.scPasses !== 'number' ||
+      !Number.isInteger(ded.scPasses) ||
+      ded.scPasses < 1 ||
+      ded.scPasses > 9)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" indexer.dedicated.scPasses must be an integer in [1, 9]`,
+    );
+  }
 }
 
 /** Validate a pack's eval fixtures (consumed by the eval runner, so a malformed

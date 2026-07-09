@@ -1,0 +1,288 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { IndexerRouterService } from '../indexers/indexer-router.service';
+import { normalizeEntityType } from '../ai/extractor-internals/grounding';
+import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
+import type {
+  CandidateBatch,
+  CandidateEntity,
+  CandidateFact,
+  CandidateRelation,
+} from '../indexers/candidate.types';
+import { DocumentStoreService, StoredDocument } from './document-store.service';
+import { CandidateStoreService } from './candidate-store.service';
+import { groundExternalBatch, GroundingDrop } from './candidate-grounding';
+import {
+  SubmitCandidatesDto,
+  SubmittedFact,
+  SubmittedRelation,
+} from './dto/submit-candidates.dto';
+
+export interface ExternalSubmissionResult {
+  runId: string;
+  packId: string;
+  packVersion: string;
+  staged: { entities: number; facts: number; relations: number };
+  dropped: GroundingDrop[];
+  /** true when the document has no stored content — spans unverifiable. */
+  ungrounded: boolean;
+}
+
+/** Abuse bounds on one submission — an external key stages hypotheses,
+ *  it must not be able to flood the staging table in one call. */
+const MAX_ITEMS_PER_KIND = 200;
+const MAX_NAME = 256;
+const MAX_OBJECT = 2_000;
+
+/**
+ * The external-indexer seam: a remote service that read a stored
+ * document POSTs its CandidateBatch here (scope `indexer:write`). The
+ * server enforces what the in-process pipeline gets for free:
+ *
+ *   1. the indexer must be a pack installed for this tenant with
+ *      `indexer.mode: 'external'` (registered identity, not a free string);
+ *   2. fact predicates must live in the pack's namespace (or core) —
+ *      an external indexer cannot squat another pack's vocabulary;
+ *   3. spans are RE-GROUNDED against the stored document text — verbatim
+ *      or dropped (documents stored without content stage `ungrounded`
+ *      candidates instead; source-trust learning compensates);
+ *   4. the indexer_run UNIQUE ledger applies — one run per
+ *      (doc, pack, version), duplicate submissions collapse.
+ *
+ * Candidates staged here flow through the SAME merge + CommitMemory as
+ * in-process runs; the endpoint never touches the graph directly.
+ */
+@Injectable()
+export class ExternalCandidatesService {
+  constructor(
+    private readonly store: DocumentStoreService,
+    private readonly candidates: CandidateStoreService,
+    private readonly router: IndexerRouterService,
+  ) {}
+
+  async submit(p: {
+    companyId: string;
+    docId: string;
+    dto: SubmitCandidatesDto;
+  }): Promise<ExternalSubmissionResult> {
+    const { companyId, docId, dto } = p;
+    const doc = await this.store.getById(companyId, docId);
+    if (!doc) throw new NotFoundException('document not found');
+
+    const binding = await this.resolveExternalBinding(companyId, dto);
+    validateShapes(dto, binding.indexerId);
+
+    const { batch, dropped, ungrounded } = await this.groundAgainstDocument({
+      companyId,
+      doc,
+      dto,
+    });
+
+    const run = await this.candidates.createRun(companyId, {
+      docId: doc.id,
+      packId: binding.indexerId,
+      packVersion: binding.packVersion,
+    });
+    if (!run.created) {
+      throw new ConflictException(
+        `indexer "${binding.indexerId}"@${binding.packVersion} already processed this document`,
+      );
+    }
+
+    const counts = await this.candidates.insertBatch(companyId, {
+      docId: doc.id,
+      runId: run.runId,
+      chunkSeq: 0,
+      batch,
+    });
+    await this.candidates.finalizeRun(companyId, {
+      runId: run.runId,
+      status: 'succeeded',
+      stats: { ...counts, dropped: dropped.length, external: true },
+    });
+
+    return {
+      runId: run.runId,
+      packId: binding.indexerId,
+      packVersion: binding.packVersion,
+      staged: counts,
+      dropped,
+      ungrounded,
+    };
+  }
+
+  private async resolveExternalBinding(
+    companyId: string,
+    dto: SubmitCandidatesDto,
+  ): Promise<{ indexerId: string; packVersion: string }> {
+    const bindings = await this.router.bindingsFor(companyId);
+    const binding = bindings.find((b) => b.indexerId === dto.indexerId);
+    if (!binding) {
+      throw new NotFoundException(
+        `indexer pack "${dto.indexerId}" is not installed for this tenant`,
+      );
+    }
+    if (binding.mode !== 'external') {
+      throw new BadRequestException(
+        `pack "${dto.indexerId}" is not declared indexer.mode='external' — in-process packs stage through their own runs`,
+      );
+    }
+    if (dto.packVersion !== undefined && dto.packVersion !== binding.packVersion) {
+      throw new ConflictException(
+        `version mismatch: submitted ${dto.packVersion}, installed ${binding.packVersion}`,
+      );
+    }
+    return { indexerId: binding.indexerId, packVersion: binding.packVersion };
+  }
+
+  private async groundAgainstDocument(p: {
+    companyId: string;
+    doc: StoredDocument;
+    dto: SubmitCandidatesDto;
+  }): Promise<{
+    batch: CandidateBatch;
+    dropped: GroundingDrop[];
+    ungrounded: boolean;
+  }> {
+    const { dto, doc } = p;
+    const entities: CandidateEntity[] = dto.entities.map((e, i) => ({
+      entityIndex: i,
+      name: e.name,
+      type: normalizeEntityType(e.type),
+      canonical: e.canonical,
+    }));
+    const facts: CandidateFact[] = dto.facts.map(toFact);
+    const relations: CandidateRelation[] = (dto.relations ?? []).map(toRelation);
+
+    const provenance = {
+      indexerId: dto.indexerId,
+      packVersion: dto.packVersion ?? '0',
+      executionMode: 'external' as const,
+      model: null,
+    };
+
+    if (!doc.hasContent) {
+      // storeContent:false — nothing to verify spans against. Stage the
+      // hypotheses flagged ungrounded; the trade was the caller's.
+      return {
+        batch: {
+          provenance,
+          entities: entities.map((e) => ({ ...e, ungrounded: true })),
+          facts: facts.map((f) => ({ ...f, ungrounded: true })),
+          relations: relations.map((r) => ({ ...r, ungrounded: true })),
+        },
+        dropped: [],
+        ungrounded: true,
+      };
+    }
+
+    const chunks = await this.store.getChunks(p.companyId, doc.id);
+    const docText = chunks.map((c) => c.text).join('\n');
+    const grounded = groundExternalBatch({ docText, entities, facts, relations });
+    return {
+      batch: {
+        provenance,
+        entities: grounded.entities,
+        facts: grounded.facts,
+        relations: grounded.relations,
+      },
+      dropped: grounded.dropped,
+      ungrounded: false,
+    };
+  }
+}
+
+/**
+ * Per-item shape checks the whitelist pipe can't do: caps, confidence
+ * clamps, and the namespace fence.
+ */
+function validateShapes(dto: SubmitCandidatesDto, indexerId: string): void {
+  const relations = dto.relations ?? [];
+  if (
+    dto.entities.length > MAX_ITEMS_PER_KIND ||
+    dto.facts.length > MAX_ITEMS_PER_KIND ||
+    relations.length > MAX_ITEMS_PER_KIND
+  ) {
+    throw new BadRequestException(
+      `a submission is capped at ${MAX_ITEMS_PER_KIND} items per kind`,
+    );
+  }
+  for (const [i, e] of dto.entities.entries()) {
+    if (!isBoundedString(e?.name, MAX_NAME)) {
+      throw new BadRequestException(
+        `entities[${i}].name must be a non-empty string of at most ${MAX_NAME} chars`,
+      );
+    }
+  }
+  dto.facts.forEach((f, i) => validateFact(f, i, indexerId));
+  for (const [i, r] of relations.entries()) {
+    if (
+      !Number.isInteger(r?.fromEntityIndex) ||
+      !Number.isInteger(r?.toEntityIndex) ||
+      typeof r.kind !== 'string' ||
+      !r.kind.trim()
+    ) {
+      throw new BadRequestException(
+        `relations[${i}] must carry integer endpoints and a non-empty kind`,
+      );
+    }
+  }
+}
+
+function validateFact(f: SubmittedFact, i: number, indexerId: string): void {
+  if (!Number.isInteger(f?.entityIndex) || f.entityIndex < 0) {
+    throw new BadRequestException(
+      `facts[${i}].entityIndex must be a non-negative integer`,
+    );
+  }
+  if (typeof f.predicate !== 'string' || !f.predicate.trim()) {
+    throw new BadRequestException(`facts[${i}].predicate must be a non-empty string`);
+  }
+  // Namespace fence: this indexer's own vocabulary, or core (unprefixed).
+  // Another pack's namespace is squatting — rejected, not dropped.
+  if (
+    f.predicate.includes(PACK_NAMESPACE_SEP) &&
+    !f.predicate.startsWith(indexerId + PACK_NAMESPACE_SEP)
+  ) {
+    throw new BadRequestException(
+      `facts[${i}].predicate "${f.predicate}" is outside the "${indexerId}" namespace`,
+    );
+  }
+  if (!isBoundedString(f.object, MAX_OBJECT)) {
+    throw new BadRequestException(
+      `facts[${i}].object must be a non-empty string of at most ${MAX_OBJECT} chars`,
+    );
+  }
+}
+
+function isBoundedString(v: unknown, max: number): v is string {
+  return typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+}
+
+function toFact(f: SubmittedFact): CandidateFact {
+  return {
+    entityIndex: f.entityIndex,
+    predicate: f.predicate,
+    object: f.object,
+    confidence: clamp01(f.confidence ?? 0.7),
+    clause: f.clause,
+  };
+}
+
+function toRelation(r: SubmittedRelation): CandidateRelation {
+  return {
+    fromEntityIndex: r.fromEntityIndex,
+    toEntityIndex: r.toEntityIndex,
+    kind: r.kind,
+    confidence: clamp01(r.confidence ?? 0.7),
+  };
+}
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0.7;
+  return Math.min(1, Math.max(0, n));
+}

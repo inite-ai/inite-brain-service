@@ -38,6 +38,14 @@ boot validation, graceful shutdown, test commands.
 | `SEARCH_TRUST_BETA` | `0` | fact_trust in ranking (source-reputation Phase 5): search scores ×= `1 + β·(sourceReputation − 0.5)` from the write-time trust snapshot. `0` = byte-identical ranking; snapshot-less facts sit on the neutral 0.5 at any β. |
 | `SEARCH_CORROBORATION_GAMMA` | `0` | Search scores ×= `1 + γ·min(corroborationCount, 3)` — independently confirmed facts rank higher. `0` = off. |
 | `SYNTHESIZE_MIN_FACT_TRUST` | `0` | Citation floor on write-time source reputation (beside `SYNTHESIZE_MIN_CONFIDENCE`). `0` = off; floors ≤ 0.5 never drop unscored facts. |
+| `DOCUMENT_INGEST_ENABLED` | `0` | Master switch for the [document pipeline](document-pipeline.md) (`POST /v1/ingest/document` + `/v1/documents/*`). Off = every route answers 503 and the legacy mention/fact paths behave byte-identically. |
+| `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated per-pack indexer runs + relevance router + async (queue-driven) document ingest. Off = only the `'_general'` union pass runs. |
+| `REINDEX_ON_PACK_INSTALL` | `0` | Enqueue a pack-scoped backfill over stored documents at the end of every pack install/upgrade. |
+| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route `POST /v1/ingest/mention` through the document pipeline (response contract preserved). Off = legacy mention path, untouched. |
+| `DOC_MAX_CHARS` / `DOC_CHUNK_TARGET_CHARS` | `512000` / `12000` | Document size cap (413 above) and chunker target (hard max 16K = the extractor clamp). |
+| `CANDIDATE_MIN_CONFIDENCE` | `0` | Brain-side prefilter: merged facts below this never reach the resolver. |
+| `CANDIDATE_RETENTION_DAYS` / `CANDIDATE_PENDING_TTL_DAYS` | `30` / `7` | Nightly candidate sweeper: delete decided rows after / expire stuck pending rows after. |
+| `REINDEX_MAX_DOCS_PER_RUN` | `500` | Backfill batch budget per `reindex_documents` job (batches self-chain). |
 | `DOMAIN_PACK_TRUSTED_KEYS` | unset | Pack-install trust store: JSON object mapping `publisher` → ed25519 PEM public key. Malformed JSON fails boot (env validation) — a typo would silently empty the store and every signed pack would fail as "unknown publisher". |
 | `DOMAIN_PACK_REQUIRE_SIGNATURE` | `0` | When `1`/`true`, `POST /v1/admin/packs` rejects unsigned manifests. Values outside `1/0/true/false` fail boot — an unrecognized value would silently disable enforcement. |
 | `PACK_REGISTRY_REQUIRE_SIGNATURE` | `0` | Same policy for `POST /v1/admin/registry/packs` (publish into the global catalogue). Same strict value set. |

@@ -18,6 +18,7 @@ which file the bits used to live in.
 | [API reference](api.md) | Every v1 endpoint with notes + auth scopes. |
 | [Data model](data-model.md) | Bitemporal facts, predicate vocabulary, conflict resolution, tenancy, PII / GDPR. |
 | [Bitemporal semantics — deep dive](bitemporal-semantics.md) | Default-now search, Allen's interval algebra, why not just post-filter. |
+| [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers. |
 | [Eval harness](eval.md) | Production-gate retrieval + lifecycle eval. Load your CRM via JSON or Wikidata. |
 | [LoCoMo benchmark](locomo.md) | Long-term conversational memory eval — apples-to-apples vs Mem0 / Zep / MemGPT. |
 

@@ -1,12 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ExtractorService } from '../ai/extractor.service';
+import { DedicatedExtractorService } from '../indexers/dedicated-extractor.service';
 import {
   BUILTIN_PACKS,
   scoreFixture,
   type DomainPackManifest,
   type PackEvalReport,
 } from '../ai/domain-packs';
+
+export type PackEvalMode = 'union' | 'dedicated';
 
 /**
  * Runs a Domain Pack's eval fixtures against the LIVE extractor for a tenant
@@ -29,9 +32,21 @@ export class PackEvalService {
   constructor(
     private readonly surreal: SurrealService,
     private readonly extractor: ExtractorService,
+    private readonly dedicated: DedicatedExtractorService,
   ) {}
 
-  async run(companyId: string, packId: string): Promise<PackEvalReport> {
+  /**
+   * `mode='union'` (default) scores the fixtures against the tenant's
+   * full union prompt — what generic ingest actually runs. `'dedicated'`
+   * scores them against the pack-scoped dedicated prompt. The DELTA
+   * between the two reports is the decision criterion for opting a pack
+   * into `indexer.mode: 'dedicated'` — a measured choice, not a guess.
+   */
+  async run(
+    companyId: string,
+    packId: string,
+    mode: PackEvalMode = 'union',
+  ): Promise<PackEvalReport & { mode: PackEvalMode }> {
     const manifest = await this.resolveManifest(companyId, packId);
     if (!manifest) {
       throw new NotFoundException(
@@ -47,12 +62,20 @@ export class PackEvalService {
     }
     const results = [];
     for (const fixture of fixtures) {
-      const extraction = await this.extractor.extract(fixture.text, companyId);
+      const extraction =
+        mode === 'dedicated'
+          ? await this.dedicated.extract({
+              text: fixture.text,
+              companyId,
+              packId: manifest.id,
+              options: manifest.indexer?.dedicated,
+            })
+          : await this.extractor.extract(fixture.text, companyId);
       results.push(scoreFixture(manifest.id, fixture, extraction));
     }
     const passed = results.filter((r) => r.passed).length;
     this.logger.log(
-      `pack eval ${manifest.id} v${manifest.version} for ${companyId}: ${passed}/${results.length} passed`,
+      `pack eval ${manifest.id} v${manifest.version} for ${companyId} (${mode}): ${passed}/${results.length} passed`,
     );
     return {
       packId: manifest.id,
@@ -60,6 +83,7 @@ export class PackEvalService {
       total: results.length,
       passed,
       results,
+      mode,
     };
   }
 

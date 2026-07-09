@@ -28,6 +28,7 @@ import { CommunityModule } from './communities/community.module';
 import { StatsModule } from './stats/stats.module';
 import { RegistryModule } from './registry/registry.module';
 import { SourcesModule } from './sources/sources.module';
+import { DocumentsModule } from './documents/documents.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { SourcesModule } from './sources/sources.module';
     StatsModule,
     RegistryModule,
     SourcesModule,
+    DocumentsModule,
   ],
   controllers: [HealthController],
   providers: [

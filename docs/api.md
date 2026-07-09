@@ -18,8 +18,23 @@ SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/ingest/fact` | Declared structured fact ingest. |
-| `POST /v1/ingest/mention` | NLU extraction → entities + facts. |
+| `POST /v1/ingest/mention` | NLU extraction → entities + facts. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape). |
 | `POST /v1/ingest/link` | Typed edge between entities (incl. `identity_of` for cross-vertical merge). |
+
+## Documents (Source → Indexer → Candidates → Brain)
+
+All routes answer `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.
+See [Document pipeline](document-pipeline.md) for the architecture.
+
+| Endpoint | Notes |
+|---|---|
+| `POST /v1/ingest/document` | Normalized-document ingest: store (content-hash deduped, PII-redacted, chunked) → indexer runs → staged candidates → CommitMemory. `storeContent:false` keeps only hash+metadata. `mode:'async'` fans indexer runs onto the job queue (requires `DOCUMENT_MULTI_INDEXER_ENABLED`). |
+| `GET /v1/documents/:id` | Document header + indexer-run ledger; `?includeText=1` returns stored chunks. |
+| `GET /v1/documents/:id/candidates` | The Candidates-layer audit view — every staged hypothesis with status / reason / commitRef. |
+| `POST /v1/documents/:id/candidates` | EXTERNAL indexer submission (scope `indexer:write`): batch is validated against the pack registration, namespace-fenced, and span-re-grounded against stored text before staging. |
+| `POST /v1/documents/:id/commit` | Manual (re)commit of pending candidates (admin). |
+| `DELETE /v1/documents/:id/content` | Purge stored chunks; header + contentHash survive (admin). |
+| `POST /v1/admin/documents/reindex` | Backfill: run one pack's extraction over all stored documents (admin). |
 
 ## Read
 
@@ -82,6 +97,8 @@ a quiet stale field.
 | `brain:write` | All ingest endpoints. |
 | `brain:read_pii` | Lifts the PII gate — `dob` / `email` / `phone` / `address` facts return real values. |
 | `brain:admin` | All `/v1/admin/*` endpoints, dreams trigger, retraction / forget. |
+| `registry:publish` | Publish/yank in the global pack registry (catalogue shared across tenants). |
+| `indexer:write` | Stage candidates as an external indexer (`POST /v1/documents/:id/candidates`) — can propose hypotheses, never write facts directly. |
 
 Keys are stored as `sha256:<hex>` — see [Getting started](getting-started.md#seed-an-apikey)
 for the seeding flow.

@@ -3,9 +3,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { JobClaimService } from '../jobs/job-claim.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -53,10 +55,14 @@ export class DomainPackInstallService {
   private readonly logger = new Logger(DomainPackInstallService.name);
   private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
+  // The optional 4th dep is the REINDEX_ON_PACK_INSTALL queue hook — a
+  // fire-and-forget enqueue, not a responsibility worth a wrapper class.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     private readonly registry: PredicateRegistryService,
+    @Optional() private readonly claim?: JobClaimService,
   ) {}
 
   /** Trust store: publisher → PEM public key, from DOMAIN_PACK_TRUSTED_KEYS
@@ -236,12 +242,41 @@ export class DomainPackInstallService {
     this.logger.log(
       `Installed pack ${manifest.id} v${manifest.version} into ${companyId} (${seeded} predicate(s) seeded)`,
     );
+    await this.maybeEnqueueReindex(companyId, manifest);
     return {
       packId: manifest.id,
       version: manifest.version,
       predicatesSeeded: seeded,
       checksum,
     };
+  }
+
+  /**
+   * REINDEX_ON_PACK_INSTALL hook: a freshly installed/upgraded pack makes
+   * stored documents eligible for a pack-scoped backfill
+   * (DocumentReindexService handles the job). dedupKey mirrors the
+   * admin-endpoint shape so the two triggers collapse into one run.
+   * Best-effort — a queue hiccup must not fail the install.
+   */
+  private async maybeEnqueueReindex(
+    companyId: string,
+    manifest: DomainPackManifest,
+  ): Promise<void> {
+    if (!this.claim) return;
+    if (!envFlagEnabled(process.env.REINDEX_ON_PACK_INSTALL)) return;
+    try {
+      await this.claim.enqueue({
+        jobType: 'reindex_documents',
+        companyId,
+        triggeredBy: 'manual',
+        dedupKey: `reindex_${manifest.id}_${manifest.version}_start`,
+        payload: { packId: manifest.id, packVersion: manifest.version },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `reindex enqueue after install of ${manifest.id} failed: ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Re-write redefined pack predicates on upgrade. MERGE (not CONTENT) so

@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Surreal, StringRecordId } from 'surrealdb';
-import { SurrealService, isUniqueViolation } from '../db/surreal.service';
+import { Surreal } from 'surrealdb';
+import { SurrealService } from '../db/surreal.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
+import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
 
 export interface MentionPersistResult {
@@ -208,7 +209,7 @@ export class MentionPersistService {
         const edgeId = await traceSpan(
           'ingest.edge.upsert',
           () =>
-            this.createEdgeBetween(db, {
+            createEdgeBetween(db, {
               fromEntityId: fromEid,
               toEntityId: toEid,
               kind: e.kind,
@@ -230,45 +231,5 @@ export class MentionPersistService {
       }
     }
     return edgeIds;
-  }
-
-  /**
-   * Create a knowledge_edge between two ALREADY-resolved entity IDs.
-   * Idempotent: UNIQUE on (in, out, kind) — concurrent / duplicate RELATEs
-   * return the existing edge id.
-   */
-  private async createEdgeBetween(
-    db: Surreal,
-    p: {
-      fromEntityId: string;
-      toEntityId: string;
-      kind: string;
-      source: Record<string, unknown>;
-    },
-  ): Promise<string | null> {
-    const fromRid = new StringRecordId(p.fromEntityId);
-    const toRid = new StringRecordId(p.toEntityId);
-    try {
-      const [edgeRows] = await db.query<[any[]]>(
-        `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
-        {
-          from: fromRid,
-          to: toRid,
-          kind: p.kind,
-          weight: 1.0,
-          source: p.source,
-        },
-      );
-      const edge = ((edgeRows as any[]) ?? [])[0];
-      return edge ? String(edge.id) : null;
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      const [existingRows] = await db.query<[any[]]>(
-        `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
-        { from: fromRid, to: toRid, kind: p.kind },
-      );
-      const existing = ((existingRows as any[]) ?? [])[0];
-      return existing ? String(existing.id) : null;
-    }
   }
 }

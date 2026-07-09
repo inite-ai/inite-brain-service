@@ -58,6 +58,14 @@ a system of record*.
   forking core: a signed, versioned manifest format, a six-pack industry library
   (real-estate, fintech, medical, legal, insurance, HR), and a global pack
   registry to publish and install them per tenant at runtime.
+- **A document pipeline, not an upload button.** Ingestion is split into four
+  layers — *Source* (a normalized document; Brain doesn't know what a PDF is) →
+  *Indexer* (composable domain readers: one meeting can be read by the meetings,
+  sales, and tasks indexers at once) → *Candidates* ("this MIGHT be a fact" — a
+  staged hypothesis, not yet memory) → *Brain* (merge, dedupe, conflict-resolve,
+  then commit). Stored documents can be **re-indexed** when a new pack lands,
+  and corroboration is keyed on the *origin document*, so two indexers reading
+  the same source never masquerade as independent evidence.
 - **A forget that deletes.** GDPR erasure is a synchronous hard cascade —
   facts, edges, and embeddings gone, only an HMAC tombstone left to prove it.
 - **Native MCP.** A per-tenant Streamable HTTP endpoint with scope-aware tools.
@@ -130,6 +138,45 @@ pointing at the per-tenant URL with a Bearer key — no glue code.
 
 Full per-client guide: [MCP setup](https://brain.inite.ai/en/docs/mcp/setup).
 
+## Feed it documents
+
+Beyond single facts and 16K mentions, Brain ingests whole normalized documents
+through the **Source → Indexer → Candidates → Brain** pipeline (flagged off by
+default — set `DOCUMENT_INGEST_ENABLED=1`):
+
+```bash
+curl -X POST localhost:3000/v1/ingest/document \
+  -H "Authorization: Bearer $BRAIN_KEY" -H "Content-Type: application/json" \
+  -d '{ "kind": "markdown", "title": "Q3 review with Acme",
+        "text": "<normalized document text, up to 512K chars>",
+        "occurredAt": "2026-07-01T10:00:00Z",
+        "contextRef": {"vertical": "crm"} }'
+```
+
+The document is stored (content-hash deduped, PII-redacted, chunked), read by
+the generalist indexer — plus any Domain Pack that opted into a **dedicated
+run** and matched the relevance router — staged as candidates you can audit at
+`GET /v1/documents/:id/candidates`, and only then committed through the same
+conflict-resolution ladder as every other fact. Connectors own raw formats
+(PDF, email, chat exports); Brain owns understanding what was read.
+
+What that buys:
+
+- **Composable indexers.** Every pack's facts are attributed by predicate
+  namespace out of the union extraction call at zero extra LLM cost; packs
+  that need their own prompt budget or model declare
+  `indexer: { mode: "dedicated" }` in their manifest and are routed per
+  document (`DOCUMENT_MULTI_INDEXER_ENABLED=1`).
+- **Re-indexing.** Install a new pack and replay it over stored documents —
+  `POST /v1/admin/documents/reindex` or automatically with
+  `REINDEX_ON_PACK_INSTALL=1`. The run ledger skips whatever a pack version
+  already processed.
+- **Honest corroboration.** Facts carry `originKey = doc:<contentHash>`;
+  agreement only counts as independent evidence when it comes from a
+  *different document*, not a different reader of the same one.
+- **A privacy dial.** `storeContent: false` keeps only the content hash and
+  metadata — extraction still runs, but nothing to re-index or leak later.
+
 ## Quality (latest gate run)
 
 ```
@@ -163,7 +210,7 @@ runs on any host.
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) |
+| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [Document pipeline](docs/document-pipeline.md) |
 | **Extend it** | [Domain Packs](docs/domain-packs.md) · [Pack distribution & registry](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |

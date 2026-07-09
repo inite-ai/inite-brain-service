@@ -24,6 +24,7 @@ import {
 } from './code-memory-tools';
 import { registerSourceReadTools } from './source-tools';
 import { SourcesService } from '../sources/sources.service';
+import { DocumentIngestService } from '../documents/document-ingest.service';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -86,6 +87,7 @@ export class McpService {
     private readonly codeSearch: CodeMemorySearchService,
     private readonly sources: SourcesService,
     private readonly embedder: EmbedderService,
+    private readonly documents: DocumentIngestService,
   ) {}
 
   /**
@@ -164,6 +166,7 @@ export class McpService {
           ingest: this.ingest,
           facts: this.facts,
           procedural: this.procedural,
+          documents: this.documents,
         },
       });
       registerCodeMemoryWriteTools({

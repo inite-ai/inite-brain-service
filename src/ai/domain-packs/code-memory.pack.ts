@@ -11,9 +11,14 @@ import { composePredicateId, type DomainPackManifest } from './manifest';
  */
 export const CODE_MEMORY_PACK: DomainPackManifest = {
   id: 'code_memory',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'Non-derivable engineering "why" of a codebase — decisions, rationale, invariants, gotchas anchored to code.',
+  // Retro-declaration, documentation-true: code-memory has ALWAYS been an
+  // external indexer — its capture pipeline runs where the code lives
+  // (raw source never leaves the machine) and posts typed facts. No
+  // in-process extraction run exists for it.
+  indexer: { mode: 'external' },
   predicates: [
     {
       localId: 'decided',
