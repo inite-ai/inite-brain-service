@@ -76,6 +76,25 @@ export class CandidateCommitService {
     );
   }
 
+  /**
+   * Async-queue variant: commit ONLY when every indexer run for the
+   * document is terminal. Each finishing index job enqueues one of these;
+   * all but the last defer — the last commits everything at once so the
+   * cross-indexer merge sees the full candidate set.
+   */
+  async commitIfRunsSettled(
+    companyId: string,
+    doc: StoredDocument,
+  ): Promise<CommitResult & { deferred: boolean }> {
+    const open = await this.candidates.countNonTerminalRuns(companyId, doc.id);
+    if (open > 0) {
+      this.metrics?.countCommitMemory('noop');
+      return { ...emptyResult(), deferred: true };
+    }
+    const result = await this.commitDocument(companyId, doc);
+    return { ...result, deferred: false };
+  }
+
   private async commitLocked(
     companyId: string,
     doc: StoredDocument,

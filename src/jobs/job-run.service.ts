@@ -12,7 +12,11 @@ export type JobType =
   | 'calibration_refit'
   | 'source_trust_refit'
   | 'reindex_embeddings'
-  | 'changefeed_drain';
+  | 'changefeed_drain'
+  | 'index_document'
+  | 'commit_document'
+  | 'candidate_sweeper'
+  | 'reindex_documents';
 
 /** Stable list of registered job types — used for iteration without
  *  duplicating the union elsewhere. */
@@ -23,6 +27,10 @@ export const JOB_TYPES: readonly JobType[] = [
   'source_trust_refit',
   'reindex_embeddings',
   'changefeed_drain',
+  'index_document',
+  'commit_document',
+  'candidate_sweeper',
+  'reindex_documents',
 ];
 
 export type JobStatus =

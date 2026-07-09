@@ -30,6 +30,7 @@ import { AdminPacksController } from './admin-packs.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
+import { IndexersModule } from '../indexers/indexers.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
 import { PackEvalService } from './pack-eval.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
@@ -64,6 +65,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     // AdminPacksController resolves manifests from the global registry for
     // POST /v1/admin/packs/from-registry.
     RegistryModule,
+    // PackEvalService scores fixtures in 'dedicated' mode through the
+    // pack-scoped extractor.
+    IndexersModule,
   ],
   controllers: [
     AdminController,

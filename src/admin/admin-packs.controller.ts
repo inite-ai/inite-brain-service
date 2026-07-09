@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -79,7 +81,9 @@ export class AdminPacksController {
 
   /** Run a pack's eval fixtures against the live extractor for this tenant —
    *  scores whether extraction (with the pack's predicates + extractionProfile
-   *  active) still meets the pack's own expectations. */
+   *  active) still meets the pack's own expectations. `?mode=dedicated` runs
+   *  the pack-scoped dedicated prompt instead of the union prompt; the delta
+   *  between the two reports is the pack author's dedicated-mode decision. */
   @Post(':packId/eval')
   // Heaviest admin route: up to MAX_EVAL_FIXTURES live extractor (LLM) calls
   // per request. Tightest expensive bucket so it can't be looped into a cost
@@ -89,8 +93,12 @@ export class AdminPacksController {
   async eval(
     @Req() req: AuthenticatedRequest,
     @Param('packId') packId: string,
+    @Query('mode') mode?: string,
   ): Promise<PackEvalReport> {
-    return this.packEval.run(req.brainAuth.companyId, packId);
+    if (mode !== undefined && mode !== 'union' && mode !== 'dedicated') {
+      throw new BadRequestException(`mode must be 'union' or 'dedicated'`);
+    }
+    return this.packEval.run(req.brainAuth.companyId, packId, mode ?? 'union');
   }
 
   @Delete(':packId')

@@ -55,6 +55,10 @@ import { EntityJudgeService } from './entity-judge.service';
   exports: [
     EmbedderService,
     ExtractorService,
+    // Exposed for dedicated indexer runs (src/indexers): a pack-scoped
+    // extraction reuses the runner + cache directly with a filtered
+    // snapshot instead of duplicating the engine.
+    ExtractorRunnerService,
     RerankerService,
     HypeService,
     PredicateRouterService,

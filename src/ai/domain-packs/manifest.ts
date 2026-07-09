@@ -61,9 +61,60 @@ export interface DomainPackManifest {
   signature?: string;
   /** Publisher id — the key in the tenant's trust store used to verify. */
   publisher?: string;
+  /**
+   * Indexer-layer execution descriptor (see IndexerDescriptor below).
+   * Absent = 'virtual' — the pack rides the union extraction call.
+   */
+  indexer?: IndexerDescriptor;
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */
 export function composePredicateId(packId: string, localId: string): string {
   return `${packId}${PACK_NAMESPACE_SEP}${localId}`;
+}
+
+/**
+ * How a pack participates in document indexing (the Indexer layer).
+ * Absent descriptor = 'virtual': the pack rides the single union
+ * extraction call and its facts are attributed post-hoc by predicate
+ * namespace — today's behavior, zero extra LLM cost. 'dedicated' opts the
+ * pack into its OWN extraction run (own prompt budget / model /
+ * self-consistency passes), gated per document by the relevance router.
+ * 'external' declares a remote indexer that stages candidates via the
+ * API instead of running in-process (the seam; enforcement server-side).
+ *
+ * The descriptor lives INSIDE the signed/checksummed manifest — signature
+ * and version-immutability guarantees cover it with zero new machinery.
+ */
+export interface IndexerRelevance {
+  /** Cheap substring triggers over the document head. */
+  keywords?: string[];
+  /** Subscribe to contextRef.vertical values ('meetings', 'crm', …). */
+  verticals?: string[];
+  /** Embedded and compared against the document head (router L2). */
+  description?: string;
+  /** Cosine gate for L2; default 0.30. */
+  threshold?: number;
+  /** Config-based subscription: bypass the router entirely. */
+  alwaysRun?: boolean;
+}
+
+export interface IndexerDescriptor {
+  mode?: 'virtual' | 'dedicated' | 'external';
+  /** Routing triggers — consulted for dedicated/external modes only. */
+  relevance?: IndexerRelevance;
+  dedicated?: {
+    /** Entity typing needs the core cards; default true. */
+    includeCorePredicates?: boolean;
+    /** Override OPENAI_CHAT_MODEL for this indexer's runs. */
+    model?: string;
+    /** Per-indexer self-consistency pass count. */
+    scPasses?: number;
+  };
+  external?: {
+    /** Trust-store key — reuses the existing ed25519 machinery. */
+    publisher?: string;
+    /** Optional push-notification target (HMAC-signed, later phase). */
+    callbackUrl?: string;
+  };
 }

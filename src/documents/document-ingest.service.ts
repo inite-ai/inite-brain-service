@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { traceSpan } from '../common/debug-trace';
 import { DocumentStoreService } from './document-store.service';
-import { IndexerRunService, IndexerRunResult } from './indexer-run.service';
+import { IndexerDispatchService } from './indexer-dispatch.service';
+import type { IndexerRunResult } from './indexer-run.service';
 import { CandidateCommitService, CommitResult } from './candidate-commit.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
@@ -20,11 +21,11 @@ export interface DocumentIngestResponse {
 }
 
 /**
- * Top-level document ingest orchestration: Source (store + chunk) →
- * Indexer ('_general' union pass, virtual composition) → Brain
- * (CommitMemory over the staged candidates). Wave 1 is synchronous —
- * the async multi-indexer fan-out plugs in behind
- * DOCUMENT_MULTI_INDEXER_ENABLED without changing this flow.
+ * Synchronous document ingest orchestration: Source (store + chunk) →
+ * Indexer (generalist union pass + router-selected dedicated packs, via
+ * IndexerDispatchService) → Brain (CommitMemory over the staged
+ * candidates). The async fan-out lives in DocumentAsyncService — same
+ * stages, queue-driven.
  */
 @Injectable()
 export class DocumentIngestService {
@@ -32,7 +33,7 @@ export class DocumentIngestService {
 
   constructor(
     private readonly store: DocumentStoreService,
-    private readonly indexer: IndexerRunService,
+    private readonly dispatch: IndexerDispatchService,
     private readonly commit: CandidateCommitService,
   ) {}
 
@@ -48,7 +49,12 @@ export class DocumentIngestService {
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
-        const run = await this.indexer.runGeneral({ companyId, doc, chunks });
+        const runs = await this.dispatch.dispatchSync({
+          companyId,
+          doc,
+          chunks,
+          indexers: dto.indexers,
+        });
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexed' });
 
         const commit = await this.commit.commitDocument(companyId, doc);
@@ -59,7 +65,7 @@ export class DocumentIngestService {
             status: 'committed',
           });
         }
-        return this.shapeResponse({ doc, chunks, deduplicated, run, commit });
+        return this.shapeResponse({ doc, chunks, deduplicated, runs, commit });
       } catch (err) {
         this.logger.warn(
           `document ingest failed doc=${doc.id}: ${(err as Error).message}`,
@@ -90,7 +96,7 @@ export class DocumentIngestService {
     doc: { id: string };
     chunks: unknown[];
     deduplicated: boolean;
-    run: IndexerRunResult;
+    runs: IndexerRunResult[];
     commit: CommitResult;
   }): DocumentIngestResponse {
     return {
@@ -98,7 +104,11 @@ export class DocumentIngestService {
       deduplicated: p.deduplicated,
       chunkCount: p.chunks.length,
       mode: 'sync',
-      runs: [{ runId: p.run.runId, packId: p.run.packId, status: p.run.status }],
+      runs: p.runs.map((r) => ({
+        runId: r.runId,
+        packId: r.packId,
+        status: r.status,
+      })),
       committed: {
         entityIds: p.commit.entityIds,
         factIds: p.commit.factIds,

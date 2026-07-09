@@ -87,25 +87,35 @@ export class ExtractorLlmService {
     return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
   }
 
-  async callLlm(
-    trimmed: string,
-    systemPrompt: string,
-    temperature = 0.1,
-  ): Promise<any> {
+  /**
+   * One extraction chat call. `model` overrides the process-global
+   * OPENAI_CHAT_MODEL for THIS call — dedicated indexer runs may pin a
+   * bigger model per pack (IndexerDescriptor.dedicated.model) without
+   * touching the union path's config.
+   */
+  async callLlm(args: {
+    trimmed: string;
+    systemPrompt: string;
+    temperature?: number;
+    model?: string;
+  }): Promise<any> {
+    const { trimmed, systemPrompt } = args;
+    const temperature = args.temperature ?? 0.1;
+    const model = args.model ?? this.model;
     const res = await this.limiter.run(() =>
       withGenAiCall(
         {
           kind: 'chat',
           spanName: 'gen_ai.chat.extractor',
           system: 'openai',
-          model: this.model,
+          model,
           attrs: { 'gen_ai.request.temperature': temperature },
         },
         this.metrics,
         () =>
           this.openai.chat.completions.create(
             {
-              model: this.model,
+              model,
               messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: trimmed },

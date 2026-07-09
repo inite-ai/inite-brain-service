@@ -29,6 +29,16 @@ type Snapshot = {
 };
 
 /**
+ * Per-run knobs for dedicated indexer runs (IndexerDescriptor.dedicated).
+ * Absent = the process-global model / EXTRACTOR_SC_PASSES — the union
+ * path's behavior, byte-identical.
+ */
+export interface RunOverrides {
+  model?: string;
+  scPasses?: number;
+}
+
+/**
  * ExtractorRunnerService — the extraction engine. Sequences the local
  * skip → LLM call (single or N-pass self-consistency) → response parsing
  * + span grounding + edge validation → predicate refinement → pattern
@@ -66,11 +76,13 @@ export class ExtractorRunnerService {
    * facts on every identical re-ingest (pre-#64 behaviour was exactly
    * "don't cache these paths").
    */
-  async run(
-    trimmed: string,
-    companyId: string,
-    snapshot: Snapshot,
-  ): Promise<ExtractionResult | null> {
+  async run(args: {
+    trimmed: string;
+    companyId: string;
+    snapshot: Snapshot;
+    overrides?: RunOverrides;
+  }): Promise<ExtractionResult | null> {
+    const { trimmed, companyId, snapshot, overrides } = args;
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
 
     const skip = await this.local.trySkip(companyId, trimmed);
@@ -82,11 +94,23 @@ export class ExtractorRunnerService {
       predicateIds: snapshot.active.map((p) => p.predicateId),
     });
 
-    if (this.llm.scPasses > 1) {
-      return this.runMultiPassExtract({ companyId, trimmed, snapshot, systemPrompt });
+    const scPasses = overrides?.scPasses ?? this.llm.scPasses;
+    if (scPasses > 1) {
+      return this.runMultiPassExtract({
+        companyId,
+        trimmed,
+        snapshot,
+        systemPrompt,
+        overrides: { ...overrides, scPasses },
+      });
     }
 
-    const rawJson = await this.llm.callLlm(trimmed, systemPrompt, 0.1);
+    const rawJson = await this.llm.callLlm({
+      trimmed,
+      systemPrompt,
+      temperature: 0.1,
+      model: overrides?.model,
+    });
     if (!rawJson) return null;
     return this.assembleResult({ companyId, trimmed, snapshot, rawJson });
   }
@@ -96,8 +120,9 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
+    overrides?: RunOverrides;
   }): Promise<ExtractionResult | null> {
-    const N = this.llm.scPasses;
+    const N = args.overrides?.scPasses ?? this.llm.scPasses;
     // Even temperature spread across [0.1, 0.7].
     const temperatures = Array.from(
       { length: N },
@@ -106,12 +131,19 @@ export class ExtractorRunnerService {
 
     const rawJsons = await Promise.all(
       temperatures.map((t) =>
-        this.llm.callLlm(args.trimmed, args.systemPrompt, t).catch((e) => {
-          this.logger.warn(
-            `sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`,
-          );
-          return null;
-        }),
+        this.llm
+          .callLlm({
+            trimmed: args.trimmed,
+            systemPrompt: args.systemPrompt,
+            temperature: t,
+            model: args.overrides?.model,
+          })
+          .catch((e) => {
+            this.logger.warn(
+              `sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`,
+            );
+            return null;
+          }),
       ),
     );
     const results = await Promise.all(

@@ -96,7 +96,7 @@ export class ExtractorService {
       registryVersionHash: snapshot.versionHash,
     });
 
-    const result = await this.runner.run(trimmed, companyId, snapshot);
+    const result = await this.runner.run({ trimmed, companyId, snapshot });
     if (!result) {
       // Transient LLM failure (null JSON / all SC passes failed). Return
       // empty WITHOUT caching — the no-TTL LRU would otherwise pin this

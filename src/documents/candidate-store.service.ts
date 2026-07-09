@@ -185,6 +185,44 @@ export class CandidateStoreService {
     });
   }
 
+  /** Run ledger for a document — the async commit-readiness check. */
+  async listRuns(
+    companyId: string,
+    docId: string,
+  ): Promise<
+    Array<{ runId: string; packId: string; packVersion: string; status: string }>
+  > {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT id, packId, packVersion, status FROM indexer_run
+         WHERE docId = type::record('source_document', $doc)
+         ORDER BY createdAt ASC`,
+        { doc: idTailOf(docId) },
+      );
+      return (((rows as any[]) ?? []) as any[]).map((r) => ({
+        runId: String(r.id),
+        packId: String(r.packId),
+        packVersion: String(r.packVersion),
+        status: String(r.status),
+      }));
+    });
+  }
+
+  /** Runs still pending/running — commit defers while any exist. */
+  async countNonTerminalRuns(companyId: string, docId: string): Promise<number> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<[any[]]>(
+        `SELECT count() AS c FROM indexer_run
+         WHERE docId = type::record('source_document', $doc)
+           AND status IN ['pending', 'running']
+         GROUP ALL`,
+        { doc: idTailOf(docId) },
+      );
+      const row = ((rows as any[]) ?? [])[0];
+      return row ? Number(row.c) : 0;
+    });
+  }
+
   async loadPending(companyId: string, docId: string): Promise<CandidateRow[]> {
     return this.surreal.withCompany(companyId, (db) =>
       this.loadByDoc(db, { docId, onlyPending: true }),
