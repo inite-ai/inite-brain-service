@@ -1,0 +1,89 @@
+---
+title: "The indexer doesn't load your brain: a four-layer pipeline for agent memory"
+seoTitle: "Composable document indexers for AI agent memory"
+description: "An uploader that writes straight into memory can't be trusted or extended. Split ingestion into Source, Indexer, Candidates, and Brain — and let several domain indexers read the same document while one decision engine owns what becomes memory."
+date: "2026-07-10"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["document pipeline", "indexers", "agent memory", "knowledge extraction", "candidates"]
+directAnswer: "A document should never be 'loaded into' an agent's memory. It should be read — by one or several domain indexers that each emit candidate facts — and then judged by the memory itself: is this new, is it a conflict, is the source trusted, is it worth remembering? Separating reading from remembering is what makes indexers composable, documents re-indexable, and memory auditable."
+definitionSentence: "A document ingestion pipeline for agent memory is a four-layer split — Source (the normalized document), Indexer (domain-aware readers), Candidates (staged hypotheses), Brain (the commit decision) — in which extraction proposes and exactly one decision engine disposes."
+faqs:
+  - question: "Why not let the extractor write facts directly into the knowledge graph?"
+    answer: "Because extraction is noisy and opinionated, and memory is forever. If the reader writes directly, every extraction bug becomes a memory bug, every new reader needs its own dedup and conflict logic, and nothing can be audited between 'the model said so' and 'the graph believes it'. A staging layer of candidates gives the memory one place to merge duplicates, reject junk, resolve conflicts, and record why."
+  - question: "What does it mean for indexers to be composable?"
+    answer: "One document rarely belongs to one domain. A single meeting transcript carries a technical decision, a client commitment, a task, and a personal observation. Composable indexers mean the meetings reader, the sales reader, and the tasks reader can all process the same document, each extracting its own semantics — and the memory merges their candidates afterwards instead of forcing one reader to understand everything."
+  - question: "Doesn't running several indexers per document multiply LLM cost?"
+    answer: "Only if every indexer is a separate call. With a namespaced ontology, one generalist extraction pass already carries every installed pack's vocabulary — its output can be attributed per pack for free. A dedicated per-pack run (own prompt budget, own model) is an opt-in that a relevance router gates per document, so cost grows with actual relevance, not with the number of installed packs."
+  - question: "Why key corroboration on the document instead of the reader?"
+    answer: "Two readers of the same document are not two witnesses. If independence is keyed on who recorded a claim, running a second indexer over the same meeting fabricates 'independent confirmation' out of thin air. Keying it on the origin document — its content hash — means agreement only strengthens a fact when it arrives from a genuinely different source."
+---
+
+Most "load your data into the agent" features share one architecture: a file
+goes in, an extractor runs, facts appear in memory. It works in the demo and
+rots in production, because it fuses four jobs that want different owners —
+holding the document, reading it, proposing what it means, and deciding what
+to remember.
+
+We split them. INITE Brain's document pipeline has four layers, and the
+boundaries are the point.
+
+## Source: the brain doesn't know what a PDF is
+
+Connectors own raw formats — PDF, email, chat export, git history. What
+crosses the boundary is a *normalized document*: text, a timestamp, a pointer
+back to the container, and a content hash. The hash is identity: re-send the
+same email through two connectors and it is still one document, deduplicated
+at the door.
+
+Storing the normalized text (chunked, PII-redacted, with an explicit opt-out
+for sensitive payloads) is what buys the pipeline its superpower later:
+**re-indexing**. Install a new domain pack next quarter and it can re-read
+everything you already stored — no connector replay, no re-upload.
+
+## Indexer: domain readers, plural
+
+An indexer is a domain-aware reader: real-estate, medical, meetings, code. It
+looks at a document and says *"here is what I understood"* — entities, facts,
+relations, each with a confidence.
+
+The crucial design choice is that indexers **compose**. One Markdown file can
+contain a technical decision, a client agreement, a task, and a personal
+note; no single reader should have to understand all four. In Brain, every
+installed Domain Pack rides one generalist extraction pass whose output is
+attributed per pack by predicate namespace — N indexers for the price of one
+LLM call. Packs that need more declare a *dedicated* run in their signed
+manifest: their own prompt budget, their own model, their own few-shot
+examples. A relevance router (explicit request → vertical subscription →
+keyword triggers → embedding similarity) decides per document which dedicated
+readers are worth the extra call.
+
+## Candidates: "this MIGHT be a fact"
+
+An indexer's output is not memory. It is a *candidate* — a staged hypothesis
+with full provenance: which pack, which version, which model, which chunk of
+which document. Candidates are queryable while pending and auditable after
+the fact; every one ends in an explicit state — committed, merged into a
+sibling, rejected with a reason, or expired.
+
+This layer is what makes multiple readers safe. Two indexers extracting the
+same claim from the same meeting produce two candidates that *merge into one
+fact* before anything touches the graph — confidence taken as the max, never
+inflated by fake agreement, both readers preserved in provenance.
+
+## Brain: one decision engine
+
+Only now does the memory decide: already known? newer? a conflict? how
+reliable is the source *on this topic*? The commit step drives the same
+conflict-resolution ladder every other write path uses — supersede, compete,
+corroborate, reject — so a document-extracted fact and an API-ingested fact
+are judged by identical rules.
+
+One subtlety earns its own migration: corroboration is keyed on the **origin
+document**, not on the reader. Agreement between two indexers over one
+document is refresh; agreement between two *documents* is evidence. Get that
+backwards and composable indexers quietly counterfeit trust — the more
+readers you add, the more "confirmed" everything looks.
+
+Extraction proposes. Memory disposes. Keep those on opposite sides of a
+staging table, and you can add readers without adding lies.
