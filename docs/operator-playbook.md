@@ -156,6 +156,11 @@ Every hygiene loop ships dark (`DREAMS_ENABLED=0`, `DREAMS_DEDUP_ENABLED=0`, `DR
 - Keep `DREAMS_RESOLVE_MIN_AGE_DAYS=7` and `DREAMS_RESOLVE_MAX_PAIRS=20` — the loop only adjudicates exactly-2-way pairs and defaults to "unsure", so cost and blast radius stay bounded.
 - Success signal: `brain_memory_facts{status="competing"}` trends down while the WARN-level unsure rate stays low. High unsure = the LLM can't disambiguate your domain; clear the backlog manually (`get_competing_facts` + `retract_fact`) instead of raising the caps.
 
+**Stage 2b — fuzzy corroboration (`DREAMS_CORROBORATE_ENABLED=1`), optional, alongside or after stage 2:**
+
+- Finds the same claim worded differently across origins and folds it into the incumbent's corroboration counter (`brain_dreams_emitted_total{kind="corroboration"}`). Bounded by `DREAMS_CORROBORATE_MAX_PAIRS` (20); only `bitemporal`-semantics predicates are eligible, so event history (`said`, `complained_about`) is never collapsed.
+- Spot-check the first runs via the `dream_emit` drill-down (kind=`corroboration`) — the younger row should be a genuine re-wording, not a contradiction.
+
 **Stage 3 — summaries (`COMPACTION_SUMMARIES=true`, optionally `DREAMS_LLM_SUMMARY_ENABLED=1`):**
 
 - Only after stages 1–2 are boring. The default generator is concat; the LLM generator falls back to concat on any error, so flipping `DREAMS_LLM_SUMMARY_ENABLED` is safe.

@@ -7,6 +7,10 @@ import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { DreamsDedupService, DedupResult } from './dedup.service';
 import { DreamsResolverService, ResolverResult } from './resolver.service';
+import {
+  DreamsCorroborateService,
+  CorroborateResult,
+} from './corroborate.service';
 import { CompactionService } from '../compaction/compaction.service';
 import {
   CommunityBuilderService,
@@ -26,6 +30,8 @@ export interface DreamsTenantStats {
   durationSeconds: number;
   dedup?: DedupResult;
   resolve?: ResolverResult;
+  /** Fuzzy cross-source corroboration — present when the corroborate op ran. */
+  corroborate?: CorroborateResult;
   /**
    * The summarize op delegates to CompactionService.compactCompany,
    * which uses the injected SUMMARY_GENERATOR. We surface a flag
@@ -101,6 +107,8 @@ export class DreamsService implements OnModuleInit {
     // @Optional so the positional unit tests (no DI) can omit it. In
     // production CommunityModule (imported by DreamsModule) provides it.
     @Optional() private readonly community?: CommunityBuilderService,
+    // @Optional for the same positional-test reason; provided by DreamsModule.
+    @Optional() private readonly corroborate?: DreamsCorroborateService,
   ) {
     this.enabled =
       this.configService.get<string>('DREAMS_ENABLED', '0') === '1';
@@ -111,6 +119,7 @@ export class DreamsService implements OnModuleInit {
     const ops: DreamsOperation[] = [];
     if (this.dedup.isEnabled()) ops.push('dedup');
     if (this.resolver.isEnabled()) ops.push('resolve');
+    if (this.corroborate?.isEnabled()) ops.push('corroborate');
     // summarize is always available because the no-LLM concat path
     // is the fallback; the LLM path engages when DREAMS_LLM_SUMMARY_ENABLED=1.
     if (
@@ -252,6 +261,7 @@ export class DreamsService implements OnModuleInit {
       durationSeconds: stats.durationSeconds,
       identityLinksCreated: stats.dedup?.identityLinksCreated ?? 0,
       resolutionsApplied: stats.resolve?.resolutionsApplied ?? 0,
+      corroborationsApplied: stats.corroborate?.corroborationsApplied ?? 0,
       summarized: stats.summarized ?? false,
       communitiesBuilt: stats.communities?.communitiesBuilt ?? 0,
     };
@@ -457,6 +467,19 @@ export class DreamsService implements OnModuleInit {
         });
       }
     }
+    if (opSet.has('corroborate') && this.corroborate) {
+      this.assertNotAborted(signal);
+      stats.corroborate = await withSpan(
+        'dreams.corroborate',
+        () => this.corroborate!.run(db),
+        { 'dreams.tenant': companyId },
+      );
+      if (jobRow) {
+        await this.jobs?.updateProgress(jobRow, {
+          corroborationsApplied: stats.corroborate.corroborationsApplied,
+        });
+      }
+    }
     if (opSet.has('communities') && this.community) {
       this.assertNotAborted(signal);
       stats.communities = await withSpan(
@@ -515,6 +538,12 @@ export class DreamsService implements OnModuleInit {
         stats.resolve.resolutionsApplied,
       );
     }
+    if (stats.corroborate) {
+      this.metrics?.countDreamsEmitted(
+        'corroboration',
+        stats.corroborate.corroborationsApplied,
+      );
+    }
     if (stats.summarized) {
       this.metrics?.countDreamsEmitted('summary', 1);
     }
@@ -533,6 +562,7 @@ export class DreamsService implements OnModuleInit {
         durationSeconds: stats.durationSeconds,
         identityLinksCreated: stats.dedup?.identityLinksCreated ?? 0,
         resolutionsApplied: stats.resolve?.resolutionsApplied ?? 0,
+        corroborationsApplied: stats.corroborate?.corroborationsApplied ?? 0,
         summarized: stats.summarized ?? false,
       },
     });
@@ -577,6 +607,21 @@ export class DreamsService implements OnModuleInit {
             subject: res.winnerFactId ?? null,
             object: res.loserFactId ?? null,
             detail: res,
+          },
+        );
+      }
+      for (const cor of stats.corroborate?.corroborations ?? []) {
+        await db.query(
+          `CREATE dream_emit CONTENT {
+             runId: $runId, kind: 'corroboration',
+             subject: $subject, object: $object,
+             detail: $detail
+           }`,
+          {
+            runId,
+            subject: cor.incumbentFactId ?? null,
+            object: cor.corroboratingFactId ?? null,
+            detail: cor,
           },
         );
       }

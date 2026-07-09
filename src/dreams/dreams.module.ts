@@ -7,6 +7,7 @@ import { DreamsService } from './dreams.service';
 import { DreamsController } from './dreams.controller';
 import { DreamsDedupService } from './dedup.service';
 import { DreamsResolverService } from './resolver.service';
+import { DreamsCorroborateService } from './corroborate.service';
 
 /**
  * DreamsModule — the off-hours self-improvement pass for brain.
@@ -20,7 +21,12 @@ import { DreamsResolverService } from './resolver.service';
 @Module({
   imports: [ConfigModule, CompactionModule, CommunityModule, AuthModule],
   controllers: [DreamsController],
-  providers: [DreamsService, DreamsDedupService, DreamsResolverService],
+  providers: [
+    DreamsService,
+    DreamsDedupService,
+    DreamsResolverService,
+    DreamsCorroborateService,
+  ],
   exports: [DreamsService],
 })
 export class DreamsModule {}

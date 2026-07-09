@@ -3,6 +3,7 @@ import { IsArray, IsIn, IsOptional } from 'class-validator';
 export type DreamsOperation =
   | 'dedup'
   | 'resolve'
+  | 'corroborate'
   | 'summarize'
   | 'communities';
 
@@ -16,6 +17,8 @@ export type DreamsOperation =
 export class RunDreamsDto {
   @IsOptional()
   @IsArray()
-  @IsIn(['dedup', 'resolve', 'summarize', 'communities'], { each: true })
+  @IsIn(['dedup', 'resolve', 'corroborate', 'summarize', 'communities'], {
+    each: true,
+  })
   operations?: DreamsOperation[];
 }

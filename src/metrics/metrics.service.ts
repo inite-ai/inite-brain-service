@@ -364,7 +364,7 @@ export class MetricsService implements OnModuleInit {
   }
 
   countDreamsEmitted(
-    kind: 'identity_link' | 'resolution' | 'summary',
+    kind: 'identity_link' | 'resolution' | 'corroboration' | 'summary',
     n = 1,
   ): void {
     if (n > 0) {

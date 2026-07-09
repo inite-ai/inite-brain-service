@@ -80,6 +80,13 @@ duel — it's reinforcement. The incoming fact lands as `status = 'corroborating
 `corroboration = { count, sourceKeys[], lastAt }`. (The same source re-asserting
 is the ordinary supersede-refresh.)
 
+Ingest-time matching is EXACT object equality. The same claim worded
+differently is picked up later by the nightly fuzzy pass
+(`DREAMS_CORROBORATE_ENABLED`, default off): cosine-similar same-predicate
+pairs from different origins go to an LLM judge, and a `same_assertion`
+verdict applies the identical corroboration write — the counter still only
+grows per distinct origin.
+
 ## Trust at read time (opt-in)
 
 By default, retrieval is unchanged. Three env flags let trust move rankings:
