@@ -84,4 +84,28 @@ describe('GATE: live fn::resolve_fact invariants', () => {
     expect(loop).toContain("retractionReason = 'superseded'");
     expect(loop).toContain('supersededBy = $new.id');
   });
+
+  it('keeps the corroboration branch keyed on ORIGIN, not recorder (0050)', () => {
+    // 0050 decides independence by the document origin, not the source key.
+    // A migration authored against a pre-0050 baseline would silently drop
+    // the origin key and re-introduce false "two independent sources"
+    // corroboration between indexers reading one document.
+    expect(head.body).toContain('LET $origin_key = fn::origin_key_of($source)');
+    expect(head.body).toContain("status = 'corroborating'");
+    expect(head.body).toContain('fn::origin_key_of(source) != $origin_key');
+  });
+
+  it('counts corroboration as DISTINCT origins, not events (0051)', () => {
+    // 0051 derives corroboration.count from the deduped origin set so one
+    // source repeating itself cannot inflate the read-time γ boost. A stale
+    // baseline would reinstate the unconditional `corroboration.count + 1`.
+    const corroborationBranch = stripComments(
+      head.body.slice(
+        head.body.indexOf('IF $corroborated != NONE'),
+        head.body.indexOf("outcome: 'CORROBORATED'"),
+      ),
+    );
+    expect(corroborationBranch).toContain('count: array::len(array::union(');
+    expect(corroborationBranch).not.toContain('corroboration.count + 1');
+  });
 });

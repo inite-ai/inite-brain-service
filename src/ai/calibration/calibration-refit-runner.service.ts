@@ -171,12 +171,16 @@ export class CalibrationRefitRunnerService {
             predicate: string;
             status: string;
             recordedAt: string | Date;
+            originKey: string | null;
+            corroborates: unknown;
           }>,
         ]
       >(
         `SELECT
             source.vertical AS vertical,
             source.recorder AS recorder,
+            source.originKey AS originKey,
+            corroborates,
             predicate,
             status,
             recordedAt
@@ -185,17 +189,7 @@ export class CalibrationRefitRunnerService {
           ORDER BY recordedAt DESC
           LIMIT 50000;`,
       );
-      const events = (rows ?? []).map((r) => ({
-        sourceKey: `${r.vertical}:${r.recorder ?? '_'}`,
-        domain: r.predicate,
-        // A corroborating row (migration 0047) is independent agreement
-        // with a standing fact — evidence of reliability, counted as a win
-        // for its source. (It used to count as neither.)
-        win: r.status === 'active' || r.status === 'corroborating' ? 1 : 0,
-        loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
-        recordedAt: r.recordedAt,
-      }));
-      const summary = aggregateByScope(events);
+      const summary = aggregateByScope(buildTrustEvents(rows ?? []));
 
       // Prior rates in one read — the |Δ| > 0.01 history gate needs them,
       // and per-scope SELECTs would be N extra round-trips.
@@ -368,6 +362,63 @@ export function isCorrect(row: {
   if (row.status === 'retracted') return false;
   if (row.status === 'superseded') return false;
   return true;
+}
+
+export interface TrustEventRow {
+  vertical: string | null;
+  recorder: string | null;
+  predicate: string;
+  status: string;
+  recordedAt: string | Date;
+  originKey: string | null;
+  corroborates: unknown;
+}
+
+export interface TrustEvent {
+  sourceKey: string;
+  domain: string;
+  win: number;
+  loss: number;
+  recordedAt: string | Date;
+}
+
+/**
+ * Turn raw knowledge_fact rows into per-source {win, loss} events for the
+ * nightly source-trust refit.
+ *
+ * A corroborating row (migration 0047) is independent agreement with a
+ * standing fact — evidence of reliability, counted as a win for its source.
+ * But corroboration wins are deduped to at most ONE per
+ * (sourceKey, domain, origin, incumbent): without this, a source could
+ * echo-ingest the same standing fact repeatedly and farm unbounded wins
+ * (reputation inflation), since each echo is a fresh corroborating row.
+ * 0050 keys independence on ORIGIN; genuinely independent origins (distinct
+ * documents corroborating the same incumbent) still each count. Exported so
+ * the dedup can be unit-tested without a SurrealDB round-trip.
+ */
+export function buildTrustEvents(
+  rows: ReadonlyArray<TrustEventRow>,
+): TrustEvent[] {
+  const seenCorroboration = new Set<string>();
+  const events: TrustEvent[] = [];
+  for (const r of rows) {
+    const sourceKey = `${r.vertical}:${r.recorder ?? '_'}`;
+    if (r.status === 'corroborating') {
+      const dedupKey = `${sourceKey} ${r.predicate} ${
+        r.originKey ?? sourceKey
+      } ${r.corroborates == null ? '' : String(r.corroborates)}`;
+      if (seenCorroboration.has(dedupKey)) continue;
+      seenCorroboration.add(dedupKey);
+    }
+    events.push({
+      sourceKey,
+      domain: r.predicate,
+      win: r.status === 'active' || r.status === 'corroborating' ? 1 : 0,
+      loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
+      recordedAt: r.recordedAt,
+    });
+  }
+  return events;
 }
 
 export interface TrustScope {
