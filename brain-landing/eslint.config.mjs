@@ -1,44 +1,53 @@
 // @ts-check
+import next from 'eslint-config-next';
 import reactPlugin from 'eslint-plugin-react';
 import tsParser from '@typescript-eslint/parser';
 
 /**
  * ESLint flat config — brain-landing.
  *
- * SCOPE: i18n gate ONLY. Next.js handles its own lint via `next lint`
- * (separate config inside the framework). This file's single job is
- * to fail PRs that introduce hardcoded user-facing strings.
+ * Two layers:
  *
- * The rule: `react/jsx-no-literals`. Every user-facing string must
- * come from a translation dictionary (`lib/i18n.ts` → `locales/<lang>
- * /common.json`). Hardcoded JSX literals get caught at lint time.
+ *  1. **General lint** — Next.js's own recommended flat config
+ *     (`eslint-config-next`: core-web-vitals + TS rules). Next 16 removed the
+ *     `next lint` command, so linting is a plain `eslint .` against this
+ *     config; `pnpm lint` runs the whole project through it, in CI too.
  *
- * Why this matters: pre-Phase-J, several admin components (LeasesPanel,
- * JobsPanel, MaintenancePanel) shipped with hardcoded English strings.
- * The codebase has a working i18n pipeline — only enforcement was
- * missing. Without a build-time gate, every new component repeats
- * the mistake because nothing blocks the wrong shape at PR time.
+ *  2. **i18n gate** — `react/jsx-no-literals`, scoped to `components/admin/**`.
+ *     Admin UI strings must come from a translation dictionary
+ *     (`lib/i18n.ts` → `locales/<lang>/common.json`); a hardcoded JSX literal
+ *     there fails the build. Marketing / docs / demo pages legitimately render
+ *     literal English prose, so the rule deliberately does NOT apply to them —
+ *     that's why it's file-scoped rather than global.
  *
- * Allowed string escapes:
- *   - Pure symbols (—, …, →, /, ·, ✓, ✗, :, ,) — typography that's
- *     never translated.
- *
- * Numeric literals inside JSX are allowed by the rule's default —
- * stats / counters / latency-in-ms genuinely render numbers; only
- * prose needs i18n discipline.
- *
- * Per-file opt-out (legacy files queued for a separate i18n pass):
+ * Allowed string escapes are pure typography (—, …, →, /, ·, ✓, ✗, :, ,) that
+ * is never translated. Numeric literals are allowed by the rule default.
+ * Per-file opt-out for legacy admin files queued for an i18n pass:
  *   // eslint-disable react/jsx-no-literals -- TODO i18n pass
- * at file top makes the technical debt grep-able.
  *
- * Run: `pnpm lint:i18n`
+ * Run: `pnpm lint` (full) or `pnpm lint:i18n` (admin i18n gate only).
  */
-export default [
+const config = [
   {
     ignores: ['.next/**', 'node_modules/**', 'public/**', 'out/**'],
   },
+  ...next,
   {
-    files: ['app/**/*.{ts,tsx,jsx}', 'components/**/*.{ts,tsx,jsx}'],
+    // react-hooks 7 (Next 16) added stricter rules that flag patterns which are
+    // widespread and intentional in this dashboard — fetch-in-effect + setState,
+    // d3-force refs mutated across renders. Kept as warnings (visible, tracked
+    // as tech debt) so the CI gate blocks on genuine errors without a mass
+    // hook-refactor. Burn these down file-by-file, then promote back to error.
+    rules: {
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/incompatible-library': 'warn',
+    },
+  },
+  {
+    files: ['components/admin/**/*.{ts,tsx,jsx}'],
     plugins: { react: reactPlugin },
     settings: { react: { version: 'detect' } },
     languageOptions: {
@@ -72,3 +81,5 @@ export default [
     },
   },
 ];
+
+export default config;

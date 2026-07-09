@@ -55,7 +55,7 @@ export function Header({ lang, context }: Props) {
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--signal)] live-dot" />
             </span>
             <span className="u-mono text-[13px] font-semibold tracking-[0.06em] text-[var(--text)]">
-              INITE<span className="text-[var(--text-faint)]">//</span>BRAIN
+              INITE<span className="text-[var(--text-faint)]">{'//'}</span>BRAIN
             </span>
           </Link>
           {context && (

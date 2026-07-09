@@ -61,12 +61,14 @@ function buildTree(
  * the answer. Like watching the gears turn.
  */
 export function DemoEngineView({ trace }: { trace?: EngineTrace }) {
+  // Hooks must run unconditionally — compute defensively, then early-return
+  // below (a bare `return null` before useMemo violates rules-of-hooks).
+  const spans = trace?.spans ?? []
+  const artifacts = trace?.artifacts ?? []
+  const tree = useMemo(() => buildTree(spans, artifacts), [spans, artifacts])
   if (!trace || trace.spans.length === 0) {
     return null
   }
-  const spans = trace.spans
-  const artifacts = trace.artifacts ?? []
-  const tree = useMemo(() => buildTree(spans, artifacts), [spans, artifacts])
   const baseStart = Math.min(...spans.map((s) => s.startedAt))
   const orphanArtifacts = artifacts.filter(
     (a) => !a.spanId || !spans.some((s) => s.id === a.spanId),

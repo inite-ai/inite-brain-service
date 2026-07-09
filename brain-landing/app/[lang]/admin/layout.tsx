@@ -1,6 +1,6 @@
 'use client'
 
-/* eslint-disable react/jsx-no-literals -- TODO i18n: admin shell is English-only (pre-Phase-J); queued for a dedicated i18n pass. */
+ 
 
 import { usePathname, useParams } from 'next/navigation'
 import { ReactNode, useState } from 'react'

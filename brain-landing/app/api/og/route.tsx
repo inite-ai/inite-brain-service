@@ -1,4 +1,4 @@
-/* eslint-disable @next/next/no-img-element */
+ 
 import { ImageResponse } from 'next/og'
 import type { NextRequest } from 'next/server'
 
@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
               </div>
               <div style={{ display: 'flex', fontFamily: 'JetBrainsMono', fontSize: 22, color: TEXT, letterSpacing: 1 }}>
                 <span>INITE</span>
-                <span style={{ color: FAINT }}>//</span>
+                <span style={{ color: FAINT }}>{'//'}</span>
                 <span>BRAIN</span>
               </div>
             </div>

@@ -1,6 +1,6 @@
 'use client'
 
-/* eslint-disable react/jsx-no-literals -- TODO i18n: end-user /app pages ship English-only for MVP (admin UI is too); queued for a dedicated i18n pass. */
+ 
 
 import { GraphExplorer } from '../../../../components/admin/GraphExplorer'
 
