@@ -24,8 +24,11 @@ import {
   Presentation,
   Play,
   Radio,
+  Scale,
+  ScanEye,
   Settings2,
   ShieldAlert,
+  ShieldCheck,
   Sigma,
   Skull,
   SlidersHorizontal,
@@ -58,6 +61,14 @@ const GROUPS: ShellGroup[] = [
       { slug: 'operator-actions', title: 'Operator actions', icon: KeyRound },
       { slug: 'router', title: 'Router / cache', icon: Gauge },
       { slug: 'predicates', title: 'Predicates', icon: Tags },
+    ],
+  },
+  {
+    label: 'Access',
+    items: [
+      { slug: 'policies', title: 'Policies', icon: ShieldCheck },
+      { slug: 'key-lens', title: 'Key Lens', icon: ScanEye },
+      { slug: 'decisions', title: 'Decisions', icon: Scale },
     ],
   },
   {
