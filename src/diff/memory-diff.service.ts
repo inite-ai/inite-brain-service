@@ -228,8 +228,10 @@ interface ScopingClauses {
 
 function buildScoping(args: MemoryDiffArgs): ScopingClauses {
   const params: Record<string, unknown> = {};
-  const factParts: string[] = [];
-  const entityParts: string[] = [];
+  // User scope (0055): the diff surface is tenant-global v1 —
+  // personal rows never appear in another caller's window.
+  const factParts: string[] = ['userId IS NONE'];
+  const entityParts: string[] = ['userId IS NONE'];
 
   if (args.entityIds && args.entityIds.length > 0) {
     const normalized = args.entityIds.map((id) =>

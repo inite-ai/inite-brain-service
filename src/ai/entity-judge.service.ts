@@ -86,6 +86,7 @@ export class EntityJudgeService {
          WHERE entityId = $eid
            AND status = 'active'
            AND retractedAt IS NONE
+           AND userId IS NONE
          ORDER BY confidence DESC
          LIMIT 5`,
       { eid: new StringRecordId(entityId) },

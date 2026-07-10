@@ -103,7 +103,7 @@ export class CompactionRunnerService {
       // tenant dominating the cron — anything past that gets compacted
       // on the next cycle.
       const [factRows] = await db.query<[CandidateFactRow[]]>(
-        `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence
+        `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId
            FROM knowledge_fact
            WHERE status != 'compacted'
              AND embedding != NONE
@@ -160,7 +160,10 @@ export class CompactionRunnerService {
   ): Promise<number> {
     const groups = new Map<string, CandidateFactRow[]>();
     for (const c of candidates) {
-      const key = `${c.entityId}::${c.predicate}`;
+      // User scope (0055) is part of the rollup key — a summary must
+      // never blend a user's personal facts with the tenant-global (or
+      // another user's) timeline.
+      const key = `${c.entityId}::${c.predicate}::${c.userId ?? ''}`;
       const arr = groups.get(key);
       if (arr) arr.push(c);
       else groups.set(key, [c]);
@@ -202,6 +205,7 @@ export class CompactionRunnerService {
         source: { kind: 'compaction-summary' },
         derivedFrom: sorted.map((g) => g.id),
         status: 'active',
+        ...(sorted[0].userId ? { userId: sorted[0].userId } : {}),
       });
       created++;
     }

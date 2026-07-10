@@ -317,6 +317,8 @@ export class FactsService {
       const clauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
         `status = 'competing'`,
+        // User scope (0055): competing adjudication is tenant-global v1.
+        `userId IS NONE`,
       ];
       const params: Record<string, unknown> = { rid: ref.id };
       if (opts.predicate) {

@@ -41,6 +41,18 @@ export function buildBaseWhere({
 
   if (!includeRetracted) clauses.push(`AND retractedAt IS NONE`);
   if (!includeContested) clauses.push(`AND status != 'competing'`);
+
+  // ── User scope (migration 0055) — FAIL-CLOSED ──────────────────
+  // No userId on the request → only tenant-global memory. With one →
+  // global + that user's personal rows, never anyone else's. Tenants
+  // that never stamp userId are byte-identical (every row is NONE).
+  if (dto.userId) {
+    clauses.push(`AND (userId IS NONE OR userId = $scopeUserId)`);
+    params.scopeUserId = dto.userId;
+  } else {
+    clauses.push(`AND userId IS NONE`);
+  }
+
   if (dto.minConfidence !== undefined) {
     clauses.push(`AND confidence >= $minConfidence`);
     params.minConfidence = dto.minConfidence;

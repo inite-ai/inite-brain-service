@@ -136,6 +136,9 @@ export class EntitiesService {
       const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
+        // User scope (0055): entity reads are tenant-global v1 — a
+        // personal fact never leaks into profile/timeline surfaces.
+        `userId IS NONE`,
         ...asOfClauses,
       ];
       const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
@@ -243,6 +246,9 @@ export class EntitiesService {
       const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
+        // User scope (0055): entity reads are tenant-global v1 — a
+        // personal fact never leaks into profile/timeline surfaces.
+        `userId IS NONE`,
         ...asOfClauses,
       ];
       const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
@@ -296,7 +302,7 @@ export class EntitiesService {
       // long-lived entities don't pay for full timeline materialisation
       // on every query. The composite (entityId, status, recordedAt)
       // index covers the entityId+range combination directly.
-      const clauses = [`entityId = type::record('knowledge_entity', $rid)`];
+      const clauses = [`entityId = type::record('knowledge_entity', $rid)`, `userId IS NONE`];
       const params: Record<string, unknown> = { rid: ref.id };
       if (since) { clauses.push(`recordedAt >= $since`); params.since = since; }
       if (until) { clauses.push(`recordedAt <= $until`); params.until = until; }

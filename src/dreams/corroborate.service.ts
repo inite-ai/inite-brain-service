@@ -201,6 +201,7 @@ export class DreamsCorroborateService {
     >(
       `SELECT entityId, predicate, count() AS n FROM knowledge_fact
        WHERE status = 'active' AND retractedAt IS NONE AND embedding != NONE
+         AND userId IS NONE
        GROUP BY entityId, predicate`,
     );
     return ((rows as Array<{ entityId: unknown; predicate: string; n: number }>) ?? [])
@@ -221,6 +222,7 @@ export class DreamsCorroborateService {
        FROM knowledge_fact
        WHERE entityId = $entity AND predicate = $predicate
          AND status = 'active' AND retractedAt IS NONE AND embedding != NONE
+         AND userId IS NONE
        ORDER BY recordedAt ASC`,
       {
         entity: new StringRecordId(String(group.entityId)),

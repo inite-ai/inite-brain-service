@@ -47,6 +47,16 @@ export class SearchDto {
   @IsOptional() @IsISO8601()
   asOf?: string;
 
+  /**
+   * Per-user scope (migration 0055). When set, results include the
+   * tenant-global memory PLUS this user's personal rows; when absent,
+   * only tenant-global (fail-closed). The caller — a trusted backend
+   * holding the tenant's key — asserts the user, same trust model as
+   * every other request field.
+   */
+  @IsOptional() @IsString() @MaxLength(200)
+  userId?: string;
+
   @IsOptional() @IsNumber() @Min(0) @Max(1)
   minConfidence?: number;
 

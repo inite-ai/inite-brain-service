@@ -61,6 +61,13 @@ export function registerWriteTools({
         validUntil: z.string().datetime().optional(),
         confidence: z.number().min(0).max(1).optional(),
         sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: the fact (and, for a vertical+id entityRef, the entity) belongs to this end-user only — invisible to other users and to requests that don't assert the same userId",
+          ),
       },
     },
     async (args) => {
@@ -71,6 +78,7 @@ export function registerWriteTools({
         validFrom: args.validFrom,
         validUntil: args.validUntil,
         confidence: args.confidence,
+        userId: args.userId,
         source: { vertical: args.sourceVertical, recorder: 'mcp_agent' },
       });
       return {
@@ -161,36 +169,7 @@ export function registerWriteTools({
     },
   );
 
-  // ── record_feedback ────────────────────────────────────────────
-  if (deps.feedback) {
-    const feedback = deps.feedback;
-    server.registerTool(
-      'record_feedback',
-      {
-        title: 'Report whether a retrieved fact was useful',
-        description:
-          "Close the retrieval loop: after using a fact from search_knowledge / synthesize, report 'helpful' (it answered the question), 'incorrect' (the fact is wrong — counts against its source's learned reputation at the nightly refit), or 'not_helpful' (irrelevant hit; stored, but not a reliability signal). One standing vote per caller key per fact — repeat calls replace your previous verdict.",
-        inputSchema: {
-          factId: z.string(),
-          verdict: z.enum(['helpful', 'not_helpful', 'incorrect']),
-          reason: z.string().max(1000).optional(),
-        },
-      },
-      async (args) => {
-        const out = await feedback.record({
-          companyId,
-          factId: args.factId,
-          verdict: args.verdict,
-          reason: args.reason,
-          actor: actorKeyHash ?? `mcp:${companyId}`,
-        });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-          structuredContent: out as any,
-        };
-      },
-    );
-  }
+  registerFeedbackTool({ server, companyId, deps, actorKeyHash });
 
   // ── record_procedure ───────────────────────────────────────────
   server.registerTool(
@@ -255,6 +234,48 @@ export function registerWriteTools({
  * only brain:write; the HTTP path requires brain:admin for the same
  * reason.
  */
+// Split out of registerWriteTools for the max-lines-per-function gate.
+function registerFeedbackTool({
+  server,
+  companyId,
+  deps,
+  actorKeyHash,
+}: {
+  server: McpServer;
+  companyId: string;
+  deps: WriteToolDeps;
+  actorKeyHash?: string;
+}): void {
+  if (!deps.feedback) return;
+  const feedback = deps.feedback;
+  server.registerTool(
+    'record_feedback',
+    {
+      title: 'Report whether a retrieved fact was useful',
+      description:
+        "Close the retrieval loop: after using a fact from search_knowledge / synthesize, report 'helpful' (it answered the question), 'incorrect' (the fact is wrong — counts against its source's learned reputation at the nightly refit), or 'not_helpful' (irrelevant hit; stored, but not a reliability signal). One standing vote per caller key per fact — repeat calls replace your previous verdict.",
+      inputSchema: {
+        factId: z.string(),
+        verdict: z.enum(['helpful', 'not_helpful', 'incorrect']),
+        reason: z.string().max(1000).optional(),
+      },
+    },
+    async (args) => {
+      const out = await feedback.record({
+        companyId,
+        factId: args.factId,
+        verdict: args.verdict,
+        reason: args.reason,
+        actor: actorKeyHash ?? `mcp:${companyId}`,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: out as any,
+      };
+    },
+  );
+}
+
 export function registerAdminTools(
   server: McpServer,
   companyId: string,

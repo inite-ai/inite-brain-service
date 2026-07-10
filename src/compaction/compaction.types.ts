@@ -25,4 +25,6 @@ export interface CandidateFactRow {
   validFrom: string;
   validUntil?: string | null;
   confidence: number;
+  /** Per-user scope (0055); NONE/undefined = tenant-global. */
+  userId?: string | null;
 }

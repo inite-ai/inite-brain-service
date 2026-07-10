@@ -124,6 +124,11 @@ function registerSearchTools({
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
         minConfidence: z.number().min(0).max(1).optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)"),
       },
     },
     async (args) => {
@@ -135,6 +140,7 @@ function registerSearchTools({
           predicates: args.predicates,
           asOf: args.asOf,
           minConfidence: args.minConfidence,
+          userId: args.userId,
         },
         scopes,
       );
@@ -177,6 +183,13 @@ function registerSearchTools({
           .optional()
           .describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(50).optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+          ),
       },
     },
     async (args, extra) => {
@@ -191,6 +204,7 @@ function registerSearchTools({
           asOf: args.asOf,
           predicates: args.predicates,
           limit: args.limit,
+          userId: args.userId,
         },
         callerScopes: scopes,
         onProgress: reporter,
@@ -224,6 +238,13 @@ function registerSearchTools({
           .enum(['strict', 'lenient', 'off'])
           .optional()
           .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+          ),
       },
     },
     async (args, extra) => {
@@ -237,6 +258,7 @@ function registerSearchTools({
           asOf: args.asOf,
           minConfidence: args.minConfidence,
           synthesisGuardrails: args.synthesisGuardrails,
+          userId: args.userId,
         },
         callerScopes: scopes,
         onProgress: reporter,

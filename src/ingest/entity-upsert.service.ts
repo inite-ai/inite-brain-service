@@ -35,16 +35,28 @@ export class EntityUpsertService {
    * On a unique violation (another caller created the same ref between our
    * read and write) we retry; the next read finds the row.
    */
-  async resolveOrCreateEntity(db: Surreal, dto: IngestFactDto): Promise<string> {
+  async resolveOrCreateEntity(
+    db: Surreal,
+    dto: IngestFactDto,
+    userId?: string,
+  ): Promise<string> {
     if ('entityId' in dto.entityRef && dto.entityRef.entityId) {
+      // A bare entityId attaches to that entity whatever its scope — the
+      // trusted caller can put a personal fact on a shared entity.
       return dto.entityRef.entityId;
     }
     const ref = dto.entityRef as { vertical: string; id: string };
-    const refKey = externalRefKey(ref.vertical, ref.id);
+    // User scope (0055): the UNIQUE external-ref key is the dedup axis, so
+    // a user-scoped ref must never collide with the tenant-global one (or
+    // another user's) for the same (vertical, id). Fold the scope into the
+    // key and stamp it on the minted entity.
+    const baseKey = externalRefKey(ref.vertical, ref.id);
+    const refKey = userId ? `${baseKey}__u__${userId}` : baseKey;
     return this.upsertEntityByExternalRef(db, refKey, () => ({
       type: 'other',
       canonicalName: ref.id,
       externalRefs: { [refKey]: ref.id },
+      ...(userId ? { userId } : {}),
     }));
   }
 

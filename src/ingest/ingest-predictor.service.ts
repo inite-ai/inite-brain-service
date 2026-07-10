@@ -103,6 +103,7 @@ export class IngestPredictionService {
              AND predicate = $predicate
              AND retractedAt IS NONE
              AND status = 'active'
+             AND userId IS NONE
            ORDER BY recordedAt DESC
            LIMIT 25`,
         { eid: tail, predicate: args.predicate },

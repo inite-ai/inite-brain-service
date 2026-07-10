@@ -57,6 +57,7 @@ interface PromotableRow {
   validFrom: string;
   validUntil?: string | null;
   confidence: number;
+  userId?: string | null;
 }
 
 @Injectable()
@@ -142,15 +143,26 @@ export class PromotionRunnerService {
   private async findPromotableGroups(
     db: Surreal,
     cutoff: Date,
-  ): Promise<Array<{ entityId: unknown; predicate: string }>> {
+  ): Promise<
+    Array<{ entityId: unknown; predicate: string; userId?: string | null }>
+  > {
+    // User scope (0055) is part of the group key — a user's episodic
+    // history folds into THAT user's summary, never a blended one.
     const [rows] = (await db.query(
-      `SELECT entityId, predicate, count() AS n FROM knowledge_fact
+      `SELECT entityId, predicate, userId, count() AS n FROM knowledge_fact
        WHERE status = 'active' AND retractedAt IS NONE
          AND recordedAt < $cutoff
          AND !string::starts_with(predicate, 'summary_')
-       GROUP BY entityId, predicate`,
+       GROUP BY entityId, predicate, userId`,
       { cutoff },
-    )) as [Array<{ entityId: unknown; predicate: string; n: number }>];
+    )) as [
+      Array<{
+        entityId: unknown;
+        predicate: string;
+        userId?: string | null;
+        n: number;
+      }>,
+    ];
     return (rows ?? [])
       .filter((g) => g.n >= this.minGroup)
       .filter((g) => policyFor(g.predicate).semantics === 'append_only');
@@ -159,17 +171,26 @@ export class PromotionRunnerService {
   /** Fold one group's aged tail into a summary fact. Returns count folded. */
   private async promoteGroup(
     db: Surreal,
-    group: { entityId: unknown; predicate: string },
+    group: { entityId: unknown; predicate: string; userId?: string | null },
     cutoff: Date,
   ): Promise<number> {
+    const scopeClause = group.userId
+      ? 'AND userId = $scopeUser'
+      : 'AND userId IS NONE';
     const [rows] = (await db.query(
-      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence
+      `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId
        FROM knowledge_fact
        WHERE entityId = $entity AND predicate = $predicate
          AND status = 'active' AND retractedAt IS NONE
          AND recordedAt < $cutoff
+         ${scopeClause}
        ORDER BY validFrom ASC`,
-      { entity: group.entityId, predicate: group.predicate, cutoff },
+      {
+        entity: group.entityId,
+        predicate: group.predicate,
+        cutoff,
+        ...(group.userId ? { scopeUser: group.userId } : {}),
+      },
     )) as [PromotableRow[]];
     const members = (rows ?? []) as PromotableRow[];
     if (members.length < this.minGroup) return 0;
@@ -218,6 +239,7 @@ export class PromotionRunnerService {
       source: { kind: 'promotion' },
       derivedFrom: members.map((m) => m.id),
       status: 'active',
+      ...(group.userId ? { userId: group.userId } : {}),
       ...(embedding ? { embedding } : {}),
     });
 

@@ -184,6 +184,7 @@ export class DreamsResolverService {
        FROM knowledge_fact
        WHERE status = 'competing'
          AND retractedAt IS NONE
+         AND userId IS NONE
        ORDER BY entityId, predicate, recordedAt ASC`,
     );
     const all = (rows as CompetingFactRow[]) ?? [];
@@ -319,6 +320,7 @@ Output strictly the JSON shape requested.`;
        WHERE entityId = $eid
          AND status = 'active'
          AND retractedAt IS NONE
+         AND userId IS NONE
        ORDER BY recordedAt DESC
        LIMIT 6`,
       { eid: new StringRecordId(entityId) },

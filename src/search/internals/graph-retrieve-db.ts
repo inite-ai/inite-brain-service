@@ -42,6 +42,7 @@ export async function resolveSeedEntities(
       `SELECT id, type, canonicalName, externalRefs
          FROM knowledge_entity
         WHERE mergedInto IS NONE
+          AND userId IS NONE
           AND canonicalNameLc IN $refs
         LIMIT 10`,
       { refs: refsLc },
@@ -78,6 +79,7 @@ export async function resolveSeedEntities(
             search::score(1) AS bm25
        FROM knowledge_entity
       WHERE mergedInto IS NONE
+        AND userId IS NONE
         AND canonicalName @1@ $q
       ORDER BY bm25 DESC
       LIMIT 5`,
@@ -157,7 +159,8 @@ export async function fetchEntitiesByIds(
     `SELECT id, type, canonicalName, externalRefs
        FROM knowledge_entity
       WHERE id INSIDE $ids
-        AND mergedInto IS NONE`,
+        AND mergedInto IS NONE
+        AND userId IS NONE`,
     { ids: rids },
   );
   return (rows ?? []).map(toGraphEntity);
@@ -196,13 +199,15 @@ export async function fetchFactsForEntities({
        AND validFrom <= $asOf
        AND (validUntil IS NONE OR validUntil > $asOf)
        AND status != 'compacted'
-       AND status != 'corroborating'`
+       AND status != 'corroborating'
+       AND userId IS NONE`
     : `entityId INSIDE $ids
        AND retractedAt IS NONE
        AND validFrom <= time::now()
        AND (validUntil IS NONE OR validUntil > time::now())
        AND status != 'compacted'
-       AND status != 'corroborating'`;
+       AND status != 'corroborating'
+       AND userId IS NONE`;
   const params: Record<string, unknown> = {
     ids: rids,
     ...(asOf ? { asOf: new Date(asOf) } : {}),
