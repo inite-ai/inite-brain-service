@@ -104,3 +104,31 @@ a quiet stale field.
 
 Keys are stored as `sha256:<hex>` — see [Getting started](getting-started.md#seed-an-apikey)
 for the seeding flow.
+
+## ABAC policy sets
+
+Scopes are coarse (any `brain:read` key reads the whole tenant graph); [ABAC
+policy sets](abac.md) narrow individual keys. Behind `ABAC_ENABLED` (default
+off). All endpoints require `brain:admin`; wire contracts live in
+`src/contracts/admin/policies.schema.ts`.
+
+| Method + path | Purpose |
+|---|---|
+| `GET /v1/admin/policy-sets` | List sets with attachments. |
+| `POST /v1/admin/policy-sets` | Create from a policy document (zod-validated: ≤64 rules, ≤32 KB). |
+| `GET /v1/admin/policy-sets/:name` | Fetch one. |
+| `PUT /v1/admin/policy-sets/:name` | Whole-document replace; body carries the loaded `version`, stale → `409 {error: 'version_conflict', current}`. Names are immutable. |
+| `DELETE /v1/admin/policy-sets/:name` | Delete; `409 policy_attached` while any key references it. |
+| `GET /v1/admin/policy-sets/bindings/all` | Every subject → set-names binding. |
+| `POST /v1/admin/policy-sets/:name/attachments` | `{attach: [subject], detach: [subject]}`; subjects are `key:<keyHash>` (static keys) or `jwt:<sub>`. Validates the set exists — this is what keeps the resolver's fail-closed branch unreachable. |
+| `POST /v1/admin/policy-sets/explain` | `{policyNames, action?, factId?}` → per-rule decision traces (which condition matched, expected vs actual). |
+
+A key acquires policies three ways, unioned and capped at 8: a
+`policy_binding` row (attachments above), a `"policies": [...]` field on its
+`BRAIN_API_KEYS` entry, or a `policy` claim (array or space-delimited string)
+in its JWT. A referenced name that doesn't resolve **fails closed** — the key
+gets a synthetic enforce/deny-all set and
+`brain_policy_resolution_errors_total` increments.
+
+Denied REST calls answer `403 {error: 'policy_denied', action, policySet,
+ruleId}`. Enforce-denied MCP tools disappear from `tools/list` entirely.

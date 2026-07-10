@@ -9,6 +9,7 @@ import { HealthService } from './common/health.service';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
 import { SurrealModule } from './db/surreal.module';
 import { AuthModule } from './auth/auth.module';
+import { PolicyModule } from './policy/policy.module';
 import { AiModule } from './ai/ai.module';
 import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
@@ -78,6 +79,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     CommonModule,
     SurrealModule,
     AuthModule,
+    PolicyModule,
     AiModule,
     IngestModule,
     SearchModule,

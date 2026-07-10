@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { EntitiesService } from './entities.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -20,6 +21,7 @@ export class EntitiesController {
 
   @Get(':id')
   @RequireScopes('brain:read')
+  @PolicyAction('get_entity_profile')
   async getProfile(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -36,6 +38,7 @@ export class EntitiesController {
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/timeline')
   @RequireScopes('brain:read')
+  @PolicyAction('get_entity_timeline')
   async getTimeline(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -54,6 +57,7 @@ export class EntitiesController {
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/connections')
   @RequireScopes('brain:read')
+  @PolicyAction('find_related_entities')
   async getConnections(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -71,6 +75,7 @@ export class EntitiesController {
 
   @Post(':id/forget')
   @RequireScopes('brain:admin')
+  @PolicyAction('forget_entity')
   async forget(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,

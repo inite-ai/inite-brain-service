@@ -6,10 +6,10 @@ import { BrainScope } from '../auth/api-key.types';
 import { EntityForgetService } from './entity-forget.service';
 import {
   normalizeEntityId,
-  factVisibleToScopes,
   blockedPredicates,
   activeFactWhere,
 } from './entity-read.helpers';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -18,14 +18,17 @@ import {
 const ENTITY_PROFILE_FIELDS =
   'id, type, canonicalName, externalRefs, mergedAt, mergedInto';
 
+// source/trustSnapshot/corroboration ride along for the ABAC row filter
+// (policy/row-filter.ts); the response mappers never surface them unless
+// the field was already part of the wire shape (timeline's `source`).
 const FACT_PROFILE_FIELDS =
   'id, predicate, object, confidence, validFrom, validUntil, ' +
-  'recordedAt, retractedAt, status';
+  'recordedAt, retractedAt, status, source, trustSnapshot, corroboration';
 
 const FACT_TIMELINE_FIELDS =
   'id, predicate, object, confidence, validFrom, validUntil, ' +
   'recordedAt, retractedAt, retractedBy, retractionReason, ' +
-  'supersededBy, source, status';
+  'supersededBy, source, status, trustSnapshot, corroboration';
 
 export interface EntityProfile {
   entityId: string;
@@ -150,11 +153,15 @@ export class EntitiesService {
          LIMIT 100`,
         params,
       );
-      // PII scope gate — keep this in JS (per-row policy lookup).
-      // Move to DB-side PERMISSIONS once we switch to JWT-per-conn.
+      // PII scope gate + ABAC row filter — per-row policy lookup in JS.
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: scopes,
+        surface: 'entity_profile',
+      });
       const facts = ((factRows as any[]) ?? []).filter((f) =>
-        factVisibleToScopes(f.predicate, scopes),
+        rowPolicy.filter(f),
       );
+      rowPolicy.finish();
 
       return {
         entityId: String(entity.id),
@@ -313,9 +320,14 @@ export class EntitiesService {
          ORDER BY recordedAt ASC`,
         params,
       );
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: scopes,
+        surface: 'entity_timeline',
+      });
       const rows = ((factRows as any[]) ?? []).filter((f) =>
-        factVisibleToScopes(f.predicate, scopes),
+        rowPolicy.filter(f),
       );
+      rowPolicy.finish();
 
       const events: any[] = [];
       for (const f of rows) {
@@ -427,15 +439,26 @@ export class EntitiesService {
             : undefined,
           direction: 'inbound' as const,
         })),
-      ].filter((edge) =>
-        // Defense-in-depth: the DB-level PERMISSIONS fence (migration 0005)
-        // gates knowledge_fact.object, but knowledge_edge has no such fence,
-        // so a scoped caller could otherwise read a PII-classed relation
-        // (edge.kind maps to a predicate). Mirror the timeline scope gate:
-        // drop edges whose kind requires a scope the caller lacks.
-        factVisibleToScopes(edge.kind, scopes),
+      ];
+      // Defense-in-depth: the DB-level PERMISSIONS fence (migration 0005)
+      // gates knowledge_fact.object, but knowledge_edge has no such fence,
+      // so a scoped caller could otherwise read a PII-classed relation
+      // (edge.kind maps to a predicate). Mirror the timeline scope gate,
+      // then the ABAC row verdict — edges evaluate with predicate = kind,
+      // so predicate/source rules apply to relations too.
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: scopes,
+        surface: 'entity_connections',
+      });
+      const visibleEdges = edges.filter((edge) =>
+        rowPolicy.filter({
+          id: edge.edgeId,
+          predicate: edge.kind,
+          source: edge.source,
+        }),
       );
-      return { entityId: ref.full, edges };
+      rowPolicy.finish();
+      return { entityId: ref.full, edges: visibleEdges };
     });
   }
 

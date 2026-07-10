@@ -1,5 +1,6 @@
 import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { FactsService } from './facts.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -17,6 +18,7 @@ export class FactsController {
   // we read the row.
   @Post(':id/retract')
   @RequireScopes('brain:write')
+  @PolicyAction('retract_fact')
   async retract(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,

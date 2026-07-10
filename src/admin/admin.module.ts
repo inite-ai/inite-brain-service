@@ -27,6 +27,7 @@ import { OperatorActionInterceptor } from './operator-action.interceptor';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
 import { ThrottlerObservabilityInterceptor } from './throttler-observability.interceptor';
 import { AdminPacksController } from './admin-packs.controller';
+import { AdminPoliciesController } from './admin-policies.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
@@ -80,6 +81,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminOpsController,
     AdminInfraController,
     AdminPacksController,
+    AdminPoliciesController,
     AdminCodeMemoryController,
     AdminHnswController,
   ],

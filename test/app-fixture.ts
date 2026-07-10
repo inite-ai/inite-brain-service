@@ -5,12 +5,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
+import { correlationIdMiddleware } from '../src/common/correlation-id.middleware';
 import { StubEmbedder, StubExtractor } from './test-doubles';
 
 export interface AppFixture {
   app: INestApplication;
   http: ReturnType<typeof request>;
   apiKey: string;
+  /** Plaintext keys for opts.extraKeys, in order. */
+  extraApiKeys: string[];
   companyId: string;
   extractor: StubExtractor;
   close: () => Promise<void>;
@@ -27,16 +30,31 @@ export async function createApp(opts: {
    * connections and DB-level PERMISSIONS apply.
    */
   enableScopedPool?: boolean;
+  /**
+   * Additional static keys for the SAME tenant — the ABAC suites need a
+   * privileged admin key plus a policy-restricted caller key in one
+   * boot (BRAIN_API_KEYS is parsed once at module init). `policies`
+   * maps to the entry's ABAC attachment field.
+   */
+  extraKeys?: Array<{ scopes: string[]; policies?: string[] }>;
 } = {}): Promise<AppFixture> {
   const companyId = opts.companyId ?? `co_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const apiKey = `key_${randomUUID()}`;
   const keyHash = 'sha256:' + createHash('sha256').update(apiKey).digest('hex');
+  const extraApiKeys = (opts.extraKeys ?? []).map(() => `key_${randomUUID()}`);
   process.env.BRAIN_API_KEYS = JSON.stringify([
     {
       keyHash,
       companyId,
       scopes: opts.scopes ?? ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'],
     },
+    ...(opts.extraKeys ?? []).map((k, i) => ({
+      keyHash:
+        'sha256:' + createHash('sha256').update(extraApiKeys[i]).digest('hex'),
+      companyId,
+      scopes: k.scopes,
+      ...(k.policies ? { policies: k.policies } : {}),
+    })),
   ]);
   // Bypass real OpenAI calls.
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test-stub';
@@ -70,6 +88,11 @@ export async function createApp(opts: {
     .compile();
 
   const app = moduleRef.createNestApplication();
+  // Mirror main.ts: the correlation middleware also carries the
+  // AsyncLocalStorage request context that ABAC row filtering reads
+  // (getPolicyContext) — without it the row gate is silently inactive
+  // and the abac e2e suites would pass vacuously.
+  app.use(correlationIdMiddleware());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -84,6 +107,7 @@ export async function createApp(opts: {
     app,
     http,
     apiKey,
+    extraApiKeys,
     companyId,
     extractor: stubExtractor,
     close: () => app.close(),

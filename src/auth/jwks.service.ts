@@ -120,12 +120,38 @@ export class JwksService implements OnModuleInit {
     );
     if (scopes.length === 0) return null;
 
+    const policyNames = extractPolicyNames(payload);
+
     return {
       keyHash: `jwt:${payload.jti ?? payload.sub}`,
       companyId,
       scopes,
+      ...(policyNames.length > 0 ? { policyNames } : {}),
     };
   }
+}
+
+// Policy set names live in the same identifier charset the CRUD layer
+// enforces; anything else in the claim is dropped here rather than
+// carried into resolution (where an out-of-charset name would fail
+// closed and brick the key on a claim-encoding quirk).
+const VALID_POLICY_NAME = /^[a-z][a-z0-9_-]{1,63}$/;
+const MAX_POLICY_NAMES = 8;
+
+/**
+ * `policy` claim → ABAC policy set names. Array of strings or a single
+ * space-delimited string, capped at MAX_POLICY_NAMES (mirrors the
+ * resolver-side MAX_SETS_PER_KEY).
+ */
+function extractPolicyNames(payload: JWTPayload): string[] {
+  const raw = (payload as Record<string, unknown>).policy;
+  let names: string[] = [];
+  if (Array.isArray(raw)) {
+    names = raw.filter((n): n is string => typeof n === 'string');
+  } else if (typeof raw === 'string') {
+    names = raw.split(' ').filter(Boolean);
+  }
+  return names.filter((n) => VALID_POLICY_NAME.test(n)).slice(0, MAX_POLICY_NAMES);
 }
 
 function extractScopes(payload: JWTPayload): string[] {

@@ -121,6 +121,24 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
+  // ── ABAC policy knobs ──────────────────────────────────────────────
+  // The two booleans are security-relevant: an unrecognized value
+  // (ABAC_ENABLED=yes) silently parsing as OFF is the fail-open shape
+  // this validator exists for — same rationale as the pack-trust flags.
+  for (const name of ['ABAC_ENABLED', 'ABAC_FORCE_REPORT_ONLY']) {
+    const v = env[name];
+    if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
+      errors.push(
+        `${name} must be one of 1/0/true/false (got "${v}") — an ` +
+          'unrecognized value would silently disable policy enforcement.',
+      );
+    }
+  }
+  positiveInt(env, 'POLICY_CACHE_TTL_MS', errors);
+  positiveInt(env, 'POLICY_CACHE_CAP', errors);
+  positiveInt(env, 'POLICY_DECISION_RETENTION_DAYS', errors);
+  nonNegativeFloat(env, 'POLICY_DECISION_SAMPLE_RATE', errors);
+
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
   positiveInt(env, 'DOC_CHUNK_TARGET_CHARS', errors);

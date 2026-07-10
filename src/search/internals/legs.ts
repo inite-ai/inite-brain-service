@@ -53,7 +53,7 @@ export async function runVectorLeg({
       SELECT
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration,
+        trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         math::max([
           vector::similarity::cosine(embedding, $q),
@@ -99,7 +99,7 @@ async function runVectorLegKnn({
   const projection = `
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration,
+        trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
   const [mainRows, altRows] = await Promise.all([
@@ -219,7 +219,7 @@ export async function runLexicalLeg({
       SELECT
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration,
+        trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         math::max([search::score(1), search::score(2)]) AS bm25Score
       FROM knowledge_fact

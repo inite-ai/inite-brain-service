@@ -56,6 +56,11 @@ boot validation, graceful shutdown, test commands.
 | `REINDEX_MAX_DOCS_PER_RUN` | `500` | Backfill batch budget per `reindex_documents` job (batches self-chain). |
 | `MAX_DEDICATED_INDEXERS_PER_DOC` | `8` | Upper bound on dedicated indexers a single document routes to (LLM fan-out = chunks × packs × sc-passes). Router keeps the most relevant; the drop is logged. |
 | `INDEXER_RUN_STALE_MINUTES` | `30` | How long an `indexer_run` may sit `running` before the nightly sweep reaps it as crashed (unblocking a wedged commit). Must exceed the job lease (600s) + longest extraction. |
+| `ABAC_ENABLED` | `0` | Master switch for [per-key ABAC policies](abac.md) (migration 0056). Off = the resolver never runs, byte-identical behavior. On = keys referencing policy sets get action-level gating (REST + MCP tools) and row-level read filtering; keys without policies stay unchanged. Values outside `1/0/true/false` fail boot. |
+| `ABAC_FORCE_REPORT_ONLY` | `0` | Emergency demote-all: every enforce-mode policy set behaves as report_only (decisions logged, nothing blocked). The rollback lever for a bad policy. Same strict value set. |
+| `POLICY_CACHE_TTL_MS` / `POLICY_CACHE_CAP` | `60000` / `500` | Per-tenant compiled-policy snapshot cache. CRUD invalidates in-process; other instances converge within the TTL (document the staleness bound to tenants). Cap = tenants held in the LRU. |
+| `POLICY_DECISION_SAMPLE_RATE` | `0.01` | `policy_decision` stream sampling for enforce-mode *allows*. Denies and report_only divergences are always written. |
+| `POLICY_DECISION_RETENTION_DAYS` | `30` | Decision rows older than this are pruned lazily on flush (at most once per 6 h per tenant). |
 | `DOMAIN_PACK_TRUSTED_KEYS` | unset | Pack-install trust store: JSON object mapping `publisher` → ed25519 PEM public key. Malformed JSON fails boot (env validation) — a typo would silently empty the store and every signed pack would fail as "unknown publisher". |
 | `DOMAIN_PACK_REQUIRE_SIGNATURE` | `0` | When `1`/`true`, `POST /v1/admin/packs` rejects unsigned manifests. Values outside `1/0/true/false` fail boot — an unrecognized value would silently disable enforcement. |
 | `PACK_REGISTRY_REQUIRE_SIGNATURE` | `0` | Same policy for `POST /v1/admin/registry/packs` (publish into the global catalogue). Same strict value set. |

@@ -31,6 +31,23 @@ export interface RequestContext {
    * tokens. Undefined for background contexts (cron, startup).
    */
   abortSignal?: AbortSignal;
+  /**
+   * ABAC policy context for the authenticated key, stamped by
+   * ApiKeyGuard after credential + action gating. Read surfaces pick
+   * it up via getPolicyContext() so row-level filtering needs no
+   * signature threading. Undefined = no policies attached (or the
+   * request never passed the guard) → pre-ABAC behavior.
+   */
+  policy?: import('../policy/policy.types').PolicyContext;
+  /**
+   * Recorder for aggregated row-decision summaries, bound by the guard
+   * to PolicyGateService (which owns the decision sink + metrics).
+   * Kept as a closure so pure modules (policy/row-filter) never touch
+   * DI. Set iff `policy` is set.
+   */
+  recordPolicyRows?: (
+    summary: import('../policy/row-filter').RowDecisionSummary,
+  ) => void;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -66,4 +83,18 @@ export function getRequestContext(): RequestContext | undefined {
  */
 export function getAbortSignal(): AbortSignal | undefined {
   return storage.getStore()?.abortSignal;
+}
+
+/** Active ABAC policy context, or undefined outside a policied request. */
+export function getPolicyContext():
+  | import('../policy/policy.types').PolicyContext
+  | undefined {
+  return storage.getStore()?.policy;
+}
+
+/** Row-decision recorder bound by the guard; undefined without a policy. */
+export function getPolicyRowRecorder():
+  | ((summary: import('../policy/row-filter').RowDecisionSummary) => void)
+  | undefined {
+  return storage.getStore()?.recordPolicyRows;
 }

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { DocumentIngestService } from './document-ingest.service';
@@ -34,6 +35,7 @@ export class DocumentsIngestController {
 
   @Post('ingest/document')
   @RequireScopes('brain:write')
+  @PolicyAction('ingest_document')
   // Document ingest runs the LLM extractor per chunk; cap per-credential.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestDocument(
@@ -50,6 +52,7 @@ export class DocumentsIngestController {
 
   @Post('documents/:id/commit')
   @RequireScopes('brain:admin')
+  @PolicyAction('rest.documents.commit')
   async commit(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     assertDocumentIngestEnabled();
     const result = await this.ingest.commitPending(req.brainAuth.companyId, id);

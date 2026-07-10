@@ -10,6 +10,11 @@ import type { FactRow } from './types';
  *
  * `dto` is accepted to keep the signature stable for future per-DTO
  * gates, even though the current logic only reads predicate policy.
+ *
+ * NOTE: the pipeline now filters through makeRowPolicyFilter
+ * (src/policy/row-filter.ts), which applies this same scope gate FIRST
+ * and then the per-key ABAC row verdict. This function stays as the
+ * scope-gate reference implementation and for unit tests.
  */
 export function passesPolicy(
   row: FactRow,

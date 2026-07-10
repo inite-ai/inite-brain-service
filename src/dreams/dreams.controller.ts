@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { DreamsService } from './dreams.service';
 import { RunDreamsDto } from './dto/run-dreams.dto';
@@ -21,6 +22,7 @@ export class DreamsController {
 
   @Post('run')
   @RequireScopes('brain:admin')
+  @PolicyAction('rest.dreams.run')
   // Dreams fan out to dedup (cosine k-NN per entity) + verdict LLM calls
   // + summary LLM calls. Single tenant kicking this on a loop drains
   // the shared OpenAI budget; hard-cap manual triggers to 3/min.

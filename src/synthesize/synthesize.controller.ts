@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { SynthesizeService } from './synthesize.service';
 import { SynthesizeDto } from './dto/synthesize.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -12,6 +13,7 @@ export class SynthesizeController {
 
   @Post()
   @RequireScopes('brain:read')
+  @PolicyAction('synthesize')
   // Generator + verifier each cost one chat completion; treat as expensive.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async run(

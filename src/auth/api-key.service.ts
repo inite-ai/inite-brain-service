@@ -42,6 +42,23 @@ export class ApiKeyService implements OnModuleInit {
           `BRAIN_API_KEYS entry has malformed keyHash (expected 'sha256:' + 64 hex chars): companyId=${k.companyId}`,
         );
       }
+      // Optional ABAC attachment: `"policies": ["set-name", …]`. A
+      // malformed value is a boot error, not a silently ignored field —
+      // an operator who typed `"policies": "readonly"` believes the key
+      // is restricted.
+      if (k.policyNames !== undefined || (k as any).policies !== undefined) {
+        const names = (k as any).policies ?? k.policyNames;
+        if (
+          !Array.isArray(names) ||
+          names.some((n: unknown) => typeof n !== 'string')
+        ) {
+          throw new Error(
+            `BRAIN_API_KEYS entry has malformed policies (expected array of strings): companyId=${k.companyId}`,
+          );
+        }
+        k.policyNames = names;
+        delete (k as any).policies;
+      }
       this.byHash.set(normalised, k);
     }
     this.logger.log(`Loaded ${this.byHash.size} ApiKey(s)`);

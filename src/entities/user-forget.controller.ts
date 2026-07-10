@@ -1,5 +1,6 @@
 import { Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { UserForgetService, UserForgetResult } from './user-forget.service';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { Req } from '@nestjs/common';
@@ -15,6 +16,7 @@ export class UserForgetController {
    */
   @Post(':userId/forget')
   @RequireScopes('brain:admin')
+  @PolicyAction('rest.users.forget')
   async forget(
     @Req() req: AuthenticatedRequest,
     @Param('userId') userId: string,

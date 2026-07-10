@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { ArtifactsService, ArtifactType } from './artifacts.service';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 
@@ -18,6 +19,7 @@ export class ArtifactsController {
 
   @Get(':type/:entityId')
   @RequireScopes('brain:read')
+  @PolicyAction('rest.artifacts.get')
   async get(
     @Req() req: AuthenticatedRequest,
     @Param('type') type: string,
@@ -33,6 +35,7 @@ export class ArtifactsController {
 
   @Post(':type/:entityId/recompile')
   @RequireScopes('brain:write')
+  @PolicyAction('rest.artifacts.recompile')
   async recompile(
     @Req() req: AuthenticatedRequest,
     @Param('type') type: string,

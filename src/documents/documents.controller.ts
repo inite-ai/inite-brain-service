@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { policyFor } from '../ingest/conflict-resolver';
 import { DocumentStoreService } from './document-store.service';
@@ -35,6 +36,7 @@ export class DocumentsController {
 
   @Get(':id')
   @RequireScopes('brain:read')
+  @PolicyAction('rest.documents.get')
   async getDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -62,6 +64,7 @@ export class DocumentsController {
 
   @Get(':id/candidates')
   @RequireScopes('brain:read')
+  @PolicyAction('rest.documents.candidates')
   async listCandidates(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -81,6 +84,7 @@ export class DocumentsController {
 
   @Delete(':id/content')
   @RequireScopes('brain:admin')
+  @PolicyAction('rest.documents.purge_content')
   async purge(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     assertDocumentIngestEnabled();
     const purged = await this.store.purgeContent(req.brainAuth.companyId, id);

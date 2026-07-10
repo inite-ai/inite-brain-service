@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { envFlagEnabled } from '../common/env-validation';
 import { MentionViaDocumentService } from '../documents/mention-via-document.service';
 import { IngestService } from './ingest.service';
@@ -25,6 +26,7 @@ export class IngestController {
 
   @Post('fact')
   @RequireScopes('brain:write')
+  @PolicyAction('record_fact')
   async ingestFact(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestFactDto,
@@ -34,6 +36,7 @@ export class IngestController {
 
   @Post('mention')
   @RequireScopes('brain:write')
+  @PolicyAction('rest.ingest.mention')
   // Mention ingest runs the LLM extractor; cap per-credential rate.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   async ingestMention(
@@ -51,6 +54,7 @@ export class IngestController {
 
   @Post('link')
   @RequireScopes('brain:write')
+  @PolicyAction('link_entities')
   async ingestLink(
     @Req() req: AuthenticatedRequest,
     @Body() body: IngestLinkDto,

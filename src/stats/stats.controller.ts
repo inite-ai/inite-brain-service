@@ -1,5 +1,6 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { StatsService } from './stats.service';
 
@@ -14,6 +15,7 @@ export class StatsController {
 
   @Get('overview')
   @RequireScopes('brain:read')
+  @PolicyAction('rest.stats.overview')
   async overview(@Req() req: AuthenticatedRequest) {
     return this.stats.overview(req.brainAuth.companyId, req.brainAuth.scopes);
   }

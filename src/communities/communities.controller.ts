@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { CommunityService } from './community.service';
 
@@ -15,6 +16,7 @@ export class CommunitiesController {
 
   @Get()
   @RequireScopes('brain:read')
+  @PolicyAction('list_communities')
   async list(
     @Req() req: AuthenticatedRequest,
     @Query('limit') limit?: string,
@@ -28,6 +30,7 @@ export class CommunitiesController {
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('search')
   @RequireScopes('brain:read')
+  @PolicyAction('search_communities')
   async search(
     @Req() req: AuthenticatedRequest,
     @Query('query') query?: string,
@@ -46,6 +49,7 @@ export class CommunitiesController {
 
   @Get('for-entity/:entityId')
   @RequireScopes('brain:read')
+  @PolicyAction('find_entity_communities')
   async forEntity(
     @Req() req: AuthenticatedRequest,
     @Param('entityId') entityId: string,
