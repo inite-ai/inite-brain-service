@@ -12,13 +12,14 @@ import type {
   SimulateSearchResponse,
 } from '../../../lib/contracts/admin-policies'
 import { ActionMatrix } from './ActionMatrix'
+import { GraphLens } from './GraphLens'
 import { LensResults } from './LensResults'
 import { DRAFT_STORAGE_KEY } from './PolicySetEditor'
 import { ModeBadge } from './PolicyBadges'
 import { ErrorLine, Segmented, inputCls } from './ui'
 
 type SubjectKind = 'key' | 'policySet' | 'draft'
-type Tab = 'data' | 'actions'
+type Tab = 'data' | 'actions' | 'graph'
 
 /**
  * Key Lens — simulate what a key (or a saved set, or an unsaved draft
@@ -258,6 +259,7 @@ export function KeyLens() {
           options={[
             { value: 'data' as const, label: 'Data lens' },
             { value: 'actions' as const, label: 'Action matrix' },
+            { value: 'graph' as const, label: 'Graph lens' },
           ]}
           onChange={setTab}
         />
@@ -306,11 +308,22 @@ export function KeyLens() {
             </p>
           )}
         </div>
-      ) : actionsResult ? (
-        <ActionMatrix result={actionsResult} />
+      ) : tab === 'actions' ? (
+        actionsResult ? (
+          <ActionMatrix result={actionsResult} />
+        ) : (
+          <p className="text-xs text-[var(--text-faint)]">
+            {subjectReady
+              ? 'evaluating…'
+              : 'pick a subject to evaluate the action surface'}
+          </p>
+        )
+      ) : searchResult ? (
+        <GraphLens result={searchResult} />
       ) : (
         <p className="text-xs text-[var(--text-faint)]">
-          {subjectReady ? 'evaluating…' : 'pick a subject to evaluate the action surface'}
+          Run a data-lens query first — the graph lens visualizes that result
+          per entity.
         </p>
       )}
     </div>

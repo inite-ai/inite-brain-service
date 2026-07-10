@@ -3,7 +3,16 @@
 /* eslint-disable react/jsx-no-literals -- TODO i18n migration: queued with the admin-wide pass. */
 
 import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, Scale } from 'lucide-react'
+import { Radio, RefreshCw, Scale } from 'lucide-react'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import type {
   PolicyDecisionsResponse,
   PolicyDecisionsStatsResponse,
@@ -24,6 +33,7 @@ export function DecisionsFeed() {
   const [stats, setStats] = useState<PolicyDecisionsStatsResponse | null>(null)
   const [filter, setFilter] = useState<DecisionFilter>('all')
   const [loading, setLoading] = useState(true)
+  const [live, setLive] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(
@@ -68,6 +78,14 @@ export function DecisionsFeed() {
     void load()
   }, [load])
 
+  // Live tail — plain polling (the decision sink flushes every ~5 s
+  // anyway, so an SSE stream would buy nothing over a 10 s poll).
+  useEffect(() => {
+    if (!live) return
+    const t = setInterval(() => void load(), 10_000)
+    return () => clearInterval(t)
+  }, [live, load])
+
   const totals = stats?.series.reduce(
     (acc, d) => ({
       allow: acc.allow + d.allow,
@@ -105,6 +123,69 @@ export function DecisionsFeed() {
             value={stats.topDeniedActions[0]?.action ?? '—'}
             mono
           />
+        </div>
+      ) : null}
+
+      {stats && stats.series.length > 0 ? (
+        <div className="mb-4 grid gap-3 lg:grid-cols-[2fr_1fr]">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+            <h2 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
+              Decisions by day · {stats.windowDays}d
+              {stats.truncated ? ' · window capped, lower bounds' : ''}
+            </h2>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={stats.series}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis
+                  dataKey="day"
+                  stroke="var(--text-faint)"
+                  fontSize={10}
+                  tickFormatter={(d: string) => d.slice(5)}
+                />
+                <YAxis stroke="var(--text-faint)" fontSize={10} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    fontSize: 11,
+                  }}
+                />
+                <Bar dataKey="allow" stackId="d" fill="var(--success)" />
+                <Bar dataKey="wouldDeny" stackId="d" fill="var(--warning)" />
+                <Bar dataKey="deny" stackId="d" fill="var(--danger)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+            <h2 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
+              Top denied actions
+            </h2>
+            {stats.topDeniedActions.length === 0 ? (
+              <p className="text-[11px] text-[var(--text-faint)]">
+                nothing denied in the window
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {stats.topDeniedActions.slice(0, 8).map((a) => {
+                  const max = stats.topDeniedActions[0]?.count ?? 1
+                  return (
+                    <li key={a.action} className="text-[11px]">
+                      <div className="flex justify-between font-mono text-[var(--text-muted)]">
+                        <span className="truncate">{a.action}</span>
+                        <span>{a.count}</span>
+                      </div>
+                      <div className="mt-0.5 h-1 rounded bg-[var(--bg-overlay)]">
+                        <div
+                          className="h-1 rounded bg-[var(--danger)]/60"
+                          style={{ width: `${Math.max(4, (a.count / max) * 100)}%` }}
+                        />
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -146,14 +227,27 @@ export function DecisionsFeed() {
           ]}
           onChange={setFilter}
         />
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="rounded border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)]"
-          aria-label="Refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLive((v) => !v)}
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1.5 text-[11px] ${
+              live
+                ? 'border-[var(--success)]/50 text-[var(--success)]'
+                : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'
+            }`}
+          >
+            <Radio className="h-3 w-3" /> {live ? 'live' : 'live off'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)]"
+            aria-label="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <ErrorLine error={error} />
 
