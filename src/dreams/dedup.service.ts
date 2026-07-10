@@ -147,6 +147,7 @@ export class DreamsDedupService {
          AND status = 'active'
          AND retractedAt IS NONE
          AND embedding != NONE
+         AND userId IS NONE
          AND entityId.mergedInto IS NONE`,
     );
     const seeds = (seedRows as NameRow[]) ?? [];
@@ -166,6 +167,7 @@ export class DreamsDedupService {
           AND status = 'active'
           AND retractedAt IS NONE
           AND embedding != NONE
+          AND userId IS NONE
           AND entityId.mergedInto IS NONE
         ORDER BY sim DESC
         LIMIT 5

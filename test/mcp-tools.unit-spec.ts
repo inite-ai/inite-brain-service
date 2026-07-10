@@ -46,6 +46,7 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     stubEmbedder as never,
     {} as never,
+    {} as never, // feedback
   );
   return svc.buildServer('co_test', scopes);
 }
@@ -71,6 +72,7 @@ function resourceNames(server: McpServer): string[] {
 const READ_BASELINE = [
   'search_knowledge',
   'search_multi_hop',
+  'graph_retrieve',
   'synthesize',
   'memory_diff',
   'get_entity_profile',
@@ -100,6 +102,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).not.toContain('record_fact');
     expect(names).not.toContain('retract_fact');
     expect(names).not.toContain('link_entities');
+    expect(names).not.toContain('record_feedback');
     expect(names).not.toContain('record_procedure');
     expect(names).not.toContain('retire_procedure');
     expect(names).not.toContain('record_decision');
@@ -110,6 +113,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('record_fact');
     expect(names).toContain('retract_fact');
     expect(names).toContain('link_entities');
+    expect(names).toContain('record_feedback');
     expect(names).toContain('record_procedure');
     expect(names).toContain('retire_procedure');
     expect(names).toContain('record_decision');
@@ -152,6 +156,7 @@ describe('McpService.health — unauthenticated probe payload', () => {
       {} as never,
       stubEmbedder as never,
       {} as never,
+      {} as never, // feedback
     );
     const health = svc.health();
     expect(health.ok).toBe(true);

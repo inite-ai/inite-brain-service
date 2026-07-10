@@ -57,7 +57,12 @@ export class FactIngestService {
     delete source.originKey;
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
-      const entityId = await this.entities.resolveOrCreateEntity(db, dto);
+      //    dto.userId scopes both the entity dedup key and the fact.
+      const entityId = await this.entities.resolveOrCreateEntity(
+        db,
+        dto,
+        dto.userId,
+      );
 
       // 2. Object preservation. Schema stores `object` as string for
       //    indexing; for non-string DTO objects we additionally keep
@@ -87,6 +92,7 @@ export class FactIngestService {
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         source: source as unknown as typeof dto.source,
         entropy: undefined,
+        userId: dto.userId,
         recordOutcomeMetric: true,
       });
 

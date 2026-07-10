@@ -124,6 +124,11 @@ function registerSearchTools({
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
         minConfidence: z.number().min(0).max(1).optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)"),
       },
     },
     async (args) => {
@@ -135,6 +140,7 @@ function registerSearchTools({
           predicates: args.predicates,
           asOf: args.asOf,
           minConfidence: args.minConfidence,
+          userId: args.userId,
         },
         scopes,
       );
@@ -177,6 +183,13 @@ function registerSearchTools({
           .optional()
           .describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(50).optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+          ),
       },
     },
     async (args, extra) => {
@@ -191,6 +204,7 @@ function registerSearchTools({
           asOf: args.asOf,
           predicates: args.predicates,
           limit: args.limit,
+          userId: args.userId,
         },
         callerScopes: scopes,
         onProgress: reporter,
@@ -201,6 +215,8 @@ function registerSearchTools({
       };
     },
   );
+
+  registerGraphRetrieveTool({ server, companyId, scopes, deps });
 
   // ── synthesize ────────────────────────────────────────────────────
   server.registerTool(
@@ -222,6 +238,13 @@ function registerSearchTools({
           .enum(['strict', 'lenient', 'off'])
           .optional()
           .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+          ),
       },
     },
     async (args, extra) => {
@@ -235,6 +258,7 @@ function registerSearchTools({
           asOf: args.asOf,
           minConfidence: args.minConfidence,
           synthesisGuardrails: args.synthesisGuardrails,
+          userId: args.userId,
         },
         callerScopes: scopes,
         onProgress: reporter,
@@ -277,6 +301,60 @@ function registerSearchTools({
         },
         scopes,
       );
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        structuredContent: out as any,
+      };
+    },
+  );
+}
+
+// Split out of registerSearchTools for the max-lines-per-function gate.
+function registerGraphRetrieveTool({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  server.registerTool(
+    'graph_retrieve',
+    {
+      title: 'Graph-first retrieval around named entities',
+      description:
+        'Resolves the named entities by canonical name, walks their 1-hop neighbourhood over knowledge_edge, and returns facts across seeds ∪ neighbours, optionally filtered by predicate hints. Use when you already know WHICH entities the question is about and want what the graph knows around them ("who runs engineering at Acme" — the answer lives on a neighbour, not on Acme itself); use search_knowledge when you only have free text. Seeds score 1.0, neighbours 0.7; soft-fails to an empty result so you can fall back to search_knowledge.',
+      inputSchema: {
+        entityNames: z
+          .array(z.string())
+          .min(1)
+          .describe('Canonical names of the entities to anchor on'),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            'Free-text fallback used to resolve seeds when a name does not match exactly',
+          ),
+        predicateHints: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Prefer facts with these predicates (non-matching neighbour facts are dropped, seed facts kept at lower score)',
+          ),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe('Knowledge as-of this ISO 8601 moment'),
+      },
+    },
+    async (args) => {
+      const out = await deps.search.graphRetrieve({
+        companyId,
+        queryText: args.query ?? args.entityNames.join(' '),
+        entityRefs: args.entityNames,
+        predicateHints: args.predicateHints ?? [],
+        asOf: args.asOf,
+        callerScopes: scopes,
+      });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: out as any,

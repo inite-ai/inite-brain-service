@@ -199,6 +199,12 @@ export class DocumentStoreService {
            SET status = 'purged', hasContent = false`,
         { id: idTailOf(docId) },
       );
+      const flagged = await markFactsProvenancePurged(db, docId);
+      if (flagged > 0) {
+        this.logger.log(
+          `purge ${docId}: flagged ${flagged} facts provenancePurged`,
+        );
+      }
       return true;
     });
   }
@@ -223,6 +229,40 @@ export function sha256Hex(text: string): string {
 /** 'doc:' + contentHash — the origin identity migration 0050 keys on. */
 export function originKeyOf(contentHash: string): string {
   return `doc:${contentHash}`;
+}
+
+/**
+ * Purging a document's text does NOT retract the facts committed from it —
+ * the claims stay believed; what's gone is the reproducible evidence behind
+ * them. Flag those facts (`source.provenancePurged = true`) so operators
+ * and read paths can tell "grounded in retrievable text" from "source text
+ * erased" instead of silently orphaning the provenance. Idempotent —
+ * already-flagged facts are skipped; returns the number flagged. Shared by
+ * both purge paths (explicit endpoint + retainUntil sweeper).
+ */
+export async function markFactsProvenancePurged(
+  db: Pick<Surreal, 'query'>,
+  docId: string,
+): Promise<number> {
+  // Facts store the FULL record id string ('source_document:<tail>', see
+  // commit-writer); accept a bare tail defensively.
+  const fullId = docId.includes(':') ? docId : `source_document:${docId}`;
+  const [rows] = await db.query<[Array<{ n: number }>]>(
+    `SELECT count() AS n FROM knowledge_fact
+      WHERE source.documentId = $docId AND source.provenancePurged != true
+      GROUP ALL`,
+    { docId: fullId },
+  );
+  const n = (rows as Array<{ n: number }>)?.[0]?.n ?? 0;
+  if (n > 0) {
+    await db.query(
+      `UPDATE knowledge_fact SET source.provenancePurged = true
+        WHERE source.documentId = $docId AND source.provenancePurged != true
+        RETURN NONE`,
+      { docId: fullId },
+    );
+  }
+  return n;
 }
 
 function mapDoc(row: Record<string, unknown>): StoredDocument {

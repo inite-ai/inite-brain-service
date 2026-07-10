@@ -8,6 +8,27 @@ import {
   type LabelValues,
 } from 'prom-client';
 
+/** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
+export const FACT_STATUSES = [
+  'active',
+  'competing',
+  'retracted',
+  'superseded',
+  'compacted',
+  'corroborating',
+] as const;
+
+/** Age buckets for the stale-active-facts gauge, in days. */
+export const STALE_BUCKETS_DAYS = [30, 90, 365] as const;
+
+/** Aggregate computed by MemoryQualityService across all tenants. */
+export interface MemoryQualitySnapshot {
+  factsByStatus: Record<string, number>;
+  staleActiveFacts: Record<number, number>;
+  trustBands: { low: number; neutral: number; high: number };
+  orphanEntities: number;
+}
+
 /**
  * MetricsService — owns the Prometheus registry for the brain.
  *
@@ -29,6 +50,10 @@ import {
  *   - openai_tokens_total{kind, type}         — embed|chat × prompt|completion
  *   - openai_calls_total{kind, outcome}       — embed|chat × ok|error
  *   - openai_call_duration_seconds{kind}      — histogram per kind
+ *   - memory_facts{status}                    — nightly snapshot gauges
+ *   - memory_stale_active_facts{older_than_days}  (MemoryQualityService,
+ *   - memory_fact_trust{band}                     03:35 UTC, sum across
+ *   - memory_orphan_entities                      tenants)
  *
  * No `companyId` label — that would be unbounded cardinality. Per-tenant
  * dashboards are built off log lines (which carry companyId) instead.
@@ -162,6 +187,19 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  readonly promotionFacts = new Counter({
+    name: 'brain_promotion_facts_total',
+    help: 'Number of active facts folded into promotion summaries (sum across tenants)',
+    registers: [this.registry],
+  });
+
+  readonly feedbackCount = new Counter({
+    name: 'brain_feedback_total',
+    help: 'Retrieval feedback verdicts recorded',
+    labelNames: ['verdict'] as const,
+    registers: [this.registry],
+  });
+
   readonly openaiTokens = new Counter({
     name: 'brain_openai_tokens_total',
     help: 'OpenAI tokens consumed, by call kind and token type',
@@ -194,6 +232,40 @@ export class MetricsService implements OnModuleInit {
   readonly changefeedLag = new Gauge({
     name: 'brain_changefeed_lag_records',
     help: 'CHANGEFEED records pending after the most recent consumer tick (sum across tenants/tables)',
+    registers: [this.registry],
+  });
+
+  // Memory-quality snapshot gauges — replaced wholesale by the nightly
+  // MemoryQualityService pass (03:35 UTC), summed across tenants. Every
+  // label value is written on every pass (absent buckets set to 0), so
+  // no stale series linger between passes. These are the alertable
+  // "is the memory rotting" signals: a growing competing backlog, an
+  // ageing active set, a drift toward low-trust sources, entities with
+  // no memory left attached.
+  readonly memoryFacts = new Gauge({
+    name: 'brain_memory_facts',
+    help: 'Snapshot count of knowledge_fact rows by status (sum across tenants)',
+    labelNames: ['status'] as const,
+    registers: [this.registry],
+  });
+
+  readonly memoryStaleActiveFacts = new Gauge({
+    name: 'brain_memory_stale_active_facts',
+    help: 'Snapshot count of active facts recorded more than N days ago (sum across tenants)',
+    labelNames: ['older_than_days'] as const,
+    registers: [this.registry],
+  });
+
+  readonly memoryFactTrust = new Gauge({
+    name: 'brain_memory_fact_trust',
+    help: 'Snapshot count of active facts by source-reputation band: low (<0.4), neutral, high (>0.6)',
+    labelNames: ['band'] as const,
+    registers: [this.registry],
+  });
+
+  readonly memoryOrphanEntities = new Gauge({
+    name: 'brain_memory_orphan_entities',
+    help: 'Snapshot count of unmerged entities with zero active facts (sum across tenants)',
     registers: [this.registry],
   });
 
@@ -305,7 +377,7 @@ export class MetricsService implements OnModuleInit {
   }
 
   countDreamsEmitted(
-    kind: 'identity_link' | 'resolution' | 'summary',
+    kind: 'identity_link' | 'resolution' | 'corroboration' | 'summary',
     n = 1,
   ): void {
     if (n > 0) {
@@ -348,6 +420,14 @@ export class MetricsService implements OnModuleInit {
 
   countCompacted(n: number): void {
     if (n > 0) this.compactionFacts.inc(n);
+  }
+
+  countPromoted(n: number): void {
+    if (n > 0) this.promotionFacts.inc(n);
+  }
+
+  countFeedback(verdict: 'helpful' | 'not_helpful' | 'incorrect'): void {
+    this.feedbackCount.inc({ verdict } as LabelValues<'verdict'>);
   }
 
   countDocument(result: 'created' | 'deduplicated' | 'failed'): void {
@@ -435,6 +515,28 @@ export class MetricsService implements OnModuleInit {
 
   setChangefeedLag(n: number): void {
     this.changefeedLag.set(n);
+  }
+
+  setMemoryQuality(snapshot: MemoryQualitySnapshot): void {
+    for (const status of FACT_STATUSES) {
+      this.memoryFacts.set(
+        { status } as LabelValues<'status'>,
+        snapshot.factsByStatus[status] ?? 0,
+      );
+    }
+    for (const days of STALE_BUCKETS_DAYS) {
+      this.memoryStaleActiveFacts.set(
+        { older_than_days: String(days) } as LabelValues<'older_than_days'>,
+        snapshot.staleActiveFacts[days] ?? 0,
+      );
+    }
+    for (const band of ['low', 'neutral', 'high'] as const) {
+      this.memoryFactTrust.set(
+        { band } as LabelValues<'band'>,
+        snapshot.trustBands[band],
+      );
+    }
+    this.memoryOrphanEntities.set(snapshot.orphanEntities);
   }
 
   async serialize(): Promise<{ contentType: string; body: string }> {

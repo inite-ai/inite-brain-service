@@ -189,7 +189,39 @@ export class CalibrationRefitRunnerService {
           ORDER BY recordedAt DESC
           LIMIT 50000;`,
       );
-      const summary = aggregateByScope(buildTrustEvents(rows ?? []));
+      // Retrieval feedback (migration 0054) joins the same win/loss
+      // currency: 'helpful' confirms the source, 'incorrect' counts
+      // against it. One standing vote per (fact, caller key) is enforced
+      // at write time (UNIQUE index), so a single consumer can't farm
+      // its own source's rate. 'not_helpful' is a relevance signal, not
+      // a reliability one — excluded here by the WHERE.
+      const [feedbackRows] = await db.query<
+        [
+          Array<{
+            vertical: string | null;
+            recorder: string | null;
+            predicate: string;
+            verdict: string;
+            createdAt: string | Date;
+          }>,
+        ]
+      >(
+        `SELECT
+            factId.source.vertical AS vertical,
+            factId.source.recorder AS recorder,
+            factId.predicate AS predicate,
+            verdict,
+            createdAt
+          FROM retrieval_feedback
+          WHERE verdict != 'not_helpful'
+            AND factId.source.vertical IS NOT NONE
+          ORDER BY createdAt DESC
+          LIMIT 50000;`,
+      );
+      const summary = aggregateByScope([
+        ...buildTrustEvents(rows ?? []),
+        ...buildFeedbackTrustEvents(feedbackRows ?? []),
+      ]);
 
       // Prior rates in one read — the |Δ| > 0.01 history gate needs them,
       // and per-scope SELECTs would be N extra round-trips.
@@ -416,6 +448,38 @@ export function buildTrustEvents(
       win: r.status === 'active' || r.status === 'corroborating' ? 1 : 0,
       loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
       recordedAt: r.recordedAt,
+    });
+  }
+  return events;
+}
+
+export interface FeedbackEventRow {
+  vertical: string | null;
+  recorder: string | null;
+  predicate: string;
+  verdict: string;
+  createdAt: string | Date;
+}
+
+/**
+ * Retrieval-feedback verdicts → the same per-source {win, loss} currency
+ * the fact-status events use: 'helpful' = win, 'incorrect' = loss.
+ * 'not_helpful' rows never reach here (filtered in the query) — an
+ * irrelevant retrieval says nothing about the source's reliability.
+ * Exported for unit tests, same as buildTrustEvents.
+ */
+export function buildFeedbackTrustEvents(
+  rows: ReadonlyArray<FeedbackEventRow>,
+): TrustEvent[] {
+  const events: TrustEvent[] = [];
+  for (const r of rows) {
+    if (r.verdict !== 'helpful' && r.verdict !== 'incorrect') continue;
+    events.push({
+      sourceKey: `${r.vertical}:${r.recorder ?? '_'}`,
+      domain: r.predicate,
+      win: r.verdict === 'helpful' ? 1 : 0,
+      loss: r.verdict === 'incorrect' ? 1 : 0,
+      recordedAt: r.createdAt,
     });
   }
   return events;

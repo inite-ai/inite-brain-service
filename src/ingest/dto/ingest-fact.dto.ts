@@ -86,6 +86,20 @@ export class IngestFactDto {
   @IsObject()
   source: FactSource;
 
+  /**
+   * Per-user scope (migration 0055). Stamps the fact — and, for a
+   * vertical+id entityRef, the entity dedup key — with this end-user:
+   * invisible to every other user of the tenant and to requests that
+   * don't assert a userId (fail-closed reads). A bare entityId ref
+   * attaches the personal fact to that entity whatever its scope.
+   * Conflict resolution is scope-local: a user's fact never
+   * supersedes, competes with, or corroborates the tenant-global
+   * timeline. The caller — a trusted backend holding the tenant key —
+   * asserts the user.
+   */
+  @IsOptional() @IsString() @MaxLength(200)
+  userId?: string;
+
   @IsOptional() @IsObject()
   metadata?: Record<string, unknown>;
 

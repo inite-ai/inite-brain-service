@@ -80,14 +80,35 @@ duel — it's reinforcement. The incoming fact lands as `status = 'corroborating
 `corroboration = { count, sourceKeys[], lastAt }`. (The same source re-asserting
 is the ordinary supersede-refresh.)
 
+Ingest-time matching is EXACT object equality. The same claim worded
+differently is picked up later by the nightly fuzzy pass
+(`DREAMS_CORROBORATE_ENABLED`, default off): cosine-similar same-predicate
+pairs from different origins go to an LLM judge, and a `same_assertion`
+verdict applies the identical corroboration write — the counter still only
+grows per distinct origin.
+
+## Retrieval feedback (0054)
+
+Consumers close the loop through `POST /v1/feedback` (MCP:
+`record_feedback`): `helpful` counts as a win for the fact's source at the
+nightly refit, `incorrect` as a loss — the same currency as
+supersede/corroboration outcomes, so feedback moves ranking through the
+already-shipped `SEARCH_TRUST_BETA` multiplier. One standing vote per
+(fact, caller key) — repeat feedback replaces the verdict, so a single
+consumer cannot farm its own source's rate. `not_helpful` is stored as a
+relevance signal but deliberately does not touch reliability.
+
 ## Trust at read time (opt-in)
 
-By default, retrieval is unchanged. Two env flags let trust move rankings:
+By default, retrieval is unchanged. Three env flags let trust move rankings:
 
 - `SEARCH_TRUST_BETA` (β, default `0`) — scales a source-reputation multiplier.
 - `SEARCH_CORROBORATION_GAMMA` (γ, default `0`) — rewards corroboration count.
+- `SEARCH_AUTHORITY_DELTA` (δ, default `0`) — rewards registry-declared source
+  authority (facts from unregistered sources carry authority 0 and are
+  unaffected at any δ).
 
-The final score is multiplied by `(1 + β·(reputation − 0.5)) · (1 + γ·min(corroborationCount, 3))`,
+The final score is multiplied by `(1 + β·(reputation − 0.5)) · (1 + γ·min(corroborationCount, 3)) · (1 + δ·authority)`,
 so at the defaults it's a byte-for-byte no-op. When `explain` is on, the
 response carries the `factTrust` decomposition (reputation, authority, freshness,
 calibrated confidence, corroboration, evidence count). A separate

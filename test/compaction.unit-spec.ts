@@ -147,8 +147,11 @@ describe('CompactionService — mark + drop (default mode)', () => {
     const after = Date.now();
 
     const select = calls[0].calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
-    const cutoff = select.params!.cutoff as string;
-    const cutoffMs = Date.parse(cutoff);
+    // Date param, not an ISO string — SurrealDB 3.x needs a native
+    // datetime (the 2.x `d$cutoff` cast no longer parses).
+    const cutoff = select.params!.cutoff as Date;
+    expect(cutoff).toBeInstanceOf(Date);
+    const cutoffMs = cutoff.getTime();
     expect(cutoffMs).toBeGreaterThanOrEqual(before - 30 * 24 * 60 * 60 * 1000);
     expect(cutoffMs).toBeLessThanOrEqual(after - 30 * 24 * 60 * 60 * 1000);
   });

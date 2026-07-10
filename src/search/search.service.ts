@@ -22,6 +22,7 @@ import { expandViaEdges } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { backfillEntityFacts } from './internals/backfill';
+import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
 import {
   assembleGraphHits,
@@ -198,18 +199,36 @@ export class SearchService {
     // embeddings across the wire for nothing.
     const candidateK = Math.min(limit * 5, 200);
 
-    return this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
-      this.runPipeline(db, {
-        dto,
-        callerScopes,
-        limit,
-        asOf,
-        includeRetracted,
-        includeContested,
-        mode,
-        candidateK,
-      }),
+    const out = await this.surreal.withScopedCompany(
+      companyId,
+      callerScopes,
+      (db) =>
+        this.runPipeline(db, {
+          dto,
+          callerScopes,
+          limit,
+          asOf,
+          includeRetracted,
+          includeContested,
+          mode,
+          candidateK,
+        }),
     );
+    // Usage reinforcement, write side (opt-in): stamp the facts this
+    // search actually surfaced. Fire-and-forget on the root pool — the
+    // response never waits on it, and multi-hop / synthesize get it for
+    // free since they route through this method.
+    if (process.env.SEARCH_USAGE_RECORDING_ENABLED === '1') {
+      recordFactUsage({
+        surreal: this.surreal,
+        logger: this.logger,
+        companyId,
+        factIds: out.results.flatMap((h) =>
+          (h.facts ?? []).map((f) => f.factId),
+        ),
+      });
+    }
+    return out;
   }
 
   private async runPipeline(
@@ -273,6 +292,14 @@ export class SearchService {
     const filtered = reattributed.filter((row) =>
       passesPolicy(row, ctx.dto, ctx.callerScopes),
     );
+
+    // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
+    // from the most recent retrieval instead of only recordedAt. Soft-
+    // fails inside; rows injected later (edge expansion / backfill) stay
+    // unenriched — supplementary context, not primary relevance.
+    if (process.env.SEARCH_USAGE_DECAY_ENABLED === '1') {
+      await enrichWithUsage(db, this.logger, filtered);
+    }
 
     // 3. Predicate / type router (optional LLM call, under budget).
     const routerOut = await this.retrieval.runRouterStage(ctx.dto.query);

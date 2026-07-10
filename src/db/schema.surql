@@ -23,6 +23,7 @@ DEFINE FIELD IF NOT EXISTS createdAt       ON knowledge_entity TYPE datetime DEF
 DEFINE FIELD IF NOT EXISTS mergedAt        ON knowledge_entity TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS mergedInto      ON knowledge_entity TYPE option<record<knowledge_entity>>;
 DEFINE FIELD IF NOT EXISTS embedding       ON knowledge_entity TYPE option<array<float>>;
+DEFINE FIELD IF NOT EXISTS userId          ON knowledge_entity TYPE option<string>;
 
 DEFINE INDEX IF NOT EXISTS entity_type_idx        ON knowledge_entity FIELDS type;
 DEFINE INDEX IF NOT EXISTS entity_canonical_idx   ON knowledge_entity FIELDS canonicalName;
@@ -46,22 +47,40 @@ DEFINE FIELD IF NOT EXISTS recordedAt       ON knowledge_fact TYPE datetime DEFA
 DEFINE FIELD IF NOT EXISTS retractedAt      ON knowledge_fact TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS retractionReason ON knowledge_fact TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS retractedBy      ON knowledge_fact TYPE option<string>
-  ASSERT $value = NONE OR $value INSIDE ['human','system','cascade'];
+  ASSERT $value = NONE OR $value INSIDE ['human','system','cascade','dreams'];
 DEFINE FIELD IF NOT EXISTS supersededBy     ON knowledge_fact TYPE option<record<knowledge_fact>>;
 DEFINE FIELD IF NOT EXISTS source           ON knowledge_fact FLEXIBLE TYPE object;
 DEFINE FIELD IF NOT EXISTS derivedFrom      ON knowledge_fact TYPE option<array<record<knowledge_fact>>>;
 DEFINE FIELD IF NOT EXISTS status           ON knowledge_fact TYPE string DEFAULT 'active'
-  ASSERT $value INSIDE ['active','competing','retracted','superseded','compacted'];
+  ASSERT $value INSIDE ['active','competing','retracted','superseded','compacted','corroborating'];
 DEFINE FIELD IF NOT EXISTS embedding        ON knowledge_fact TYPE option<array<float>>;
+-- Per-user scope (migration 0055): NONE = tenant-global; reads are
+-- fail-closed (no userId on the request -> global rows only).
+DEFINE FIELD IF NOT EXISTS userId           ON knowledge_fact TYPE option<string>;
 
 DEFINE INDEX IF NOT EXISTS fact_entity_idx        ON knowledge_fact FIELDS entityId;
 DEFINE INDEX IF NOT EXISTS fact_predicate_idx     ON knowledge_fact FIELDS predicate;
 DEFINE INDEX IF NOT EXISTS fact_status_idx        ON knowledge_fact FIELDS status;
 DEFINE INDEX IF NOT EXISTS fact_recorded_idx      ON knowledge_fact FIELDS recordedAt;
 DEFINE INDEX IF NOT EXISTS fact_entity_pred_idx   ON knowledge_fact FIELDS entityId, predicate, status;
+DEFINE INDEX IF NOT EXISTS fact_user_idx          ON knowledge_fact FIELDS userId;
 -- HNSW commented out — see knowledge_entity above.
 -- DEFINE INDEX fact_embedding_idx ON knowledge_fact FIELDS embedding
 --   HNSW DIMENSION 1536 DIST COSINE EFC 200 M 16;
+
+-- ─── FactUsage (usage-based reinforcement, migration 0053) ──────────────
+-- "This fact was surfaced by search." Separate table (NOT fields on
+-- knowledge_fact) so per-search stamps stay out of the CHANGEFEED audit
+-- mirror, the artifact dirty-event, and the ingest KeyedMutex. Written
+-- fire-and-forget behind SEARCH_USAGE_RECORDING_ENABLED; consumed by
+-- scoring decay behind SEARCH_USAGE_DECAY_ENABLED.
+DEFINE TABLE IF NOT EXISTS fact_usage SCHEMAFULL;
+
+DEFINE FIELD IF NOT EXISTS factId     ON fact_usage TYPE record<knowledge_fact>;
+DEFINE FIELD IF NOT EXISTS readCount  ON fact_usage TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS lastReadAt ON fact_usage TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS fact_usage_fact_idx ON fact_usage FIELDS factId UNIQUE;
 
 -- ─── KnowledgeEdge ───────────────────────────────────────────────────────
 -- Surreal graph relations are first-class. We model edges as a `RELATE`-able
@@ -75,6 +94,7 @@ DEFINE FIELD IF NOT EXISTS weight          ON knowledge_edge TYPE float DEFAULT 
 DEFINE FIELD IF NOT EXISTS source          ON knowledge_edge FLEXIBLE TYPE object;
 DEFINE FIELD IF NOT EXISTS createdAt       ON knowledge_edge TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS invalidatedAt   ON knowledge_edge TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS userId          ON knowledge_edge TYPE option<string>;
 
 DEFINE INDEX IF NOT EXISTS edge_kind_idx      ON knowledge_edge FIELDS kind;
 

@@ -29,6 +29,7 @@ import { StatsModule } from './stats/stats.module';
 import { RegistryModule } from './registry/registry.module';
 import { SourcesModule } from './sources/sources.module';
 import { DocumentsModule } from './documents/documents.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { DocumentsModule } from './documents/documents.module';
     FactsModule,
     EntitiesModule,
     ArtifactsModule,
+    FeedbackModule,
     McpModule,
     CompactionModule,
     DreamsModule,

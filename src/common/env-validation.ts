@@ -106,7 +106,20 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── fact_trust ranking knobs (source-reputation Phase 5) ──────────
   nonNegativeFloat(env, 'SEARCH_TRUST_BETA', errors);
   nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
+  nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
+
+  // ── Read-side query expansion ──────────────────────────────────────
+  positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
+
+  // ── Episodic→semantic promotion (compaction leg) ───────────────────
+  positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
+  positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
+  positiveInt(env, 'COMPACTION_PROMOTION_MAX_GROUPS', errors);
+
+  // ── HNSW vector leg ────────────────────────────────────────────────
+  positiveInt(env, 'SEARCH_HNSW_EF', errors);
+  positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);

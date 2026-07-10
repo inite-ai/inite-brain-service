@@ -25,12 +25,14 @@ import {
 import { registerSourceReadTools } from './source-tools';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
+import { FeedbackService } from '../feedback/feedback.service';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
 const HEALTH_TOOLS = [
   'search_knowledge',
   'search_multi_hop',
+  'graph_retrieve',
   'synthesize',
   'memory_diff',
   'get_entity_profile',
@@ -88,6 +90,7 @@ export class McpService {
     private readonly sources: SourcesService,
     private readonly embedder: EmbedderService,
     private readonly documents: DocumentIngestService,
+    private readonly feedback: FeedbackService,
   ) {}
 
   /**
@@ -121,7 +124,14 @@ export class McpService {
     }
   }
 
-  buildServer(companyId: string, scopes: BrainScope[]): McpServer {
+  buildServer(
+    companyId: string,
+    scopes: BrainScope[],
+    // Caller key hash — the feedback tool's one-vote-per-(fact, actor)
+    // fence. Falls back to a per-tenant sentinel for callers that don't
+    // thread it (unit fixtures).
+    actorKeyHash?: string,
+  ): McpServer {
     const server = new McpServer({
       name: 'inite-brain-service',
       version: '0.1.0',
@@ -162,11 +172,13 @@ export class McpService {
         server,
         companyId,
         scopes,
+        actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
         deps: {
           ingest: this.ingest,
           facts: this.facts,
           procedural: this.procedural,
           documents: this.documents,
+          feedback: this.feedback,
         },
       });
       registerCodeMemoryWriteTools({

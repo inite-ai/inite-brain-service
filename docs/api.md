@@ -17,7 +17,7 @@ SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/ingest/fact` | Declared structured fact ingest. |
+| `POST /v1/ingest/fact` | Declared structured fact ingest. Optional `userId` stamps a per-user memory scope (0055): scope-local conflict resolution, invisible outside that user. |
 | `POST /v1/ingest/mention` | NLU extraction → entities + facts. With `INGEST_MENTION_VIA_DOCUMENT=1`, routed through the document pipeline (same response shape). |
 | `POST /v1/ingest/link` | Typed edge between entities (incl. `identity_of` for cross-vertical merge). |
 
@@ -40,7 +40,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
+| `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
 | `POST /v1/synthesize` | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag). |
 | `POST /v1/search/multi-hop` | Planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval. See [Architecture § Multi-hop](architecture.md#multi-hop-search). |
 | `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). |
@@ -53,7 +53,9 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/facts/:id/retract` | Mark a fact retracted with reason; survives in audit trail. |
+| `POST /v1/feedback` | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. Also on MCP as `record_feedback`. |
 | `POST /v1/entities/:id/forget` | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained. |
+| `POST /v1/users/:userId/forget` | GDPR erasure of one end-user's memory scope (migration 0055): personal facts (incl. those on shared entities), personal entities + edges + dedup refs, usage/feedback rows, audit mirror. |
 
 ## Background work
 

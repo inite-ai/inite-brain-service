@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRouterService } from '../ai/predicate-router.service';
+import { QueryExpansionService } from '../ai/query-expansion.service';
 import { CalibrationService } from '../ai/calibration/calibration.service';
 import { withSpan } from '../common/tracing';
 import { traceArtifact } from '../common/debug-trace';
@@ -11,7 +12,7 @@ import {
   withStageBudget,
   type StageBudgets,
 } from './internals/stage-budget';
-import { runVectorLeg, runLexicalLeg } from './internals/legs';
+import { runVectorLeg, runLexicalLeg, mergeVectorRows } from './internals/legs';
 import { fuse } from './internals/fusion';
 import {
   scoreRows,
@@ -33,18 +34,26 @@ import { PipelineContext } from './pipeline-context';
 export class SearchRetrievalService {
   private readonly logger = new Logger(SearchRetrievalService.name);
   private readonly budgets: StageBudgets = resolveStageBudgets();
-  // Source-reputation Phase 5 — both default 0 so ranking stays
+  // Source-reputation Phase 5 — all default 0 so ranking stays
   // byte-identical until an operator opts in. Validated at boot
   // (env-validation); the local guard covers post-boot env drift.
   private readonly trustBeta = nonNegativeFloatEnv('SEARCH_TRUST_BETA');
   private readonly corroborationGamma = nonNegativeFloatEnv(
     'SEARCH_CORROBORATION_GAMMA',
   );
+  private readonly authorityDelta = nonNegativeFloatEnv(
+    'SEARCH_AUTHORITY_DELTA',
+  );
 
+  // Fourth dep is the read-side query expansion (Wave 2) — a fire-and-
+  // degrade LLM sidecar to the vector leg, not a new pipeline stage, so
+  // it lives here with the legs it feeds rather than in a fourth class.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly embedder: EmbedderService,
     private readonly predicateRouter: PredicateRouterService,
     private readonly calibration: CalibrationService,
+    private readonly queryExpansion: QueryExpansionService,
   ) {}
 
   /** Retrieval legs (parallel) + fusion. */
@@ -59,14 +68,22 @@ export class SearchRetrievalService {
         : withSpan(
             'search.vector_leg',
             async (span) => {
-              const rows = await runVectorLeg({
-                db,
-                embedder: this.embedder,
-                query: ctx.dto.query,
-                k: ctx.candidateK,
-                baseWhere,
-              });
+              const [primary, altRows] = await Promise.all([
+                runVectorLeg({
+                  db,
+                  embedder: this.embedder,
+                  query: ctx.dto.query,
+                  k: ctx.candidateK,
+                  baseWhere,
+                  logger: this.logger,
+                }),
+                this.runExpansionLegs(db, ctx, baseWhere),
+              ]);
+              const rows = altRows.length
+                ? mergeVectorRows(primary, altRows)
+                : primary;
               span.setAttribute('candidates', rows.length);
+              span.setAttribute('expansion_candidates', altRows.length);
               traceArtifact(
                 'search.vector_hits',
                 rows.slice(0, 20).map((r) => ({
@@ -112,6 +129,45 @@ export class SearchRetrievalService {
     return fuse(vectorRows, lexicalRows, ctx.mode);
   }
 
+  /**
+   * Query-expansion vector legs (opt-in). One LLM reformulation call
+   * (cached, under budget) fans out into one vector leg per alternative
+   * phrasing; the caller merges them into the primary leg by max cosine.
+   * Every failure path returns [] — the original query always serves.
+   */
+  private async runExpansionLegs(
+    db: Surreal,
+    ctx: PipelineContext,
+    baseWhere: { sql: string; params: Record<string, unknown> },
+  ): Promise<FactRow[]> {
+    if (!this.queryExpansion.isEnabled()) return [];
+    const alts = await withStageBudget({
+      stage: 'queryExpansion',
+      budgetMs: this.budgets.queryExpansion,
+      fn: () => this.queryExpansion.expand(ctx.dto.query),
+      fallback: [] as string[],
+      logger: this.logger,
+    });
+    if (alts.length === 0) return [];
+    traceArtifact('search.query_expansion', { query: ctx.dto.query, alts });
+    const legs = await Promise.all(
+      alts.map((alt) =>
+        runVectorLeg({
+          db,
+          embedder: this.embedder,
+          query: alt,
+          k: ctx.candidateK,
+          baseWhere,
+          logger: this.logger,
+        }).catch((e: Error) => {
+          this.logger.warn(`expansion leg failed: ${e.message}`);
+          return [] as FactRow[];
+        }),
+      ),
+    );
+    return legs.flat();
+  }
+
   /** Predicate / type router (optional LLM call, under budget). */
   async runRouterStage(query: string) {
     const out = await withSpan('search.route', async (span) => {
@@ -147,6 +203,7 @@ export class SearchRetrievalService {
       },
       trustBeta: this.trustBeta,
       corroborationGamma: this.corroborationGamma,
+      authorityDelta: this.authorityDelta,
     });
     return bucketByEntity(scored);
   }

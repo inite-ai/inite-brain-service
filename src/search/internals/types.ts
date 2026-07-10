@@ -12,6 +12,7 @@
 export type RetrievalStage =
   | 'hype'
   | 'lexical'
+  | 'query_expansion'
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'
@@ -64,6 +65,13 @@ export interface FactRow {
     sourceKeys?: string[];
   } | null;
   /**
+   * Usage reinforcement (migration 0053): most recent time search
+   * surfaced this fact, attached by enrichWithUsage when
+   * SEARCH_USAGE_DECAY_ENABLED is on. Absent → decay from recordedAt
+   * exactly as before.
+   */
+  lastReadAt?: string;
+  /**
    * Set of stages that surfaced this row. Multi-stage hits are common
    * (e.g. hype + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.
@@ -113,6 +121,11 @@ export interface ScoreBreakdown {
     evidenceCount: number;
     trustFactor: number;
     corroborationFactor: number;
+    /**
+     * Multiplicative term `1 + δ·authority` (SEARCH_AUTHORITY_DELTA);
+     * exactly 1.0 while δ stays 0 or the source has no registry entry.
+     */
+    authorityFactor?: number;
   };
   finalScore: number;
   stages: RetrievalStage[];

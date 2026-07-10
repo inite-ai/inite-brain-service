@@ -72,6 +72,8 @@ export class FactResolverService {
       validUntil?: Date;
       source: unknown;
       entropy?: number;
+      /** Per-user scope (migration 0055); undefined = tenant-global. */
+      userId?: string;
       recordOutcomeMetric?: boolean;
     },
   ): Promise<{ result: any; semantics: string }> {
@@ -118,6 +120,7 @@ export class FactResolverService {
       lang,
       script,
       entropy: p.entropy,
+      userId: p.userId,
     });
 
     const factId = result?.factId ? String(result.factId) : null;
@@ -169,6 +172,7 @@ export class FactResolverService {
       lang?: string;
       script?: string;
       entropy?: number;
+      userId?: string;
     },
   ): Promise<any> {
     // Serialize resolves on the same (company, entity, predicate). Under
@@ -189,7 +193,7 @@ export class FactResolverService {
             $source_trust, $semantics, $similarity_threshold,
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
-            $lang, $script, $entropy
+            $lang, $script, $entropy, $user_id
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -213,6 +217,7 @@ export class FactResolverService {
             lang: p.lang,
             script: p.script,
             entropy: p.entropy,
+            user_id: p.userId,
           },
         );
         return r;

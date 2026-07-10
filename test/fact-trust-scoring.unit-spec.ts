@@ -43,11 +43,13 @@ describe('scoreRows — fact_trust factors', () => {
       now: NOW,
       trustBeta: 0,
       corroborationGamma: 0,
+      authorityDelta: 0,
     });
     expect(flagged.map((s) => s.score)).toEqual(base.map((s) => s.score));
     for (const s of flagged) {
       expect(s.breakdown.factTrust?.trustFactor).toBe(1);
       expect(s.breakdown.factTrust?.corroborationFactor).toBe(1);
+      expect(s.breakdown.factTrust?.authorityFactor).toBe(1);
     }
   });
 
@@ -90,6 +92,21 @@ describe('scoreRows — fact_trust factors', () => {
     });
     expect(three.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
     expect(ten.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
+  });
+
+  it('delta scales registry authority; no registry entry is unaffected at ANY delta', () => {
+    const [authoritative, unregistered] = scoreRows({
+      rows: [
+        row({ trustSnapshot: { authority: 0.8 } }),
+        row(), // no snapshot → authority 0
+      ],
+      predicateDist: null,
+      now: NOW,
+      authorityDelta: 0.5,
+    });
+    expect(authoritative.breakdown.factTrust?.authorityFactor).toBeCloseTo(1.4);
+    expect(unregistered.breakdown.factTrust?.authorityFactor).toBe(1);
+    expect(authoritative.score).toBeGreaterThan(unregistered.score);
   });
 
   it('surfaces the "because" decomposition (authority + evidence count)', () => {
