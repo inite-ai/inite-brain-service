@@ -122,26 +122,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
   // ── ABAC policy knobs ──────────────────────────────────────────────
-  // The two booleans are security-relevant: an unrecognized value
-  // (ABAC_ENABLED=yes) silently parsing as OFF is the fail-open shape
-  // this validator exists for — same rationale as the pack-trust flags.
-  for (const name of [
-    'ABAC_ENABLED',
-    'ABAC_FORCE_REPORT_ONLY',
-    'SOURCE_META_STRICT',
-  ]) {
-    const v = env[name];
-    if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
-      errors.push(
-        `${name} must be one of 1/0/true/false (got "${v}") — an ` +
-          'unrecognized value would silently disable policy enforcement.',
-      );
-    }
-  }
-  positiveInt(env, 'POLICY_CACHE_TTL_MS', errors);
-  positiveInt(env, 'POLICY_CACHE_CAP', errors);
-  positiveInt(env, 'POLICY_DECISION_RETENTION_DAYS', errors);
-  nonNegativeFloat(env, 'POLICY_DECISION_SAMPLE_RATE', errors);
+validateAbacEnv(env, errors);
 
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
@@ -227,6 +208,32 @@ function validateProductionGuards(
  * and a `gb`/`tb` unit lets one request pin gigabytes. Accept only a byte
  * count or a b/kb/mb size.
  */
+/**
+ * ABAC env knobs (split from validateEnv for the complexity gate).
+ * The boolean flags are security-relevant: an unrecognized value
+ * (ABAC_ENABLED=yes) silently parsing as OFF is the fail-open shape
+ * this validator exists for — same rationale as the pack-trust flags.
+ */
+function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
+  for (const name of [
+    'ABAC_ENABLED',
+    'ABAC_FORCE_REPORT_ONLY',
+    'SOURCE_META_STRICT',
+  ]) {
+    const v = env[name];
+    if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
+      errors.push(
+        `${name} must be one of 1/0/true/false (got "${v}") — an ` +
+          'unrecognized value would silently disable policy enforcement.',
+      );
+    }
+  }
+  positiveInt(env, 'POLICY_CACHE_TTL_MS', errors);
+  positiveInt(env, 'POLICY_CACHE_CAP', errors);
+  positiveInt(env, 'POLICY_DECISION_RETENTION_DAYS', errors);
+  nonNegativeFloat(env, 'POLICY_DECISION_SAMPLE_RATE', errors);
+}
+
 function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   const maxBody = env.MAX_BODY_SIZE;
   if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
