@@ -12,6 +12,8 @@ import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
+import { POLICY_ACTION_EXEMPT } from '../policy/policy-gate.service';
 import { McpService } from './mcp.service';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 
@@ -61,10 +63,15 @@ export class McpController {
   // several JSON-RPC POSTs (initialize / tools/list / tools/call), and
   // the handshake messages don't fan out to OpenAI — 30 leaves headroom
   // for them while still capping the OpenAI-bound calls well below 120.
+  // Exempt from the ABAC action gate: gating the transport would deny
+  // the whole JSON-RPC surface (initialize, tools/list) on any
+  // default-deny key. Individual tools are gated inside buildServer —
+  // denied tools vanish from tools/list and their handlers never bind.
   @Throttle({ expensive: { limit: 30, ttl: 60_000 } })
   @All(':companyId')
   @UseGuards(ApiKeyGuard)
   @RequireScopes('brain:read')
+  @PolicyAction(POLICY_ACTION_EXEMPT)
   async handle(
     @Req() req: AuthenticatedRequest & Request,
     @Res() res: Response,
@@ -77,11 +84,10 @@ export class McpController {
       );
     }
 
-    const server = this.mcp.buildServer(
-      auth.companyId,
-      auth.scopes,
-      auth.keyHash,
-    );
+    const server = this.mcp.buildServer(auth.companyId, auth.scopes, {
+      actorKeyHash: auth.keyHash,
+      policy: auth.policy,
+    });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
     });

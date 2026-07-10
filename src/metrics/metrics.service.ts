@@ -335,6 +335,40 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // ABAC (policy module). decision: allow | deny | would_deny;
+  // kind: action | row; mode: report_only | enforce. Row decisions are
+  // per-request aggregates, so this counts requests, not facts.
+  readonly policyDecisions = new Counter({
+    name: 'brain_policy_decisions_total',
+    help: 'ABAC policy decisions by decision, kind, and mode',
+    labelNames: ['decision', 'kind', 'mode'] as const,
+    registers: [this.registry],
+  });
+
+  // Whole-request row-evaluation cost inside the search/read pipelines.
+  // Budget is sub-millisecond at typical K; buckets bottom out at 50 µs
+  // so a regression is visible long before it hurts.
+  readonly policyEvalDuration = new Histogram({
+    name: 'brain_policy_eval_seconds',
+    help: 'Per-request ABAC row-evaluation latency in seconds',
+    buckets: [0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.01, 0.05],
+    registers: [this.registry],
+  });
+
+  readonly policySetsActive = new Gauge({
+    name: 'brain_policy_sets_active',
+    help: 'Enabled (enforce or report_only) policy sets, summed across tenants',
+    registers: [this.registry],
+  });
+
+  // Fail-closed events: a key referenced a policy set that doesn't
+  // exist. Non-zero is an operator page — some key is bricked.
+  readonly policyResolutionErrors = new Counter({
+    name: 'brain_policy_resolution_errors_total',
+    help: 'Keys that referenced an unknown policy set (failed closed)',
+    registers: [this.registry],
+  });
+
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
@@ -537,6 +571,28 @@ export class MetricsService implements OnModuleInit {
       );
     }
     this.memoryOrphanEntities.set(snapshot.orphanEntities);
+  }
+
+  countPolicyDecision(
+    decision: 'allow' | 'deny' | 'would_deny',
+    kind: 'action' | 'row',
+    mode: 'report_only' | 'enforce',
+  ): void {
+    this.policyDecisions.inc({ decision, kind, mode } as LabelValues<
+      'decision' | 'kind' | 'mode'
+    >);
+  }
+
+  observePolicyEval(seconds: number): void {
+    this.policyEvalDuration.observe(seconds);
+  }
+
+  setPolicySetsActive(n: number): void {
+    this.policySetsActive.set(n);
+  }
+
+  countPolicyResolutionError(): void {
+    this.policyResolutionErrors.inc();
   }
 
   async serialize(): Promise<{ contentType: string; body: string }> {

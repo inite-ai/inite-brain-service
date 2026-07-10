@@ -16,7 +16,7 @@ import {
 } from './internals/stage-budget';
 import { buildBaseWhere } from './internals/where-builder';
 import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
-import { passesPolicy } from './internals/policy';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
 import { expandViaEdges } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
@@ -132,6 +132,22 @@ export class SearchService {
             predicateHints,
             asOf,
           });
+
+          // Scope + ABAC row filter. Also closes the pre-ABAC gap where
+          // graph_retrieve skipped the requiresScope predicate gate that
+          // search applied — PII-scoped facts no longer surface here
+          // without brain:read_pii.
+          const rowPolicy = makeRowPolicyFilter({
+            callerScopes,
+            surface: 'graph_retrieve',
+          });
+          for (const [entityId, facts] of factsByEntity) {
+            factsByEntity.set(
+              entityId,
+              facts.filter((f) => rowPolicy.filter(f)),
+            );
+          }
+          rowPolicy.finish();
 
           traceArtifact('graph_retrieve', {
             seeds: seedIds,
@@ -286,12 +302,17 @@ export class SearchService {
       });
     }
 
-    // 2. Identity-merge re-attribution + scope-policy filter.
+    // 2. Identity-merge re-attribution + scope/ABAC row filter. One
+    // filter instance covers the whole pipeline (fusion + edge
+    // expansion + backfill) so the decision summary aggregates once.
+    const rowPolicy = makeRowPolicyFilter({
+      callerScopes: ctx.callerScopes,
+      surface: 'search',
+    });
+    const rowFilterFn = (row: FactRow) => rowPolicy.filter(row);
     const survivorRecords = await hydrateSurvivors(db, fused);
     const reattributed = reattributeMerged(fused, survivorRecords);
-    const filtered = reattributed.filter((row) =>
-      passesPolicy(row, ctx.dto, ctx.callerScopes),
-    );
+    const filtered = reattributed.filter(rowFilterFn);
 
     // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
     // from the most recent retrieval instead of only recordedAt. Soft-
@@ -310,7 +331,7 @@ export class SearchService {
     const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds.
-    await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx });
+    await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx, rowFilterFn });
 
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
     await this.runPprStage(db, byEntity);
@@ -336,7 +357,7 @@ export class SearchService {
           baseWhere,
           dto: ctx.dto,
           callerScopes: ctx.callerScopes,
-          passesPolicy,
+          passesPolicy: (row) => rowFilterFn(row),
         }),
       fallback: new Map<string, FactRow[]>(),
       logger: this.logger,
@@ -347,6 +368,7 @@ export class SearchService {
       entityTypes: ctx.dto.entityTypes,
       requireProvenance: ctx.dto.requireProvenance === true,
     });
+    rowPolicy.finish();
     return { results: applyOutputShaping(hits, ctx.dto) };
   }
 
@@ -355,11 +377,13 @@ export class SearchService {
     byEntity,
     baseWhere,
     ctx,
+    rowFilterFn,
   }: {
     db: Surreal;
     byEntity: Map<string, EntityBucket>;
     baseWhere: { sql: string; params: Record<string, unknown> };
     ctx: PipelineContext;
+    rowFilterFn: (row: FactRow) => boolean;
   }): Promise<void> {
     if (process.env.SEARCH_EDGE_EXPANSION_ENABLED === '0') return;
     if (byEntity.size < 1) return;
@@ -373,7 +397,7 @@ export class SearchService {
           baseWhere,
           dto: ctx.dto,
           callerScopes: ctx.callerScopes,
-          passesPolicy,
+          passesPolicy: (row) => rowFilterFn(row),
         });
         span.setAttribute('edge_expansion.injected', injected);
         if (injected > 0) {

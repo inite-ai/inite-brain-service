@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { SearchService } from './search.service';
 import { SearchDto } from './dto/search.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -18,6 +19,7 @@ export class SearchController {
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   @Post()
   @RequireScopes('brain:read')
+  @PolicyAction('search_knowledge')
   async run(@Req() req: AuthenticatedRequest, @Body() body: SearchDto) {
     return this.search.search(
       req.brainAuth.companyId,

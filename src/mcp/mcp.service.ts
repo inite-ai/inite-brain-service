@@ -26,6 +26,9 @@ import { registerSourceReadTools } from './source-tools';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
 import { FeedbackService } from '../feedback/feedback.service';
+import { PolicyGateService } from '../policy/policy-gate.service';
+import { evaluateAction } from '../policy/policy-engine';
+import { PolicyContext } from '../policy/policy.types';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -91,7 +94,38 @@ export class McpService {
     private readonly embedder: EmbedderService,
     private readonly documents: DocumentIngestService,
     private readonly feedback: FeedbackService,
+    private readonly policyGate: PolicyGateService,
   ) {}
+
+  /**
+   * ABAC tool gate: wraps server.registerTool so every subsequent
+   * registration (all six tool families) is policy-checked without
+   * touching the tool files. An enforce-denied tool is not registered
+   * at all — it disappears from tools/list and a tools/call gets the
+   * SDK's standard unknown-tool error. Allowed tools get a per-call
+   * wrapper that emits allow/would_deny decisions (report_only
+   * observability).
+   */
+  private applyPolicyToolGate(server: McpServer, policy: PolicyContext): void {
+    const raw = server.registerTool.bind(server);
+    (server as McpServer & { registerTool: unknown }).registerTool = (
+      name: string,
+      config: unknown,
+      handler: (...args: unknown[]) => unknown,
+    ) => {
+      const denied = evaluateAction(policy, name).decision === 'deny';
+      const tool = raw(name as never, config as never, ((...args: unknown[]) => {
+        this.policyGate.enforceAction(policy, name);
+        return handler(...args);
+      }) as never);
+      // Enforce-denied tools unregister immediately: gone from
+      // tools/list, and a blind tools/call gets the SDK's standard
+      // unknown-tool error. Registered-then-removed (vs never
+      // registered) only to keep the SDK's return type intact.
+      if (denied) tool.remove();
+      return tool;
+    };
+  }
 
   /**
    * Unauthenticated health probe payload — surfaces version + the
@@ -127,15 +161,27 @@ export class McpService {
   buildServer(
     companyId: string,
     scopes: BrainScope[],
-    // Caller key hash — the feedback tool's one-vote-per-(fact, actor)
-    // fence. Falls back to a per-tenant sentinel for callers that don't
-    // thread it (unit fixtures).
-    actorKeyHash?: string,
+    caller?: {
+      /**
+       * Caller key hash — the feedback tool's one-vote-per-(fact,
+       * actor) fence. Falls back to a per-tenant sentinel for callers
+       * that don't thread it (unit fixtures).
+       */
+      actorKeyHash?: string;
+      /**
+       * Resolved ABAC context from ApiKeyGuard; undefined = no
+       * policies attached, tool surface identical to pre-ABAC.
+       */
+      policy?: PolicyContext;
+    },
   ): McpServer {
+    const actorKeyHash = caller?.actorKeyHash;
+    const policy = caller?.policy;
     const server = new McpServer({
       name: 'inite-brain-service',
       version: '0.1.0',
     });
+    if (policy) this.applyPolicyToolGate(server, policy);
     registerReadTools({
       server,
       companyId,

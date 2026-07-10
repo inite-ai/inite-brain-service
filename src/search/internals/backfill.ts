@@ -59,7 +59,7 @@ export async function backfillEntityFacts({
           SELECT
             id, entityId, predicate, object, confidence,
             validFrom, validUntil, recordedAt, retractedAt, status, source,
-            trustSnapshot, corroboration
+            trustSnapshot, corroboration, userId
           FROM knowledge_fact
           WHERE entityId = $parent.id
             ${baseWhere.sql}

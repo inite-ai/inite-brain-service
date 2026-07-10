@@ -223,10 +223,21 @@ export async function fetchFactsForEntities({
     validUntil?: string;
     status: string;
     recordedAt: string;
+    source?: unknown;
+    trustSnapshot?: {
+      authority?: number;
+      declaredTrust?: number;
+      learnedTrust?: number;
+    } | null;
+    corroboration?: { count?: number } | null;
   };
+  // source/trustSnapshot/corroboration ride along for the ABAC row
+  // filter (policy/row-filter.ts) — internal only, assembleGraphHits
+  // never surfaces them in the response.
   const [rows] = await db.query<[FactSelect[]]>(
     `SELECT id, entityId, predicate, object, confidence,
-            validFrom, validUntil, status, recordedAt
+            validFrom, validUntil, status, recordedAt,
+            source, trustSnapshot, corroboration
        FROM knowledge_fact
       WHERE ${where}${predicateClause}
       ORDER BY recordedAt DESC
@@ -247,6 +258,13 @@ export async function fetchFactsForEntities({
       ...(r.validUntil ? { validUntil: r.validUntil } : {}),
       status: r.status,
       recordedAt: r.recordedAt,
+      ...(r.source !== undefined ? { source: r.source } : {}),
+      ...(r.trustSnapshot !== undefined && r.trustSnapshot !== null
+        ? { trustSnapshot: r.trustSnapshot }
+        : {}),
+      ...(r.corroboration !== undefined && r.corroboration !== null
+        ? { corroboration: r.corroboration }
+        : {}),
     });
     out.set(eid, list);
   }

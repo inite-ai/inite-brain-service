@@ -3,6 +3,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { CODE_MEMORY_PACK, codeMemoryKindOf } from '../ai/domain-packs';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 
 export interface RecalledDecision {
   anchor: string;
@@ -57,6 +58,9 @@ export class CodeMemorySearchService {
              predicate,
              object,
              validFrom,
+             source,
+             trustSnapshot,
+             corroboration,
              entityId.externalRefs AS refs,
              vector::similarity::cosine(embedding, $embedding) AS score
            FROM knowledge_fact
@@ -70,7 +74,18 @@ export class CodeMemorySearchService {
            LIMIT $limit`,
           { embedding, prefix: this.prefix, limit },
         );
-        return ((rows as any[]) ?? []).map((r) => ({
+        // Scope + ABAC row gate — code_memory__* predicates are
+        // piiClass none today, but per-key source rules (e.g. deny a
+        // recorder) must still apply here like on every read surface.
+        const rowPolicy = makeRowPolicyFilter({
+          callerScopes: opts.scopes,
+          surface: 'recall_decisions',
+        });
+        const visible = ((rows as any[]) ?? []).filter((r) =>
+          rowPolicy.filter(r as { predicate: string }),
+        );
+        rowPolicy.finish();
+        return visible.map((r) => ({
           anchor: anchorOf(r.refs),
           kind: codeMemoryKindOf(String(r.predicate)),
           text: String(r.object),

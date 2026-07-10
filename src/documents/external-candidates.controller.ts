@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { ExternalCandidatesService } from './external-candidates.service';
 import { DocumentIngestService } from './document-ingest.service';
@@ -31,6 +32,7 @@ export class ExternalCandidatesController {
 
   @Post(':id/candidates')
   @RequireScopes('indexer:write')
+  @PolicyAction('rest.documents.stage_candidates')
   // Staging is DB-only, but each submission fans into entity resolution +
   // fact resolves at commit — keep the same per-credential ceiling as
   // document ingest.

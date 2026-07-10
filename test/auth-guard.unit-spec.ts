@@ -54,6 +54,12 @@ class StubConfig {
   }
 }
 
+// ABAC gate stub: no policies resolve in these suites, so gate() is a
+// pass-through returning "no context".
+const stubPolicyGate = {
+  gate: async () => undefined,
+} as unknown as import('../src/policy/policy-gate.service').PolicyGateService;
+
 describe('ApiKeyGuard — JWKS verification', () => {
   let jwksServer: http.Server;
   let jwksUrl: string;
@@ -66,12 +72,16 @@ describe('ApiKeyGuard — JWKS verification', () => {
   function mintJwt(opts: {
     sub: string;
     scopes?: string[];
+    policy?: unknown;
     issuer?: string;
     audience?: string;
     expiresIn?: string | number;
     signWith?: KeyLike;
   }): Promise<string> {
-    return new SignJWT({ scopes: opts.scopes ?? ['brain:read', 'brain:write'] })
+    return new SignJWT({
+      scopes: opts.scopes ?? ['brain:read', 'brain:write'],
+      ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
+    })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
       .setSubject(opts.sub)
       .setIssuer(opts.issuer ?? ISSUER)
@@ -131,7 +141,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
       jwks,
       config as unknown as ConfigService,
     );
-    guard = new ApiKeyGuard(credentials, new Reflector());
+    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate);
   });
 
   afterAll(async () => {
@@ -146,6 +156,30 @@ describe('ApiKeyGuard — JWKS verification', () => {
     expect(await guard.canActivate(ctx)).toBe(true);
     expect((req.brainAuth as { companyId: string }).companyId).toBe('jwt_co_alpha');
     expect((req.brainAuth as { keyHash: string }).keyHash).toMatch(/^jwt:/);
+  });
+
+  it('extracts ABAC policy names from the policy claim (array + string forms, charset filter, cap 8)', async () => {
+    const arr = await mintJwt({
+      sub: 'jwt_co_p',
+      policy: ['support-reader', 'BAD NAME!', 'no-pii'],
+    });
+    const rec1 = await jwks.verify(arr);
+    expect(rec1?.policyNames).toEqual(['support-reader', 'no-pii']);
+
+    const str = await mintJwt({ sub: 'jwt_co_p', policy: 'support-reader no-pii' });
+    const rec2 = await jwks.verify(str);
+    expect(rec2?.policyNames).toEqual(['support-reader', 'no-pii']);
+
+    const many = await mintJwt({
+      sub: 'jwt_co_p',
+      policy: Array.from({ length: 12 }, (_, i) => `set-${i}`),
+    });
+    const rec3 = await jwks.verify(many);
+    expect(rec3?.policyNames).toHaveLength(8);
+
+    const none = await mintJwt({ sub: 'jwt_co_p' });
+    const rec4 = await jwks.verify(none);
+    expect(rec4?.policyNames).toBeUndefined();
   });
 
   it('rejects expired JWT (401)', async () => {
@@ -237,7 +271,7 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
       jwks,
       config as unknown as ConfigService,
     );
-    guard = new ApiKeyGuard(credentials, new Reflector());
+    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate);
   });
 
   afterAll(async () => {

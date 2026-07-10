@@ -4,6 +4,10 @@ import { SurrealService, dbMerge } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
+import {
+  makeRowPolicyFilter,
+  type PolicyFilterableRow,
+} from '../policy/row-filter';
 
 /**
  * Predicate-class allowlist that requires `brain:admin` for retract,
@@ -337,14 +341,28 @@ export class FactsService {
 
       const [rows] = await db.query<any[][]>(
         `SELECT id, entityId, predicate, object, confidence,
-                validFrom, validUntil, recordedAt, source
+                validFrom, validUntil, recordedAt, source,
+                trustSnapshot, corroboration
            FROM knowledge_fact
            WHERE ${clauses.join(' AND ')}
            ORDER BY predicate ASC, recordedAt ASC`,
         params,
       );
 
-      const records: CompetingFactRecord[] = ((rows as any[]) ?? []).map(
+      // Scope + ABAC row gate. Pre-ABAC this path leaned on the DB-level
+      // PII fence alone (scoped pool, object-null on address/dob); the
+      // JS filter now applies the same requiresScope drop as search plus
+      // any per-key source rules.
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.callerScopes ?? [],
+        surface: 'competing_facts',
+      });
+      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
+        (r) => rowPolicy.filter(r),
+      );
+      rowPolicy.finish();
+
+      const records: CompetingFactRecord[] = (visible as any[]).map(
         (r): CompetingFactRecord => ({
           factId: String(r.id),
           entityId: String(r.entityId),

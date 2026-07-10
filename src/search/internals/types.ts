@@ -65,6 +65,11 @@ export interface FactRow {
     sourceKeys?: string[];
   } | null;
   /**
+   * Per-user memory scope owner (migration 0055); NONE = tenant-global.
+   * Projected so the ABAC row filter can match userId policies.
+   */
+  userId?: string | null;
+  /**
    * Usage reinforcement (migration 0053): most recent time search
    * surfaced this fact, attached by enrichWithUsage when
    * SEARCH_USAGE_DECAY_ENABLED is on. Absent → decay from recordedAt

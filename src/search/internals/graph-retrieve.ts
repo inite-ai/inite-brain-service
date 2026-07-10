@@ -37,6 +37,18 @@ export interface GraphFactRow {
   validUntil?: string;
   status: string;
   recordedAt?: string;
+  /**
+   * Provenance payload for the ABAC row filter (policy/row-filter.ts).
+   * Internal to retrieval — assembleGraphHits never copies these into
+   * the response surface.
+   */
+  source?: unknown;
+  trustSnapshot?: {
+    authority?: number;
+    declaredTrust?: number;
+    learnedTrust?: number;
+  } | null;
+  corroboration?: { count?: number } | null;
 }
 
 import type { ScoreBreakdown } from './types';

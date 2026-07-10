@@ -21,6 +21,12 @@ export interface ApiKeyRecord {
   scopes: BrainScope[];
   /** Optional human label. */
   name?: string;
+  /**
+   * ABAC policy set names this key carries directly — from the optional
+   * `policies` field of a BRAIN_API_KEYS entry or the `policy` claim of
+   * a JWT. Unioned with policy_binding rows by PolicyResolverService.
+   */
+  policyNames?: string[];
 }
 
 export interface AuthenticatedRequest {
@@ -28,5 +34,10 @@ export interface AuthenticatedRequest {
     companyId: string;
     scopes: BrainScope[];
     keyHash: string;
+    /**
+     * Resolved+compiled ABAC context; undefined when ABAC is disabled
+     * or the key references no policy sets (= pre-ABAC behavior).
+     */
+    policy?: import('../policy/policy.types').PolicyContext;
   };
 }
