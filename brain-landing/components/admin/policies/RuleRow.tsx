@@ -9,6 +9,7 @@ import type {
 } from '../../../lib/contracts/admin-policies'
 import { ActionPicker } from './ActionPicker'
 import { AttributeMatchBuilder } from './AttributeMatchBuilder'
+import { RuleMatchPreview } from './RuleMatchPreview'
 import { Segmented, inputCls } from './ui'
 
 /**
@@ -115,11 +116,14 @@ export function RuleRow({
             onChange={(actions) => onChange({ ...rule, actions })}
           />
         ) : (
-          <AttributeMatchBuilder
-            registry={registry}
-            match={rule.match ?? []}
-            onChange={(match) => onChange({ ...rule, match })}
-          />
+          <>
+            <AttributeMatchBuilder
+              registry={registry}
+              match={rule.match ?? []}
+              onChange={(match) => onChange({ ...rule, match })}
+            />
+            <RuleMatchPreview rule={rule} />
+          </>
         )}
       </div>
     </div>
