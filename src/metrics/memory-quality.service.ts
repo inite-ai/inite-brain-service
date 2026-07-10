@@ -17,6 +17,7 @@ import {
  *   brain_memory_stale_active_facts{older_than_days} — ageing active set
  *   brain_memory_fact_trust{band}             — drift toward low-trust sources
  *   brain_memory_orphan_entities              — entities with no active memory
+ *   brain_policy_sets_active                  — ABAC sets in force fleet-wide
  *
  * Before this, these signals lived only in per-tenant log lines and
  * job_run.stats rows — nothing an operator could alert on. The pass is
@@ -55,6 +56,7 @@ export class MemoryQualityService {
       staleActiveFacts: {},
       trustBands: { low: 0, neutral: 0, high: 0 },
       orphanEntities: 0,
+      policySetsActive: 0,
     };
     let failed = 0;
     const tenants = this.apiKeys.knownCompanyIds();
@@ -133,11 +135,20 @@ export class MemoryQualityService {
         db,
         `SELECT count() AS n FROM (SELECT entityId FROM knowledge_fact WHERE status = 'active' GROUP BY entityId) GROUP ALL`,
       );
+      // Sets in force = enforce or report_only; 'disabled' sets are
+      // parked drafts. Tenants that predate migration 0056 have no
+      // access_policy table — Surreal answers [] and the count is 0.
+      const policySetsActive = await this.countTable(
+        db,
+        `SELECT count() AS n FROM access_policy WHERE mode IN ['enforce', 'report_only'] GROUP ALL`,
+      );
+
       return {
         factsByStatus,
         staleActiveFacts,
         trustBands,
         orphanEntities: Math.max(0, unmerged - withActive),
+        policySetsActive,
       };
     });
   }
@@ -179,5 +190,6 @@ export class MemoryQualityService {
     acc.trustBands.neutral += tenant.trustBands.neutral;
     acc.trustBands.high += tenant.trustBands.high;
     acc.orphanEntities += tenant.orphanEntities;
+    acc.policySetsActive += tenant.policySetsActive;
   }
 }

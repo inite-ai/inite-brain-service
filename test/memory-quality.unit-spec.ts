@@ -28,6 +28,7 @@ const tenantDb = {
     if (sql.includes('> 0.6')) return [[{ n: 3 }]];
     if (sql.includes('GROUP BY entityId')) return [[{ n: 6 }]];
     if (sql.includes('knowledge_entity')) return [[{ n: 8 }]];
+    if (sql.includes('access_policy')) return [[{ n: 2 }]];
     throw new Error(`unexpected query: ${sql}`);
   },
 };
@@ -64,6 +65,8 @@ describe('MemoryQualityService', () => {
     expect(snapshot.trustBands).toEqual({ low: 4, high: 6, neutral: 10 });
     // Per tenant: 8 unmerged entities − 6 with an active fact = 2 orphans.
     expect(snapshot.orphanEntities).toBe(4);
+    // Per tenant: 2 sets in force (enforce or report_only).
+    expect(snapshot.policySetsActive).toBe(4);
 
     const { body } = await metrics.serialize();
     expect(body).toContain('brain_memory_facts{status="competing"} 6');
@@ -73,6 +76,7 @@ describe('MemoryQualityService', () => {
     expect(body).toContain('brain_memory_fact_trust{band="low"} 4');
     expect(body).toContain('brain_memory_fact_trust{band="neutral"} 10');
     expect(body).toContain('brain_memory_orphan_entities 4');
+    expect(body).toContain('brain_policy_sets_active 4');
     // Statuses with no rows still export — as 0, not as a missing series.
     expect(body).toContain('brain_memory_facts{status="retracted"} 0');
   });
