@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0](https://github.com/inite-ai/inite-brain-service/compare/v0.5.0...v0.6.0) (2026-07-10)
+
+
+### Features
+
+* **abac-ui:** match previews, decision charts, live tail, graph lens (UI wave 2) ([#149](https://github.com/inite-ai/inite-brain-service/issues/149)) ([d561019](https://github.com/inite-ai/inite-brain-service/commit/d561019afaa5ec6f2c2da2d513d3b2818ec1a72f))
+* **abac-ui:** policy editor + Key Lens + decisions feed (admin UI wave 1) ([#148](https://github.com/inite-ai/inite-brain-service/issues/148)) ([0659c7b](https://github.com/inite-ai/inite-brain-service/commit/0659c7b7eb216074fd2c0f3ce1b704d67a3a3821))
+* **abac:** DB-fence groundwork + finding — SurrealDB PERMISSIONS inert for system users ([#151](https://github.com/inite-ai/inite-brain-service/issues/151)) ([69b7a95](https://github.com/inite-ai/inite-brain-service/commit/69b7a957b40545de33a3aa48cb22b3c070f09368))
+* **abac:** metadata projection + simulation surface + tooling endpoints ([#152](https://github.com/inite-ai/inite-brain-service/issues/152)) ([fd1f71b](https://github.com/inite-ai/inite-brain-service/commit/fd1f71b58f73d607d42ac54daf2025b6a55c207a))
+* **abac:** per-key policy sets — action gating + row-level read filtering ([#146](https://github.com/inite-ai/inite-brain-service/issues/146)) ([bae8ec4](https://github.com/inite-ai/inite-brain-service/commit/bae8ec460f38a6395d1001a7f82f85e45949a8cc))
+* **abac:** temporal windows + meta backfill + corroboration meta-union ([#150](https://github.com/inite-ai/inite-brain-service/issues/150)) ([1400be0](https://github.com/inite-ai/inite-brain-service/commit/1400be0fc5e3290763720c7f2be5a13f3fff1ead))
+* **memory:** quality waves 1–3 + per-user scope tier — hygiene fixes, usage/feedback loops, promotion, HNSW, user memory ([#145](https://github.com/inite-ai/inite-brain-service/issues/145)) ([86aa9c1](https://github.com/inite-ai/inite-brain-service/commit/86aa9c19656a9f5145384f6a76341df950588a90))
+* **metrics:** feed the brain_policy_sets_active gauge from the nightly sweep ([#153](https://github.com/inite-ai/inite-brain-service/issues/153)) ([a814375](https://github.com/inite-ai/inite-brain-service/commit/a8143751af71f4408cf15422c6a7a4a2aede5a42))
+
+
+### Bug Fixes
+
+* source-reputation abuse, document-pipeline blockers, local reranker, cost caps ([#142](https://github.com/inite-ai/inite-brain-service/issues/142)) ([1bf6a62](https://github.com/inite-ai/inite-brain-service/commit/1bf6a62c53f4f664db530516246bc32d48f998ba))
+
 ## [0.5.0](https://github.com/inite-ai/inite-brain-service/compare/v0.4.0...v0.5.0) (2026-07-09)
 
 
