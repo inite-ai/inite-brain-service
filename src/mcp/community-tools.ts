@@ -11,8 +11,16 @@ import type { CommunityService } from '../communities/community.service';
 export function registerCommunityTools(
   server: McpServer,
   companyId: string,
-  communities: CommunityService,
+  deps: {
+    communities: CommunityService;
+    /**
+     * Caller scopes — threads the DB-level PII fence through the
+     * scoped pool (community summaries are fact-derived).
+     */
+    scopes?: readonly string[];
+  },
 ): void {
+  const { communities, scopes = [] } = deps;
   // ── search_communities ──────────────────────────────────────────────
   server.registerTool(
     'search_communities',
@@ -36,6 +44,7 @@ export function registerCommunityTools(
         query: args.query,
         limit: args.limit,
         minSimilarity: args.minSimilarity,
+        callerScopes: scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -56,7 +65,7 @@ export function registerCommunityTools(
       },
     },
     async (args) => {
-      const out = await communities.list(companyId, { limit: args.limit });
+      const out = await communities.list(companyId, { limit: args.limit, callerScopes: scopes });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: { communities: out } as any,
@@ -76,7 +85,7 @@ export function registerCommunityTools(
       },
     },
     async (args) => {
-      const out = await communities.forEntity(companyId, args.entityId);
+      const out = await communities.forEntity(companyId, args.entityId, scopes);
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         structuredContent: { communities: out } as any,

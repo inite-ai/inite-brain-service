@@ -200,8 +200,12 @@ export class McpService {
     });
     registerProceduralReadTools(server, companyId, {
       procedural: this.procedural,
+      scopes,
     });
-    registerCommunityTools(server, companyId, this.communities);
+    registerCommunityTools(server, companyId, {
+      communities: this.communities,
+      scopes,
+    });
     registerCodeMemoryReadTools({
       server,
       companyId,

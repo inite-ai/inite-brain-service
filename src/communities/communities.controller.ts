@@ -22,6 +22,7 @@ export class CommunitiesController {
     @Query('limit') limit?: string,
   ) {
     const communities = await this.communities.list(req.brainAuth.companyId, {
+      callerScopes: req.brainAuth.scopes,
       limit: parseLimit(limit, 50, 200),
     });
     return { communities };
@@ -40,6 +41,7 @@ export class CommunitiesController {
     const q = (query ?? '').trim();
     if (!q) return { communities: [] };
     const communities = await this.communities.search(req.brainAuth.companyId, {
+      callerScopes: req.brainAuth.scopes,
       query: q,
       limit: parseLimit(limit, 5, 20),
       minSimilarity: parseSimilarity(minSimilarity),
@@ -57,6 +59,7 @@ export class CommunitiesController {
     const communities = await this.communities.forEntity(
       req.brainAuth.companyId,
       entityId,
+      req.brainAuth.scopes,
     );
     return { communities };
   }

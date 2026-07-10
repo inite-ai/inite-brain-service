@@ -125,7 +125,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // The two booleans are security-relevant: an unrecognized value
   // (ABAC_ENABLED=yes) silently parsing as OFF is the fail-open shape
   // this validator exists for — same rationale as the pack-trust flags.
-  for (const name of ['ABAC_ENABLED', 'ABAC_FORCE_REPORT_ONLY']) {
+  for (const name of [
+    'ABAC_ENABLED',
+    'ABAC_FORCE_REPORT_ONLY',
+    'SOURCE_META_STRICT',
+  ]) {
     const v = env[name];
     if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
       errors.push(

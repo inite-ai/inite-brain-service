@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
 
 export interface ProceduralReadDeps {
+  /** Caller scopes — routes these reads through the scoped pool. */
+  scopes?: readonly string[];
   procedural: ProceduralMemoryService;
 }
 
@@ -18,6 +20,7 @@ export function registerProceduralReadTools(
   companyId: string,
   deps: ProceduralReadDeps,
 ): void {
+  const scopes = deps.scopes ?? [];
   // ── match_procedure ───────────────────────────────────────────────
   server.registerTool(
     'match_procedure',
@@ -38,6 +41,7 @@ export function registerProceduralReadTools(
     },
     async (args) => {
       const out = await deps.procedural.match(companyId, {
+        callerScopes: scopes,
         query: args.query,
         limit: args.limit,
         minSimilarity: args.minSimilarity,
@@ -63,6 +67,7 @@ export function registerProceduralReadTools(
     },
     async (args) => {
       const out = await deps.procedural.list(companyId, {
+        callerScopes: scopes,
         limit: args.limit,
         includeRetired: args.includeRetired,
       });

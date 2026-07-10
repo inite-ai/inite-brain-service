@@ -122,6 +122,12 @@ off). All endpoints require `brain:admin`; wire contracts live in
 | `GET /v1/admin/policy-sets/bindings/all` | Every subject → set-names binding. |
 | `POST /v1/admin/policy-sets/:name/attachments` | `{attach: [subject], detach: [subject]}`; subjects are `key:<keyHash>` (static keys) or `jwt:<sub>`. Validates the set exists — this is what keeps the resolver's fail-closed branch unreachable. |
 | `POST /v1/admin/policy-sets/explain` | `{policyNames, action?, factId?}` → per-rule decision traces (which condition matched, expected vs actual). |
+| `GET /v1/admin/policy/registry` | Everything the policy editor's pickers need: gateable actions (name/family/kind), macro expansions, attribute vocabulary with per-tenant autocomplete hints. |
+| `POST /v1/admin/policy/simulate/search` | `{subject: {keyId \| policyNames \| inline draft, modeOverride?}, query}` → runs the REAL search pipeline and returns ALL rows annotated `{decision, reasons[]}` — the Key Lens diff (denied rows included; admin-only). |
+| `POST /v1/admin/policy/simulate/actions` | Same subject → per-action verdict for the whole action registry (the action matrix). |
+| `POST /v1/admin/policy/preview-rule` | `{rule}` → approximate live match count + 3 sample facts (sampled over the most recent 5 000 active facts). |
+| `GET /v1/admin/policy/decisions` | Cursor-paginated decision feed (`policySet/decision/kind/action/before` filters). `GET …/stats?windowDays=` → series, top denied actions/rules/keys, report_only promotion candidates. |
+| `GET /v1/admin/keys` | Read-only static-key inventory: `keyId`, binding `subject`, scopes, attached policy sets. |
 
 A key acquires policies three ways, unioned and capped at 8: a
 `policy_binding` row (attachments above), a `"policies": [...]` field on its

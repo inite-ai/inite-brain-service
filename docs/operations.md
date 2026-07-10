@@ -61,6 +61,7 @@ boot validation, graceful shutdown, test commands.
 | `POLICY_CACHE_TTL_MS` / `POLICY_CACHE_CAP` | `60000` / `500` | Per-tenant compiled-policy snapshot cache. CRUD invalidates in-process; other instances converge within the TTL (document the staleness bound to tenants). Cap = tenants held in the LRU. |
 | `POLICY_DECISION_SAMPLE_RATE` | `0.01` | `policy_decision` stream sampling for enforce-mode *allows*. Denies and report_only divergences are always written. |
 | `POLICY_DECISION_RETENTION_DAYS` | `30` | Decision rows older than this are pruned lazily on flush (at most once per 6 h per tenant). |
+| `SOURCE_META_STRICT` | `0` | Document `meta` / direct-fact `metadata` is sanitized (snake_case keys, short scalars, ≤16) before landing as ABAC-matchable `source.meta` on facts. Off = drop-and-warn; on = the ingest answers 400 `invalid_meta` — a silently-dropped `data_class` would silently widen access. |
 | `DOMAIN_PACK_TRUSTED_KEYS` | unset | Pack-install trust store: JSON object mapping `publisher` → ed25519 PEM public key. Malformed JSON fails boot (env validation) — a typo would silently empty the store and every signed pack would fail as "unknown publisher". |
 | `DOMAIN_PACK_REQUIRE_SIGNATURE` | `0` | When `1`/`true`, `POST /v1/admin/packs` rejects unsigned manifests. Values outside `1/0/true/false` fail boot — an unrecognized value would silently disable enforcement. |
 | `PACK_REGISTRY_REQUIRE_SIGNATURE` | `0` | Same policy for `POST /v1/admin/registry/packs` (publish into the global catalogue). Same strict value set. |
