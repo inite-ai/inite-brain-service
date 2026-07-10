@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { sanitizeSourceMeta } from './source-meta';
 import { PolicyResolverService } from './policy-resolver.service';
 import {
   MAX_SETS_PER_KEY,
@@ -303,6 +304,49 @@ export class PolicyStoreService {
       out.set(String(row.id), row as FactPolicyView);
     }
     return out;
+  }
+
+  /**
+   * Backfill `source.meta` onto facts derived from documents that were
+   * ingested BEFORE the projection landed (PR abac-surfaces). Batched:
+   * up to `maxDocs` documents with meta per call; facts already
+   * carrying meta are left untouched, so the endpoint is idempotent
+   * and safe to repeat until `remaining` hits zero.
+   */
+  async backfillSourceMeta(
+    companyId: string,
+    maxDocs = 200,
+  ): Promise<{ documentsProcessed: number; factsUpdated: number; remaining: number }> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [docsOut] = await db.query<[any[]]>(
+        `SELECT id, meta, createdAt FROM source_document
+          WHERE meta != NONE
+          ORDER BY createdAt ASC`,
+      );
+      const docs = ((docsOut as any[]) ?? []).filter(
+        (d) => d.meta && typeof d.meta === 'object' && Object.keys(d.meta).length > 0,
+      );
+      let factsUpdated = 0;
+      let documentsProcessed = 0;
+      for (const doc of docs.slice(0, maxDocs)) {
+        const { meta } = sanitizeSourceMeta(doc.meta);
+        documentsProcessed += 1;
+        if (!meta) continue;
+        const [updated] = await db.query<[any[]]>(
+          `UPDATE knowledge_fact SET source.meta = $meta
+            WHERE source.documentId = $docId
+              AND source.meta IS NONE
+            RETURN VALUE id`,
+          { meta, docId: String(doc.id) },
+        );
+        factsUpdated += ((updated as any[]) ?? []).length;
+      }
+      return {
+        documentsProcessed,
+        factsUpdated,
+        remaining: Math.max(0, docs.length - documentsProcessed),
+      };
+    });
   }
 
   /**

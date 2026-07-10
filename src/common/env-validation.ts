@@ -129,6 +129,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
     'ABAC_ENABLED',
     'ABAC_FORCE_REPORT_ONLY',
     'SOURCE_META_STRICT',
+    'POLICY_META_UNION_ENABLED',
   ]) {
     const v = env[name];
     if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {

@@ -138,12 +138,21 @@ function compileActionRule(rule: {
 }
 
 /**
- * Compile one document. Disabled sets and (extras wave) sets outside
- * their activeFrom/activeUntil window return null — the resolver drops
- * them from the context entirely.
+ * Compile one document. Disabled sets and sets outside their
+ * activeFrom/activeUntil window return null — the resolver drops them
+ * from the context entirely (same silent-skip semantics as disabled:
+ * a temporal window is an operator schedule, not a dangling
+ * reference). Window edges take effect within one resolver cache TTL
+ * (POLICY_CACHE_TTL_MS, default 60 s) — compile happens per cache
+ * load, not per request.
  */
-export function compilePolicySet(doc: PolicyDocument): CompiledPolicySet | null {
+export function compilePolicySet(
+  doc: PolicyDocument,
+  now: Date = new Date(),
+): CompiledPolicySet | null {
   if (doc.mode === 'disabled') return null;
+  if (doc.activeFrom && now < new Date(doc.activeFrom)) return null;
+  if (doc.activeUntil && now >= new Date(doc.activeUntil)) return null;
 
   const actionDeny: CompiledActionRule[] = [];
   const actionAllow: CompiledActionRule[] = [];
