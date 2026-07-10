@@ -147,6 +147,25 @@ export class AdminPoliciesController {
   }
 
   /**
+   * Batched source.meta backfill for facts committed before the
+   * metadata projection existed. Idempotent (only facts with no meta
+   * are touched) — repeat until `remaining` is 0 and `factsUpdated`
+   * stays 0.
+   */
+  @Post('backfill-meta')
+  @RequireScopes('brain:admin')
+  async backfillMeta(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { maxDocs?: number },
+  ): Promise<{ documentsProcessed: number; factsUpdated: number; remaining: number }> {
+    const maxDocs =
+      Number.isInteger(body?.maxDocs) && (body.maxDocs as number) > 0
+        ? Math.min(body.maxDocs as number, 1000)
+        : 200;
+    return this.store.backfillSourceMeta(req.brainAuth.companyId, maxDocs);
+  }
+
+  /**
    * Single-decision explain (Zep's `zepctl api-key explain`, but with
    * per-rule field traces). Evaluates the named sets as one context —
    * `action` explains an action verdict, `factId` explains a row

@@ -17,6 +17,8 @@ import {
 import { buildBaseWhere } from './internals/where-builder';
 import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
 import { makeRowPolicyFilter } from '../policy/row-filter';
+import { applyMetaUnion } from '../policy/meta-union';
+import { getPolicyContext } from '../common/request-context';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
 import { expandViaEdges } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
@@ -148,6 +150,20 @@ export class SearchService {
             );
           }
           rowPolicy.finish();
+          const policyCtx = getPolicyContext();
+          if (policyCtx) {
+            for (const [entityId, facts] of factsByEntity) {
+              factsByEntity.set(
+                entityId,
+                await applyMetaUnion({
+                  surreal: this.surreal,
+                  companyId,
+                  ctx: policyCtx,
+                  rows: facts,
+                }),
+              );
+            }
+          }
 
           traceArtifact('graph_retrieve', {
             seeds: seedIds,
@@ -222,6 +238,7 @@ export class SearchService {
         this.runPipeline(db, {
           dto,
           callerScopes,
+          companyId,
           limit,
           asOf,
           includeRetracted,
@@ -312,7 +329,20 @@ export class SearchService {
     const rowFilterFn = (row: FactRow) => rowPolicy.filter(row);
     const survivorRecords = await hydrateSurvivors(db, fused);
     const reattributed = reattributeMerged(fused, survivorRecords);
-    const filtered = reattributed.filter(rowFilterFn);
+    let filtered = reattributed.filter(rowFilterFn);
+
+    // 2a. Effective-meta union (POLICY_META_UNION_ENABLED, default off):
+    // a corroborated fact inherits its confirming documents' metadata
+    // for deny evaluation — union = most restrictive.
+    const policyCtx = getPolicyContext();
+    if (policyCtx) {
+      filtered = await applyMetaUnion({
+        surreal: this.surreal,
+        companyId: ctx.companyId,
+        ctx: policyCtx,
+        rows: filtered,
+      });
+    }
 
     // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
     // from the most recent retrieval instead of only recordedAt. Soft-

@@ -48,7 +48,7 @@ export interface GraphFactRow {
     declaredTrust?: number;
     learnedTrust?: number;
   } | null;
-  corroboration?: { count?: number } | null;
+  corroboration?: { count?: number; originKeys?: string[] } | null;
 }
 
 import type { ScoreBreakdown } from './types';
