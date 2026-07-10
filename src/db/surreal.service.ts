@@ -9,6 +9,9 @@ import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
 import { enrichTransactionError } from './surreal-retry';
+import { envFlagEnabled } from '../common/env-validation';
+import { getPolicyContext } from '../common/request-context';
+import { compileDenyPushdown } from '../policy/db-fence';
 
 // Re-export the error-classification + retry helpers from their dedicated
 // module so existing `from './surreal.service'` import sites keep working.
@@ -341,6 +344,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         return fn(db);
       });
     }
+    // ABAC DB fence (migration 0057, flag default off): compile the
+    // request's pushdown-safe deny rules off the AsyncLocalStorage
+    // policy context so the knowledge_fact field PERMISSIONS can null
+    // object/objectMeta for matching rows — defense-in-depth behind
+    // the app-layer row filter.
+    const policyDeny = envFlagEnabled(process.env.ABAC_DB_FENCE_ENABLED)
+      ? compileDenyPushdown(getPolicyContext())
+      : [];
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
@@ -353,12 +364,16 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // EDITOR role can DEFINE in v2 against an existing database
       // it has access to (NS-level USER + DB exists).
       await this.ensureSchema(conn, database);
-      // Bind scopes for this request. The variable lives until the
-      // next LET on this connection — releasing back to the pool
-      // doesn't reset it, but the next withScopedCompany call
-      // overwrites it before the user-fn runs, so cross-request
-      // contamination is impossible.
-      await conn.query(`LET $caller_scopes = $scopes`, { scopes: [...scopes] });
+      // Bind scopes + policy-deny for this request. The variables live
+      // until the next LET on this connection — releasing back to the
+      // pool doesn't reset them, but the next withScopedCompany call
+      // overwrites BOTH before the user-fn runs, so cross-request
+      // contamination is impossible ($caller_policy_deny is always
+      // re-bound, [] when the fence is off or no rules push down).
+      await conn.query(
+        `LET $caller_scopes = $scopes; LET $caller_policy_deny = $policyDeny`,
+        { scopes: [...scopes], policyDeny },
+      );
       return await fn(conn);
     } finally {
       this.releaseScoped(conn);

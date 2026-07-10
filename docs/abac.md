@@ -125,3 +125,18 @@ deleted-set races. Alert on the metric.
 | `brain_policy_eval_seconds` | per-request row-evaluation latency (histogram, buckets from 50 µs). |
 | `brain_policy_resolution_errors_total` | fail-closed events — non-zero pages an operator. |
 | `brain_policy_sets_active` | enabled sets across tenants (nightly gauge). |
+
+## DB-level fence status (migration 0057)
+
+A second, database-side fence exists but is **prepared, not active**:
+`fn::policy_row_denied` plus field PERMISSIONS on
+`knowledge_fact.object/objectMeta`, fed by `$caller_policy_deny`
+(`ABAC_DB_FENCE_ENABLED`). Verified finding (2026-07-09, canary in
+`test/abac-db-fence.e2e-spec.ts`): on the current stack **SurrealDB ignores
+field PERMISSIONS for system users** — and `brain_caller` is a NAMESPACE-level
+EDITOR, i.e. a system user — and `LET` session variables do not survive a
+query() boundary. This applies equally to the pre-existing 0005 PII fence:
+**the app-layer JS filters are the only active gate today**, and they cover
+every read surface (e2e-enforced). The canary test fails loudly the moment an
+upgrade or a move to record users makes PERMISSIONS fire — activate the fence
+then, deliberately.
