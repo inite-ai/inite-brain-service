@@ -80,7 +80,9 @@ export class ProceduralMemoryService {
     companyId: string,
     args: MatchProcedureArgs,
   ): Promise<MatchedProcedure[]> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    // Caller-facing reads ride the scoped pool when the caller
+    // identifies itself (MCP path) so DB-level PERMISSIONS apply.
+    return this.run(companyId, args.callerScopes, async (db) => {
       const queryEmbedding = await this.embedder.embed(args.query);
 
       // Read all unretired procedures. With small N (procedural memory
@@ -128,7 +130,7 @@ export class ProceduralMemoryService {
     companyId: string,
     args: ListProceduresArgs = {},
   ): Promise<ProcedureRecord[]> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.run(companyId, args.callerScopes, async (db) => {
       const filter = args.includeRetired ? '' : 'WHERE retiredAt IS NONE';
       const [rows] = await db.query<any[][]>(
         `SELECT id, trigger, action, priority, decayHalfLifeDays,
@@ -141,6 +143,18 @@ export class ProceduralMemoryService {
       );
       return ((rows as any[]) ?? []).map(mapRow);
     });
+  }
+
+  private run<T>(
+    companyId: string,
+    callerScopes: readonly string[] | undefined,
+    fn: Parameters<SurrealService['withCompany']>[1],
+  ): Promise<T> {
+    return (
+      callerScopes
+        ? this.surreal.withScopedCompany(companyId, callerScopes, fn)
+        : this.surreal.withCompany(companyId, fn)
+    ) as Promise<T>;
   }
 
   async retire(
@@ -233,11 +247,13 @@ export interface MatchProcedureArgs {
   query: string;
   limit?: number;
   minSimilarity?: number;
+  callerScopes?: readonly string[];
 }
 
 export interface ListProceduresArgs {
   limit?: number;
   includeRetired?: boolean;
+  callerScopes?: readonly string[];
 }
 
 export interface ProcedureRecord {

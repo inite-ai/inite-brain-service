@@ -82,4 +82,12 @@ export class ApiKeyService implements OnModuleInit {
   knownCompanyIds(): string[] {
     return [...new Set([...this.byHash.values()].map((r) => r.companyId))];
   }
+
+  /**
+   * Static keys registered for one tenant — the admin keys surface
+   * (GET /v1/admin/keys). Records carry hashes only, never plaintext.
+   */
+  listForCompany(companyId: string): ApiKeyRecord[] {
+    return [...this.byHash.values()].filter((r) => r.companyId === companyId);
+  }
 }

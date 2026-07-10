@@ -1,11 +1,18 @@
 import { createHash } from 'node:crypto';
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
   isUniqueViolation,
 } from '../db/surreal.service';
+import { envFlagEnabled } from '../common/env-validation';
+import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { chunkDocument, DocumentChunk } from './chunker';
@@ -23,6 +30,13 @@ export interface StoredDocument {
   recorder?: string;
   occurredAt: Date;
   status: string;
+  /**
+   * Operator-supplied document metadata (IngestDocumentDto.meta).
+   * Projected onto derived facts' `source.meta` by the commit writer
+   * (sanitized) so ABAC source rules can match it — the Zep-style
+   * episode-metadata projection.
+   */
+  meta?: Record<string, unknown>;
 }
 
 export interface CreateDocumentResult {
@@ -60,6 +74,24 @@ export class DocumentStoreService {
     companyId: string,
     dto: IngestDocumentDto,
   ): Promise<CreateDocumentResult> {
+    // Meta becomes ABAC-matchable `source.meta` on every derived fact
+    // (commit-writer projection), so it must be operator vocabulary.
+    // Default: sanitize-and-warn; SOURCE_META_STRICT=1 rejects instead —
+    // a silently-dropped data_class would silently widen access.
+    if (dto.meta !== undefined) {
+      const { dropped } = sanitizeSourceMeta(dto.meta);
+      if (dropped.length > 0) {
+        if (envFlagEnabled(process.env.SOURCE_META_STRICT)) {
+          throw new BadRequestException({
+            error: 'invalid_meta',
+            issues: dropped,
+          });
+        }
+        this.logger.warn(
+          `document meta has ${dropped.length} non-projectable entr(ies): ${dropped[0]}`,
+        );
+      }
+    }
     const text = redactPii(dto.text).trim();
     const contentHash = sha256Hex(text);
     const chunks = chunkDocument(text, {
@@ -277,6 +309,9 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     recorder: row.recorder ? String(row.recorder) : undefined,
     occurredAt: new Date(row.occurredAt as string | Date),
     status: String(row.status),
+    ...(row.meta && typeof row.meta === 'object'
+      ? { meta: row.meta as Record<string, unknown> }
+      : {}),
   };
 }
 

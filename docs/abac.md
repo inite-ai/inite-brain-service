@@ -51,7 +51,7 @@ and logged (`would_deny`) but never block — that's the rollout mode.
 | `piiClass` | eq, in | from the predicate registry (`none/identifier/behavioral/text/sensitive`) |
 | `source.vertical`, `source.recorder` | eq, in | who wrote the fact |
 | `source.documentId`, `source.originKey` | eq, in (+prefix on originKey) | document lineage |
-| `source.meta.<key>` | eq, in, exists, not_exists | operator metadata projected from documents (wave 2) |
+| `source.meta.<key>` | eq, in, exists, not_exists | operator metadata projected from documents (`IngestDocumentDto.meta`) and direct facts (`IngestFactDto.metadata`), sanitized (`SOURCE_META_STRICT` to reject instead of drop) |
 | `trust.authority`, `trust.declaredTrust`, `trust.learnedTrust` | gte, gt, lte, lt | write-time trust snapshot (0..1) — **numeric thresholds, not just equality** |
 | `corroboration.count` | gte, gt, lte, lt | distinct confirming origins |
 | `provenance.purged` | eq | document text has been erased |

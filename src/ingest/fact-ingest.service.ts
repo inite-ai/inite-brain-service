@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { envFlagEnabled } from '../common/env-validation';
+import { sanitizeSourceMeta } from '../policy/source-meta';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestOutcome, IngestResult } from './ingest-result';
 import {
@@ -19,6 +21,8 @@ import { evidenceValidationError } from './ingest-utils';
  */
 @Injectable()
 export class FactIngestService {
+  private readonly logger = new Logger(FactIngestService.name);
+
   constructor(
     private readonly surreal: SurrealService,
     private readonly entities: EntityUpsertService,
@@ -55,6 +59,26 @@ export class FactIngestService {
     // fn::origin_key_of falls back to fn::source_key_of (0047 behaviour).
     const source = { ...(dto.source as unknown as Record<string, unknown>) };
     delete source.originKey;
+    // Direct-path metadata projection: dto.metadata (historically
+    // accepted-and-dropped) lands on `source.meta` so ABAC
+    // `source.meta.*` rules match direct facts like document-derived
+    // ones. Sanitized to operator vocabulary; SOURCE_META_STRICT=1
+    // turns drops into a 400 instead of a warn.
+    if (dto.metadata !== undefined) {
+      const { meta, dropped } = sanitizeSourceMeta(dto.metadata);
+      if (dropped.length > 0) {
+        if (envFlagEnabled(process.env.SOURCE_META_STRICT)) {
+          throw new BadRequestException({
+            error: 'invalid_metadata',
+            issues: dropped,
+          });
+        }
+        this.logger.warn(
+          `ingest fact metadata partially dropped (${dropped.length} issue(s)): ${dropped[0]}`,
+        );
+      }
+      if (meta) source.meta = meta;
+    }
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
       //    dto.userId scopes both the entity dedup key and the fact.

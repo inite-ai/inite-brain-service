@@ -20,7 +20,11 @@ import {
  * block. No I/O, no clock, no logging — callers own side effects.
  */
 
-function sourceRuleMatches(rule: CompiledSourceRule, view: PolicyRowView): boolean {
+/** Exported for the preview-rule sampler (admin simulation surface). */
+export function sourceRuleMatches(
+  rule: CompiledSourceRule,
+  view: PolicyRowView,
+): boolean {
   for (const cond of rule.conditions) {
     if (!cond.matches(view)) return false;
   }
