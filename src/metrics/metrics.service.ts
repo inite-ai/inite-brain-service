@@ -27,6 +27,7 @@ export interface MemoryQualitySnapshot {
   staleActiveFacts: Record<number, number>;
   trustBands: { low: number; neutral: number; high: number };
   orphanEntities: number;
+  policySetsActive: number;
 }
 
 /**
@@ -571,6 +572,7 @@ export class MetricsService implements OnModuleInit {
       );
     }
     this.memoryOrphanEntities.set(snapshot.orphanEntities);
+    this.policySetsActive.set(snapshot.policySetsActive);
   }
 
   countPolicyDecision(
@@ -585,10 +587,6 @@ export class MetricsService implements OnModuleInit {
 
   observePolicyEval(seconds: number): void {
     this.policyEvalDuration.observe(seconds);
-  }
-
-  setPolicySetsActive(n: number): void {
-    this.policySetsActive.set(n);
   }
 
   countPolicyResolutionError(): void {
