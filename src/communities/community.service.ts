@@ -28,9 +28,9 @@ export class CommunityService {
   /** Paginated listing for review UIs / agent enumeration. */
   async list(
     companyId: string,
-    args: { limit?: number } = {},
+    args: { limit?: number; callerScopes?: readonly string[] } = {},
   ): Promise<CommunityRecord[]> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.run(companyId, args.callerScopes, async (db) => {
       const [rows] = await db.query<[RawCommunity[]]>(
         `SELECT id, label, summary, memberCount, builtAt, lastBuiltMaxEdgeAt
            FROM community_node
@@ -49,9 +49,14 @@ export class CommunityService {
    */
   async search(
     companyId: string,
-    args: { query: string; limit?: number; minSimilarity?: number },
+    args: {
+      query: string;
+      limit?: number;
+      minSimilarity?: number;
+      callerScopes?: readonly string[];
+    },
   ): Promise<ScoredCommunity[]> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.run(companyId, args.callerScopes, async (db) => {
       const q = await this.embedder.embed(args.query);
       const [rows] = await db.query<[RawCommunity[]]>(
         `SELECT id, label, summary, memberCount, builtAt, summaryEmbedding
@@ -82,8 +87,9 @@ export class CommunityService {
   async forEntity(
     companyId: string,
     entityId: string,
+    callerScopes?: readonly string[],
   ): Promise<CommunityRecord[]> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.run(companyId, callerScopes, async (db) => {
       const eid = toRecordId(entityId);
       const [rows] = await db.query<[Array<{ in: unknown }>]>(
         `SELECT in FROM community_member WHERE out = $eid`,
@@ -101,6 +107,24 @@ export class CommunityService {
       );
       return ((communities as RawCommunity[]) ?? []).map(mapCommunity);
     });
+  }
+
+  /**
+   * Caller-facing reads (REST controller, MCP tools) thread scopes and
+   * ride the SCOPED pool so DB-level PERMISSIONS apply — community rows
+   * carry LLM summaries synthesized from facts. Internal consumers
+   * (reranker type hints, builder) stay on the root pool.
+   */
+  private run<T>(
+    companyId: string,
+    callerScopes: readonly string[] | undefined,
+    fn: Parameters<SurrealService['withCompany']>[1],
+  ): Promise<T> {
+    return (
+      callerScopes
+        ? this.surreal.withScopedCompany(companyId, callerScopes, fn)
+        : this.surreal.withCompany(companyId, fn)
+    ) as Promise<T>;
   }
 }
 

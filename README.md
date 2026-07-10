@@ -54,6 +54,13 @@ a system of record*.
   on one predicate isn't trusted blindly on another), agreement across sources
   **corroborates**, and the trust that moves a ranking is stored with its
   "because" decomposition — never recomputed behind your back.
+- **Per-key access policies (ABAC).** Scopes say *may this key search*;
+  policy sets say *what it may see*: allow/deny rules over MCP tools and REST
+  actions, plus row-level read filtering by predicate, PII class, source
+  vertical, projected document metadata (`data_class: pii`), numeric trust
+  thresholds, and corroboration. Deny-overrides, report-only rollout, per-rule
+  explain, and a visual policy editor + Key Lens simulator in the admin UI.
+  See [`docs/abac.md`](docs/abac.md).
 - **Pluggable ontology.** Domain Packs extend the predicate registry without
   forking core: a signed, versioned manifest format, a six-pack industry library
   (real-estate, fintech, medical, legal, insurance, HR), and a global pack
@@ -210,7 +217,7 @@ runs on any host.
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [Document pipeline](docs/document-pipeline.md) |
+| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) |
 | **Extend it** | [Domain Packs](docs/domain-packs.md) · [Pack distribution & registry](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |

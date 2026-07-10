@@ -6,6 +6,7 @@ import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
+import { sanitizeSourceMeta } from '../policy/source-meta';
 import {
   incomingFactsFor,
   MergedFact,
@@ -184,14 +185,19 @@ export class CommitWriterService {
    * The document-shaped fact source. Opaque to fn::resolve_fact except
    * for the keys it derives: source_key_of reads vertical+recorder,
    * origin_key_of reads originKey (0050). `indexers` and `evidence` are
-   * provenance for audit/read paths.
+   * provenance for audit/read paths. `meta` is the Zep-style projection:
+   * the document's operator metadata rides onto every derived fact so
+   * ABAC `source.meta.*` rules can match at read time (sanitized —
+   * snake_case keys, short scalars, ≤16 entries).
    */
   private factSource(doc: StoredDocument, mf: MergedFact): Record<string, unknown> {
+    const { meta } = sanitizeSourceMeta(doc.meta);
     return {
       vertical: doc.vertical,
       recorder: mf.recorder,
       documentId: doc.id,
       originKey: originKeyOf(doc.contentHash),
+      ...(meta ? { meta } : {}),
       indexers: mf.contributors.map((c) => ({
         packId: c.indexerId,
         packVersion: c.packVersion,

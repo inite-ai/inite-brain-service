@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { sanitizeSourceMeta } from './source-meta';
 import { PolicyResolverService } from './policy-resolver.service';
 import {
   MAX_SETS_PER_KEY,
@@ -28,6 +30,20 @@ export interface StoredBinding {
   subject: string;
   policyNames: string[];
   updatedAt: string;
+}
+
+/** Policy-relevant projection of a fact (explain + simulation). */
+export interface FactPolicyView {
+  id?: unknown;
+  predicate: string;
+  source?: unknown;
+  trustSnapshot?: {
+    authority?: number;
+    declaredTrust?: number;
+    learnedTrust?: number;
+  } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
 }
 
 const SUBJECT_SHAPE = /^(key|jwt):[A-Za-z0-9:_-]{1,128}$/;
@@ -255,6 +271,109 @@ export class PolicyStoreService {
     });
     this.resolver.invalidate(companyId);
     return this.get(companyId, name);
+  }
+
+  /**
+   * Batched policy-view load for the simulation surface: one query for
+   * up to ~250 factIds (search candidateK cap), keyed by full record id.
+   */
+  async loadFactViews(
+    companyId: string,
+    factIds: string[],
+  ): Promise<Map<string, FactPolicyView>> {
+    const out = new Map<string, FactPolicyView>();
+    if (factIds.length === 0) return out;
+    const ids = factIds
+      .map((raw) =>
+        raw.startsWith('knowledge_fact:')
+          ? raw.slice('knowledge_fact:'.length)
+          : raw,
+      )
+      .filter((id) => FACT_ID_SHAPE.test(id));
+    if (ids.length === 0) return out;
+    const rows = await this.surreal.withCompany(companyId, async (db) => {
+      const [r] = await db.query<[any[]]>(
+        `SELECT id, predicate, source, trustSnapshot, corroboration, userId
+           FROM knowledge_fact
+          WHERE id INSIDE $ids`,
+        { ids: ids.map((id) => new StringRecordId(`knowledge_fact:${id}`)) },
+      );
+      return (r as any[]) ?? [];
+    });
+    for (const row of rows) {
+      out.set(String(row.id), row as FactPolicyView);
+    }
+    return out;
+  }
+
+  /**
+   * Backfill `source.meta` onto facts derived from documents that were
+   * ingested BEFORE the projection landed (PR abac-surfaces). Batched:
+   * up to `maxDocs` documents with meta per call; facts already
+   * carrying meta are left untouched, so the endpoint is idempotent
+   * and safe to repeat until `remaining` hits zero.
+   */
+  async backfillSourceMeta(
+    companyId: string,
+    maxDocs = 200,
+  ): Promise<{ documentsProcessed: number; factsUpdated: number; remaining: number }> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [docsOut] = await db.query<[any[]]>(
+        `SELECT id, meta, createdAt FROM source_document
+          WHERE meta != NONE
+          ORDER BY createdAt ASC`,
+      );
+      const docs = ((docsOut as any[]) ?? []).filter(
+        (d) => d.meta && typeof d.meta === 'object' && Object.keys(d.meta).length > 0,
+      );
+      let factsUpdated = 0;
+      let documentsProcessed = 0;
+      for (const doc of docs.slice(0, maxDocs)) {
+        const { meta } = sanitizeSourceMeta(doc.meta);
+        documentsProcessed += 1;
+        if (!meta) continue;
+        const [updated] = await db.query<[any[]]>(
+          `UPDATE knowledge_fact SET source.meta = $meta
+            WHERE source.documentId = $docId
+              AND source.meta IS NONE
+            RETURN VALUE id`,
+          { meta, docId: String(doc.id) },
+        );
+        factsUpdated += ((updated as any[]) ?? []).length;
+      }
+      return {
+        documentsProcessed,
+        factsUpdated,
+        remaining: Math.max(0, docs.length - documentsProcessed),
+      };
+    });
+  }
+
+  /**
+   * Recent active facts' policy views for the preview-rule sampler.
+   * Bounded and approximate by design (ORDER BY recordedAt DESC).
+   */
+  async sampleFactViews(
+    companyId: string,
+    limit: number,
+  ): Promise<FactPolicyView[]> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      // recordedAt must be IN the projection — SurrealQL 3.x refuses to
+      // ORDER BY a field the SELECT didn't materialize (the "order
+      // idiom" gotcha, see docs/document-pipeline.md).
+      const [rows] = await db.query<[any[]]>(
+        `SELECT id, predicate, source, trustSnapshot, corroboration,
+                userId, recordedAt
+           FROM knowledge_fact
+          WHERE retractedAt IS NONE
+            AND status != 'compacted'
+            AND status != 'corroborating'
+          ORDER BY recordedAt DESC
+          LIMIT $limit`,
+        { limit },
+      );
+      return ((rows as any[]) ?? []) as FactPolicyView[];
+    });
   }
 
   /**

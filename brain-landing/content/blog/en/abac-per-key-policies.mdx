@@ -1,0 +1,127 @@
+---
+title: "Your agent's memory needs a lens, not a master key"
+seoTitle: "ABAC for AI agent memory: per-key policies with row-level filtering"
+description: "A read scope that unlocks the whole tenant graph is a master key, and a prompt-injected agent will happily turn it. Here is how per-key policy sets gate both the tools an agent can call and the facts it can read — with trust thresholds, report-only rollout, and a simulator that shows the diff."
+date: "2026-07-09"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["ABAC", "access control", "agent memory", "security", "least privilege", "prompt injection"]
+directAnswer: "Attribute-based access control for agent memory attaches named policy sets to individual API keys. Action rules gate which tools and endpoints the key can call; source rules gate which facts it can read, matched on the fact's provenance — predicate, PII class, source vertical, projected document metadata, numeric trust thresholds, corroboration. Deny overrides allow, unmatched traffic falls to a default posture, and report-only mode logs what would be blocked before anything is."
+definitionSentence: "A policy set is a named, versioned bundle of allow/deny rules attached to an API key that decides which actions the key may call and which rows of the knowledge graph it may read, evaluated deny-overrides on every request."
+faqs:
+  - question: "Aren't scopes enough?"
+    answer: "Scopes answer 'may this key search at all'. They cannot answer 'may this key see facts that came from HR documents'. Any brain:read key reads the whole tenant graph — support agents see finance records, analytics bots see PII. Policy sets narrow individual keys by the attributes of the data itself, which is the part scopes structurally cannot express."
+  - question: "What can a source rule match on?"
+    answer: "The fact's provenance, which the memory already stores: predicate, its PII class, the ingest vertical and recorder, the originating document, operator metadata projected from that document (data_class: pii), numeric trust-snapshot thresholds like authority below 0.5, corroboration count, whether the source text was purged, and the per-user scope owner. Numeric thresholds matter: metadata equality alone cannot express 'hide facts from sources that earned distrust'."
+  - question: "How do you roll a policy out without breaking an agent?"
+    answer: "Start the set in report_only: everything still flows, but every request that WOULD have been denied lands in a decision stream with the exact rule that fired. Watch the feed, explain the divergences, and promote to enforce only after a clean window. The rollback ladder runs from flipping one set back to report_only down to a fleet-wide kill switch."
+  - question: "What happens when a key references a policy that was deleted?"
+    answer: "It fails closed: the key gets a synthetic deny-all set and a metric fires. A dangling reference silently widening access is the one failure mode an access-control system must not have. Attach-time validation makes the case unreachable through the API itself; the fail-closed path exists for hand-written JWT claims and deletion races."
+---
+
+## The master-key problem
+
+Give an agent a `brain:read` key and it can read *everything* the tenant
+knows. That was fine when one assistant served one team. It stops being fine
+the day you run a support agent, a finance copilot, and a web-browsing
+research bot against the same memory — because whichever of them gets
+prompt-injected first exfiltrates with the union of what all of them needed.
+
+Zep shipped ABAC for exactly this reason, and their framing is right: an
+unrestricted key is a liability, and least privilege has to reach *memory*,
+not just tools. Where we differ is in what the policies can express and how
+they're operated — so here is the model we shipped, end to end.
+
+## Two kinds of rules, one mental model
+
+A **policy set** is a named bundle of rules a tenant attaches to individual
+API keys (a static key entry, a binding row, or a `policy` claim in the JWT).
+Rules come in two kinds:
+
+- **Action rules** gate what the key may *call* — MCP tools and REST actions
+  share one namespace (`search_knowledge`, `record_fact`,
+  `rest.documents.get`), with `@readonly` / `@write` / `@all` macros.
+- **Source rules** gate what the key may *read*, row by row, matched on the
+  fact's provenance: `predicate`, `piiClass`, `source.vertical`,
+  `source.recorder`, the originating document, `source.meta.*`, trust
+  thresholds (`trust.authority < 0.5`), `corroboration.count`,
+  `provenance.purged`.
+
+Evaluation is deliberately boring: **explicit deny beats explicit allow beats
+the default posture**, per domain. No rule ordering, no first-match — a rule
+list you can shuffle without changing meaning is a rule list a human can
+audit. Multiple sets on one key combine most-restrictive; a denied MCP tool
+doesn't error, it *vanishes from `tools/list`*.
+
+Two capabilities here have no equivalent in metadata-equality ABAC:
+
+- **Numeric trust thresholds.** Facts carry a write-time reputation snapshot,
+  so `deny where trust.authority < 0.5` reads as policy, not as a batch job
+  someone has to re-run.
+- **Effective-metadata union.** A fact independently corroborated by an
+  HR-classed document inherits that document's `data_class` for deny
+  evaluation — the union across origins is most-restrictive, so agreement
+  can't launder a fact past a metadata rule.
+
+## Metadata that projects itself
+
+Source rules are only as good as the metadata on the rows. When a document is
+ingested with `meta: { data_class: "pii" }`, every fact extracted from it
+carries that meta in its provenance — the projection Zep does for episodes,
+done here at commit time. Direct fact writes get the same treatment. Keys are
+operator vocabulary (snake_case, short scalars, capped), because a free-text
+bag on a security match surface is an invitation to prompt-shaped garbage;
+a strict mode turns sanitizer drops into hard 400s.
+
+## Report-only is the adoption story
+
+Nobody attaches an enforce-mode default-deny policy to a production agent on
+day one. A set starts in `report_only`: nothing is blocked, but every request
+that *would* have been denied lands in a decision stream with the key, the
+action or row counts, and the exact rule that fired. The admin UI turns that
+into a promotion workflow — a set that's been clean for a week gets a
+one-click promote; one that's still firing shows you precisely what it would
+break. The rollback ladder runs the other way: set back to report-only (takes
+effect within a cache TTL), detach the key, or a fleet-wide
+force-report-only kill switch.
+
+And when a single decision needs explaining, `explain` returns per-rule,
+per-condition traces — expected vs actual for every attribute — for an action
+or for a real stored fact.
+
+## The simulator is the part we're smug about
+
+Policy editors fail in a predictable way: you write a rule, it looks right,
+and three days later you learn it also hid the entire billing history. The
+fix is not more YAML review; it's running the question against real data
+*before* saving.
+
+Key Lens does that. Pick a subject — a real key with its full resolved
+chain, saved sets, or the **unsaved draft you're editing** — type a real
+query, and the actual retrieval pipeline runs server-side, returning every
+row annotated allow / deny / would-deny with the rule that decided it. Denied
+rows render greyed with redaction bars; a split view shows "full tenant view"
+vs "what this key sees" side by side. A second tab renders every gateable
+tool and endpoint as an allow/deny matrix, and a third tints the entity graph
+by visibility. While you type a source rule, a live counter estimates how
+many existing facts it matches.
+
+CLI-managed ABAC can check one action for one key. Simulation against live
+tenant data — including what *disappears* — is the difference between
+configuring access control and understanding it.
+
+## Fail closed, always
+
+A key that references a deleted or misspelled policy set resolves to a
+synthetic deny-all and pages a metric. The alternative — silently ignoring
+the dangling name — means a typo widens access without anyone noticing,
+which is the single failure mode an access-control system exists to prevent.
+Everything else defaults the safe way too: the feature is off until enabled,
+keys without policies behave byte-identically to before (pinned by a golden
+test), and the PII scope gate always runs first — a policy can only narrow
+further, never widen.
+
+The uncomfortable takeaway from building this: your memory layer already
+knows who claimed every fact, through which channel, from which document,
+with how much earned trust. If your access control can't *see* any of that,
+the limitation isn't in the data. It was in the key.

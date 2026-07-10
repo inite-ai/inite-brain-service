@@ -59,10 +59,12 @@ export interface FactRow {
     learnedTrust?: number;
     authority?: number;
   } | null;
-  /** Cross-source confirmation counter (migration 0047), incumbent-side. */
+  /** Cross-source confirmation counter (migration 0047), incumbent-side.
+   *  originKeys (0050) feed the ABAC effective-meta union. */
   corroboration?: {
     count?: number;
     sourceKeys?: string[];
+    originKeys?: string[];
   } | null;
   /**
    * Per-user memory scope owner (migration 0055); NONE = tenant-global.

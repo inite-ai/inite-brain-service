@@ -122,7 +122,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
   // ── ABAC policy knobs ──────────────────────────────────────────────
-  validateAbacEnv(env, errors);
+validateAbacEnv(env, errors);
 
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
@@ -215,7 +215,12 @@ function validateProductionGuards(
  * this validator exists for — same rationale as the pack-trust flags.
  */
 function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
-  for (const name of ['ABAC_ENABLED', 'ABAC_FORCE_REPORT_ONLY']) {
+  for (const name of [
+    'ABAC_ENABLED',
+    'ABAC_FORCE_REPORT_ONLY',
+    'SOURCE_META_STRICT',
+    'POLICY_META_UNION_ENABLED',
+  ]) {
     const v = env[name];
     if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
       errors.push(

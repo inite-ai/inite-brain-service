@@ -21,6 +21,20 @@ import { CostResponseSchema } from '@/lib/contracts/admin-cost'
 import { CalibrationResponseSchema } from '@/lib/contracts/admin-calibration'
 import { RouterStatsResponseSchema } from '@/lib/contracts/admin-router-stats'
 import { PredicatesListResponseSchema } from '@/lib/contracts/admin-predicates'
+import {
+  AdminKeysResponseSchema,
+  PolicyBindingsResponseSchema,
+  PolicyDecisionsResponseSchema,
+  PolicyDecisionsStatsResponseSchema,
+  PolicyExplainResponseSchema,
+  PolicyRegistryResponseSchema,
+  PolicySetDeleteResponseSchema,
+  PolicySetResponseSchema,
+  PolicySetsListResponseSchema,
+  PreviewRuleResponseSchema,
+  SimulateActionsResponseSchema,
+  SimulateSearchResponseSchema,
+} from '@/lib/contracts/admin-policies'
 import { ScenariosResponseSchema } from '@/lib/contracts/admin-scenarios'
 import { BaselinesResponseSchema } from '@/lib/contracts/admin-baselines'
 import { TracesResponseSchema } from '@/lib/contracts/admin-traces'
@@ -90,6 +104,12 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/baselines': BaselinesResponseSchema,
     'v1/admin/traces': TracesResponseSchema,
     'v1/admin/dreams/summary': DreamsSummaryResponseSchema,
+    'v1/admin/policy-sets': PolicySetsListResponseSchema,
+    'v1/admin/policy-sets/bindings/all': PolicyBindingsResponseSchema,
+    'v1/admin/policy/registry': PolicyRegistryResponseSchema,
+    'v1/admin/policy/decisions': PolicyDecisionsResponseSchema,
+    'v1/admin/policy/decisions/stats': PolicyDecisionsStatsResponseSchema,
+    'v1/admin/keys': AdminKeysResponseSchema,
   },
   POST: {
     'v1/admin/dreams/run': DreamsRunResponseSchema,
@@ -104,6 +124,11 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/changefeed/drain': ChangefeedDrainResponseSchema,
     'v1/admin/scenarios/run-batch': ScenariosBatchResponseSchema,
     'v1/admin/predicates': PredicateMutationResponseSchema,
+    'v1/admin/policy-sets': PolicySetResponseSchema,
+    'v1/admin/policy-sets/explain': PolicyExplainResponseSchema,
+    'v1/admin/policy/simulate/search': SimulateSearchResponseSchema,
+    'v1/admin/policy/simulate/actions': SimulateActionsResponseSchema,
+    'v1/admin/policy/preview-rule': PreviewRuleResponseSchema,
   },
   PATCH: {},
   DELETE: {},
@@ -129,9 +154,14 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       pattern: 'v1/admin/dreams/runs/:runId/emits',
       schema: DreamsEmitsResponseSchema,
     },
+    { pattern: 'v1/admin/policy-sets/:name', schema: PolicySetResponseSchema },
   ],
   POST: [
     { pattern: 'v1/admin/jobs/:runId/cancel', schema: JobCancelResponseSchema },
+    {
+      pattern: 'v1/admin/policy-sets/:name/attachments',
+      schema: PolicySetResponseSchema,
+    },
     {
       pattern: 'v1/admin/scenarios/:id/run',
       schema: ScenarioRunOutcomeSchema,
@@ -156,12 +186,19 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       schema: PredicateMutationResponseSchema,
     },
   ],
+  PUT: [
+    { pattern: 'v1/admin/policy-sets/:name', schema: PolicySetResponseSchema },
+  ],
   DELETE: [
     { pattern: 'v1/admin/tenants/:companyId', schema: DropTenantResponseSchema },
     { pattern: 'v1/admin/dlq/:companyId/:id', schema: DlqDeleteResponseSchema },
     {
       pattern: 'v1/admin/predicates/:predicateId',
       schema: PredicateDeprecateResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/policy-sets/:name',
+      schema: PolicySetDeleteResponseSchema,
     },
   ],
 }
@@ -239,6 +276,10 @@ const ALLOWED_PREFIXES = [
   'v1/admin/migrations',
   'v1/admin/throttler',
   'v1/admin/now',
+  // ABAC (policy editor + Key Lens + decisions feed)
+  'v1/admin/policy-sets',
+  'v1/admin/policy/',
+  'v1/admin/keys',
   // Brain user-facing endpoints used by the Playground tabs
   'v1/search',
   'v1/synthesize',

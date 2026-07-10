@@ -8,6 +8,8 @@ import { SearchDto, SearchMode } from './dto/search.dto';
 export interface PipelineContext {
   dto: SearchDto;
   callerScopes: string[];
+  /** Tenant id — the ABAC meta-union pass resolves origin docs by it. */
+  companyId: string;
   limit: number;
   asOf: Date | null;
   includeRetracted: boolean;
