@@ -5,6 +5,7 @@ import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { IndexerDispatchService } from './indexer-dispatch.service';
 import { CandidateCommitService } from './candidate-commit.service';
+import { CandidateStoreService } from './candidate-store.service';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
 
 export interface DocumentAsyncResponse {
@@ -41,6 +42,7 @@ export class DocumentAsyncService implements OnModuleInit {
     private readonly store: DocumentStoreService,
     private readonly dispatch: IndexerDispatchService,
     private readonly commit: CandidateCommitService,
+    private readonly candidates: CandidateStoreService,
     @Optional() private readonly workerLoop?: WorkerLoopService,
     @Optional() private readonly claim?: JobClaimService,
   ) {}
@@ -87,6 +89,17 @@ export class DocumentAsyncService implements OnModuleInit {
     await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
     const runs: DocumentAsyncResponse['runs'] = [];
     for (const spec of specs) {
+      // Pre-create the run ledger row as 'pending' BEFORE enqueuing, so
+      // countNonTerminalRuns sees this run from the outset. Otherwise the
+      // fastest pass (usually general) could finish and commit before a
+      // dedicated run's job has started and created its row — committing a
+      // partial set and losing the cross-indexer merge. The job's createRun
+      // transitions pending → running; a stuck pending row is reaped.
+      await this.candidates.ensureRunPending(companyId, {
+        docId: doc.id,
+        packId: spec.packId,
+        packVersion: spec.packVersion,
+      });
       // Version-aware dedupKey mirrors the indexer_run UNIQUE triple: a
       // re-POST of the same content collapses; a pack upgrade re-opens
       // the slot.
