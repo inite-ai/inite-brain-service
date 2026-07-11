@@ -1,0 +1,156 @@
+# Self-hosted observability stack for the inite-temporal droplet.
+# Deployed by .github/workflows/deploy-monitoring.yml (rsync to
+# /opt/projects/inite-monitoring + docker-compose up -d).
+#
+# Data flow:
+#   brain /metrics ── scrape ─────▶ alloy ── remote_write ─▶ victoriametrics ─┐
+#   host /proc /sys ─ unix exporter (inside alloy) ────────▶ victoriametrics ─┤
+#   docker logs (allowlisted containers) ─▶ alloy ─ push ──▶ loki ────────────┼─▶ grafana
+#   brain OTLP/HTTP :4318 ────────▶ alloy ── OTLP/gRPC ────▶ tempo ───────────┘
+#
+# Only alloy and grafana join the shared traefik-global network: alloy has
+# to reach inite-brain-service (scrape) and be reachable from it (OTLP);
+# grafana is routed by Traefik at brain.inite.ai/grafana. VictoriaMetrics,
+# Loki and Tempo stay on the private `monitoring` network — invisible to
+# other stacks and to the internet.
+#
+# All containers carry the inite-monitoring- prefix to avoid name
+# collisions with whatever the temporal stack runs.
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.115.0
+    container_name: inite-monitoring-vm
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=30d
+      - -httpListenAddr=:8428
+    volumes:
+      - vm-data:/storage
+    expose:
+      - "8428"
+    mem_limit: 192m
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.5.1
+    container_name: inite-monitoring-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    environment:
+      # Keep Go's GC inside the cgroup ceiling — without this the runtime
+      # sizes its heap off host RAM and the kernel OOM-kills the container
+      # at the compose mem_limit instead of GC backing off.
+      - GOMEMLIMIT=200MiB
+    volumes:
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    expose:
+      - "3100"
+    mem_limit: 256m
+    networks:
+      - monitoring
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    container_name: inite-monitoring-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    environment:
+      - GOMEMLIMIT=120MiB
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    expose:
+      - "4317" # OTLP gRPC in (from alloy)
+      - "3200" # query API (grafana datasource)
+    mem_limit: 160m
+    networks:
+      - monitoring
+
+  alloy:
+    image: grafana/alloy:v1.9.2
+    container_name: inite-monitoring-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      # Log discovery + tailing. Read-only, but still root-equivalent on
+      # the host — never expose alloy's HTTP port through Traefik.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host filesystem views for the embedded node exporter.
+      - /:/rootfs:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    expose:
+      - "4318" # OTLP HTTP in (from brain over traefik-global)
+    mem_limit: 200m
+    networks:
+      - monitoring
+      - traefik-global
+
+  grafana:
+    image: grafana/grafana:11.6.3
+    container_name: inite-monitoring-grafana
+    restart: unless-stopped
+    environment:
+      # Served under a sub-path behind Traefik. Both vars are required;
+      # Traefik must NOT StripPrefix or /grafana/login redirect-loops.
+      - GF_SERVER_ROOT_URL=https://brain.inite.ai/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      # Consumed by $-expansion in provisioning/alerting/telegram.yaml —
+      # the file is only present when the deploy workflow found both
+      # secrets, so empty values never reach a provisioned contact point.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    expose:
+      - "3000"
+    mem_limit: 192m
+    networks:
+      - monitoring
+      - traefik-global
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-global"
+      - "traefik.http.routers.inite-monitoring-grafana.rule=Host(`brain.inite.ai`) && PathPrefix(`/grafana`)"
+      - "traefik.http.routers.inite-monitoring-grafana.priority=200"
+      - "traefik.http.routers.inite-monitoring-grafana.entrypoints=websecure"
+      - "traefik.http.routers.inite-monitoring-grafana.tls=true"
+      - "traefik.http.routers.inite-monitoring-grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.inite-monitoring-grafana.loadbalancer.server.port=3000"
+      # Own http→https middleware, not brain's redirect-to-https: a
+      # middleware defined on another container vanishes when that
+      # container is down, silently breaking this router with it.
+      - "traefik.http.routers.inite-monitoring-grafana-http.rule=Host(`brain.inite.ai`) && PathPrefix(`/grafana`)"
+      - "traefik.http.routers.inite-monitoring-grafana-http.priority=200"
+      - "traefik.http.routers.inite-monitoring-grafana-http.entrypoints=web"
+      - "traefik.http.routers.inite-monitoring-grafana-http.middlewares=mon-redirect-https"
+      - "traefik.http.middlewares.mon-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.mon-redirect-https.redirectscheme.permanent=true"
+
+volumes:
+  vm-data:
+  loki-data:
+  tempo-data:
+  alloy-data:
+  grafana-data:
+
+networks:
+  monitoring:
+  traefik-global:
+    external: true

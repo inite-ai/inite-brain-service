@@ -11,6 +11,9 @@ on:
       - 'docs/**'
       - '*.md'
       - '.planning/**'
+      # The monitoring stack has its own deploy workflow
+      # (deploy-monitoring.yml) — don't redeploy brain for it.
+      - 'monitoring/**'
   workflow_dispatch:
     inputs:
       action:

@@ -1,0 +1,32 @@
+# Tempo 2.x single-binary, local storage, 7d retention.
+# OTLP gRPC in from alloy on :4317; Grafana queries the HTTP API on :3200.
+# metrics_generator deliberately omitted (~100MB RSS saved; service
+# graphs not needed at this scale).
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+
+ingester:
+  max_block_duration: 10m
+
+compactor:
+  compaction:
+    block_retention: 168h # 7d
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+usage_report:
+  reporting_enabled: false

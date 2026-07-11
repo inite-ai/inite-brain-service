@@ -1,0 +1,240 @@
+# Grafana-managed alert rules. Always provisioned; where notifications
+# land depends on whether telegram.yaml was deployed alongside (see
+# grafana/alerting-optional/ and the deploy workflow) — without it the
+# rules still evaluate and show state in the Alerting UI.
+#
+# Pattern per rule: refId A = PromQL against VictoriaMetrics (uid vm),
+# refId C = threshold expression. Comparisons live in the threshold, not
+# in the PromQL — `expr == 0` returns an EMPTY set on healthy, which
+# Grafana reads as NoData, not OK.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: brain
+    folder: Brain
+    interval: 1m
+    rules:
+      - uid: brain-scrape-down
+        title: BrainScrapeDown
+        condition: C
+        for: 3m
+        noDataState: Alerting # series gone = collector or brain gone
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: brain /metrics scrape is failing (target down or unreachable)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: up{job="brain"}
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: brain-policy-resolution-errors
+        title: PolicyResolutionErrors
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: a key referenced an unknown policy set (failed closed — some key is bricked)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: increase(brain_policy_resolution_errors_total[10m])
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: brain-no-worker-leader
+        title: NoWorkerLeader
+        condition: C
+        for: 10m
+        noDataState: OK # scrape-down alert covers series absence
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: no pod holds the worker_loop lease — background jobs (dreams/compaction/sweeper) are not running
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: sum(brain_worker_is_leader) or vector(0)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: brain-job-failure-ratio
+        title: JobFailureRatioHigh
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: '>20% of background jobs failed over the last 15m'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: sum(increase(brain_job_total{outcome="failed"}[15m])) / clamp_min(sum(increase(brain_job_total[15m])), 1)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.2] }
+
+      - uid: brain-changefeed-lag
+        title: ChangefeedLagSustained
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: CHANGEFEED consumer is falling behind (audit_event ingestion lag)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: max(brain_changefeed_lag_records)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [500] }
+
+      - uid: brain-openai-error-ratio
+        title: OpenAIErrorRatioHigh
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: '>15% of OpenAI calls errored over the last 15m (upstream flaky or key/quota trouble)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: sum(increase(brain_openai_calls_total{outcome!="ok"}[15m])) / clamp_min(sum(increase(brain_openai_calls_total[15m])), 1)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.15] }
+
+      - uid: host-disk-low
+        title: HostDiskLow
+        condition: C
+        for: 10m
+        noDataState: Alerting # losing disk visibility is itself a page
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: droplet root filesystem has <10% free space
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: min(node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.10] }
+
+      - uid: host-mem-low
+        title: HostMemLow
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: droplet has <8% RAM available
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.08] }
