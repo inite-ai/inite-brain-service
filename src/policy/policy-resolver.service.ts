@@ -86,11 +86,18 @@ export class PolicyResolverService {
 
     const names: string[] = [];
     const seen = new Set<string>();
+    let truncated = false;
     const push = (n: string) => {
-      if (!seen.has(n) && names.length < MAX_SETS_PER_KEY) {
-        seen.add(n);
-        names.push(n);
+      if (seen.has(n)) return;
+      // At the cap a NEW set is silently dropped — and a dropped set may
+      // be the deny set, so the overflow FAILS OPEN. Flag it so the
+      // operator gets a warn + metric instead of a silent weakening.
+      if (names.length >= MAX_SETS_PER_KEY) {
+        truncated = true;
+        return;
       }
+      seen.add(n);
+      names.push(n);
     };
     for (const n of snap.bindings.get(`key:${keyHash}`) ?? []) push(n);
     // JWT keys without a jti hash to `jwt:<sub>` — honour bindings
@@ -99,6 +106,12 @@ export class PolicyResolverService {
       for (const n of snap.bindings.get(keyHash) ?? []) push(n);
     }
     for (const n of claimNames ?? []) push(n);
+    if (truncated) {
+      this.metrics.countPolicySetsTruncated();
+      this.logger.warn(
+        `Key ${keyHash.slice(0, 16)}… resolves to more than ${MAX_SETS_PER_KEY} policy sets — overflow dropped (fail-open; prune the binding/claims)`,
+      );
+    }
     if (names.length === 0) return null;
 
     const sets: CompiledPolicySet[] = [];

@@ -82,6 +82,12 @@ export class ProceduralMemoryService {
   ): Promise<MatchedProcedure[]> {
     // Caller-facing reads ride the scoped pool when the caller
     // identifies itself (MCP path) so DB-level PERMISSIONS apply.
+    //
+    // No ABAC row-filter here by design: procedures are a curated
+    // OPERATOR layer (trigger→action how-tos), not user facts — they
+    // carry no predicate/piiClass and no per-user PII, so the fact-shaped
+    // row engine doesn't map. Access is gated at the tool/action level
+    // (@PolicyAction on the MCP procedural tools) instead.
     return this.run(companyId, args.callerScopes, async (db) => {
       const queryEmbedding = await this.embedder.embed(args.query);
 

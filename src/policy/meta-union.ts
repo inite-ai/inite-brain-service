@@ -4,7 +4,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import { policyFor } from '../ingest/conflict-resolver';
 import { SurrealService } from '../db/surreal.service';
 import { evaluateRow, toRowView } from './policy-engine';
-import { PolicyContext } from './policy.types';
+import { PolicyContext, PolicyRowView } from './policy.types';
 
 /**
  * Effective-metadata union across corroborating origins
@@ -41,7 +41,21 @@ const metaCache = new LRUCache<
 export interface MetaUnionRow {
   predicate: string;
   source?: unknown;
-  corroboration?: { originKeys?: string[] } | null;
+  trustSnapshot?: PolicyRowView['trustSnapshot'];
+  corroboration?: ({ originKeys?: string[] } & { count?: number }) | null;
+  userId?: string | null;
+}
+
+/**
+ * Cache key MUST be tenant-scoped: `contentHash` is unique only within a
+ * tenant DB (the UNIQUE index is per-tenant), so two tenants can share a
+ * hash. Keying the process-wide LRU by the bare `doc:<hash>` origin key
+ * would serve tenant A's document meta to tenant B — a cross-tenant leak
+ * on the exact deny surface this module enforces. NUL separates the
+ * companyId from the origin key (neither ever emits it).
+ */
+function cacheKey(companyId: string, originKey: string): string {
+  return `${companyId}\u0000${originKey}`;
 }
 
 export function metaUnionEnabled(): boolean {
@@ -74,7 +88,7 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   const wanted = new Set<string>();
   for (const row of rows) {
     for (const key of row.corroboration?.originKeys ?? []) {
-      if (key.startsWith('doc:') && !isFresh(metaCache.get(key))) {
+      if (key.startsWith('doc:') && !isFresh(metaCache.get(cacheKey(companyId, key)))) {
         wanted.add(key);
       }
     }
@@ -93,7 +107,7 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
       });
       const at = Date.now();
       for (const doc of found) {
-        metaCache.set(`doc:${String(doc.contentHash)}`, {
+        metaCache.set(cacheKey(companyId, `doc:${String(doc.contentHash)}`), {
           meta:
             doc.meta && typeof doc.meta === 'object'
               ? (doc.meta as Record<string, unknown>)
@@ -103,7 +117,8 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
       }
       // Negative-cache misses so unknown origins don't refetch per request.
       for (const key of wanted) {
-        if (!metaCache.has(key)) metaCache.set(key, { meta: null, at });
+        const ck = cacheKey(companyId, key);
+        if (!metaCache.has(ck)) metaCache.set(ck, { meta: null, at });
       }
     } catch (e) {
       logger.warn(
@@ -116,12 +131,24 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   return rows.filter((row) => {
     const origins = row.corroboration?.originKeys ?? [];
     for (const key of origins) {
-      const cached = key.startsWith('doc:') ? metaCache.get(key) : undefined;
+      const cached = key.startsWith('doc:')
+        ? metaCache.get(cacheKey(companyId, key))
+        : undefined;
       const meta = cached?.meta;
       if (!meta) continue;
       const src = (row.source ?? {}) as Record<string, unknown>;
+      // Carry the row's own trust/corroboration/userId into the view so a
+      // COMPOUND deny rule (source.meta.* AND trustSnapshot.* / userId) still
+      // fires on the unioned meta — evaluating meta in isolation would let
+      // such a rule silently pass.
       const view = toRowView(
-        { predicate: row.predicate, source: { ...src, meta } },
+        {
+          predicate: row.predicate,
+          source: { ...src, meta },
+          trustSnapshot: row.trustSnapshot,
+          corroboration: row.corroboration,
+          userId: row.userId,
+        },
         (p) => policyFor(p).piiClass,
       );
       if (evaluateRow(ctx, view).decision === 'deny') return false;

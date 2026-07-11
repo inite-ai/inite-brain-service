@@ -47,3 +47,42 @@ describe('compilePolicySet temporal windows', () => {
     ).not.toBeNull();
   });
 });
+
+describe('PolicyDocumentSchema window validation', () => {
+  const parse = (over: Record<string, unknown>) =>
+    PolicyDocumentSchema.parse({
+      name: 'windowed-set',
+      posture: { actions: 'deny', reads: 'deny' },
+      mode: 'enforce',
+      rules: [],
+      ...over,
+    });
+
+  it('rejects a window that can never open (activeFrom >= activeUntil)', () => {
+    // Inverted — the set would be permanently inert (fail-open), a mistake.
+    expect(() =>
+      parse({
+        activeFrom: '2026-08-01T00:00:00Z',
+        activeUntil: '2026-07-01T00:00:00Z',
+      }),
+    ).toThrow(/activeFrom must be strictly before activeUntil/);
+    // Equal bounds are also a dead window.
+    expect(() =>
+      parse({
+        activeFrom: '2026-07-01T00:00:00Z',
+        activeUntil: '2026-07-01T00:00:00Z',
+      }),
+    ).toThrow(/activeFrom must be strictly before activeUntil/);
+  });
+
+  it('accepts a valid window and open-ended bounds', () => {
+    expect(() =>
+      parse({
+        activeFrom: '2026-07-01T00:00:00Z',
+        activeUntil: '2026-08-01T00:00:00Z',
+      }),
+    ).not.toThrow();
+    expect(() => parse({ activeFrom: '2026-07-01T00:00:00Z' })).not.toThrow();
+    expect(() => parse({ activeUntil: '2026-08-01T00:00:00Z' })).not.toThrow();
+  });
+});
