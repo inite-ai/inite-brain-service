@@ -55,12 +55,20 @@ export class LeaderLeaseService {
               // names (worker_loop every 30s vs lease_manager_cron every
               // 10s) — mutually abort with read-write conflicts. Prod sat
               // in a permanent conflict storm until this was narrowed.
+              //
+              // SINGLE-arg type::record('table:id') deliberately: the
+              // 2-arg form means "construct id" on SurrealDB 3.x but
+              // "cast arg1 into record<arg2>" on 2.x, where it fails at
+              // eval time ("cannot convert 'leader_lease' into a
+              // record<worker_loop>"). The string-compose form parses
+              // and constructs on both generations; lease names are
+              // code-controlled [a-z_]+ so no id-escaping concerns.
               .add(
-                `LET $row = (SELECT * FROM type::record('leader_lease', $name))[0]`,
+                `LET $row = (SELECT * FROM type::record('leader_lease:' + $name))[0]`,
               )
               .add(
                 `IF $row IS NONE OR $row.leaseUntil < time::now() OR $row.leaderId = $me {
-                   UPSERT type::record('leader_lease', $name) CONTENT {
+                   UPSERT type::record('leader_lease:' + $name) CONTENT {
                      name: $name,
                      leaderId: $me,
                      leaseUntil: type::datetime($until),
@@ -95,8 +103,9 @@ export class LeaderLeaseService {
         // Point-delete on the record id for the same reason tryAcquire
         // point-reads: a WHERE-name scan drags the whole table into the
         // transaction's read-set and aborts concurrent acquires.
+        // Single-arg type::record — see tryAcquire for why.
         await db.query(
-          `DELETE type::record('leader_lease', $name) WHERE leaderId = $me`,
+          `DELETE type::record('leader_lease:' + $name) WHERE leaderId = $me`,
           { name, me: this.leaderId },
         );
       });
