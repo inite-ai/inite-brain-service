@@ -9,11 +9,20 @@ import { SurrealService } from '../db/surreal.service';
  * a database drop: every personal fact (including personal facts sitting
  * on SHARED entities), every personal entity with its edges and dedup
  * refs, the usage/feedback side tables keyed by those facts, and the
- * materialised audit_event mirror rows.
+ * materialised audit_event mirror rows for facts, entities AND edges.
  *
  * Ordering is load-bearing: side tables and refs traverse record links
  * into the rows being erased, so they go FIRST — the traversal dies with
  * the target.
+ *
+ * NOT covered (no per-user linkage to filter on — documented GDPR gap):
+ *   - debug_trace: a per-request ring buffer keyed by requestId, no
+ *     userId column; TraceBufferService TTL-prunes it (bounded window).
+ *   - ingest_dead_letter: rejected-ingest payloads carry no userId, so a
+ *     REJECTED personal fact can't be selectively purged. Operators
+ *     must sweep/redact dead-letter rows out of band. Adding a userId
+ *     stamp at reject time (fn::resolve_fact et al.) would close this —
+ *     tracked, not done here.
  */
 export interface UserForgetResult {
   companyId: string;
@@ -67,12 +76,18 @@ export class UserForgetService {
       });
       // Edges touching a personal entity (either endpoint) or stamped
       // with the scope directly — before the entities go.
-      const [edgesDeleted] = await db.query<[unknown[]]>(
+      const [edgesDeletedRows] = await db.query<[Array<{ id?: unknown }>]>(
         `DELETE knowledge_edge
           WHERE userId = $u OR in.userId = $u OR out.userId = $u
           RETURN BEFORE`,
         { u: userId },
       );
+      const edgeRows = (edgesDeletedRows as Array<{ id?: unknown }>) ?? [];
+      // Edges are mirrored to audit_event (changefeed-drain), so their
+      // mirror rows must be purged with the fact/entity ones below.
+      const edgeIds = edgeRows
+        .map((r) => String(r.id))
+        .filter((s) => s && s !== 'undefined');
       // Dedup refs traverse the entity link — before the entities go.
       await db.query(`DELETE entity_external_ref WHERE entity.userId = $u`, {
         u: userId,
@@ -101,7 +116,7 @@ export class UserForgetService {
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
       // consumer's PII redaction covers any still-unconsumed lag.
-      const recordIds = [...factIds, ...entityIds];
+      const recordIds = [...factIds, ...entityIds, ...edgeIds];
       let auditEventsDeleted = 0;
       if (recordIds.length > 0) {
         const [auditRows] = await db.query<[unknown[]]>(
@@ -116,7 +131,7 @@ export class UserForgetService {
         userId,
         factsDeleted: factIds.length,
         entitiesDeleted: entityIds.length,
-        edgesDeleted: ((edgesDeleted as unknown[]) ?? []).length,
+        edgesDeleted: edgeRows.length,
         auditEventsDeleted,
       };
       this.logger.log(

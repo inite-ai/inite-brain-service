@@ -218,6 +218,7 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   for (const name of [
     'ABAC_ENABLED',
     'ABAC_FORCE_REPORT_ONLY',
+    'ABAC_DB_FENCE_ENABLED',
     'SOURCE_META_STRICT',
     'POLICY_META_UNION_ENABLED',
   ]) {

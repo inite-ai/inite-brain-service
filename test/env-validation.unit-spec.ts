@@ -108,3 +108,21 @@ describe('validateEnv — pack supply-chain knobs', () => {
     expect(() => validateEnv(env)).not.toThrow();
   });
 });
+
+describe('validateEnv — ABAC boolean flags', () => {
+  it('accepts 1/0/true/false for ABAC_DB_FENCE_ENABLED', () => {
+    for (const v of ['1', '0', 'true', 'false']) {
+      const env = baseProdEnv();
+      env.ABAC_DB_FENCE_ENABLED = v;
+      expect(() => validateEnv(env)).not.toThrow();
+    }
+  });
+
+  it('rejects an unrecognized ABAC_DB_FENCE_ENABLED value (silent fail-open)', () => {
+    const env = baseProdEnv();
+    // 'yes' parses as OFF under an envFlagEnabled check — the fence would
+    // be silently disabled. Boot error, not a silent downgrade.
+    env.ABAC_DB_FENCE_ENABLED = 'yes';
+    expect(() => validateEnv(env)).toThrow(/ABAC_DB_FENCE_ENABLED/);
+  });
+});
