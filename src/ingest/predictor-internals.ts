@@ -5,11 +5,39 @@
  * sides can import them without a circular dependency.
  */
 
+// Mirrors the outcomes fn::resolve_fact can return (migration 0055).
+// The preflight must be able to predict every one of them, not the
+// 0006-era subset — otherwise detect_contradiction reports the wrong
+// outcome for corroboration and backdated ingests.
 export type IngestOutcome =
   | 'INSERTED'
+  | 'INSERTED_HISTORICAL'
+  | 'CORROBORATED'
   | 'SUPERSEDED'
   | 'COMPETING'
   | 'REJECTED';
+
+/**
+ * JS mirror of `fn::origin_key_of` (migration 0050) composed with
+ * `fn::source_key_of` (0022): the origin key is `source.originKey` when
+ * the writer set one (the document path stamps `doc:<contentHash>`),
+ * else `vertical:recorder` (recorder → `_` when absent), else the
+ * `system_seed` sentinel. Corroboration keys off this — the SAME claim
+ * from a DIFFERENT origin is independent confirmation.
+ */
+export function originKeyOf(source: unknown): string {
+  if (!source || typeof source !== 'object') return 'system_seed';
+  const s = source as {
+    originKey?: unknown;
+    vertical?: unknown;
+    recorder?: unknown;
+  };
+  if (s.originKey != null && s.originKey !== '') return String(s.originKey);
+  if (s.vertical == null || s.vertical === '') return 'system_seed';
+  const recorder =
+    s.recorder == null || s.recorder === '' ? '_' : String(s.recorder);
+  return `${String(s.vertical)}:${recorder}`;
+}
 
 export interface PredictResolveArgs {
   entityRef:

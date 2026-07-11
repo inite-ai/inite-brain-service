@@ -105,7 +105,7 @@ export class PredictScoringService {
   scoreBitemporal(
     candEmbedding: number[],
     overlapping: PriorRow[],
-  ): Array<{ opposing: OpposingFact; cosine: number; score: number }> {
+  ): Array<{ opposing: OpposingFact; cosine: number; score: number; row: PriorRow }> {
     const norm = vectorNorm(candEmbedding);
     return overlapping.map((p) => {
       const emb = Array.isArray(p.embedding) ? (p.embedding as number[]) : null;
@@ -122,13 +122,13 @@ export class PredictScoringService {
         },
         this.conflict,
       );
-      return { opposing: rowToOpposingFact(p), cosine, score };
+      return { opposing: rowToOpposingFact(p), cosine, score, row: p };
     });
   }
 
   predictBitemporal(
     candidateScore: number,
-    above: Array<{ opposing: OpposingFact; cosine: number; score: number }>,
+    above: Array<{ opposing: OpposingFact; cosine: number; score: number; row: PriorRow }>,
   ): Omit<PredictResolveResult, 'predicatePolicy'> {
     const top = above.reduce((acc, c) => (c.score > acc.score ? c : acc), above[0]);
     const gap = candidateScore - top.score;

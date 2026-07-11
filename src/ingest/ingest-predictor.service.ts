@@ -8,7 +8,9 @@ import {
   PredictResolveArgs,
   PredictResolveResult,
   PriorRow,
+  dateToIso,
   intervalsOverlap,
+  originKeyOf,
   rowToOpposingFact,
 } from './predictor-internals';
 import { makeRowPolicyFilter } from '../policy/row-filter';
@@ -26,10 +28,15 @@ export type {
  * Answers "if I were to record this fact right now, what would the
  * resolver decide?" without writing to the database. The decision is
  * approximated in JS using the same scoring weights, recency decay,
- * and policy semantics the server-side function uses — the fidelity
- * gap vs. the live resolver is bounded by (a) source_trust learning
- * (we use the seed table, not the per-tenant learned rate from
- * migration 0022) and (b) embedding cache misses (we re-embed).
+ * and policy semantics (INSERTED / INSERTED_HISTORICAL / CORROBORATED /
+ * SUPERSEDED / COMPETING / REJECTED, in the resolver's order) the
+ * server-side function uses. The fidelity gap vs. the live resolver is
+ * bounded by: (a) source_trust learning (we use the seed table, not the
+ * per-tenant learned rate from migration 0022); (b) embedding cache
+ * misses (we re-embed); (c) declared source authority (we score it as
+ * the neutral 0, so a high-authority source's margin is understated);
+ * and (d) the prior scan cap below — the resolver scans every active
+ * competitor, the preflight the most recent PRIOR_SCAN_CAP.
  *
  * Use as preflight from agent loops: "is the entity already
  * conflicted on this predicate?" or "would this fact be rejected
@@ -42,6 +49,15 @@ export type {
  * registry inputs and delegates the conflict-scoring decisions to
  * PredictScoringService.
  */
+/**
+ * How many recent active competitors the preflight scans. The live
+ * resolver scans every active competitor; this caps the advisory path's
+ * cost. Newest-first, so the strongest recency-weighted opponents are
+ * always in-window — a miss only occurs past this many co-active facts
+ * on one (entity, predicate), rare outside bitemporal firehoses.
+ */
+const PRIOR_SCAN_CAP = 100;
+
 @Injectable()
 export class IngestPredictionService {
   private readonly logger = new Logger(IngestPredictionService.name);
@@ -127,7 +143,7 @@ export class IngestPredictionService {
              AND status = 'active'
              AND userId IS NONE
            ORDER BY recordedAt DESC
-           LIMIT 25`,
+           LIMIT ${PRIOR_SCAN_CAP}`,
         { eid: tail, predicate: args.predicate },
       );
       const priors = ((rows as any[]) ?? []) as PriorRow[];
@@ -145,16 +161,29 @@ export class IngestPredictionService {
 
       const candidateScore = this.scoring.scoreCandidate(args);
 
-      if (candidateScore < this.scoring.conflict.rejectThreshold) {
+      // The decision below mirrors fn::resolve_fact's ORDER (migration
+      // 0055): reject (bitemporal only) → empty-competing INSERTED →
+      // CORROBORATED → INSERTED_HISTORICAL (single_active) → supersede/
+      // compete. Getting the order OR the semantics wrong makes the
+      // preflight report an outcome the real resolver would never pick.
+
+      // 1. Reject is bitemporal-ONLY. single_active/append_only never
+      // reject on a low score — they insert/supersede/append (0055:69
+      // guards the reject with `$semantics = 'bitemporal'`).
+      if (
+        policy.semantics === 'bitemporal' &&
+        candidateScore < this.scoring.conflict.rejectThreshold
+      ) {
         return {
           wouldOutcome: 'REJECTED',
           reasoning:
-            `Candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
+            `bitemporal predicate, candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
           opposingFacts: gate(priors.map(rowToOpposingFact)),
           predicatePolicy: policy,
         };
       }
 
+      // 2. append_only never has competing facts — always INSERTED.
       if (policy.semantics === 'append_only') {
         return {
           wouldOutcome: 'INSERTED',
@@ -165,48 +194,88 @@ export class IngestPredictionService {
         };
       }
 
-      const overlapping = priors.filter((p) =>
-        intervalsOverlap({
-          aFrom: new Date(p.validFrom),
-          aUntil: p.validUntil ? new Date(p.validUntil) : null,
-          bFrom: validFrom,
-          bUntil: args.validUntil ? new Date(args.validUntil) : null,
-        }),
-      );
+      // 3. Build the competing set the way the stored fn does: for
+      // single_active it is ALL active priors; for bitemporal it is the
+      // interval-overlapping priors that also clear the cosine threshold.
+      let competing: PriorRow[];
+      let bitemporalAbove:
+        | ReturnType<PredictScoringService['scoreBitemporal']>
+        | undefined;
+      if (policy.semantics === 'single_active') {
+        competing = priors;
+      } else {
+        const overlapping = priors.filter((p) =>
+          intervalsOverlap({
+            aFrom: new Date(p.validFrom),
+            aUntil: p.validUntil ? new Date(p.validUntil) : null,
+            bFrom: validFrom,
+            bUntil: args.validUntil ? new Date(args.validUntil) : null,
+          }),
+        );
+        bitemporalAbove = this.scoring
+          .scoreBitemporal(candEmbedding, overlapping)
+          .filter((c) => c.cosine >= this.scoring.conflict.similarityThreshold);
+        competing = bitemporalAbove.map((c) => c.row);
+      }
 
-      if (overlapping.length === 0) {
+      // 4. No competitor → clean insert.
+      if (competing.length === 0) {
         return {
           wouldOutcome: 'INSERTED',
-          reasoning: 'No existing fact overlaps the candidate validity interval.',
+          reasoning:
+            policy.semantics === 'single_active'
+              ? 'No existing active fact on this predicate; fact would be inserted.'
+              : `Overlapping facts exist but none clear the cosine similarity threshold ${this.scoring.conflict.similarityThreshold.toFixed(2)}; semantically distinct, no contradiction.`,
           opposingFacts: [],
           predicatePolicy: policy,
         };
       }
 
+      // 5. Corroboration: the SAME object from a DIFFERENT origin is
+      // independent confirmation, not a conflict (0055:147, keyed on
+      // origin_key_of, and it runs BEFORE the backdated guard). The new
+      // row is kept as `corroborating`; nothing is superseded.
+      const incomingOrigin = originKeyOf(args.source);
+      const corroborator = competing.find(
+        (c) => c.object === args.object && originKeyOf(c.source) !== incomingOrigin,
+      );
+      if (corroborator) {
+        return {
+          wouldOutcome: 'CORROBORATED',
+          reasoning: `Same object already recorded from a different origin (${originKeyOf(corroborator.source)} ≠ ${incomingOrigin}); the fact would corroborate the incumbent, not conflict.`,
+          opposingFacts: gate([rowToOpposingFact(corroborator)]),
+          predicatePolicy: policy,
+        };
+      }
+
+      // 6. Backdated guard (single_active only): a competitor with a
+      // STRICTLY NEWER validFrom means the incoming fact is history — it
+      // slots in already-superseded, the active timeline is untouched
+      // (0055:190).
       if (policy.semantics === 'single_active') {
-        const r = this.scoring.predictSingleActive(candidateScore, overlapping);
+        const newer = competing
+          .filter((c) => new Date(c.validFrom) > validFrom)
+          .sort((a, b) => new Date(a.validFrom).getTime() - new Date(b.validFrom).getTime());
+        if (newer.length > 0) {
+          return {
+            wouldOutcome: 'INSERTED_HISTORICAL',
+            reasoning: `A newer fact (validFrom ${dateToIso(newer[0].validFrom)}) already exists; the backdated candidate would be inserted as already-superseded history, not supersede the active fact.`,
+            opposingFacts: gate(newer.map(rowToOpposingFact)),
+            predicatePolicy: policy,
+          };
+        }
+      }
+
+      // 7. Supersede vs compete on the conflict score.
+      if (policy.semantics === 'single_active') {
+        const r = this.scoring.predictSingleActive(candidateScore, competing);
         return {
           ...r,
           opposingFacts: gate(r.opposingFacts),
           predicatePolicy: policy,
         };
       }
-
-      // bitemporal
-      const scored = this.scoring.scoreBitemporal(candEmbedding, overlapping);
-      const above = scored.filter(
-        (c) => c.cosine >= this.scoring.conflict.similarityThreshold,
-      );
-      if (above.length === 0) {
-        return {
-          wouldOutcome: 'INSERTED',
-          reasoning:
-            `Overlapping facts exist but none clear the cosine similarity threshold ${this.scoring.conflict.similarityThreshold.toFixed(2)}; semantically distinct, no contradiction.`,
-          opposingFacts: gate(scored.map((c) => c.opposing)),
-          predicatePolicy: policy,
-        };
-      }
-      const r = this.scoring.predictBitemporal(candidateScore, above);
+      const r = this.scoring.predictBitemporal(candidateScore, bitemporalAbove!);
       return {
         ...r,
         opposingFacts: gate(r.opposingFacts),
