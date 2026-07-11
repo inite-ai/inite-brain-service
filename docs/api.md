@@ -76,6 +76,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | `POST /v1/admin/maintenance/dreams/run` | Async kick of dreams (returns runId). |
 | `POST /v1/admin/maintenance/calibration-refit` | Async kick of calibration + source-trust refit. |
 | `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. |
+| `POST /v1/admin/maintenance/hnsw` | Per-tenant HNSW vector-index lifecycle: `{action: 'create' \| 'drop', tenant?}`. Synchronous. `create` refuses (`400`) when an index already exists at a different dimension — recover in order: drop → reindex embeddings → create. |
 | `GET /v1/admin/changefeed/state` | Consumer lag + per-(tenant, source) cursor table. |
 | `POST /v1/admin/changefeed/drain` | Manual drain of pending change events. |
 
