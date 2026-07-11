@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.2](https://github.com/inite-ai/inite-brain-service/compare/v0.6.1...v0.6.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* **documents:** audit wave F3 — async run-ledger reliability + external provenance ([#162](https://github.com/inite-ai/inite-brain-service/issues/162)) ([fc54552](https://github.com/inite-ai/inite-brain-service/commit/fc54552a31bab856d76925596bc3cde1e711a4f6))
+* **func:** audit wave F1 — dead leases page, limit&gt;20 cap, MCP pack parity, doc drift ([#160](https://github.com/inite-ai/inite-brain-service/issues/160)) ([140647b](https://github.com/inite-ai/inite-brain-service/commit/140647b17d3db694e887fefb2c35fdd13bad2f23))
+* **ingest:** audit wave F2 — detect_contradiction mirrors fn::resolve_fact (0055) ([#161](https://github.com/inite-ai/inite-brain-service/issues/161)) ([0c5c844](https://github.com/inite-ai/inite-brain-service/commit/0c5c8442daf7415c29a4d5ecc55a7fa875a02ebc))
+* **observability:** audit wave F4 — corroborate backlog, rerank metric, config catalogue, docs ([#163](https://github.com/inite-ai/inite-brain-service/issues/163)) ([38cbdb7](https://github.com/inite-ai/inite-brain-service/commit/38cbdb7689cb36bc1c0ef6b55f3896bb00a5519f))
+
 ## [0.6.1](https://github.com/inite-ai/inite-brain-service/compare/v0.6.0...v0.6.1) (2026-07-11)
 
 
