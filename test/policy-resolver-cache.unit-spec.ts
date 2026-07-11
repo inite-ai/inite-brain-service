@@ -41,8 +41,10 @@ function makeResolver(opts: {
     },
   } as unknown as SurrealService;
   const resolutionErrors: number[] = [];
+  const truncations: number[] = [];
   const metrics = {
     countPolicyResolutionError: () => resolutionErrors.push(1),
+    countPolicySetsTruncated: () => truncations.push(1),
   } as unknown as MetricsService;
   const config = new ConfigService({
     ABAC_ENABLED: '1',
@@ -50,7 +52,7 @@ function makeResolver(opts: {
     ...(opts.env ?? {}),
   });
   const resolver = new PolicyResolverService(surreal, metrics, config);
-  return { resolver, resolutionErrors, loads: () => queryCalls };
+  return { resolver, resolutionErrors, truncations, loads: () => queryCalls };
 }
 
 describe('PolicyResolverService', () => {
@@ -136,9 +138,9 @@ describe('PolicyResolverService', () => {
     expect(ctx!.forceReportOnly).toBe(true);
   });
 
-  it('caps referenced sets at 8', async () => {
+  it('caps referenced sets at 8 and records the fail-open truncation', async () => {
     const many = Array.from({ length: 12 }, (_, i) => `set-${i}`);
-    const { resolver } = makeResolver({
+    const { resolver, truncations } = makeResolver({
       policyRows: many.map((name) => ({
         name,
         mode: 'enforce',
@@ -147,5 +149,21 @@ describe('PolicyResolverService', () => {
     });
     const ctx = await resolver.contextFor('co_a', 'sha256:k', many);
     expect(ctx!.sets.length).toBeLessThanOrEqual(8);
+    // A dropped set may be a deny set — the overflow must not be silent.
+    expect(truncations).toHaveLength(1);
+  });
+
+  it('does not flag truncation when the set count is within the cap', async () => {
+    const few = Array.from({ length: 8 }, (_, i) => `set-${i}`);
+    const { resolver, truncations } = makeResolver({
+      policyRows: few.map((name) => ({
+        name,
+        mode: 'enforce',
+        document: { ...DOC, name },
+      })),
+    });
+    const ctx = await resolver.contextFor('co_a', 'sha256:k', few);
+    expect(ctx!.sets).toHaveLength(8);
+    expect(truncations).toHaveLength(0);
   });
 });

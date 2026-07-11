@@ -370,6 +370,15 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // A key resolved to MORE than MAX_SETS_PER_KEY distinct sets, so the
+  // overflow was dropped. Fail-OPEN: a dropped deny set weakens the
+  // key's posture. Non-zero means a binding needs pruning.
+  readonly policySetsTruncated = new Counter({
+    name: 'brain_policy_sets_truncated_total',
+    help: 'Keys whose resolved set list overflowed MAX_SETS_PER_KEY (sets dropped)',
+    registers: [this.registry],
+  });
+
   onModuleInit() {
     // Node defaults: GC, event-loop lag, memory, CPU. Cheap and useful.
     collectDefaultMetrics({ register: this.registry, prefix: 'brain_' });
@@ -591,6 +600,10 @@ export class MetricsService implements OnModuleInit {
 
   countPolicyResolutionError(): void {
     this.policyResolutionErrors.inc();
+  }
+
+  countPolicySetsTruncated(): void {
+    this.policySetsTruncated.inc();
   }
 
   async serialize(): Promise<{ contentType: string; body: string }> {

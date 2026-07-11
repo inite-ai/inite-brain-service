@@ -13,6 +13,9 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { policyFor } from '../ingest/conflict-resolver';
+import { getPolicyContext } from '../common/request-context';
+import { evaluateRow, toRowView } from '../policy/policy-engine';
+import type { PolicyContext } from '../policy/policy.types';
 import { DocumentStoreService } from './document-store.service';
 import {
   CandidateStoreService,
@@ -78,7 +81,11 @@ export class DocumentsController {
     );
     return {
       documentId: doc.id,
-      candidates: redactGatedCandidates(candidates, req.brainAuth.scopes),
+      candidates: redactGatedCandidates(
+        candidates,
+        req.brainAuth.scopes,
+        getPolicyContext() ?? null,
+      ),
     };
   }
 
@@ -99,15 +106,29 @@ export class DocumentsController {
  * that passesPolicy applies on the search path. Redact the `object` of any
  * fact candidate whose predicate requires a scope the caller doesn't hold;
  * the row (predicate, provenance) stays visible for the audit trail.
+ *
+ * Two gates, mirroring the committed-fact read seam (row-filter.ts): the
+ * always-on predicate scope gate, then the ABAC row verdict when the
+ * request carries a PolicyContext. A candidate is a PENDING extraction and
+ * carries no committed `source`, so only predicate/piiClass/posture rules
+ * can fire here — source.* deny conditions stay absent (no-match), which is
+ * correct: the fact's real source is only fixed at commit time.
  */
-function redactGatedCandidates(
+export function redactGatedCandidates(
   candidates: CandidateRow[],
   scopes: string[],
+  ctx: PolicyContext | null,
 ): CandidateRow[] {
   return candidates.map((c) => {
     if (c.kind !== 'fact') return c;
-    const requiresScope = policyFor(String(c.payload?.predicate ?? '')).requiresScope;
-    if (!requiresScope || scopes.includes(requiresScope)) return c;
+    const predicate = String(c.payload?.predicate ?? '');
+    const requiresScope = policyFor(predicate).requiresScope;
+    const scopeGated = !!requiresScope && !scopes.includes(requiresScope);
+    const abacDenied =
+      !!ctx &&
+      evaluateRow(ctx, toRowView({ predicate }, (p) => policyFor(p).piiClass))
+        .decision === 'deny';
+    if (!scopeGated && !abacDenied) return c;
     // Redact BOTH the extracted value and the verbatim grounding
     // sentence: `clause` is a quote from the source document and carries
     // the same PII the `object` does, so redacting object alone still

@@ -320,6 +320,12 @@ export class CommunityBuilderService {
     // every reader without brain:read_pii. Drop requiresScope predicates
     // at build time (over-fetch to 60 so the visible 40 stay full), and
     // pin to the tenant-global scope (personal facts never fold in).
+    //
+    // Per-caller ABAC row-rules can't apply here either: the summary is one
+    // pre-built blob shared across callers, not a set of rows evaluated at
+    // read time. The build-time PII/scope filter above is the enforceable
+    // approximation; a per-caller source-deny can't retro-scrub a baked
+    // summary. Documented limitation while DREAMS_COMMUNITIES matures.
     const summaryInput: FactToSummarize[] = (
       (factRows as RawFact[]) ?? []
     )

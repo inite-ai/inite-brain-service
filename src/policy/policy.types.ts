@@ -313,6 +313,18 @@ export const PolicyDocumentSchema = z
         message: `Policy document exceeds ${MAX_DOCUMENT_BYTES} bytes`,
       });
     }
+    // A window with activeFrom >= activeUntil never opens — the set would
+    // be permanently inert (compile-time drop), which fails OPEN. Reject
+    // it at write time rather than silently accept a dead policy.
+    if (doc.activeFrom && doc.activeUntil) {
+      if (new Date(doc.activeFrom).getTime() >= new Date(doc.activeUntil).getTime()) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'activeFrom must be strictly before activeUntil',
+          path: ['activeFrom'],
+        });
+      }
+    }
   });
 
 export type MatchCondition = z.infer<typeof MatchConditionSchema>;

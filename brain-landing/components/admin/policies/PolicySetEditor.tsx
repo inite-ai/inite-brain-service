@@ -21,6 +21,12 @@ interface Draft {
   description: string
   posture: { actions: 'allow' | 'deny'; reads: 'allow' | 'deny' }
   mode: PolicySet['mode']
+  // Round-tripped verbatim: the editor has no UI for temporal windows yet,
+  // but the save is a whole-document PUT replace — omitting these would
+  // silently ERASE an operator's activeFrom/activeUntil on every edit
+  // (and an erased activeUntil fails OPEN by reverting to the full scope).
+  activeFrom: string | null
+  activeUntil: string | null
   rules: PolicyRule[]
 }
 
@@ -30,6 +36,8 @@ function toDraft(s: PolicySet): Draft {
     description: s.description,
     posture: { ...s.posture },
     mode: s.mode,
+    activeFrom: s.activeFrom ?? null,
+    activeUntil: s.activeUntil ?? null,
     rules: s.rules.map((r) => ({ ...r, match: r.match?.map((c) => ({ ...c })) })),
   }
 }
