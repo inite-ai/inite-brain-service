@@ -576,6 +576,197 @@ export class ConfigInspectorService {
         runtimeMutable: false,
         isBooleanFlag: false,
       },
+      // ── ABAC (migrations 0056/0057) ──────────────────────────
+      {
+        key: 'ABAC_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Master switch for attribute-based access control. Off = the policy resolver never runs; keys behave byte-identically to pre-ABAC.',
+      },
+      {
+        key: 'ABAC_FORCE_REPORT_ONLY',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Emergency demote-all: every enforce set behaves report_only (logged, never blocks). Rollback lever for a bad policy.',
+      },
+      {
+        key: 'ABAC_DB_FENCE_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'DB-level PERMISSIONS PII fence (0057). Inert for the system-user pool — the app-layer JS filter is the enforcing gate.',
+      },
+      {
+        key: 'SOURCE_META_STRICT',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'On = ingest 400s on an invalid source.meta entry instead of dropping it (a silently-dropped data_class would widen access).',
+      },
+      {
+        key: 'POLICY_META_UNION_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Effective-meta union: a corroborated fact inherits its confirming documents’ meta for DENY evaluation (union = most restrictive).',
+      },
+      // ── Document pipeline (migrations 0048–0050) ─────────────
+      {
+        key: 'DOCUMENT_INGEST_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Master switch for POST /v1/ingest/document + the /v1/documents/* surface. Off = every route 503s.',
+      },
+      {
+        key: 'DOCUMENT_MULTI_INDEXER_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Dedicated per-pack indexer runs + relevance router + async fan-out. Off = only the generalist union pass runs.',
+      },
+      // ── Search: retrieval-evolution stages (migrations 0052–0055) ──
+      {
+        key: 'SEARCH_HNSW_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
+      },
+      {
+        key: 'SEARCH_QUERY_EXPANSION_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'LLM rewrites the query into N variants before search. Fails open to the raw query on error.',
+      },
+      {
+        key: 'SEARCH_USAGE_RECORDING_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description: 'Record lastReadAt on retrieved facts (feeds recency decay).',
+      },
+      {
+        key: 'SEARCH_USAGE_DECAY_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Count recency decay from lastReadAt, not only recordedAt (needs recording on for data).',
+      },
+      {
+        key: 'SEARCH_EDGE_EXPANSION_ENABLED',
+        category: 'search',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Graph-walk from top seeds to pull in 1-hop neighbours (default ON). Knobs: SEARCH_EDGE_EXPANSION_TOP_SEEDS/_MAX_NEIGHBOURS/_ALPHA.',
+      },
+      {
+        key: 'SEARCH_EDGE_EXPANSION_TOP_SEEDS',
+        category: 'search',
+        defaultValue: '3',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description: 'How many top-ranked seeds edge-expansion walks from.',
+      },
+      {
+        key: 'SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS',
+        category: 'search',
+        defaultValue: '5',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description: 'Max neighbours pulled per seed during edge-expansion.',
+      },
+      {
+        key: 'SEARCH_EDGE_EXPANSION_ALPHA',
+        category: 'search',
+        defaultValue: '0.4',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Inherited-score multiplier for an expanded neighbour (≤0.4 so a neighbour can never outrank its seed).',
+      },
+      {
+        key: 'SEARCH_HYPE_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Hypothetical-embedding (HyDE-style) alt-vector leg. Read side degrades cleanly when altEmbedding is absent.',
+      },
+      {
+        key: 'SEARCH_CROSS_ENCODER_LOCAL',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Run the local cross-encoder reranker (no Cohere key). Note: opting in enables the stage even with SEARCH_CROSS_ENCODER_ENABLED=0.',
+      },
+      // ── Dreams: corroboration + communities ──────────────────
+      {
+        key: 'DREAMS_CORROBORATE_ENABLED',
+        category: 'dreams',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Fuzzy cross-source corroboration (cosine-close facts confirm each other). Bounded by DREAMS_CORROBORATE_MAX_PAIRS per run.',
+      },
+      {
+        key: 'DREAMS_COMMUNITIES_ENABLED',
+        category: 'dreams',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description: 'Build + persist entity-community summaries during dreams.',
+      },
+      // ── Compaction: promotion ────────────────────────────────
+      {
+        key: 'COMPACTION_PROMOTION_ENABLED',
+        category: 'compaction',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Promote old corroborated append_only fact groups into a durable summary. Bounded by COMPACTION_PROMOTION_MAX_GROUPS per run.',
+      },
+      // ── Jobs ─────────────────────────────────────────────────
+      {
+        key: 'JOBS_QUEUE_MODE',
+        category: 'jobs',
+        defaultValue: 'enqueue',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Where background jobs run: enqueue (durable worker loop, default) vs inline (in-process).',
+      },
     ];
   }
 }

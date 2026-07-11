@@ -121,6 +121,13 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
+  // ── Edge expansion (default-ON retrieval stage) ────────────────────
+  // Bad values silently fell back to defaults; the numeric knobs are now
+  // boot-validated like the rest of the search stack.
+  positiveInt(env, 'SEARCH_EDGE_EXPANSION_TOP_SEEDS', errors);
+  positiveInt(env, 'SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS', errors);
+  nonNegativeFloat(env, 'SEARCH_EDGE_EXPANSION_ALPHA', errors);
+
   // ── ABAC policy knobs ──────────────────────────────────────────────
 validateAbacEnv(env, errors);
 

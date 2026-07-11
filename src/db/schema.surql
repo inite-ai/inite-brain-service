@@ -1,5 +1,15 @@
 -- INITE Brain Service — per-tenant database schema
 --
+-- ⚠️ REFERENCE ONLY — NOT the source of truth and NOT applied at runtime.
+-- The runtime schema is the ordered migrations in src/db/migrations/
+-- (0001…), tracked in `schema_migrations` (see src/db/migrator.service.ts).
+-- This file documents the CORE knowledge tables only; tables added by later
+-- migrations (procedural_memory, communities, domain/registry packs,
+-- source_trust/registry, source_document/indexer_run/candidate,
+-- retrieval_feedback, per-user scope, access_policy/policy_binding/
+-- policy_decision, the DB fence) are NOT reproduced here. Read the
+-- migrations for the authoritative shape.
+--
 -- Conformance: inite-ecosystem/core/services/brain.yaml + core/capabilities/knowledge.yaml
 -- Applied per tenant: NS=brain DB=co_<companyId>
 --

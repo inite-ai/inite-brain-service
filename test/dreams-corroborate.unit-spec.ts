@@ -199,4 +199,19 @@ describe('DreamsCorroborateService', () => {
     } as never);
     expect(out.groupsConsidered).toBe(0);
   });
+
+  it('windows the group set and reports the true backlog', async () => {
+    const { svc, db } = makeService();
+    // 45 eligible groups > the 40-wide window (maxPairs*2). Members share an
+    // origin so nothing corroborates — we only assert the windowing counts.
+    const groups = Array.from({ length: 45 }, (_, i) => ({
+      entityId: `knowledge_entity:e${i}`,
+      predicate: 'claim_probe',
+    }));
+    const a = fact({ originKey: 'doc:same' });
+    const b = fact({ originKey: 'doc:same', recordedAt: '2026-06-02T00:00:00Z' });
+    const out = await svc.run(db(groups, [a, b]) as never);
+    expect(out.groupsConsidered).toBe(40); // window
+    expect(out.groupBacklog).toBe(45); // true eligible depth surfaced
+  });
 });

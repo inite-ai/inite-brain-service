@@ -53,7 +53,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/facts/:id/retract` | Mark a fact retracted with reason; survives in audit trail. |
-| `POST /v1/feedback` | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. Also on MCP as `record_feedback`. |
+| `POST /v1/feedback` | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. **Affects the SOURCE's trust for facts ingested AFTER the refit — it does not demote the flagged fact or the existing corpus** (ranking reads each fact's write-time trust snapshot). Also on MCP as `record_feedback`. |
 | `POST /v1/entities/:id/forget` | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained. |
 | `POST /v1/users/:userId/forget` | GDPR erasure of one end-user's memory scope (migration 0055): personal facts (incl. those on shared entities), personal entities + edges + dedup refs, usage/feedback rows, audit mirror. |
 
@@ -76,6 +76,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | `POST /v1/admin/maintenance/dreams/run` | Fire-and-forget kick of dreams; returns `{accepted, jobType, companyId}` (no runId — poll `GET /v1/admin/maintenance/dreams/runs/:runId/emits` for a specific run). |
 | `POST /v1/admin/maintenance/calibration-refit` | Async kick of calibration + source-trust refit. |
 | `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. |
+| `POST /v1/admin/maintenance/compaction` | Fire-and-forget kick of the compaction (+promotion) pass. |
 | `POST /v1/admin/maintenance/hnsw` | Per-tenant HNSW vector-index lifecycle: `{action: 'create' \| 'drop', tenant?}`. Synchronous. `create` refuses (`400`) when an index already exists at a different dimension — recover in order: drop → reindex embeddings → create. |
 | `GET /v1/admin/changefeed/state` | Consumer lag + per-(tenant, source) cursor table. |
 | `POST /v1/admin/changefeed/drain` | Manual drain of pending change events. |
