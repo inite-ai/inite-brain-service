@@ -20,7 +20,7 @@ const tenantDb = {
         ],
       ];
     }
-    if (sql.includes('duration::from::days')) {
+    if (sql.includes('duration::from_days')) {
       const days = params?.days as number;
       return [[{ n: days === 30 ? 6 : days === 90 ? 4 : 1 }]];
     }

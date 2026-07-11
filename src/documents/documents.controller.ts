@@ -108,9 +108,16 @@ function redactGatedCandidates(
     if (c.kind !== 'fact') return c;
     const requiresScope = policyFor(String(c.payload?.predicate ?? '')).requiresScope;
     if (!requiresScope || scopes.includes(requiresScope)) return c;
-    return {
-      ...c,
-      payload: { ...c.payload, object: '[redacted]', redacted: true },
+    // Redact BOTH the extracted value and the verbatim grounding
+    // sentence: `clause` is a quote from the source document and carries
+    // the same PII the `object` does, so redacting object alone still
+    // leaked the value through the citation.
+    const redactedPayload: Record<string, unknown> = {
+      ...c.payload,
+      object: '[redacted]',
+      redacted: true,
     };
+    if ('clause' in redactedPayload) redactedPayload.clause = '[redacted]';
+    return { ...c, payload: redactedPayload };
   });
 }

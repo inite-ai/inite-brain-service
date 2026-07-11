@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 
 /**
  * memory_diff — return everything brain learned (and unlearned) between
@@ -46,12 +47,18 @@ export class MemoryDiffService {
       throw new Error('memory_diff: from must be strictly before to');
     }
 
-    // Scoped pool, not root: the diff SELECTs fact `object` values, so it
-    // must sit behind the same DB-level PII fence ($caller_scopes,
-    // migration 0005) as every other read surface — memory_diff is
-    // MCP-only and used to be the one read that bypassed it.
+    // The diff SELECTs fact `object` values, so it must run the same
+    // app-layer gate as every other read surface: the DB-level PII fence
+    // (migration 0005) is inert for the system-user pool (verified in
+    // test/abac-db-fence.e2e-spec.ts), so the scoped pool alone leaks —
+    // the JS filter (requiresScope PII gate + ABAC row rules) is the only
+    // working gate. Rows the caller may not see never enter the result.
     return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const scoping = buildScoping(args);
+      const rowFilter = makeRowPolicyFilter({
+        callerScopes,
+        surface: 'memory_diff',
+      });
 
       // CREATED: facts whose recordedAt landed in [from, to). We don't
       // care whether they were later retracted — at the moment of
@@ -100,15 +107,17 @@ export class MemoryDiffService {
         { from, to },
       );
 
-      const createdFacts: FactRef[] = ((createdRows as any[]) ?? []).map(
-        rowToFactRef,
-      );
+      const createdFacts: FactRef[] = ((createdRows as any[]) ?? [])
+        .filter((r) => rowFilter.filter(r))
+        .map(rowToFactRef);
       const retracted: Array<FactRef & { supersededBy?: string }> = (
         (retractedRows as any[]) ?? []
-      ).map((r) => ({
-        ...rowToFactRef(r),
-        supersededBy: r.supersededBy ? String(r.supersededBy) : undefined,
-      }));
+      )
+        .filter((r) => rowFilter.filter(r))
+        .map((r) => ({
+          ...rowToFactRef(r),
+          supersededBy: r.supersededBy ? String(r.supersededBy) : undefined,
+        }));
 
       // Partition the retract bucket: rows with supersededBy are
       // "changed" — replacement story; rows without supersededBy are
@@ -162,7 +171,7 @@ export class MemoryDiffService {
           { tail },
         );
         const r = (afterRows as any[])?.[0];
-        if (r) {
+        if (r && rowFilter.filter(r)) {
           const ref = rowToFactRef(r);
           replacementMap.set(ref.factId, ref);
         }
@@ -196,6 +205,8 @@ export class MemoryDiffService {
         forgottenAt: toIso(r.forgottenAt),
       }));
 
+      rowFilter.finish();
+
       this.logger.log(
         `[memory.diff] companyId=${companyId} window=${from.toISOString()}..${to.toISOString()} ` +
           `created=${netCreated.length} retracted=${retractedFacts.length} ` +
@@ -218,7 +229,7 @@ export class MemoryDiffService {
 
 const FACT_FIELDS =
   'id, entityId, predicate, object, confidence, validFrom, validUntil, ' +
-  'recordedAt, retractedAt';
+  'recordedAt, retractedAt, userId, source, trustSnapshot, corroboration';
 
 interface ScopingClauses {
   factClause: string;

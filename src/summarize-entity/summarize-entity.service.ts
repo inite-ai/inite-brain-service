@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { EntitiesService } from '../entities/entities.service';
 import { BrainScope } from '../auth/api-key.types';
+import { getPolicyContext } from '../common/request-context';
 
 /**
  * summarize_entity — one-liner-per-entity surface for LLM context.
@@ -47,7 +48,7 @@ export class SummarizeEntityService {
     args: SummarizeArgs,
     scopes: BrainScope[],
   ): Promise<SummarizeResult> {
-    const cacheKey = buildCacheKey(companyId, args);
+    const cacheKey = buildCacheKey(companyId, args, scopes);
     // Freshness probe FIRST — one cheap indexed aggregate. Its wall-clock
     // watermark decides whether a cache hit is still valid.
     const watermark = await this.entities.freshnessWatermark({
@@ -138,10 +139,24 @@ function isStale(
   return (builtWatermark ?? '') !== (currentWatermark ?? '');
 }
 
-function buildCacheKey(companyId: string, args: SummarizeArgs): string {
+function buildCacheKey(
+  companyId: string,
+  args: SummarizeArgs,
+  scopes: readonly BrainScope[],
+): string {
   const asOf = args.asOf ?? 'now';
   const style = args.styleHint ?? 'neutral';
-  const raw = `${companyId}::${args.entityId}::${asOf}::${style}`;
+  // The rendered summary bakes in the exact facts getProfile returned,
+  // which depend on the caller's VISIBILITY: the scope set (the PII gate)
+  // and, when ABAC is on, the key's policy (its keyHash identity). Two
+  // callers with different visibility must never share a cache entry —
+  // otherwise a read_pii summary is served to a brain:read key. Fold both
+  // axes into the key. Absent policy context (ABAC off) → scopes decide.
+  const visibility =
+    [...scopes].sort().join(',') +
+    '::' +
+    (getPolicyContext()?.keyHash ?? 'no-policy');
+  const raw = `${companyId}::${args.entityId}::${asOf}::${style}::${visibility}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 

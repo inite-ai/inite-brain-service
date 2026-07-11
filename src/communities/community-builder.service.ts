@@ -14,6 +14,7 @@ import {
   buildAdjacency,
   labelPropagation,
 } from './label-propagation';
+import { policyFor } from '../ingest/conflict-resolver';
 
 /**
  * CommunityBuilderService — clusters the tenant's entity graph into
@@ -286,7 +287,8 @@ export class CommunityBuilderService {
 
     // Member display names — label off the first, summary lists the rest.
     const [nameRows] = await db.query<[Array<{ id: unknown; canonicalName: string }>]>(
-      `SELECT id, canonicalName FROM knowledge_entity WHERE id INSIDE $ids`,
+      `SELECT id, canonicalName FROM knowledge_entity
+         WHERE id INSIDE $ids AND userId IS NONE`,
       { ids: ridSample },
     );
     const names = (nameRows as Array<{ id: unknown; canonicalName: string }>) ?? [];
@@ -307,20 +309,30 @@ export class CommunityBuilderService {
          WHERE entityId INSIDE $ids
            AND status = 'active'
            AND retractedAt IS NONE
+           AND userId IS NONE
          ORDER BY confidence DESC, validFrom ASC, predicate ASC, object ASC
-         LIMIT 40`,
+         LIMIT 60`,
       { ids: ridSample },
     );
+    // The community summary is persisted and read tenant-wide with only
+    // brain:read — it can carry no per-caller redaction. So a PII-classed
+    // fact's `object` (address/dob) baked into the summary would leak to
+    // every reader without brain:read_pii. Drop requiresScope predicates
+    // at build time (over-fetch to 60 so the visible 40 stay full), and
+    // pin to the tenant-global scope (personal facts never fold in).
     const summaryInput: FactToSummarize[] = (
       (factRows as RawFact[]) ?? []
-    ).map((f) => ({
-      factId: String(f.entityId),
-      predicate: f.predicate,
-      object: f.object,
-      validFrom: toIso(f.validFrom),
-      validUntil: f.validUntil ? toIso(f.validUntil) : undefined,
-      confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
-    }));
+    )
+      .filter((f) => !policyFor(f.predicate).requiresScope)
+      .slice(0, 40)
+      .map((f) => ({
+        factId: String(f.entityId),
+        predicate: f.predicate,
+        object: f.object,
+        validFrom: toIso(f.validFrom),
+        validUntil: f.validUntil ? toIso(f.validUntil) : undefined,
+        confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
+      }));
     return { label, summaryInput };
   }
 
