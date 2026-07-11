@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.1](https://github.com/inite-ai/inite-brain-service/compare/v0.6.0...v0.6.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **hnsw:** refuse create on a stale-dimension index + document drop-first recovery ([#158](https://github.com/inite-ai/inite-brain-service/issues/158)) ([efaa6ea](https://github.com/inite-ai/inite-brain-service/commit/efaa6ea82e2890bf0d41fd99a3608b78a03ce37c))
+* **security:** audit wave A — dead nightly cron + phantom-fence PII leaks + artifact scope ([#154](https://github.com/inite-ai/inite-brain-service/issues/154)) ([c32c4c8](https://github.com/inite-ai/inite-brain-service/commit/c32c4c825408715c5b15068719811d8d78f1dce4))
+* **security:** audit wave B — feedback trust farming, source.meta bypass, entity scope collision ([#156](https://github.com/inite-ai/inite-brain-service/issues/156)) ([18fd8eb](https://github.com/inite-ai/inite-brain-service/commit/18fd8eb141a019d3f987fd0924254601de059f49))
+* **security:** audit wave C — ABAC behind-flag hardening (meta-union, resolver, windows, candidates) ([#157](https://github.com/inite-ai/inite-brain-service/issues/157)) ([7153a61](https://github.com/inite-ai/inite-brain-service/commit/7153a61f10440c7d0ac89ab9e1ac06ec676b7ff2))
+
 ## [0.6.0](https://github.com/inite-ai/inite-brain-service/compare/v0.5.0...v0.6.0) (2026-07-10)
 
 
