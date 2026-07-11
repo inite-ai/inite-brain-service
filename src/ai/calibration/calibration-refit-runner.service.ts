@@ -191,13 +191,17 @@ export class CalibrationRefitRunnerService {
       );
       // Retrieval feedback (migration 0054) joins the same win/loss
       // currency: 'helpful' confirms the source, 'incorrect' counts
-      // against it. One standing vote per (fact, caller key) is enforced
-      // at write time (UNIQUE index), so a single consumer can't farm
-      // its own source's rate. 'not_helpful' is a relevance signal, not
-      // a reliability one — excluded here by the WHERE.
+      // against it. The UNIQUE (factId, actor) write index stops stacking
+      // votes on ONE fact, but a single actor can still vote across every
+      // fact of a source (factIds are enumerable from search) and farm N
+      // losses/wins into one (source, predicate) rate. buildFeedbackTrust-
+      // Events dedups per (actor, scope, verdict) to cap that at one, so
+      // only DISTINCT callers move a source's rate — `actor` is projected
+      // for that. 'not_helpful' is a relevance signal, excluded by WHERE.
       const [feedbackRows] = await db.query<
         [
           Array<{
+            actor: string | null;
             vertical: string | null;
             recorder: string | null;
             predicate: string;
@@ -207,6 +211,7 @@ export class CalibrationRefitRunnerService {
         ]
       >(
         `SELECT
+            actor,
             factId.source.vertical AS vertical,
             factId.source.recorder AS recorder,
             factId.predicate AS predicate,
@@ -454,6 +459,7 @@ export function buildTrustEvents(
 }
 
 export interface FeedbackEventRow {
+  actor: string | null;
   vertical: string | null;
   recorder: string | null;
   predicate: string;
@@ -466,16 +472,27 @@ export interface FeedbackEventRow {
  * the fact-status events use: 'helpful' = win, 'incorrect' = loss.
  * 'not_helpful' rows never reach here (filtered in the query) — an
  * irrelevant retrieval says nothing about the source's reliability.
- * Exported for unit tests, same as buildTrustEvents.
+ *
+ * Anti-farming dedup (mirrors buildTrustEvents' corroboration dedup): a
+ * single actor's verdict counts at most ONCE per (sourceKey, domain,
+ * verdict). Without it, one write key voting 'incorrect' across all N of
+ * a source's facts would inject N losses and drag its learned rate down
+ * (or 'helpful' to inflate). Distinct actors still each count — that is
+ * genuine crowd signal. Exported for unit tests, same as buildTrustEvents.
  */
 export function buildFeedbackTrustEvents(
   rows: ReadonlyArray<FeedbackEventRow>,
 ): TrustEvent[] {
+  const seen = new Set<string>();
   const events: TrustEvent[] = [];
   for (const r of rows) {
     if (r.verdict !== 'helpful' && r.verdict !== 'incorrect') continue;
+    const sourceKey = `${r.vertical}:${r.recorder ?? '_'}`;
+    const dedupKey = `${r.actor ?? '_'} ${sourceKey} ${r.predicate} ${r.verdict}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
     events.push({
-      sourceKey: `${r.vertical}:${r.recorder ?? '_'}`,
+      sourceKey,
       domain: r.predicate,
       win: r.verdict === 'helpful' ? 1 : 0,
       loss: r.verdict === 'incorrect' ? 1 : 0,

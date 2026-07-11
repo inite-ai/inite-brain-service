@@ -51,7 +51,13 @@ export class EntityUpsertService {
     // another user's) for the same (vertical, id). Fold the scope into the
     // key and stamp it on the minted entity.
     const baseKey = externalRefKey(ref.vertical, ref.id);
-    const refKey = userId ? `${baseKey}__u__${userId}` : baseKey;
+    // Scope separator MUST be a byte externalRefKey never emits, or a
+    // dotted id folds into the marker and a tenant-global ref collides
+    // with a user-scoped one (e.g. global "x.u.bob" → "x__u__bob" ==
+    // scoped ("x", user "bob") under the old "__u__" marker — no crafted
+    // input needed). externalRefKey only ever produces [word]/`__`, never
+    // a colon, so "::u::" cannot be forged from the (vertical, id) side.
+    const refKey = userId ? `${baseKey}::u::${userId}` : baseKey;
     return this.upsertEntityByExternalRef(db, refKey, () => ({
       type: 'other',
       canonicalName: ref.id,
@@ -126,10 +132,17 @@ export class EntityUpsertService {
     // name canonicalisation is heuristic. Identity merge via
     // ingestLink consolidates downstream.
     const target = (e.canonical ?? e.name).toLowerCase();
+    // This is the tenant-GLOBAL naming path (mention/document ingest never
+    // stamps a userId). Pin `userId IS NONE` so a same-named PERSONAL
+    // entity never matches — otherwise global facts attach to a user's
+    // private entity and leak its identity (externalRefs, canonicalName)
+    // onto the global surface. Mirrors the scope fence on the embedding
+    // resolver (entity-resolver.service.ts).
     const [nRows] = await db.query<any[][]>(
       `SELECT id FROM knowledge_entity
-       WHERE canonicalNameLc = $name
-          OR aliases CONTAINS $rawName
+       WHERE (canonicalNameLc = $name
+          OR aliases CONTAINS $rawName)
+          AND userId IS NONE
        LIMIT 1`,
       { name: target, rawName: e.name },
     );

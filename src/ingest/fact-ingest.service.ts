@@ -64,8 +64,17 @@ export class FactIngestService {
     // `source.meta.*` rules match direct facts like document-derived
     // ones. Sanitized to operator vocabulary; SOURCE_META_STRICT=1
     // turns drops into a 400 instead of a warn.
-    if (dto.metadata !== undefined) {
-      const { meta, dropped } = sanitizeSourceMeta(dto.metadata);
+    //
+    // A caller can also put meta directly on `dto.source.meta` — that copy
+    // above carries it verbatim, so it MUST go through the same sanitizer,
+    // else it is an unfiltered write to the ABAC match surface (and to the
+    // read responses that echo `source`). dto.metadata is the documented
+    // channel and wins; a raw source.meta is sanitized as a fallback.
+    const rawSourceMeta = source.meta;
+    delete source.meta;
+    const metaInput = dto.metadata ?? rawSourceMeta;
+    if (metaInput !== undefined) {
+      const { meta, dropped } = sanitizeSourceMeta(metaInput);
       if (dropped.length > 0) {
         if (envFlagEnabled(process.env.SOURCE_META_STRICT)) {
           throw new BadRequestException({
