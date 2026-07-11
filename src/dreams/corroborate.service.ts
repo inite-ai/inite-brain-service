@@ -54,7 +54,12 @@ export interface CorroborationApplied {
 }
 
 export interface CorroborateResult {
+  /** Candidate groups examined this run (≤ the window). */
   groupsConsidered: number;
+  /** Total eligible groups BEFORE the per-run window — the true backlog.
+   *  groupBacklog > groupsConsidered means the run left work on the table
+   *  (bounded by DREAMS_CORROBORATE_MAX_PAIRS); watch it trend down. */
+  groupBacklog: number;
   pairsConsidered: number;
   llmJudgements: number;
   corroborationsApplied: number;
@@ -138,6 +143,7 @@ export class DreamsCorroborateService {
   async run(db: Surreal): Promise<CorroborateResult> {
     const result: CorroborateResult = {
       groupsConsidered: 0,
+      groupBacklog: 0,
       pairsConsidered: 0,
       llmJudgements: 0,
       corroborationsApplied: 0,
@@ -146,10 +152,20 @@ export class DreamsCorroborateService {
     };
     if (!this.isEnabled()) return result;
 
-    const groups = await withSpan('dreams.corroborate.find_groups', () =>
-      this.findCandidateGroups(db),
+    const { groups, backlog } = await withSpan(
+      'dreams.corroborate.find_groups',
+      () => this.findCandidateGroups(db),
     );
     result.groupsConsidered = groups.length;
+    result.groupBacklog = backlog;
+    if (backlog > groups.length) {
+      // The window is bounded by maxPairs*2; anything past it waits for a
+      // later run. Surface the depth so a persistent backlog is visible
+      // instead of silently draining ~maxPairs/night.
+      this.logger.warn(
+        `[dreams.corroborate] ${backlog} eligible groups, only ${groups.length} in this run's window — backlog draining at ≤${this.maxPairs}/run`,
+      );
+    }
 
     for (const group of groups) {
       if (result.corroborationsApplied >= this.maxPairs) break;
@@ -192,10 +208,20 @@ export class DreamsCorroborateService {
     return result;
   }
 
-  /** (entityId, predicate) groups holding ≥2 active embedded facts. */
+  /**
+   * (entityId, predicate) groups holding ≥2 active embedded facts, in a
+   * DETERMINISTIC order (most-populated first, then a stable id tiebreak).
+   * Without an explicit order the window was arbitrary SurrealDB storage
+   * order, so which groups got corroborated each night was non-deterministic
+   * and a group could be starved indefinitely. Returns the windowed slice
+   * plus the true eligible backlog so the caller can surface the depth.
+   */
   private async findCandidateGroups(
     db: Surreal,
-  ): Promise<Array<{ entityId: unknown; predicate: string }>> {
+  ): Promise<{
+    groups: Array<{ entityId: unknown; predicate: string }>;
+    backlog: number;
+  }> {
     const [rows] = await db.query<
       [Array<{ entityId: unknown; predicate: string; n: number }>]
     >(
@@ -204,10 +230,18 @@ export class DreamsCorroborateService {
          AND userId IS NONE
        GROUP BY entityId, predicate`,
     );
-    return ((rows as Array<{ entityId: unknown; predicate: string; n: number }>) ?? [])
+    const eligible = (
+      (rows as Array<{ entityId: unknown; predicate: string; n: number }>) ?? []
+    )
       .filter((g) => g.n >= 2 && g.n <= MAX_GROUP_SIZE)
       .filter((g) => policyFor(g.predicate).semantics === 'bitemporal')
-      .slice(0, this.maxPairs * 2);
+      .sort((a, b) => {
+        if (b.n !== a.n) return b.n - a.n; // most-conflicted first
+        const ka = `${String(a.entityId)} ${a.predicate}`;
+        const kb = `${String(b.entityId)} ${b.predicate}`;
+        return ka < kb ? -1 : ka > kb ? 1 : 0; // stable tiebreak
+      });
+    return { groups: eligible.slice(0, this.maxPairs * 2), backlog: eligible.length };
   }
 
   private async fetchGroupMembers(

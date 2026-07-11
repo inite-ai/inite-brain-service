@@ -40,7 +40,7 @@ export interface MemoryQualitySnapshot {
  *   - ingest_facts_total{outcome}             — INSERTED|SUPERSEDED|COMPETING|REJECTED
  *   - ingest_mentions_total{result}           — extracted|skipped|failed
  *   - search_duration_seconds                 — histogram, buckets tuned for ~ms-to-1s
- *   - search_rerank_total{outcome}            — invoked|skipped_disabled|skipped_singleton|skipped_margin
+ *   - search_rerank_total{outcome}            — invoked|error|skipped_disabled|skipped_singleton|skipped_margin
  *   - search_cross_encoder_total{outcome}     — invoked|error|skipped_disabled|skipped_singleton
  *   - synthesize_total{outcome}               — ok|no_results|no_grounded_evidence|verifier_partial|verifier_failed|generator_error|verifier_error
  *   - multi_hop_total{outcome}                — ok|single_hop|chain_empty|no_results|planner_error|hop_error
@@ -399,6 +399,7 @@ export class MetricsService implements OnModuleInit {
   countRerank(
     outcome:
       | 'invoked'
+      | 'error'
       | 'skipped_disabled'
       | 'skipped_singleton'
       | 'skipped_margin',

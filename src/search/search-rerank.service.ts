@@ -210,6 +210,12 @@ export class SearchRerankService {
       : undefined;
 
     const identityPerm = rerankInputs.map((_, i) => i);
+    // Distinguish a budget-timeout fallback (returns identityPerm) from the
+    // reranker genuinely returning an unchanged order — mirroring the
+    // cross-encoder path. The old code inferred the outcome from an
+    // identity permutation, mislabelling BOTH a legitimate no-op rerank AND
+    // a timeout as 'skipped_disabled', so rerank timeouts were invisible.
+    let timedOut = false;
     const permutation = await withSpan(
       'search.rerank',
       () =>
@@ -219,11 +225,13 @@ export class SearchRerankService {
           fn: () => this.reranker.rerank(ctx.dto.query, rerankInputs, hints),
           fallback: identityPerm,
           logger: this.logger,
+          onFallback: () => {
+            timedOut = true;
+          },
         }),
       { 'rerank.candidates': rerankInputs.length },
     );
-    const isIdentity = permutation.every((idx, i) => idx === i);
-    this.metrics?.countRerank(isIdentity ? 'skipped_disabled' : 'invoked');
+    this.metrics?.countRerank(timedOut ? 'error' : 'invoked');
     return permutation.map((i) => candidatesForRerank[i]);
   }
 }

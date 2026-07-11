@@ -83,7 +83,11 @@ by a policy — ABAC can only narrow further.
 2. **Row gate** — `makeRowPolicyFilter` (src/policy/row-filter.ts) applied on
    every read surface: search fusion + edge expansion + backfill,
    `graph_retrieve`, competing facts, entity profile/timeline/connections
-   (edges evaluate with `predicate = kind`), code-memory recall. The filter
+   (edges evaluate with `predicate = kind`), code-memory recall,
+   `memory_diff`, `detect_contradiction` (its opposing facts), and the
+   document candidates audit view. The persisted community summaries carry a
+   build-time PII/scope filter instead (one shared blob can't take per-caller
+   row rules). The filter
    reads the request's `PolicyContext` from AsyncLocalStorage (stamped by the
    guard) — no signature threading, MCP and REST share the path. Search legs
    already project `source`/`trustSnapshot`/`corroboration`, so evaluation
@@ -125,6 +129,7 @@ deleted-set races. Alert on the metric.
 | `brain_policy_eval_seconds` | per-request row-evaluation latency (histogram, buckets from 50 µs). |
 | `brain_policy_resolution_errors_total` | fail-closed events — non-zero pages an operator. |
 | `brain_policy_sets_active` | enabled sets across tenants (nightly gauge). |
+| `brain_policy_sets_truncated_total` | a key resolved to more than `MAX_SETS_PER_KEY` (8) sets and the overflow was dropped — **fails open** (a dropped set may be the deny set). Non-zero means a binding/claim needs pruning. |
 
 ## DB-level fence status (migration 0057)
 
