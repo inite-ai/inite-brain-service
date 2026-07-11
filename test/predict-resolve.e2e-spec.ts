@@ -2,12 +2,13 @@
  * IngestPredictionService.predict — integration smoke
  *
  * The predictor is a JS-side dry-run of fn::resolve_fact. We exercise
- * each branch of the decision tree against a real DB:
+ * each branch of the decision tree against a real DB, in the resolver's
+ * order (migration 0055):
  *   - Unknown entity → INSERTED
- *   - Below reject threshold → REJECTED
- *   - append_only predicate → INSERTED (no conflict by policy)
+ *   - single_active low score → NEVER REJECTED (reject is bitemporal-only)
+ *   - same object, different origin → CORROBORATED
+ *   - backdated single_active candidate → INSERTED_HISTORICAL
  *   - single_active with overlapping prior → SUPERSEDED or COMPETING
- *   - bitemporal with non-overlapping valid-time → INSERTED
  *
  * No writes happen via predict — we assert the DB row count stays put.
  */
@@ -124,15 +125,65 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       confidence: 0,
       source: { vertical: 'rent' },
     }, ['brain:read', 'brain:read_pii']);
-    // We can't bank on REJECTED across all envs, but we can assert
-    // the predictor returned ONE of the four canonical outcomes and
-    // included a reasoning string. The dedicated REJECTED branch is
-    // unit-tested in the predictor's score-math (covered indirectly
-    // via the IngestService scoreFact tests).
-    expect(['INSERTED', 'SUPERSEDED', 'COMPETING', 'REJECTED']).toContain(
-      out.wouldOutcome,
-    );
+    // `name` is single_active — the reject gate is bitemporal-ONLY in
+    // fn::resolve_fact (0055), so a low score here must NEVER report
+    // REJECTED (the old predictor wrongly rejected every semantics). It
+    // resolves to a supersede/compete verdict instead.
+    expect(out.wouldOutcome).not.toBe('REJECTED');
+    expect(['SUPERSEDED', 'COMPETING', 'INSERTED']).toContain(out.wouldOutcome);
     expect(out.reasoning.length).toBeGreaterThan(0);
+  });
+
+  it('same object from a DIFFERENT origin → CORROBORATED', async () => {
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'predict_corrob_subj' },
+        predicate: 'name',
+        object: 'Corroborated Name',
+        validFrom: '2026-01-01T00:00:00Z',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'source_a' },
+      });
+
+    const predictor = f.app.get(IngestPredictionService);
+    const out = await predictor.predict(f.companyId, {
+      entityRef: { vertical: 'rent', id: 'predict_corrob_subj' },
+      predicate: 'name',
+      object: 'Corroborated Name', // SAME object
+      validFrom: '2026-02-01T00:00:00Z',
+      confidence: 0.9,
+      source: { vertical: 'rent', recorder: 'source_b' }, // DIFFERENT origin
+    }, ['brain:read', 'brain:read_pii']);
+    expect(out.wouldOutcome).toBe('CORROBORATED');
+    expect(out.opposingFacts[0]?.object).toBe('Corroborated Name');
+  });
+
+  it('backdated single_active candidate → INSERTED_HISTORICAL', async () => {
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'predict_hist_subj' },
+        predicate: 'name',
+        object: 'Current Name',
+        validFrom: '2026-03-01T00:00:00Z',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+
+    const predictor = f.app.get(IngestPredictionService);
+    const out = await predictor.predict(f.companyId, {
+      entityRef: { vertical: 'rent', id: 'predict_hist_subj' },
+      predicate: 'name',
+      object: 'Older Name', // different object → not corroboration
+      validFrom: '2026-01-01T00:00:00Z', // BEFORE the active fact
+      confidence: 0.9,
+      source: { vertical: 'rent', recorder: 'bot' },
+    }, ['brain:read', 'brain:read_pii']);
+    expect(out.wouldOutcome).toBe('INSERTED_HISTORICAL');
+    expect(out.opposingFacts.length).toBeGreaterThan(0);
   });
 
   it('predicate policy is surfaced in the result', async () => {
