@@ -83,6 +83,11 @@ export class ExternalCandidatesService {
       companyId,
       doc,
       dto,
+      // The RESOLVED installed version — not dto.packVersion, which the
+      // caller may omit. Keeps candidate/fact provenance in lockstep with
+      // the run ledger (which already uses binding.packVersion) instead of
+      // stamping the '0' fallback.
+      packVersion: binding.packVersion,
     });
 
     const run = await this.candidates.createRun(companyId, {
@@ -146,6 +151,7 @@ export class ExternalCandidatesService {
     companyId: string;
     doc: StoredDocument;
     dto: SubmitCandidatesDto;
+    packVersion: string;
   }): Promise<{
     batch: CandidateBatch;
     dropped: GroundingDrop[];
@@ -163,7 +169,7 @@ export class ExternalCandidatesService {
 
     const provenance = {
       indexerId: dto.indexerId,
-      packVersion: dto.packVersion ?? '0',
+      packVersion: p.packVersion,
       executionMode: 'external' as const,
       model: null,
     };

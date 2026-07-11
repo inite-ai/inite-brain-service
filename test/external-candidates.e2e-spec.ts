@@ -126,6 +126,32 @@ describe('external candidates (e2e)', () => {
     expect(second.status).toBe(409);
   });
 
+  it('stamps the INSTALLED pack version on provenance when packVersion is omitted', async () => {
+    const docId = await createDoc(`${DOC_TEXT} Provenance variant.`);
+    const r = await f.http
+      .post(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
+      .set(auth())
+      .send(submission()); // no packVersion in the body
+    expect(r.status).toBe(201);
+    // The response echoes the resolved installed version…
+    expect(r.body.packVersion).toBe('0.2.0');
+
+    // …and the PERSISTED candidate provenance must match it, not the '0'
+    // fallback the omitted-packVersion path used to stamp.
+    const { SurrealService } = await import('../src/db/surreal.service');
+    const surreal = f.app.get(SurrealService);
+    const versions = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ v: unknown }>]>(
+        `SELECT payload.packVersion AS v FROM candidate
+           WHERE docId = type::record('source_document', $doc) AND kind = 'fact'`,
+        { doc: docId.split(':')[1] },
+      );
+      return ((rows as Array<{ v: unknown }>) ?? []).map((x) => String(x.v));
+    });
+    expect(versions.length).toBeGreaterThan(0);
+    for (const v of versions) expect(v).toBe('0.2.0');
+  });
+
   it('rejects predicates outside the indexer namespace', async () => {
     const docId = await createDoc(`${DOC_TEXT} Namespace variant.`);
     const r = await f.http

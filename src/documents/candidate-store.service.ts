@@ -46,13 +46,20 @@ export class CandidateStoreService {
    * index makes "already processed" a unique violation, not a race.
    *
    * On that violation we inspect the existing run and REOPEN it when it is
-   * recoverable — a terminal 'failed' run, or one stuck 'running' past the
-   * stale window (a crashed worker whose job lease has long expired). Left
-   * un-reopened, a transient LLM error would make the (doc, pack, version)
-   * slot permanently skip: retries and re-POSTs would hit the ledger and
-   * return 'skipped', so the document's extraction is lost forever. A
-   * freshly 'running' run is another worker actively extracting — never
-   * reopen it (would double-stage candidates). 'succeeded' is a real skip.
+   * recoverable: a 'pending' run this document's ingest pre-created (async
+   * path — its job is now claiming it), a terminal 'failed' run, or one
+   * stuck 'running' past the stale window (a crashed worker whose job
+   * lease has long expired). Left un-reopened, a transient LLM error would
+   * make the (doc, pack, version) slot permanently skip: retries and
+   * re-POSTs would hit the ledger and return 'skipped', so the document's
+   * extraction is lost forever. A freshly 'running' run is another worker
+   * actively extracting — never reopen it (would double-stage candidates).
+   * 'succeeded' is a real skip.
+   *
+   * The reopen is a COMPARE-AND-SWAP on the observed status: two jobs that
+   * both see the same reopenable row (e.g. an async index job and a
+   * reindex job that don't collide on the job-claim dedupKey) must not both
+   * re-extract. Only the CAS winner gets `created:true`; the loser skips.
    */
   async createRun(
     companyId: string,
@@ -92,17 +99,29 @@ export class CandidateStoreService {
           : 0;
         const isStaleRunning =
           status === 'running' && Date.now() - createdMs > staleRunMs();
-        if (status === 'failed' || isStaleRunning) {
-          // Reopen: drop the prior attempt's staged candidates (re-extraction
-          // re-inserts) and reset the ledger row to 'running'. option<> fields
-          // clear with NONE (never NULL — 0049 is SCHEMAFULL).
-          await db.query(
+        if (status === 'pending' || status === 'failed' || isStaleRunning) {
+          // Reopen under a CAS: only proceed if the row is STILL in the
+          // status we observed (`RETURN AFTER` gives us the updated rows;
+          // an empty result = a concurrent reopener already flipped it, so
+          // we defer to it). Drop any prior attempt's staged candidates
+          // (re-extraction re-inserts; a 'pending' run has none). option<>
+          // fields clear with NONE (never NULL — 0049 is SCHEMAFULL).
+          // Two statements → two result slots; the CAS verdict is the
+          // UPDATE's (slot 1), not the DELETE's (slot 0).
+          const res = await db.query<[any[], any[]]>(
             `DELETE candidate WHERE runId = type::record('indexer_run', $run);
              UPDATE type::record('indexer_run', $run) SET
                status = 'running', createdAt = time::now(),
-               finishedAt = NONE, error = NONE, stats = NONE`,
-            { run: idTailOf(runId) },
+               finishedAt = NONE, error = NONE, stats = NONE
+             WHERE status = $observed
+             RETURN AFTER`,
+            { run: idTailOf(runId), observed: status },
           );
+          const swapped = (res[1] as any[]) ?? [];
+          if (swapped.length === 0) {
+            // Lost the race — another job reopened it and is extracting.
+            return { runId, created: false };
+          }
           this.metrics?.countIndexerRun('reopened');
           return { runId, created: true };
         }
@@ -112,18 +131,59 @@ export class CandidateStoreService {
   }
 
   /**
-   * Reap indexer_run rows stuck 'running' past the stale window — a worker
-   * that crashed between createRun and finalizeRun leaves the row open
-   * forever, and countNonTerminalRuns then defers the document's commit
-   * indefinitely (its pending candidates eventually expire = silent memory
-   * loss). Mark them 'failed' so commit can settle over the runs that
-   * succeeded. Returns the reaped run count.
+   * Pre-create the ledger row for an async indexer run as 'pending', so
+   * `countNonTerminalRuns` sees every planned run from the instant the
+   * document is enqueued — NOT only once each job has started and called
+   * createRun. Without this, the general pass could finish and commit
+   * before a dedicated run's row exists (open-count 0), committing a
+   * partial candidate set and losing the cross-indexer merge. Idempotent:
+   * a row already present (any state) is left untouched — the job's
+   * createRun handles the 'pending' → 'running' transition, and a re-POST
+   * must not resurrect a terminal run.
+   */
+  async ensureRunPending(
+    companyId: string,
+    p: { docId: string; packId: string; packVersion: string },
+  ): Promise<void> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      try {
+        await dbCreate<Record<string, unknown>>(db, 'indexer_run', {
+          docId: recordRef('source_document', p.docId),
+          packId: p.packId,
+          packVersion: p.packVersion,
+          status: 'pending',
+        });
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        // Row already exists — leave whatever state it's in.
+      }
+    });
+  }
+
+  /**
+   * Reap non-terminal indexer_run rows past the stale window:
+   *   - 'running' — a worker that crashed between createRun and finalizeRun
+   *     leaves the row open forever (its job lease expired at ttlSeconds,
+   *     well below the stale window, so this is the only recovery for a
+   *     hard crash — SIGKILL/OOM never fires the graceful abort path);
+   *   - 'pending' — an async run pre-created by ingest whose job was never
+   *     claimed (worker fleet down at enqueue time).
+   * Either state left un-reaped makes countNonTerminalRuns defer the
+   * document's commit indefinitely, and its pending candidates eventually
+   * expire = silent memory loss. Mark them 'failed' so commit settles over
+   * the runs that succeeded. Returns the reaped run count.
+   *
+   * Latency note: between a hard crash and this reap the run sits orphaned
+   * for up to the stale window (kept above the job lease so a legitimately
+   * slow extraction is never falsely reopened). Candidates persist across
+   * that gap — no data loss, only commit latency bounded by the reap
+   * cadence and CANDIDATE_PENDING_TTL_DAYS.
    */
   async reapStaleRuns(companyId: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<[any[]]>(
         `SELECT count() AS c FROM indexer_run
-           WHERE status = 'running'
+           WHERE status IN ['running', 'pending']
              AND createdAt < time::now() - duration::from_millis($ms)
            GROUP ALL`,
         { ms: staleRunMs() },
@@ -134,7 +194,7 @@ export class CandidateStoreService {
           `UPDATE indexer_run SET
              status = 'failed', finishedAt = time::now(),
              error = { message: 'stale_reaped' }
-           WHERE status = 'running'
+           WHERE status IN ['running', 'pending']
              AND createdAt < time::now() - duration::from_millis($ms)
            RETURN NONE`,
           { ms: staleRunMs() },
@@ -146,12 +206,16 @@ export class CandidateStoreService {
   }
 
   /**
-   * Documents that still have staged (pending) candidates while sitting in
-   * a pre-commit state — a commit that was lost (the last run's enqueue
-   * failed, or its run was stuck 'running' and just got reaped). The
-   * reconciler re-drives their commit; commitIfRunsSettled itself defers if
-   * any run is still genuinely open, so enqueuing is always safe. Bounded so
-   * one nightly pass can't run unbounded work.
+   * Documents that still have staged (pending) candidates and a lost
+   * commit. Two sources: (1) a run-driven commit that never landed (the
+   * last run's enqueue failed, or its run was stuck 'running' and just got
+   * reaped); (2) an EXTERNAL submission (`POST …/candidates`, no job/retry)
+   * whose inline commit deferred/threw/died — these commonly target a doc
+   * already in status 'committed'. So reconcile any doc with pending
+   * candidates EXCEPT 'purged' (content erased — nothing to re-ground or
+   * commit). commitIfRunsSettled itself defers if any run is still open, so
+   * enqueuing is always safe. Bounded so one nightly pass can't run
+   * unbounded work.
    */
   async findDocsNeedingCommit(
     companyId: string,
@@ -168,7 +232,10 @@ export class CandidateStoreService {
       const out: string[] = [];
       for (const r of ((rows as any[]) ?? []) as any[]) {
         const docStatus = String(r.docStatus ?? '');
-        if (docStatus !== 'indexing' && docStatus !== 'indexed') continue;
+        // 'purged' facts have no source text left to commit against;
+        // everything else with pending candidates is a lost commit —
+        // including 'committed' docs an external submission re-staged.
+        if (docStatus === 'purged' || docStatus === '') continue;
         const docId = String(r.docId);
         if (seen.has(docId)) continue;
         seen.add(docId);
