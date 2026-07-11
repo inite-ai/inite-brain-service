@@ -4,12 +4,14 @@ import { SurrealService } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { PredictScoringService } from './predict-scoring.service';
 import {
+  OpposingFact,
   PredictResolveArgs,
   PredictResolveResult,
   PriorRow,
   intervalsOverlap,
   rowToOpposingFact,
 } from './predictor-internals';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 
 export type {
   IngestOutcome,
@@ -55,11 +57,30 @@ export class IngestPredictionService {
     args: PredictResolveArgs,
     callerScopes: readonly string[],
   ): Promise<PredictResolveResult> {
-    // Scoped pool, not root: opposingFacts carry raw `object` values, so
-    // the preflight must sit behind the same DB-level PII fence
-    // ($caller_scopes, migration 0005) as the read surface — this path
-    // is MCP-only (detect_contradiction) and used to bypass it.
-    return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
+    // opposingFacts carry raw `object` values, so the preflight must run
+    // the same app-layer gate as every read surface. The DB-level PII
+    // fence (migration 0005) is inert for the system-user pool (verified
+    // in test/abac-db-fence.e2e-spec.ts), so the JS filter (requiresScope
+    // PII gate + ABAC row rules) is the only working gate. It gates the
+    // returned opposingFacts only — the priors still drive the decision,
+    // so wouldOutcome is unchanged by what the caller may or may not see.
+    return this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
+      this.predictScoped({ db, companyId, args, callerScopes }),
+    );
+  }
+
+  private async predictScoped(opts: {
+    db: Surreal;
+    companyId: string;
+    args: PredictResolveArgs;
+    callerScopes: readonly string[];
+  }): Promise<PredictResolveResult> {
+    const { db, companyId, args, callerScopes } = opts;
+    const rowFilter = makeRowPolicyFilter({
+      callerScopes,
+      surface: 'detect_contradiction',
+    });
+    try {
       const entityId = await this.lookupEntity(db, args.entityRef);
       if (!entityId) {
         return {
@@ -97,7 +118,8 @@ export class IngestPredictionService {
         : entityId;
       const [rows] = await db.query<any[][]>(
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
-                recordedAt, embedding, source, status
+                recordedAt, embedding, source, status,
+                userId, trustSnapshot, corroboration
            FROM knowledge_fact
            WHERE entityId = type::record('knowledge_entity', $eid)
              AND predicate = $predicate
@@ -110,6 +132,17 @@ export class IngestPredictionService {
       );
       const priors = ((rows as any[]) ?? []) as PriorRow[];
 
+      // The caller only sees an opposing fact it is allowed to read. The
+      // priors themselves are untouched — the decision below runs on the
+      // full set — so gating never changes wouldOutcome, only the list.
+      const priorById = new Map(priors.map((p) => [String(p.id), p]));
+      const gate = (list: OpposingFact[]): OpposingFact[] =>
+        list.filter((o) =>
+          rowFilter.filter(
+            (priorById.get(o.factId) as never) ?? { predicate: o.predicate },
+          ),
+        );
+
       const candidateScore = this.scoring.scoreCandidate(args);
 
       if (candidateScore < this.scoring.conflict.rejectThreshold) {
@@ -117,7 +150,7 @@ export class IngestPredictionService {
           wouldOutcome: 'REJECTED',
           reasoning:
             `Candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
-          opposingFacts: priors.map(rowToOpposingFact),
+          opposingFacts: gate(priors.map(rowToOpposingFact)),
           predicatePolicy: policy,
         };
       }
@@ -151,8 +184,10 @@ export class IngestPredictionService {
       }
 
       if (policy.semantics === 'single_active') {
+        const r = this.scoring.predictSingleActive(candidateScore, overlapping);
         return {
-          ...this.scoring.predictSingleActive(candidateScore, overlapping),
+          ...r,
+          opposingFacts: gate(r.opposingFacts),
           predicatePolicy: policy,
         };
       }
@@ -167,15 +202,19 @@ export class IngestPredictionService {
           wouldOutcome: 'INSERTED',
           reasoning:
             `Overlapping facts exist but none clear the cosine similarity threshold ${this.scoring.conflict.similarityThreshold.toFixed(2)}; semantically distinct, no contradiction.`,
-          opposingFacts: scored.map((c) => c.opposing),
+          opposingFacts: gate(scored.map((c) => c.opposing)),
           predicatePolicy: policy,
         };
       }
+      const r = this.scoring.predictBitemporal(candidateScore, above);
       return {
-        ...this.scoring.predictBitemporal(candidateScore, above),
+        ...r,
+        opposingFacts: gate(r.opposingFacts),
         predicatePolicy: policy,
       };
-    });
+    } finally {
+      rowFilter.finish();
+    }
   }
 
   private async lookupEntity(

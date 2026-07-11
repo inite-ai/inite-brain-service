@@ -83,20 +83,20 @@ export class CandidateSweeperService implements OnModuleInit {
     const pendingTtlDays = envInt('CANDIDATE_PENDING_TTL_DAYS', 7);
     return this.surreal.withCompany(companyId, async (db) => {
       const expired = await this.countThen(db, {
-        countWhere: `status = 'pending' AND createdAt < time::now() - duration::from::days($days)`,
+        countWhere: `status = 'pending' AND createdAt < time::now() - duration::from_days($days)`,
         mutation: `UPDATE candidate SET status = 'expired',
              statusReason = 'sweeper_ttl', decidedAt = time::now()
            WHERE status = 'pending'
-             AND createdAt < time::now() - duration::from::days($days)
+             AND createdAt < time::now() - duration::from_days($days)
            RETURN NONE`,
         params: { days: pendingTtlDays },
       });
       const deleted = await this.countThen(db, {
-        countWhere: `status != 'pending' AND decidedAt != NONE AND decidedAt < time::now() - duration::from::days($days)`,
+        countWhere: `status != 'pending' AND decidedAt != NONE AND decidedAt < time::now() - duration::from_days($days)`,
         mutation: `DELETE candidate
            WHERE status != 'pending'
              AND decidedAt != NONE
-             AND decidedAt < time::now() - duration::from::days($days)`,
+             AND decidedAt < time::now() - duration::from_days($days)`,
         params: { days: retentionDays },
       });
       // Document retention leg: expired retainUntil → chunks go, header +

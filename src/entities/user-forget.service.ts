@@ -47,6 +47,17 @@ export class UserForgetService {
       const factIds = ((factIdRows as unknown[]) ?? []).map(String);
       const entityIds = ((entityIdRows as unknown[]) ?? []).map(String);
 
+      // Every entity this user had a fact on — personal AND shared. Their
+      // compiled dossiers (knowledge_artifact) may have baked in the
+      // user's personal fact text, so they must go before the facts do.
+      const [factEntityRows] = await db.query<[unknown[]]>(
+        `SELECT VALUE entityId FROM knowledge_fact WHERE userId = $u`,
+        { u: userId },
+      );
+      const touchedEntityIds = [
+        ...new Set(((factEntityRows as unknown[]) ?? []).map(String)),
+      ];
+
       // Side tables keyed by fact records — traversal needs live facts.
       await db.query(`DELETE fact_usage WHERE factId.userId = $u`, {
         u: userId,
@@ -66,6 +77,21 @@ export class UserForgetService {
       await db.query(`DELETE entity_external_ref WHERE entity.userId = $u`, {
         u: userId,
       });
+      // Compiled dossiers for every touched entity — personal ones die
+      // with the entity, shared ones recompile clean (fenced to global
+      // facts) on next read. Must precede the fact delete: entityId is a
+      // record link the artifact carries independently, but doing it here
+      // keeps the erasure atomic with the rest of the cascade.
+      for (const eid of touchedEntityIds) {
+        const tail = eid.startsWith('knowledge_entity:')
+          ? eid.slice('knowledge_entity:'.length)
+          : eid;
+        await db.query(
+          `DELETE knowledge_artifact
+             WHERE entityId = type::record('knowledge_entity', $tail)`,
+          { tail },
+        );
+      }
 
       await db.query(`DELETE knowledge_fact WHERE userId = $u`, { u: userId });
       await db.query(`DELETE knowledge_entity WHERE userId = $u`, {

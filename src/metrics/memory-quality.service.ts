@@ -97,7 +97,7 @@ export class MemoryQualityService {
       for (const days of STALE_BUCKETS_DAYS) {
         staleActiveFacts[days] = await this.countWhere(
           db,
-          `status = 'active' AND recordedAt < time::now() - duration::from::days($days)`,
+          `status = 'active' AND recordedAt < time::now() - duration::from_days($days)`,
           { days },
         );
       }

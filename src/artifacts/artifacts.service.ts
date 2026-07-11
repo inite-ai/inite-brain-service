@@ -258,9 +258,20 @@ export class ArtifactsService {
     rid: string,
     scopes: BrainScope[],
   ): Promise<FactRow[]> {
-    // Use the centralised server-side function from migration 0003.
+    // Mirrors fn::active_facts_for (migration 0003) but pins the
+    // tenant-GLOBAL scope: artifacts are a tenant-wide surface with no
+    // per-user concept (like graph_retrieve), so a per-user fact
+    // (userId != NONE, migration 0055) must never be compiled into a
+    // dossier served to the whole tenant. The stored fn predates 0055 and
+    // has no scope arg, so we query inline instead of extending it.
     const [rows] = await db.query<[any[]]>(
-      `RETURN fn::active_facts_for(type::record('knowledge_entity', $rid), NONE)`,
+      `SELECT id, predicate, object, confidence, validFrom, validUntil,
+              recordedAt, source, status
+         FROM knowledge_fact
+         WHERE entityId = type::record('knowledge_entity', $rid)
+           AND retractedAt IS NONE
+           AND userId IS NONE
+         ORDER BY recordedAt DESC`,
       { rid },
     );
     return ((rows as any[]) ?? [])

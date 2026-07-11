@@ -226,4 +226,50 @@ describe('MemoryDiffService.diff — window math', () => {
     expect(out.retractedFacts).toHaveLength(0);
     expect(out.changedFacts).toHaveLength(0);
   });
+
+  it('gates PII-predicate facts for a caller without brain:read_pii', async () => {
+    const surreal = f.app.get(SurrealService);
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(
+        `CREATE type::record('knowledge_fact', $rid) CONTENT {
+            entityId: type::record('knowledge_entity', $eid),
+            predicate: 'address',
+            object: $obj,
+            confidence: 0.95,
+            validFrom: $vf,
+            recordedAt: $ra,
+            status: 'active',
+            source: { vertical: 'rent' }
+         }`,
+        {
+          rid: 'md_pii_1',
+          eid: ENT,
+          obj: '42 Secret Lane',
+          vf: T1,
+          ra: T1,
+        },
+      );
+    });
+
+    const diff = f.app.get(MemoryDiffService);
+    const window = { from: T0.toISOString(), to: T3.toISOString() };
+
+    // With read_pii the address is visible.
+    const privileged = await diff.diff(f.companyId, window, [
+      'brain:read',
+      'brain:read_pii',
+    ]);
+    expect(
+      privileged.createdFacts.some((fa) => fa.object === '42 Secret Lane'),
+    ).toBe(true);
+
+    // Without read_pii the PII-predicate fact never enters the result —
+    // the DB-level fence is inert for the system user, so the JS gate is
+    // the only thing standing between brain:read and the raw address.
+    const restricted = await diff.diff(f.companyId, window, ['brain:read']);
+    expect(
+      restricted.createdFacts.some((fa) => fa.predicate === 'address'),
+    ).toBe(false);
+    expect(JSON.stringify(restricted)).not.toContain('42 Secret Lane');
+  });
 });

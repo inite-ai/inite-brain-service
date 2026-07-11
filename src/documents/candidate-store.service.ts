@@ -124,7 +124,7 @@ export class CandidateStoreService {
       const [rows] = await db.query<[any[]]>(
         `SELECT count() AS c FROM indexer_run
            WHERE status = 'running'
-             AND createdAt < time::now() - duration::from::millis($ms)
+             AND createdAt < time::now() - duration::from_millis($ms)
            GROUP ALL`,
         { ms: staleRunMs() },
       );
@@ -135,7 +135,7 @@ export class CandidateStoreService {
              status = 'failed', finishedAt = time::now(),
              error = { message: 'stale_reaped' }
            WHERE status = 'running'
-             AND createdAt < time::now() - duration::from::millis($ms)
+             AND createdAt < time::now() - duration::from_millis($ms)
            RETURN NONE`,
           { ms: staleRunMs() },
         );
