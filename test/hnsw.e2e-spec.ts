@@ -6,6 +6,7 @@
  * flag is safe mid-rollout.
  */
 import { AppFixture, createApp } from './app-fixture';
+import { SurrealService } from '../src/db/surreal.service';
 
 describe('HNSW vector leg (real SurrealDB)', () => {
   let f: AppFixture;
@@ -90,5 +91,45 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     const results = await search('HNSW Probe Tenant');
     delete process.env.SEARCH_HNSW_ENABLED;
     expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('refuses create when an index exists at a stale dimension', async () => {
+    // Fresh, empty tenant so a mismatched index can be planted directly
+    // (DEFINE at a wrong dimension only fails once rows disagree).
+    const g = await createApp({ companyId: 'co_hnsw_dim_e2e' });
+    try {
+      const surreal = g.app.get(SurrealService);
+      await surreal.withCompany(g.companyId, async (db) => {
+        await db.query(
+          `DEFINE INDEX fact_embedding_hnsw ON knowledge_fact FIELDS embedding
+             HNSW DIMENSION 8 DIST COSINE EFC 200 M 16;`,
+        );
+      });
+
+      // The live StubEmbedder reports 1536 — a naive create would report
+      // success (IF NOT EXISTS no-ops) yet leave the dim-8 index in place.
+      const create = await g.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set({ Authorization: `Bearer ${g.apiKey}` })
+        .send({});
+      expect(create.status).toBe(400);
+      expect(String(create.body.message)).toMatch(/different dimension/i);
+
+      // The documented recovery — drop first — then create succeeds.
+      const drop = await g.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set({ Authorization: `Bearer ${g.apiKey}` })
+        .send({ action: 'drop' });
+      expect(drop.status).toBe(201);
+
+      const recreate = await g.http
+        .post('/v1/admin/maintenance/hnsw')
+        .set({ Authorization: `Bearer ${g.apiKey}` })
+        .send({});
+      expect(recreate.status).toBe(201);
+      expect(recreate.body.dimension).toBe(1536);
+    } finally {
+      await g.close();
+    }
   });
 });
