@@ -137,6 +137,25 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('entity-profile');
     expect(names).toContain('entity-timeline');
   });
+
+  it('ingest_document exposes the indexers param (REST parity: auto routes packs)', () => {
+    const prev = process.env.DOCUMENT_INGEST_ENABLED;
+    process.env.DOCUMENT_INGEST_ENABLED = '1';
+    try {
+      const server = buildWithScopes(['brain:read', 'brain:write']);
+      const internals = server as unknown as {
+        _registeredTools: Record<string, { inputSchema?: { shape?: object } }>;
+      };
+      const tool = internals._registeredTools['ingest_document'];
+      expect(tool).toBeDefined();
+      // Before the fix the tool hardcoded indexers:'general' with no way to
+      // opt into domain-pack routing that the REST twin accepts.
+      expect(Object.keys(tool.inputSchema?.shape ?? {})).toContain('indexers');
+    } finally {
+      if (prev === undefined) delete process.env.DOCUMENT_INGEST_ENABLED;
+      else process.env.DOCUMENT_INGEST_ENABLED = prev;
+    }
+  });
 });
 
 describe('McpService.health — unauthenticated probe payload', () => {

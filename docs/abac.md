@@ -43,6 +43,27 @@ Multiple sets on one key combine **most-restrictive**: the final verdict is
 allow only if every enforce-mode set allows. `report_only` sets are evaluated
 and logged (`would_deny`) but never block — that's the rollout mode.
 
+### Temporal windows (`activeFrom` / `activeUntil`)
+
+A set may carry an optional half-open activity window, both bounds ISO-8601
+UTC datetimes:
+
+```jsonc
+{ "name": "contractor-window", …,
+  "activeFrom": "2026-07-01T00:00:00Z",   // inclusive; omit = always-open start
+  "activeUntil": "2026-10-01T00:00:00Z" } // exclusive; omit = never-expiring
+```
+
+Outside the window the set compiles to **nothing** — it neither allows nor
+denies, exactly as if it weren't attached. Write-time validation rejects
+`activeFrom >= activeUntil` (a window that can never open would be a
+permanently-inert, fail-open set). **Operational caveat:** because an expired
+set simply drops out, a key whose *only* restriction was a windowed set reverts
+to its pre-ABAC (unpolicied) posture when the window closes — size the window to
+the grant, and keep a standing enforce set for the baseline. The window bounds
+round-trip through the policy editor unchanged; there is no dedicated UI for
+them yet, so edit them via the API or the raw document.
+
 ### Attributes source rules can match
 
 | Attribute | Ops | Notes |

@@ -373,6 +373,19 @@ export class SearchService {
       ctx,
       typeDist,
     });
+    // The rerank stage only ranks a bounded window (≤20 buckets). When the
+    // caller asked for more (limit up to the DTO's @Max(100)), the reranked
+    // head is correct but the tail beyond the window was dropped — a silent
+    // cap at 20. Refill from the remaining buckets in rankScore order so the
+    // response honors `limit`; the reranker legitimately only reorders its
+    // own window, so rankScore is the right ordering past it.
+    if (topEntities.length < ctx.limit && byEntity.size > topEntities.length) {
+      const present = new Set(topEntities.map((b) => b.entityId));
+      const tail = [...byEntity.values()]
+        .filter((b) => !present.has(b.entityId))
+        .sort((a, b) => b.rankScore - a.rankScore);
+      topEntities = topEntities.concat(tail);
+    }
     topEntities = topEntities.slice(0, ctx.limit);
 
     // 8. Backfill missing facts for top-K, then assemble.

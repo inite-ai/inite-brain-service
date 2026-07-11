@@ -73,7 +73,7 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | `GET /v1/admin/jobs/stream` | SSE stream of job_run transitions for live dashboard. |
 | `GET /v1/admin/leases` | leader_lease snapshot + active claims across tenants (Phase J cockpit). |
 | `GET /v1/admin/scheduler` | Registered cron entries with last/next fire timestamps. |
-| `POST /v1/admin/maintenance/dreams/run` | Async kick of dreams (returns runId). |
+| `POST /v1/admin/maintenance/dreams/run` | Fire-and-forget kick of dreams; returns `{accepted, jobType, companyId}` (no runId — poll `GET /v1/admin/maintenance/dreams/runs/:runId/emits` for a specific run). |
 | `POST /v1/admin/maintenance/calibration-refit` | Async kick of calibration + source-trust refit. |
 | `POST /v1/admin/maintenance/reindex` | Async re-embed `knowledge_fact`, optionally per tenant. |
 | `POST /v1/admin/maintenance/hnsw` | Per-tenant HNSW vector-index lifecycle: `{action: 'create' \| 'drop', tenant?}`. Synchronous. `create` refuses (`400`) when an index already exists at a different dimension — recover in order: drop → reindex embeddings → create. |

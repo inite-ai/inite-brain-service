@@ -264,6 +264,7 @@ const ALLOWED_PREFIXES = [
   'v1/admin/cost',
   'v1/admin/jobs',
   'v1/admin/scheduler',
+  'v1/admin/leases',
   'v1/admin/changefeed',
   'v1/admin/maintenance/',
   'v1/admin/dreams',

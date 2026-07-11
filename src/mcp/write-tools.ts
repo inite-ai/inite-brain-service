@@ -339,7 +339,7 @@ function registerIngestDocumentTool({
     {
       title: 'Ingest a normalized document',
       description:
-        'Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer (plus relevant domain packs), staged as candidates, and committed through conflict resolution. Prefer this over record_fact for anything longer than one claim.',
+        "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Prefer this over record_fact for anything longer than one claim.",
       inputSchema: {
         kind: z
           .string()
@@ -364,6 +364,12 @@ function registerIngestDocumentTool({
           .boolean()
           .optional()
           .describe('false keeps only the content hash (no re-indexing later)'),
+        indexers: z
+          .enum(['general', 'auto'])
+          .optional()
+          .describe(
+            "'general' (default) = generalist union pass only; 'auto' = also route relevant installed domain packs (server must have DOCUMENT_MULTI_INDEXER_ENABLED)",
+          ),
       },
     },
     async (args) => {
@@ -381,7 +387,7 @@ function registerIngestDocumentTool({
         occurredAt: args.occurredAt,
         contextRef: { vertical: args.vertical, recorder: 'mcp_agent' },
         storeContent: args.storeContent,
-        indexers: 'general',
+        indexers: args.indexers ?? 'general',
         mode: 'sync',
       });
       return {
