@@ -48,8 +48,15 @@ export class LeaderLeaseService {
             tx.bind('name', name)
               .bind('me', this.leaderId)
               .bind('until', until)
+              // Point-read on the record id (id IS the lease name — see
+              // migration 0029), NOT a `WHERE name = $name` table scan.
+              // Under SSI a scan puts the WHOLE table in the read-set, so
+              // any two concurrent acquires — even for different lease
+              // names (worker_loop every 30s vs lease_manager_cron every
+              // 10s) — mutually abort with read-write conflicts. Prod sat
+              // in a permanent conflict storm until this was narrowed.
               .add(
-                `LET $row = (SELECT * FROM leader_lease WHERE name = $name LIMIT 1)[0]`,
+                `LET $row = (SELECT * FROM type::record('leader_lease', $name))[0]`,
               )
               .add(
                 `IF $row IS NONE OR $row.leaseUntil < time::now() OR $row.leaderId = $me {
@@ -85,8 +92,11 @@ export class LeaderLeaseService {
     if (!this.surreal) return;
     try {
       await this.surreal.withAdminDb(async (db) => {
+        // Point-delete on the record id for the same reason tryAcquire
+        // point-reads: a WHERE-name scan drags the whole table into the
+        // transaction's read-set and aborts concurrent acquires.
         await db.query(
-          `DELETE FROM leader_lease WHERE name = $name AND leaderId = $me`,
+          `DELETE type::record('leader_lease', $name) WHERE leaderId = $me`,
           { name, me: this.leaderId },
         );
       });
