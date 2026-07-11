@@ -188,12 +188,18 @@ export class JobClaimService {
   }): Promise<JobClaim | null> {
     if (!this.surreal) return null;
     try {
+      // JS-computed deadline + type::datetime: parses on SurrealDB 2.x
+      // and 3.x alike, unlike the duration::from_* function path (see
+      // LeaderLeaseService.tryAcquire).
+      const until = new Date(
+        Date.now() + input.ttlSeconds * 1000,
+      ).toISOString();
       return await retryOnUniqueViolation(() =>
         this.surreal!.withCompany(input.companyId, async (db) => {
           const claimed = await runTransaction<unknown>(db, (tx) => {
             tx.bind('jobType', input.jobType)
               .bind('me', this.workerId)
-              .bind('ttl', input.ttlSeconds)
+              .bind('until', until)
               .add(
                 `LET $row = (SELECT * FROM job_run
                               WHERE jobType = $jobType
@@ -209,7 +215,7 @@ export class JobClaimService {
                        SET status = 'running',
                            claimedBy = $me,
                            claimedAt = time::now(),
-                           leaseUntil = time::now() + duration::from_secs($ttl),
+                           leaseUntil = type::datetime($until),
                            heartbeatAt = time::now(),
                            attempts = ($row.attempts OR 0) + 1
                      WHERE status = 'pending'
@@ -261,14 +267,16 @@ export class JobClaimService {
       return await this.surreal.withCompany(input.companyId, async (db) => {
         const [rows] = (await db.query<any[]>(
           `UPDATE type::record($rid) SET
-              leaseUntil = time::now() + duration::from_secs($ttl),
+              leaseUntil = type::datetime($until),
               heartbeatAt = time::now()
             WHERE claimedBy = $me AND status = 'running'
             RETURN cancelRequested`,
           {
             rid: input.recordId,
             me: this.workerId,
-            ttl: input.ttlSeconds,
+            until: new Date(
+              Date.now() + input.ttlSeconds * 1000,
+            ).toISOString(),
           },
         )) as any[];
         const arr = (rows ?? []) as Array<{ cancelRequested?: boolean }>;
