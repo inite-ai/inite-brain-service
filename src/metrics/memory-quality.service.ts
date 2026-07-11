@@ -95,10 +95,13 @@ export class MemoryQualityService {
 
       const staleActiveFacts: Record<number, number> = {};
       for (const days of STALE_BUCKETS_DAYS) {
+        // Cutoff computed in JS + type::datetime — parses on SurrealDB
+        // 2.x and 3.x alike; both duration::from spellings are
+        // version-specific parse errors on the other line.
         staleActiveFacts[days] = await this.countWhere(
           db,
-          `status = 'active' AND recordedAt < time::now() - duration::from_days($days)`,
-          { days },
+          `status = 'active' AND recordedAt < type::datetime($cutoff)`,
+          { cutoff: new Date(Date.now() - days * 86_400_000).toISOString() },
         );
       }
 

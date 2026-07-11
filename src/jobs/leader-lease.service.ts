@@ -37,12 +37,17 @@ export class LeaderLeaseService {
   async tryAcquire(name: string, ttlSeconds = 90): Promise<boolean> {
     if (!this.surreal) return true; // dev / unit tests — single process
     try {
+      // Deadline computed in JS and bound as an ISO string: the
+      // duration::from_* / duration::from::* function paths differ
+      // between SurrealDB 2.x and 3.x (prod hit a parse error on the
+      // 3.x spelling), while type::datetime($iso) parses on both.
+      const until = new Date(Date.now() + ttlSeconds * 1000).toISOString();
       return await retryOnUniqueViolation(() =>
         this.surreal!.withAdminDb(async (db) => {
           const out = await runTransaction<unknown>(db, (tx) => {
             tx.bind('name', name)
               .bind('me', this.leaderId)
-              .bind('ttl', ttlSeconds)
+              .bind('until', until)
               .add(
                 `LET $row = (SELECT * FROM leader_lease WHERE name = $name LIMIT 1)[0]`,
               )
@@ -51,7 +56,7 @@ export class LeaderLeaseService {
                    UPSERT type::record('leader_lease', $name) CONTENT {
                      name: $name,
                      leaderId: $me,
-                     leaseUntil: time::now() + duration::from_secs($ttl),
+                     leaseUntil: type::datetime($until),
                      heartbeatAt: time::now(),
                      acquiredAt: $row.acquiredAt OR time::now()
                    };

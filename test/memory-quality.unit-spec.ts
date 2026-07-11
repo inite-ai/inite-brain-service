@@ -20,8 +20,10 @@ const tenantDb = {
         ],
       ];
     }
-    if (sql.includes('duration::from_days')) {
-      const days = params?.days as number;
+    if (sql.includes('recordedAt < type::datetime($cutoff)')) {
+      const days = Math.round(
+        (Date.now() - Date.parse(params?.cutoff as string)) / 86_400_000,
+      );
       return [[{ n: days === 30 ? 6 : days === 90 ? 4 : 1 }]];
     }
     if (sql.includes('< 0.4')) return [[{ n: 2 }]];
