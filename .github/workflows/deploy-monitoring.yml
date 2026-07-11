@@ -1,0 +1,120 @@
+name: Deploy monitoring
+
+# Self-hosted observability stack (VictoriaMetrics + Loki + Tempo +
+# Alloy + Grafana) — see monitoring/README.md. Runs on the droplet's
+# own runner, same pattern as deploy-brain.yml: no SSH, just rsync the
+# checked-out monitoring/ dir into the stack path and compose up.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'monitoring/**'
+      - '.github/workflows/deploy-monitoring.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'deploy | restart | logs'
+        required: false
+        default: 'deploy'
+
+concurrency:
+  group: deploy-monitoring
+  cancel-in-progress: true
+
+env:
+  STACK_DIR: /opt/projects/inite-monitoring
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, sfo]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Logs
+        if: github.event.inputs.action == 'logs'
+        run: |
+          cd "$STACK_DIR"
+          docker-compose logs --tail=200
+
+      - name: Restart
+        if: github.event.inputs.action == 'restart'
+        run: |
+          cd "$STACK_DIR"
+          docker-compose restart
+
+      - name: Preflight — host memory headroom
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        run: |
+          free -m
+          avail=$(free -m | awk '/^Mem:/{print $7}')
+          if [ "$avail" -lt 1200 ]; then
+            echo "::warning::Only ${avail}MB RAM available — the monitoring stack is capped at 1GB; watch for OOM pressure"
+          fi
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}' | head -20 || true
+          docker ps --format 'table {{.Names}}\t{{.Image}}' || true
+
+      - name: Sync stack config
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        run: |
+          mkdir -p "$STACK_DIR"
+          rsync -a --delete --exclude '.env' monitoring/ "$STACK_DIR"/
+
+      - name: Write .env (secrets → compose)
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        env:
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+            echo "::error::GRAFANA_ADMIN_PASSWORD secret is not set"
+            exit 1
+          fi
+          umask 077
+          {
+            printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$GRAFANA_ADMIN_PASSWORD"
+            printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
+            printf 'TELEGRAM_CHAT_ID=%s\n' "$TELEGRAM_CHAT_ID"
+          } > "$STACK_DIR/.env"
+          # Telegram contact point is provisioned only when both secrets
+          # exist — an empty $-expansion would brick the contact point.
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            cp "$STACK_DIR/grafana/alerting-optional/telegram.yaml" \
+               "$STACK_DIR/grafana/provisioning/alerting/telegram.yaml"
+            echo "[ok] telegram alerting provisioned"
+          else
+            echo "[info] TELEGRAM_* secrets unset — alerts visible in Grafana UI only"
+          fi
+
+      - name: Deploy
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        run: |
+          cd "$STACK_DIR"
+          docker-compose pull
+          docker-compose up -d --remove-orphans
+
+      - name: Health probe
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+        run: |
+          cd "$STACK_DIR"
+          # VM has no shell (scratch image) — probe it through grafana's
+          # busybox wget over the shared monitoring network. Grafana's
+          # public URL is probed from the host through Traefik.
+          for i in $(seq 1 12); do
+            ok=1
+            docker-compose exec -T grafana wget -qO- http://localhost:3000/api/health >/dev/null 2>&1 || ok=0
+            docker-compose exec -T grafana wget -qO- http://victoriametrics:8428/health >/dev/null 2>&1 || ok=0
+            curl -fsS https://brain.inite.ai/grafana/api/health >/dev/null 2>&1 || ok=0
+            if [ "$ok" = 1 ]; then
+              echo "[ok] grafana + victoriametrics healthy, public route live"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::monitoring stack failed health probe"
+          docker-compose ps
+          docker-compose logs --tail=50
+          exit 1

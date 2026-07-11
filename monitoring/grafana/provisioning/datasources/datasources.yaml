@@ -1,0 +1,39 @@
+# Provisioned datasources. VictoriaMetrics is exposed as a plain
+# Prometheus datasource (PromQL-compatible; no VM plugin to install —
+# "Save & test" may warn about missing buildinfo, queries work fine).
+apiVersion: 1
+
+datasources:
+  - name: VictoriaMetrics
+    uid: vm
+    type: prometheus
+    url: http://victoriametrics:8428
+    access: proxy
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://loki:3100
+    access: proxy
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://tempo:3200
+    access: proxy
+    jsonData:
+      # Jump from a span to the container's logs in the span's time
+      # window. Brain log lines don't carry traceId yet, so this is
+      # time+container correlation only — flip filterByTraceID on once
+      # request-logger.ts starts emitting traceId.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        tags:
+          - key: container
+            value: container
+        filterByTraceID: false

@@ -1,0 +1,120 @@
+// Grafana Alloy — single collector for the inite-monitoring stack.
+//
+// Four pipelines:
+//   1. scrape brain's prom-client /metrics  → VictoriaMetrics
+//   2. embedded node exporter (host CPU/mem/disk/net) → VictoriaMetrics
+//   3. docker logs (allowlisted containers) → Loki
+//   4. OTLP in from brain (HTTP :4318)      → Tempo (gRPC)
+
+// ── 1. Metrics: brain app ────────────────────────────────────────────
+// brain joins traefik-global, so its service name resolves from here.
+// /health and /metrics hits are already excluded from brain's request
+// logs, so a 15s scrape adds no log noise.
+prometheus.scrape "brain" {
+	targets = [{
+		__address__ = "inite-brain-service:3000",
+		job         = "brain",
+	}]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.vm.receiver]
+}
+
+// ── 2. Metrics: host (embedded node exporter) ────────────────────────
+prometheus.exporter.unix "host" {
+	rootfs_path = "/rootfs"
+	procfs_path = "/host/proc"
+	sysfs_path  = "/host/sys"
+
+	set_collectors = ["cpu", "meminfo", "filesystem", "diskstats", "netdev", "loadavg"]
+
+	filesystem {
+		fs_types_exclude = "^(tmpfs|overlay|squashfs|autofs|proc|sysfs)$"
+	}
+}
+
+prometheus.scrape "host" {
+	targets         = prometheus.exporter.unix.host.targets
+	job_name        = "node"
+	scrape_interval = "30s"
+	forward_to      = [prometheus.remote_write.vm.receiver]
+}
+
+prometheus.remote_write "vm" {
+	endpoint {
+		url = "http://victoriametrics:8428/api/v1/write"
+	}
+}
+
+// ── 3. Logs: docker, allowlist only ──────────────────────────────────
+// The name filter is a substring match at the Docker API, so
+// "inite-monitoring-" covers this whole stack. Temporal-stack chatter
+// (temporal server, elastic, postgres) deliberately never enters Loki.
+// Brain's JSON log lines are parsed at query time (`| json`), not at
+// ingest — mixed NestJS plain-text lines would otherwise generate
+// parse-error noise, and label-per-level would churn streams.
+discovery.docker "ours" {
+	host = "unix:///var/run/docker.sock"
+
+	filter {
+		name   = "name"
+		values = ["inite-brain-service", "inite-brain-landing", "inite-monitoring-"]
+	}
+}
+
+discovery.relabel "ours" {
+	targets = discovery.docker.ours.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "logs" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.ours.output
+	labels     = {job = "docker"}
+	forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}
+
+// ── 4. Traces: OTLP in → Tempo ───────────────────────────────────────
+// brain's exporter is OTLP/HTTP (@opentelemetry/exporter-trace-otlp-http)
+// pointed at http://inite-monitoring-alloy:4318. Alloy forwards over
+// gRPC because otelcol.exporter.otlp is gRPC-only; Tempo listens on 4317.
+otelcol.receiver.otlp "brain" {
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.default.input]
+	}
+}
+
+otelcol.processor.batch "default" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "tempo:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}

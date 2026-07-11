@@ -1,0 +1,31 @@
+# Telegram contact point + root notification policy.
+#
+# NOT provisioned by default: the deploy workflow copies this file into
+# grafana/provisioning/alerting/ ONLY when both TELEGRAM_BOT_TOKEN and
+# TELEGRAM_CHAT_ID repo secrets are set (empty $-expansions would brick
+# the contact point). Without it, alert rules still evaluate — state is
+# visible in the Alerting UI, notifications go to the built-in
+# grafana-default-email no-op.
+#
+# Note: provisioned contact points persist in Grafana's DB even after
+# this file is removed; to truly delete one, ship a deleteContactPoints
+# reset entry.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: telegram
+    receivers:
+      - uid: telegram-ops
+        type: telegram
+        settings:
+          bottoken: $TELEGRAM_BOT_TOKEN
+          chatid: "$TELEGRAM_CHAT_ID"
+
+policies:
+  - orgId: 1
+    receiver: telegram
+    group_by: [alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
