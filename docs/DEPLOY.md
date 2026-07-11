@@ -129,13 +129,31 @@ re-run the workflow on a previous commit.
 
 ## Observability
 
-OpenTelemetry traces emit per-leg search spans. Push to a collector by
-setting `OTEL_EXPORTER_OTLP_ENDPOINT` in the workflow env block (not set
-by default — wire when collector exists in inite infra).
+The self-hosted monitoring stack (VictoriaMetrics + Loki + Tempo +
+Alloy + Grafana) runs as its own compose project on the same droplet —
+see [`monitoring/README.md`](../monitoring/README.md) and
+`deploy-monitoring.yml`. Grafana lives at
+**https://brain.inite.ai/grafana** (admin password in the
+`GRAFANA_ADMIN_PASSWORD` repo secret).
 
-Prometheus metrics live at `/metrics` (in-process Prom-client). Traefik
-isn't routing this externally — scrape via `http://inite-brain-service:3000/metrics`
-from inside the docker network.
+- **Metrics**: Alloy scrapes `http://inite-brain-service:3000/metrics`
+  every 15s over the shared docker network and remote-writes into
+  VictoriaMetrics (30d). `/metrics` is intentionally NOT in the public
+  Traefik rule — requests to `brain.inite.ai/metrics` fall through to
+  the landing catch-all. Keep it that way: the endpoint is
+  unauthenticated by design and leaks volumes/token-spend if exposed.
+- **Traces**: `OTEL_ENABLED=1` + `OTEL_EXPORTER_OTLP_ENDPOINT=
+  http://inite-monitoring-alloy:4318` (base URL; the exporter appends
+  `/v1/traces`). Alloy forwards to Tempo (7d). Per-leg search spans,
+  gen_ai.* semconv spans and jobs.enqueue/process spans land there —
+  browse via Grafana Explore → Tempo.
+- **Logs**: Alloy tails the docker json logs of allowlisted containers
+  into Loki (14d) — query `{container="inite-brain-service"} | json`
+  in Grafana Explore.
+- **Alerts**: provisioned Grafana rules (scrape down, no worker
+  leader, policy resolution errors, job failure ratio, disk/mem low…);
+  Telegram notifications activate when the `TELEGRAM_BOT_TOKEN` +
+  `TELEGRAM_CHAT_ID` secrets are set.
 
 ## Surface-level invariants the deploy depends on
 

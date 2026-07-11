@@ -292,11 +292,13 @@ jobs:
                 # OpenTelemetry GenAI SemConv. When enabled, every
                 # gen_ai.chat.* and gen_ai.embed.* span carries the
                 # standard semconv attributes (gen_ai.system,
-                # gen_ai.request.model, gen_ai.usage.*). OTLP endpoint
-                # defaults to OTEL_EXPORTER_OTLP_ENDPOINT — set the
-                # standard env var alongside this flag when wiring up
-                # a backend (Langfuse, Phoenix, Tempo, …).
+                # gen_ai.request.model, gen_ai.usage.*).
                 - OTEL_ENABLED=1
+                # OTLP/HTTP receiver in the monitoring stack's Alloy
+                # (shared traefik-global network; deploy-monitoring.yml).
+                # BASE url only — the SDK exporter appends /v1/traces.
+                # Alloy forwards to Tempo; browse in Grafana Explore.
+                - OTEL_EXPORTER_OTLP_ENDPOINT=http://inite-monitoring-alloy:4318
                 # ── Multilingual embedder (Phase 4.D) ───────────────────
                 # BGE-M3 via @xenova/transformers, local CPU inference.
                 # 1024-dim multilingual cross-lingual recall vs OpenAI's
@@ -359,7 +361,7 @@ jobs:
                 # router naturally outranks the landing's Host-only catch-all.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/metrics\`) || Path(\`/openapi.json\`))"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || Path(\`/openapi.json\`))"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.priority=200"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.entrypoints=websecure"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls=true"
@@ -367,7 +369,7 @@ jobs:
                 - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.server.port=${{ env.PORT }}"
                 - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.responseForwarding.flushInterval=-1"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || PathPrefix(\`/metrics\`) || Path(\`/openapi.json\`))"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || Path(\`/openapi.json\`))"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.priority=200"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.entrypoints=web"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.middlewares=redirect-to-https"
