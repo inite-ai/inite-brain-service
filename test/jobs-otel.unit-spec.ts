@@ -139,9 +139,12 @@ describe('Jobs OTel handoff — wire contract', () => {
     const traceparent =
       '00-cccccccccccccccccccccccccccccccc-3333333333333333-01';
     const db = {
-      // 3.x: RETURN slot precedes the trailing COMMIT null slot (runTransaction
-      // reads arr[length-2]).
+      // Real 3.x shape for the 2-statement claim tx: [BEGIN, LET,
+      // RETURN row, COMMIT] — runTransaction reads the slot before the
+      // trailing COMMIT when the response has stmts+2 slots.
       query: async () => [
+        null,
+        null,
         {
           id: 'job_run:withtp',
           runId: 'run-with-tp',
