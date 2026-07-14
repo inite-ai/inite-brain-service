@@ -231,13 +231,20 @@ function estimateSnapshotBytes(s: DebugTraceSnapshot): number {
   const spans = (s.spans?.length ?? 0) * 256;
   let artifactBytes = 0;
   for (const a of s.artifacts ?? []) {
+    // Prefer the serialized size captured at trace time. The old
+    // shape-based guess charged an object artifact `topLevelKeys × 64`
+    // bytes — a 32KB prompt object with 3 keys counted as ~256B, so the
+    // 64MB byte budget effectively never triggered for object-valued
+    // artifacts (the exact scenario it was added to prevent: 100
+    // snapshots × 200 artifacts × 32KB ≈ 640MB).
+    if (typeof a.sizeBytes === 'number' && a.sizeBytes > 0) {
+      artifactBytes += a.sizeBytes;
+      continue;
+    }
     const v = a.value as unknown;
     if (typeof v === 'string') {
       artifactBytes += v.length;
     } else if (v && typeof v === 'object') {
-      // 2 bytes per key+value entry is a wild underestimate, but only
-      // by a constant factor. The 32KB artifact cap upstream is what
-      // really bounds the worst case.
       artifactBytes +=
         Object.keys(v as Record<string, unknown>).length * 64 + 64;
     } else {

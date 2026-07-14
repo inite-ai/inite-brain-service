@@ -64,7 +64,7 @@ export class CodeMemorySearchService {
              entityId.externalRefs AS refs,
              vector::similarity::cosine(embedding, $embedding) AS score
            FROM knowledge_fact
-           WHERE string::starts_with(predicate, $prefix)
+           WHERE predicate >= $prefix AND predicate < $prefixEnd
              AND status = 'active'
              AND retractedAt IS NONE
              AND embedding != NONE
@@ -72,7 +72,16 @@ export class CodeMemorySearchService {
              AND (validUntil IS NONE OR validUntil > time::now())
            ORDER BY score DESC
            LIMIT $limit`,
-          { embedding, prefix: this.prefix, limit },
+          {
+            embedding,
+            // Half-open range instead of string::starts_with: a
+            // function-wrapped predicate can't use fact_predicate_idx,
+            // so every recall was a full scan computing cosine per row.
+            // U+FFFF upper-bounds the prefix range.
+            prefix: this.prefix,
+            prefixEnd: `${this.prefix}￿`,
+            limit,
+          },
         );
         // Scope + ABAC row gate — code_memory__* predicates are
         // piiClass none today, but per-key source rules (e.g. deny a

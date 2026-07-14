@@ -541,33 +541,43 @@ export class AdminService {
     }> = [];
     for (const companyId of tenants) {
       try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
-            `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
-              WHERE piiClass != 'none'`,
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
+        // One connection + two queries per tenant. The old shape opened
+        // a fresh withCompany and ran two GROUP ALL counts PER PII
+        // predicate — 50 tenants × 10 predicates ≈ 1000+ serial round
+        // trips inside one admin HTTP request.
+        const { rows, counts } = await this.surreal.withCompany(
+          companyId,
+          async (db) => {
+            const res = (await db.query<any[]>(
+              `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
+                WHERE piiClass != 'none'`,
+            )) as any[];
+            const preds = ((res[0] ?? []) as any[]).map((p) => p.predicateId);
+            if (preds.length === 0) {
+              return { rows: [] as any[], counts: new Map<string, number>() };
+            }
+            const [countRows] = (await db.query<any[]>(
+              `SELECT predicate, status, count() AS c FROM knowledge_fact
+                WHERE predicate INSIDE $preds
+                  AND status INSIDE ['active', 'retracted']
+                GROUP BY predicate, status`,
+              { preds },
+            )) as any[];
+            const counts = new Map<string, number>();
+            for (const r of (countRows as any[]) ?? []) {
+              counts.set(`${r.predicate}|${r.status}`, Number(r.c) || 0);
+            }
+            return { rows: (res[0] ?? []) as any[], counts };
+          },
+        );
         for (const p of rows) {
-          const factCounts = await this.surreal
-            .withCompany(companyId, async (db) => {
-              const res = (await db.query<any[]>(
-                `SELECT count() AS c FROM knowledge_fact
-                  WHERE predicate = $p AND status = 'active' GROUP ALL;
-                 SELECT count() AS c FROM knowledge_fact
-                  WHERE predicate = $p AND status = 'retracted' GROUP ALL;`,
-                { p: p.predicateId },
-              )) as any[];
-              return [countOf(res[0]), countOf(res[1])];
-            })
-            .catch(() => [0, 0]);
           out.push({
             companyId,
             predicate: p.predicateId,
             piiClass: p.piiClass,
             requiresScope: p.requiresScope ?? '',
-            factCount: factCounts[0],
-            retractedCount: factCounts[1],
+            factCount: counts.get(`${p.predicateId}|active`) ?? 0,
+            retractedCount: counts.get(`${p.predicateId}|retracted`) ?? 0,
           });
         }
       } catch (e) {

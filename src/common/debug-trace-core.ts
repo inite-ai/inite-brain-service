@@ -26,6 +26,10 @@ export interface DebugArtifact {
   name: string;
   ts: number;
   value: unknown;
+  /** Serialized size of `value`, captured at trace time — the ring
+   *  buffer's byte budget sums this instead of re-guessing from shape
+   *  (a keys×64 guess undercounted a 32KB prompt object ~100×). */
+  sizeBytes: number;
 }
 
 export interface DebugContext {
@@ -100,31 +104,42 @@ export async function runWithDebugTrace<T>(fn: () => Promise<T>): Promise<{
 const MAX_ARTIFACT_SIZE = 32 * 1024;
 const MAX_ARTIFACTS_PER_REQUEST = 200;
 
-function safeArtifact(value: unknown): unknown {
-  if (value === undefined || value === null) return value;
+function safeArtifact(value: unknown): { value: unknown; sizeBytes: number } {
+  if (value === undefined || value === null) {
+    return { value, sizeBytes: 8 };
+  }
   try {
     if (typeof value === 'string') {
       return value.length <= MAX_ARTIFACT_SIZE
-        ? value
+        ? { value, sizeBytes: value.length }
         : {
-            __truncated: true,
-            preview: value.slice(0, MAX_ARTIFACT_SIZE),
-            originalSize: value.length,
+            value: {
+              __truncated: true,
+              preview: value.slice(0, MAX_ARTIFACT_SIZE),
+              originalSize: value.length,
+            },
+            sizeBytes: MAX_ARTIFACT_SIZE,
           };
     }
     const json = JSON.stringify(value);
     if (json.length <= MAX_ARTIFACT_SIZE) {
       // Deep-clone via JSON round-trip so later in-place mutations in
       // the producer code don't rewrite the captured artifact.
-      return JSON.parse(json);
+      return { value: JSON.parse(json), sizeBytes: json.length };
     }
     return {
-      __truncated: true,
-      preview: json.slice(0, MAX_ARTIFACT_SIZE),
-      originalSize: json.length,
+      value: {
+        __truncated: true,
+        preview: json.slice(0, MAX_ARTIFACT_SIZE),
+        originalSize: json.length,
+      },
+      sizeBytes: MAX_ARTIFACT_SIZE,
     };
   } catch {
-    return { __unserializable: true, type: typeof value };
+    return {
+      value: { __unserializable: true, type: typeof value },
+      sizeBytes: 64,
+    };
   }
 }
 
@@ -163,11 +178,13 @@ export function traceArtifact(name: string, value: unknown): void {
     ctx.artifactsDropped += 1;
     return;
   }
+  const captured = safeArtifact(value);
   ctx.artifacts.push({
     spanId: spanAls.getStore()?.spanId,
     name,
     ts: Date.now(),
-    value: safeArtifact(value),
+    value: captured.value,
+    sizeBytes: captured.sizeBytes,
   });
 }
 
