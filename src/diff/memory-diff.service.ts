@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 
@@ -170,8 +171,9 @@ export class MemoryDiffService {
 
       // Fetch the `after` snapshot for every changedFacts entry in ONE
       // round trip. The id column is record<knowledge_fact>, so plain
-      // string ids don't match an IN directly — cast through
-      // type::record, same idiom as the entityIds scoping clause above.
+      // strings don't match — bind StringRecordId values and use
+      // INSIDE, the same battle-tested idiom as search's where-builder
+      // entityIds filter.
       const replacementIds = Array.from(
         new Set(
           changedFacts.map((c) =>
@@ -186,8 +188,8 @@ export class MemoryDiffService {
         const [afterRows] = await db.query<any[][]>(
           `SELECT ${FACT_FIELDS}
              FROM knowledge_fact
-             WHERE id IN (SELECT type::record(id) FROM $ids AS id)`,
-          { ids: replacementIds },
+             WHERE id INSIDE $ids`,
+          { ids: replacementIds.map((id) => new StringRecordId(id)) },
         );
         for (const r of (afterRows as any[]) ?? []) {
           if (rowFilter.filter(r)) {
@@ -273,16 +275,19 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
   const entityParts: string[] = ['userId IS NONE'];
 
   if (args.entityIds && args.entityIds.length > 0) {
-    const normalized = args.entityIds.map((id) =>
-      id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
+    // Bind actual record ids (StringRecordId) and filter with INSIDE —
+    // the same idiom as search's where-builder. The previous
+    // `IN (SELECT type::record(id) FROM $entityIds AS id)` form was a
+    // PARSE ERROR (`FROM $param AS alias` is not SurrealQL) that only
+    // fired when a caller actually passed entityIds.
+    params.entityIds = args.entityIds.map(
+      (id) =>
+        new StringRecordId(
+          id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
+        ),
     );
-    params.entityIds = normalized;
-    // SurrealDB IN on a record<knowledge_entity> field accepts an
-    // array of record links (strings here cast through type::record).
-    factParts.push(
-      `entityId IN (SELECT type::record(id) FROM $entityIds AS id)`,
-    );
-    entityParts.push(`id IN (SELECT type::record(id) FROM $entityIds AS id)`);
+    factParts.push(`entityId INSIDE $entityIds`);
+    entityParts.push(`id INSIDE $entityIds`);
   }
 
   if (args.predicates && args.predicates.length > 0) {
