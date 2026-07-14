@@ -276,9 +276,14 @@ export class JobRunService {
       try {
         await this.surreal.withCompany(row.companyId, async (db) => {
           await db.query(
+            // Ownership guard: inline runs are created with no claimedBy and
+            // stay 'running' until this call. If the row was meanwhile claimed
+            // by a queue worker (claimedBy set) or already finished, this
+            // write must be a no-op instead of clobbering the other owner's
+            // terminal state.
             `UPDATE job_run SET status = $status, finishedAt = $finishedAt,
                                 result = $result, error = $error
-              WHERE runId = $runId`,
+              WHERE runId = $runId AND status = 'running' AND claimedBy IS NONE`,
             {
               status: row.status,
               finishedAt: row.finishedAt,

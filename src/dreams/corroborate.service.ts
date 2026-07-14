@@ -237,8 +237,8 @@ export class DreamsCorroborateService {
       .filter((g) => policyFor(g.predicate).semantics === 'bitemporal')
       .sort((a, b) => {
         if (b.n !== a.n) return b.n - a.n; // most-conflicted first
-        const ka = `${String(a.entityId)} ${a.predicate}`;
-        const kb = `${String(b.entityId)} ${b.predicate}`;
+        const ka = `${String(a.entityId)}\u0000${a.predicate}`;
+        const kb = `${String(b.entityId)}\u0000${b.predicate}`;
         return ka < kb ? -1 : ka > kb ? 1 : 0; // stable tiebreak
       });
     return { groups: eligible.slice(0, this.maxPairs * 2), backlog: eligible.length };
