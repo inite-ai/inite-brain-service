@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { clampLlmInputText } from '../common/input-limits';
 import { withGenAiCall } from '../common/gen-ai-observability';
@@ -114,17 +115,7 @@ export class MultiHopPlannerService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.openai = new OpenAI({
-      apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
-      timeout: parseInt(
-        this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-        10,
-      ),
-      maxRetries: parseInt(
-        this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
-        10,
-      ),
-    });
+    this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
       'MULTI_HOP_PLANNER_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { BrainScope } from '../auth/api-key.types';
 import { EntityForgetService } from './entity-forget.service';
@@ -104,10 +105,15 @@ export interface ForgetOptions {
 
 @Injectable()
 export class EntitiesService {
+  // Fourth dep is the tenant predicate registry — the row fence must see
+  // operator-authored requiresScope predicates, not only the code seed.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly forgetService: EntityForgetService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async getProfile({
@@ -157,6 +163,7 @@ export class EntitiesService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: scopes,
         surface: 'entity_profile',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
       const facts = ((factRows as any[]) ?? []).filter((f) =>
         rowPolicy.filter(f),
@@ -328,6 +335,7 @@ export class EntitiesService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: scopes,
         surface: 'entity_timeline',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
       const rows = ((factRows as any[]) ?? []).filter((f) =>
         rowPolicy.filter(f),
@@ -454,6 +462,7 @@ export class EntitiesService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: scopes,
         surface: 'entity_connections',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
       const visibleEdges = edges.filter((edge) =>
         rowPolicy.filter({

@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { BrainScope } from '../auth/api-key.types';
 import { CODE_MEMORY_PACK, codeMemoryKindOf } from '../ai/domain-packs';
 import { makeRowPolicyFilter } from '../policy/row-filter';
@@ -31,6 +32,8 @@ export class CodeMemorySearchService {
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async recall(opts: {
@@ -89,6 +92,9 @@ export class CodeMemorySearchService {
         const rowPolicy = makeRowPolicyFilter({
           callerScopes: opts.scopes,
           surface: 'recall_decisions',
+          policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+            opts.companyId,
+          ),
         });
         const visible = ((rows as any[]) ?? []).filter((r) =>
           rowPolicy.filter(r as { predicate: string }),

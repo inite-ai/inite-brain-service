@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } f
 import { Surreal } from 'surrealdb';
 import { SurrealService, dbMerge } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
 import {
@@ -95,6 +96,8 @@ export class FactsService {
   constructor(
     private readonly surreal: SurrealService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async retract({
@@ -348,6 +351,7 @@ export class FactsService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: opts.callerScopes ?? [],
         surface: 'competing_facts',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
       const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
         (r) => rowPolicy.filter(r),

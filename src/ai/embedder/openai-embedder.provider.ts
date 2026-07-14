@@ -5,11 +5,10 @@ import { getAbortSignal } from '../../common/request-context';
 import type { EmbedderProvider } from './embedder-provider.interface';
 
 export interface OpenAIEmbedderConfig {
-  apiKey: string;
+  /** Pre-built SDK client (see `createOpenAiClient` in src/ai/openai-client.ts). */
+  client: OpenAI;
   model: string;
   dimensions: number;
-  timeoutMs: number;
-  maxRetries: number;
   concurrency: number;
 }
 
@@ -31,11 +30,7 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
   private readonly limiter: Semaphore;
 
   constructor(cfg: OpenAIEmbedderConfig) {
-    this.openai = new OpenAI({
-      apiKey: cfg.apiKey,
-      timeout: cfg.timeoutMs,
-      maxRetries: cfg.maxRetries,
-    });
+    this.openai = cfg.client;
     this.model = cfg.model;
     this.dimensions = cfg.dimensions;
     this.providerId = `openai:${cfg.model}:${cfg.dimensions}`;

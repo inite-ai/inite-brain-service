@@ -112,27 +112,41 @@ export class CommitWriterService {
         outcomes.push({ fact: mf, factId: null, outcome: null });
         continue;
       }
-      const { result } = await traceSpan(
-        'brain.commit.fact',
-        () =>
-          this.factResolver.resolve(db, {
-            companyId: p.companyId,
-            entityId,
-            predicate: mf.predicate,
-            object: mf.object,
-            confidence: mf.confidence,
-            validFrom: p.doc.occurredAt,
-            source: this.factSource(p.doc, mf),
-            entropy: mf.entropy,
-            precomputedEmbedding: p.embeddings[i],
-          }),
-        { predicate: mf.predicate, entityId },
-      );
-      outcomes.push({
-        fact: mf,
-        factId: result?.factId ? String(result.factId) : null,
-        outcome: result?.outcome ? String(result.outcome) : null,
-      });
+      // Per-fact isolation, mirroring writeRelations: one poison fact
+      // (a value fn::resolve_fact rejects non-retriably) must not fail
+      // the whole commit_document job terminally — that stranded the
+      // already-written half, left every candidate status pending, and
+      // had the sweeper re-arm the same failing commit forever. The
+      // pipeline's own motto: one broken pack must not hold a document's
+      // memory hostage.
+      try {
+        const { result } = await traceSpan(
+          'brain.commit.fact',
+          () =>
+            this.factResolver.resolve(db, {
+              companyId: p.companyId,
+              entityId,
+              predicate: mf.predicate,
+              object: mf.object,
+              confidence: mf.confidence,
+              validFrom: p.doc.occurredAt,
+              source: this.factSource(p.doc, mf),
+              entropy: mf.entropy,
+              precomputedEmbedding: p.embeddings[i],
+            }),
+          { predicate: mf.predicate, entityId },
+        );
+        outcomes.push({
+          fact: mf,
+          factId: result?.factId ? String(result.factId) : null,
+          outcome: result?.outcome ? String(result.outcome) : null,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[brain.commit.fact] predicate=${mf.predicate} entity=${entityId} failed: ${(err as Error).message}`,
+        );
+        outcomes.push({ fact: mf, factId: null, outcome: 'error' });
+      }
     }
     return outcomes;
   }

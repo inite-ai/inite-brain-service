@@ -1,13 +1,26 @@
 import {
   normalizeEntityId,
-  factVisibleToScopes,
   blockedPredicates,
   activeFactWhere,
 } from '../src/entities/entity-read.helpers';
+import { makeRowPolicyFilter } from '../src/policy/row-filter';
 import { PREDICATE_POLICIES } from '../src/ingest/conflict-resolver';
 import { BrainScope } from '../src/auth/api-key.types';
 
 const PII: BrainScope = 'brain:read_pii';
+
+/** The JS row gate as every read surface applies it (seed lookup,
+ *  policy forced off so only the predicate scope gate runs). */
+function gateAllows(predicate: string, scopes: BrainScope[]): boolean {
+  const f = makeRowPolicyFilter({
+    callerScopes: scopes,
+    surface: 'entity-read-helpers-spec',
+    policy: null,
+  });
+  const ok = f.filter({ predicate });
+  f.finish();
+  return ok;
+}
 
 describe('normalizeEntityId', () => {
   it('strips a knowledge_entity: prefix into bare id + full form', () => {
@@ -38,26 +51,26 @@ describe('normalizeEntityId', () => {
   });
 });
 
-describe('factVisibleToScopes', () => {
+describe('row-filter predicate scope gate', () => {
   // 'dob' / 'address' are seeded as requiresScope: 'brain:read_pii';
   // 'name' / 'said' are non-PII; an unknown predicate falls to DEFAULT_POLICY.
   it('hides a PII-classed predicate from a caller without the scope', () => {
-    expect(factVisibleToScopes('dob', [])).toBe(false);
-    expect(factVisibleToScopes('address', [])).toBe(false);
+    expect(gateAllows('dob', [])).toBe(false);
+    expect(gateAllows('address', [])).toBe(false);
   });
 
   it('reveals a PII-classed predicate to a caller holding the scope', () => {
-    expect(factVisibleToScopes('dob', [PII])).toBe(true);
-    expect(factVisibleToScopes('address', [PII])).toBe(true);
+    expect(gateAllows('dob', [PII])).toBe(true);
+    expect(gateAllows('address', [PII])).toBe(true);
   });
 
   it('always reveals a non-PII predicate regardless of scopes', () => {
-    expect(factVisibleToScopes('name', [])).toBe(true);
-    expect(factVisibleToScopes('said', [])).toBe(true);
+    expect(gateAllows('name', [])).toBe(true);
+    expect(gateAllows('said', [])).toBe(true);
   });
 
   it('reveals an unknown predicate (DEFAULT_POLICY has no required scope)', () => {
-    expect(factVisibleToScopes('zzz_not_a_real_predicate', [])).toBe(true);
+    expect(gateAllows('zzz_not_a_real_predicate', [])).toBe(true);
   });
 });
 
@@ -72,16 +85,14 @@ describe('blockedPredicates', () => {
     expect(blockedPredicates([PII])).toEqual([]);
   });
 
-  it('stays in lockstep with factVisibleToScopes for every known predicate', () => {
+  it('stays in lockstep with the row-filter scope gate for every known predicate', () => {
     // A predicate is in the DB-side blocklist iff the JS-side row filter
     // would hide it — the two gates must never disagree, or a low-scope
     // caller could move a watermark on a fact it cannot read.
     for (const scopes of [[] as BrainScope[], [PII]]) {
       const blocked = new Set(blockedPredicates(scopes));
       for (const predicate of Object.keys(PREDICATE_POLICIES)) {
-        expect(blocked.has(predicate)).toBe(
-          !factVisibleToScopes(predicate, scopes),
-        );
+        expect(blocked.has(predicate)).toBe(!gateAllows(predicate, scopes));
       }
     }
   });

@@ -152,6 +152,15 @@ export function registerWriteTools({
       inputSchema: {
         factId: z.string(),
         reason: z.string(),
+        retractedBy: z
+          .object({
+            userId: z.string().max(200).optional(),
+            source: z.enum(['human', 'system']),
+          })
+          .optional()
+          .describe(
+            "Who initiated the retraction — mirrors the REST RetractFactDto. Omit for the pre-existing default ({source: 'system'}); pass {source: 'human', userId} when relaying an operator/user decision so the audit trail records the real initiator",
+          ),
       },
     },
     async (args) => {
@@ -165,7 +174,7 @@ export function registerWriteTools({
         factId: args.factId,
         dto: {
           reason: args.reason,
-          retractedBy: { source: 'system' },
+          retractedBy: args.retractedBy ?? { source: 'system' },
         },
         callerScopes: scopes,
       });

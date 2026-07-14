@@ -9,7 +9,7 @@
  * removes the copy-paste of the bitemporal clause set between
  * `getProfile` and `freshnessWatermark`.
  */
-import { policyFor, PREDICATE_POLICIES } from '../ingest/conflict-resolver';
+import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { BrainScope } from '../auth/api-key.types';
 
 /**
@@ -25,26 +25,16 @@ export function normalizeEntityId(raw: string): { id: string; full: string } {
 }
 
 /**
- * PII scope gate for a single predicate. A fact/edge whose predicate is
- * classed `requiresScope` is visible only to callers holding that scope.
- * Mirrors the DB-level PERMISSIONS fence (migration 0005) for the JS read
- * paths (profile/timeline rows, edge `kind`) where rows are materialised
- * before filtering.
- */
-export function factVisibleToScopes(
-  predicate: string,
-  scopes: BrainScope[],
-): boolean {
-  const policy = policyFor(predicate);
-  return !policy.requiresScope || scopes.includes(policy.requiresScope);
-}
-
-/**
- * DB-side equivalent of {@link factVisibleToScopes} for the watermark
- * probe, which never materialises rows: the set of known predicates the
- * caller may NOT see, pushed into a `predicate NOT IN $blocked` clause.
- * Derived from the same policy table so the two gates stay in lockstep —
- * a predicate is blocked here iff it is invisible there.
+ * DB-side equivalent of the row filter's predicate scope gate
+ * (makeRowPolicyFilter) for the watermark probe, which never
+ * materialises rows: the set of known predicates the caller may NOT
+ * see, pushed into a `predicate NOT IN $blocked` clause. Derived from
+ * the same seed policy table so the two gates stay in lockstep for
+ * CORE predicates — a predicate is blocked here iff it is invisible
+ * there. Known limitation: tenant-authored registry predicates with
+ * requiresScope are not in this static list, so they influence the
+ * watermark timestamps (never row content — the row surfaces apply the
+ * registry-aware filter).
  */
 export function blockedPredicates(scopes: BrainScope[]): string[] {
   return Object.entries(PREDICATE_POLICIES)
