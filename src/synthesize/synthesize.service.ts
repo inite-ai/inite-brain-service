@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
@@ -123,17 +124,7 @@ export class SynthesizeService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.openai = new OpenAI({
-      apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
-      timeout: parseInt(
-        this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-        10,
-      ),
-      maxRetries: parseInt(
-        this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
-        10,
-      ),
-    });
+    this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
       'SYNTHESIZE_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),

@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 
 /**
@@ -32,7 +33,11 @@ import { makeRowPolicyFilter } from '../policy/row-filter';
 export class MemoryDiffService {
   private readonly logger = new Logger(MemoryDiffService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
+  ) {}
 
   async diff(
     companyId: string,
@@ -54,11 +59,15 @@ export class MemoryDiffService {
     // test/abac-db-fence.e2e-spec.ts), so the scoped pool alone leaks —
     // the JS filter (requiresScope PII gate + ABAC row rules) is the only
     // working gate. Rows the caller may not see never enter the result.
+    const policyLookup = await this.predicateRegistry?.rowPolicyLookup(
+      companyId,
+    );
     return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const scoping = buildScoping(args);
       const rowFilter = makeRowPolicyFilter({
         callerScopes,
         surface: 'memory_diff',
+        policyLookup,
       });
 
       // Per-section row cap. The window is caller-controlled (MCP args)

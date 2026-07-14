@@ -31,8 +31,6 @@ export type {
  * One LLM call per ingest (json_schema strict, no hot-path retry);
  * server-side validation drops malformed facts and traces them.
  */
-export const PREDICATE_VOCABULARY = CORE_PREDICATES.map((p) => p.predicateId);
-
 @Injectable()
 export class ExtractorService {
   private readonly logger = new Logger(ExtractorService.name);

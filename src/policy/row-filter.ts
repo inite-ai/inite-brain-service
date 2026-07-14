@@ -65,6 +65,17 @@ export interface RowPolicyFilter {
   readonly active: boolean;
 }
 
+/**
+ * Predicate → policy resolution for the scope gate + PII classing.
+ * The registry-backed lookup (PredicateRegistryService.policyFor,
+ * partially applied with the tenant) sees operator-authored per-tenant
+ * predicates; the static seed fallback only knows CORE_PREDICATES.
+ */
+export type PredicatePolicyLookup = (predicate: string) => {
+  requiresScope?: string;
+  piiClass: string;
+};
+
 export function makeRowPolicyFilter(opts: {
   callerScopes: readonly string[];
   surface: string;
@@ -73,9 +84,18 @@ export function makeRowPolicyFilter(opts: {
    * context; pass null to force policy-off while keeping the scope gate.
    */
   policy?: PolicyContext | null;
+  /**
+   * Tenant-aware predicate policy source. Callers on request paths pass
+   * the registry-backed lookup so an operator-set requiresScope on a
+   * tenant predicate actually fences reads; without it the gate only
+   * sees the static code-side seed (the pre-registry behaviour, kept as
+   * the fallback for callers with no tenant in hand).
+   */
+  policyLookup?: PredicatePolicyLookup;
 }): RowPolicyFilter {
   const ctx = opts.policy !== undefined ? opts.policy : getPolicyContext();
   const scopes = opts.callerScopes;
+  const lookup: PredicatePolicyLookup = opts.policyLookup ?? policyFor;
 
   type SetStats = RowDecisionSummary['perSet'][number];
   const perSet = new Map<string, SetStats>();
@@ -83,7 +103,7 @@ export function makeRowPolicyFilter(opts: {
   let evalNs = 0n;
 
   const filter = (row: PolicyFilterableRow): boolean => {
-    const predicatePolicy = policyFor(row.predicate);
+    const predicatePolicy = lookup(row.predicate);
     if (
       predicatePolicy.requiresScope &&
       !scopes.includes(predicatePolicy.requiresScope)
@@ -93,7 +113,7 @@ export function makeRowPolicyFilter(opts: {
     if (!ctx) return true;
 
     const t0 = process.hrtime.bigint();
-    const view = toRowView(row, (p) => policyFor(p).piiClass);
+    const view = toRowView(row, (p) => lookup(p).piiClass);
     const evaluation = evaluateRow(ctx, view);
     evalNs += process.hrtime.bigint() - t0;
     total += 1;

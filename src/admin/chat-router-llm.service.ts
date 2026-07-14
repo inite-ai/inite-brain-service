@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { traceArtifact } from '../common/debug-trace';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
@@ -31,15 +32,7 @@ export class ChatRouterLlmService {
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.openai = new OpenAI({
-      apiKey: this.config.getOrThrow<string>('OPENAI_API_KEY'),
-      // Honour the same OPENAI_TIMEOUT_MS / OPENAI_MAX_RETRIES knobs every
-      // other OpenAI-using service reads — this was the sole outlier
-      // hardcoding 15s/1, so an operator raising the timeout silently
-      // didn't apply to chat routing.
-      timeout: parseInt(this.config.get<string>('OPENAI_TIMEOUT_MS', '30000'), 10),
-      maxRetries: parseInt(this.config.get<string>('OPENAI_MAX_RETRIES', '3'), 10),
-    });
+    this.openai = createOpenAiClientOrThrow(this.config);
     this.model = this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
   }
 

@@ -274,6 +274,29 @@ export class PredicateRegistryService {
     return seed ?? DEFAULT_FALLBACK;
   }
 
+  /**
+   * Registry-backed predicate-policy lookup for makeRowPolicyFilter.
+   * Warms the tenant snapshot first (TTL-cached, herd-deduped — cheap on
+   * the hot path) and returns a sync resolver that merges the tenant's
+   * registry over the CORE seed. This is what makes an operator-set
+   * requiresScope on a tenant-authored predicate actually fence reads:
+   * the static seed lookup the row filter falls back to only knows
+   * CORE_PREDICATES. Fail-open to the seed on snapshot errors — a
+   * registry outage must not take down every read surface.
+   */
+  async rowPolicyLookup(
+    companyId: string,
+  ): Promise<(predicate: string) => PredicateDefinition> {
+    try {
+      await this.getSnapshot(companyId);
+    } catch (e) {
+      this.logger.warn(
+        `rowPolicyLookup: snapshot load failed for ${companyId} (${(e as Error).message}); using seed policies`,
+      );
+    }
+    return (predicate) => this.policyFor(companyId, predicate);
+  }
+
   /** Invalidate cache for a tenant (called after admin edits). */
   invalidate(companyId: string): void {
     this.cache.delete(companyId);

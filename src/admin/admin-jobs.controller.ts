@@ -404,7 +404,7 @@ export class AdminJobsController {
     const tenants = this.apiKeys.knownCompanyIds();
     const hostTenant = tenants[0];
     const row = await this.jobs.start({
-      jobType: 'reindex_embeddings', // reuses generic generic-job storage; future: 'scenarios_batch'
+      jobType: 'scenarios_batch',
       companyId: hostTenant,
       triggeredBy: 'manual',
       triggeredByActor: req.brainAuth.companyId,

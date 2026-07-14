@@ -95,6 +95,7 @@ export class IngestPredictionService {
     const rowFilter = makeRowPolicyFilter({
       callerScopes,
       surface: 'detect_contradiction',
+      policyLookup: await this.predicateRegistry.rowPolicyLookup(companyId),
     });
     try {
       const entityId = await this.lookupEntity(db, args.entityRef);

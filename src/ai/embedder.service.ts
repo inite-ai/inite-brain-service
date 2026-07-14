@@ -11,6 +11,7 @@ import { LRUCache } from '../common/lru-cache';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import type { EmbedderProvider } from './embedder/embedder-provider.interface';
+import { createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
 import { envFlagEnabled } from '../common/env-validation';
@@ -266,21 +267,13 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   private buildOpenAIProvider(): OpenAIEmbedderProvider {
     return new OpenAIEmbedderProvider({
-      apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
+      client: createOpenAiClientOrThrow(this.configService),
       model: this.configService.get<string>(
         'OPENAI_EMBEDDING_MODEL',
         'text-embedding-3-small',
       ),
       dimensions: parseInt(
         this.configService.get<string>('OPENAI_EMBEDDING_DIMENSIONS', '1536'),
-        10,
-      ),
-      timeoutMs: parseInt(
-        this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-        10,
-      ),
-      maxRetries: parseInt(
-        this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
         10,
       ),
       concurrency: parseInt(

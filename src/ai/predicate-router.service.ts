@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { createOpenAiClient } from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { createHash } from 'node:crypto';
 import { withGenAiCall } from '../common/gen-ai-observability';
@@ -95,20 +96,8 @@ export class PredicateRouterService {
     this.enabled =
       this.configService.get<string>('SEARCH_PREDICATE_ROUTER_ENABLED', '0') ===
       '1';
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    this.openai = apiKey
-      ? new OpenAI({
-          apiKey,
-          timeout: parseInt(
-            this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-            10,
-          ),
-          maxRetries: parseInt(
-            this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
-            10,
-          ),
-        })
-      : (undefined as unknown as OpenAI);
+    this.openai =
+      createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'SEARCH_PREDICATE_ROUTER_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),

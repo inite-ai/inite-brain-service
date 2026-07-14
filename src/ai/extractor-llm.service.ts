@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { createOpenAiClientOrThrow } from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -36,19 +37,7 @@ export class ExtractorLlmService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    const timeoutMs = parseInt(
-      this.configService.get<string>('OPENAI_TIMEOUT_MS', '30000'),
-      10,
-    );
-    const maxRetries = parseInt(
-      this.configService.get<string>('OPENAI_MAX_RETRIES', '3'),
-      10,
-    );
-    this.openai = new OpenAI({
-      apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
-      timeout: timeoutMs,
-      maxRetries,
-    });
+    this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
       'OPENAI_CHAT_MODEL',
       'gpt-4o-mini',

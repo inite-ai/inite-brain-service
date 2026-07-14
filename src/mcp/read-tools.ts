@@ -120,7 +120,7 @@ function registerSearchTools({
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
-        limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max results (default 10)'),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
         minConfidence: z.number().min(0).max(1).optional(),
@@ -182,7 +182,7 @@ function registerSearchTools({
           .array(z.string())
           .optional()
           .describe('Filter to these predicates only'),
-        limit: z.number().int().min(1).max(50).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
         userId: z
           .string()
           .max(200)
@@ -228,7 +228,7 @@ function registerSearchTools({
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language question'),
-        limit: z.number().int().min(1).max(50).optional().describe(
+        limit: z.number().int().min(1).max(100).optional().describe(
           'Top-K facts fed to the generator (default 10)',
         ),
         predicates: z.array(z.string()).optional(),
@@ -520,6 +520,13 @@ function registerEntityReadTools({
       inputSchema: {
         entityId: z.string(),
         kind: z.string().optional().describe('Edge kind filter (e.g. "paid_for", "mentioned_in")'),
+        asOf: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            'Bitemporal edge cutoff — connections as they were believed at this ISO 8601 moment (mirrors GET /v1/entities/:id/connections?asOf=)',
+          ),
       },
     },
     async (args) => {
@@ -531,6 +538,7 @@ function registerEntityReadTools({
         entityIdRaw: args.entityId,
         kind: args.kind,
         scopes,
+        asOf: args.asOf,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

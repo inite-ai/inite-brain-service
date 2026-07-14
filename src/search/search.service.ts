@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { SearchDto, SearchMode } from './dto/search.dto';
 import { withSpan } from '../common/tracing';
@@ -16,7 +17,10 @@ import {
 } from './internals/stage-budget';
 import { buildBaseWhere } from './internals/where-builder';
 import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
-import { makeRowPolicyFilter } from '../policy/row-filter';
+import {
+  makeRowPolicyFilter,
+  type PredicatePolicyLookup,
+} from '../policy/row-filter';
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
@@ -64,11 +68,28 @@ export class SearchService {
   private readonly logger = new Logger(SearchService.name);
   private readonly budgets: StageBudgets = resolveStageBudgets();
 
+  // Fourth dep is the tenant predicate registry — the row fence must see
+  // operator-authored requiresScope predicates, not only the code seed.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly retrieval: SearchRetrievalService,
     private readonly rerank: SearchRerankService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
+
+  /**
+   * Registry-backed predicate-policy lookup for the row fence; falls
+   * back to the static seed when the registry isn't wired (unit tests
+   * construct SearchService positionally).
+   */
+  private async policyLookupFor(
+    companyId: string,
+  ): Promise<PredicatePolicyLookup | undefined> {
+    return this.predicateRegistry
+      ? this.predicateRegistry.rowPolicyLookup(companyId)
+      : undefined;
+  }
 
   /** Pure helper — kept exposed for unit testing. Delegates to the
    *  rerank-skip module so the orchestrator owns no math. */
@@ -147,6 +168,7 @@ export class SearchService {
           const rowPolicy = makeRowPolicyFilter({
             callerScopes,
             surface: 'graph_retrieve',
+            policyLookup: await this.policyLookupFor(companyId),
           });
           for (const [entityId, facts] of factsByEntity) {
             factsByEntity.set(
@@ -366,6 +388,7 @@ export class SearchService {
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: ctx.callerScopes,
       surface: 'search',
+      policyLookup: await this.policyLookupFor(ctx.companyId),
     });
     const rowFilterFn = (row: FactRow) => rowPolicy.filter(row);
     const survivorRecords = await hydrateSurvivors(db, fused);
