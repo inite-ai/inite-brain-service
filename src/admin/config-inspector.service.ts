@@ -41,10 +41,11 @@ export interface ConfigEntry {
  * the alternative (reading process.env) would surface arbitrary
  * platform variables that aren't ours.
  *
- * NEW knobs: add an entry below. The `runtimeMutable` flag controls
- * whether the admin UI offers a toggle for booleans. Mutability is
- * implemented in FeatureFlagOverrideService (env override map read on
- * each config get).
+ * NEW knobs: add an entry below. `runtimeMutable: true` means the
+ * reading code re-reads process.env on each use, so a live env change
+ * takes effect without a restart; `false` means the value is captured
+ * once at boot (constructor/module init). There is no write endpoint —
+ * the admin UI renders this as informational metadata only.
  */
 @Injectable()
 export class ConfigInspectorService {
@@ -195,9 +196,10 @@ export class ConfigInspectorService {
         key: 'DREAMS_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
-        description: 'Master switch for the 04:00 UTC cron.',
+        description:
+          'Master switch for the 04:00 UTC cron. Read once at boot.',
       },
       {
         key: 'DREAMS_DEDUP_ENABLED',
@@ -369,7 +371,7 @@ export class ConfigInspectorService {
       {
         key: 'SEARCH_RERANK_SKIP_MARGIN',
         category: 'search',
-        defaultValue: '0.2',
+        defaultValue: '0',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
@@ -530,7 +532,7 @@ export class ConfigInspectorService {
       {
         key: 'CONFLICT_WEIGHT_AUTHORITY',
         category: 'conflict',
-        defaultValue: '0.3',
+        defaultValue: '0.1',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
@@ -551,21 +553,21 @@ export class ConfigInspectorService {
       {
         key: 'CONFLICT_WEIGHT_SOURCE_TRUST',
         category: 'conflict',
-        defaultValue: '0.2',
+        defaultValue: '0.4',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
       {
         key: 'CONFLICT_MARGIN_SUPERSEDE',
         category: 'conflict',
-        defaultValue: '0.1',
+        defaultValue: '0.15',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
       {
         key: 'CONFLICT_REJECT_THRESHOLD',
         category: 'conflict',
-        defaultValue: '0.4',
+        defaultValue: '0.3',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
