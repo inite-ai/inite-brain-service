@@ -176,9 +176,27 @@ export function applyOutputShaping(
   }
   if (dto.tokenBudget !== undefined) {
     const budget = dto.tokenBudget;
-    const fitsBudget = (xs: SearchHit[]) =>
-      countJsonTokens({ results: xs }) <= budget;
-    while (results.length > 0 && !fitsBudget(results)) {
+    // One tiktoken pass per hit + one for the envelope, then a
+    // prefix-sum cut. The previous loop re-encoded the ENTIRE remaining
+    // payload after every pop — O(N) full encodes of an up-to-100-hit
+    // JSON body, synchronous on the main thread. Per-hit sums
+    // over-estimate the joined encoding only slightly (BPE merges
+    // across boundaries reduce tokens; +1 covers the array comma), so
+    // the budget stays a hard ceiling.
+    const envelopeTokens = countJsonTokens({ results: [] });
+    let used = envelopeTokens;
+    let keep = 0;
+    for (const hit of results) {
+      const hitTokens = countJsonTokens(hit) + 1;
+      if (used + hitTokens > budget) break;
+      used += hitTokens;
+      keep += 1;
+    }
+    results = results.slice(0, keep);
+    // Safety net for the non-compositional corner: verify the joined
+    // encoding once; in the rare over-budget case trim the tail —
+    // bounded by the estimate error (a hit or two), not by N.
+    while (results.length > 0 && countJsonTokens({ results }) > budget) {
       results.pop();
     }
   }

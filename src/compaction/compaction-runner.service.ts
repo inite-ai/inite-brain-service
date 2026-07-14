@@ -12,6 +12,7 @@ import {
   CompactionStats,
   SUMMARY_GENERATOR,
 } from './compaction.types';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * CompactionRunnerService — the retention engine.
@@ -48,7 +49,7 @@ export class CompactionRunnerService {
       throw new Error('COMPACTION_HOT_RETENTION_DAYS must be a positive integer');
     }
     this.summariesEnabled =
-      config.get<string>('COMPACTION_SUMMARIES', 'false').toLowerCase() === 'true';
+      envFlagEnabled(config.get<string>('COMPACTION_SUMMARIES'));
     this.summaryGenerator = injectedGenerator ?? new ConcatSummaryGenerator();
     this.logger.log(
       `Compaction config: retention=${this.hotRetentionDays}d, summaries=${this.summariesEnabled}, generator=${this.summaryGenerator.constructor.name}`,

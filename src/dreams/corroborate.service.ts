@@ -7,6 +7,7 @@ import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { policyFor } from '../ingest/conflict-resolver';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * DreamsCorroborateService — fuzzy cross-source corroboration.
@@ -99,7 +100,7 @@ export class DreamsCorroborateService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('DREAMS_CORROBORATE_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('DREAMS_CORROBORATE_ENABLED'));
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     this.openai = apiKey
       ? new OpenAI({

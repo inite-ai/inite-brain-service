@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService } from '../ai/entity-judge.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * EntityResolverService — inline entity resolution at ingest time
@@ -53,7 +54,7 @@ export class EntityResolverService {
     private readonly judge: EntityJudgeService,
   ) {
     this.enabled =
-      this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED', '0') === '1';
+      envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
     this.cosineFloor = parseFloat(
       this.config.get<string>('INGEST_INLINE_RESOLUTION_COSINE_FLOOR', '0.85'),
     );

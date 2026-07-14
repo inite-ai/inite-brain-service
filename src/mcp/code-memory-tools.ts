@@ -70,16 +70,12 @@ export function registerCodeMemoryReadTools(opts: {
         scopes,
       });
       const codeIds = new Set(CODE_MEMORY_PREDICATE_IDS);
-      // Without asOf, "why" means "why, currently" — drop superseded rows.
-      // getProfile's asOf=null branch filters only retractedAt IS NONE, so
-      // superseded decisions (status='superseded', retractedAt NONE since
-      // migration 0034) would otherwise surface as if still in force —
-      // paradoxically, passing asOf=now would hide them while omitting
-      // asOf would not. With an explicit asOf the point-in-time view
-      // already handles supersession via the validity window.
-      const memory = (profile?.facts ?? []).filter(
-        (f) =>
-          codeIds.has(f.predicate) && (args.asOf ? true : f.status === 'active'),
+      // No local status filter: getProfile's activeFactWhere applies the
+      // full believed-and-valid-now closure in BOTH branches now, so
+      // superseded decisions are already excluded (the filter here used
+      // to patch around the old retractedAt-only asOf=null branch).
+      const memory = (profile?.facts ?? []).filter((f) =>
+        codeIds.has(f.predicate),
       );
       const out = {
         symbol: args.symbol,

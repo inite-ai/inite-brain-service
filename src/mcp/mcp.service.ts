@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SearchService } from '../search/search.service';
 import { EntitiesService } from '../entities/entities.service';
@@ -106,6 +107,50 @@ export class McpService {
    * wrapper that emits allow/would_deny decisions (report_only
    * observability).
    */
+  /**
+   * Outermost handler wrapper — the MCP analogue of AllExceptionsFilter.
+   * Without it a thrown error reaches the SDK, which serializes
+   * error.message into the tool result verbatim: raw SurrealDB messages
+   * carry record ids, index names, and (for type mismatches) FIELD
+   * VALUES — data a brain:read key without read_pii must never see.
+   *
+   * Deliberate client-facing errors (HttpException < 500 — validation,
+   * not-found, policy denials) pass through unchanged, matching what the
+   * REST surface returns for the same inputs. Everything else is logged
+   * in full with a correlation id and replaced by a generic message.
+   *
+   * Applied BEFORE applyPolicyToolGate patches registerTool, so the
+   * error wrapper ends up outermost and also covers the gate itself.
+   */
+  private wrapToolErrors(server: McpServer): void {
+    const raw = server.registerTool.bind(server);
+    (server as McpServer & { registerTool: unknown }).registerTool = (
+      name: string,
+      config: unknown,
+      handler: (...args: unknown[]) => unknown,
+    ) =>
+      raw(name as never, config as never, (async (...args: unknown[]) => {
+        try {
+          return await handler(...args);
+        } catch (e) {
+          if (e instanceof HttpException && e.getStatus() < 500) throw e;
+          const ref = randomUUID().slice(0, 8);
+          this.logger.error(
+            `tool ${name} failed (ref ${ref}): ${(e as Error).stack ?? e}`,
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `internal error while running ${name} (ref ${ref})`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }) as never);
+  }
+
   private applyPolicyToolGate(server: McpServer, policy: PolicyContext): void {
     const raw = server.registerTool.bind(server);
     (server as McpServer & { registerTool: unknown }).registerTool = (
@@ -179,8 +224,9 @@ export class McpService {
     const policy = caller?.policy;
     const server = new McpServer({
       name: 'inite-brain-service',
-      version: '0.1.0',
+      version: MCP_SERVER_VERSION,
     });
+    this.wrapToolErrors(server);
     if (policy) this.applyPolicyToolGate(server, policy);
     registerReadTools({
       server,
@@ -238,7 +284,10 @@ export class McpService {
       });
     }
     if (scopes.includes('brain:admin')) {
-      registerAdminTools(server, companyId, { entities: this.entities });
+      registerAdminTools(server, companyId, {
+        entities: this.entities,
+        actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
+      });
     }
     return server;
   }

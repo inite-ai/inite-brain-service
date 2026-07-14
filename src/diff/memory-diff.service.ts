@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 
@@ -60,6 +61,13 @@ export class MemoryDiffService {
         surface: 'memory_diff',
       });
 
+      // Per-section row cap. The window is caller-controlled (MCP args)
+      // — without a cap, from=1970 dumps the tenant's entire fact table
+      // into one JSON response. SECTION_CAP+1 is fetched so `truncated`
+      // can be reported without a COUNT round-trip; callers narrow the
+      // window (or filter) to see the rest.
+      const cap = SECTION_CAP + 1;
+
       // CREATED: facts whose recordedAt landed in [from, to). We don't
       // care whether they were later retracted — at the moment of
       // creation, the agent learned something.
@@ -68,8 +76,8 @@ export class MemoryDiffService {
            FROM knowledge_fact
            WHERE recordedAt >= $from AND recordedAt < $to
                  ${scoping.factClause}
-           ORDER BY recordedAt ASC`,
-        { from, to, ...scoping.params },
+           ORDER BY recordedAt ASC LIMIT $cap`,
+        { from, to, cap, ...scoping.params },
       );
 
       // RETRACTED / SUPERSEDED: facts whose retractedAt landed in the
@@ -81,8 +89,8 @@ export class MemoryDiffService {
            FROM knowledge_fact
            WHERE retractedAt >= $from AND retractedAt < $to
                  ${scoping.factClause}
-           ORDER BY retractedAt ASC`,
-        { from, to, ...scoping.params },
+           ORDER BY retractedAt ASC LIMIT $cap`,
+        { from, to, cap, ...scoping.params },
       );
 
       // NEW ENTITIES — knowledge_entity.createdAt within window.
@@ -91,8 +99,8 @@ export class MemoryDiffService {
            FROM knowledge_entity
            WHERE createdAt >= $from AND createdAt < $to
                  ${scoping.entityClause}
-           ORDER BY createdAt ASC`,
-        { from, to, ...scoping.params },
+           ORDER BY createdAt ASC LIMIT $cap`,
+        { from, to, cap, ...scoping.params },
       );
 
       // FORGOTTEN ENTITIES — GDPR-grade erasures by forgottenAt.
@@ -103,16 +111,29 @@ export class MemoryDiffService {
         `SELECT entityIdHash, reason, requestId, forgottenAt
            FROM forgotten_entity
            WHERE forgottenAt >= $from AND forgottenAt < $to
-           ORDER BY forgottenAt ASC`,
-        { from, to },
+           ORDER BY forgottenAt ASC LIMIT $cap`,
+        { from, to, cap },
       );
 
-      const createdFacts: FactRef[] = ((createdRows as any[]) ?? [])
+      let truncated = false;
+      const clip = <T>(rows: T[] | undefined | null): T[] => {
+        const list = (rows as T[]) ?? [];
+        if (list.length > SECTION_CAP) {
+          truncated = true;
+          return list.slice(0, SECTION_CAP);
+        }
+        return list;
+      };
+      const createdClipped = clip(createdRows as any[]);
+      const retractedClipped = clip(retractedRows as any[]);
+      const newEntityClipped = clip(newEntityRows as any[]);
+      const forgottenClipped = clip(forgottenRows as any[]);
+
+      const createdFacts: FactRef[] = createdClipped
         .filter((r) => rowFilter.filter(r))
         .map(rowToFactRef);
-      const retracted: Array<FactRef & { supersededBy?: string }> = (
-        (retractedRows as any[]) ?? []
-      )
+      const retracted: Array<FactRef & { supersededBy?: string }> =
+        retractedClipped
         .filter((r) => rowFilter.filter(r))
         .map((r) => ({
           ...rowToFactRef(r),
@@ -148,32 +169,33 @@ export class MemoryDiffService {
         }
       }
 
-      // Fetch the `after` snapshot for each changedFacts entry. The
-      // id column is record<knowledge_fact>; an `IN` against plain
-      // string ids doesn't match. We hydrate each replacement via
-      // type::record in a per-row fetch — changedFacts counts are
-      // bounded by retracts in-window, so the N+1 round trip is
-      // cheap in practice and the SurrealQL stays portable.
-      const replacementTails = Array.from(
+      // Fetch the `after` snapshot for every changedFacts entry in ONE
+      // round trip. The id column is record<knowledge_fact>, so plain
+      // strings don't match — bind StringRecordId values and use
+      // INSIDE, the same battle-tested idiom as search's where-builder
+      // entityIds filter.
+      const replacementIds = Array.from(
         new Set(
           changedFacts.map((c) =>
             c.replacedBy.startsWith('knowledge_fact:')
-              ? c.replacedBy.slice('knowledge_fact:'.length)
-              : c.replacedBy,
+              ? c.replacedBy
+              : `knowledge_fact:${c.replacedBy}`,
           ),
         ),
       );
       const replacementMap = new Map<string, FactRef>();
-      for (const tail of replacementTails) {
+      if (replacementIds.length > 0) {
         const [afterRows] = await db.query<any[][]>(
           `SELECT ${FACT_FIELDS}
-             FROM type::record('knowledge_fact', $tail) LIMIT 1`,
-          { tail },
+             FROM knowledge_fact
+             WHERE id INSIDE $ids`,
+          { ids: replacementIds.map((id) => new StringRecordId(id)) },
         );
-        const r = (afterRows as any[])?.[0];
-        if (r && rowFilter.filter(r)) {
-          const ref = rowToFactRef(r);
-          replacementMap.set(ref.factId, ref);
+        for (const r of (afterRows as any[]) ?? []) {
+          if (rowFilter.filter(r)) {
+            const ref = rowToFactRef(r);
+            replacementMap.set(ref.factId, ref);
+          }
         }
       }
       for (const c of changedFacts) {
@@ -186,8 +208,8 @@ export class MemoryDiffService {
       // would let callers double-spend.
       const netCreated = createdFacts.filter((c) => !supersedeeIds.has(c.factId));
 
-      const newEntities: EntityRef[] = ((newEntityRows as any[]) ?? []).map(
-        (r) => ({
+      const newEntities: EntityRef[] = newEntityClipped.map(
+        (r: any) => ({
           entityId: String(r.id),
           type: r.type ? String(r.type) : 'unknown',
           canonicalName: r.canonicalName ? String(r.canonicalName) : '',
@@ -196,9 +218,8 @@ export class MemoryDiffService {
         }),
       );
 
-      const forgottenEntities: ForgottenRef[] = (
-        (forgottenRows as any[]) ?? []
-      ).map((r) => ({
+      const forgottenEntities: ForgottenRef[] = forgottenClipped.map(
+        (r: any) => ({
         entityIdHash: String(r.entityIdHash),
         reason: String(r.reason),
         requestId: r.requestId ? String(r.requestId) : undefined,
@@ -222,6 +243,7 @@ export class MemoryDiffService {
         changedFacts,
         newEntities,
         forgottenEntities,
+        truncated,
       };
     });
   }
@@ -230,6 +252,14 @@ export class MemoryDiffService {
 const FACT_FIELDS =
   'id, entityId, predicate, object, confidence, validFrom, validUntil, ' +
   'recordedAt, retractedAt, userId, source, trustSnapshot, corroboration';
+
+/**
+ * Max rows returned per diff section. The window is caller-controlled;
+ * this cap is what stands between a from=1970 request and a full-table
+ * dump. When any section hits the cap the result carries truncated=true
+ * — callers narrow the window to page through.
+ */
+const SECTION_CAP = 500;
 
 interface ScopingClauses {
   factClause: string;
@@ -245,16 +275,19 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
   const entityParts: string[] = ['userId IS NONE'];
 
   if (args.entityIds && args.entityIds.length > 0) {
-    const normalized = args.entityIds.map((id) =>
-      id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
+    // Bind actual record ids (StringRecordId) and filter with INSIDE —
+    // the same idiom as search's where-builder. The previous
+    // `IN (SELECT type::record(id) FROM $entityIds AS id)` form was a
+    // PARSE ERROR (`FROM $param AS alias` is not SurrealQL) that only
+    // fired when a caller actually passed entityIds.
+    params.entityIds = args.entityIds.map(
+      (id) =>
+        new StringRecordId(
+          id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
+        ),
     );
-    params.entityIds = normalized;
-    // SurrealDB IN on a record<knowledge_entity> field accepts an
-    // array of record links (strings here cast through type::record).
-    factParts.push(
-      `entityId IN (SELECT type::record(id) FROM $entityIds AS id)`,
-    );
-    entityParts.push(`id IN (SELECT type::record(id) FROM $entityIds AS id)`);
+    factParts.push(`entityId INSIDE $entityIds`);
+    entityParts.push(`id INSIDE $entityIds`);
   }
 
   if (args.predicates && args.predicates.length > 0) {
@@ -342,4 +375,6 @@ export interface MemoryDiffResult {
   changedFacts: ChangedFact[];
   newEntities: EntityRef[];
   forgottenEntities: ForgottenRef[];
+  /** True when any section hit its row cap — narrow the window to see the rest. */
+  truncated: boolean;
 }

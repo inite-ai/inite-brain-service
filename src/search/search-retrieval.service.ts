@@ -56,6 +56,22 @@ export class SearchRetrievalService {
     private readonly queryExpansion: QueryExpansionService,
   ) {}
 
+  /**
+   * Warm the embedder's LRU for a query text WITHOUT holding a scoped
+   * pool connection. Called by SearchService before withScopedCompany so
+   * the vector leg's embed(query) inside the pipeline is a cache hit —
+   * the external embedding round-trip must not extend connection hold
+   * time on the 8-slot scoped pool. Failures are swallowed: the leg's
+   * own embed call is the one whose error handling counts.
+   */
+  async prewarmQueryEmbedding(query: string): Promise<void> {
+    try {
+      await this.embedder.embed(query);
+    } catch {
+      /* the vector leg retries and reports */
+    }
+  }
+
   /** Retrieval legs (parallel) + fusion. */
   async runRetrievalStage(
     db: Surreal,

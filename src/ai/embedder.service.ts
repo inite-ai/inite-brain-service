@@ -13,6 +13,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import type { EmbedderProvider } from './embedder/embedder-provider.interface';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.
@@ -307,7 +308,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       // worker bootstraps @xenova/transformers fresh per worker which
       // doubles peak memory during warmup. Operators flip
       // BGE_M3_WORKER=1 to run inference off the main event loop.
-      useWorker: this.configService.get<string>('BGE_M3_WORKER', '0') === '1',
+      useWorker: envFlagEnabled(this.configService.get<string>('BGE_M3_WORKER')),
     });
   }
 

@@ -39,6 +39,7 @@ import {
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
 import { PipelineContext } from './pipeline-context';
+import { envFlagEnabled } from '../common/env-validation';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -221,6 +222,12 @@ export class SearchService {
       );
     }
     dto = { ...dto, query: clamped.value };
+    // Empty/whitespace query → empty result, before any DB or embedding
+    // work. Without this the full pipeline ran on '' — a zero-vector
+    // cosine scan plus BM25 over an empty string, all guaranteed noise.
+    if (dto.query.trim().length === 0) {
+      return { results: [] };
+    }
     const limit = dto.limit ?? 10;
     const asOf = dto.asOf ? new Date(dto.asOf) : null;
     const includeRetracted = dto.includeRetracted ?? false;
@@ -230,6 +237,16 @@ export class SearchService {
     // starving the top-K. Capped at 200 — beyond that we shovel
     // embeddings across the wire for nothing.
     const candidateK = Math.min(limit * 5, 200);
+
+    // Warm the query-embedding cache BEFORE acquiring a scoped pool
+    // connection. The scoped pool is small (SURREALDB_SCOPED_POOL_SIZE,
+    // default 8) and the embed call is an external API round-trip —
+    // holding a connection through it stretched every search's hold
+    // time by the embedding latency. The vector leg's embed(query)
+    // inside the pipeline becomes an LRU hit on the same text.
+    if (mode !== 'lexical') {
+      await this.retrieval.prewarmQueryEmbedding(dto.query);
+    }
 
     const out = await this.surreal.withScopedCompany(
       companyId,
@@ -251,7 +268,7 @@ export class SearchService {
     // search actually surfaced. Fire-and-forget on the root pool — the
     // response never waits on it, and multi-hop / synthesize get it for
     // free since they route through this method.
-    if (process.env.SEARCH_USAGE_RECORDING_ENABLED === '1') {
+    if (envFlagEnabled(process.env.SEARCH_USAGE_RECORDING_ENABLED)) {
       recordFactUsage({
         surreal: this.surreal,
         logger: this.logger,
@@ -348,7 +365,7 @@ export class SearchService {
     // from the most recent retrieval instead of only recordedAt. Soft-
     // fails inside; rows injected later (edge expansion / backfill) stay
     // unenriched — supplementary context, not primary relevance.
-    if (process.env.SEARCH_USAGE_DECAY_ENABLED === '1') {
+    if (envFlagEnabled(process.env.SEARCH_USAGE_DECAY_ENABLED)) {
       await enrichWithUsage(db, this.logger, filtered);
     }
 
@@ -458,7 +475,7 @@ export class SearchService {
     db: Surreal,
     byEntity: Map<string, EntityBucket>,
   ): Promise<void> {
-    const pprForced = process.env.SEARCH_PPR_ENABLED === '1';
+    const pprForced = envFlagEnabled(process.env.SEARCH_PPR_ENABLED);
     const pprAutoThreshold = parseInt(
       process.env.SEARCH_PPR_AUTO_THRESHOLD ?? '0',
       10,

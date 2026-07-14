@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * DreamsDedupService — find near-duplicate ENTITIES inside a tenant
@@ -60,7 +61,7 @@ export class DreamsDedupService {
     private readonly judge: EntityJudgeService,
   ) {
     this.enabled =
-      this.configService.get<string>('DREAMS_DEDUP_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
     this.cosineThreshold = parseFloat(
       this.configService.get<string>('DREAMS_DEDUP_COSINE_THRESHOLD', '0.92'),
     );

@@ -10,6 +10,7 @@ import type {
   ExtractedFact,
   ExtractionResult,
 } from './extractor-internals/types';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * ExtractorLocalService — the no-LLM slice of the extractor: the
@@ -53,7 +54,7 @@ export class ExtractorLocalService {
       }
     }
     const skipEnabled =
-      (process.env.EXTRACTOR_SKIP_LLM_ENABLED ?? 'false') === 'true';
+      envFlagEnabled(process.env.EXTRACTOR_SKIP_LLM_ENABLED);
     if (!skipEnabled) return null;
     if (localClauses.length === 0) {
       traceArtifact('extractor.skip_decision', {

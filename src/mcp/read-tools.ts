@@ -567,6 +567,13 @@ function registerDetectContradictionTool({
         sourceVertical: z
           .string()
           .describe('Vertical attributed as source (matches record_fact)'),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: preflight a user-scoped record_fact against tenant-global priors PLUS this user's personal ones. Omit for tenant-global candidates (matches record_fact's userId)",
+          ),
       },
     },
     async (args) => {
@@ -580,6 +587,7 @@ function registerDetectContradictionTool({
           validUntil: args.validUntil,
           confidence: args.confidence,
           source: { vertical: args.sourceVertical },
+          userId: args.userId,
         },
         scopes,
       );

@@ -178,10 +178,12 @@ function renderSummary(
   if (profile.facts.length === 0) {
     return `${profile.canonicalName} (${profile.type}). No active facts on record.`;
   }
-  // Pick the 6 most-confident active facts to seed the line — past
-  // that returns hit the embedding truncation point anyway.
-  const top = profile.facts
-    .filter((f) => f.status === 'active' || f.status === 'competing')
+  // Pick the 6 most-confident facts to seed the line — past that,
+  // returns hit the embedding truncation point anyway. No local status
+  // filter: getProfile's activeFactWhere now applies the full
+  // believed-and-valid-now closure (the filter here used to patch
+  // around its leak of superseded/expired rows).
+  const top = [...profile.facts]
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 6);
 

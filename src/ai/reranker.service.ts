@@ -5,6 +5,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 export interface RerankCandidate {
   /** A short label identifying the candidate (e.g. canonical name). */
@@ -47,7 +48,7 @@ export class RerankerService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('SEARCH_RERANKER_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('SEARCH_RERANKER_ENABLED'));
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     this.openai = apiKey
       ? new OpenAI({

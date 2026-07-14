@@ -1,6 +1,7 @@
 import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
+import { envFlagEnabled } from '../../common/env-validation';
 
 /**
  * Vector leg — cosine similarity over `embedding`. The inline
@@ -40,7 +41,7 @@ export async function runVectorLeg({
   // commonly "no index on this tenant yet" — falls back to the exact
   // full scan below, so the flag can be flipped globally while tenants
   // are indexed one by one.
-  if (process.env.SEARCH_HNSW_ENABLED === '1') {
+  if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED)) {
     try {
       return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere });
     } catch (e) {

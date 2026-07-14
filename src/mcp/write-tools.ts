@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { envFlagEnabled } from '../common/env-validation';
@@ -21,6 +22,12 @@ export interface WriteToolDeps {
 
 export interface AdminToolDeps {
   entities: EntitiesService;
+  /**
+   * Caller key hash — stamped as forgottenBy on the GDPR proof-of-erasure
+   * tombstone. Without it every MCP-initiated Art. 17 erasure was recorded
+   * as forgottenBy='unknown' while the REST path recorded the actor.
+   */
+  actorKeyHash: string;
 }
 
 /**
@@ -307,6 +314,7 @@ export function registerAdminTools(
       const out = await deps.entities.forget({
         companyId,
         entityIdRaw: args.entityId,
+        actorKeyHash: deps.actorKeyHash,
         dto: {
           reason: args.reason,
           requestId: args.requestId,
@@ -377,7 +385,12 @@ function registerIngestDocumentTool({
       // static hard cap) only lives on the REST controller; enforce it here
       // too so the MCP path can't bypass it and burn LLM budget uncapped.
       if (args.text.length > docMaxChars()) {
-        throw new Error(`text exceeds DOC_MAX_CHARS (${docMaxChars()})`);
+        // BadRequestException (not plain Error): the McpService error
+        // wrapper masks unexpected errors but passes 4xx through — this
+        // message is deliberately client-facing.
+        throw new BadRequestException(
+          `text exceeds DOC_MAX_CHARS (${docMaxChars()})`,
+        );
       }
       const out = await documents.ingestDocument(companyId, {
         kind: args.kind,
