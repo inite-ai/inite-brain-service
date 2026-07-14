@@ -37,11 +37,12 @@ function mkSurreal(db: { query: (s: string, p?: any) => Promise<any> }) {
 
 describe('JobClaimService', () => {
   it('claimNext returns null when the transaction yields no row', async () => {
-    // runTransaction reads the slot before the trailing COMMIT (SurrealDB 3.x
-    // emits a null COMMIT slot). RETURN NONE → the slot is null → claimNext
-    // returns null. [null, null] = (RETURN NONE, COMMIT).
+    // Real SurrealDB 3.x shape for the 2-statement claim tx: one slot
+    // per statement INCLUDING BEGIN and COMMIT → [BEGIN, LET,
+    // RETURN NONE, COMMIT]. runTransaction detects the stmts+2 shape
+    // and reads the slot before COMMIT.
     const { db } = mkDbScript([
-      () => [null, null],
+      () => [null, null, null, null],
     ]);
     const svc = new JobClaimService(mkSurreal(db));
     const got = await svc.claimNext({
@@ -53,9 +54,12 @@ describe('JobClaimService', () => {
   });
 
   it('claimNext returns a typed JobClaim when the tx yields a row', async () => {
-    // 3.x: row is the RETURN slot, immediately before the COMMIT null slot.
+    // 3.x shape: [BEGIN, LET, RETURN row, COMMIT] — row sits right
+    // before the trailing COMMIT null.
     const { db } = mkDbScript([
       () => [
+        null,
+        null,
         {
           id: 'job_run:abc',
           runId: 'run-uuid-1',
@@ -78,6 +82,32 @@ describe('JobClaimService', () => {
     expect(got?.recordId).toBe('job_run:abc');
     expect(got?.payload).toEqual({ operations: ['dedup'] });
     expect(got?.attempts).toBe(1);
+  });
+
+  it('claimNext reads the last slot on the 2.x response shape', async () => {
+    // 2.x shape: BEGIN/COMMIT emit no slots and LETs collapse — the
+    // RETURN row is simply the LAST (often only) slot. Regression for
+    // prod v2.3.10, where blind arr[length-2] silently discarded every
+    // committed claim.
+    const { db } = mkDbScript([
+      () => [
+        {
+          id: 'job_run:abc2',
+          runId: 'run-uuid-2',
+          jobType: 'dreams',
+          attempts: 1,
+          payload: null,
+          leaseUntil: '2030-01-01T00:05:00Z',
+        },
+      ],
+    ]);
+    const svc = new JobClaimService(mkSurreal(db));
+    const got = await svc.claimNext({
+      companyId: 'co_x',
+      jobType: 'dreams',
+      ttlSeconds: 300,
+    });
+    expect(got?.runId).toBe('run-uuid-2');
   });
 
   it('claimNext returns null and swallows transient driver errors', async () => {

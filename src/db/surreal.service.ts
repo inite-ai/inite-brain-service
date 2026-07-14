@@ -748,16 +748,28 @@ export async function runTransaction<T>(
     throw enrichTransactionError(err);
   }
   const arr = result as unknown[];
-  // SurrealDB 3.x emits one result slot per top-level statement INCLUDING the
-  // trailing `COMMIT TRANSACTION` (always null). 2.x did not surface a COMMIT
-  // slot, so the old code took `arr[length-1]` (then the RETURN). On 3.x that
-  // index is the COMMIT null, which silently turned every transactional
-  // upsert's return into `undefined` (e.g. two distinct entity refs both
-  // resolving to "undefined" → a spurious self-merge 400). We always compose
-  // exactly one trailing COMMIT, and every caller's last statement is the
-  // RETURN it wants, so the meaningful value is the slot immediately before
-  // COMMIT.
-  return arr[arr.length - 2] as T;
+  // The caller's last statement is the RETURN it wants, but WHERE that
+  // lands in the response depends on the server generation (verified
+  // empirically against v2.3.10 and v3.1.5):
+  //
+  //   3.x — one slot per top-level statement INCLUDING `BEGIN` and the
+  //   trailing `COMMIT` (both null): N user statements → N+2 slots, the
+  //   RETURN sits at length-2. Taking length-1 here reads the COMMIT
+  //   null and silently turns every transactional upsert into
+  //   `undefined` (historically: spurious self-merge 400s).
+  //
+  //   2.x — BEGIN/COMMIT emit no slots (and LETs may be collapsed too):
+  //   always ≤ N slots, the RETURN is simply the LAST one. Taking
+  //   length-2 there reads the statement BEFORE the RETURN — on prod
+  //   v2.3.10 this made every lease acquire and job claim silently
+  //   discard its committed result (gauge stuck at 0, queue never
+  //   dispatched) with zero errors logged.
+  //
+  // We compose exactly one BEGIN and one COMMIT, so the shapes are
+  // disjoint: only a 3.x server can answer with stmts+2 slots.
+  return (
+    arr.length === stmts.length + 2 ? arr[arr.length - 2] : arr[arr.length - 1]
+  ) as T;
 }
 
 /**
