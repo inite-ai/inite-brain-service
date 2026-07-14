@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { LRUCache } from '../common/lru-cache';
 
 export interface MemoryStats {
   entities: number;
@@ -19,6 +20,17 @@ export interface MemoryStats {
  */
 @Injectable()
 export class StatsService {
+  /** 30s per-tenant cache: six COUNT aggregates over the largest tables
+   *  per dashboard page-load is pure waste — counts move slower than
+   *  users refresh. Keyed by tenant only (the counts are not
+   *  scope-dependent; the scoped connection matters for row reads, not
+   *  aggregates over statuses). */
+  private readonly cache = new LRUCache<
+    string,
+    { stats: MemoryStats; at: number }
+  >(500);
+  private static readonly CACHE_TTL_MS = 30_000;
+
   constructor(private readonly surreal: SurrealService) {}
 
   async overview(
@@ -26,6 +38,10 @@ export class StatsService {
     scopes: readonly string[],
   ): Promise<MemoryStats> {
     const nowMs = Date.now();
+    const cached = this.cache.get(companyId);
+    if (cached && nowMs - cached.at < StatsService.CACHE_TTL_MS) {
+      return cached.stats;
+    }
     const weekAgoIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const sql = `
@@ -37,7 +53,7 @@ export class StatsService {
         SELECT count() AS c FROM knowledge_fact WHERE recordedAt > type::datetime($weekAgoIso) GROUP ALL;
       `;
       const res = (await db.query<unknown[]>(sql, { weekAgoIso })) as unknown[];
-      return {
+      const stats: MemoryStats = {
         entities: countOf(res[0]),
         factsActive: countOf(res[1]),
         factsCompeting: countOf(res[2]),
@@ -46,6 +62,8 @@ export class StatsService {
         factsLast7d: countOf(res[5]),
         asOf: new Date(nowMs).toISOString(),
       };
+      this.cache.set(companyId, { stats, at: nowMs });
+      return stats;
     });
   }
 }

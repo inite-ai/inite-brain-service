@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ApiKeyService } from '../auth/api-key.service';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { ChangefeedDrainService } from './changefeed-drain.service';
 
 /**
@@ -53,10 +54,15 @@ export class ChangefeedConsumerService {
   /** Rough number of completed ticks since process start. */
   private tickCount = 0;
 
+  // Fourth dep is the lag gauge sink — it must be set here (summed over
+  // ALL tenants after the loop), not in the per-tenant drain where it
+  // was last-tenant-wins.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly apiKeys: ApiKeyService,
     private readonly drain: ChangefeedDrainService,
     @Optional() private readonly lease?: LeaderLeaseService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   // EVERY_MINUTE keeps lag bounded — see comment above. Operators
@@ -102,6 +108,9 @@ export class ChangefeedConsumerService {
       this.lastPendingRemaining = pendingThisTick;
       this.totalConsumed += consumedThisTick;
       this.tickCount += 1;
+      // Summed across ALL tenants — the drain no longer sets this per
+      // tenant (last-tenant-wins hid every backlog but the final one).
+      this.metrics?.setChangefeedLag(pendingThisTick);
     } finally {
       this.inFlight = false;
     }

@@ -55,10 +55,6 @@ export class ChangefeedDrainService {
       config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'),
       10,
     );
-    const fetchLimit = parseInt(
-      config.get<string>('AUDIT_CHANGEFEED_FETCH_LIMIT', '5000'),
-      10,
-    );
     // Never fetch fewer than we process in a tick, else we'd starve;
     // fall back to a sane default if the env value is garbage (the value
     // is interpolated into the SHOW CHANGES LIMIT clause, so NaN would
@@ -66,8 +62,22 @@ export class ChangefeedDrainService {
     const safeBatch = Number.isFinite(this.perBatchLimit)
       ? this.perBatchLimit
       : 500;
+    // Default fetch = batch + 1: SHOW CHANGES has no offset, so rows
+    // fetched past the batch are re-fetched every tick until the cursor
+    // catches up — the old 5000 default re-shipped up to 4500 rows
+    // (with INCLUDE ORIGINAL pre-images) per source per tick during a
+    // backlog, ~10x wasted transfer to compute a depth number. The +1
+    // keeps "backlog exists" (pendingRemaining > 0) observable;
+    // operators who want true depth raise AUDIT_CHANGEFEED_FETCH_LIMIT.
+    const fetchLimit = parseInt(
+      config.get<string>(
+        'AUDIT_CHANGEFEED_FETCH_LIMIT',
+        String(safeBatch + 1),
+      ),
+      10,
+    );
     this.fetchLimit = Math.max(
-      Number.isFinite(fetchLimit) ? fetchLimit : 5000,
+      Number.isFinite(fetchLimit) ? fetchLimit : safeBatch + 1,
       safeBatch,
     );
   }
@@ -126,7 +136,10 @@ export class ChangefeedDrainService {
       for (const [source, n] of Object.entries(consumed)) {
         this.metrics.countChangefeedConsumed(source, n);
       }
-      this.metrics.setChangefeedLag(pendingRemaining);
+      // NOTE: the lag gauge is set by the consumer AFTER the tenant loop
+      // with the summed value. Setting it here per tenant made the gauge
+      // last-tenant-wins — a backlog on any tenant but the last was
+      // invisible to "sustained non-zero" alerting.
     }
 
     return { consumed, pendingRemaining };

@@ -162,6 +162,20 @@ export class CalibrationRefitRunnerService {
    * source_trust row stays an in-place UPSERT cache.
    */
   private async refitSourceTrustForTenant(companyId: string): Promise<number> {
+    // Opt-in recency window (CALIBRATION_REFIT_WINDOW_DAYS): bounds both
+    // scans by createdAt/recordedAt instead of relying on the fixed
+    // LIMIT 50000 — on tenants past 50k rows the LIMIT already acts as a
+    // silent sliding window, so an explicit one changes nothing
+    // semantically while letting the (indexed) time predicates cut the
+    // scan. Unset = the pre-existing behaviour, unchanged.
+    const windowDays = parseInt(
+      process.env.CALIBRATION_REFIT_WINDOW_DAYS ?? '0',
+      10,
+    );
+    const since =
+      windowDays > 0
+        ? new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000)
+        : null;
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
         [
@@ -186,8 +200,10 @@ export class CalibrationRefitRunnerService {
             recordedAt
           FROM knowledge_fact
           WHERE source.vertical IS NOT NONE
+            ${since ? 'AND recordedAt > $since' : ''}
           ORDER BY recordedAt DESC
           LIMIT 50000;`,
+        since ? { since } : undefined,
       );
       // Retrieval feedback (migration 0054) joins the same win/loss
       // currency: 'helpful' confirms the source, 'incorrect' counts
@@ -220,8 +236,10 @@ export class CalibrationRefitRunnerService {
           FROM retrieval_feedback
           WHERE verdict != 'not_helpful'
             AND factId.source.vertical IS NOT NONE
+            ${since ? 'AND createdAt > $since' : ''}
           ORDER BY createdAt DESC
           LIMIT 50000;`,
+        since ? { since } : undefined,
       );
       const summary = aggregateByScope([
         ...buildTrustEvents(rows ?? []),
@@ -238,74 +256,93 @@ export class CalibrationRefitRunnerService {
         prior.set(scopeKeyOf(r.sourceKey, r.domain ?? null), r.agreementRate);
       }
 
-      let upsertedHere = 0;
-      for (const scope of summary) {
-        if (scope.wins + scope.losses === 0) continue;
-        await this.upsertTrustScope(db, {
-          ...scope,
-          prevRate: prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null,
+      const scopes = summary
+        .filter((s) => s.wins + s.losses > 0)
+        .map((scope) => {
+          const sampleCount = scope.wins + scope.losses;
+          const rate = scope.wins / sampleCount;
+          const prevRate =
+            prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null;
+          return {
+            k: scope.sourceKey,
+            // JS null coalesces to NONE inside the FOR body (`?? NONE`),
+            // which option<string> accepts — the old per-scope form had
+            // to omit the field at the bind layer instead.
+            d: scope.domain,
+            r: rate,
+            sc: sampleCount,
+            w: scope.wins,
+            l: scope.losses,
+            ls: scope.lastSeenAt,
+            hist: prevRate === null || Math.abs(prevRate - rate) > 0.01,
+          };
         });
-        upsertedHere++;
-      }
-      return upsertedHere;
+      await this.upsertTrustScopes(db, scopes);
+      return scopes.length;
     });
   }
 
-  /** UPSERT one (sourceKey, domain) trust row + append history when the
-   *  rate moved (or the scope is first seen). `domain: null` = the global
-   *  row; SurrealDB option<> rejects JS null, so the global variant omits
-   *  the field entirely and matches with `domain IS NONE`. */
-  private async upsertTrustScope(
+  /**
+   * UPSERT the (sourceKey, domain) trust rows + append history where the
+   * rate moved (or the scope is first seen), batched into one FOR-loop
+   * statement per chunk. The per-scope form issued 1-2 serial round
+   * trips × (sources × predicates × 2 grains) — ~10k RTTs per tenant per
+   * night on a busy corpus. Side-effect-only FOR body (no cross-iteration
+   * accumulation — the SurrealQL limitation doesn't apply).
+   */
+  private async upsertTrustScopes(
     db: Surreal,
-    scope: TrustScope & { prevRate: number | null },
+    scopes: Array<{
+      k: string;
+      d: string | null;
+      r: number;
+      sc: number;
+      w: number;
+      l: number;
+      ls: unknown;
+      hist: boolean;
+    }>,
   ): Promise<void> {
-    const sampleCount = scope.wins + scope.losses;
-    const rate = scope.wins / sampleCount;
-    const isGlobal = scope.domain === null;
-    const params: Record<string, unknown> = {
-      k: scope.sourceKey,
-      r: rate,
-      sc: sampleCount,
-      w: scope.wins,
-      l: scope.losses,
-      ls: scope.lastSeenAt,
-      ...(isGlobal ? {} : { d: scope.domain }),
-    };
-    const domainWhere = isGlobal ? 'domain IS NONE' : 'domain = $d';
-    await db.query(
-      `LET $existing = (SELECT id FROM source_trust
-          WHERE sourceKey = $k AND ${domainWhere} LIMIT 1)[0];
-       IF $existing IS NONE THEN
-         CREATE source_trust CONTENT {
-           sourceKey: $k,
-           ${isGlobal ? '' : 'domain: $d,'}
-           agreementRate: $r,
-           sampleCount: $sc,
-           winCount: $w,
-           lossCount: $l,
-           lastSeenAt: $ls,
-           lastUpdated: time::now()
-         }
-       ELSE
-         UPDATE $existing.id SET
-           agreementRate = $r,
-           sampleCount = $sc,
-           winCount = $w,
-           lossCount = $l,
-           lastSeenAt = $ls,
-           lastUpdated = time::now()
-       END;`,
-      params,
-    );
-    if (scope.prevRate === null || Math.abs(scope.prevRate - rate) > 0.01) {
+    const CHUNK = 500;
+    for (let i = 0; i < scopes.length; i += CHUNK) {
+      const chunk = scopes.slice(i, i + CHUNK);
       await db.query(
-        `CREATE source_trust_history CONTENT {
-            sourceKey: $k,
-            ${isGlobal ? '' : 'domain: $d,'}
-            agreementRate: $r,
-            sampleCount: $sc
+        `FOR $s IN $scopes {
+           LET $d = $s.d ?? NONE;
+           LET $existing = (SELECT id FROM source_trust
+              WHERE sourceKey = $s.k
+                AND ((domain IS NONE AND $d IS NONE) OR domain = $d)
+              LIMIT 1)[0];
+           IF $existing IS NONE THEN
+             CREATE source_trust CONTENT {
+               sourceKey: $s.k,
+               domain: $d,
+               agreementRate: $s.r,
+               sampleCount: $s.sc,
+               winCount: $s.w,
+               lossCount: $s.l,
+               lastSeenAt: $s.ls,
+               lastUpdated: time::now()
+             }
+           ELSE
+             UPDATE $existing.id SET
+               agreementRate = $s.r,
+               sampleCount = $s.sc,
+               winCount = $s.w,
+               lossCount = $s.l,
+               lastSeenAt = $s.ls,
+               lastUpdated = time::now()
+           END;
+           IF $s.hist THEN
+             CREATE source_trust_history CONTENT {
+               sourceKey: $s.k,
+               domain: $d,
+               agreementRate: $s.r,
+               sampleCount: $s.sc
+             }
+           END;
          };`,
-        params,
+        { scopes: chunk },
       );
     }
   }

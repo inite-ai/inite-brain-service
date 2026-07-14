@@ -37,12 +37,16 @@ export class CodeMemoryAnchorService {
     scopes: BrainScope[],
   ): Promise<AnchorRow[]> {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      // Half-open predicate range rides fact_predicate_idx; the previous
+      // string::starts_with defeated the index (full scan + per-row
+      // entityId deref). LIMIT bounds the admin listing.
       const [rows] = await db.query<[any[]]>(
         `SELECT id, entityId, entityId.externalRefs AS refs
            FROM knowledge_fact
-           WHERE string::starts_with(predicate, $prefix)
-             AND retractedAt IS NONE`,
-        { prefix: this.prefix },
+           WHERE predicate >= $prefix AND predicate < $prefixEnd
+             AND retractedAt IS NONE
+           LIMIT 5000`,
+        { prefix: this.prefix, prefixEnd: `${this.prefix}￿` },
       );
       const byAnchor = new Map<string, AnchorRow>();
       for (const r of (rows as any[]) ?? []) {

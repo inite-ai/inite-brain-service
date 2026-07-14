@@ -290,10 +290,18 @@ export class JobClaimService {
         };
       });
     } catch (e) {
+      // A thrown query is NOT evidence the claim is lost — that's what
+      // the zero-rows branch above means. Treating a transient DB error
+      // (network blip, pool timeout) as `stillOwned: false` aborted a
+      // multi-minute job whose lease was still ≥2/3 valid; the work was
+      // thrown away, the row waited out the real lease, and the reaper
+      // requeued with attempts+1. Report still-owned: the lease clock
+      // keeps running, and there is at least one more renew tick before
+      // expiry to either succeed or genuinely lose ownership.
       this.logger.warn(
-        `renew(${input.recordId}) failed: ${(e as Error).message}`,
+        `renew(${input.recordId}) failed transiently — assuming still owned: ${(e as Error).message}`,
       );
-      return { stillOwned: false, cancelRequested: false };
+      return { stillOwned: true, cancelRequested: false };
     }
   }
 

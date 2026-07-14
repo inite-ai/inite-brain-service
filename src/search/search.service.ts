@@ -120,21 +120,25 @@ export class SearchService {
           const seedIds = seeds.map((s) => s.entityId);
 
           const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds);
-          const neighbours =
+          // Neighbour hydration and the facts fetch are independent once
+          // the neighbour ids are known — run them in one round-trip
+          // window instead of serially.
+          const allIds = [...new Set([...seedIds, ...neighbourIds])];
+          const [neighbours, factsByEntity] = await Promise.all([
             neighbourIds.length > 0
-              ? await fetchEntitiesByIds(db, neighbourIds)
-              : [];
+              ? fetchEntitiesByIds(db, neighbourIds)
+              : Promise.resolve([] as Awaited<ReturnType<typeof fetchEntitiesByIds>>),
+            fetchFactsForEntities({
+              db,
+              entityIds: allIds,
+              predicateHints,
+              asOf,
+            }),
+          ]);
 
           const entitiesById = new Map<string, (typeof seeds)[number]>();
           for (const e of seeds) entitiesById.set(e.entityId, e);
           for (const e of neighbours) entitiesById.set(e.entityId, e);
-
-          const factsByEntity = await fetchFactsForEntities({
-            db,
-            entityIds: [...entitiesById.keys()],
-            predicateHints,
-            asOf,
-          });
 
           // Scope + ABAC row filter. Also closes the pre-ABAC gap where
           // graph_retrieve skipped the requiresScope predicate gate that
@@ -153,15 +157,24 @@ export class SearchService {
           rowPolicy.finish();
           const policyCtx = getPolicyContext();
           if (policyCtx) {
+            // ONE applyMetaUnion over all facts instead of one per
+            // entity — the per-entity loop paid a cold-cache origin-meta
+            // fetch (its own withCompany round-trip) per entity, up to
+            // ×N for seeds ∪ neighbours. applyMetaUnion filters without
+            // cloning, so identity-based regrouping is safe.
+            const flatRows = [...factsByEntity.values()].flat();
+            const kept = new Set(
+              await applyMetaUnion({
+                surreal: this.surreal,
+                companyId,
+                ctx: policyCtx,
+                rows: flatRows,
+              }),
+            );
             for (const [entityId, facts] of factsByEntity) {
               factsByEntity.set(
                 entityId,
-                await applyMetaUnion({
-                  surreal: this.surreal,
-                  companyId,
-                  ctx: policyCtx,
-                  rows: facts,
-                }),
+                facts.filter((f) => kept.has(f)),
               );
             }
           }
@@ -305,6 +318,17 @@ export class SearchService {
       langFilter,
     });
 
+    // Router LLM (optional, budgeted) depends ONLY on the query text —
+    // kick it off alongside retrieval instead of awaiting it serially
+    // after merge/meta-union (a cache-miss added its full round-trip to
+    // the critical path). Awaited at stage 3 where its output is first
+    // consumed; .catch keeps a router failure from becoming an
+    // unhandled rejection while retrieval is still in flight (the
+    // router stage degrades to null on its own errors anyway).
+    const routerPromise = this.retrieval
+      .runRouterStage(ctx.dto.query)
+      .catch(() => null);
+
     // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
     const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
     if (langFilter && fused.length < ctx.candidateK / 2) {
@@ -369,8 +393,9 @@ export class SearchService {
       await enrichWithUsage(db, this.logger, filtered);
     }
 
-    // 3. Predicate / type router (optional LLM call, under budget).
-    const routerOut = await this.retrieval.runRouterStage(ctx.dto.query);
+    // 3. Predicate / type router — launched in parallel with retrieval
+    // above; first consumed here.
+    const routerOut = await routerPromise;
     const predicateDist = routerOut?.predicates ?? null;
     const typeDist = routerOut?.types ?? null;
 

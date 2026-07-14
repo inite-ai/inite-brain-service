@@ -264,6 +264,10 @@ export class ArtifactsService {
     // (userId != NONE, migration 0055) must never be compiled into a
     // dossier served to the whole tenant. The stored fn predates 0055 and
     // has no scope arg, so we query inline instead of extending it.
+    // LIMIT: compile() consumes a bounded slice of the newest facts, but
+    // this ran unbounded on the artifact read path — a long-lived entity
+    // shipped its entire fact history per cache miss. 500 newest is far
+    // beyond what any template renders.
     const [rows] = await db.query<[any[]]>(
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
               recordedAt, source, status
@@ -271,7 +275,8 @@ export class ArtifactsService {
          WHERE entityId = type::record('knowledge_entity', $rid)
            AND retractedAt IS NONE
            AND userId IS NONE
-         ORDER BY recordedAt DESC`,
+         ORDER BY recordedAt DESC
+         LIMIT 500`,
       { rid },
     );
     return ((rows as any[]) ?? [])

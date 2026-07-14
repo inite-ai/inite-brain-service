@@ -313,11 +313,16 @@ export class EntitiesService {
       const params: Record<string, unknown> = { rid: ref.id };
       if (since) { clauses.push(`recordedAt >= $since`); params.since = since; }
       if (until) { clauses.push(`recordedAt <= $until`); params.until = until; }
+      // LIMIT 1000: the timeline is the audit surface, but without a cap
+      // a long-lived entity ships its entire history per request. Callers
+      // page with since/until (the window params above); 1000 rows is
+      // ~an order of magnitude beyond what any UI renders at once.
       const [factRows] = await db.query<any[][]>(
         `SELECT ${FACT_TIMELINE_FIELDS}
          FROM knowledge_fact
          WHERE ${clauses.join(' AND ')}
-         ORDER BY recordedAt ASC`,
+         ORDER BY recordedAt ASC
+         LIMIT 1000`,
         params,
       );
       const rowPolicy = makeRowPolicyFilter({
