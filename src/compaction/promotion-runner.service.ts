@@ -10,6 +10,7 @@ import {
   SummaryGenerator,
 } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * PromotionRunnerService — episodic→semantic promotion.
@@ -79,7 +80,7 @@ export class PromotionRunnerService {
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
   ) {
     this.enabled =
-      config.get<string>('COMPACTION_PROMOTION_ENABLED', '0') === '1';
+      envFlagEnabled(config.get<string>('COMPACTION_PROMOTION_ENABLED'));
     this.ageDays = parseInt(
       config.get<string>('COMPACTION_PROMOTION_AGE_DAYS', '180'),
       10,

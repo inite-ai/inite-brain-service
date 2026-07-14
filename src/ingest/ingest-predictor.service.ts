@@ -111,11 +111,11 @@ export class IngestPredictionService {
         };
       }
 
-      const candEmbedding = await this.scoring.embedCandidate(
-        args.predicate,
-        args.object,
-      );
-
+      // Policy FIRST: the candidate embedding (an OpenAI call) and the
+      // priors' embedding vectors (~1.2 MB of JSON at the 100-row cap)
+      // are only consumed by the bitemporal cosine branch. Resolving the
+      // policy up front lets append_only/single_active skip both — the
+      // embed call was pure waste on those semantics.
       try {
         await this.predicateRegistry.getSnapshot(companyId);
       } catch (e) {
@@ -127,6 +127,11 @@ export class IngestPredictionService {
         companyId,
         args.predicate,
       );
+      const isBitemporal = policy.semantics === 'bitemporal';
+
+      const candEmbedding = isBitemporal
+        ? await this.scoring.embedCandidate(args.predicate, args.object)
+        : null;
 
       const validFrom = new Date(args.validFrom);
       const tail = entityId.startsWith('knowledge_entity:')
@@ -134,17 +139,19 @@ export class IngestPredictionService {
         : entityId;
       const [rows] = await db.query<any[][]>(
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
-                recordedAt, embedding, source, status,
+                recordedAt, ${isBitemporal ? 'embedding, ' : ''}source, status,
                 userId, trustSnapshot, corroboration
            FROM knowledge_fact
            WHERE entityId = type::record('knowledge_entity', $eid)
              AND predicate = $predicate
              AND retractedAt IS NONE
              AND status = 'active'
-             AND userId IS NONE
+             AND ${args.userId ? '(userId IS NONE OR userId = $userId)' : 'userId IS NONE'}
            ORDER BY recordedAt DESC
            LIMIT ${PRIOR_SCAN_CAP}`,
-        { eid: tail, predicate: args.predicate },
+        args.userId
+          ? { eid: tail, predicate: args.predicate, userId: args.userId }
+          : { eid: tail, predicate: args.predicate },
       );
       const priors = ((rows as any[]) ?? []) as PriorRow[];
 
@@ -213,7 +220,7 @@ export class IngestPredictionService {
           }),
         );
         bitemporalAbove = this.scoring
-          .scoreBitemporal(candEmbedding, overlapping)
+          .scoreBitemporal(candEmbedding!, overlapping)
           .filter((c) => c.cosine >= this.scoring.conflict.similarityThreshold);
         competing = bitemporalAbove.map((c) => c.row);
       }

@@ -6,6 +6,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that
@@ -73,7 +74,7 @@ export class DreamsResolverService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('DREAMS_RESOLVE_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('DREAMS_RESOLVE_ENABLED'));
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     this.openai = apiKey
       ? new OpenAI({

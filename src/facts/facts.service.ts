@@ -202,37 +202,29 @@ export class FactsService {
     retractedFactId: string,
   ): Promise<string[]> {
     const rid = this.normalizeFactId(retractedFactId).id;
+    // One set-based UPDATE instead of SELECT + one UPDATE per row.
+    // `validUntil = priorValidUntil` reads each row's OWN field; SET
+    // assignments apply left-to-right, so clearing priorValidUntil after
+    // the copy is safe (same in-order semantics the per-row form relied
+    // on). Explicit `= NONE` — MERGE with JSON null does not unset an
+    // option<datetime> field. With fact_superseded_by_idx (0059) the
+    // WHERE is an index probe, not a table scan.
     const [rows] = await db.query<any[][]>(
-      `SELECT id, priorValidUntil FROM knowledge_fact
-         WHERE supersededBy = type::record('knowledge_fact', $rid)
-           AND status = 'superseded'
-           AND retractionReason = 'superseded'`,
+      `UPDATE knowledge_fact SET
+          status = 'active',
+          retractedAt = NONE,
+          retractedBy = NONE,
+          retractionReason = NONE,
+          supersededBy = NONE,
+          validUntil = priorValidUntil,
+          priorValidUntil = NONE
+        WHERE supersededBy = type::record('knowledge_fact', $rid)
+          AND status = 'superseded'
+          AND retractionReason = 'superseded'
+        RETURN id`,
       { rid },
     );
-    const candidates = (rows as Array<{ id: unknown; priorValidUntil: unknown }>) ?? [];
-    const revived: string[] = [];
-    for (const c of candidates) {
-      const childIdStr = String(c.id);
-      // Use explicit SET …, … = NONE — `MERGE` with JSON `null` does
-      // not unset an `option<datetime>` field; SurrealDB needs the
-      // literal NONE token to clear it.
-      await db.query(
-        `UPDATE $id SET
-            status = 'active',
-            retractedAt = NONE,
-            retractedBy = NONE,
-            retractionReason = NONE,
-            supersededBy = NONE,
-            validUntil = $priorValidUntil,
-            priorValidUntil = NONE`,
-        {
-          id: c.id,
-          priorValidUntil: c.priorValidUntil ?? undefined,
-        },
-      );
-      revived.push(childIdStr);
-    }
-    return revived;
+    return (((rows as Array<{ id: unknown }>) ?? [])).map((r) => String(r.id));
   }
 
   /**

@@ -12,6 +12,7 @@ import {
   MultiHopRunOptions,
   collectFactIds,
 } from './multi-hop.types';
+import { envFlagEnabled } from '../common/env-validation';
 
 export interface MultiHopExecuteOptions extends MultiHopRunOptions {
   /** The planner's decomposition, or null on planner outage (→ fallback). */
@@ -255,7 +256,7 @@ export class MultiHopChainService {
       priorEntityIds.length > 0
     ) {
       anchorIds = priorEntityIds;
-      if (process.env.MULTI_HOP_EDGE_EXPANSION_ENABLED === '1') {
+      if (envFlagEnabled(process.env.MULTI_HOP_EDGE_EXPANSION_ENABLED)) {
         try {
           anchorIds = await this.search.expandEntityIdsViaEdges(
             companyId,

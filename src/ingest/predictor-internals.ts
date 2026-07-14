@@ -54,6 +54,14 @@ export interface PredictResolveArgs {
     messageId?: string;
     recorder?: string;
   };
+  /**
+   * Per-user memory scope (0055). When set, priors include the user's
+   * personal facts alongside tenant-global ones — matching the opponent
+   * set fn::resolve_fact would actually weigh for a user-scoped
+   * record_fact. Omitted = tenant-global only (fail-closed), which is
+   * the wrong opponent set for user-scoped candidates.
+   */
+  userId?: string;
 }
 
 export interface OpposingFact {

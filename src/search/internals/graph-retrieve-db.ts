@@ -193,6 +193,11 @@ export async function fetchFactsForEntities({
   const rids = entityIds.map((s) => new StringRecordId(s));
   const hasHints = predicateHints.length > 0;
   const predicateClause = hasHints ? ' AND predicate INSIDE $hints' : '';
+  // status != 'competing': the doc-comment above always promised "the
+  // standard status gate", but the competing gate was missing — this
+  // surface showed contested facts that search_knowledge hides by
+  // default. Now mirrors where-builder's default (no includeContested
+  // lever here).
   const where = asOf
     ? `entityId INSIDE $ids
        AND (retractedAt IS NONE OR retractedAt > $asOf)
@@ -200,6 +205,7 @@ export async function fetchFactsForEntities({
        AND (validUntil IS NONE OR validUntil > $asOf)
        AND status != 'compacted'
        AND status != 'corroborating'
+       AND status != 'competing'
        AND userId IS NONE`
     : `entityId INSIDE $ids
        AND retractedAt IS NONE
@@ -207,6 +213,7 @@ export async function fetchFactsForEntities({
        AND (validUntil IS NONE OR validUntil > time::now())
        AND status != 'compacted'
        AND status != 'corroborating'
+       AND status != 'competing'
        AND userId IS NONE`;
   const params: Record<string, unknown> = {
     ids: rids,

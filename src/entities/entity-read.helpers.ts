@@ -55,11 +55,26 @@ export function blockedPredicates(scopes: BrainScope[]): string[] {
 /**
  * Bitemporal "active fact" predicates for a `knowledge_fact` read.
  *
- * Without `asOf`, "active" means believed-now: `retractedAt IS NONE`.
+ * Without `asOf`, "active" means the full believed-and-valid-now
+ * closure — the same set search's where-builder applies. The previous
+ * `retractedAt IS NONE`-only shape leaked three classes of rows into
+ * profile/summarize/why surfaces: naturally-superseded facts (a
+ * supersede sets NO retractedAt — migration 0014 convention), expired
+ * facts (validUntil in the past), and compacted skeletons. Two
+ * consumers had grown local JS re-filters to patch around it; raw
+ * profile consumers got the leak. The future-gap supersede rule is
+ * mirrored from where-builder: a superseded fact whose interval still
+ * covers now (its successor is future-dated) IS the current value.
+ *
  * With `asOf`, it is the four-axis cutoff — recorded by then, not yet
  * retracted as of then, and valid across the event-time window — so the
  * composite (entityId, status, recordedAt) index does the work instead of
  * pulling rows just to drop them in JS.
+ *
+ * 'corroborating' rows (migration 0047) are audit records of a second
+ * claim — the incumbent (which carries the corroboration counter) is
+ * the fact to surface; both branches hide the duplicates. 'compacted'
+ * skeletons are hidden in both branches, matching where-builder.
  *
  * Returns only the bitemporal clauses + their params; callers prepend the
  * `entityId = …` clause and its `$rid` param.
@@ -68,9 +83,6 @@ export function activeFactWhere(asOf: Date | null): {
   clauses: string[];
   params: Record<string, unknown>;
 } {
-  // 'corroborating' rows (migration 0047) are audit records of a second
-  // claim — the incumbent (which carries the corroboration counter) is
-  // the fact to surface; both branches hide the duplicates.
   if (asOf) {
     return {
       clauses: [
@@ -78,13 +90,21 @@ export function activeFactWhere(asOf: Date | null): {
         `(retractedAt IS NONE OR retractedAt > $asOf)`,
         `validFrom <= $asOf`,
         `(validUntil IS NONE OR validUntil > $asOf)`,
+        `status != 'compacted'`,
         `status != 'corroborating'`,
       ],
       params: { asOf },
     };
   }
   return {
-    clauses: [`retractedAt IS NONE`, `status != 'corroborating'`],
+    clauses: [
+      `retractedAt IS NONE`,
+      `validFrom <= time::now()`,
+      `(validUntil IS NONE OR validUntil > time::now())`,
+      `status != 'compacted'`,
+      `status != 'corroborating'`,
+      `(status != 'superseded' OR validUntil > time::now())`,
+    ],
     params: {},
   };
 }

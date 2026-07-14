@@ -24,6 +24,7 @@ import {
   type JobContext,
 } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
+import { envFlagEnabled } from '../common/env-validation';
 
 export interface DreamsTenantStats {
   companyId: string;
@@ -111,7 +112,7 @@ export class DreamsService implements OnModuleInit {
     @Optional() private readonly corroborate?: DreamsCorroborateService,
   ) {
     this.enabled =
-      this.configService.get<string>('DREAMS_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('DREAMS_ENABLED'));
     // Default operation set: every sub-service that's been individually
     // enabled. An operator who only wants dedup flips
     // DREAMS_DEDUP_ENABLED=1 and DREAMS_ENABLED=1 — the cron then
@@ -123,7 +124,7 @@ export class DreamsService implements OnModuleInit {
     // summarize is always available because the no-LLM concat path
     // is the fallback; the LLM path engages when DREAMS_LLM_SUMMARY_ENABLED=1.
     if (
-      this.configService.get<string>('DREAMS_RUN_SUMMARIZE', '0') === '1'
+      envFlagEnabled(this.configService.get<string>('DREAMS_RUN_SUMMARIZE'))
     ) {
       ops.push('summarize');
     }

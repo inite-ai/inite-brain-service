@@ -8,6 +8,7 @@ import {
   FactToSummarize,
   SummaryGenerator,
 } from '../compaction/summary-generator';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * LLM-backed SummaryGenerator. Drop-in for ConcatSummaryGenerator —
@@ -42,7 +43,7 @@ export class LlmSummaryGenerator implements SummaryGenerator {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     this.openai = apiKey
       ? new OpenAI({

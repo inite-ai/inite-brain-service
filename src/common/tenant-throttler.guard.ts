@@ -1,6 +1,7 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { createHash } from 'node:crypto';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * Per-credential rate limiter.
@@ -35,7 +36,7 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
     // stray THROTTLE_DISABLED must never silently drop the expensive
     // OpenAI-budget caps in prod.
     if (
-      process.env.THROTTLE_DISABLED === '1' &&
+      envFlagEnabled(process.env.THROTTLE_DISABLED) &&
       process.env.NODE_ENV !== 'production'
     ) {
       return true;

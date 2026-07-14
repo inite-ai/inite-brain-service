@@ -11,6 +11,7 @@ import {
 } from './summary-generator';
 import { LlmSummaryGenerator } from '../dreams/llm-summary.generator';
 import { MetricsModule } from '../metrics/metrics.module';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * The SUMMARY_GENERATOR provider chooses between the no-LLM concat
@@ -34,7 +35,7 @@ import { MetricsModule } from '../metrics/metrics.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService): SummaryGenerator => {
         const llmEnabled =
-          config.get<string>('DREAMS_LLM_SUMMARY_ENABLED', '0') === '1';
+          envFlagEnabled(config.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
         return llmEnabled
           ? new LlmSummaryGenerator(config)
           : new ConcatSummaryGenerator();

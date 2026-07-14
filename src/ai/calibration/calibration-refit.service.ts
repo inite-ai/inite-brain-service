@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { envFlagEnabled } from '../../common/env-validation';
 import { CalibrationRefitRunnerService } from './calibration-refit-runner.service';
 import { CalibrationRefitQueueService } from './calibration-refit-queue.service';
 import {
@@ -25,12 +26,15 @@ import {
 @Injectable()
 export class CalibrationRefitService implements OnModuleInit {
   private readonly logger = new Logger(CalibrationRefitService.name);
-  // Enabled ONLY on literal 'true' (the pre-#62 contract): '0'/'off'/'no'
-  // must disable, not silently re-enable the nightly crons. `!== 'false'`
-  // would treat every non-'false' value — including the house '0'
-  // convention — as enabled.
+  // Default-ON when unset. Set values go through envFlagEnabled, so BOTH
+  // house idioms work: '1'/'true' enable, '0'/'false' (or any other value)
+  // disable. The previous `=== 'true'`-only check made the house
+  // convention CALIBRATION_NIGHTLY_REFIT=1 silently DISABLE the nightly
+  // refit — the audit's fail-open trap, inverted.
   private readonly enabled =
-    (process.env.CALIBRATION_NIGHTLY_REFIT ?? 'true').toLowerCase() === 'true';
+    process.env.CALIBRATION_NIGHTLY_REFIT == null
+      ? true
+      : envFlagEnabled(process.env.CALIBRATION_NIGHTLY_REFIT);
 
   constructor(
     private readonly runner: CalibrationRefitRunnerService,

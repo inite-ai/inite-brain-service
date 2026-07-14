@@ -6,6 +6,7 @@ import { EmbedderService } from './embedder.service';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * HyPE — Hypothetical Prompt Embeddings.
@@ -37,7 +38,7 @@ export class HypeService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('SEARCH_HYPE_ENABLED', '0') === '1';
+      envFlagEnabled(this.configService.get<string>('SEARCH_HYPE_ENABLED'));
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     this.openai = apiKey
       ? new OpenAI({

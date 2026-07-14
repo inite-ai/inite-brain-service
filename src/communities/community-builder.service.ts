@@ -15,6 +15,7 @@ import {
   labelPropagation,
 } from './label-propagation';
 import { policyFor } from '../ingest/conflict-resolver';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * CommunityBuilderService — clusters the tenant's entity graph into
@@ -48,7 +49,7 @@ export class CommunityBuilderService {
     private readonly summaryGenerator: SummaryGenerator,
   ) {
     this.enabled =
-      this.config.get<string>('DREAMS_COMMUNITIES_ENABLED', '0') === '1';
+      envFlagEnabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
     this.minSize = parseInt(
       this.config.get<string>('COMMUNITIES_MIN_SIZE', '3'),
       10,

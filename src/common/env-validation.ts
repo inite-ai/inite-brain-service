@@ -141,6 +141,9 @@ validateAbacEnv(env, errors);
   positiveInt(env, 'MAX_DEDICATED_INDEXERS_PER_DOC', errors);
   nonNegativeFloat(env, 'CANDIDATE_MIN_CONFIDENCE', errors);
 
+  // ── All remaining boolean feature flags ────────────────────────────
+  validateBooleanFlags(env, warnings);
+
   for (const w of warnings) log.warn(w);
 
   if (errors.length > 0) {
@@ -200,7 +203,7 @@ function validateProductionGuards(
   }
 
   // Test-only kill switch must never run in production.
-  if (isProd && env.THROTTLE_DISABLED === '1') {
+  if (isProd && envFlagEnabled(env.THROTTLE_DISABLED)) {
     errors.push(
       'THROTTLE_DISABLED=1 is a test-only flag and must not be set in ' +
         'production — it disables all rate limiting, including the ' +
@@ -243,6 +246,24 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   nonNegativeFloat(env, 'POLICY_DECISION_SAMPLE_RATE', errors);
 }
 
+/**
+ * Every flag in KNOWN_BOOLEAN_FLAGS is parsed with envFlagEnabled, so a
+ * value outside 1/0/true/false silently reads as OFF — the fail-open
+ * trap. Unlike the ABAC/pack-trust flags (hard errors), a typo here is
+ * a warning: nothing security-relevant, but the operator should know.
+ */
+function validateBooleanFlags(env: NodeJS.ProcessEnv, warnings: string[]): void {
+  for (const name of KNOWN_BOOLEAN_FLAGS) {
+    const v = env[name];
+    if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
+      warnings.push(
+        `${name} must be one of 1/0/true/false (got "${v}") — ` +
+          'unrecognized values parse as OFF.',
+      );
+    }
+  }
+}
+
 function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   const maxBody = env.MAX_BODY_SIZE;
   if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
@@ -260,6 +281,37 @@ function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
  * supply-chain control — the one shape of bug this validator exists for.
  */
 const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
+
+/**
+ * Boolean flags parsed via envFlagEnabled outside the ABAC/pack-trust
+ * validators. Kept in lockstep with the swept call sites (audit wave P2);
+ * boot warns (not errors) on values outside FLAG_VALUES.
+ */
+const KNOWN_BOOLEAN_FLAGS = [
+  'SEARCH_USAGE_RECORDING_ENABLED',
+  'SEARCH_USAGE_DECAY_ENABLED',
+  'SEARCH_PPR_ENABLED',
+  'SEARCH_HNSW_ENABLED',
+  'SEARCH_RERANKER_ENABLED',
+  'SEARCH_HYPE_ENABLED',
+  'MULTI_HOP_EDGE_EXPANSION_ENABLED',
+  'EXTRACTOR_SKIP_LLM_ENABLED',
+  'CALIBRATION_NIGHTLY_REFIT',
+  'DREAMS_ENABLED',
+  'DREAMS_RUN_SUMMARIZE',
+  'DREAMS_DEDUP_ENABLED',
+  'DREAMS_RESOLVE_ENABLED',
+  'DREAMS_CORROBORATE_ENABLED',
+  'DREAMS_COMMUNITIES_ENABLED',
+  'DREAMS_LLM_SUMMARY_ENABLED',
+  'COMPACTION_PROMOTION_ENABLED',
+  'COMPACTION_SUMMARIES',
+  'INGEST_INLINE_RESOLUTION_ENABLED',
+  'AUDIT_CHANGEFEED_ENABLED',
+  'DEBUG_TRACE_PERSIST',
+  'BGE_M3_WORKER',
+  'THROTTLE_DISABLED',
+];
 
 /**
  * Parse a boolean env flag accepting BOTH house idioms ('1' and 'true',

@@ -88,13 +88,24 @@ describe('blockedPredicates', () => {
 });
 
 describe('activeFactWhere', () => {
-  it('without asOf, gates on believed-now (retractedAt IS NONE) and binds no params', () => {
+  it('without asOf, applies the full believed-and-valid-now closure and binds no params', () => {
     const { clauses, params } = activeFactWhere(null);
     expect(clauses).toEqual([
       'retractedAt IS NONE',
+      // Validity window + compacted gate: the old retractedAt-only shape
+      // leaked naturally-superseded facts (a supersede sets NO
+      // retractedAt — migration 0014), expired facts, and compacted
+      // skeletons into profile/summarize/why. Mirrors search's
+      // where-builder, including the future-gap supersede rule (a
+      // superseded fact whose interval still covers now IS the current
+      // value while its successor is future-dated).
+      'validFrom <= time::now()',
+      '(validUntil IS NONE OR validUntil > time::now())',
+      "status != 'compacted'",
       // Corroborating rows (migration 0047) are audit records of a second
       // claim — hidden from profile reads; the incumbent carries the fact.
       "status != 'corroborating'",
+      "(status != 'superseded' OR validUntil > time::now())",
     ]);
     expect(params).toEqual({});
   });
@@ -107,6 +118,10 @@ describe('activeFactWhere', () => {
       '(retractedAt IS NONE OR retractedAt > $asOf)',
       'validFrom <= $asOf',
       '(validUntil IS NONE OR validUntil > $asOf)',
+      // Matches where-builder's asOf branch: compacted skeletons stay
+      // hidden in point-in-time views too (the compaction summary fact
+      // carries the surviving content).
+      "status != 'compacted'",
       "status != 'corroborating'",
     ]);
     expect(params).toEqual({ asOf });

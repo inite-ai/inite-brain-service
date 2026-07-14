@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * ChangefeedDrainService — the per-tenant CHANGEFEED drain engine.
@@ -49,7 +50,7 @@ export class ChangefeedDrainService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      config.get<string>('AUDIT_CHANGEFEED_ENABLED', '0') === '1';
+      envFlagEnabled(config.get<string>('AUDIT_CHANGEFEED_ENABLED'));
     this.perBatchLimit = parseInt(
       config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'),
       10,

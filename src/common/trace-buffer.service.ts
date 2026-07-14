@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Subject } from 'rxjs';
 import type { DebugTraceSnapshot } from './debug-trace-core';
 import { SurrealService } from '../db/surreal.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * Ring buffer of per-request debug snapshots.
@@ -60,7 +61,7 @@ export class TraceBufferService {
     @Optional() private readonly surreal?: SurrealService,
   ) {
     this.persistEnabled =
-      this.config?.get<string>('DEBUG_TRACE_PERSIST', '0') === '1' &&
+      envFlagEnabled(this.config?.get<string>('DEBUG_TRACE_PERSIST')) &&
       !!this.surreal;
     const cap = parseInt(
       this.config?.get<string>('DEBUG_TRACE_DB_CAPACITY', '1000') ?? '1000',
