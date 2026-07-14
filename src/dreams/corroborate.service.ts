@@ -93,6 +93,7 @@ export class DreamsCorroborateService {
   private readonly model: string;
   private readonly maxPairs: number;
   private readonly cosineThreshold: number;
+  private readonly maxLlmCalls: number;
   private readonly limiter: Semaphore;
 
   constructor(
@@ -121,6 +122,18 @@ export class DreamsCorroborateService {
     );
     this.maxPairs = parseInt(
       this.configService.get<string>('DREAMS_CORROBORATE_MAX_PAIRS', '20'),
+      10,
+    );
+    // Hard ceiling on judge calls per run. maxPairs caps APPLIED
+    // corroborations only — 'different'/'unsure' verdicts don't count
+    // toward it, so a window full of non-matching pairs could burn
+    // (window × pairs-per-group) LLM calls (~280) against a nominal
+    // cap of 20. Default 2× the window.
+    this.maxLlmCalls = parseInt(
+      this.configService.get<string>(
+        'DREAMS_CORROBORATE_MAX_LLM_CALLS',
+        String(this.maxPairs * 2),
+      ),
       10,
     );
     this.cosineThreshold = parseFloat(
@@ -170,29 +183,48 @@ export class DreamsCorroborateService {
 
     for (const group of groups) {
       if (result.corroborationsApplied >= this.maxPairs) break;
+      // Hard judge-call ceiling: 'different'/'unsure' verdicts never
+      // count toward maxPairs, so without this a window of
+      // non-matching groups kept burning LLM calls all the way through.
+      if (result.llmJudgements >= this.maxLlmCalls) {
+        this.logger.warn(
+          `[dreams.corroborate] LLM call ceiling ${this.maxLlmCalls} reached — ${result.llmJudgements} judgements this run; remaining groups wait for the next run`,
+        );
+        break;
+      }
       const members = await this.fetchGroupMembers(db, group);
       const pairs = this.selectPairs(members);
-      for (const pair of pairs) {
-        if (result.corroborationsApplied >= this.maxPairs) break;
-        result.pairsConsidered++;
-        let method: 'exact' | 'llm';
-        if (pair.younger.object.trim() === pair.incumbent.object.trim()) {
-          method = 'exact';
-        } else {
-          const verdict = await withSpan('dreams.corroborate.judge', () =>
-            this.limiter.run(() => this.judge(pair)),
-          );
-          result.llmJudgements++;
-          if (verdict === 'unsure') {
-            result.unsurePairs++;
-            this.logger.warn(
-              `[dreams.corroborate] unsure: entity=${String(pair.incumbent.entityId)} predicate=${pair.incumbent.predicate} a='${pair.incumbent.object}' vs b='${pair.younger.object}'`,
-            );
-            continue;
+
+      // Judge in parallel under the semaphore, apply serially. The old
+      // per-iteration await never let the Semaphore hold more than one
+      // task, making DREAMS_CORROBORATE_CONCURRENCY a no-op — the
+      // nightly leg ran at 1× LLM latency. Exact-object matches skip
+      // the judge entirely. Within-group calls may overshoot the
+      // ceiling by at most the group's pair count (≤ MAX_GROUP_SIZE).
+      const judged = await Promise.all(
+        pairs.map((pair) => {
+          result.pairsConsidered++;
+          if (pair.younger.object.trim() === pair.incumbent.object.trim()) {
+            return Promise.resolve({ pair, verdict: 'exact' as const });
           }
-          if (verdict === 'different') continue;
-          method = 'llm';
+          result.llmJudgements++;
+          return withSpan('dreams.corroborate.judge', () =>
+            this.limiter.run(() => this.judge(pair)),
+          ).then((verdict) => ({ pair, verdict }));
+        }),
+      );
+
+      for (const { pair, verdict } of judged) {
+        if (result.corroborationsApplied >= this.maxPairs) break;
+        if (verdict === 'unsure') {
+          result.unsurePairs++;
+          this.logger.warn(
+            `[dreams.corroborate] unsure: entity=${String(pair.incumbent.entityId)} predicate=${pair.incumbent.predicate} a='${pair.incumbent.object}' vs b='${pair.younger.object}'`,
+          );
+          continue;
         }
+        if (verdict === 'different') continue;
+        const method: 'exact' | 'llm' = verdict === 'exact' ? 'exact' : 'llm';
         await this.applyCorroboration(db, pair);
         result.corroborationsApplied++;
         result.corroborations.push({
@@ -205,8 +237,40 @@ export class DreamsCorroborateService {
           method,
         });
       }
+
+      // Negative-result memo (migration 0060): remember the group's
+      // member count so a group whose membership hasn't changed is not
+      // re-fetched and re-judged every night. Groups that DID apply a
+      // corroboration change their active-member count (the younger row
+      // turns 'corroborating'), so the memo self-invalidates for them.
+      await this.markGroupChecked(db, group, members.length);
     }
     return result;
+  }
+
+  private async markGroupChecked(
+    db: Surreal,
+    group: { entityId: unknown; predicate: string },
+    memberCount: number,
+  ): Promise<void> {
+    try {
+      await db.query(
+        `UPSERT corroborate_checked SET
+           entityId = $entity, predicate = $predicate,
+           memberCount = $n, checkedAt = time::now()
+         WHERE entityId = $entity AND predicate = $predicate`,
+        {
+          entity: new StringRecordId(String(group.entityId)),
+          predicate: group.predicate,
+          n: memberCount,
+        },
+      );
+    } catch (e) {
+      // Best-effort: a missed memo only costs a re-judge next run.
+      this.logger.warn(
+        `[dreams.corroborate] checked-memo write failed: ${(e as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -231,11 +295,20 @@ export class DreamsCorroborateService {
          AND userId IS NONE
        GROUP BY entityId, predicate`,
     );
+    // Negative-result memo (0060): a group already judged at the SAME
+    // member count is excluded before the window is cut. Without this,
+    // the deterministic most-populated-first order re-selected the same
+    // all-'different' groups every night — permanent starvation of the
+    // rest of the backlog at full LLM cost.
+    const checked = await this.loadCheckedMemo(db);
     const eligible = (
       (rows as Array<{ entityId: unknown; predicate: string; n: number }>) ?? []
     )
       .filter((g) => g.n >= 2 && g.n <= MAX_GROUP_SIZE)
       .filter((g) => policyFor(g.predicate).semantics === 'bitemporal')
+      .filter(
+        (g) => checked.get(`${String(g.entityId)}|${g.predicate}`) !== g.n,
+      )
       .sort((a, b) => {
         if (b.n !== a.n) return b.n - a.n; // most-conflicted first
         const ka = `${String(a.entityId)}\u0000${a.predicate}`;
@@ -243,6 +316,28 @@ export class DreamsCorroborateService {
         return ka < kb ? -1 : ka > kb ? 1 : 0; // stable tiebreak
       });
     return { groups: eligible.slice(0, this.maxPairs * 2), backlog: eligible.length };
+  }
+
+  /** (entityId|predicate) → memberCount at last check. Empty on error. */
+  private async loadCheckedMemo(db: Surreal): Promise<Map<string, number>> {
+    const memo = new Map<string, number>();
+    try {
+      const [rows] = await db.query<
+        [Array<{ entityId: unknown; predicate: string; memberCount: number }>]
+      >(`SELECT entityId, predicate, memberCount FROM corroborate_checked`);
+      for (const r of (rows as Array<{
+        entityId: unknown;
+        predicate: string;
+        memberCount: number;
+      }>) ?? []) {
+        memo.set(`${String(r.entityId)}|${r.predicate}`, r.memberCount);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[dreams.corroborate] checked-memo read failed (${(e as Error).message}); treating all groups as unchecked`,
+      );
+    }
+    return memo;
   }
 
   private async fetchGroupMembers(

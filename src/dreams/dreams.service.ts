@@ -581,50 +581,34 @@ export class DreamsService implements OnModuleInit {
     stats: DreamsTenantStats,
   ): Promise<void> {
     try {
-      for (const link of stats.dedup?.identityLinks ?? []) {
-        await db.query(
-          `CREATE dream_emit CONTENT {
-             runId: $runId, kind: 'identity_link',
-             subject: $subject, object: $object,
-             detail: $detail
-           }`,
-          {
-            runId,
-            subject: link.survivorId ?? null,
-            object: link.loserId ?? null,
-            detail: link,
-          },
-        );
-      }
-      for (const res of stats.resolve?.resolutions ?? []) {
-        await db.query(
-          `CREATE dream_emit CONTENT {
-             runId: $runId, kind: 'resolution',
-             subject: $subject, object: $object,
-             detail: $detail
-           }`,
-          {
-            runId,
-            subject: res.winnerFactId ?? null,
-            object: res.loserFactId ?? null,
-            detail: res,
-          },
-        );
-      }
-      for (const cor of stats.corroborate?.corroborations ?? []) {
-        await db.query(
-          `CREATE dream_emit CONTENT {
-             runId: $runId, kind: 'corroboration',
-             subject: $subject, object: $object,
-             detail: $detail
-           }`,
-          {
-            runId,
-            subject: cor.incumbentFactId ?? null,
-            object: cor.corroboratingFactId ?? null,
-            detail: cor,
-          },
-        );
+      // One INSERT for the whole run's emits instead of one CREATE per
+      // row across three sequential loops (~90 round-trips on a busy
+      // night). Same batch idiom as changefeed-drain / candidate-store.
+      const rows = [
+        ...(stats.dedup?.identityLinks ?? []).map((link) => ({
+          runId,
+          kind: 'identity_link',
+          subject: link.survivorId ?? null,
+          object: link.loserId ?? null,
+          detail: link,
+        })),
+        ...(stats.resolve?.resolutions ?? []).map((res) => ({
+          runId,
+          kind: 'resolution',
+          subject: res.winnerFactId ?? null,
+          object: res.loserFactId ?? null,
+          detail: res,
+        })),
+        ...(stats.corroborate?.corroborations ?? []).map((cor) => ({
+          runId,
+          kind: 'corroboration',
+          subject: cor.incumbentFactId ?? null,
+          object: cor.corroboratingFactId ?? null,
+          detail: cor,
+        })),
+      ];
+      if (rows.length > 0) {
+        await db.query(`INSERT INTO dream_emit $rows`, { rows });
       }
     } catch (e) {
       this.logger.warn(

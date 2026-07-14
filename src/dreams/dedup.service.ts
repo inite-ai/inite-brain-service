@@ -55,6 +55,7 @@ export class DreamsDedupService {
   private readonly enabled: boolean;
   private readonly cosineThreshold: number;
   private readonly maxPairs: number;
+  private readonly maxSeeds: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -67,6 +68,15 @@ export class DreamsDedupService {
     );
     this.maxPairs = parseInt(
       this.configService.get<string>('DREAMS_DEDUP_MAX_PAIRS', '50'),
+      10,
+    );
+    // Bounds the neighbour-query loop (one query per seed). maxPairs
+    // only capped EMITTED pairs — on a corpus where few pairs cleared
+    // the threshold, the loop still ran one full scan per entity:
+    // O(N²) vector ops per tenant per night. Newest name facts seed
+    // first, so recently-touched entities are always covered.
+    this.maxSeeds = parseInt(
+      this.configService.get<string>('DREAMS_DEDUP_MAX_SEEDS', '500'),
       10,
     );
   }
@@ -141,42 +151,35 @@ export class DreamsDedupService {
    *   - Cap at maxPairs to bound the LLM cost.
    */
   private async findCandidates(db: Surreal): Promise<DedupCandidate[]> {
-    type NameRow = { entityId: unknown; embedding: number[] };
-    const [seedRows] = await db.query<[NameRow[]]>(
-      `SELECT entityId, embedding FROM knowledge_fact
+    // Seed pass: fact id + entity id ONLY. The old shape selected every
+    // name embedding into process memory (1536 float64s × N entities —
+    // hundreds of MB at scale) and then looped over ALL of them. The
+    // embedding never leaves the DB now: each neighbour query resolves
+    // its seed vector by fact id, and the seed set is capped
+    // newest-first. recordedAt rides in the projection for the 3.x
+    // ORDER BY idiom.
+    type SeedRow = { id: unknown; entityId: unknown; recordedAt: unknown };
+    const [seedRows] = await db.query<[SeedRow[]]>(
+      `SELECT id, entityId, recordedAt FROM knowledge_fact
        WHERE predicate = 'name'
          AND status = 'active'
          AND retractedAt IS NONE
          AND embedding != NONE
          AND userId IS NONE
-         AND entityId.mergedInto IS NONE`,
+         AND entityId.mergedInto IS NONE
+       ORDER BY recordedAt DESC
+       LIMIT $maxSeeds`,
+      { maxSeeds: this.maxSeeds },
     );
-    const seeds = (seedRows as NameRow[]) ?? [];
+    const seeds = (seedRows as SeedRow[]) ?? [];
     if (seeds.length < 2) return [];
 
     const out: DedupCandidate[] = [];
     const seen = new Set<string>();
     for (const seed of seeds) {
       const aId = String(seed.entityId);
-      // K-NN over name facts. We ask for K=5 to surface the closest
-      // candidates without flooding the LLM stage; the threshold
-      // then filters most away.
-      const sql = `
-        SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
-        FROM knowledge_fact
-        WHERE predicate = 'name'
-          AND status = 'active'
-          AND retractedAt IS NONE
-          AND embedding != NONE
-          AND userId IS NONE
-          AND entityId.mergedInto IS NONE
-        ORDER BY sim DESC
-        LIMIT 5
-      `;
-      const [neighbourRows] = await db.query<
-        [Array<{ entityId: unknown; sim: number }>]
-      >(sql, { q: seed.embedding });
-      for (const n of (neighbourRows as Array<{ entityId: unknown; sim: number }>) ?? []) {
+      const neighbours = await this.nearestNames(db, String(seed.id));
+      for (const n of neighbours) {
         const bId = String(n.entityId);
         if (bId === aId) continue;
         if (n.sim < this.cosineThreshold) continue;
@@ -192,6 +195,59 @@ export class DreamsDedupService {
       }
     }
     return out;
+  }
+
+  /**
+   * K nearest name facts to a seed name fact, seed vector resolved
+   * DB-side by fact id. With SEARCH_HNSW_ENABLED the KNN operator rides
+   * the HNSW index (same literal-K idiom + overfetch as the search
+   * vector leg; the operator throws when the tenant has no index, and
+   * we fall back to the scan). Without it, a scan ordered by cosine —
+   * still zero vectors shipped to JS in both directions.
+   */
+  private async nearestNames(
+    db: Surreal,
+    seedFactId: string,
+  ): Promise<Array<{ entityId: unknown; sim: number }>> {
+    const filters = `predicate = 'name'
+          AND status = 'active'
+          AND retractedAt IS NONE
+          AND embedding != NONE
+          AND userId IS NONE
+          AND entityId.mergedInto IS NONE`;
+    type Row = { entityId: unknown; sim: number };
+    if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED)) {
+      const ef = parseInt(process.env.SEARCH_HNSW_EF ?? '100', 10);
+      const overfetch = parseInt(process.env.SEARCH_HNSW_OVERFETCH ?? '4', 10);
+      const kOver = Math.min(5 * overfetch, 1000);
+      try {
+        const res = await db.query<[unknown, Row[]]>(
+          `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
+           SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
+             FROM knowledge_fact
+            WHERE embedding <|${kOver},${ef}|> $q
+              AND ${filters}
+            ORDER BY sim DESC
+            LIMIT 5;`,
+          { fid: seedFactId },
+        );
+        return (res[1] as Row[]) ?? [];
+      } catch (e) {
+        this.logger.warn(
+          `[dreams.dedup] KNN leg failed (${(e as Error).message}); falling back to scan`,
+        );
+      }
+    }
+    const res = await db.query<[unknown, Row[]]>(
+      `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
+       SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
+         FROM knowledge_fact
+        WHERE ${filters}
+        ORDER BY sim DESC
+        LIMIT 5;`,
+      { fid: seedFactId },
+    );
+    return (res[1] as Row[]) ?? [];
   }
 
   private async identityEdgeExists(

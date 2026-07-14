@@ -131,11 +131,19 @@ export class DreamsResolverService {
     result.pairsConsidered = pairs.length;
     if (pairs.length === 0) return result;
 
-    for (const pair of pairs) {
-      const verdict = await withSpan(
-        'dreams.resolve.judge',
-        () => this.limiter.run(() => this.judge(db, pair)),
-      );
+    // Judge in parallel under the semaphore, apply serially. The old
+    // per-iteration await never let the Semaphore hold more than one
+    // task, so DREAMS_RESOLVE_CONCURRENCY was a no-op and the nightly
+    // leg ran at 1× LLM latency per pair.
+    const judged = await Promise.all(
+      pairs.map((pair) =>
+        withSpan('dreams.resolve.judge', () =>
+          this.limiter.run(() => this.judge(db, pair)),
+        ).then((verdict) => ({ pair, verdict })),
+      ),
+    );
+
+    for (const { pair, verdict } of judged) {
       result.llmJudgements++;
       if (verdict.kind === 'unsure') {
         result.unsurePairs++;

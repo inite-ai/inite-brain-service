@@ -283,9 +283,21 @@ export class CandidateStoreService {
     const { batch } = p;
     const prov = batch.provenance;
     return this.surreal.withCompany(companyId, async (db) => {
-      for (const e of batch.entities) {
-        await this.insertRow(db, {
-          ...p,
+      // One INSERT for the whole chunk instead of one CREATE per
+      // candidate (same pattern-port as changefeed-drain's audit_event
+      // batch). A large document staged E+F+R serial round-trips per
+      // chunk — thousands per indexer run; this is one RTT per chunk,
+      // and single-statement staging makes the chunk atomic (a crash
+      // can no longer leave a partially staged chunk behind).
+      const shared = () => ({
+        docId: recordRef('source_document', p.docId),
+        runId: recordRef('indexer_run', p.runId),
+        chunkSeq: p.chunkSeq,
+        status: 'pending',
+      });
+      const rows: Record<string, unknown>[] = [
+        ...batch.entities.map((e) => ({
+          ...shared(),
           kind: 'entity',
           confidence: 0.5,
           payload: {
@@ -299,11 +311,9 @@ export class CandidateStoreService {
             executionMode: prov.executionMode,
             model: prov.model,
           },
-        });
-      }
-      for (const f of batch.facts) {
-        await this.insertRow(db, {
-          ...p,
+        })),
+        ...batch.facts.map((f) => ({
+          ...shared(),
           kind: 'fact',
           confidence: f.confidence,
           payload: {
@@ -322,11 +332,9 @@ export class CandidateStoreService {
             executionMode: prov.executionMode,
             model: prov.model,
           },
-        });
-      }
-      for (const r of batch.relations) {
-        await this.insertRow(db, {
-          ...p,
+        })),
+        ...batch.relations.map((r) => ({
+          ...shared(),
           kind: 'relation',
           confidence: r.confidence,
           payload: {
@@ -339,7 +347,10 @@ export class CandidateStoreService {
             executionMode: prov.executionMode,
             model: prov.model,
           },
-        });
+        })),
+      ];
+      if (rows.length > 0) {
+        await db.query(`INSERT INTO candidate $rows`, { rows });
       }
       this.metrics?.countCandidate('entity', 'created', batch.entities.length);
       this.metrics?.countCandidate('fact', 'created', batch.facts.length);
@@ -416,43 +427,32 @@ export class CandidateStoreService {
   ): Promise<void> {
     if (!updates.length) return;
     await this.surreal.withCompany(companyId, async (db) => {
-      for (const u of updates) {
-        await db.query(
-          `UPDATE type::record('candidate', $id) SET
-             status = $status, statusReason = $reason, commitRef = $ref,
-             decidedAt = time::now()`,
-          {
-            id: idTailOf(u.id),
+      // One FOR-loop statement instead of one UPDATE round-trip per
+      // candidate. These writes run while holding the per-doc commit
+      // lock, so the old per-row form stretched the window in which
+      // re-commits defer — by thousands of RTTs on a large document.
+      // (Side-effect-only FOR body — the "no cross-iteration variable
+      // accumulation" SurrealQL limitation doesn't apply.)
+      await db.query(
+        `FOR $u IN $updates {
+           UPDATE type::record($u.id) SET
+             status = $u.status,
+             statusReason = $u.reason ?? NONE,
+             commitRef = $u.ref ?? NONE,
+             decidedAt = time::now();
+         };`,
+        {
+          updates: updates.map((u) => ({
+            id: `candidate:${idTailOf(u.id)}`,
             status: u.status,
-            reason: u.statusReason,
-            ref: u.commitRef,
-          },
-        );
-      }
+            reason: u.statusReason ?? null,
+            ref: u.commitRef ?? null,
+          })),
+        },
+      );
     });
   }
 
-  private async insertRow(
-    db: Surreal,
-    p: {
-      docId: string;
-      runId: string;
-      chunkSeq: number;
-      kind: CandidateKind;
-      confidence: number;
-      payload: Record<string, unknown>;
-    },
-  ): Promise<void> {
-    await dbCreate(db, 'candidate', {
-      docId: recordRef('source_document', p.docId),
-      runId: recordRef('indexer_run', p.runId),
-      chunkSeq: p.chunkSeq,
-      kind: p.kind,
-      confidence: p.confidence,
-      payload: p.payload,
-      status: 'pending',
-    });
-  }
 
   private async loadByDoc(
     db: Surreal,
