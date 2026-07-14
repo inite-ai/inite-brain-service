@@ -228,8 +228,13 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
         if (this.pending.delete(id)) {
           // A wedged worker won't recover on its own — mark it not-ready
           // so isReady() flips false and EmbedderService fails over to the
-          // fallback provider instead of stacking timed-out RPCs.
+          // fallback provider instead of stacking timed-out RPCs. And
+          // since nothing ever re-warms this provider (EmbedderService
+          // warms once at module init), the wedged worker would
+          // otherwise pin the ~600 MB model for the rest of the process
+          // lifetime while serving zero traffic — reclaim it now.
           this.workerReady = false;
+          void this.terminate();
           reject(
             new Error(
               `BGE-M3 worker '${kind}' RPC timed out after ${timeoutMs}ms`,

@@ -168,6 +168,17 @@ export class LocalCrossEncoderProvider {
   }
 
   private async warmupWorker(): Promise<void> {
+    // Re-warmup after a score-RPC timeout must not orphan the previous
+    // worker: an un-terminated worker_threads.Worker keeps its message
+    // listener (and the ~300 MB loaded model) alive for the process
+    // lifetime — one leaked worker per timeout incident. Tear the old
+    // one down before spawning its replacement.
+    const stale = this.worker;
+    if (stale) {
+      this.worker = null;
+      this.failAllPending(new Error('worker replaced after stall'));
+      await stale.terminate().catch(() => undefined);
+    }
     const workerPath = this.resolveWorkerPath();
     this.worker = new Worker(workerPath);
     this.worker.on('message', (m: unknown) => this.handleReply(m));
@@ -220,6 +231,15 @@ export class LocalCrossEncoderProvider {
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) {
           this.workerReady = false;
+          // Latch like a warmup failure: without this, the next score()
+          // immediately re-warms (spawning a replacement worker) while
+          // the wedged one may still be mid-inference — on a
+          // persistently slow host that cycled a new ~300 MB worker per
+          // timeout. The latch gives the host FAIL_RETRY_MS to recover;
+          // rerank degrades to fusion order meanwhile.
+          if (kind === 'score') {
+            this.failedUntil = Date.now() + FAIL_RETRY_MS;
+          }
           reject(new Error(`cross-encoder '${kind}' RPC timed out after ${timeoutMs}ms`));
         }
       }, timeoutMs);

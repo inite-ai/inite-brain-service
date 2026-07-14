@@ -82,6 +82,20 @@ export class CommunityBuilderService {
     };
     if (!this.enabled) return result;
 
+    // Tenant-level short-circuit (0061): probe the live-edge signature
+    // (count + newest createdAt) with one aggregate query; when nothing
+    // changed since the last full pass, skip the edge load + clustering
+    // entirely. The per-cluster watermark below only saves the
+    // summarize/embed step — the O(E) materialisation and O(V+E)
+    // propagation were paid every night regardless.
+    const signature = await this.probeGraphSignature(db);
+    if (signature && (await this.signatureUnchanged(db, signature))) {
+      this.logger.log(
+        `[communities] graph unchanged (edges=${signature.liveEdgeCount}, maxEdgeAt=${signature.maxEdgeAt ?? 'none'}) — skipping rebuild`,
+      );
+      return result;
+    }
+
     const edges = await this.loadEdges(db);
     if (edges.length === 0) {
       // No edges → no communities. Still drop any stale ones left over
@@ -154,11 +168,92 @@ export class CommunityBuilderService {
       result.communitiesRemoved++;
     }
 
+    // Persist the signature captured BEFORE the pass — edges landing
+    // mid-pass make next night's probe differ and re-trigger a build.
+    if (signature) await this.saveGraphSignature(db, signature);
+
     this.logger.log(
       `[communities] built=${result.communitiesBuilt} reused=${result.communitiesReused} ` +
         `removed=${result.communitiesRemoved} entitiesClustered=${result.entitiesClustered}`,
     );
     return result;
+  }
+
+  /**
+   * Live-edge signature in one aggregate round-trip. Returns null on
+   * any error — the caller then runs the full pass (fail-open: the
+   * short-circuit is a cost gate, never a correctness gate).
+   */
+  private async probeGraphSignature(
+    db: Surreal,
+  ): Promise<GraphSignature | null> {
+    try {
+      const [rows] = await db.query<
+        [Array<{ c: number; maxAt: unknown }>]
+      >(
+        `SELECT count() AS c, time::max(createdAt) AS maxAt
+           FROM knowledge_edge
+          WHERE invalidatedAt IS NONE
+          GROUP ALL`,
+      );
+      const row = ((rows as Array<{ c: number; maxAt: unknown }>) ?? [])[0];
+      return {
+        liveEdgeCount: row ? Number(row.c) : 0,
+        maxEdgeAt: row?.maxAt ? String(row.maxAt) : null,
+        minSize: this.minSize,
+      };
+    } catch (e) {
+      this.logger.warn(
+        `[communities] signature probe failed (${(e as Error).message}); running full pass`,
+      );
+      return null;
+    }
+  }
+
+  private async signatureUnchanged(
+    db: Surreal,
+    sig: GraphSignature,
+  ): Promise<boolean> {
+    try {
+      const [rows] = await db.query<
+        [Array<{ liveEdgeCount: number; maxEdgeAt: unknown; minSize: number }>]
+      >(`SELECT liveEdgeCount, maxEdgeAt, minSize FROM community_build_state`);
+      const prior = ((rows as Array<{
+        liveEdgeCount: number;
+        maxEdgeAt: unknown;
+        minSize: number;
+      }>) ?? [])[0];
+      if (!prior) return false;
+      return (
+        Number(prior.liveEdgeCount) === sig.liveEdgeCount &&
+        (prior.maxEdgeAt ? String(prior.maxEdgeAt) : null) === sig.maxEdgeAt &&
+        Number(prior.minSize) === sig.minSize
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async saveGraphSignature(
+    db: Surreal,
+    sig: GraphSignature,
+  ): Promise<void> {
+    try {
+      await db.query(
+        `UPSERT community_build_state:singleton SET
+           liveEdgeCount = $c, maxEdgeAt = $maxAt,
+           minSize = $minSize, updatedAt = time::now()`,
+        {
+          c: sig.liveEdgeCount,
+          maxAt: sig.maxEdgeAt ? new Date(sig.maxEdgeAt) : undefined,
+          minSize: sig.minSize,
+        },
+      );
+    } catch (e) {
+      this.logger.warn(
+        `[communities] signature save failed: ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Load every live entity-entity edge. Mirrors ppr.ts edge-load. */
@@ -371,6 +466,13 @@ interface EdgeRow {
   to: string;
   weight: number;
   createdAt: string;
+}
+
+/** Live-edge signature for the tenant-level rebuild short-circuit (0061). */
+interface GraphSignature {
+  liveEdgeCount: number;
+  maxEdgeAt: string | null;
+  minSize: number;
 }
 
 interface ExistingCommunity {

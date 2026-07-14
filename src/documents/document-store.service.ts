@@ -5,7 +5,7 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
@@ -116,22 +116,19 @@ export class DocumentStoreService {
           status: 'received',
         });
         const docId = String(row.id);
-        if (storeContent) {
-          for (const c of chunks) {
-            await db.query(
-              `CREATE source_chunk CONTENT {
-                 docId: type::record('source_document', $doc),
-                 seq: $seq, text: $text, charStart: $start, charEnd: $end
-               }`,
-              {
-                doc: idTailOf(docId),
-                seq: c.seq,
-                text: c.text,
-                start: c.charStart,
-                end: c.charEnd,
-              },
-            );
-          }
+        if (storeContent && chunks.length > 0) {
+          // One INSERT for all chunks instead of one CREATE per chunk
+          // (up to ~43 serial round-trips per stored document at the
+          // DOC_MAX_CHARS cap).
+          await db.query(`INSERT INTO source_chunk $rows`, {
+            rows: chunks.map((c) => ({
+              docId: new StringRecordId(`source_document:${idTailOf(docId)}`),
+              seq: c.seq,
+              text: c.text,
+              charStart: c.charStart,
+              charEnd: c.charEnd,
+            })),
+          });
         }
         this.metrics?.countDocument('created');
         return { doc: mapDoc({ ...row, id: docId }), chunks, deduplicated: false };
