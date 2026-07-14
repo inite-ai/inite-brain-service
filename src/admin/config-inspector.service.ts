@@ -244,6 +244,15 @@ export class ConfigInspectorService {
         isBooleanFlag: false,
       },
       {
+        key: 'DREAMS_DEDUP_MAX_SEEDS',
+        category: 'dreams',
+        defaultValue: '500',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Cap on name-fact seeds per dedup run (newest first). Bounds the per-seed neighbour queries.',
+      },
+      {
         key: 'DREAMS_RESOLVE_MIN_AGE_DAYS',
         category: 'dreams',
         defaultValue: '7',
@@ -740,6 +749,15 @@ export class ConfigInspectorService {
         isBooleanFlag: true,
         description:
           'Fuzzy cross-source corroboration (cosine-close facts confirm each other). Bounded by DREAMS_CORROBORATE_MAX_PAIRS per run.',
+      },
+      {
+        key: 'DREAMS_CORROBORATE_MAX_LLM_CALLS',
+        category: 'dreams',
+        defaultValue: '40',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Hard ceiling on judge LLM calls per corroborate run (default 2× MAX_PAIRS). different/unsure verdicts never count toward MAX_PAIRS, so this is what actually bounds spend.',
       },
       {
         key: 'DREAMS_COMMUNITIES_ENABLED',
