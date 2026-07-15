@@ -27,6 +27,15 @@ export interface ApiKeyRecord {
    * a JWT. Unioned with policy_binding rows by PolicyResolverService.
    */
   policyNames?: string[];
+  /**
+   * Optional per-pack binding for `indexer:write` keys — from the
+   * `packIds` field of a BRAIN_API_KEYS entry or the `packs` claim of a
+   * JWT. A bound key can poll/claim/read/submit ONLY for these packs;
+   * absent = every external pack installed for the tenant (pre-binding
+   * behavior). Hardening: one integration's leaked key can't stage
+   * candidates as another integration's identity.
+   */
+  packIds?: string[];
 }
 
 export interface AuthenticatedRequest {
@@ -34,6 +43,8 @@ export interface AuthenticatedRequest {
     companyId: string;
     scopes: BrainScope[];
     keyHash: string;
+    /** Per-pack binding of an indexer key; absent = all external packs. */
+    packIds?: string[];
     /**
      * Resolved+compiled ABAC context; undefined when ABAC is disabled
      * or the key references no policy sets (= pre-ABAC behavior).

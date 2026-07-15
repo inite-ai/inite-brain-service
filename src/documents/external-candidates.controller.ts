@@ -48,6 +48,7 @@ export class ExternalCandidatesController {
       companyId,
       docId: id,
       dto: body,
+      keyPackIds: req.brainAuth.packIds,
     });
     const commit = await this.ingest.commitIfSettled(companyId, id);
     return {

@@ -59,6 +59,20 @@ export class ApiKeyService implements OnModuleInit {
         k.policyNames = names;
         delete (k as any).policies;
       }
+      // Optional per-pack indexer binding: `"packIds": ["my_pack", …]`.
+      // Same malformed-is-a-boot-error stance as policies — an operator
+      // who typed `"packIds": "my_pack"` believes the key is fenced.
+      if (k.packIds !== undefined) {
+        if (
+          !Array.isArray(k.packIds) ||
+          k.packIds.length === 0 ||
+          k.packIds.some((p: unknown) => typeof p !== 'string' || !p)
+        ) {
+          throw new Error(
+            `BRAIN_API_KEYS entry has malformed packIds (expected non-empty array of strings): companyId=${k.companyId}`,
+          );
+        }
+      }
       this.byHash.set(normalised, k);
     }
     this.logger.log(`Loaded ${this.byHash.size} ApiKey(s)`);

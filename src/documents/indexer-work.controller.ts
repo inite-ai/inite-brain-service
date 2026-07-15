@@ -45,6 +45,7 @@ export class IndexerWorkController {
       companyId: req.brainAuth.companyId,
       packId: packId || undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      keyPackIds: req.brainAuth.packIds,
     });
   }
 
@@ -56,6 +57,7 @@ export class IndexerWorkController {
     return this.work.claim({
       companyId: req.brainAuth.companyId,
       runId,
+      keyPackIds: req.brainAuth.packIds,
     });
   }
 
@@ -86,6 +88,7 @@ export class IndexerWorkController {
     return this.work.content({
       companyId: req.brainAuth.companyId,
       runId,
+      keyPackIds: req.brainAuth.packIds,
     });
   }
 

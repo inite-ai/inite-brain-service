@@ -95,6 +95,7 @@ export class ApiKeyGuard implements CanActivate {
       companyId: record.companyId,
       scopes: record.scopes,
       keyHash: record.keyHash,
+      ...(record.packIds ? { packIds: record.packIds } : {}),
       ...(policy ? { policy } : {}),
     };
     return true;

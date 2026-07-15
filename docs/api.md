@@ -114,7 +114,7 @@ a quiet stale field.
 | `brain:read_pii` | Lifts the PII gate — `dob` / `email` / `phone` / `address` facts return real values. |
 | `brain:admin` | All `/v1/admin/*` endpoints, dreams trigger, retraction / forget. |
 | `registry:publish` | Publish/yank in the global pack registry (catalogue shared across tenants). |
-| `indexer:write` | Stage candidates as an external indexer (`POST /v1/documents/:id/candidates`) — can propose hypotheses, never write facts directly. |
+| `indexer:write` | Stage candidates as an external indexer (`POST /v1/documents/:id/candidates`) — can propose hypotheses, never write facts directly. Optionally pack-bound: a key with `packIds` (static entry) or a `packs` JWT claim acts ONLY as those pack identities (403 outside the binding). |
 
 Keys are stored as `sha256:<hex>` — see [Getting started](getting-started.md#seed-an-apikey)
 for the seeding flow.

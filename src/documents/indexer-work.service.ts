@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -56,9 +57,15 @@ export class IndexerWorkService {
     companyId: string;
     packId?: string;
     limit?: number;
+    /** Per-pack binding of the calling key; absent = unrestricted. */
+    keyPackIds?: string[];
   }): Promise<IndexerWorkListResponse> {
-    const externalPacks = await this.externalPackIds(p.companyId);
+    const externalPacks = boundPacks(
+      await this.externalPackIds(p.companyId),
+      p.keyPackIds,
+    );
     if (p.packId !== undefined) {
+      assertKeyBoundToPack(p.keyPackIds, p.packId);
       this.assertExternalPack(externalPacks, p.packId);
     }
     const limit = clampLimit(p.limit);
@@ -93,8 +100,10 @@ export class IndexerWorkService {
   async claim(p: {
     companyId: string;
     runId: string;
+    keyPackIds?: string[];
   }): Promise<ClaimWorkResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
+    assertKeyBoundToPack(p.keyPackIds, run.packId);
     this.assertExternalPack(
       await this.externalPackIds(p.companyId),
       run.packId,
@@ -158,6 +167,7 @@ export class IndexerWorkService {
   async content(p: {
     companyId: string;
     runId: string;
+    keyPackIds?: string[];
   }): Promise<WorkContentResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     if (run.status !== 'pending' && run.status !== 'running') {
@@ -165,6 +175,7 @@ export class IndexerWorkService {
         `work item is ${run.status} — content is served for pending/claimed work only`,
       );
     }
+    assertKeyBoundToPack(p.keyPackIds, run.packId);
     this.assertExternalPack(
       await this.externalPackIds(p.companyId),
       run.packId,
@@ -272,6 +283,31 @@ export class IndexerWorkService {
         `indexer pack "${packId}" is not installed for this tenant`,
       );
     }
+  }
+}
+
+/** Intersect the tenant's external packs with a key's binding (0 = all). */
+function boundPacks(
+  externalPacks: Set<string>,
+  keyPackIds?: string[],
+): Set<string> {
+  if (!keyPackIds || keyPackIds.length === 0) return externalPacks;
+  return new Set([...externalPacks].filter((id) => keyPackIds.includes(id)));
+}
+
+/**
+ * A pack-bound key acting outside its binding is a permission error, not
+ * invisibility — the packs of one's own tenant are not a secret, and a
+ * clear 403 beats operators chasing phantom 404s.
+ */
+export function assertKeyBoundToPack(
+  keyPackIds: string[] | undefined,
+  packId: string,
+): void {
+  if (keyPackIds && keyPackIds.length > 0 && !keyPackIds.includes(packId)) {
+    throw new ForbiddenException(
+      `this key is not bound to indexer pack "${packId}"`,
+    );
   }
 }
 

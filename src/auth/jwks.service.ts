@@ -121,12 +121,14 @@ export class JwksService implements OnModuleInit {
     if (scopes.length === 0) return null;
 
     const policyNames = extractPolicyNames(payload);
+    const packIds = extractPackIds(payload);
 
     return {
       keyHash: `jwt:${payload.jti ?? payload.sub}`,
       companyId,
       scopes,
       ...(policyNames.length > 0 ? { policyNames } : {}),
+      ...(packIds.length > 0 ? { packIds } : {}),
     };
   }
 }
@@ -152,6 +154,26 @@ function extractPolicyNames(payload: JWTPayload): string[] {
     names = raw.split(' ').filter(Boolean);
   }
   return names.filter((n) => VALID_POLICY_NAME.test(n)).slice(0, MAX_POLICY_NAMES);
+}
+
+// Pack ids share the manifest's snake_case charset (validate.ts); an
+// out-of-charset claim entry is dropped, not carried into fencing.
+const VALID_PACK_ID = /^[a-z][a-z0-9_]{1,63}$/;
+const MAX_PACK_IDS = 16;
+
+/**
+ * `packs` claim → per-pack indexer binding (ApiKeyRecord.packIds).
+ * Array of strings or a single space-delimited string.
+ */
+function extractPackIds(payload: JWTPayload): string[] {
+  const raw = (payload as Record<string, unknown>).packs;
+  let ids: string[] = [];
+  if (Array.isArray(raw)) {
+    ids = raw.filter((n): n is string => typeof n === 'string');
+  } else if (typeof raw === 'string') {
+    ids = raw.split(' ').filter(Boolean);
+  }
+  return ids.filter((n) => VALID_PACK_ID.test(n)).slice(0, MAX_PACK_IDS);
 }
 
 function extractScopes(payload: JWTPayload): string[] {

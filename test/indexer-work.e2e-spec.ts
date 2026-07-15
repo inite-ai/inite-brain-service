@@ -28,6 +28,11 @@ describe('indexer work discovery (e2e)', () => {
         'brain:read_pii',
         'indexer:write',
       ],
+      // A pack-bound indexer key in the SAME tenant — the binding-fence
+      // suite uses it (fixture keys are static at boot).
+      extraKeys: [
+        { scopes: ['indexer:write'], packIds: ['some_other_pack'] },
+      ],
     });
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     // External work items are produced by the multi-indexer router.
@@ -314,6 +319,53 @@ describe('indexer work discovery (e2e)', () => {
       .set(auth())
       .send(submission({ runId: item.runId, claimToken: 'wrong' }));
     expect(wrongToken.status).toBe(409);
+  });
+
+  it('pack-bound keys are fenced to their packs (403 outside the binding)', async () => {
+    const { documentId } = await createDoc(`${DOC_TEXT} Binding variant.`);
+    const [item] = workFor(await pollWork(), documentId);
+    const boundAuth = { Authorization: `Bearer ${f.extraApiKeys[0]}` };
+
+    // Explicit packId outside the binding fences before any lookup.
+    const list = await f.http
+      .get('/v1/indexer/work?packId=code_memory')
+      .set(boundAuth);
+    expect(list.status).toBe(403);
+    expect(list.body.message).toMatch(/not bound to indexer pack/);
+
+    // Unfiltered poll intersects the binding to nothing — same tenant,
+    // real work items exist, none are offered to this key.
+    const all = await f.http.get('/v1/indexer/work').set(boundAuth);
+    expect(all.status).toBe(200);
+    expect(all.body.work).toHaveLength(0);
+
+    // Claim, content, and submission as a foreign pack identity: 403.
+    const claim = await f.http
+      .post(`/v1/indexer/work/${encodeURIComponent(item.runId)}/claim`)
+      .set(boundAuth)
+      .send({});
+    expect(claim.status).toBe(403);
+    const content = await f.http
+      .get(`/v1/indexer/work/${encodeURIComponent(item.runId)}/content`)
+      .set(boundAuth);
+    expect(content.status).toBe(403);
+    const submit = await f.http
+      .post(`/v1/documents/${encodeURIComponent(documentId)}/candidates`)
+      .set(boundAuth)
+      .send(submission());
+    expect(submit.status).toBe(403);
+
+    // The unbound key is unaffected (regression guard).
+    const okClaim = await f.http
+      .post(`/v1/indexer/work/${encodeURIComponent(item.runId)}/claim`)
+      .set(auth())
+      .send({});
+    expect(okClaim.status).toBe(201);
+    const release = await f.http
+      .post(`/v1/indexer/work/${encodeURIComponent(item.runId)}/fail`)
+      .set(auth())
+      .send({ claimToken: okClaim.body.claimToken });
+    expect(release.status).toBe(201);
   });
 
   it('plans no work for content-less documents unless ungrounded is allowed', async () => {
