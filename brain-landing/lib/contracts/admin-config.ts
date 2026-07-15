@@ -22,6 +22,7 @@ const ConfigCategorySchema = z.enum([
   'throttle',
   'jobs',
   'auth',
+  'registry',
   'misc',
 ])
 

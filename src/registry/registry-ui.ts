@@ -18,6 +18,16 @@ function esc(s: unknown): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Host part of a mirrored pack's origin URL — falls back to the raw value
+ *  when it isn't parseable (it still goes through esc()). */
+function originHost(origin: string): string {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
+}
+
 function card(p: RegistryPackSummary): string {
   const tags = p.keywords
     .map((k) => `<span class="tag">${esc(k)}</span>`)
@@ -37,10 +47,15 @@ function card(p: RegistryPackSummary): string {
   const published = p.publishedAt
     ? `<span class="date">published ${esc(String(p.publishedAt).slice(0, 10))}</span>`
     : '';
+  // Pull-only mirror provenance (migration 0064): the latest installable
+  // version was pulled from another instance's registry.
+  const mirrored = p.origin
+    ? `<span class="origin">mirrored from ${esc(originHost(String(p.origin)))}</span>`
+    : '';
   return `<article class="pack">
   <h2>${esc(p.packId)} <span class="ver">v${esc(p.latestVersion)}</span> ${badge}</h2>
   <p class="desc">${esc(p.description || '(no description)')}</p>
-  <div class="meta">${tags}${publisher}<span class="dl">${esc(p.downloads ?? 0)} download(s)</span>${published}<span class="vc">${p.versionCount} version(s)</span></div>
+  <div class="meta">${tags}${publisher}${mirrored}<span class="dl">${esc(p.downloads ?? 0)} download(s)</span>${published}<span class="vc">${p.versionCount} version(s)</span></div>
   <code class="install">pnpm pack:install -- --registry ${esc(p.packId)}</code>
 </article>`;
 }
@@ -68,6 +83,7 @@ h1{font-size:1.6rem;margin:0 0 .25rem}
 .desc{margin:.25rem 0 .5rem}
 .meta{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;font-size:.8rem;color:#888;margin-bottom:.5rem}
 .tag{background:#8882;border-radius:4px;padding:.1rem .45rem}
+.origin{font-style:italic}
 .install{display:block;background:#8881;padding:.5rem .6rem;border-radius:6px;font-size:.8rem;overflow-x:auto}
 #q{width:100%;padding:.6rem .75rem;border:1px solid #8884;border-radius:8px;margin-bottom:1.25rem;font-size:1rem;box-sizing:border-box}
 .empty{color:#888}

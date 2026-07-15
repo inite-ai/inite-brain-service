@@ -41,6 +41,8 @@ interface RegistryRow {
   yankReason?: string | null;
   publishedAt: string;
   downloads?: number;
+  /** Upstream base URL the row was mirrored from; NONE = local publish. */
+  origin?: string | null;
 }
 
 /**
@@ -84,6 +86,10 @@ export class PackRegistryService {
     publishedBy?: string;
     keywords?: string[];
     expectedChecksum?: string;
+    /** Set by the pull-only mirror (RegistryMirrorService): the upstream
+     *  base URL the version was pulled from. Never set on operator
+     *  publishes — the field is what fences mirrored yanks off local rows. */
+    origin?: string;
   }): Promise<PublishPackResponse> {
     const { manifest } = input;
     if (!manifest || typeof manifest !== 'object') {
@@ -170,6 +176,7 @@ export class PackRegistryService {
         };
         if (manifest.publisher) content.publisher = manifest.publisher;
         if (input.publishedBy) content.publishedBy = input.publishedBy;
+        if (input.origin) content.origin = input.origin;
         await db.query(`CREATE registry_pack CONTENT $content`, { content });
         this.logger.log(
           `Published pack ${manifest.id} v${manifest.version} (checksum ${checksum.slice(0, 12)}…)`,
@@ -222,6 +229,7 @@ export class PackRegistryService {
         downloads: versions.reduce((n, v) => n + Number(v.downloads ?? 0), 0),
         publishedAt: new Date(row.publishedAt).toISOString(),
         versionCount: versions.length,
+        ...(row.origin ? { origin: row.origin } : {}),
       });
     }
     const q = filter.q?.trim().toLowerCase();
@@ -386,7 +394,7 @@ export class PackRegistryService {
   private projection(includeManifest: boolean): string {
     return `packId, version,${includeManifest ? ' manifest,' : ''} checksum,
             description, keywords, publisher, signed, verified, yanked,
-            yankReason, publishedAt, downloads`;
+            yankReason, publishedAt, downloads, origin`;
   }
 
   /** One pack's rows, packId-index scoped (no full-table scan). */
@@ -429,6 +437,7 @@ export class PackRegistryService {
       yankReason: r.yankReason ?? null,
       publishedAt: new Date(r.publishedAt).toISOString(),
       downloads: Number(r.downloads ?? 0),
+      ...(r.origin ? { origin: r.origin } : {}),
     };
   }
 

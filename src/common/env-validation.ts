@@ -103,6 +103,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Pack supply-chain knobs ───────────────────────────────────────
   validatePackTrustEnv(env, errors);
 
+  // ── Registry mirroring (pull-only) ────────────────────────────────
+  validateRegistryMirrorEnv(env, errors);
+
   // ── fact_trust ranking knobs (source-reputation Phase 5) ──────────
   nonNegativeFloat(env, 'SEARCH_TRUST_BETA', errors);
   nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
@@ -397,6 +400,35 @@ function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
       );
     }
   }
+}
+
+/**
+ * Pull-only registry mirroring (RegistryMirrorService). A malformed
+ * REGISTRY_UPSTREAM_URL would make every sync run fail at fetch time —
+ * catch it at boot instead. REGISTRY_UPSTREAM_TOKEN is a free-form bearer
+ * (nothing to validate); the interval shares the positiveInt idiom.
+ */
+function validateRegistryMirrorEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  const url = env.REGISTRY_UPSTREAM_URL;
+  if (url !== undefined && url.trim() !== '') {
+    let valid = false;
+    try {
+      const parsed = new URL(url.trim());
+      valid = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      errors.push(
+        'REGISTRY_UPSTREAM_URL must be a valid http(s) URL — the pull-only ' +
+          'registry mirror fetches the upstream catalogue from it.',
+      );
+    }
+  }
+  positiveInt(env, 'REGISTRY_MIRROR_INTERVAL_HOURS', errors);
 }
 
 function required({

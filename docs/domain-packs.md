@@ -259,6 +259,26 @@ pnpm pack:install  -- --brain-url $URL --registry real_estate[@0.2.0]  # brain:a
 pnpm registry:seed -- --brain-url $URL                   # publish all packs/*.json
 ```
 
+### Mirroring (pull-only)
+
+A deployment can mirror another instance's registry: set
+`REGISTRY_UPSTREAM_URL` (+ optional `REGISTRY_UPSTREAM_TOKEN`, a `brain:read`
+key on the upstream) and a background job pulls the upstream catalogue every
+`REGISTRY_MIRROR_INTERVAL_HOURS` (default 24; one run at 00:26 UTC) and
+republishes missing versions locally through the normal publish path — so
+validation, builtin-id squatting protection, version immutability and the
+local trust store's `verified` recomputation all apply. Mirrored rows carry
+an `origin` marker (the upstream base URL, migration 0064; surfaced in the
+API and as *mirrored from `<host>`* in `/registry/ui`).
+
+Rules: **pull-only** (local publishes never push upstream); **local rows
+always win** (an id/version that exists locally is skipped); **yanks mirror
+one-way** — an upstream yank is applied only to rows whose `origin` matches
+that upstream, never to local publishes; every pulled manifest's checksum is
+recomputed locally and a mismatch is rejected. Work is bounded (200 versions
+per run, 10s per request; per-pack failures don't abort the run). Unset
+`REGISTRY_UPSTREAM_URL` (the default) = feature off, no job registered.
+
 ## Eval fixtures (consumed)
 
 A pack may ship `evalFixtures` — small extraction test cases for its domain,

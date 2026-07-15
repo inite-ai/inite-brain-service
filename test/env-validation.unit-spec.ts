@@ -109,6 +109,40 @@ describe('validateEnv — pack supply-chain knobs', () => {
   });
 });
 
+describe('validateEnv — registry mirroring (pull-only)', () => {
+  it('accepts a valid http(s) REGISTRY_UPSTREAM_URL and a positive interval', () => {
+    for (const url of ['https://brain.example.com', 'http://10.0.0.2:3000/']) {
+      const env = baseProdEnv();
+      env.REGISTRY_UPSTREAM_URL = url;
+      env.REGISTRY_MIRROR_INTERVAL_HOURS = '6';
+      expect(() => validateEnv(env)).not.toThrow();
+    }
+  });
+
+  it('accepts the feature-off default (unset / blank URL)', () => {
+    const env = baseProdEnv();
+    expect(() => validateEnv(env)).not.toThrow();
+    env.REGISTRY_UPSTREAM_URL = '  ';
+    expect(() => validateEnv(env)).not.toThrow();
+  });
+
+  it('rejects a non-URL and a non-http(s) scheme', () => {
+    for (const bad of ['not a url', 'ftp://brain.example.com', 'brain.example.com']) {
+      const env = baseProdEnv();
+      env.REGISTRY_UPSTREAM_URL = bad;
+      expect(() => validateEnv(env)).toThrow(/REGISTRY_UPSTREAM_URL/);
+    }
+  });
+
+  it('rejects a non-positive-integer interval', () => {
+    for (const bad of ['0', '-1', 'daily', '1.5']) {
+      const env = baseProdEnv();
+      env.REGISTRY_MIRROR_INTERVAL_HOURS = bad;
+      expect(() => validateEnv(env)).toThrow(/REGISTRY_MIRROR_INTERVAL_HOURS/);
+    }
+  });
+});
+
 describe('validateEnv — ABAC boolean flags', () => {
   it('accepts 1/0/true/false for ABAC_DB_FENCE_ENABLED', () => {
     for (const v of ['1', '0', 'true', 'false']) {
