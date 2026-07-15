@@ -414,6 +414,24 @@ export class ConfigInspectorService {
         isBooleanFlag: true,
       },
       {
+        key: 'SEARCH_TOKEN_COUNT_OFFLOAD',
+        category: 'search',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Batch tokenBudget tiktoken counting out to the job worker pool (25ms acquire timeout; any failure falls back to the in-thread count).',
+      },
+      {
+        key: 'SEARCH_TOKEN_OFFLOAD_MIN_HITS',
+        category: 'search',
+        defaultValue: '24',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Hit-count threshold below which tokenBudget counting stays in-thread — the postMessage round-trip only pays off on large lists.',
+      },
+      {
         key: 'MULTI_HOP_EDGE_EXPANSION_ENABLED',
         category: 'multihop',
         defaultValue: '1',

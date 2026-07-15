@@ -40,8 +40,8 @@ function mkHit(i: number, pad = 40): SearchHit {
 describe('applyOutputShaping tokenBudget (one-pass)', () => {
   const hits = Array.from({ length: 40 }, (_, i) => mkHit(i));
 
-  it('keeps the result under the budget', () => {
-    const out = applyOutputShaping(hits, {
+  it('keeps the result under the budget', async () => {
+    const out = await applyOutputShaping(hits, {
       query: 'q',
       tokenBudget: 500,
     } as SearchDto);
@@ -50,8 +50,8 @@ describe('applyOutputShaping tokenBudget (one-pass)', () => {
     expect(countJsonTokens({ results: out })).toBeLessThanOrEqual(500);
   });
 
-  it('keeps a prefix (never reorders or samples)', () => {
-    const out = applyOutputShaping(hits, {
+  it('keeps a prefix (never reorders or samples)', async () => {
+    const out = await applyOutputShaping(hits, {
       query: 'q',
       tokenBudget: 800,
     } as SearchDto);
@@ -60,16 +60,16 @@ describe('applyOutputShaping tokenBudget (one-pass)', () => {
     });
   });
 
-  it('returns everything when the budget is ample', () => {
-    const out = applyOutputShaping(hits.slice(0, 3), {
+  it('returns everything when the budget is ample', async () => {
+    const out = await applyOutputShaping(hits.slice(0, 3), {
       query: 'q',
       tokenBudget: 100_000,
     } as SearchDto);
     expect(out).toHaveLength(3);
   });
 
-  it('returns nothing when even one hit cannot fit', () => {
-    const out = applyOutputShaping(hits, {
+  it('returns nothing when even one hit cannot fit', async () => {
+    const out = await applyOutputShaping(hits, {
       query: 'q',
       tokenBudget: 3,
     } as SearchDto);

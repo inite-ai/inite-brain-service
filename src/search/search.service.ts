@@ -44,6 +44,7 @@ import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
 import { PipelineContext } from './pipeline-context';
 import { envFlagEnabled } from '../common/env-validation';
+import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -70,12 +71,16 @@ export class SearchService {
 
   // Fourth dep is the tenant predicate registry — the row fence must see
   // operator-authored requiresScope predicates, not only the code seed.
+  // Fifth is the shared job worker pool: tokenBudget shaping batches its
+  // tiktoken counting there (short acquire timeout, sync fallback), so
+  // both stay optional for positionally-constructed unit tests.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly retrieval: SearchRetrievalService,
     private readonly rerank: SearchRerankService,
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
+    @Optional() private readonly workerPool?: JobWorkerPool,
   ) {}
 
   /**
@@ -477,7 +482,9 @@ export class SearchService {
       requireProvenance: ctx.dto.requireProvenance === true,
     });
     rowPolicy.finish();
-    return { results: applyOutputShaping(hits, ctx.dto) };
+    return {
+      results: await applyOutputShaping(hits, ctx.dto, this.workerPool),
+    };
   }
 
   private async runEdgeExpansionStage({
