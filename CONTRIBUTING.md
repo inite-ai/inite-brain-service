@@ -166,6 +166,43 @@ expected — we keep the trail honest.
 - **Type-narrowing PRs.** If you find an `as any` or a `Record<string,
   unknown>` that shouldn't be there, tightening it is welcome.
 
+## Building a Domain Pack
+
+Domain Packs extend brain's ontology without forking core — the standard
+lives in [docs/domain-packs.md](docs/domain-packs.md).
+
+**Community packs need NO PR to this repo.** A pack is a JSON manifest you
+author, validate, optionally sign, and publish to a registry instance —
+then any tenant installs it at runtime. The full loop is one command
+sequence: see the
+[Quickstart in docs/domain-packs.md](docs/domain-packs.md#quickstart-author--validate--sign--publish--install)
+(`pnpm pack:init my_pack` scaffolds a valid starter manifest; edit →
+`pack:validate` → `pack:sign` → `pack:publish` → `pack:install` → eval).
+
+**First-party packs** (shipped in-repo, like the six industry packs:
+`real_estate`, `fintech`, `medical`, `legal`, `insurance`, `hr`) DO go
+through a PR, and the recipe is fixed:
+
+1. **TS source of truth** — `src/ai/domain-packs/<id>.pack.ts` exporting a
+   `DomainPackManifest` const (see `fintech.pack.ts` for the shape). A
+   first-party pack is a complete ontology, not a stub: ≥ 4 namespaced
+   predicates with TYPE/ADMIT/VALUE description cards, an
+   `extractionProfile` (guidance + few-shot), and `evalFixtures` with fact
+   expectations.
+2. **Registration** — add the export to `FIRST_PARTY_PACKS` in
+   `src/ai/domain-packs/index.ts` (NOT `BUILTIN_PACKS` — builtins seed
+   every tenant globally; distributable packs are installed per-tenant).
+3. **Committed JSON artifact** — `packs/<id-with-dashes>.pack.json`
+   (underscores in the id become dashes in the filename, e.g.
+   `real_estate` → `real-estate.pack.json`). Serialize the TS manifest
+   with 2-space indent + trailing newline; it must deep-equal the TS
+   source.
+4. **Tests** — `test/industry-packs.unit-spec.ts` covers every entry in
+   `FIRST_PARTY_PACKS` automatically (validity, profile, fixtures,
+   not-a-builtin, JSON/TS drift guard), but its `first-party pack
+   library` block hardcodes the expected sorted id list — add your id
+   there. Run `pnpm test -- industry-packs`.
+
 ## Releasing
 
 Brain auto-deploys on push to `main` via `.github/workflows/deploy-brain.yml`
