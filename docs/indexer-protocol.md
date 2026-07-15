@@ -234,6 +234,34 @@ rediscovers it. Add `"permanent": true` for "this indexer cannot process
 this document" — the slot is marked `failed`, no longer offered, but a
 direct `claim` by `runId` can deliberately retry it later.
 
+## Push notifications (optional)
+
+Polling is the source of truth, but a pack that declares
+`indexer.external.callbackUrl` also gets a **push hint**: when ingest
+routes a document to your pack, Brain POSTs to your URL:
+
+```json
+{
+  "event": "work_available",
+  "documentId": "source_document:mwuo8lorehim47g4hnu0j",
+  "packId": "my_pack",
+  "packVersion": "0.1.0",
+  "ts": "2026-07-15T09:12:44.000Z"
+}
+```
+
+Headers: `X-Brain-Event: work_available` and
+`X-Brain-Signature: sha256=<hex>` — an HMAC-SHA256 over the raw request
+body, keyed by the **webhook secret returned once in the pack-install
+response** (`webhookSecret`; upgrades keep the same secret). Verify the
+signature before trusting the event; on receipt, just run your normal
+poll loop (`GET /v1/indexer/work?packId=my_pack`).
+
+Delivery is best-effort: ~3 attempts with backoff, 5s timeout, and a
+5-minute circuit breaker after a failed cycle — never assume every work
+item produces a webhook. Respond `2xx` quickly (do the work async);
+`4xx` tells Brain to stop retrying that event.
+
 ## Grounding rules (why `dropped[]` happens)
 
 Brain never trusts an external span. Every entity `name` and every fact
