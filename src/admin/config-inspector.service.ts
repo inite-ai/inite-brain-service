@@ -337,8 +337,11 @@ export class ConfigInspectorService {
       {
         key: 'CHAT_ROUTE_NLI_ENABLED',
         category: 'router',
-        defaultValue: '0',
-        runtimeMutable: true,
+        // Code default is ON (`get('CHAT_ROUTE_NLI_ENABLED', 'true') !==
+        // 'false'` in IntentClassifierService) and captured in the
+        // constructor — the previous '0'/runtime-mutable entry was drift.
+        defaultValue: '1',
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -347,6 +350,24 @@ export class ConfigInspectorService {
         defaultValue: '0.6',
         runtimeMutable: false,
         isBooleanFlag: false,
+      },
+      {
+        key: 'CHAT_ROUTE_NLI_WORKER',
+        category: 'router',
+        defaultValue: '1',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Run NLI intent inference in a dedicated worker_thread so the ~100-200ms ONNX pass never blocks the event loop. 0 = in-thread (benchmarks/constrained envs).',
+      },
+      {
+        key: 'CHAT_ROUTE_NLI_TIMEOUT_MS',
+        category: 'router',
+        defaultValue: '3000',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Per-call deadline for the NLI worker RPC. On timeout the router keeps the punctuation fallback and the classifier latches off for 5 minutes.',
       },
       // ── Search ────────────────────────────────────────────
       {
