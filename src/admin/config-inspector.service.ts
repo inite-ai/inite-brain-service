@@ -797,6 +797,15 @@ export class ConfigInspectorService {
         isBooleanFlag: true,
         description: 'Build + persist entity-community summaries during dreams.',
       },
+      {
+        key: 'COMMUNITIES_LP_OFFLOAD_MIN_EDGES',
+        category: 'dreams',
+        defaultValue: '2000',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Edge count from which community label propagation runs on the job worker pool instead of the main thread (needs JOB_WORKER_POOL_SIZE > 0; pool failures fall back in-thread). 0 = never offload.',
+      },
       // ── Compaction: promotion ────────────────────────────────
       {
         key: 'COMPACTION_PROMOTION_ENABLED',

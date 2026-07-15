@@ -121,6 +121,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
+  // ── Communities (dreams sub-op) ────────────────────────────────────
+  // 0 is meaningful (= never offload label propagation to the worker
+  // pool), so this one is non-negative rather than positive.
+  nonNegativeInt(env, 'COMMUNITIES_LP_OFFLOAD_MIN_EDGES', errors);
+
   // ── Edge expansion (default-ON retrieval stage) ────────────────────
   // Bad values silently fell back to defaults; the numeric knobs are now
   // boot-validated like the rest of the search stack.
@@ -423,6 +428,7 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): vo
   }
 }
 
+/** Like positiveInt, but 0 is a valid (usually "feature off") value. */
 function nonNegativeInt(
   env: NodeJS.ProcessEnv,
   name: string,
