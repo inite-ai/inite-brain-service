@@ -88,6 +88,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'OPENAI_CONCURRENCY', errors);
   positiveInt(env, 'EMBEDDING_CACHE_SIZE', errors);
 
+  // ── Local NER worker (extractor pre-pass) ─────────────────────────
+  positiveInt(env, 'EXTRACTOR_LOCAL_NER_TIMEOUT_MS', errors);
+
   // ── Throttling ────────────────────────────────────────────────────
   positiveInt(env, 'THROTTLE_TTL_MS', errors);
   positiveInt(env, 'THROTTLE_LIMIT', errors);
@@ -296,6 +299,7 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_HYPE_ENABLED',
   'MULTI_HOP_EDGE_EXPANSION_ENABLED',
   'EXTRACTOR_SKIP_LLM_ENABLED',
+  'EXTRACTOR_LOCAL_NER_WORKER',
   'CALIBRATION_NIGHTLY_REFIT',
   'DREAMS_ENABLED',
   'DREAMS_RUN_SUMMARIZE',
