@@ -1,0 +1,2656 @@
+{
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "Validation failed."
+      },
+      "Conflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "State conflict — e.g. a lost/mismatched claim token, an already claimed work item, or an immutable-version republish."
+      },
+      "FeatureDisabled": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/FeatureDisabledResponse"
+            }
+          }
+        },
+        "description": "The document pipeline is dark (DOCUMENT_INGEST_ENABLED off)."
+      },
+      "Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The key lacks the required scope."
+      },
+      "NotFound": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "No such resource in this tenant."
+      },
+      "TooManyRequests": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "Per-credential throttle exceeded."
+      },
+      "Unauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "Missing or unknown bearer key."
+      }
+    },
+    "schemas": {
+      "AvailablePack": {
+        "additionalProperties": false,
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "predicateCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "description",
+          "predicateCount",
+          "builtin"
+        ],
+        "type": "object"
+      },
+      "Candidate": {
+        "additionalProperties": false,
+        "properties": {
+          "chunkSeq": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "commitRef": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "entity",
+              "fact",
+              "relation"
+            ],
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {},
+            "description": "Extraction payload. `object`/`clause` of scope-gated fact candidates are redacted for callers without the required predicate scope.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "statusReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runId",
+          "chunkSeq",
+          "kind",
+          "confidence",
+          "status",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "ClaimWorkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claimToken": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "leaseSeconds": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "packVersion": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "documentId",
+          "packId",
+          "packVersion",
+          "claimToken",
+          "leaseSeconds"
+        ],
+        "type": "object"
+      },
+      "CommitCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "committed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "merged": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending",
+          "committed",
+          "merged",
+          "rejected"
+        ],
+        "type": "object"
+      },
+      "DocumentCandidatesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "type": "array"
+          },
+          "documentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "documentId",
+          "candidates"
+        ],
+        "type": "object"
+      },
+      "DocumentChunk": {
+        "additionalProperties": false,
+        "properties": {
+          "charEnd": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "charStart": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "text",
+          "charStart",
+          "charEnd"
+        ],
+        "type": "object"
+      },
+      "DocumentContextRef": {
+        "additionalProperties": false,
+        "properties": {
+          "recorder": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "vertical"
+        ],
+        "type": "object"
+      },
+      "DocumentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "charLen": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunkCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentChunk"
+            },
+            "type": "array"
+          },
+          "contentHash": {
+            "type": "string"
+          },
+          "hasContent": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "meta": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "recorder": {
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "packId": {
+                  "type": "string"
+                },
+                "packVersion": {
+                  "type": "string"
+                },
+                "runId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId",
+                "packId",
+                "packVersion",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "contentHash",
+          "charLen",
+          "chunkCount",
+          "hasContent",
+          "vertical",
+          "occurredAt",
+          "status",
+          "runs"
+        ],
+        "type": "object"
+      },
+      "DomainPackManifest": {
+        "additionalProperties": {},
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "evalFixtures": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "extractionProfile": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "id": {
+            "description": "snake_case pack id, no `__`.",
+            "type": "string"
+          },
+          "indexer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "predicates": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "signature": {
+            "description": "ed25519 signature (base64) over the canonical manifest sans this field.",
+            "type": "string"
+          },
+          "version": {
+            "description": "semver MAJOR.MINOR.PATCH.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "description",
+          "predicates"
+        ],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "Standard NestJS error envelope.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "statusCode": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message"
+        ],
+        "type": "object"
+      },
+      "FailWorkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "claimToken": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "error": {
+            "description": "Optional diagnostic recorded on the run row (truncated server-side).",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "permanent": {
+            "description": "Default (false/absent) RELEASES the item back to 'pending'; true marks the run 'failed' — no longer offered, still claimable by runId.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "claimToken"
+        ],
+        "type": "object"
+      },
+      "FailWorkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "released",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "status"
+        ],
+        "type": "object"
+      },
+      "FeatureDisabledResponse": {
+        "description": "Answered by every document-pipeline route while DOCUMENT_INGEST_ENABLED is off.",
+        "properties": {
+          "error": {
+            "const": "feature_disabled",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "type": "object"
+      },
+      "GroundingDrop": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "index": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "entity",
+              "fact",
+              "relation"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "ungrounded_entity",
+              "ungrounded_value",
+              "orphan_reference"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "index",
+          "reason",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "HeartbeatWorkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "claimToken": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "claimToken"
+        ],
+        "type": "object"
+      },
+      "HeartbeatWorkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "leaseSeconds": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "leaseSeconds"
+        ],
+        "type": "object"
+      },
+      "IndexerWorkItem": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "docHasContent": {
+            "type": "boolean"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "packVersion": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "documentId",
+          "packId",
+          "packVersion",
+          "createdAt",
+          "docHasContent"
+        ],
+        "type": "object"
+      },
+      "IndexerWorkListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "work": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerWorkItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "work"
+        ],
+        "type": "object"
+      },
+      "IngestDocumentAsyncResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "chunkCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deduplicated": {
+            "type": "boolean"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "mode": {
+            "const": "async",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "packId": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "enqueued",
+                    "already_processed",
+                    "planned"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "packId",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "documentId",
+          "deduplicated",
+          "chunkCount",
+          "mode",
+          "runs"
+        ],
+        "type": "object"
+      },
+      "IngestDocumentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contextRef": {
+            "$ref": "#/components/schemas/DocumentContextRef"
+          },
+          "indexers": {
+            "anyOf": [
+              {
+                "const": "general",
+                "type": "string"
+              },
+              {
+                "const": "auto",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "'general' (union pass), 'auto' (router-selected), or explicit pack ids."
+          },
+          "kind": {
+            "description": "Container kind the connector normalized from (pdf/markdown/email/…). Open string — provenance metadata only.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "meta": {
+            "additionalProperties": {},
+            "description": "Operator-supplied metadata, projected onto derived facts' source.meta.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "mode": {
+            "description": "'async' requires DOCUMENT_MULTI_INDEXER_ENABLED and storeContent.",
+            "enum": [
+              "sync",
+              "async"
+            ],
+            "type": "string"
+          },
+          "occurredAt": {
+            "description": "ISO 8601 — becomes the derived facts' validFrom.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "originUri": {
+            "description": "Pointer back to the raw container (URL, path, message id…).",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "storeContent": {
+            "description": "Store the normalized chunks server-side. false keeps only contentHash + metadata (no re-index, no span re-validation).",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "Normalized document text (DOC_MAX_CHARS may lower the cap).",
+            "maxLength": 512000,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 512,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "occurredAt",
+          "contextRef"
+        ],
+        "type": "object"
+      },
+      "IngestDocumentSyncResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "chunkCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "committed": {
+            "additionalProperties": false,
+            "properties": {
+              "edgeIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "entityIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "factIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "entityIds",
+              "factIds",
+              "edgeIds"
+            ],
+            "type": "object"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/CommitCounts"
+          },
+          "deduplicated": {
+            "type": "boolean"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "mode": {
+            "const": "sync",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "packId": {
+                  "type": "string"
+                },
+                "runId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId",
+                "packId",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "documentId",
+          "deduplicated",
+          "chunkCount",
+          "mode",
+          "runs",
+          "committed",
+          "counts"
+        ],
+        "type": "object"
+      },
+      "InstallFromRegistryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId"
+        ],
+        "type": "object"
+      },
+      "InstallPackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedChecksum": {
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/DomainPackManifest"
+          }
+        },
+        "required": [
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "InstallPackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "predicatesSeeded": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "predicatesSeeded",
+          "checksum"
+        ],
+        "type": "object"
+      },
+      "InstalledPack": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installedAt": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "predicateCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "installedAt",
+          "predicateCount",
+          "checksum"
+        ],
+        "type": "object"
+      },
+      "PackEvalFixtureResult": {
+        "additionalProperties": false,
+        "properties": {
+          "failures": {
+            "description": "Human-readable reasons the fixture failed (empty when passed).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "passed",
+          "failures"
+        ],
+        "type": "object"
+      },
+      "PackEvalReport": {
+        "additionalProperties": false,
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "passed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/PackEvalFixtureResult"
+            },
+            "type": "array"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "total",
+          "passed",
+          "results"
+        ],
+        "type": "object"
+      },
+      "PacksListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/AvailablePack"
+            },
+            "type": "array"
+          },
+          "installed": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledPack"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "installed"
+        ],
+        "type": "object"
+      },
+      "PublishPackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedChecksum": {
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/DomainPackManifest"
+          }
+        },
+        "required": [
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "PublishPackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "checksum",
+          "created"
+        ],
+        "type": "object"
+      },
+      "RegistryListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryPackSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packs"
+        ],
+        "type": "object"
+      },
+      "RegistryManifestResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "yanked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "checksum",
+          "yanked",
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "RegistryPackSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "latestVersion": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signed": {
+            "type": "boolean"
+          },
+          "versionCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "packId",
+          "latestVersion",
+          "description",
+          "keywords",
+          "publisher",
+          "signed",
+          "versionCount"
+        ],
+        "type": "object"
+      },
+      "RegistryVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "yankReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "yanked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "checksum",
+          "description",
+          "keywords",
+          "publisher",
+          "signed",
+          "yanked",
+          "yankReason",
+          "publishedAt"
+        ],
+        "type": "object"
+      },
+      "RegistryVersionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "latestVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packId": {
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryVersion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packId",
+          "latestVersion",
+          "versions"
+        ],
+        "type": "object"
+      },
+      "SubmitCandidatesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "claimToken": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/SubmittedEntity"
+            },
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/SubmittedFact"
+            },
+            "type": "array"
+          },
+          "indexerId": {
+            "description": "The pack id this indexer is registered as (mode 'external').",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "packVersion": {
+            "description": "Optional claim of the pack version; must match the installed one.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/SubmittedRelation"
+            },
+            "type": "array"
+          },
+          "runId": {
+            "description": "A claimed work item this submission fulfils. Provided together with claimToken or not at all (claimless flow opens its own run).",
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "indexerId",
+          "entities",
+          "facts"
+        ],
+        "type": "object"
+      },
+      "SubmitCandidatesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "committed": {
+                    "type": "boolean"
+                  },
+                  "counts": {
+                    "$ref": "#/components/schemas/CommitCounts"
+                  },
+                  "deferred": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "deferred",
+                  "committed",
+                  "counts"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null when the document vanished between staging and commit."
+          },
+          "dropped": {
+            "items": {
+              "$ref": "#/components/schemas/GroundingDrop"
+            },
+            "type": "array"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "packVersion": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "staged": {
+            "additionalProperties": false,
+            "properties": {
+              "entities": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "facts": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "relations": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "entities",
+              "facts",
+              "relations"
+            ],
+            "type": "object"
+          },
+          "ungrounded": {
+            "description": "true when the document has no stored content — spans unverifiable.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "runId",
+          "packId",
+          "packVersion",
+          "staged",
+          "dropped",
+          "ungrounded",
+          "commit"
+        ],
+        "type": "object"
+      },
+      "SubmittedEntity": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "SubmittedFact": {
+        "additionalProperties": false,
+        "properties": {
+          "clause": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "entityIndex": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "object": {
+            "type": "string"
+          },
+          "predicate": {
+            "description": "Must be namespaced `<indexerId>__*` or a core predicate.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityIndex",
+          "predicate",
+          "object"
+        ],
+        "type": "object"
+      },
+      "SubmittedRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "fromEntityIndex": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "toEntityIndex": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fromEntityIndex",
+          "toEntityIndex",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "UninstallPackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "predicatesDeprecated": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "packId",
+          "predicatesDeprecated"
+        ],
+        "type": "object"
+      },
+      "WorkContentChunk": {
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "text"
+        ],
+        "type": "object"
+      },
+      "WorkContentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "chunkCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/WorkContentChunk"
+            },
+            "type": "array"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "documentId",
+          "kind",
+          "vertical",
+          "occurredAt",
+          "chunkCount",
+          "chunks"
+        ],
+        "type": "object"
+      },
+      "YankPackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "YankPackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "yanked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "yanked"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `registry:publish`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Generated from the zod wire contracts (`pnpm openapi:build` — scripts/build-openapi.ts); do not edit by hand. The admin/ops surface (jobs, leases, policy, stats, maintenance) is documented in docs/api.md instead. Scopes are plain bearer-key grants, not OAuth flows — each operation states its required scope.",
+    "license": {
+      "identifier": "AGPL-3.0-or-later",
+      "name": "AGPL-3.0-or-later"
+    },
+    "summary": "The community-facing platform surface: Domain Pack registry, tenant pack admin, document ingest, and the external-indexer work protocol.",
+    "title": "INITE Brain — Platform API",
+    "version": "0.6.2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/admin/packs": {
+      "get": {
+        "description": "Builtin packs are globally available and cannot be installed or uninstalled here. Source: src/admin/admin-packs.controller.ts.\n\nRequired scope: `brain:admin`.",
+        "operationId": "listDomainPacks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PacksListResponse"
+                }
+              }
+            },
+            "description": "Available and installed packs."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List available + installed packs for this tenant",
+        "tags": [
+          "Domain Packs"
+        ]
+      },
+      "post": {
+        "description": "Validates and installs a community / custom manifest, seeding its predicates. `expectedChecksum` pins the exact content.\n\nRequired scope: `brain:admin`.",
+        "operationId": "installDomainPack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallPackResponse"
+                }
+              }
+            },
+            "description": "Installed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Install a pack manifest into this tenant",
+        "tags": [
+          "Domain Packs"
+        ]
+      }
+    },
+    "/v1/admin/packs/from-registry": {
+      "post": {
+        "description": "Resolves the manifest (latest non-yanked, or a pinned version) and installs it with the registry checksum pinned — the installed content is exactly what the registry served.\n\nRequired scope: `brain:admin`.",
+        "operationId": "installDomainPackFromRegistry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallFromRegistryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallPackResponse"
+                }
+              }
+            },
+            "description": "Installed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Install a pack from the global registry",
+        "tags": [
+          "Domain Packs"
+        ]
+      }
+    },
+    "/v1/admin/packs/{packId}": {
+      "delete": {
+        "description": "Deprecates the pack's predicates; facts extracted with them survive.\n\nRequired scope: `brain:admin`.",
+        "operationId": "uninstallDomainPack",
+        "parameters": [
+          {
+            "description": "The installed pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UninstallPackResponse"
+                }
+              }
+            },
+            "description": "Uninstalled."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Uninstall a pack from this tenant",
+        "tags": [
+          "Domain Packs"
+        ]
+      }
+    },
+    "/v1/admin/packs/{packId}/eval": {
+      "post": {
+        "description": "Scores whether extraction (with the pack's predicates + extractionProfile active) still meets the pack’s own expectations. Runs up to MAX_EVAL_FIXTURES live LLM calls — throttled to 3 requests/min per credential.\n\nRequired scope: `brain:admin`.",
+        "operationId": "evalDomainPack",
+        "parameters": [
+          {
+            "description": "The installed pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "'union' (default) scores the shared union prompt; 'dedicated' runs the pack-scoped dedicated prompt instead.",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "enum": [
+                "union",
+                "dedicated"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackEvalReport"
+                }
+              }
+            },
+            "description": "The eval report."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "summary": "Run a pack's eval fixtures against the live extractor",
+        "tags": [
+          "Domain Packs"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs": {
+      "post": {
+        "description": "Versions are immutable once published. Republishing an identical (packId, version, checksum) is idempotent (`created: false`); a different body for an existing version is rejected. Source: src/registry/admin-registry.controller.ts.\n\nRequired scope: `registry:publish`.",
+        "operationId": "publishRegistryPack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishPackResponse"
+                }
+              }
+            },
+            "description": "Published (or already present)."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "summary": "Publish a pack version to the global registry",
+        "tags": [
+          "Registry publishing"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs/{packId}/{version}/unyank": {
+      "post": {
+        "description": "Reverses a yank — the version becomes installable again.\n\nRequired scope: `registry:publish`.",
+        "operationId": "unyankRegistryPack",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The yanked version to restore.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YankPackResponse"
+                }
+              }
+            },
+            "description": "Yank state after the call."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Restore a yanked version",
+        "tags": [
+          "Registry publishing"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs/{packId}/{version}/yank": {
+      "post": {
+        "description": "Marks a version as not-installable (existing installs keep working). The version stays visible in the history, flagged.\n\nRequired scope: `registry:publish`.",
+        "operationId": "yankRegistryPack",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The published version to yank.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YankPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YankPackResponse"
+                }
+              }
+            },
+            "description": "Yank state after the call."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Yank a published version",
+        "tags": [
+          "Registry publishing"
+        ]
+      }
+    },
+    "/v1/documents/{id}": {
+      "get": {
+        "description": "Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/documents.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getDocument",
+        "parameters": [
+          {
+            "description": "The document id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pass `1` to include the stored chunks. The raw text can carry any PII, so this additionally requires the `brain:read_pii` scope (403 otherwise).",
+            "in": "query",
+            "name": "includeText",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "The document."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Read a document header and its indexer runs",
+        "tags": [
+          "Documents"
+        ]
+      }
+    },
+    "/v1/documents/{id}/candidates": {
+      "get": {
+        "description": "Every extraction candidate staged against the document, over all runs. `object`/`clause` of fact candidates whose predicate requires a scope the caller lacks are redacted; the row stays visible for the audit trail. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.\n\nRequired scope: `brain:read`.",
+        "operationId": "listDocumentCandidates",
+        "parameters": [
+          {
+            "description": "The document id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentCandidatesResponse"
+                }
+              }
+            },
+            "description": "The candidates."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "The document's staged candidates (audit view)",
+        "tags": [
+          "Documents"
+        ]
+      },
+      "post": {
+        "description": "A remote indexer that read a stored document submits its reading here. With `runId` + `claimToken` the submission fulfils a claimed work item; without them it opens its own run (claimless flow). Candidates are grounded against the stored text; the Brain commits once every run for the document is settled. Max 200 items per kind. Throttled to 10 requests/min per credential. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/external-candidates.controller.ts.\n\nRequired scope: `indexer:write`.",
+        "operationId": "submitDocumentCandidates",
+        "parameters": [
+          {
+            "description": "The document id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitCandidatesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitCandidatesResponse"
+                }
+              }
+            },
+            "description": "Staged (and possibly committed)."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Stage an external indexer's candidate batch",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/indexer/work": {
+      "get": {
+        "description": "Pending indexer runs routed to this tenant’s installed external packs. Protocol: docs/indexer-protocol.md. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/indexer-work.controller.ts.\n\nRequired scope: `indexer:write`.",
+        "operationId": "listIndexerWork",
+        "parameters": [
+          {
+            "description": "Only work for this external pack.",
+            "in": "query",
+            "name": "packId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max items to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexerWorkListResponse"
+                }
+              }
+            },
+            "description": "Claimable work items."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Poll for pending external work items",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/indexer/work/{runId}/claim": {
+      "post": {
+        "description": "Atomically transitions the run to claimed and returns the claimToken that fences all subsequent calls. Heartbeat within leaseSeconds or the claim is reaped as abandoned. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.\n\nRequired scope: `indexer:write`.",
+        "operationId": "claimIndexerWork",
+        "parameters": [
+          {
+            "description": "The work item (indexer run) id.",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimWorkResponse"
+                }
+              }
+            },
+            "description": "The claim."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Claim a pending work item",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/indexer/work/{runId}/content": {
+      "get": {
+        "description": "Serves the verbatim stored chunks of the claimed document — only for documents whose ingest routed to this tenant’s installed external packs. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.\n\nRequired scope: `indexer:write`.",
+        "operationId": "getIndexerWorkContent",
+        "parameters": [
+          {
+            "description": "The claimed work item id.",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkContentResponse"
+                }
+              }
+            },
+            "description": "The document content."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Read the claimed document's stored content",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/indexer/work/{runId}/fail": {
+      "post": {
+        "description": "Default RELEASES the item back to 'pending' (transient trouble, shutdown mid-work); `permanent: true` marks the run 'failed' — no longer offered. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.\n\nRequired scope: `indexer:write`.",
+        "operationId": "failIndexerWork",
+        "parameters": [
+          {
+            "description": "The claimed work item id.",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FailWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailWorkResponse"
+                }
+              }
+            },
+            "description": "The outcome."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Release or permanently fail a claim",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/indexer/work/{runId}/heartbeat": {
+      "post": {
+        "description": "Extends the lease of a claimed work item. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`.\n\nRequired scope: `indexer:write`.",
+        "operationId": "heartbeatIndexerWork",
+        "parameters": [
+          {
+            "description": "The claimed work item id.",
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatWorkResponse"
+                }
+              }
+            },
+            "description": "The renewed lease."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Renew a claim lease",
+        "tags": [
+          "Indexer work"
+        ]
+      }
+    },
+    "/v1/ingest/document": {
+      "post": {
+        "description": "Source → Indexer → Candidates → Brain: stores + chunks the text, runs the selected indexers, commits grounded candidates as facts. `mode: \"async\"` fans out per-indexer queue jobs instead (requires DOCUMENT_MULTI_INDEXER_ENABLED). Throttled to 10 requests/min per credential. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/documents-ingest.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "ingestDocument",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/IngestDocumentSyncResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IngestDocumentAsyncResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Ingest outcome — shape follows the requested `mode`."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/FeatureDisabled"
+          }
+        },
+        "summary": "Ingest a normalized document",
+        "tags": [
+          "Documents"
+        ]
+      }
+    },
+    "/v1/registry/packs": {
+      "get": {
+        "description": "Lists published packs (latest installable version each). The catalogue is shared across all tenants; any authenticated key may browse. Source: src/registry/registry.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listRegistryPacks",
+        "parameters": [
+          {
+            "description": "Substring match on pack id / description.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by publisher id.",
+            "in": "query",
+            "name": "publisher",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by keyword tag.",
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page offset.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryListResponse"
+                }
+              }
+            },
+            "description": "The catalogue page."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Browse the global Domain Pack catalogue",
+        "tags": [
+          "Registry"
+        ]
+      }
+    },
+    "/v1/registry/packs/{packId}": {
+      "get": {
+        "description": "All published versions of a pack, newest first, including yanked ones (flagged).\n\nRequired scope: `brain:read`.",
+        "operationId": "getRegistryPackVersions",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryVersionsResponse"
+                }
+              }
+            },
+            "description": "Version history (empty list when the pack is unknown)."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "One pack's published version history",
+        "tags": [
+          "Registry"
+        ]
+      }
+    },
+    "/v1/registry/packs/{packId}/{version}": {
+      "get": {
+        "description": "Returns the full manifest body for install/inspection. `latest` is an alias for the latest non-yanked version.\n\nRequired scope: `brain:read`.",
+        "operationId": "getRegistryPackManifest",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A published version, or `latest`.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryManifestResponse"
+                }
+              }
+            },
+            "description": "The resolved manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Resolve one version to its full manifest",
+        "tags": [
+          "Registry"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Hosted instance (placeholder — self-hosted deployments serve the same paths on their own origin).",
+      "url": "https://brain.inite.ai"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Discovery reads over the global Domain Pack registry (shared across all tenants).",
+      "name": "Registry"
+    },
+    {
+      "description": "Publisher-facing writes to the global registry (scope `registry:publish`).",
+      "name": "Registry publishing"
+    },
+    {
+      "description": "Tenant-level pack management: install, list, eval, uninstall (scope `brain:admin`).",
+      "name": "Domain Packs"
+    },
+    {
+      "description": "The document pipeline: Source → Indexer → Candidates → Brain. Dark behind DOCUMENT_INGEST_ENABLED (default off).",
+      "name": "Documents"
+    },
+    {
+      "description": "The external-indexer protocol (scope `indexer:write`): poll → claim → read content → submit candidates / fail. See docs/indexer-protocol.md.",
+      "name": "Indexer work"
+    }
+  ]
+}

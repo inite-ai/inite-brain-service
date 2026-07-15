@@ -34,6 +34,8 @@ export interface EvalFixture {
   };
 }
 
+/** OpenAPI mirror: src/contracts/admin/packs.schema.ts
+ *  (PackEvalFixtureResultSchema / PackEvalReportSchema) — keep in lockstep. */
 export interface EvalFixtureResult {
   id: string;
   passed: boolean;
