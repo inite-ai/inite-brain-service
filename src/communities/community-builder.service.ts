@@ -1,7 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
+import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { withSpan } from '../common/tracing';
 import {
   SUMMARY_GENERATOR,
@@ -41,12 +44,18 @@ export class CommunityBuilderService {
   private readonly minSize: number;
   private readonly maxIterations: number;
   private readonly summaryMaxMembers: number;
+  private readonly offloadMinEdges: number;
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
     private readonly config: ConfigService,
     private readonly embedder: EmbedderService,
     @Inject(SUMMARY_GENERATOR)
     private readonly summaryGenerator: SummaryGenerator,
+    // @Optional so the positional unit tests (no DI) can omit it. In
+    // production the @Global JobsModule provides it; when absent or
+    // disabled the propagation simply runs in-thread as before.
+    @Optional() private readonly workerPool?: JobWorkerPool,
   ) {
     this.enabled =
       envFlagEnabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
@@ -60,6 +69,10 @@ export class CommunityBuilderService {
     );
     this.summaryMaxMembers = parseInt(
       this.config.get<string>('COMMUNITIES_SUMMARY_MAX_MEMBERS', '10'),
+      10,
+    );
+    this.offloadMinEdges = parseInt(
+      this.config.get<string>('COMMUNITIES_LP_OFFLOAD_MIN_EDGES', '2000'),
       10,
     );
   }
@@ -104,10 +117,7 @@ export class CommunityBuilderService {
       return result;
     }
 
-    const adjacency = buildAdjacency(
-      edges.map((e) => ({ from: e.from, to: e.to, weight: e.weight })),
-    );
-    const clusters = labelPropagation(adjacency, this.maxIterations).filter(
+    const clusters = (await this.computeClusters(edges)).filter(
       (c) => c.length >= this.minSize,
     );
 
@@ -177,6 +187,43 @@ export class CommunityBuilderService {
         `removed=${result.communitiesRemoved} entitiesClustered=${result.entitiesClustered}`,
     );
     return result;
+  }
+
+  /**
+   * Cluster the edge list — off the main thread when the worker pool is
+   * available AND the graph is big enough to be worth the postMessage
+   * round-trip (COMMUNITIES_LP_OFFLOAD_MIN_EDGES; 0 = never offload).
+   * labelPropagation is pure and deterministic, so both paths produce
+   * identical clusters; a pool failure falls back in-thread and is
+   * invisible to the output (warn-logged only).
+   */
+  private async computeClusters(edges: EdgeRow[]): Promise<string[][]> {
+    const lpEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      weight: e.weight,
+    }));
+    if (
+      this.offloadMinEdges > 0 &&
+      lpEdges.length >= this.offloadMinEdges &&
+      this.workerPool?.enabled()
+    ) {
+      try {
+        const out = await this.workerPool.run<{ clusters: string[][] }>(
+          resolveWorkerJobPath(),
+          { edges: lpEdges, maxIterations: this.maxIterations },
+        );
+        if (Array.isArray(out?.clusters)) return out.clusters;
+        this.logger.warn(
+          '[communities] worker-pool label propagation returned a malformed result; falling back in-thread',
+        );
+      } catch (e) {
+        this.logger.warn(
+          `[communities] worker-pool label propagation failed (${(e as Error).message}); falling back in-thread`,
+        );
+      }
+    }
+    return labelPropagation(buildAdjacency(lpEdges), this.maxIterations);
   }
 
   /**
@@ -487,6 +534,19 @@ interface RawFact {
   confidence: number;
   validFrom: unknown;
   validUntil?: unknown;
+}
+
+/**
+ * Locate the label-propagation worker-job module for the pool — the
+ * same .js-exists-else-.ts resolution JobWorkerPool uses for its
+ * runner: after nest build the handler compiles to .js alongside this
+ * file; in dev / ts-jest only the .ts source exists and Node's native
+ * type stripping loads it directly inside the pool worker.
+ */
+function resolveWorkerJobPath(): string {
+  const distCandidate = join(__dirname, 'label-propagation.worker-job.js');
+  if (existsSync(distCandidate)) return distCandidate;
+  return join(__dirname, 'label-propagation.worker-job.ts');
 }
 
 /**
