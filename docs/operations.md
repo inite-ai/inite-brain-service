@@ -115,6 +115,62 @@ a service restart, not a schema change.
 | `COMPACTION_HOT_RETENTION_DAYS` | `90` | Days kept in the searchable hot tier before compaction strips embedding + indexes. | Storage cost vs historical-search depth. |
 | `COMPACTION_SUMMARIES` | `false` | Roll up compacted facts into one summary per `(entityId, predicate)` cluster. The summary keeps a fresh embedding and is searchable. | Long-history tenants where the warm tier needs to stay queryable. |
 
+## Enabling the document pipeline + external indexers
+
+The Source → Indexer → Candidates → Brain pipeline shipped complete but
+**dark** — every route answers `503 feature_disabled` until you flip the
+flags. Turn it on in stages, soaking each one:
+
+**Prerequisites**
+
+- Migrations current (`schema_migrations` through at least 0065).
+- Job queue running in `enqueue` mode (`JOBS_QUEUE_MODE=enqueue`, the
+  default) with a healthy worker (`brain_worker_is_leader == 1`) — async
+  ingest, reindex backfills, and the nightly candidate sweeper are jobs.
+- `OPENAI_API_KEY` with budget headroom: in-process indexer runs are
+  per-chunk LLM extraction.
+
+**Step 1 — `DOCUMENT_INGEST_ENABLED=1`.** Opens the REST surface with
+the generalist (union) pass only. Soak: watch
+`brain_indexer_runs_total{outcome}` (should be `succeeded`-dominated),
+`brain_documents_total`, and ingest latency (`mode` unset runs
+extraction inside the HTTP request — long documents block their caller;
+prefer `mode:'async'` for anything beyond a page).
+
+**Step 2 — `DOCUMENT_MULTI_INDEXER_ENABLED=1`.** Enables the relevance
+router, dedicated per-pack runs, async fan-out, and external work-item
+production. Soak: router fan-out warnings ("capped ... indexers"),
+`MAX_DEDICATED_INDEXERS_PER_DOC` (default 8) as the LLM-cost backstop.
+
+**Step 3 — connect an external indexer.** Install the pack
+(`POST /v1/admin/packs`, `indexer.mode: 'external'`), mint an
+`indexer:write` key (bind it to the pack via `packIds` — see api.md),
+relay the `webhookSecret` from the install response if the pack declares
+a `callbackUrl`, and point the integration at `GET /v1/indexer/work`
+(protocol: [indexer-protocol.md](indexer-protocol.md), reference client:
+`pnpm indexer:reference`). Soak: work items appear on ingest
+(`external=true` runs), claims heartbeat within
+`INDEXER_RUN_STALE_MINUTES`, unclaimed items expire per
+`INDEXER_EXTERNAL_PENDING_TTL_DAYS`.
+
+**Step 4 (only if consciously accepted) —
+`DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL=1`.** Lets external indexers stage
+candidates for `storeContent:false` documents. With no stored text
+there is nothing to re-ground against: spans are unverifiable and
+auto-commit into the graph flagged `ungrounded`. This is a trust
+decision, not a tuning knob.
+
+**PII note.** An `indexer:write` key can read the verbatim stored text
+of documents routed to its pack(s) via `/v1/indexer/work/:id/content`
+(post-redaction, but redaction is best-effort). Mint per-integration
+keys, bind them to their packs, and treat external indexers as data
+processors.
+
+**Rollback.** Flip the flags off — the surface returns to 503 with no
+data loss. Staged candidates expire per `CANDIDATE_PENDING_TTL_DAYS`;
+stuck runs are reaped per the stale window; committed facts stay (they
+are ordinary memory — retract/forget applies as usual).
+
 ## Boot-time validation
 
 The service runs `validateEnv()` before NestJS starts. Missing or
