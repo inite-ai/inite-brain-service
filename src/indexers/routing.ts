@@ -37,10 +37,18 @@ export const DEFAULT_RELEVANCE_THRESHOLD = 0.3;
 /** How much of the document the rule/embedding layers look at. */
 export const ROUTER_HEAD_CHARS = 4_000;
 
-/** L0 + L1 over the dedicated bindings. */
+/** The router routes runs for these modes; virtual packs ride the union. */
+export type RoutedMode = 'dedicated' | 'external';
+
+/**
+ * L0 + L1 over the bindings of one routed mode. Dedicated and external
+ * packs share the relevance layers — the only difference is who executes
+ * the run (in-process extractor vs a remote indexer pulling work).
+ */
 export function routeByRules(
   bindings: IndexerBinding[],
   input: RoutingInput,
+  mode: RoutedMode = 'dedicated',
 ): RuleRoutingResult {
   const selected: IndexerBinding[] = [];
   const needEmbedding: IndexerBinding[] = [];
@@ -48,7 +56,7 @@ export function routeByRules(
   const head = input.head.slice(0, ROUTER_HEAD_CHARS).toLowerCase();
 
   for (const b of bindings) {
-    if (b.mode !== 'dedicated') continue;
+    if (b.mode !== mode) continue;
     const r = b.relevance;
     const l0 =
       requested.has(b.indexerId) ||
@@ -61,7 +69,7 @@ export function routeByRules(
     } else if (r?.description) {
       needEmbedding.push(b);
     }
-    // No relevance triggers at all → the pack opted into dedicated but
+    // No relevance triggers at all → the pack opted into routing but
     // gave the router nothing to route on; it only runs when explicitly
     // requested (L0 above).
   }

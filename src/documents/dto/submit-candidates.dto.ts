@@ -43,6 +43,21 @@ export class SubmitCandidatesDto {
   @MaxLength(32)
   packVersion?: string;
 
+  /**
+   * A claimed work item (POST /v1/indexer/work/:runId/claim) this
+   * submission fulfils. Provided together with claimToken or not at all;
+   * without them the submission opens its own run (claimless flow).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  runId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  claimToken?: string;
+
   @IsArray()
   entities: SubmittedEntity[];
 

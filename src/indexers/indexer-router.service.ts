@@ -10,6 +10,7 @@ import {
   IndexerBinding,
   ROUTER_HEAD_CHARS,
   routeByRules,
+  RoutedMode,
   RoutingInput,
 } from './routing';
 
@@ -56,13 +57,14 @@ export class IndexerRouterService {
     return bindings;
   }
 
-  /** Dedicated bindings that should read this document. */
+  /** Bindings of one routed mode that should read this document. */
   async route(
     companyId: string,
     input: RoutingInput,
+    mode: RoutedMode = 'dedicated',
   ): Promise<IndexerBinding[]> {
     const bindings = await this.bindingsFor(companyId);
-    const { selected, needEmbedding } = routeByRules(bindings, input);
+    const { selected, needEmbedding } = routeByRules(bindings, input, mode);
     // Embedding matches are ranked by similarity so the per-document cap
     // keeps the MOST relevant packs. Rule-selected packs (explicit request /
     // vertical / alwaysRun / keyword) come first — they are deterministic
@@ -73,7 +75,7 @@ export class IndexerRouterService {
     const all = ranked.slice(0, cap);
     if (ranked.length > cap) {
       this.logger.warn(
-        `router: capped dedicated indexers ${ranked.length}→${cap} for a ${input.vertical} document (dropped ${ranked
+        `router: capped ${mode} indexers ${ranked.length}→${cap} for a ${input.vertical} document (dropped ${ranked
           .slice(cap)
           .map((b) => b.indexerId)
           .join(', ')})`,
@@ -81,6 +83,7 @@ export class IndexerRouterService {
     }
     traceArtifact('indexer.route', {
       vertical: input.vertical,
+      mode,
       requested: input.requested,
       selected: all.map((b) => b.indexerId),
       viaEmbedding: viaEmbedding.map((b) => b.indexerId),

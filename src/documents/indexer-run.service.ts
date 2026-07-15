@@ -15,7 +15,8 @@ import type { StoredDocument } from './document-store.service';
 export interface IndexerRunResult {
   runId: string;
   packId: string;
-  status: 'succeeded' | 'skipped' | 'failed';
+  /** 'planned' = an external work item was registered, no extraction ran. */
+  status: 'succeeded' | 'skipped' | 'failed' | 'planned';
   stats?: {
     chunks: number;
     entities: number;
@@ -87,6 +88,29 @@ export class IndexerRunService {
       extract: (chunkText) => this.extractor.extract(chunkText, p.companyId),
       abortSignal: p.abortSignal,
     });
+  }
+
+  /**
+   * Register an EXTERNAL pack's work item: a 'pending' external
+   * indexer_run served by the pull API (GET /v1/indexer/work). Nothing
+   * extracts in-process — the remote indexer claims the run, reads the
+   * stored content, and submits candidates. Idempotent per
+   * (doc, packId, packVersion) like every run; an existing row in any
+   * state is left untouched.
+   */
+  async planExternal(p: {
+    companyId: string;
+    docId: string;
+    packId: string;
+    packVersion: string;
+  }): Promise<IndexerRunResult> {
+    await this.candidates.ensureRunPending(p.companyId, {
+      docId: p.docId,
+      packId: p.packId,
+      packVersion: p.packVersion,
+      external: true,
+    });
+    return { runId: '', packId: p.packId, status: 'planned' };
   }
 
   async runIndexer(spec: IndexerRunSpec): Promise<IndexerRunResult> {

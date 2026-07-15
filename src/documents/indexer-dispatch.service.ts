@@ -91,6 +91,18 @@ export class IndexerDispatchService {
     if (!binding) {
       throw new Error(`unknown indexer pack "${p.packId}"`);
     }
+    if (binding.mode === 'external') {
+      // Backfill for an external pack: don't burn LLM calls extracting
+      // with its vocabulary in-process — register the work item and let
+      // the remote indexer pull it. Reindex is thereby the backfill
+      // trigger for external indexers too.
+      return this.runs.planExternal({
+        companyId: p.companyId,
+        docId: p.doc.id,
+        packId: binding.indexerId,
+        packVersion: binding.packVersion,
+      });
+    }
     return this.runBinding({ ...p, binding });
   }
 
@@ -101,15 +113,73 @@ export class IndexerDispatchService {
     chunks: DocumentChunk[];
     indexers?: IndexerSelection;
   }): Promise<IndexerBinding[]> {
+    return this.selectRouted(p, 'dedicated');
+  }
+
+  /** External bindings this document should get — same routing layers. */
+  async selectExternal(p: {
+    companyId: string;
+    doc: StoredDocument;
+    chunks: DocumentChunk[];
+    indexers?: IndexerSelection;
+  }): Promise<IndexerBinding[]> {
+    return this.selectRouted(p, 'external');
+  }
+
+  /**
+   * Register work items for the routed EXTERNAL packs: one 'pending'
+   * external indexer_run each, served by the pull API. Skipped entirely
+   * for content-less documents (nothing for a remote indexer to read)
+   * unless the operator allows ungrounded external candidates.
+   */
+  async planExternal(p: {
+    companyId: string;
+    doc: StoredDocument;
+    chunks: DocumentChunk[];
+    indexers?: IndexerSelection;
+  }): Promise<IndexerRunResult[]> {
+    if (
+      !p.doc.hasContent &&
+      !envFlagEnabled(process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL)
+    ) {
+      return [];
+    }
+    const results: IndexerRunResult[] = [];
+    for (const binding of await this.selectExternal(p)) {
+      results.push(
+        await this.runs.planExternal({
+          companyId: p.companyId,
+          docId: p.doc.id,
+          packId: binding.indexerId,
+          packVersion: binding.packVersion,
+        }),
+      );
+    }
+    return results;
+  }
+
+  private async selectRouted(
+    p: {
+      companyId: string;
+      doc: StoredDocument;
+      chunks: DocumentChunk[];
+      indexers?: IndexerSelection;
+    },
+    mode: 'dedicated' | 'external',
+  ): Promise<IndexerBinding[]> {
     const selection = p.indexers ?? 'general';
     if (selection === 'general') return [];
     if (!envFlagEnabled(process.env.DOCUMENT_MULTI_INDEXER_ENABLED)) return [];
     const head = p.chunks[0]?.text ?? '';
-    return this.router.route(p.companyId, {
-      vertical: p.doc.vertical,
-      head,
-      requested: Array.isArray(selection) ? selection : undefined,
-    });
+    return this.router.route(
+      p.companyId,
+      {
+        vertical: p.doc.vertical,
+        head,
+        requested: Array.isArray(selection) ? selection : undefined,
+      },
+      mode,
+    );
   }
 
   private async runBinding(p: {

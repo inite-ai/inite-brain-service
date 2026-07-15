@@ -172,6 +172,32 @@ After staging, the commit runs under the same settled-runs rule as the
 async queue. Trust for an external indexer is *earned*: it starts at the
 neutral 0.5 agreement rate and moves with the nightly source-trust refit.
 
+### Work discovery (pull API)
+
+How does an external indexer learn WHICH documents to read? Ingest
+routes documents to installed external packs with the same L0/L1/L2
+relevance layers as dedicated packs and pre-creates a `pending` external
+`indexer_run` per selection — a work item. The indexer then drives the
+loop (scope `indexer:write`, full protocol in `docs/indexer-protocol.md`):
+
+```
+GET  /v1/indexer/work?packId=&limit=      list pending work items
+POST /v1/indexer/work/:runId/claim        CAS claim + claimToken lease
+POST /v1/indexer/work/:runId/heartbeat    renew the lease
+GET  /v1/indexer/work/:runId/content      stored chunks to read
+POST /v1/indexer/work/:runId/fail         release (default) / permanent fail
+POST /v1/documents/:id/candidates         submit (runId+claimToken optional)
+```
+
+Claiming is optional — a single-instance poller may poll → read →
+submit, the submission's own run CAS is the claim. External work items
+NEVER defer a document's commit (a slow poller can't hold memory
+hostage); a late submission re-commits incrementally. Abandoned claims
+release back to `pending` after `INDEXER_RUN_STALE_MINUTES`; unclaimed
+items expire after `INDEXER_EXTERNAL_PENDING_TTL_DAYS`. Reindexing an
+external pack (`POST /v1/admin/documents/reindex`) backfills work items
+instead of running in-process extraction.
+
 ## Flags and knobs
 
 | Env | Default | Meaning |
@@ -186,6 +212,7 @@ neutral 0.5 agreement rate and moves with the nightly source-trust refit.
 | `CANDIDATE_RETENTION_DAYS` | `30` | Sweeper: delete decided candidates after. |
 | `CANDIDATE_PENDING_TTL_DAYS` | `7` | Sweeper: expire stuck pending candidates after. |
 | `REINDEX_MAX_DOCS_PER_RUN` | `500` | Backfill batch budget per job. |
+| `INDEXER_EXTERNAL_PENDING_TTL_DAYS` | `7` | Sweeper: expire unclaimed external work items after. |
 
 ## Observability
 
