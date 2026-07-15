@@ -661,6 +661,15 @@ export class ConfigInspectorService {
         description:
           'How long an unclaimed external work item (pending external indexer_run, GET /v1/indexer/work) stays pollable before the nightly sweep expires it. Claimed work rides INDEXER_RUN_STALE_MINUTES via heartbeat.',
       },
+      {
+        key: 'INDEXER_WEBHOOK_PUSH_ENABLED',
+        category: 'pipeline',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Signed work_available webhook hints to external packs declaring indexer.external.callbackUrl. Best-effort (retries + per-URL breaker); polling stays the source of truth.',
+      },
       // ── Search: retrieval-evolution stages (migrations 0052–0055) ──
       {
         key: 'SEARCH_HNSW_ENABLED',

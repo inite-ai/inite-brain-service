@@ -5,6 +5,7 @@ import { DedicatedExtractorService } from '../indexers/dedicated-extractor.servi
 import type { IndexerBinding } from '../indexers/routing';
 import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
 import { IndexerRunService, IndexerRunResult } from './indexer-run.service';
+import { IndexerWebhookService } from './indexer-webhook.service';
 import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
 
@@ -29,10 +30,14 @@ export type IndexerSelection = string[] | 'auto' | 'general';
 export class IndexerDispatchService {
   private readonly logger = new Logger(IndexerDispatchService.name);
 
+  // The 4th dep is the fire-and-forget webhook hint for external packs —
+  // a notification side-channel, not a pipeline stage.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly router: IndexerRouterService,
     private readonly runs: IndexerRunService,
     private readonly dedicated: DedicatedExtractorService,
+    private readonly webhook: IndexerWebhookService,
   ) {}
 
   async dispatchSync(p: {
@@ -96,12 +101,14 @@ export class IndexerDispatchService {
       // with its vocabulary in-process — register the work item and let
       // the remote indexer pull it. Reindex is thereby the backfill
       // trigger for external indexers too.
-      return this.runs.planExternal({
+      const planned = await this.runs.planExternal({
         companyId: p.companyId,
         docId: p.doc.id,
         packId: binding.indexerId,
         packVersion: binding.packVersion,
       });
+      this.pushHint(p.companyId, p.doc.id, binding);
+      return planned;
     }
     return this.runBinding({ ...p, binding });
   }
@@ -154,8 +161,30 @@ export class IndexerDispatchService {
           packVersion: binding.packVersion,
         }),
       );
+      this.pushHint(p.companyId, p.doc.id, binding);
     }
     return results;
+  }
+
+  /**
+   * Fire-and-forget work_available hint for packs that declared a
+   * callbackUrl. Push is a latency optimization over polling — the
+   * webhook service owns retries/breaker and never throws.
+   */
+  private pushHint(
+    companyId: string,
+    documentId: string,
+    binding: IndexerBinding,
+  ): void {
+    const callbackUrl = binding.external?.callbackUrl;
+    if (!callbackUrl) return;
+    void this.webhook.notifyWorkAvailable({
+      companyId,
+      documentId,
+      packId: binding.indexerId,
+      packVersion: binding.packVersion,
+      callbackUrl,
+    });
   }
 
   private async selectRouted(

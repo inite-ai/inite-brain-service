@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
@@ -119,6 +120,13 @@ export class DomainPackInstallService {
     version: string;
     predicatesSeeded: number;
     checksum: string;
+    /**
+     * HMAC secret for indexer.external.callbackUrl pushes — present ONLY
+     * when freshly minted (first install of a callback-bearing pack).
+     * Shown once; relay it to the external indexer. Upgrades keep the
+     * existing secret and omit the field.
+     */
+    webhookSecret?: string;
   }> {
     if (!manifest || typeof manifest !== 'object') {
       throw new BadRequestException('request body must include a pack manifest');
@@ -163,9 +171,14 @@ export class DomainPackInstallService {
     });
 
     const newIds = predicates.map((p) => p.predicateId);
+    // A callback-bearing pack gets an HMAC secret for signed pushes
+    // (0065). Minted on first install; upgrades preserve the existing
+    // secret so the integration doesn't have to rotate on every bump.
+    const wantsWebhook = Boolean(manifest.indexer?.external?.callbackUrl);
+    let mintedSecret: string | undefined;
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
       const [existing] = await db.query<[any[]]>(
-        `SELECT id, version, manifest FROM domain_pack WHERE packId = $packId LIMIT 1`,
+        `SELECT id, version, manifest, webhookSecret FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
       const row = ((existing as any[]) ?? [])[0];
@@ -182,9 +195,20 @@ export class DomainPackInstallService {
           row.manifest as DomainPackManifest | undefined,
           manifest,
         );
+        if (wantsWebhook && !row.webhookSecret) {
+          mintedSecret = randomBytes(32).toString('hex');
+        }
         await db.query(
-          `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()`,
-          { id: row.id, version: manifest.version, manifest, checksum },
+          `UPDATE $id SET version = $version, manifest = $manifest, checksum = $checksum, status = 'active', updatedAt = time::now()${
+            mintedSecret ? ', webhookSecret = $webhookSecret' : ''
+          }`,
+          {
+            id: row.id,
+            version: manifest.version,
+            manifest,
+            checksum,
+            ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
+          },
         );
         // Reinstall/upgrade: uninstall DEPRECATED this pack's predicates and
         // seedMissingPredicates skips them (they exist by id), so without this
@@ -220,6 +244,9 @@ export class DomainPackInstallService {
           );
         }
       } else {
+        if (wantsWebhook) {
+          mintedSecret = randomBytes(32).toString('hex');
+        }
         await db.query(`CREATE domain_pack CONTENT $content`, {
           content: {
             packId: manifest.id,
@@ -227,6 +254,7 @@ export class DomainPackInstallService {
             manifest,
             checksum,
             status: 'active',
+            ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
           },
         });
       }
@@ -248,6 +276,7 @@ export class DomainPackInstallService {
       version: manifest.version,
       predicatesSeeded: seeded,
       checksum,
+      ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
     };
   }
 

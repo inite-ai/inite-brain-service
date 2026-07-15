@@ -198,6 +198,14 @@ items expire after `INDEXER_EXTERNAL_PENDING_TTL_DAYS`. Reindexing an
 external pack (`POST /v1/admin/documents/reindex`) backfills work items
 instead of running in-process extraction.
 
+Packs that declare `indexer.external.callbackUrl` additionally get a
+**push hint**: ingest fires a `work_available` POST (HMAC-signed with
+the per-install secret minted at pack install, returned once in the
+install response; header `X-Brain-Signature: sha256=<hex>`) with
+retries and a per-URL circuit breaker. Push is a latency optimization
+only — polling remains the source of truth
+(`INDEXER_WEBHOOK_PUSH_ENABLED` kill switch, default on).
+
 ## Flags and knobs
 
 | Env | Default | Meaning |

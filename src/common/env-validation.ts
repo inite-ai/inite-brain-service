@@ -139,6 +139,7 @@ validateAbacEnv(env, errors);
   positiveInt(env, 'REINDEX_MAX_DOCS_PER_RUN', errors);
   positiveInt(env, 'INDEXER_RUN_STALE_MINUTES', errors);
   positiveInt(env, 'INDEXER_EXTERNAL_PENDING_TTL_DAYS', errors);
+  positiveInt(env, 'INDEXER_WEBHOOK_RETRY_BASE_MS', errors);
   positiveInt(env, 'MAX_DEDICATED_INDEXERS_PER_DOC', errors);
   nonNegativeFloat(env, 'CANDIDATE_MIN_CONFIDENCE', errors);
 
@@ -312,6 +313,7 @@ const KNOWN_BOOLEAN_FLAGS = [
   'DEBUG_TRACE_PERSIST',
   'BGE_M3_WORKER',
   'THROTTLE_DISABLED',
+  'INDEXER_WEBHOOK_PUSH_ENABLED',
 ];
 
 /**

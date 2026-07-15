@@ -8,6 +8,7 @@ import { ExternalCandidatesController } from './external-candidates.controller';
 import { ExternalCandidatesService } from './external-candidates.service';
 import { IndexerWorkController } from './indexer-work.controller';
 import { IndexerWorkService } from './indexer-work.service';
+import { IndexerWebhookService } from './indexer-webhook.service';
 import { DocumentStoreService } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { IndexerRunService } from './indexer-run.service';
@@ -49,6 +50,7 @@ import { MentionViaDocumentService } from './mention-via-document.service';
     MentionViaDocumentService,
     ExternalCandidatesService,
     IndexerWorkService,
+    IndexerWebhookService,
   ],
   exports: [
     DocumentIngestService,

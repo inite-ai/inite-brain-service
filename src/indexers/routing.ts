@@ -16,6 +16,7 @@ export interface IndexerBinding {
   description: string;
   relevance?: IndexerRelevance;
   dedicated?: IndexerDescriptor['dedicated'];
+  external?: IndexerDescriptor['external'];
 }
 
 export interface RoutingInput {
