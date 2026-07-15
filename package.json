@@ -44,6 +44,7 @@
     "pack:publish": "ts-node -r tsconfig-paths/register scripts/publish-pack.ts",
     "pack:search": "ts-node -r tsconfig-paths/register scripts/search-registry.ts",
     "registry:seed": "ts-node -r tsconfig-paths/register scripts/seed-registry.ts",
+    "indexer:reference": "ts-node -r tsconfig-paths/register examples/reference-indexer.ts",
     "code-memory:validate-anchors": "ts-node -r tsconfig-paths/register scripts/validate-anchors.ts",
     "test:eval:fat": "pnpm build && FAT_TENANT_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=fat-tenant",
     "test:eval:directory": "pnpm build && DIRECTORY_RUN=1 jest --config ./test/jest-e2e-real.json --runInBand --testPathPattern=directory",
