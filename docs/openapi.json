@@ -1133,6 +1133,12 @@
           "description": {
             "type": "string"
           },
+          "downloads": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
           "keywords": {
             "items": {
               "type": "string"
@@ -1142,53 +1148,8 @@
           "latestVersion": {
             "type": "string"
           },
-          "packId": {
+          "origin": {
             "type": "string"
-          },
-          "publisher": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "signed": {
-            "type": "boolean"
-          },
-          "versionCount": {
-            "maximum": 9007199254740991,
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "packId",
-          "latestVersion",
-          "description",
-          "keywords",
-          "publisher",
-          "signed",
-          "versionCount"
-        ],
-        "type": "object"
-      },
-      "RegistryVersion": {
-        "additionalProperties": false,
-        "properties": {
-          "checksum": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "keywords": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
           },
           "packId": {
             "type": "string"
@@ -1207,6 +1168,76 @@
             ]
           },
           "signed": {
+            "type": "boolean"
+          },
+          "verified": {
+            "default": false,
+            "type": "boolean"
+          },
+          "versionCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "packId",
+          "latestVersion",
+          "description",
+          "keywords",
+          "publisher",
+          "signed",
+          "verified",
+          "downloads",
+          "versionCount"
+        ],
+        "type": "object"
+      },
+      "RegistryVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "downloads": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signed": {
+            "type": "boolean"
+          },
+          "verified": {
+            "default": false,
             "type": "boolean"
           },
           "version": {
@@ -1234,9 +1265,11 @@
           "keywords",
           "publisher",
           "signed",
+          "verified",
           "yanked",
           "yankReason",
-          "publishedAt"
+          "publishedAt",
+          "downloads"
         ],
         "type": "object"
       },
