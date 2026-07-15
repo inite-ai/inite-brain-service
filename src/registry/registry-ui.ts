@@ -22,14 +22,25 @@ function card(p: RegistryPackSummary): string {
   const tags = p.keywords
     .map((k) => `<span class="tag">${esc(k)}</span>`)
     .join('');
-  const badge = p.signed ? '<span class="badge">signed</span>' : '';
+  // Green "verified" = signature validated against THIS instance's trust
+  // store at publish time; neutral "signed" = carries a signature nobody here
+  // vouches for. Deliberately distinct — a bare signature proves nothing to a
+  // visitor. Verified implies signed, so only the stronger badge is shown.
+  const badge = p.verified
+    ? '<span class="badge verified">verified</span>'
+    : p.signed
+      ? '<span class="badge signed">signed</span>'
+      : '';
   const publisher = p.publisher
     ? `<span class="pub">by ${esc(p.publisher)}</span>`
+    : '';
+  const published = p.publishedAt
+    ? `<span class="date">published ${esc(String(p.publishedAt).slice(0, 10))}</span>`
     : '';
   return `<article class="pack">
   <h2>${esc(p.packId)} <span class="ver">v${esc(p.latestVersion)}</span> ${badge}</h2>
   <p class="desc">${esc(p.description || '(no description)')}</p>
-  <div class="meta">${tags}${publisher}<span class="vc">${p.versionCount} version(s)</span></div>
+  <div class="meta">${tags}${publisher}<span class="dl">${esc(p.downloads ?? 0)} download(s)</span>${published}<span class="vc">${p.versionCount} version(s)</span></div>
   <code class="install">pnpm pack:install -- --registry ${esc(p.packId)}</code>
 </article>`;
 }
@@ -51,7 +62,9 @@ h1{font-size:1.6rem;margin:0 0 .25rem}
 .pack{border:1px solid #8883;border-radius:10px;padding:1rem 1.25rem;margin:0 0 1rem}
 .pack h2{font-size:1.15rem;margin:0 0 .25rem}
 .ver{color:#888;font-weight:400;font-size:.9rem}
-.badge{background:#2e7d32;color:#fff;font-size:.7rem;padding:.1rem .4rem;border-radius:4px;vertical-align:middle}
+.badge{font-size:.7rem;padding:.1rem .4rem;border-radius:4px;vertical-align:middle}
+.badge.signed{background:#8883}
+.badge.verified{background:#2e7d32;color:#fff}
 .desc{margin:.25rem 0 .5rem}
 .meta{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;font-size:.8rem;color:#888;margin-bottom:.5rem}
 .tag{background:#8882;border-radius:4px;padding:.1rem .45rem}

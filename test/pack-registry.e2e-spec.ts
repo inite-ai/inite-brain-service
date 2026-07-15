@@ -8,7 +8,8 @@
  * catalogue lives in the shared `system` DB (withAdminDb), distinct from the
  * per-tenant domain_pack install record.
  */
-import { REAL_ESTATE_PACK } from '../src/ai/domain-packs';
+import { generateKeyPairSync } from 'node:crypto';
+import { REAL_ESTATE_PACK, signPack } from '../src/ai/domain-packs';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 
@@ -21,12 +22,29 @@ const PACK = {
 };
 const bump = (version: string) => ({ ...PACK, version });
 
+// ed25519 keypairs for the verified-publisher tests: one whose public key the
+// hosting instance trusts (DOMAIN_PACK_TRUSTED_KEYS), one rogue.
+function keypair() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  return {
+    pub: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+    priv: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+  };
+}
+const trusted = keypair();
+const rogue = keypair();
+
 describe('/v1/registry — global pack registry (e2e)', () => {
   let pub: AppFixture; // has registry:publish + brain:admin + brain:read
   let reader: AppFixture; // brain:read only
   const auth = (f: AppFixture) => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
+    // The hosting instance's trust store — read lazily at publish time; set
+    // before boot so env validation sees valid JSON too.
+    process.env.DOMAIN_PACK_TRUSTED_KEYS = JSON.stringify({
+      acme_e2e: trusted.pub,
+    });
     pub = await createApp({
       companyId: 'co_registry_pub_e2e',
       scopes: ['brain:read', 'brain:write', 'brain:admin', 'registry:publish'],
@@ -37,6 +55,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     });
   });
   afterAll(async () => {
+    delete process.env.DOMAIN_PACK_TRUSTED_KEYS;
     if (pub) await pub.close();
     if (reader) await reader.close();
   });
@@ -188,6 +207,164 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .get('/v1/registry/packs/kw_guard_e2e')
       .set(auth(reader));
     expect(versions.body.versions[0].keywords).toEqual([]);
+  });
+
+  it('counts downloads on install only — browsing does not count', async () => {
+    const id = 'dl_count_e2e';
+    await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({ manifest: { ...PACK, id, version: '0.1.0' } });
+
+    // Hit every read/browse surface: catalogue list, version list, manifest
+    // inspection. None of these are installs.
+    await reader.http.get('/v1/registry/packs?q=dl_count').set(auth(reader));
+    await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
+    await reader.http.get(`/v1/registry/packs/${id}/latest`).set(auth(reader));
+
+    let versions = await reader.http
+      .get(`/v1/registry/packs/${id}`)
+      .set(auth(reader));
+    expect(versions.body.versions[0].downloads).toBe(0);
+
+    // Install from the registry twice (same-version reinstall is an upsert) —
+    // each resolve-for-install counts.
+    for (let i = 0; i < 2; i++) {
+      const r = await pub.http
+        .post('/v1/admin/packs/from-registry')
+        .set(auth(pub))
+        .send({ packId: id });
+      expect([200, 201]).toContain(r.status);
+    }
+    versions = await reader.http
+      .get(`/v1/registry/packs/${id}`)
+      .set(auth(reader));
+    expect(versions.body.versions[0].downloads).toBe(2);
+  });
+
+  it('catalogue summary sums downloads across versions; publishedAt exposed', async () => {
+    const id = 'dl_count_e2e'; // 0.1.0 already has 2 downloads from above
+    await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({ manifest: { ...PACK, id, version: '0.2.0' } });
+    const r = await pub.http
+      .post('/v1/admin/packs/from-registry')
+      .set(auth(pub))
+      .send({ packId: id, version: '0.2.0' });
+    expect([200, 201]).toContain(r.status);
+
+    const list = await reader.http
+      .get('/v1/registry/packs?q=dl_count')
+      .set(auth(reader));
+    const summary = list.body.packs.find((p: any) => p.packId === id);
+    expect(summary.downloads).toBe(3); // 2 (v0.1.0) + 1 (v0.2.0)
+    expect(typeof summary.publishedAt).toBe('string');
+    expect(new Date(summary.publishedAt).getTime()).not.toBeNaN();
+
+    // Per-version split stays visible on the versions endpoint.
+    const versions = await reader.http
+      .get(`/v1/registry/packs/${id}`)
+      .set(auth(reader));
+    const byVer = Object.fromEntries(
+      versions.body.versions.map((v: any) => [v.version, v.downloads]),
+    );
+    expect(byVer['0.1.0']).toBe(2);
+    expect(byVer['0.2.0']).toBe(1);
+  });
+
+  it('a refused install (yanked pin) does not count as a download', async () => {
+    const id = 'dl_count_e2e';
+    await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({ manifest: { ...PACK, id, version: '0.3.0' } });
+    await pub.http
+      .post(`/v1/admin/registry/packs/${id}/0.3.0/yank`)
+      .set(auth(pub))
+      .send({ reason: 'bad' });
+    const refused = await pub.http
+      .post('/v1/admin/packs/from-registry')
+      .set(auth(pub))
+      .send({ packId: id, version: '0.3.0' });
+    expect(refused.status).toBe(400);
+
+    const versions = await reader.http
+      .get(`/v1/registry/packs/${id}`)
+      .set(auth(reader));
+    const v = versions.body.versions.find((x: any) => x.version === '0.3.0');
+    expect(v.downloads).toBe(0);
+  });
+
+  it('marks verified=true only when the signature validates against the trust store', async () => {
+    const manifest: any = {
+      ...PACK,
+      id: 'verified_e2e',
+      version: '0.1.0',
+      publisher: 'acme_e2e',
+    };
+    manifest.signature = signPack(manifest, trusted.priv);
+    const r = await pub.http
+      .post('/v1/admin/registry/packs')
+      .set(auth(pub))
+      .send({ manifest });
+    expect([200, 201]).toContain(r.status);
+
+    const versions = await reader.http
+      .get('/v1/registry/packs/verified_e2e')
+      .set(auth(reader));
+    expect(versions.body.versions[0].signed).toBe(true);
+    expect(versions.body.versions[0].verified).toBe(true);
+
+    const list = await reader.http
+      .get('/v1/registry/packs?q=verified_e2e')
+      .set(auth(reader));
+    expect(
+      list.body.packs.find((p: any) => p.packId === 'verified_e2e').verified,
+    ).toBe(true);
+  });
+
+  it('signed but NOT trust-store-verifiable → verified=false, publish still allowed', async () => {
+    // Unknown publisher: signature is valid for its key, but the hosting
+    // instance has no key for 'rogue_pub_e2e'.
+    const unknown: any = {
+      ...PACK,
+      id: 'unverified_pub_e2e',
+      version: '0.1.0',
+      publisher: 'rogue_pub_e2e',
+    };
+    unknown.signature = signPack(unknown, rogue.priv);
+    // Known publisher, WRONG key: the signature fails cryptographic verify.
+    const badSig: any = {
+      ...PACK,
+      id: 'badsig_e2e',
+      version: '0.1.0',
+      publisher: 'acme_e2e',
+    };
+    badSig.signature = signPack(badSig, rogue.priv);
+
+    for (const m of [unknown, badSig]) {
+      const r = await pub.http
+        .post('/v1/admin/registry/packs')
+        .set(auth(pub))
+        .send({ manifest: m });
+      expect([200, 201]).toContain(r.status); // not an error — just unverified
+      const versions = await reader.http
+        .get(`/v1/registry/packs/${m.id}`)
+        .set(auth(reader));
+      expect(versions.body.versions[0].signed).toBe(true);
+      expect(versions.body.versions[0].verified).toBe(false);
+    }
+  });
+
+  it('unsigned publish → verified=false', async () => {
+    // PACK 0.1.0 was published unsigned at the top of the suite.
+    const versions = await reader.http
+      .get(`/v1/registry/packs/${PACK.id}`)
+      .set(auth(reader));
+    const v = versions.body.versions.find((x: any) => x.version === '0.1.0');
+    expect(v.signed).toBe(false);
+    expect(v.verified).toBe(false);
   });
 
   it('paginates the catalogue with offset (packs beyond a page stay reachable)', async () => {
