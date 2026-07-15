@@ -29,6 +29,18 @@ export interface RunHandle {
   created: boolean;
 }
 
+/** A run ledger row as the work-discovery/claim surface reads it. */
+export interface RunRow {
+  runId: string;
+  docId: string;
+  packId: string;
+  packVersion: string;
+  status: string;
+  external: boolean;
+  claimToken?: string;
+  createdAt?: Date;
+}
+
 /**
  * Persistence for the Candidates layer (migration 0049): indexer_run
  * ledger rows + candidate rows. Pure storage — no merging, no decisions;
@@ -69,6 +81,8 @@ export class CandidateStoreService {
       packVersion: string;
       model?: string;
       registryVersionHash?: string;
+      /** Run belongs to an external (out-of-process) indexer — 0062. */
+      external?: boolean;
     },
   ): Promise<RunHandle> {
     return this.surreal.withCompany(companyId, async (db) => {
@@ -80,6 +94,7 @@ export class CandidateStoreService {
           model: p.model,
           registryVersionHash: p.registryVersionHash,
           status: 'running',
+          external: p.external ?? false,
         });
         return { runId: String(row.id), created: true };
       } catch (err) {
@@ -143,7 +158,13 @@ export class CandidateStoreService {
    */
   async ensureRunPending(
     companyId: string,
-    p: { docId: string; packId: string; packVersion: string },
+    p: {
+      docId: string;
+      packId: string;
+      packVersion: string;
+      /** Pre-create as an external work item (pull API) — 0062. */
+      external?: boolean;
+    },
   ): Promise<void> {
     return this.surreal.withCompany(companyId, async (db) => {
       try {
@@ -152,6 +173,7 @@ export class CandidateStoreService {
           packId: p.packId,
           packVersion: p.packVersion,
           status: 'pending',
+          external: p.external ?? false,
         });
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
@@ -180,28 +202,56 @@ export class CandidateStoreService {
    * cadence and CANDIDATE_PENDING_TTL_DAYS.
    */
   async reapStaleRuns(companyId: string): Promise<number> {
+    // External rows have their own lifecycle (0062):
+    //   * 'pending' external rows are WORK ITEMS for a remote poller —
+    //     a daily polling cadence is legitimate, so they expire on the
+    //     (much longer) INDEXER_EXTERNAL_PENDING_TTL_DAYS, not the stale
+    //     window;
+    //   * 'running' external rows past the stale window are ABANDONED
+    //     CLAIMS (lease rides createdAt, refreshed by heartbeat) — they
+    //     go BACK to 'pending' so the work is rediscoverable by the next
+    //     poll; marking them failed would silently drop the work item
+    //     from discovery forever.
+    const failWhere = `(external != true AND status IN ['running', 'pending']
+             AND createdAt < time::now() - duration::from_millis($ms))
+          OR (external = true AND status = 'pending'
+             AND createdAt < time::now() - duration::from_millis($extMs))`;
+    const releaseWhere = `external = true AND status = 'running'
+             AND createdAt < time::now() - duration::from_millis($ms)`;
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
-        `SELECT count() AS c FROM indexer_run
-           WHERE status IN ['running', 'pending']
-             AND createdAt < time::now() - duration::from_millis($ms)
-           GROUP ALL`,
-        { ms: staleRunMs() },
+      const [failRows, releaseRows] = await db.query<[any[], any[]]>(
+        `SELECT count() AS c FROM indexer_run WHERE ${failWhere} GROUP ALL;
+         SELECT count() AS c FROM indexer_run WHERE ${releaseWhere} GROUP ALL`,
+        { ms: staleRunMs(), extMs: externalPendingTtlMs() },
       );
-      const count = Number(((rows as any[]) ?? [])[0]?.c ?? 0);
-      if (count > 0) {
+      const failed = Number(((failRows as any[]) ?? [])[0]?.c ?? 0);
+      const released = Number(((releaseRows as any[]) ?? [])[0]?.c ?? 0);
+      if (failed > 0) {
         await db.query(
           `UPDATE indexer_run SET
              status = 'failed', finishedAt = time::now(),
              error = { message: 'stale_reaped' }
-           WHERE status IN ['running', 'pending']
-             AND createdAt < time::now() - duration::from_millis($ms)
+           WHERE ${failWhere}
            RETURN NONE`,
-          { ms: staleRunMs() },
+          { ms: staleRunMs(), extMs: externalPendingTtlMs() },
         );
         this.metrics?.countIndexerRun('stale_reaped');
       }
-      return count;
+      if (released > 0) {
+        // createdAt resets so the expiry clock restarts from the release —
+        // an item can cycle claim→abandon→release, but each cycle costs a
+        // full stale window, and the pending TTL bounds the total.
+        await db.query(
+          `UPDATE indexer_run SET
+             status = 'pending', claimToken = NONE, claimedAt = NONE,
+             createdAt = time::now()
+           WHERE ${releaseWhere}
+           RETURN NONE`,
+          { ms: staleRunMs() },
+        );
+        this.metrics?.countIndexerRun('claim_released');
+      }
+      return failed + released;
     });
   }
 
@@ -388,13 +438,59 @@ export class CandidateStoreService {
     });
   }
 
-  /** Runs still pending/running — commit defers while any exist. */
+  /** One run row by id — the claim-token verification read. */
+  async getRun(companyId: string, runId: string): Promise<RunRow | null> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      // Point-read by record id (no table scan under SSI — the #169 idiom).
+      const [rows] = await db.query<[any[]]>(
+        `SELECT id, docId, packId, packVersion, status, external,
+                claimToken, createdAt
+           FROM type::record('indexer_run', $run)`,
+        { run: idTailOf(runId) },
+      );
+      const r = ((rows as any[]) ?? [])[0];
+      if (!r) return null;
+      return {
+        runId: String(r.id),
+        docId: String(r.docId),
+        packId: String(r.packId),
+        packVersion: String(r.packVersion),
+        status: String(r.status),
+        external: r.external === true,
+        claimToken: r.claimToken ? String(r.claimToken) : undefined,
+        createdAt: r.createdAt ? new Date(String(r.createdAt)) : undefined,
+      };
+    });
+  }
+
+  /**
+   * Drop a run's staged candidates — the drop-and-restage step of a
+   * claimed external submission (mirrors what createRun's reopen does).
+   */
+  async dropRunCandidates(companyId: string, runId: string): Promise<void> {
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(
+        `DELETE candidate WHERE runId = type::record('indexer_run', $run)`,
+        { run: idTailOf(runId) },
+      );
+    });
+  }
+
+  /**
+   * Runs still pending/running — commit defers while any exist. External
+   * runs are excluded on both statuses (`external != true` also matches
+   * pre-0062 rows where the field is NONE): a third-party indexer's
+   * polling cadence must never hold the document's commit hostage. A late
+   * external submission re-commits incrementally — the same reconcile
+   * path that already handles external re-staging on committed docs.
+   */
   async countNonTerminalRuns(companyId: string, docId: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<[any[]]>(
         `SELECT count() AS c FROM indexer_run
          WHERE docId = type::record('source_document', $doc)
            AND status IN ['pending', 'running']
+           AND external != true
          GROUP ALL`,
         { doc: idTailOf(docId) },
       );
@@ -491,9 +587,21 @@ function recordRef(table: string, rid: string): unknown {
  * How long a run may sit 'running' before it counts as stale (crashed).
  * Must comfortably exceed the index_document job lease (600s) plus the
  * longest realistic extraction, so a live long run is never reaped or
- * reopened underneath its worker. Default 30 minutes.
+ * reopened underneath its worker. Default 30 minutes. Doubles as the
+ * external claim lease (claim sets createdAt=now, heartbeat refreshes).
  */
-function staleRunMs(): number {
+export function staleRunMs(): number {
   const mins = Number(process.env.INDEXER_RUN_STALE_MINUTES);
   return (Number.isFinite(mins) && mins > 0 ? mins : 30) * 60_000;
+}
+
+/**
+ * How long an UNCLAIMED external work item ('pending', external=true)
+ * stays pollable before the sweep expires it — a remote indexer that
+ * never showed up. Days-scale by design: a daily poller is a legitimate
+ * integration.
+ */
+export function externalPendingTtlMs(): number {
+  const days = Number(process.env.INDEXER_EXTERNAL_PENDING_TTL_DAYS);
+  return (Number.isFinite(days) && days > 0 ? days : 7) * 86_400_000;
 }

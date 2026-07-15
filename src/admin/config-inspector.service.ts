@@ -650,7 +650,16 @@ export class ConfigInspectorService {
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          'Dedicated per-pack indexer runs + relevance router + async fan-out. Off = only the generalist union pass runs.',
+          'Dedicated per-pack indexer runs + relevance router + async fan-out + external work items. Off = only the generalist union pass runs.',
+      },
+      {
+        key: 'INDEXER_EXTERNAL_PENDING_TTL_DAYS',
+        category: 'pipeline',
+        defaultValue: '7',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'How long an unclaimed external work item (pending external indexer_run, GET /v1/indexer/work) stays pollable before the nightly sweep expires it. Claimed work rides INDEXER_RUN_STALE_MINUTES via heartbeat.',
       },
       // ── Search: retrieval-evolution stages (migrations 0052–0055) ──
       {

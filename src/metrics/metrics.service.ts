@@ -485,7 +485,8 @@ export class MetricsService implements OnModuleInit {
       | 'failed'
       | 'skipped_duplicate'
       | 'reopened'
-      | 'stale_reaped',
+      | 'stale_reaped'
+      | 'claim_released',
   ): void {
     this.indexerRunsCount.inc({ outcome } as LabelValues<'outcome'>);
   }

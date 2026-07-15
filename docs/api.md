@@ -31,10 +31,22 @@ See [Document pipeline](document-pipeline.md) for the architecture.
 | `POST /v1/ingest/document` | Normalized-document ingest: store (content-hash deduped, PII-redacted, chunked) → indexer runs → staged candidates → CommitMemory. `storeContent:false` keeps only hash+metadata. `mode:'async'` fans indexer runs onto the job queue (requires `DOCUMENT_MULTI_INDEXER_ENABLED`). |
 | `GET /v1/documents/:id` | Document header + indexer-run ledger; `?includeText=1` returns stored chunks. |
 | `GET /v1/documents/:id/candidates` | The Candidates-layer audit view — every staged hypothesis with status / reason / commitRef. |
-| `POST /v1/documents/:id/candidates` | EXTERNAL indexer submission (scope `indexer:write`): batch is validated against the pack registration, namespace-fenced, and span-re-grounded against stored text before staging. |
+| `POST /v1/documents/:id/candidates` | EXTERNAL indexer submission (scope `indexer:write`): batch is validated against the pack registration, namespace-fenced, and span-re-grounded against stored text before staging. Optional `runId`+`claimToken` fulfil a claimed work item. |
 | `POST /v1/documents/:id/commit` | Manual (re)commit of pending candidates (admin). |
 | `DELETE /v1/documents/:id/content` | Purge stored chunks; header + contentHash survive (admin). |
-| `POST /v1/admin/documents/reindex` | Backfill: run one pack's extraction over all stored documents (admin). |
+| `POST /v1/admin/documents/reindex` | Backfill: run one pack's extraction over all stored documents (admin). External packs get work items instead of in-process runs. |
+
+### External-indexer work discovery (scope `indexer:write`)
+
+Protocol: [indexer-protocol.md](indexer-protocol.md).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/indexer/work?packId=&limit=` | Pending work items (pull): documents ingest routed to the tenant's installed external packs. |
+| `POST /v1/indexer/work/:runId/claim` | CAS claim → `claimToken` + lease; optional for single-instance pollers. |
+| `POST /v1/indexer/work/:runId/heartbeat` | Renew the claim lease (`{claimToken}`). |
+| `GET /v1/indexer/work/:runId/content` | Stored chunks of the claimed/pending document (verbatim source text). |
+| `POST /v1/indexer/work/:runId/fail` | Release back to the pool (default) or `permanent:true` to mark failed. |
 
 ## Read
 

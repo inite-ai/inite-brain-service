@@ -55,6 +55,17 @@ export class DocumentIngestService {
           chunks,
           indexers: dto.indexers,
         });
+        // External packs get pull-API work items instead of in-process
+        // runs; they never defer this commit (external runs are excluded
+        // from the settle count) — a late submission re-commits.
+        runs.push(
+          ...(await this.dispatch.planExternal({
+            companyId,
+            doc,
+            chunks,
+            indexers: dto.indexers,
+          })),
+        );
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexed' });
 
         const commit = await this.commit.commitDocument(companyId, doc);

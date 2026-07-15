@@ -13,7 +13,11 @@ export interface DocumentAsyncResponse {
   deduplicated: boolean;
   chunkCount: number;
   mode: 'async';
-  runs: Array<{ packId: string; status: 'enqueued' | 'already_processed' }>;
+  /** 'planned' = an external pack's pull-API work item was registered. */
+  runs: Array<{
+    packId: string;
+    status: 'enqueued' | 'already_processed' | 'planned';
+  }>;
 }
 
 /**
@@ -114,6 +118,16 @@ export class DocumentAsyncService implements OnModuleInit {
         packId: spec.packId,
         status: created ? 'enqueued' : 'already_processed',
       });
+    }
+    // External packs are not jobs on OUR queue — they become pull-API
+    // work items a remote indexer claims. Never commit-blocking.
+    for (const planned of await this.dispatch.planExternal({
+      companyId,
+      doc,
+      chunks,
+      indexers: dto.indexers,
+    })) {
+      runs.push({ packId: planned.packId, status: 'planned' });
     }
     return {
       documentId: doc.id,

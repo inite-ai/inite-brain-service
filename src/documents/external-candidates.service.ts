@@ -18,6 +18,7 @@ import type {
 } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
+import { IndexerWorkService } from './indexer-work.service';
 import { groundExternalBatch, GroundingDrop } from './candidate-grounding';
 import {
   SubmitCandidatesDto,
@@ -61,10 +62,14 @@ const MAX_OBJECT = 2_000;
  */
 @Injectable()
 export class ExternalCandidatesService {
+  // The submission seam spans the document store, the run ledger, the
+  // pack fence (router), and claim verification (work service).
+  // eslint-disable-next-line max-params
   constructor(
     private readonly store: DocumentStoreService,
     private readonly candidates: CandidateStoreService,
     private readonly router: IndexerRouterService,
+    private readonly work: IndexerWorkService,
   ) {}
 
   async submit(p: {
@@ -78,6 +83,27 @@ export class ExternalCandidatesService {
 
     const binding = await this.resolveExternalBinding(companyId, dto);
     validateShapes(dto, binding.indexerId);
+    const claim = resolveClaimFields(dto);
+
+    // Claimed flow: the run row already exists (claimed via the work
+    // API) — verify the token fences it, drop any prior attempt's staged
+    // candidates (drop-and-restage, exactly what createRun's reopen
+    // does), and fulfil THAT slot. Provenance pins the claimed run's
+    // packVersion — the work item is the source of truth for its slot.
+    let runId: string | undefined;
+    let packVersion = binding.packVersion;
+    if (claim) {
+      const run = await this.work.verifyClaimForSubmit({
+        companyId,
+        runId: claim.runId,
+        claimToken: claim.claimToken,
+        docId: doc.id,
+        packId: binding.indexerId,
+      });
+      await this.candidates.dropRunCandidates(companyId, run.runId);
+      runId = run.runId;
+      packVersion = run.packVersion;
+    }
 
     const { batch, dropped, ungrounded } = await this.groundAgainstDocument({
       companyId,
@@ -85,38 +111,45 @@ export class ExternalCandidatesService {
       dto,
       // The RESOLVED installed version — not dto.packVersion, which the
       // caller may omit. Keeps candidate/fact provenance in lockstep with
-      // the run ledger (which already uses binding.packVersion) instead of
-      // stamping the '0' fallback.
-      packVersion: binding.packVersion,
+      // the run ledger instead of stamping the '0' fallback.
+      packVersion,
     });
 
-    const run = await this.candidates.createRun(companyId, {
-      docId: doc.id,
-      packId: binding.indexerId,
-      packVersion: binding.packVersion,
-    });
-    if (!run.created) {
-      throw new ConflictException(
-        `indexer "${binding.indexerId}"@${binding.packVersion} already processed this document`,
-      );
+    if (runId === undefined) {
+      // Claimless flow: open (or reopen) the run — the createRun CAS is
+      // the claim. A pre-created 'pending' external work item is absorbed
+      // here (pending → running reopen), so simple pollers never need the
+      // claim endpoint at all.
+      const run = await this.candidates.createRun(companyId, {
+        docId: doc.id,
+        packId: binding.indexerId,
+        packVersion,
+        external: true,
+      });
+      if (!run.created) {
+        throw new ConflictException(
+          `indexer "${binding.indexerId}"@${packVersion} already processed this document`,
+        );
+      }
+      runId = run.runId;
     }
 
     const counts = await this.candidates.insertBatch(companyId, {
       docId: doc.id,
-      runId: run.runId,
+      runId,
       chunkSeq: 0,
       batch,
     });
     await this.candidates.finalizeRun(companyId, {
-      runId: run.runId,
+      runId,
       status: 'succeeded',
       stats: { ...counts, dropped: dropped.length, external: true },
     });
 
     return {
-      runId: run.runId,
+      runId,
       packId: binding.indexerId,
-      packVersion: binding.packVersion,
+      packVersion,
       staged: counts,
       dropped,
       ungrounded,
@@ -214,6 +247,22 @@ export class ExternalCandidatesService {
       ungrounded: false,
     };
   }
+}
+
+/** runId + claimToken travel together, or not at all. */
+function resolveClaimFields(
+  dto: SubmitCandidatesDto,
+): { runId: string; claimToken: string } | null {
+  const hasRun = dto.runId !== undefined;
+  const hasToken = dto.claimToken !== undefined;
+  if (hasRun !== hasToken) {
+    throw new BadRequestException(
+      'runId and claimToken must be provided together',
+    );
+  }
+  return hasRun
+    ? { runId: dto.runId as string, claimToken: dto.claimToken as string }
+    : null;
 }
 
 /**
