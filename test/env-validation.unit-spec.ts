@@ -160,3 +160,31 @@ describe('validateEnv — ABAC boolean flags', () => {
     expect(() => validateEnv(env)).toThrow(/ABAC_DB_FENCE_ENABLED/);
   });
 });
+
+describe('validateEnv — PROCESS_ROLE', () => {
+  // Full mapping coverage lives in test/process-role.unit-spec.ts;
+  // this block keeps the validation walk itself covered alongside
+  // its sibling guards (production shape: baseProdEnv).
+  it('accepts api/worker/all and unset', () => {
+    for (const role of ['api', 'worker', 'all', undefined]) {
+      const env = baseProdEnv();
+      if (role !== undefined) env.PROCESS_ROLE = role;
+      expect(() => validateEnv(env)).not.toThrow();
+    }
+  });
+
+  it('rejects an unknown role', () => {
+    const env = baseProdEnv();
+    env.PROCESS_ROLE = 'front';
+    expect(() => validateEnv(env)).toThrow(/PROCESS_ROLE/);
+  });
+
+  it('rejects api/worker combined with JOBS_QUEUE_MODE=inline', () => {
+    for (const role of ['api', 'worker']) {
+      const env = baseProdEnv();
+      env.PROCESS_ROLE = role;
+      env.JOBS_QUEUE_MODE = 'inline';
+      expect(() => validateEnv(env)).toThrow(/JOBS_QUEUE_MODE=enqueue/);
+    }
+  });
+});

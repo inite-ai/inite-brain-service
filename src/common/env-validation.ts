@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { isProcessRole, normalizeProcessRole } from './process-role';
 
 const log = new Logger('EnvValidation');
 
@@ -69,6 +70,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── Production-only guards (scoped pool + test-only kill switches) ─
   validateProductionGuards(env, errors, warnings);
+
+  // ── Process role (api / worker split) ─────────────────────────────
+  validateProcessRole(env, errors);
 
   // ── Embedding dimensions ──────────────────────────────────────────
   const dims = env.OPENAI_EMBEDDING_DIMENSIONS;
@@ -226,6 +230,38 @@ function validateProductionGuards(
       'THROTTLE_DISABLED=1 is a test-only flag and must not be set in ' +
         'production — it disables all rate limiting, including the ' +
         'expensive OpenAI-budget caps.',
+    );
+  }
+}
+
+/**
+ * PROCESS_ROLE maps one env to the api/worker flag bundle (see
+ * common/process-role.ts). Two failure shapes are caught here:
+ *   - a typo'd role (PROCESS_ROLE=apy) would silently apply NO bundle
+ *     and the pod would run everything — the exact misconfiguration the
+ *     convenience exists to prevent;
+ *   - api/worker with JOBS_QUEUE_MODE != enqueue: inline mode executes
+ *     jobs inside whatever process fired the cron, so the "api-only"
+ *     pod would still run compaction/dreams in-process. The queue modes
+ *     parse as `=== 'enqueue'`, so ANY other value (including a typo)
+ *     means inline behavior and is rejected alongside it.
+ */
+function validateProcessRole(env: NodeJS.ProcessEnv, errors: string[]): void {
+  if (env.PROCESS_ROLE === undefined) return;
+  const role = normalizeProcessRole(env.PROCESS_ROLE);
+  if (!isProcessRole(role)) {
+    errors.push(
+      `PROCESS_ROLE must be one of api/worker/all (got "${env.PROCESS_ROLE}")`,
+    );
+    return;
+  }
+  if (role === 'all') return;
+  const mode = (env.JOBS_QUEUE_MODE ?? 'enqueue').trim();
+  if (mode !== 'enqueue') {
+    errors.push(
+      `PROCESS_ROLE=${role} requires JOBS_QUEUE_MODE=enqueue (got "${mode}") — ` +
+        'inline mode executes background jobs inside the API process, ' +
+        'defeating the role split.',
     );
   }
 }
