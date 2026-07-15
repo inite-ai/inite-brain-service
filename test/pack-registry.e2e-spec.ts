@@ -9,7 +9,10 @@
  * per-tenant domain_pack install record.
  */
 import { generateKeyPairSync } from 'node:crypto';
-import { REAL_ESTATE_PACK, signPack } from '../src/ai/domain-packs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { packChecksum, REAL_ESTATE_PACK, signPack } from '../src/ai/domain-packs';
+import { RegistryMirrorService } from '../src/registry/registry-mirror.service';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 
@@ -387,5 +390,181 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     expect(page1.body.packs[0].packId).not.toBe(page2.body.packs[0].packId);
     const seen = [page1.body.packs[0].packId, page2.body.packs[0].packId].sort();
     expect(seen).toEqual(['pg_a_e2e', 'pg_b_e2e']);
+  });
+
+  describe('pull-only cross-instance mirroring (REGISTRY_UPSTREAM_URL)', () => {
+    // A fake UPSTREAM registry served by a plain node http server. State is
+    // mutable so tests can flip yanks between sync runs. JSON round-trip the
+    // manifests so checksums are computed over exactly what goes on the wire.
+    const wire = (m: Record<string, unknown>) =>
+      JSON.parse(JSON.stringify(m)) as Record<string, unknown> & {
+        id: string;
+        version: string;
+      };
+    const M_010 = wire({ ...PACK, id: 'mirror_e2e', version: '0.1.0' });
+    const M_020 = wire({
+      ...PACK,
+      id: 'mirror_e2e',
+      version: '0.2.0',
+      description: 'upstream 0.2.0 — must lose to the local publish',
+    });
+    const M_BUILTIN = wire({ ...PACK, id: 'code_memory', version: '9.0.0' });
+    const upstreamPacks: Record<
+      string,
+      Array<{ manifest: typeof M_010; yanked: boolean }>
+    > = {
+      mirror_e2e: [
+        { manifest: M_010, yanked: false },
+        { manifest: M_020, yanked: false },
+      ],
+      code_memory: [{ manifest: M_BUILTIN, yanked: false }],
+    };
+    const seenAuth: Array<string | undefined> = [];
+    let server: Server;
+    let upstreamBase: string;
+    let mirror: RegistryMirrorService;
+
+    beforeAll(async () => {
+      server = createServer((req, res) => {
+        seenAuth.push(req.headers.authorization);
+        const url = new URL(req.url ?? '/', 'http://localhost');
+        const parts = url.pathname.split('/').filter(Boolean); // v1 registry packs [id] [version]
+        const json = (body: unknown) => {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(body));
+        };
+        const versionRow = (packId: string, v: { manifest: typeof M_010; yanked: boolean }) => ({
+          packId,
+          version: v.manifest.version,
+          checksum: packChecksum(v.manifest as never),
+          description: '',
+          keywords: [],
+          publisher: null,
+          signed: false,
+          verified: false,
+          yanked: v.yanked,
+          yankReason: v.yanked ? 'upstream says no' : null,
+          publishedAt: new Date().toISOString(),
+          downloads: 0,
+        });
+        if (parts.length === 3) {
+          return json({
+            packs: Object.keys(upstreamPacks).map((packId) => ({
+              packId,
+              latestVersion: '0.1.0',
+              description: '',
+              keywords: [],
+              publisher: null,
+              signed: false,
+              verified: false,
+              downloads: 0,
+              versionCount: upstreamPacks[packId].length,
+            })),
+          });
+        }
+        const rows = upstreamPacks[parts[3]];
+        if (!rows) {
+          res.statusCode = 404;
+          return res.end('{}');
+        }
+        if (parts.length === 4) {
+          return json({
+            packId: parts[3],
+            latestVersion: rows[0].manifest.version,
+            versions: rows.map((v) => versionRow(parts[3], v)),
+          });
+        }
+        const row = rows.find((v) => v.manifest.version === parts[4]);
+        if (!row) {
+          res.statusCode = 404;
+          return res.end('{}');
+        }
+        return json({
+          packId: parts[3],
+          version: row.manifest.version,
+          checksum: packChecksum(row.manifest as never),
+          yanked: row.yanked,
+          manifest: row.manifest,
+        });
+      });
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+      upstreamBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      process.env.REGISTRY_UPSTREAM_URL = upstreamBase;
+      process.env.REGISTRY_UPSTREAM_TOKEN = 'upstream-e2e-token';
+      mirror = pub.app.get(RegistryMirrorService);
+    });
+
+    afterAll(async () => {
+      delete process.env.REGISTRY_UPSTREAM_URL;
+      delete process.env.REGISTRY_UPSTREAM_TOKEN;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    it('imports upstream versions with origin, skips local rows, rejects builtin ids', async () => {
+      // A LOCAL publish of mirror_e2e@0.2.0 that must win over the upstream's.
+      const local020 = { ...PACK, id: 'mirror_e2e', version: '0.2.0' };
+      const published = await pub.http
+        .post('/v1/admin/registry/packs')
+        .set(auth(pub))
+        .send({ manifest: local020 });
+      expect([200, 201]).toContain(published.status);
+
+      const summary = await mirror.sync();
+      expect(summary.imported).toBe(1); // only 0.1.0 — 0.2.0 exists locally
+      expect(summary.skippedExisting).toBeGreaterThanOrEqual(1);
+      expect(summary.failures).toBeGreaterThanOrEqual(1); // builtin id rejected
+
+      const versions = await reader.http
+        .get('/v1/registry/packs/mirror_e2e')
+        .set(auth(reader));
+      const byVer = Object.fromEntries(
+        versions.body.versions.map((v: any) => [v.version, v]),
+      );
+      // Mirrored row carries the origin marker; the local row carries none —
+      // and its content is the LOCAL publish, not the upstream 0.2.0.
+      expect(byVer['0.1.0'].origin).toBe(upstreamBase);
+      expect(byVer['0.2.0'].origin).toBeUndefined();
+      const localManifest = await reader.http
+        .get('/v1/registry/packs/mirror_e2e/0.2.0')
+        .set(auth(reader));
+      expect(localManifest.body.manifest.description).not.toContain('upstream');
+      // Builtin-id squatting protection held on the mirror path.
+      const builtin = await reader.http
+        .get('/v1/registry/packs/code_memory')
+        .set(auth(reader));
+      expect(builtin.body.versions).toHaveLength(0);
+      // The upstream token was sent on every upstream request.
+      expect(seenAuth.length).toBeGreaterThan(0);
+      expect(seenAuth.every((a) => a === 'Bearer upstream-e2e-token')).toBe(
+        true,
+      );
+    });
+
+    it('re-sync is idempotent and mirrors upstream yanks only onto origin-matching rows', async () => {
+      // Upstream yanks BOTH versions; locally only the mirrored 0.1.0 may
+      // follow — 0.2.0 is a local publish and must stay installable.
+      upstreamPacks.mirror_e2e[0].yanked = true;
+      upstreamPacks.mirror_e2e[1].yanked = true;
+
+      const summary = await mirror.sync();
+      expect(summary.imported).toBe(0);
+      expect(summary.yanksMirrored).toBe(1);
+
+      const versions = await reader.http
+        .get('/v1/registry/packs/mirror_e2e')
+        .set(auth(reader));
+      const byVer = Object.fromEntries(
+        versions.body.versions.map((v: any) => [v.version, v]),
+      );
+      expect(byVer['0.1.0'].yanked).toBe(true);
+      expect(byVer['0.1.0'].yankReason).toContain('upstream says no');
+      expect(byVer['0.2.0'].yanked).toBe(false);
+      expect(versions.body.latestVersion).toBe('0.2.0');
+
+      // Third run: nothing left to do (yank already mirrored).
+      const again = await mirror.sync();
+      expect(again.imported).toBe(0);
+      expect(again.yanksMirrored).toBe(0);
+    });
   });
 });

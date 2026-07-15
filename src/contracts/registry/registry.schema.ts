@@ -24,6 +24,9 @@ export const RegistryVersionSchema = z.object({
   /** Installs served for THIS version (install path only — browsing and
    *  manifest inspection are not counted). */
   downloads: z.number().int().nonnegative().default(0),
+  /** Upstream registry base URL this version was mirrored from
+   *  (pull-only mirror, REGISTRY_UPSTREAM_URL). Absent = locally published. */
+  origin: z.string().optional(),
 });
 
 /** One pack in a catalogue listing — its latest installable version + counts. */
@@ -41,6 +44,8 @@ export const RegistryPackSummarySchema = z.object({
   /** publishedAt of the latest installable version (ISO 8601). */
   publishedAt: z.string().optional(),
   versionCount: z.number().int().nonnegative(),
+  /** origin of the latest installable version (see RegistryVersion). */
+  origin: z.string().optional(),
 });
 
 export const RegistryListResponseSchema = z.object({

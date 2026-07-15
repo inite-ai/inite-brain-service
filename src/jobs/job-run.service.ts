@@ -17,7 +17,8 @@ export type JobType =
   | 'commit_document'
   | 'candidate_sweeper'
   | 'reindex_documents'
-  | 'scenarios_batch';
+  | 'scenarios_batch'
+  | 'registry_mirror';
 
 export type JobStatus =
   | 'pending'

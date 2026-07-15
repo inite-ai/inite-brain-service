@@ -17,6 +17,7 @@ export type ConfigCategory =
   | 'throttle'
   | 'jobs'
   | 'auth'
+  | 'registry'
   | 'misc';
 
 export interface ConfigEntry {
@@ -852,6 +853,35 @@ export class ConfigInspectorService {
         isBooleanFlag: false,
         description:
           'Cap on in-flight dispatches across all jobTypes in this process; 0 = uncapped.',
+      },
+      // ── Registry mirroring (pull-only, migration 0064) ───────
+      {
+        key: 'REGISTRY_UPSTREAM_URL',
+        category: 'registry',
+        defaultValue: null,
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Base URL of the upstream Brain instance whose pack registry this one mirrors. Unset = mirroring off (no job registered); restart required to turn on/off.',
+      },
+      {
+        key: 'REGISTRY_UPSTREAM_TOKEN',
+        category: 'registry',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        secret: true,
+        description:
+          'Bearer token sent on upstream /v1/registry reads (brain:read key on the upstream). Optional.',
+      },
+      {
+        key: 'REGISTRY_MIRROR_INTERVAL_HOURS',
+        category: 'registry',
+        defaultValue: '24',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Mirror sync cadence in hours. The hourly :26 UTC cron collapses ticks inside one interval bucket via dedup key.',
       },
     ];
   }
