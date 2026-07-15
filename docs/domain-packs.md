@@ -14,6 +14,45 @@ a general seed (`name`, `said`, `plan`, …). A domain needs its own vocabulary 
 but baking every domain's predicates into the core seed doesn't scale and can't
 be community-extended. Packs make the ontology a first-class, versioned plugin.
 
+## Quickstart: author → validate → sign → publish → install
+
+The whole community-author loop, copy-paste ready (details for each step live
+in the sections below):
+
+```bash
+# 1. Scaffold a valid starter manifest → ./my_pack.pack.json
+pnpm pack:init my_pack
+
+# 2. Edit my_pack.pack.json — predicates (TYPE/ADMIT/VALUE cards),
+#    extractionProfile, evalFixtures, optional indexer descriptor.
+
+# 3. Validate against the standard + core collision check
+pnpm pack:validate my_pack.pack.json
+
+# 4. (optional) Sign as your publisher id — required when the target brain
+#    sets DOMAIN_PACK_REQUIRE_SIGNATURE / PACK_REGISTRY_REQUIRE_SIGNATURE
+openssl genpkey -algorithm ed25519 -out priv.pem   # once, if you have no key
+pnpm pack:sign -- --file my_pack.pack.json --key priv.pem --publisher acme
+
+# 5. Publish into the global registry (key needs the registry:publish scope)
+BRAIN_API_KEY=... pnpm pack:publish -- --brain-url https://brain.inite.ai \
+  --file my_pack.pack.json --keywords my,keywords --verify
+
+# 6. Install into a tenant (key needs brain:admin) — from the registry…
+BRAIN_API_KEY=... pnpm pack:install -- --brain-url https://brain.inite.ai \
+  --registry my_pack
+#    …or straight from the reviewed local file, checksum-pinned
+BRAIN_API_KEY=... pnpm pack:install -- --brain-url https://brain.inite.ai \
+  --file my_pack.pack.json --verify
+
+# 7. Score the LIVE extractor against the pack's own evalFixtures
+curl -X POST -H "Authorization: Bearer $BRAIN_API_KEY" \
+  https://brain.inite.ai/v1/admin/packs/my_pack/eval
+```
+
+No PR to this repo is needed for any of it — a community pack is JSON,
+published to a registry instance and installed per-tenant.
+
 ## The manifest
 
 A pack is a `DomainPackManifest` (`src/ai/domain-packs/manifest.ts`):

@@ -37,6 +37,7 @@
     "label:decisions": "ts-node -r tsconfig-paths/register scripts/label-decisions.ts",
     "label:commitpackft": "ts-node -r tsconfig-paths/register scripts/label-commitpackft.ts",
     "train:decision-gate": "ts-node -r tsconfig-paths/register scripts/train-decision-gate.ts",
+    "pack:init": "ts-node -r tsconfig-paths/register scripts/init-pack.ts",
     "pack:validate": "ts-node -r tsconfig-paths/register scripts/validate-pack.ts",
     "pack:install": "ts-node -r tsconfig-paths/register scripts/install-pack.ts",
     "pack:sign": "ts-node -r tsconfig-paths/register scripts/sign-pack.ts",
