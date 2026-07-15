@@ -141,6 +141,9 @@ validateAbacEnv(env, errors);
   positiveInt(env, 'MAX_DEDICATED_INDEXERS_PER_DOC', errors);
   nonNegativeFloat(env, 'CANDIDATE_MIN_CONFIDENCE', errors);
 
+  // ── Chat-route NLI intent classifier ───────────────────────────────
+  positiveInt(env, 'CHAT_ROUTE_NLI_TIMEOUT_MS', errors);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -310,6 +313,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'AUDIT_CHANGEFEED_ENABLED',
   'DEBUG_TRACE_PERSIST',
   'BGE_M3_WORKER',
+  // Default-ON (config default '1' feeds envFlagEnabled); a value outside
+  // FLAG_VALUES still parses as OFF, i.e. in-thread NLI inference.
+  'CHAT_ROUTE_NLI_WORKER',
   'THROTTLE_DISABLED',
 ];
 
