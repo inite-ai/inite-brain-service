@@ -130,16 +130,34 @@ export class ConfigInspectorService {
       {
         key: 'EXTRACTOR_LOCAL_NER_MIN_SCORE',
         category: 'extractor',
-        defaultValue: '0.6',
+        defaultValue: '0.7',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
       {
         key: 'EXTRACTOR_LOCAL_NER_MODEL',
         category: 'extractor',
-        defaultValue: 'Xenova/bert-base-NER',
+        defaultValue: 'Xenova/bert-base-multilingual-cased-ner-hrl',
         runtimeMutable: false,
         isBooleanFlag: false,
+      },
+      {
+        key: 'EXTRACTOR_LOCAL_NER_WORKER',
+        category: 'extractor',
+        defaultValue: '1',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Run the local NER ONNX pipeline in a dedicated worker_thread so inference never blocks the event loop. 0 = in-thread.',
+      },
+      {
+        key: 'EXTRACTOR_LOCAL_NER_TIMEOUT_MS',
+        category: 'extractor',
+        defaultValue: '3000',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Per-call budget for the NER worker RPC; a stalled call degrades to "no local entities" and latches worker retries for 5 minutes.',
       },
       {
         key: 'EXTRACTOR_LOCAL_PREDICATE_THRESHOLD',
