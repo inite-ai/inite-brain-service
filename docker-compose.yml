@@ -46,6 +46,12 @@ services:
       # (CI/prod) overrides it. ≥32 chars to also clear the length warning.
       # Mirrors the SURREALDB_SCOPED_PASS local-default pattern above.
       - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-local-dev-forget-hmac-key-change-in-prod}
+      # Uncomment when running the split-role recipe (docker compose
+      # --profile split up): this pod serves HTTP only, brain-worker below
+      # owns the job queue + nightly crons. Leave commented for the default
+      # single-process deployment. See docs/operations.md
+      # "Splitting API and worker roles".
+      # - PROCESS_ROLE=api
     ports:
       - "${BRAIN_HOST_PORT:-3030}:3000"
     # PID-1 init (tini): reaps zombie children — the app spawns
@@ -57,6 +63,46 @@ services:
     # it headroom so SIGTERM handling actually completes.
     stop_grace_period: 30s
     # Mirror the prod ceilings so local OOMs surface here, not in deploy.
+    mem_limit: 2g
+    mem_reservation: 768m
+    cpus: 2.0
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Split-role worker pod (opt-in): started only with
+  # `docker compose --profile split up`. Same image as `brain`;
+  # PROCESS_ROLE=worker keeps the HTTP server for the healthcheck but
+  # publishes NO ports — all external traffic goes to `brain` (set
+  # PROCESS_ROLE=api there). Requires JOBS_QUEUE_MODE=enqueue (the
+  # default; api/worker roles refuse to boot in inline mode).
+  # See docs/operations.md "Splitting API and worker roles".
+  brain-worker:
+    profiles: ["split"]
+    build: .
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    environment:
+      - PROCESS_ROLE=worker
+      - PORT=3000
+      - SURREALDB_URL=ws://surrealdb:8000
+      - SURREALDB_USERNAME=root
+      - SURREALDB_PASSWORD=root
+      - SURREALDB_NAMESPACE=brain
+      - SURREALDB_SCOPED_USER=brain_caller
+      - SURREALDB_SCOPED_PASS=${SURREALDB_SCOPED_PASS:-local-scoped-secret}
+      - BRAIN_BASELINES_DIR=/app/.cache/baselines
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - BRAIN_API_KEYS=${BRAIN_API_KEYS:-[]}
+      - FORGET_HMAC_KEY=${FORGET_HMAC_KEY:-local-dev-forget-hmac-key-change-in-prod}
+    # No `ports:` — internal healthcheck only; nothing routes here.
+    init: true
+    stop_grace_period: 30s
     mem_limit: 2g
     mem_reservation: 768m
     cpus: 2.0

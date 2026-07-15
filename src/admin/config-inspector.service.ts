@@ -901,6 +901,15 @@ export class ConfigInspectorService {
         description:
           'Mirror sync cadence in hours. The hourly :26 UTC cron collapses ticks inside one interval bucket via dedup key.',
       },
+      {
+        key: 'PROCESS_ROLE',
+        category: 'jobs',
+        defaultValue: 'all',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Boot-only role split: all (default, single do-everything process), api (applies WORKER_LOOP_ENABLED=0 + JOB_WORKER_POOL_SIZE=0 unless set explicitly), worker (applies CHAT_ROUTE_NLI_ENABLED=false unless set). api/worker require JOBS_QUEUE_MODE=enqueue — validated at boot. See docs/operations.md "Splitting API and worker roles".',
+      },
     ];
   }
 }

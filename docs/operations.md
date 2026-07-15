@@ -91,6 +91,93 @@ The queue is on by default. Every var has a safe default; tune below.
 | `JOB_RUN_BACKOFF_BASE_MS` | `30000` | Exponential-backoff base for failed/zombie-reaped jobs. Cap is 1h regardless of base × `2^(attempts-1)`. |
 | `JOB_WORKER_POOL_SIZE` | `2` (dev) / `0` (prod) | `node:worker_threads` pool size for `cpuBound: true` handlers. `0` disables the pool entirely (no current handler is cpuBound). |
 | `JOB_RUN_PERSIST` | `1` | Set `0` only in unit tests to disable job_run persistence entirely. Never in prod. |
+| `PROCESS_ROLE` | `all` | One-env role split: `all` / `api` / `worker`. Maps to the flag bundle described in [Splitting API and worker roles](#splitting-api-and-worker-roles). Explicitly-set flags always win over the role defaults. |
+
+## Splitting API and worker roles
+
+By default one Node process does everything: HTTP API, crons, the
+job_run queue loop, and the `worker_threads` pool. `PROCESS_ROLE`
+bundles the existing split machinery (worker-loop kill switch, leader
+leases, dedupKey-idempotent cron enqueues) behind a single env so you
+can run one HTTP-only pod and one jobs pod against the same SurrealDB.
+
+### Role semantics
+
+Applied at boot, **before** Nest module init, and only for flags you
+did NOT set explicitly — an explicit env always wins over the role
+default. Each applied (or skipped-because-explicit) default is logged
+under the `ProcessRole` context.
+
+| Role | Flag defaults applied | Meaning |
+|---|---|---|
+| `all` (default) | none | Byte-identical single-process behavior. |
+| `api` | `WORKER_LOOP_ENABLED=0`, `JOB_WORKER_POOL_SIZE=0` | Serves HTTP; never claims/dispatches queued jobs; skips the `worker_threads` job pool (it serves cpuBound *job* handlers only — nothing on the request path uses it). |
+| `worker` | `CHAT_ROUTE_NLI_ENABLED=false` | Runs the queue loop + crons. Keeps the HTTP server up (healthcheck + `/v1/admin/*` need it) but the compose recipe publishes no ports. Skips the ~135MB NLI intent-classifier ONNX model — a worker pod doesn't chat-route. |
+
+**`JOBS_QUEUE_MODE=enqueue` is required** (it is the default):
+`PROCESS_ROLE=api|worker` combined with `JOBS_QUEUE_MODE=inline` fails
+boot-time validation — inline mode executes compaction/dreams/refit
+inside whatever process fired the cron, which defeats the split.
+
+### What still runs on an api-role pod
+
+`@Cron` registrations are not gated by `WORKER_LOOP_ENABLED`, so the
+api pod still fires them — by design, all of them are either
+enqueue-only or lease-arbitrated:
+
+- **Enqueue-only nightly crons** (compaction 03:17, calibration/source-
+  trust refit 03:42/03:51, candidate sweeper 03:45, dreams 04:00): in queue
+  mode they only insert `job_run` rows with date-keyed dedupKeys; the
+  rows sit pending until the worker pod's loop claims them. Double
+  firing across pods collapses on the UNIQUE(jobType, dedupKey) index.
+- **Memory-quality gauge cron (03:35)**: computes per-pod Prometheus
+  gauges locally on every pod — intentionally lease-less.
+- **Changefeed consumer (every minute, off by default)** and the
+  **lease-manager janitor (10s/60s)**: gated by leader leases, so ONE
+  pod runs them — and that can be the api pod if it wins the lease.
+  Both are light (IO-bound drain / zombie-reap writes). To pin them to
+  the worker, set `AUDIT_CHANGEFEED_ENABLED=0` /
+  `LEASE_MANAGER_ENABLED=0` explicitly on the api pod.
+
+The worker pod runs everything: queue loop (it should win the
+`worker_loop` lease since the api pod no longer competes), all crons,
+and the cpuBound `worker_threads` pool.
+
+### Compose recipe
+
+`docker-compose.yml` ships an opt-in `brain-worker` service under the
+`split` profile. Uncomment `PROCESS_ROLE=api` on the `brain` service,
+then:
+
+```bash
+docker compose --profile split up -d
+```
+
+Default `docker compose up` is unchanged — the profile keeps the
+worker service out of the single-process deployment.
+
+### Memory notes
+
+- A second pod is a second full Node + Nest RSS (~200-300MB baseline
+  before models) plus its own SurrealDB connection pool
+  (`SURREALDB_POOL_SIZE` per pod). Budget both against the host.
+- ONNX models lazy-load where used: the NLI intent classifier (~135MB)
+  loads only where chat routing runs (api pod; disabled on worker by
+  the role default), the local cross-encoder (~279MB, opt-in) only
+  where search runs. The BGE-M3 embedder (~150MB, when
+  `EMBEDDER_PROVIDER=bge-m3`) loads on BOTH pods — the api pod embeds
+  queries, the worker embeds ingested facts.
+
+### When to actually split
+
+Stay single-process until at least one of these holds:
+
+- **≥4 CPUs** available — below that the two pods just contend.
+- **p95 event-loop lag** on the API during the nightly cron window
+  (03:00-05:00 UTC) — the queue work is starving request latency.
+- **HA / ≥2 pods**: you are scaling the API horizontally anyway; give
+  every API pod `PROCESS_ROLE=api` and run exactly one (or a few —
+  leases arbitrate) `PROCESS_ROLE=worker` pod.
 
 ## Retrieval feature flags
 

@@ -15,6 +15,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateEnv } from './common/env-validation';
+import { applyProcessRole } from './common/process-role';
 import { requestLogger } from './common/request-logger';
 import { debugTraceMiddleware } from './common/debug-trace';
 import { correlationIdMiddleware } from './common/correlation-id.middleware';
@@ -23,6 +24,13 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 async function bootstrap() {
   // Fail fast on missing/invalid env before NestJS or Surreal even start.
   validateEnv();
+
+  // PROCESS_ROLE=api|worker|all → per-role flag defaults. MUST run before
+  // NestFactory.create: WORKER_LOOP_ENABLED / JOB_WORKER_POOL_SIZE /
+  // CHAT_ROUTE_NLI_ENABLED are captured from the environment during module
+  // init. Explicitly-set flags always win; the role fills in unset ones.
+  const roleLog = new Logger('ProcessRole');
+  for (const line of applyProcessRole(process.env)) roleLog.log(line);
 
   // Process-level crash safety. This is a long-lived worker pod with many
   // un-awaited background promises (worker poll loop, cron ticks, lease
