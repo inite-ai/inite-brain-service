@@ -145,6 +145,9 @@ validateAbacEnv(env, errors);
   // ── Chat-route NLI intent classifier ───────────────────────────────
   positiveInt(env, 'CHAT_ROUTE_NLI_TIMEOUT_MS', errors);
 
+  // ── Worker-loop concurrency (per-jobType poller) ────────────────────
+  validateWorkerConcurrencyEnv(env, errors);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -264,6 +267,27 @@ function validateBooleanFlags(env: NodeJS.ProcessEnv, warnings: string[]): void 
         `${name} must be one of 1/0/true/false (got "${v}") — ` +
           'unrecognized values parse as OFF.',
       );
+    }
+  }
+}
+
+/**
+ * Worker-loop concurrency knobs. A typo'd value would silently parse as
+ * "unset" in the poller (falling back to serial) — validate at boot like
+ * the rest of the numeric knobs. The per-jobType overrides are dynamic
+ * (WORKER_LOOP_MAX_CONCURRENT_<JOBTYPE>), so sweep every env key with
+ * that prefix instead of hard-coding the jobType list.
+ */
+function validateWorkerConcurrencyEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  positiveInt(env, 'WORKER_LOOP_MAX_CONCURRENT', errors);
+  positiveInt(env, 'WORKER_LOOP_TENANT_MAX_CONCURRENT', errors);
+  nonNegativeInt(env, 'WORKER_LOOP_GLOBAL_MAX_CONCURRENT', errors);
+  for (const name of Object.keys(env)) {
+    if (name.startsWith('WORKER_LOOP_MAX_CONCURRENT_')) {
+      positiveInt(env, name, errors);
     }
   }
 }
@@ -396,6 +420,18 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): vo
   if (v === undefined) return;
   if (!/^\d+$/.test(v) || parseInt(v, 10) < 1) {
     errors.push(`${name} must be a positive integer`);
+  }
+}
+
+function nonNegativeInt(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  errors: string[],
+): void {
+  const v = env[name];
+  if (v === undefined) return;
+  if (!/^\d+$/.test(v)) {
+    errors.push(`${name} must be a non-negative integer`);
   }
 }
 

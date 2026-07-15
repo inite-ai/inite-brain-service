@@ -166,6 +166,8 @@ export class WorkerLoopService
       const control: PollControl = {
         isLeader: () => this.isLeader,
         signal: this.abortController.signal,
+        onInFlight: (jobType, inFlight) =>
+          this.metrics?.setWorkerJobsInFlight(jobType, inFlight),
       };
       for (const reg of this.handlers.values()) {
         void this.poller.runLoop(reg, control);

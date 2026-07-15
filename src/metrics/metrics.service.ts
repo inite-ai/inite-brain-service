@@ -299,6 +299,17 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // In-flight job dispatches per jobType. Only reported by the bounded-
+  // concurrency poll loop (WORKER_LOOP_MAX_CONCURRENT[_<JOBTYPE>] > 1 or
+  // WORKER_LOOP_GLOBAL_MAX_CONCURRENT > 0); the default serial loop keeps
+  // its original code path and emits nothing here.
+  readonly workerJobsInFlight = new Gauge({
+    name: 'brain_worker_jobs_in_flight',
+    help: 'In-flight background job dispatches, by jobType',
+    labelNames: ['jobType'] as const,
+    registers: [this.registry],
+  });
+
   // Document ingest (Source → Indexer → Candidates → Brain). No packId
   // label anywhere here — tenant-installed pack ids are unbounded
   // cardinality; per-pack stats live on indexer_run.stats rows.
@@ -551,6 +562,13 @@ export class MetricsService implements OnModuleInit {
 
   setWorkerLeader(isLeader: boolean): void {
     this.workerIsLeader.set(isLeader ? 1 : 0);
+  }
+
+  setWorkerJobsInFlight(jobType: string, inFlight: number): void {
+    this.workerJobsInFlight.set(
+      { jobType } as LabelValues<'jobType'>,
+      inFlight,
+    );
   }
 
   countChangefeedConsumed(source: string, n = 1): void {

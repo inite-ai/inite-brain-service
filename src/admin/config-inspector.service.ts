@@ -817,6 +817,33 @@ export class ConfigInspectorService {
         description:
           'Where background jobs run: enqueue (durable worker loop, default) vs inline (in-process).',
       },
+      {
+        key: 'WORKER_LOOP_MAX_CONCURRENT',
+        category: 'jobs',
+        defaultValue: '1',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Max in-flight dispatches per jobType in the queue poller; 1 = original serial loop. Per-type override: WORKER_LOOP_MAX_CONCURRENT_<JOBTYPE>.',
+      },
+      {
+        key: 'WORKER_LOOP_TENANT_MAX_CONCURRENT',
+        category: 'jobs',
+        defaultValue: '1',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Max in-flight dispatches per (jobType, tenant) — extra concurrency slots go to other tenants first.',
+      },
+      {
+        key: 'WORKER_LOOP_GLOBAL_MAX_CONCURRENT',
+        category: 'jobs',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Cap on in-flight dispatches across all jobTypes in this process; 0 = uncapped.',
+      },
     ];
   }
 }
