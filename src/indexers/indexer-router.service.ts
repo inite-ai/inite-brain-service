@@ -52,6 +52,7 @@ export class IndexerRouterService {
         description: m.description,
         relevance: m.indexer?.relevance,
         dedicated: m.indexer?.dedicated,
+        external: m.indexer?.external,
       });
     }
     return bindings;
