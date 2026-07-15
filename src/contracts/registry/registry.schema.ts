@@ -67,6 +67,36 @@ export const RegistryManifestResponseSchema = z.object({
   manifest: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * SPEC MIRROR of the DomainPackManifest TS interface
+ * (src/ai/domain-packs/manifest.ts) for docs/openapi.json. Deliberately
+ * loose (open object, opaque nested shapes) — runtime validation is the
+ * manifest validator on the install/publish path, never this schema.
+ */
+export const DomainPackManifestSchema = z.looseObject({
+  id: z.string().describe('snake_case pack id, no `__`.'),
+  version: z.string().describe('semver MAJOR.MINOR.PATCH.'),
+  description: z.string(),
+  predicates: z.array(z.record(z.string(), z.unknown())),
+  extractionProfile: z.record(z.string(), z.unknown()).optional(),
+  evalFixtures: z.array(z.record(z.string(), z.unknown())).optional(),
+  signature: z.string().optional().describe(
+    'ed25519 signature (base64) over the canonical manifest sans this field.',
+  ),
+  publisher: z.string().optional(),
+  indexer: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const PublishPackRequestSchema = z.object({
+  manifest: DomainPackManifestSchema,
+  keywords: z.array(z.string()).optional(),
+  expectedChecksum: z.string().optional(),
+});
+
+export const YankPackRequestSchema = z.object({
+  reason: z.string().optional(),
+});
+
 export const PublishPackResponseSchema = z.object({
   packId: z.string(),
   version: z.string(),
@@ -91,5 +121,8 @@ export type RegistryVersionsResponse = z.infer<
 export type RegistryManifestResponse = z.infer<
   typeof RegistryManifestResponseSchema
 >;
+export type DomainPackManifestWire = z.infer<typeof DomainPackManifestSchema>;
+export type PublishPackRequest = z.infer<typeof PublishPackRequestSchema>;
+export type YankPackRequest = z.infer<typeof YankPackRequestSchema>;
 export type PublishPackResponse = z.infer<typeof PublishPackResponseSchema>;
 export type YankPackResponse = z.infer<typeof YankPackResponseSchema>;

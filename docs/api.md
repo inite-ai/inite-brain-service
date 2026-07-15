@@ -1,5 +1,9 @@
 # API reference
 
+A generated [OpenAPI 3.1 document](openapi.json) covers the platform
+surface (registry, packs, documents, indexer work) — regenerate with
+`pnpm openapi:build`.
+
 All v1 endpoints are live; MCP transport is mounted per tenant. Every
 v1 call requires `Authorization: Bearer <plaintext>` where the key's
 SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require

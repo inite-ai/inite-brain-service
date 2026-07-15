@@ -31,6 +31,11 @@ export interface SubmittedRelation {
   confidence?: number;
 }
 
+/**
+ * OpenAPI mirror: src/contracts/documents/documents.schema.ts
+ * (SubmitCandidatesRequestSchema) — keep field names/optionality/caps in
+ * lockstep and regenerate docs/openapi.json on change.
+ */
 export class SubmitCandidatesDto {
   /** The pack id this indexer is registered as (indexer.mode 'external'). */
   @IsString()

@@ -33,7 +33,9 @@ export type PackPredicate = Omit<
   'predicateId' | 'createdBy'
 > & { localId: string };
 
-/** The versioned, self-describing pack manifest — the community standard. */
+/** The versioned, self-describing pack manifest — the community standard.
+ *  OpenAPI mirror: src/contracts/registry/registry.schema.ts
+ *  (DomainPackManifestSchema) — keep in lockstep. */
 export interface DomainPackManifest {
   /** snake_case pack id, no `__`. The predicate namespace. */
   id: string;

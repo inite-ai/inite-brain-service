@@ -6,6 +6,9 @@ import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
  * it (transient trouble, shutting down mid-work). `permanent: true`
  * marks the run 'failed' instead — "this indexer cannot process this
  * document", still reclaimable by runId but no longer offered.
+ *
+ * OpenAPI mirror: src/contracts/documents/documents.schema.ts
+ * (FailWorkRequestSchema) — keep in lockstep.
  */
 export class FailWorkDto {
   @IsString()

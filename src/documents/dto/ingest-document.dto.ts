@@ -23,6 +23,11 @@ export interface DocumentContextRef {
 /** Static hard cap on document text; DOC_MAX_CHARS (env) may lower it. */
 export const DOC_TEXT_HARD_CAP = 512_000;
 
+/**
+ * OpenAPI mirror: src/contracts/documents/documents.schema.ts
+ * (IngestDocumentRequestSchema) — keep field names/optionality/caps in
+ * lockstep and regenerate docs/openapi.json on change.
+ */
 export class IngestDocumentDto {
   /**
    * Container kind the connector normalized from (pdf/markdown/email/
