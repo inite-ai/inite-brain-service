@@ -143,8 +143,18 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
    * (cached thereafter) and calls its exported `run(input)`. Throws
    * if the pool is disabled, no workers are healthy, OR the handler
    * threw inside the worker (re-thrown with original message + name).
+   *
+   * `opts.acquireTimeoutMs` bounds ONLY the park phase (waiting for an
+   * idle worker) — latency-sensitive callers (search tokenBudget
+   * shaping) pass a short value so they fall back to their in-thread
+   * path instead of queueing behind long CPU-bound jobs. The per-call
+   * execution timeout is unchanged (JOB_WORKER_CALL_TIMEOUT_MS).
    */
-  async run<R = unknown>(modulePath: string, input: unknown): Promise<R> {
+  async run<R = unknown>(
+    modulePath: string,
+    input: unknown,
+    opts?: { acquireTimeoutMs?: number },
+  ): Promise<R> {
     if (!this.enabled()) {
       throw new Error('JobWorkerPool disabled');
     }
@@ -153,7 +163,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
     }
     // acquire() may park us as a waiter; it rejects on its own timeout, on
     // shutdown, or when the pool dies for good — so we never hang here.
-    const w = await this.acquire();
+    const w = await this.acquire(opts?.acquireTimeoutMs);
     if (this.shuttingDown) {
       this.release(w);
       throw new Error('JobWorkerPool shutting down');
@@ -200,25 +210,27 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
-  private acquire(): Promise<PooledWorker> {
+  private acquire(timeoutMs?: number): Promise<PooledWorker> {
     const free = this.idle.shift();
     if (free) return Promise.resolve(free);
+    const parkTimeoutMs = timeoutMs ?? this.callTimeoutMs;
     return new Promise<PooledWorker>((resolve, reject) => {
       const waiter: Waiter = { resolve, reject };
       // Park timeout. Without it a caller waits forever when every worker is
       // dead and the respawn budget is spent — no release() ever fires. The
       // per-call timeout only arms after acquire() resolves, so it can't
-      // cover this phase; this is the backstop for it.
+      // cover this phase; this is the backstop for it. Callers may shorten
+      // it per-run via opts.acquireTimeoutMs (never-park request paths).
       const timer = setTimeout(() => {
         const i = this.waiters.indexOf(waiter);
         if (i >= 0) this.waiters.splice(i, 1);
         reject(
           new Error(
-            `worker acquire timed out after ${this.callTimeoutMs}ms — ` +
+            `worker acquire timed out after ${parkTimeoutMs}ms — ` +
               'pool exhausted/degraded',
           ),
         );
-      }, this.callTimeoutMs);
+      }, parkTimeoutMs);
       timer.unref();
       // Wrap both settle paths so the timer is cleared exactly once whichever
       // fires first (release, shutdown, permanent-degradation, or timeout).

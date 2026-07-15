@@ -129,6 +129,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // pool), so this one is non-negative rather than positive.
   nonNegativeInt(env, 'COMMUNITIES_LP_OFFLOAD_MIN_EDGES', errors);
 
+  // ── tokenBudget shaping offload (default ON) ───────────────────────
+  positiveInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', errors);
+
   // ── Edge expansion (default-ON retrieval stage) ────────────────────
   // Bad values silently fell back to defaults; the numeric knobs are now
   // boot-validated like the rest of the search stack.
@@ -330,6 +333,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',
   'SEARCH_HYPE_ENABLED',
+  // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
+  // envFlagEnabled, so only an explicit 0/false disables the offload.
+  'SEARCH_TOKEN_COUNT_OFFLOAD',
   'MULTI_HOP_EDGE_EXPANSION_ENABLED',
   'EXTRACTOR_SKIP_LLM_ENABLED',
   'CALIBRATION_NIGHTLY_REFIT',

@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { countJsonTokens } from '../../common/token-counter';
+import { envFlagEnabled } from '../../common/env-validation';
 import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
 import type { EntityBucket, FactRow } from './types';
@@ -125,6 +128,89 @@ export function assembleHits({
 }
 
 /**
+ * Minimal structural slice of JobWorkerPool that the shaping path needs.
+ * Kept as an interface so response-builder (a pure function module)
+ * doesn't import the jobs service and unit tests can stub it.
+ */
+export interface TokenCountPool {
+  enabled(): boolean;
+  run<R = unknown>(
+    modulePath: string,
+    input: unknown,
+    opts?: { acquireTimeoutMs?: number },
+  ): Promise<R>;
+}
+
+/** Never park the request path behind a busy pool longer than this. */
+const OFFLOAD_ACQUIRE_TIMEOUT_MS = 25;
+/** Below this many hits the postMessage round-trip costs more than it saves. */
+const OFFLOAD_MIN_HITS_DEFAULT = 24;
+
+let cachedWorkerModulePath: string | null = null;
+
+/**
+ * Absolute path of the token-count worker-job handed to pool.run().
+ * Same `.js`-after-build / `.ts`-in-dev idiom as the pool's own
+ * runner resolution. Exported for the offload unit tests.
+ */
+export function tokenCountWorkerModulePath(): string {
+  if (cachedWorkerModulePath) return cachedWorkerModulePath;
+  const dist = join(__dirname, '..', '..', 'common', 'token-count.worker-job.js');
+  cachedWorkerModulePath = existsSync(dist)
+    ? dist
+    : join(__dirname, '..', '..', 'common', 'token-count.worker-job.ts');
+  return cachedWorkerModulePath;
+}
+
+function offloadMinHits(): number {
+  const raw = process.env.SEARCH_TOKEN_OFFLOAD_MIN_HITS;
+  const n = raw === undefined ? Number.NaN : parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1 ? n : OFFLOAD_MIN_HITS_DEFAULT;
+}
+
+/**
+ * Per-hit token counts (+1 per hit for the array comma). Serialisation
+ * happens on the main thread either way; for large hit lists the
+ * tiktoken encoding — the actual CPU hog — batches out to the worker
+ * pool with a short acquire timeout. ANY offload failure (pool busy,
+ * disabled, shutting down, worker error, malformed reply) falls back
+ * to the existing synchronous loop, so shaping never degrades and the
+ * request path never parks behind long CPU-bound jobs.
+ */
+async function countHitTokens(
+  results: SearchHit[],
+  pool?: TokenCountPool,
+): Promise<number[]> {
+  const syncCounts = () => results.map((hit) => countJsonTokens(hit) + 1);
+  const offloadEnabled = envFlagEnabled(
+    process.env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1',
+  );
+  if (
+    !pool ||
+    !offloadEnabled ||
+    results.length < offloadMinHits() ||
+    !pool.enabled()
+  ) {
+    return syncCounts();
+  }
+  const texts = results.map((hit) => JSON.stringify(hit));
+  try {
+    const out = await pool.run<{ counts: number[] }>(
+      tokenCountWorkerModulePath(),
+      { texts },
+      { acquireTimeoutMs: OFFLOAD_ACQUIRE_TIMEOUT_MS },
+    );
+    const counts = out?.counts;
+    if (!Array.isArray(counts) || counts.length !== results.length) {
+      return syncCounts();
+    }
+    return counts.map((c) => c + 1);
+  } catch {
+    return syncCounts();
+  }
+}
+
+/**
  * Apply post-hits KnowQL-lite shaping: confidenceFloor, outputShape,
  * tokenBudget. Pure transforms — input list is not mutated.
  *
@@ -139,12 +225,15 @@ export function assembleHits({
  * serialised payload fits. Tokens counted exactly via tiktoken
  * (cl100k_base) on the JSON-serialised body — same encoding the
  * downstream OpenAI/Anthropic billing uses, so the budget the caller
- * specifies is the budget they'll actually consume.
+ * specifies is the budget they'll actually consume. Async because the
+ * per-hit counting may batch out to the worker pool (see
+ * countHitTokens); semantics are identical on both paths.
  */
-export function applyOutputShaping(
+export async function applyOutputShaping(
   hits: SearchHit[],
   dto: SearchDto,
-): SearchHit[] {
+  pool?: TokenCountPool,
+): Promise<SearchHit[]> {
   let results = hits;
   if (dto.confidenceFloor !== undefined) {
     const floor = dto.confidenceFloor;
@@ -182,12 +271,13 @@ export function applyOutputShaping(
     // JSON body, synchronous on the main thread. Per-hit sums
     // over-estimate the joined encoding only slightly (BPE merges
     // across boundaries reduce tokens; +1 covers the array comma), so
-    // the budget stays a hard ceiling.
+    // the budget stays a hard ceiling. The per-hit encodes batch out
+    // to the worker pool for large lists (sync fallback inside).
     const envelopeTokens = countJsonTokens({ results: [] });
+    const perHit = await countHitTokens(results, pool);
     let used = envelopeTokens;
     let keep = 0;
-    for (const hit of results) {
-      const hitTokens = countJsonTokens(hit) + 1;
+    for (const hitTokens of perHit) {
       if (used + hitTokens > budget) break;
       used += hitTokens;
       keep += 1;
