@@ -12,6 +12,9 @@ function pack(over: Partial<RegistryPackSummary> = {}): RegistryPackSummary {
     keywords: ['finance'],
     publisher: 'acme',
     signed: true,
+    verified: false,
+    downloads: 42,
+    publishedAt: '2026-07-01T12:00:00.000Z',
     versionCount: 2,
     ...over,
   };
@@ -34,6 +37,32 @@ describe('renderRegistryPage', () => {
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('&lt;b&gt;x');
+  });
+
+  it('shows the download count and published date', () => {
+    const html = renderRegistryPage([pack()]);
+    expect(html).toContain('42 download(s)');
+    expect(html).toContain('published 2026-07-01');
+  });
+
+  it('renders a green verified badge distinct from the neutral signed marker', () => {
+    // verified implies signed → only the stronger badge shows.
+    const verified = renderRegistryPage([pack({ verified: true })]);
+    expect(verified).toContain('badge verified');
+    expect(verified).not.toContain('badge signed');
+    // signed-but-unverified → neutral marker only.
+    const signedOnly = renderRegistryPage([pack({ signed: true })]);
+    expect(signedOnly).toContain('badge signed');
+    expect(signedOnly).not.toContain('badge verified');
+    // unsigned → no badge at all.
+    const unsigned = renderRegistryPage([pack({ signed: false })]);
+    expect(unsigned).not.toContain('class="badge');
+  });
+
+  it('HTML-escapes the new dynamic fields too (publishedAt injection)', () => {
+    const html = renderRegistryPage([pack({ publishedAt: '"><script>x' })]);
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&quot;&gt;&lt;script&gt;');
   });
 
   it('shows an empty state when there are no packs', () => {

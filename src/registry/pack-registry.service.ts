@@ -15,6 +15,7 @@ import {
   pickLatestVersion,
   compareSemver,
   validatePack,
+  verifyPackSignature,
   type DomainPackManifest,
 } from '../ai/domain-packs';
 import type {
@@ -35,9 +36,11 @@ interface RegistryRow {
   keywords?: string[];
   publisher?: string | null;
   signed?: boolean;
+  verified?: boolean;
   yanked?: boolean;
   yankReason?: string | null;
   publishedAt: string;
+  downloads?: number;
 }
 
 /**
@@ -55,7 +58,9 @@ interface RegistryRow {
  *     reproducible.
  *   - Trust is end-to-end: the manifest's signature/publisher are stored as-is;
  *     cryptographic verification happens at INSTALL time against the installing
- *     tenant's trust store. The registry is a content store.
+ *     tenant's trust store. The registry is a content store. The `verified`
+ *     flag it stamps at publish time (hosting instance's trust store) is a
+ *     discovery badge, not a substitute for that boundary.
  */
 @Injectable()
 export class PackRegistryService {
@@ -114,6 +119,13 @@ export class PackRegistryService {
     const keywords = (Array.isArray(input.keywords) ? input.keywords : [])
       .map((k) => String(k).trim().toLowerCase())
       .filter(Boolean);
+    // NOTE: `verified` reflects the HOSTING instance's trust store AT PUBLISH
+    // TIME — a discovery/UX badge, not a security gate. Install-time
+    // verification against the INSTALLING tenant's own trust store
+    // (assertPackTrust) remains the real security boundary. Unsigned or
+    // failing verification is NOT an error here: publishing unsigned stays
+    // allowed unless PACK_REGISTRY_REQUIRE_SIGNATURE (above) says otherwise.
+    const verified = this.verifiedAtPublish(manifest);
 
     // Concurrent publishes of the same (packId, version) both pass the SELECT
     // (no prior) and race to CREATE; the UNIQUE index turns the loser's write
@@ -152,6 +164,8 @@ export class PackRegistryService {
           description: manifest.description ?? '',
           keywords,
           signed: Boolean(manifest.signature),
+          verified,
+          downloads: 0,
           yanked: false,
         };
         if (manifest.publisher) content.publisher = manifest.publisher;
@@ -202,6 +216,11 @@ export class PackRegistryService {
         keywords: row.keywords ?? [],
         publisher: row.publisher ?? null,
         signed: Boolean(row.signed),
+        verified: Boolean(row.verified),
+        // Adoption over the pack's whole history — SUM across all versions
+        // (yanked included: those installs happened), not just the latest.
+        downloads: versions.reduce((n, v) => n + Number(v.downloads ?? 0), 0),
+        publishedAt: new Date(row.publishedAt).toISOString(),
         versionCount: versions.length,
       });
     }
@@ -272,6 +291,24 @@ export class PackRegistryService {
     if (row.yanked) {
       throw new BadRequestException(
         `pack "${packId}" version ${row.version} is yanked and cannot be installed`,
+      );
+    }
+    // Download accounting lives HERE and only here: resolveForInstall serves
+    // the install path (POST /v1/admin/packs/from-registry). Catalogue
+    // browsing / manifest inspection (list/getVersions/getManifest) must not
+    // count. Best-effort: a failed counter write never fails the install.
+    // Keyed by the UNIQUE (packId, version) index — a single-row update.
+    try {
+      await this.surreal.withAdminDb((db) =>
+        db.query(
+          `UPDATE registry_pack SET downloads += 1
+             WHERE packId = $packId AND version = $version`,
+          { packId, version: row.version },
+        ),
+      );
+    } catch (e) {
+      this.logger.warn(
+        `Failed to count download for ${packId}@${row.version}: ${(e as Error).message}`,
       );
     }
     return { manifest: row.manifest, checksum: row.checksum };
@@ -348,8 +385,8 @@ export class PackRegistryService {
    *  inspection / install-resolution wants it dropped. */
   private projection(includeManifest: boolean): string {
     return `packId, version,${includeManifest ? ' manifest,' : ''} checksum,
-            description, keywords, publisher, signed, yanked, yankReason,
-            publishedAt`;
+            description, keywords, publisher, signed, verified, yanked,
+            yankReason, publishedAt, downloads`;
   }
 
   /** One pack's rows, packId-index scoped (no full-table scan). */
@@ -387,9 +424,37 @@ export class PackRegistryService {
       keywords: r.keywords ?? [],
       publisher: r.publisher ?? null,
       signed: Boolean(r.signed),
+      verified: Boolean(r.verified),
       yanked: Boolean(r.yanked),
       yankReason: r.yankReason ?? null,
       publishedAt: new Date(r.publishedAt).toISOString(),
+      downloads: Number(r.downloads ?? 0),
     };
+  }
+
+  /** Trust store: publisher → PEM public key, from DOMAIN_PACK_TRUSTED_KEYS
+   *  (JSON) — the SAME store the install path uses (DomainPackInstallService).
+   *  Empty when unset; a JSON typo is logged loudly and treated as empty
+   *  (validateEnv also rejects it at boot — this covers env drift after). */
+  private trustedKeys(): Record<string, string> {
+    try {
+      return JSON.parse(process.env.DOMAIN_PACK_TRUSTED_KEYS ?? '{}');
+    } catch (e) {
+      this.logger.error(
+        `DOMAIN_PACK_TRUSTED_KEYS is not valid JSON (${(e as Error).message}) — treating trust store as EMPTY`,
+      );
+      return {};
+    }
+  }
+
+  /** verified-at-publish: true only when the manifest names a publisher whose
+   *  key is in THIS hosting instance's trust store AND its ed25519 signature
+   *  validates against that key. Unsigned / unknown publisher / bad signature
+   *  → false, never an error (see the publish-time NOTE). */
+  private verifiedAtPublish(manifest: DomainPackManifest): boolean {
+    if (!manifest.signature || !manifest.publisher) return false;
+    const key = this.trustedKeys()[manifest.publisher];
+    if (!key) return false;
+    return verifyPackSignature(manifest, key);
   }
 }
