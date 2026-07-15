@@ -43,4 +43,11 @@ export interface RegisteredHandler {
 export interface PollControl {
   isLeader: () => boolean;
   signal: AbortSignal;
+  /**
+   * Observability hook: invoked with the number of in-flight dispatches
+   * for a jobType whenever it changes. Only fired by the bounded-
+   * concurrency loop (the default serial loop is untouched); wired to
+   * the brain_worker_jobs_in_flight gauge by WorkerLoopService.
+   */
+  onInFlight?: (jobType: JobType, inFlight: number) => void;
 }
