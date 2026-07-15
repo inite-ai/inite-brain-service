@@ -18,7 +18,10 @@ import type {
 } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
-import { IndexerWorkService } from './indexer-work.service';
+import {
+  assertKeyBoundToPack,
+  IndexerWorkService,
+} from './indexer-work.service';
 import { groundExternalBatch, GroundingDrop } from './candidate-grounding';
 import {
   SubmitCandidatesDto,
@@ -76,11 +79,14 @@ export class ExternalCandidatesService {
     companyId: string;
     docId: string;
     dto: SubmitCandidatesDto;
+    /** Per-pack binding of the calling key; absent = unrestricted. */
+    keyPackIds?: string[];
   }): Promise<ExternalSubmissionResult> {
     const { companyId, docId, dto } = p;
     const doc = await this.store.getById(companyId, docId);
     if (!doc) throw new NotFoundException('document not found');
 
+    assertKeyBoundToPack(p.keyPackIds, dto.indexerId);
     const binding = await this.resolveExternalBinding(companyId, dto);
     validateShapes(dto, binding.indexerId);
     const claim = resolveClaimFields(dto);

@@ -36,7 +36,11 @@ export async function createApp(opts: {
    * boot (BRAIN_API_KEYS is parsed once at module init). `policies`
    * maps to the entry's ABAC attachment field.
    */
-  extraKeys?: Array<{ scopes: string[]; policies?: string[] }>;
+  extraKeys?: Array<{
+    scopes: string[];
+    policies?: string[];
+    packIds?: string[];
+  }>;
 } = {}): Promise<AppFixture> {
   const companyId = opts.companyId ?? `co_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const apiKey = `key_${randomUUID()}`;
@@ -54,6 +58,7 @@ export async function createApp(opts: {
       companyId,
       scopes: k.scopes,
       ...(k.policies ? { policies: k.policies } : {}),
+      ...(k.packIds ? { packIds: k.packIds } : {}),
     })),
   ]);
   // Bypass real OpenAI calls.
