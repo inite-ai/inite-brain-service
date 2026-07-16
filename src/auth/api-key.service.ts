@@ -6,10 +6,11 @@ import { ApiKeyRecord } from './api-key.types';
 /**
  * In-memory ApiKey registry, sourced from BRAIN_API_KEYS env var (JSON).
  *
- * 0.1.0 walking-skeleton: keys are static, declared at boot.
- * 0.2.0+: replace with @inite/auth integration — verticals will issue
- * keys via inite.core.api-key, and this service will lookup via JWKS or
- * an auth-service introspection endpoint.
+ * Dev/bootstrap fallback only. Production credentials come from the
+ * auth-service: JWTs verified via JWKS (JwksService) and long-lived
+ * opaque ik_… keys resolved via RFC 7662 introspection
+ * (IntrospectionClient); CredentialResolverService disables this static
+ * table in production whenever a remote verifier is configured.
  */
 @Injectable()
 export class ApiKeyService implements OnModuleInit {
