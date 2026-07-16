@@ -1,6 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { promises as fs } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { ScenarioRunOutcome } from './scenario-runner.service';
 
 export interface BaselineEntry {
@@ -64,16 +69,33 @@ export class BaselineService {
     return out.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? ''));
   }
 
+  /**
+   * Resolve a baseline name to an absolute path *inside* {@link dir}.
+   * `name` is caller-supplied (admin HTTP query), so besides the char
+   * sanitiser we assert the resolved path can't escape the baselines dir —
+   * a recognised path-traversal barrier and defence-in-depth if the
+   * sanitiser ever regresses.
+   */
+  private pathFor(name: string): string {
+    const safe = sanitize(name);
+    const full = resolve(this.dir, `${safe}.json`);
+    if (full !== join(this.dir, `${safe}.json`) || !full.startsWith(this.dir + sep)) {
+      throw new BadRequestException(`Invalid baseline name`);
+    }
+    return full;
+  }
+
   async save(name: string, outcomes: ScenarioRunOutcome[]): Promise<BaselineEntry> {
     await this.ensureDir();
     const safe = sanitize(name);
+    const target = this.pathFor(name);
     const payload: SavedBaseline = {
       name: safe,
       savedAt: new Date().toISOString(),
       outcomes,
     };
     await fs.writeFile(
-      join(this.dir, `${safe}.json`),
+      target,
       JSON.stringify(payload, null, 2),
       'utf-8',
     );
@@ -90,13 +112,12 @@ export class BaselineService {
 
   async load(name: string): Promise<SavedBaseline> {
     await this.ensureDir();
-    const safe = sanitize(name);
-    const path = join(this.dir, `${safe}.json`);
+    const path = this.pathFor(name);
     try {
       const raw = await fs.readFile(path, 'utf-8');
       return JSON.parse(raw) as SavedBaseline;
     } catch {
-      throw new NotFoundException(`Baseline ${safe} not found`);
+      throw new NotFoundException(`Baseline ${sanitize(name)} not found`);
     }
   }
 

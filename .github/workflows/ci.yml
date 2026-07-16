@@ -26,6 +26,10 @@ on:
         required: false
         default: 'false'
 
+# Least-privilege default token: CI only reads the repo (build/test/lint).
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest

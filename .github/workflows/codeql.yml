@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
 
+# Workflow-level least privilege; the analyze job below elevates to the
+# security-events: write it needs to upload results.
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze (javascript-typescript)

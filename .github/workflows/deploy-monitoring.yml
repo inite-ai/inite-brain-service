@@ -25,6 +25,11 @@ concurrency:
 env:
   STACK_DIR: /opt/projects/inite-monitoring
 
+# Least-privilege default token: checkout only; deploy runs on a self-hosted
+# runner via rsync + compose.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: [self-hosted, sfo]

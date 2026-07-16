@@ -12,7 +12,7 @@
  * skills/VERSION, then `pnpm skills:build`.
  */
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 interface Args {
@@ -37,15 +37,18 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
-function git(cmd: string): string {
-  return execSync(`git ${cmd}`, { encoding: 'utf8' }).trim();
+// argv array (not a shell string): `args.since` is a CLI value, so passing
+// it as a discrete argument to execFileSync keeps it out of a shell and
+// closes the command-injection vector.
+function git(argv: string[]): string {
+  return execFileSync('git', argv, { encoding: 'utf8' }).trim();
 }
 
 function changedFiles(args: Args): string[] {
-  const cmd = args.staged
-    ? 'diff --cached --name-only --diff-filter=ACMR'
-    : `diff --name-only --diff-filter=ACMR ${args.since}`;
-  return git(cmd).split('\n').filter(Boolean);
+  const argv = args.staged
+    ? ['diff', '--cached', '--name-only', '--diff-filter=ACMR']
+    : ['diff', '--name-only', '--diff-filter=ACMR', args.since!];
+  return git(argv).split('\n').filter(Boolean);
 }
 
 const SKIP_TOPLEVEL = new Set(['skills/VERSION', 'skills/CHANGELOG.md']);
@@ -111,7 +114,7 @@ function defaultNote(args: Args): string {
   if (args.note) return args.note;
   if (args.since && args.since !== 'HEAD' && args.since !== '--cached') {
     try {
-      return git('log -1 --pretty=%s');
+      return git(['log', '-1', '--pretty=%s']);
     } catch {
       /* ignore */
     }

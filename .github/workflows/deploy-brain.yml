@@ -33,6 +33,11 @@ env:
   DOMAIN: brain.inite.ai
   PORT: 3000
 
+# Least-privilege default token: checkout only. Registry auth uses Docker Hub
+# secrets, not GITHUB_TOKEN; deploy runs on a self-hosted runner via compose.
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     # Skip build for restart/logs ops. Push events have no inputs,
