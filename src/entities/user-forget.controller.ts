@@ -3,6 +3,7 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { UserForgetService, UserForgetResult } from './user-forget.service';
 import { AuthenticatedRequest } from '../auth/api-key.types';
+import { pinUserScope } from '../auth/user-scope';
 import { Req } from '@nestjs/common';
 
 @Controller('v1/users')
@@ -21,6 +22,11 @@ export class UserForgetController {
     @Req() req: AuthenticatedRequest,
     @Param('userId') userId: string,
   ): Promise<UserForgetResult> {
-    return this.userForget.forgetUser(req.brainAuth.companyId, userId);
+    // A user-bound token may erase only its own scope; the pin throws
+    // 403 when the path names another user. M2M admin keys erase any.
+    return this.userForget.forgetUser(
+      req.brainAuth.companyId,
+      pinUserScope(userId) ?? userId,
+    );
   }
 }

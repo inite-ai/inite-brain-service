@@ -11,6 +11,7 @@ import {
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { evidenceValidationError } from './ingest-utils';
+import { pinUserScope } from '../auth/user-scope';
 
 /**
  * The typed direct-ingest path (`ingestFact`): a single fully-specified fact
@@ -30,6 +31,10 @@ export class FactIngestService {
   ) {}
 
   async ingestFact(companyId: string, dto: IngestFactDto): Promise<IngestResult> {
+    // A user-bound token writes into its own user scope only — the
+    // caller-asserted userId is pinned to the token's end-user (403 on
+    // mismatch, default when omitted). M2M credentials pass through.
+    dto = { ...dto, userId: pinUserScope(dto.userId) };
     // Reject an inverted or zero-width validity interval up front. Both are
     // nonsensical bitemporally — a fact valid until before (or exactly at)
     // it became valid covers no instant — and would otherwise corrupt

@@ -48,6 +48,14 @@ export interface RequestContext {
   recordPolicyRows?: (
     summary: import('../policy/row-filter').RowDecisionSummary,
   ) => void;
+  /**
+   * End-user identity of a user-bound access token (auth-service `sub`
+   * when the token carries an `org` claim), stamped by ApiKeyGuard.
+   * Per-user memory surfaces pin caller-asserted userId to this value
+   * via pinUserScope() — no signature threading. Undefined for M2M
+   * credentials (tenant-wide authority, caller may assert any userId).
+   */
+  authUserId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

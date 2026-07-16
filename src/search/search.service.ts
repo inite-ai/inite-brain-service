@@ -23,6 +23,7 @@ import {
 } from '../policy/row-filter';
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
+import { pinUserScope } from '../auth/user-scope';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
 import { expandViaEdges } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
@@ -261,7 +262,10 @@ export class SearchService {
         `search: query truncated to ${clamped.value.length} chars (companyId=${companyId})`,
       );
     }
-    dto = { ...dto, query: clamped.value };
+    // A user-bound token operates on global + own memory only — the
+    // caller-asserted userId is pinned to the token's end-user (403 on
+    // mismatch). M2M credentials pass through unchanged.
+    dto = { ...dto, query: clamped.value, userId: pinUserScope(dto.userId) };
     // Empty/whitespace query → empty result, before any DB or embedding
     // work. Without this the full pipeline ran on '' — a zero-vector
     // cosine scan plus BM25 over an empty string, all guaranteed noise.

@@ -77,10 +77,12 @@ describe('ApiKeyGuard — JWKS verification', () => {
     audience?: string;
     expiresIn?: string | number;
     signWith?: KeyLike;
+    extraClaims?: Record<string, unknown>;
   }): Promise<string> {
     return new SignJWT({
       scopes: opts.scopes ?? ['brain:read', 'brain:write'],
       ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
+      ...(opts.extraClaims ?? {}),
     })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
       .setSubject(opts.sub)
@@ -156,6 +158,36 @@ describe('ApiKeyGuard — JWKS verification', () => {
     expect(await guard.canActivate(ctx)).toBe(true);
     expect((req.brainAuth as { companyId: string }).companyId).toBe('jwt_co_alpha');
     expect((req.brainAuth as { keyHash: string }).keyHash).toMatch(/^jwt:/);
+  });
+
+  it('user-bound token (org claim): tenant = org, end-user = sub', async () => {
+    const token = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co_acme', org_id: 'org-uuid-1' },
+    });
+    const { ctx, req } = makeMockContext({ authorization: `Bearer ${token}` });
+    expect(await guard.canActivate(ctx)).toBe(true);
+    const auth = req.brainAuth as { companyId: string; userId?: string };
+    expect(auth.companyId).toBe('co_acme');
+    expect(auth.userId).toBe('did:key:z6MkUser');
+  });
+
+  it('rejects a user-bound token whose org fails the tenant charset (401)', async () => {
+    const token = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co:bad:chars' },
+    });
+    const { ctx } = makeMockContext({ authorization: `Bearer ${token}` });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('extracts entitlements (charset-filtered, capped)', async () => {
+    const token = await mintJwt({
+      sub: 'jwt_co_e',
+      extraClaims: { entitlements: ['plan:pro', 'BAD ENTRY!', 'app:read'] },
+    });
+    const rec = await jwks.verify(token);
+    expect(rec?.entitlements).toEqual(['plan:pro', 'app:read']);
   });
 
   it('extracts ABAC policy names from the policy claim (array + string forms, charset filter, cap 8)', async () => {

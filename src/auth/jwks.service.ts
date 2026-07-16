@@ -104,14 +104,12 @@ export class JwksService implements OnModuleInit {
       return null;
     }
 
-    const companyId = typeof payload.sub === 'string' ? payload.sub : null;
-    if (!companyId) return null;
-    // The sub becomes the tenant database name (`co_<companyId>`) and is
-    // interpolated into SurrealDB record ids. An out-of-charset value would
-    // surface as a DB-layer 500 deep in a query; reject it here so a malformed
-    // token is a clean 401 instead. Tenant slugs are alnum/underscore/hyphen.
-    if (!VALID_COMPANY_ID.test(companyId)) {
-      this.logger.debug('JWT rejected: sub is not a valid companyId');
+    // Tenant/user split (auth-service claim model):
+    //   `org` present → user-bound token: tenant = org, end-user = sub
+    //   `org` absent  → M2M token: tenant = sub, no end-user
+    const identity = resolveTokenIdentity(payload);
+    if (!identity) {
+      this.logger.debug('JWT rejected: no valid tenant identity in org/sub');
       return null;
     }
 
@@ -122,15 +120,60 @@ export class JwksService implements OnModuleInit {
 
     const policyNames = extractPolicyNames(payload);
     const packIds = extractPackIds(payload);
+    const entitlements = extractEntitlements(payload);
 
     return {
       keyHash: `jwt:${payload.jti ?? payload.sub}`,
-      companyId,
+      companyId: identity.companyId,
       scopes,
+      ...(identity.userId ? { userId: identity.userId } : {}),
+      ...(entitlements.length > 0 ? { entitlements } : {}),
       ...(policyNames.length > 0 ? { policyNames } : {}),
       ...(packIds.length > 0 ? { packIds } : {}),
     };
   }
+}
+
+// Per-user memory rows store userId verbatim (option<string> column, always
+// a bound query param — never interpolated), so the charset can be wider
+// than companyId: any printable token up to the column cap used across the
+// DTOs (200). did:key subjects contain ':' so VALID_COMPANY_ID can't apply.
+const MAX_USER_ID_LENGTH = 200;
+
+/**
+ * Map token claims to the tenant (companyId) + optional end-user (userId).
+ * companyId becomes the `co_<id>` database name and is interpolated into
+ * record ids, so it must pass the strict tenant-slug charset — whether it
+ * came from `org` (user token) or `sub` (M2M token). Returns null when no
+ * valid tenant identity can be derived (guard then treats it as 401).
+ */
+function resolveTokenIdentity(
+  payload: JWTPayload,
+): { companyId: string; userId?: string } | null {
+  const org = (payload as Record<string, unknown>).org;
+  const sub = typeof payload.sub === 'string' ? payload.sub : null;
+  if (typeof org === 'string' && org.length > 0) {
+    if (!VALID_COMPANY_ID.test(org)) return null;
+    if (!sub || sub.length === 0 || sub.length > MAX_USER_ID_LENGTH) return null;
+    return { companyId: org, userId: sub };
+  }
+  if (!sub || !VALID_COMPANY_ID.test(sub)) return null;
+  return { companyId: sub };
+}
+
+// Entitlement slugs are display/tier hints, not authority — still keep the
+// charset bounded so a hostile claim can't smuggle odd bytes into metrics.
+const VALID_ENTITLEMENT = /^[a-z][a-z0-9_:-]{1,63}$/;
+const MAX_ENTITLEMENTS = 16;
+
+/** `entitlements` claim → plan/tier hints (throttle tiers, feature gates). */
+function extractEntitlements(payload: JWTPayload): string[] {
+  const raw = (payload as Record<string, unknown>).entitlements;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((e): e is string => typeof e === 'string')
+    .filter((e) => VALID_ENTITLEMENT.test(e))
+    .slice(0, MAX_ENTITLEMENTS);
 }
 
 // Policy set names live in the same identifier charset the CRUD layer
