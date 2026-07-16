@@ -13,7 +13,10 @@ auth-service JWT (verified via JWKS; `org`+`sub` = tenant+user,
 bare `sub` = M2M tenant), a long-lived `ik_…` API key (resolved via
 RFC 7662 introspection), or a static `BRAIN_API_KEYS` entry (dev
 fallback). Admin endpoints require `brain:admin` scope on top of base
-auth; PII surfaces require `brain:read_pii`. Unauthenticated requests
+auth; PII surfaces require `brain:read_pii`. Tokens may additionally
+carry RFC 9396 `inite_mcp_resource` grants (per-tool MCP permissions,
+enforced on tools/list) and a `policy` claim (ABAC set names — see
+operator-playbook, "Per-agent rights"). Unauthenticated requests
 get `WWW-Authenticate: Bearer resource_metadata=…` (RFC 9728) pointing
 at the discovery document below.
 
