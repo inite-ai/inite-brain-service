@@ -73,7 +73,13 @@ export class ApiKeyGuard implements CanActivate {
     // the pipeline (search fusion, graph_retrieve, competing facts,
     // entity reads) row-filter without signature threading. The
     // recorder closure gives the pure row-filter module a path to the
-    // decision sink + metrics without DI.
+    // decision sink + metrics without DI. authUserId rides the same
+    // store — per-user memory surfaces pin caller-asserted userId to
+    // the token's end-user via pinUserScope().
+    if (record.userId) {
+      const store = getRequestContext();
+      if (store) store.authUserId = record.userId;
+    }
     if (policy) {
       const store = getRequestContext();
       if (store) {
@@ -95,6 +101,7 @@ export class ApiKeyGuard implements CanActivate {
       companyId: record.companyId,
       scopes: record.scopes,
       keyHash: record.keyHash,
+      ...(record.userId ? { userId: record.userId } : {}),
       ...(record.packIds ? { packIds: record.packIds } : {}),
       ...(policy ? { policy } : {}),
     };

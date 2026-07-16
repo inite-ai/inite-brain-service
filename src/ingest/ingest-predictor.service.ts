@@ -14,6 +14,7 @@ import {
   rowToOpposingFact,
 } from './predictor-internals';
 import { makeRowPolicyFilter } from '../policy/row-filter';
+import { pinUserScope } from '../auth/user-scope';
 
 export type {
   IngestOutcome,
@@ -73,6 +74,10 @@ export class IngestPredictionService {
     args: PredictResolveArgs,
     callerScopes: readonly string[],
   ): Promise<PredictResolveResult> {
+    // Preflight sees the same per-user slice the eventual record_fact
+    // would touch — pin the asserted userId to a user-bound token's
+    // end-user (403 on mismatch). M2M credentials pass through.
+    args = { ...args, userId: pinUserScope(args.userId) };
     // opposingFacts carry raw `object` values, so the preflight must run
     // the same app-layer gate as every read surface. The DB-level PII
     // fence (migration 0005) is inert for the system-user pool (verified
