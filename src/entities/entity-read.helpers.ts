@@ -61,18 +61,56 @@ export function blockedPredicates(scopes: BrainScope[]): string[] {
  * composite (entityId, status, recordedAt) index does the work instead of
  * pulling rows just to drop them in JS.
  *
+ * With `recordedAt` (transaction-time travel), the closure replays what
+ * the graph BELIEVED at tx-time T: recorded by T, not yet retracted as
+ * of T, and — since a supersede has no timestamp of its own — a fact
+ * whose successor was recorded after T counts as still believed active,
+ * with its validity window read from the pre-supersede snapshot
+ * (`priorValidUntil`, written by fn::resolve_fact since migration 0021).
+ * The validity window is evaluated at `asOf` when given, else at T
+ * itself (belief at T about the world at T). Known approximation: an
+ * explicit retract mutates `validUntil` in place with no snapshot, so a
+ * fact retracted after T keeps the retract-written window rather than
+ * the exact one believed at T.
+ *
  * 'corroborating' rows (migration 0047) are audit records of a second
  * claim — the incumbent (which carries the corroboration counter) is
- * the fact to surface; both branches hide the duplicates. 'compacted'
- * skeletons are hidden in both branches, matching where-builder.
+ * the fact to surface; all branches hide the duplicates. 'compacted'
+ * skeletons are hidden in all branches, matching where-builder.
  *
  * Returns only the bitemporal clauses + their params; callers prepend the
  * `entityId = …` clause and its `$rid` param.
  */
-export function activeFactWhere(asOf: Date | null): {
+export function activeFactWhere(
+  asOf: Date | null,
+  recordedAt?: Date | null,
+): {
   clauses: string[];
   params: Record<string, unknown>;
 } {
+  if (recordedAt) {
+    const evalAt = asOf ?? recordedAt;
+    return {
+      clauses: [
+        `recordedAt <= $txAt`,
+        `(retractedAt IS NONE OR retractedAt > $txAt)`,
+        `validFrom <= $evalAt`,
+        // Supersede-aware window: a successor recorded after T had not
+        // happened yet at T — the fact was believed active with its
+        // priorValidUntil window. Once the successor is recorded (<= T),
+        // the supersede-written validUntil applies; this doubles as the
+        // future-gap rule (a superseded fact whose window still covers
+        // the evaluation moment IS the value believed then).
+        `((supersededBy IS NOT NONE AND supersededBy.recordedAt > $txAt` +
+          ` AND (priorValidUntil IS NONE OR priorValidUntil > $evalAt))` +
+          ` OR ((supersededBy IS NONE OR supersededBy.recordedAt <= $txAt)` +
+          ` AND (validUntil IS NONE OR validUntil > $evalAt)))`,
+        `status != 'compacted'`,
+        `status != 'corroborating'`,
+      ],
+      params: { txAt: recordedAt, evalAt },
+    };
+  }
   if (asOf) {
     return {
       clauses: [

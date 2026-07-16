@@ -19,6 +19,7 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 export class EntitiesController {
   constructor(private readonly entities: EntitiesService) {}
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id')
   @RequireScopes('brain:read')
   @PolicyAction('get_entity_profile')
@@ -26,11 +27,13 @@ export class EntitiesController {
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Query('asOf') asOf?: string,
+    @Query('recordedAt') recordedAt?: string,
   ) {
     return this.entities.getProfile({
       companyId: req.brainAuth.companyId,
       entityIdRaw: id,
       asOfRaw: asOf,
+      recordedAtRaw: recordedAt,
       scopes: req.brainAuth.scopes,
     });
   }
@@ -44,12 +47,14 @@ export class EntitiesController {
     @Param('id') id: string,
     @Query('since') since?: string,
     @Query('until') until?: string,
+    @Query('recordedAt') recordedAt?: string,
   ) {
     return this.entities.getTimeline({
       companyId: req.brainAuth.companyId,
       entityIdRaw: id,
       sinceRaw: since,
       untilRaw: until,
+      recordedAtRaw: recordedAt,
       scopes: req.brainAuth.scopes,
     });
   }

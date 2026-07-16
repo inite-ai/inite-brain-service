@@ -137,4 +137,49 @@ describe('activeFactWhere', () => {
     ]);
     expect(params).toEqual({ asOf });
   });
+
+  const TX_SUPERSEDE_CLAUSE =
+    `((supersededBy IS NOT NONE AND supersededBy.recordedAt > $txAt` +
+    ` AND (priorValidUntil IS NONE OR priorValidUntil > $evalAt))` +
+    ` OR ((supersededBy IS NONE OR supersededBy.recordedAt <= $txAt)` +
+    ` AND (validUntil IS NONE OR validUntil > $evalAt)))`;
+
+  it('with recordedAt, replays belief at tx-time T (window evaluated at T)', () => {
+    const txAt = new Date('2026-03-01T00:00:00.000Z');
+    const { clauses, params } = activeFactWhere(null, txAt);
+    expect(clauses).toEqual([
+      'recordedAt <= $txAt',
+      // A retraction after T had not happened yet — the fact is believed.
+      '(retractedAt IS NONE OR retractedAt > $txAt)',
+      'validFrom <= $evalAt',
+      // A supersede carries no timestamp of its own; its tx-time is the
+      // successor's recordedAt. Recorded after T → the fact was still
+      // believed active, with the pre-supersede priorValidUntil window.
+      TX_SUPERSEDE_CLAUSE,
+      "status != 'compacted'",
+      "status != 'corroborating'",
+    ]);
+    // Without asOf, the world moment defaults to T itself — the honest
+    // replay of what the no-param closure returned at wall-clock T.
+    expect(params).toEqual({ txAt, evalAt: txAt });
+  });
+
+  it('with recordedAt AND asOf, cuts the tx axis at T and evaluates validity at asOf', () => {
+    const txAt = new Date('2026-03-01T00:00:00.000Z');
+    const asOf = new Date('2026-02-01T00:00:00.000Z');
+    const { clauses, params } = activeFactWhere(asOf, txAt);
+    // asOf must NOT leak into the tx clauses — the axes stay separate.
+    expect(clauses.filter((c) => c.includes('$txAt'))).toEqual([
+      'recordedAt <= $txAt',
+      '(retractedAt IS NONE OR retractedAt > $txAt)',
+      TX_SUPERSEDE_CLAUSE,
+    ]);
+    expect(params).toEqual({ txAt, evalAt: asOf });
+  });
+
+  it('ignores an absent recordedAt — existing branches unchanged', () => {
+    expect(activeFactWhere(null, null)).toEqual(activeFactWhere(null));
+    const asOf = new Date('2026-01-02T03:04:05.000Z');
+    expect(activeFactWhere(asOf, undefined)).toEqual(activeFactWhere(asOf));
+  });
 });

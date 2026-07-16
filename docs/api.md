@@ -63,8 +63,8 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
 | `POST /v1/synthesize` | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag). |
 | `POST /v1/search/multi-hop` | Planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval. See [Architecture § Multi-hop](architecture.md#multi-hop-search). |
-| `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). |
-| `GET /v1/entities/:id/timeline` | Bitemporal sweep — all facts ever known, with validFrom / validUntil / recordedAt / retractedAt. |
+| `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). `?asOf=` slices world-time; `?recordedAt=` slices transaction-time (what the graph believed at T — a later retract/supersede is ignored). |
+| `GET /v1/entities/:id/timeline` | Bitemporal sweep — `fact.recorded` / `fact.retracted` events on the transaction-time axis. `?since=`/`?until=` page the window; `?recordedAt=` cuts to events known by T. |
 | `GET /v1/entities/:id/connections` | Typed edges + direct neighbours. |
 | `GET /v1/artifacts/:type/:entityId` | Derived artifacts (profile / digest / etc) with manual `recompile` POST. |
 | `GET /v1/sources` | Read-only trust inputs: declared `type`/`authLevel` ⋈ learned reputation, one row per source. Filters `domain` / `type` / `minSamples`, paginated (`limit` ≤ 200 / `offset`). Public projection — operator annotations (`owner`/`note`) stay on the admin surface. |

@@ -70,6 +70,8 @@ export interface GetProfileOptions {
   companyId: string;
   entityIdRaw: string;
   asOfRaw: string | undefined;
+  /** Transaction-time cutoff — replay what the graph believed at T. */
+  recordedAtRaw?: string;
   scopes: BrainScope[];
 }
 
@@ -85,6 +87,12 @@ export interface GetTimelineOptions {
   entityIdRaw: string;
   sinceRaw: string | undefined;
   untilRaw: string | undefined;
+  /**
+   * Transaction-time cutoff — only events the graph knew by T: recorded
+   * events with recordedAt <= T, retraction events with retractedAt <= T.
+   * Distinct from `until`, which is an audit paging window over rows.
+   */
+  recordedAtRaw?: string;
   scopes: BrainScope[];
 }
 
@@ -120,10 +128,12 @@ export class EntitiesService {
     companyId,
     entityIdRaw,
     asOfRaw,
+    recordedAtRaw,
     scopes,
   }: GetProfileOptions): Promise<EntityProfile> {
     const ref = normalizeEntityId(entityIdRaw);
     const asOf = asOfRaw ? new Date(asOfRaw) : null;
+    const txAt = recordedAtRaw ? new Date(recordedAtRaw) : null;
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [entRows] = await db.query<any[][]>(
@@ -142,7 +152,10 @@ export class EntitiesService {
       // in JS. With a long-lived entity (~thousands of facts), this
       // collapses bytes-scanned by an order of magnitude for the
       // common case `asOf = now`.
-      const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(asOf);
+      const { clauses: asOfClauses, params: asOfParams } = activeFactWhere(
+        asOf,
+        txAt,
+      );
       const baseClauses = [
         `entityId = type::record('knowledge_entity', $rid)`,
         // User scope (0055): entity reads are tenant-global v1 — a
@@ -305,11 +318,13 @@ export class EntitiesService {
     entityIdRaw,
     sinceRaw,
     untilRaw,
+    recordedAtRaw,
     scopes,
   }: GetTimelineOptions): Promise<{ entityId: string; events: any[] }> {
     const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
+    const txAt = recordedAtRaw ? new Date(recordedAtRaw) : null;
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Range pushdown — recordedAt window is part of the WHERE so
@@ -320,6 +335,11 @@ export class EntitiesService {
       const params: Record<string, unknown> = { rid: ref.id };
       if (since) { clauses.push(`recordedAt >= $since`); params.since = since; }
       if (until) { clauses.push(`recordedAt <= $until`); params.until = until; }
+      // Transaction-time cutoff: events the graph knew by T. Row-level
+      // recordedAt <= T here; the retraction-event cut is applied in the
+      // event builder below (a retraction after T must not surface, while
+      // the fact's recorded event still shows as it was believed then).
+      if (txAt) { clauses.push(`recordedAt <= $txAt`); params.txAt = txAt; }
       // LIMIT 1000: the timeline is the audit surface, but without a cap
       // a long-lived entity ships its entire history per request. Callers
       // page with since/until (the window params above); 1000 rows is
@@ -353,7 +373,10 @@ export class EntitiesService {
           source: f.source,
           confidence: f.confidence,
         });
-        if (f.retractedAt) {
+        if (
+          f.retractedAt &&
+          (!txAt || new Date(f.retractedAt).getTime() <= txAt.getTime())
+        ) {
           events.push({
             type: 'fact.retracted',
             at: new Date(f.retractedAt).toISOString(),
