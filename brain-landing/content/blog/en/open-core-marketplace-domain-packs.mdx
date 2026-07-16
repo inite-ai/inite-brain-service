@@ -1,0 +1,145 @@
+---
+title: "The price is not the pack: an honest marketplace for agent ontology"
+seoTitle: "Open-core marketplace for Domain Packs — paid packs, honest defaults"
+description: "Domain Packs made an agent's ontology installable; the registry made it distributable. Adding money is where most open-core designs betray someone — self-hosters, publishers, or buyers. Here is a marketplace built on defaults that don't leak: billing off means free, pricing lives outside the signed artifact, curation never travels."
+date: "2026-07-16"
+author: "INITE Brain Team"
+category: "Engineering"
+tags: ["marketplace", "domain packs", "registry", "open core", "agent memory", "extensibility"]
+directAnswer: "A Domain Pack marketplace adds featured curation, publisher profiles, and paid packs on top of a global pack registry — without touching the signed artifact. Pricing is registry-level metadata, never part of the checksummed manifest, so a price change cannot alter what was signed. Billing is off by default: a self-hosted instance installs everything free and never phones home. When billing is on, a paid install answers a self-describing 402 with a checkout route, and fails closed (503) if entitlements cannot be verified."
+definitionSentence: "An honest open-core marketplace is one where commerce is a removable layer over content-addressed artifacts — price and curation live in instance-local metadata, entitlements are verified pull-only and fail-closed, and switching billing off restores a fully free catalogue."
+faqs:
+  - question: "Does a self-hosted instance ever contact a billing service or an upstream registry?"
+    answer: "Not unless the operator explicitly configures it. Billing sits behind a flag that defaults to off — with it off, paid metadata is ignored and every pack installs free; free packs never touch billing even when the flag is on. Registry mirroring only exists when an upstream URL is set, and it is strictly pull-only: local publishes are never pushed anywhere. The default posture is a fully self-contained instance."
+  - question: "Why is pricing not part of the signed pack manifest?"
+    answer: "Because the manifest is content-addressed: its checksum is the version's identity and the publisher's signature covers exactly those bytes. If price lived inside, every re-price would either mint a phantom new version or silently invalidate the signature — both are supply-chain poison. Pricing is registry-level metadata per pack, owned by the hosting instance, so the artifact you reviewed and the artifact you install stay byte-identical no matter what the price does."
+  - question: "What happens when the billing service is down and someone installs a paid pack?"
+    answer: "The install fails closed with a 503 rather than leaking the pack. Entitlements are verified by polling behind a short TTL cache that is never served stale — a cold cache plus unreachable billing means the instance cannot prove the purchase, so it refuses and asks the caller to retry shortly. Free packs are unaffected because they never enter the billing path at all."
+  - question: "How does pack-shipped knowledge avoid becoming a trusted-blob backdoor into memory?"
+    answer: "Seed documents ride the normal document pipeline — the same chunking, extraction, candidate staging, and conflict resolution as any connector's document. There is no bespoke fact-import path that bypasses judgment. Every derived fact carries provenance meta naming the pack, its version, and the seed document, and content-hash dedup makes reinstalls and unchanged upgrades no-ops. If you later distrust a pack, its facts are queryable by that provenance for cleanup or an ABAC deny rule."
+---
+
+An open-source memory you can extend was step one: [Domain Packs](/en/blog/domain-packs-pluggable-ontology)
+made an agent's ontology a versioned, signed, installable artifact, and a
+global registry made it distributable — publish, discover, install, the
+npm-for-ontology loop.
+
+Step two is the dangerous one: money. Most open-core marketplaces, the
+moment they add a price tag, quietly betray one of three parties. They
+betray self-hosters by phoning home. They betray buyers by letting the
+artifact drift under a stable version number. Or they betray publishers by
+making the platform's curation look like the ecosystem's truth. The
+interesting part of building this marketplace wasn't checkout — it was
+deciding what commerce is *not allowed to touch*.
+
+## A version is bytes, forever
+
+The registry underneath is a supply-chain layer, and its invariants don't
+bend for the marketplace:
+
+- **Immutable versions.** A `(packId, version)` is content-addressed by
+  checksum. Republish the same version with different bytes and you get a
+  409, not a silent swap.
+- **Yank, not delete.** A bad version is dropped from latest-resolution
+  and refused for new pinned installs — but never removed, so existing
+  pins stay reproducible.
+- **Verified means cryptographically verified.** The *verified* badge is
+  earned only when the manifest's ed25519 signature validates against the
+  hosting instance's trust store — a name in a JSON field earns nothing.
+- **Mirroring is pull-only.** An instance can mirror an upstream
+  catalogue; mirrored rows carry an origin marker, local rows always win,
+  and every pulled manifest's checksum is recomputed locally. Nothing you
+  publish ever travels upstream.
+
+Everything the marketplace adds is layered *over* this. Nothing it adds
+can reach *into* it.
+
+## Money enters through a side door
+
+Pricing is registry-level metadata, per pack — deliberately not per
+version, and deliberately not a manifest field. The publishing company
+prices its pack through the registry API; behind that call, the central
+billing service idempotently gets a product whose metadata grants one
+entitlement key: `domain_pack:<packId>`. Billing prices are immutable, so
+every re-price mints a fresh price code — checkout sessions already in
+flight keep the price they started with.
+
+The buying identity is the tenant, not a person. And the install flow is
+self-describing end to end:
+
+1. Install a paid pack without an entitlement → **402**, carrying the
+   price, the price code, and the exact checkout route to call.
+2. Call checkout → get a hosted checkout URL, pay.
+3. Retry the same install call → it goes through.
+
+The gate sits at the single choke point every install passes through —
+after the yank refusal, and *before* the download counter. A refused
+install is not a download; the popularity numbers don't get inflated by
+paywalled bounces.
+
+## The honest defaults
+
+This is the actual thesis. Each default answers the question "who gets
+betrayed if we flip this?"
+
+**Billing off means free.** `DOMAIN_PACK_BILLING_ENABLED` defaults to
+off, and off is the self-hosted posture: paid metadata is ignored,
+everything installs free. Free packs never touch the billing path even
+when the flag is on. The marketplace is a layer you can decline to run.
+
+**Nobody phones home.** Entitlements are verified pull-only — the
+instance polls the billing service; there are no inbound webhooks to
+expose an endpoint for. Mirroring doesn't exist until an operator
+configures an upstream, and even then it only pulls.
+
+**Fail closed, not open.** The entitlement check rides a short TTL cache
+that is never served stale. Cold cache plus unreachable billing means the
+instance can't prove the purchase — so a paid install answers 503 instead
+of leaking the pack. An outage should cost you a retry, not the
+publisher a sale.
+
+**The price can't touch the artifact.** Because pricing lives outside the
+signed manifest, a price change cannot alter the checksum, the signature,
+or anything a reviewer approved. The thing you audited is the thing you
+install, at any price.
+
+**Curation is a local opinion.** Featured flags, publisher profiles, and
+prices live in instance-local tables the mirror never copies — the mirror
+moves *artifacts*, not opinions. A downstream instance curates and prices
+its own catalogue; no upstream's editorial taste is smuggled in as data.
+
+One more anti-squatting rule worth naming: only a company that has
+published at least one *verified* pack under a publisher id may write
+that publisher's public profile. The signature is what ties a tenant to a
+publisher name — without that rule, anyone could squat a well-known
+publisher's page.
+
+## Knowledge as product, without the backdoor
+
+Packs can ship more than vocabulary: `seedDocuments` — pre-populated
+domain knowledge installed with the pack. The tempting design is a
+trusted import: the pack was signed, so write its facts straight into the
+graph. That design converts every purchased pack into a memory backdoor.
+
+So seeds get no special door. They are ingested through the
+[normal document pipeline](/en/blog/composable-indexers-document-pipeline)
+— same chunking, same extraction, same candidate staging, same conflict
+ladder as any connector's document. Every derived fact is stamped with
+provenance meta: which pack, which version, which seed document.
+Content-hash dedup makes a same-version reinstall a no-op and lets
+upgrades change only the seeds that actually changed. And if you uninstall
+the pack, the facts survive — but their provenance makes them queryable
+for manual cleanup or an ABAC deny rule.
+
+A pack's knowledge is a *claim* like any other. Signed distribution buys
+it a ride to the door, not a key to the graph — the same posture that
+keeps [source reputation](/en/blog/source-reputation-agent-memory)
+meaningful.
+
+## The shape of the idea
+
+A marketplace is a layer over the artifact, never a hand inside it.
+Versions stay immutable, signatures stay valid across re-pricing,
+curation stays local, entitlements fail closed, and switching the money
+off restores a fully free catalogue. Commerce that can't rewrite what it
+sells is the only kind an open-core ecosystem should accept.

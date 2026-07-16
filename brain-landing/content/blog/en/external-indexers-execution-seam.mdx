@@ -1,0 +1,138 @@
+---
+title: "The best plugin runs outside: external indexers for agent memory"
+seoTitle: "External indexers — extending AI agent memory without in-process plugins"
+description: "Plugin systems that run third-party code in-process trade extensibility for the security model. External indexers are the alternative seam: a plain HTTP client polls for routed documents, claims a lease, reads stored text, and submits candidate facts — and the memory re-grounds, stages, and adjudicates every one of them."
+date: "2026-07-16"
+author: "INITE Brain Team"
+category: "Engineering"
+tags: ["external indexers", "document pipeline", "plugins", "agent memory", "integrations", "candidates"]
+directAnswer: "An external indexer is a third-party service that teaches an agent's memory without running inside it. It is a plain HTTP client: it polls for documents routed to its pack, claims a work item under a heartbeat-renewed lease, reads the stored text, and submits candidate facts. The memory re-grounds every submitted span against the stored document (verbatim or rejected), stages the results as candidates rather than facts, and adjudicates them through the same conflict-resolution ladder as every other write path. The indexer's trust is earned by the nightly source-trust refit, not granted by registration."
+definitionSentence: "An external indexer is an out-of-process document reader, registered by a Domain Pack, that contributes knowledge exclusively through a poll–claim–read–submit HTTP protocol whose submissions are re-grounded, staged as candidates, and judged by the memory's own decision engine."
+faqs:
+  - question: "Why not run indexers in-process, like a normal plugin system?"
+    answer: "Because in-process third-party code inherits the process: the tenant's data, the credentials, the uptime. One careless pack author becomes everyone's production incident, and no amount of code review scales past a handful of publishers. Keeping the seam at the HTTP boundary means the strongest thing an external indexer can do is propose — with a scope that can stage hypotheses but can never write facts directly or read arbitrary memory."
+  - question: "What stops an external indexer from just inventing facts?"
+    answer: "Three layers. First, grounding: every submitted entity name and fact value is re-checked against the stored document text — values must appear verbatim (case-insensitive, whitespace-normalized, whole-token), and paraphrases are dropped with a reported reason. Second, staging: what survives grounding becomes a candidate, not memory, and passes the same conflict-resolution ladder as every other write. Third, trust: a new indexer starts at a neutral agreement rate and the nightly refit moves it on evidence — an indexer that keeps contradicting other sources loses weight instead of polluting the graph."
+  - question: "What happens when my indexer crashes mid-job?"
+    answer: "Nothing is lost. A claim is a lease, not a promise: it expires after the stale window (30 minutes by default) unless heartbeats renew it, and an expired claim releases the work item back to pending, where the next poll rediscovers it. If your indexer genuinely cannot process a document, it can fail the item permanently so it stops being offered. And pending external work never blocks the document's commit — a slow indexer's contribution is merged incrementally when it finally arrives."
+  - question: "Do I need to implement webhooks to receive work?"
+    answer: "No. Polling is the source of truth; the webhook is a latency optimization. A pack that declares a callback URL gets a signed push hint when new work is routed to it — HMAC-SHA256 over the raw body, keyed by the per-install secret returned once at pack install. Delivery is best-effort with a few retries and a circuit breaker, so the correct reaction to any hint is simply to run your normal poll loop."
+---
+
+Every memory platform eventually hears the same request: *let third
+parties extend it*. And the default architecture for that wish — a plugin
+system, foreign code loaded into your process — has a body count. In-process
+plugin code inherits everything: the tenant's data, the process's
+credentials, the service's uptime. Your security model is now the most
+careless author in the catalogue. We looked at that trade and
+[rejected it outright](/en/blog/composable-indexers-document-pipeline):
+no third-party code runs inside Brain, period.
+
+The refusal only matters if there's a seam that makes it unnecessary.
+Here is that seam.
+
+## A plugin that is just an HTTP client
+
+An external indexer registers through a Domain Pack whose manifest
+declares `indexer: { mode: "external" }` plus relevance triggers —
+verticals it subscribes to, keywords, an embedding-gated description.
+When a document is ingested, the same relevance router that gates
+in-process readers routes it to the pack, pre-creating a *work item*: one
+`(document, pack, packVersion)` slot.
+
+From the outside, the whole integration is five endpoints and a scope:
+
+- **poll** — list pending work items for your pack;
+- **claim** — take a lease on one (optional for a single-instance
+  poller; mandatory hygiene for fleets);
+- **read** — fetch the document's stored, verbatim, PII-redacted text;
+- **submit** — post entities, facts, and relations as candidates;
+- **fail** — hand the item back, or mark it permanently unprocessable.
+
+The key that drives this holds `indexer:write` — a scope that is
+deliberately narrower than a write key. It can poll, claim, read routed
+documents, and stage candidates. It cannot write facts directly, and it
+cannot read arbitrary memory. The strongest verb available to a third
+party is *propose*.
+
+## Leases, not promises
+
+Distributed clients fail, so the protocol assumes it. A claim is a lease:
+it expires after a stale window unless heartbeats renew it, and an
+expired claim releases the item back to pending — abandoned work is
+re-offered, never lost. Unclaimed items expire after a TTL so a dead
+integration doesn't accumulate a ghost backlog. The run ledger is UNIQUE
+on `(document, pack, packVersion)`, which makes every submission
+idempotent: a concurrent duplicate gets a 409, and a pack version bump
+opens fresh slots for every document.
+
+One rule matters more than the rest: **external work never blocks the
+memory.** A pending slot doesn't defer the document's commit; a late
+submission is merged incrementally when it lands. Take hours if your
+domain needs them — a slow poller can't hold a tenant's memory hostage.
+
+## Verbatim or rejected
+
+Brain does not trust an external span. Every entity name and every fact
+value is re-grounded against the stored document text with the same
+normalization and whole-token boundary rules the in-process extractor
+obeys. A value that doesn't appear verbatim in the document is dropped
+with `reason: "ungrounded_value"`; an entity that fails grounding takes
+its dependent facts and relations down with it. Drops are itemized in the
+response, never silently swallowed — a submission full of
+`ungrounded_value` is the protocol telling you your extractor is
+summarizing instead of quoting.
+
+Documents stored without content can't be re-grounded, so by default
+their submissions are rejected. An operator can explicitly allow them —
+in which case the candidates stage flagged as ungrounded, and trust
+learning weighs them accordingly. That's an operator's trade, not a
+default.
+
+## Claims, not facts
+
+What survives grounding still isn't memory. It's a *candidate* — staged
+with full provenance and adjudicated by the same conflict ladder as every
+other write path: reject, corroborate, supersede, compete, insert. There
+is no separate, softer judge for external contributions.
+
+The vocabulary is fenced too. An external indexer may use its own
+namespaced predicates and the general core ones — but another pack's
+namespace is squatting, and scope-gated PII predicates or
+operator-attested classes are refused outright. An indexer stages
+hypotheses; it doesn't get to seed facts it could never retract.
+
+## Trust is earned nightly
+
+Registration grants an identity, not credibility. A new external indexer
+starts at the neutral 0.5 agreement rate, and the nightly source-trust
+refit moves it: up when its facts corroborate independent evidence, down
+when they contradict it. Clean grounding and staying inside your domain
+is how an indexer builds weight — the same
+[earned-reputation machinery](/en/blog/source-reputation-agent-memory)
+that scores every other source. There is no `trusted: true` flag to ask
+for, which is precisely what makes the trust worth something.
+
+## Push is a hint, poll is the truth
+
+A pack can declare a callback URL and get a push notification when work
+is routed to it — HMAC-signed with a per-install secret returned once at
+install time, so forgeries are cheap to reject. But delivery is
+best-effort by design: a few retries, a timeout, a circuit breaker. The
+contract is asymmetric on purpose — push exists to shave latency, polling
+remains the source of truth. An integration that only ever polls is fully
+correct; an integration that only listens for webhooks is broken by
+design.
+
+## One page of code
+
+The entire client side of this protocol fits in a dependency-free
+reference implementation of about 180 lines — poll, claim, read, a
+deliberately trivial extractor that quotes verbatim sentences, submit.
+That's the point of the seam: teaching an agent's memory shouldn't
+require an SDK, a sandbox, or a review of your code. It requires speaking
+a small protocol — and earning your trust the same way everyone else
+does.
+
+The extension point is a protocol, not a runtime. Third parties get a
+real seat at the table; the table stays yours.
