@@ -80,6 +80,7 @@ export const DomainPackManifestSchema = z.looseObject({
   predicates: z.array(z.record(z.string(), z.unknown())),
   extractionProfile: z.record(z.string(), z.unknown()).optional(),
   evalFixtures: z.array(z.record(z.string(), z.unknown())).optional(),
+  seedDocuments: z.array(z.record(z.string(), z.unknown())).optional(),
   signature: z.string().optional().describe(
     'ed25519 signature (base64) over the canonical manifest sans this field.',
   ),

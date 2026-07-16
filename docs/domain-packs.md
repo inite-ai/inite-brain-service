@@ -313,6 +313,64 @@ POST /v1/admin/packs/:packId/eval   (brain:admin)
 `real_estate` ships three fixtures (zoning / valuation / tenure) as the
 demonstrator. Nothing forward-compat remains in the manifest.
 
+## Seed documents (consumed)
+
+A pack may ship `seedDocuments` — pre-populated domain knowledge that is
+**ingested through the normal document pipeline on install** (no bespoke
+fact-writing path: seeds get the same chunking, extraction, candidate staging,
+conflict resolution and provenance as any connector's document):
+
+```jsonc
+"seedDocuments": [
+  {
+    "localId": "zoning_primer",          // snake_case, unique in the pack
+    "title": "Zoning classifications primer",
+    "text": "R-1 districts allow …",     // ≤ 65,536 chars each
+    "vertical": "real_estate",           // contextRef.vertical at ingest
+    "originUri": "https://example.com/zoning",  // optional; default pack://<packId>/<localId>
+    "occurredAt": "2026-01-01T00:00:00Z",       // optional; → derived facts' validFrom
+    "meta": { "audience": "agents" }     // optional; FLAT scalars only
+  }
+]
+```
+
+Caps (validated by `pnpm pack:validate` and again at install): at most **32**
+documents, **65,536** chars per document, **262,144** chars combined. `meta`
+keys are snake_case, values scalar ≤256 chars — the bag must survive
+`sanitizeSourceMeta` verbatim.
+
+Flow: install stores the manifest → the install hook enqueues a
+`pack_seed_ingest` job (flag `PACK_SEED_INGEST_ENABLED`, default ON; also
+requires `DOCUMENT_INGEST_ENABLED` since seeds ride that pipeline) → the job
+feeds each seed to `POST /v1/ingest/document` semantics with
+`kind: 'pack_seed'` and provenance meta stamped on every derived fact's
+`source.meta`:
+
+| key | value |
+|---|---|
+| `pack_seed` | `true` |
+| `pack_id` | the pack id |
+| `pack_version` | the installed version |
+| `pack_seed_doc` | the seed's `localId` |
+
+The install response reports what happened without ever failing the install:
+`seedDocuments: { count, status }` with status one of `enqueued`,
+`enqueue_failed`, `skipped_flag_disabled`, `skipped_ingest_disabled`,
+`skipped_no_queue`.
+
+Idempotency is two-layered: the job's dedupKey is `pack_seed_<id>_<version>`
+(a same-version reinstall doesn't re-run a completed ingest), and the document
+contentHash UNIQUE index dedups at the text level (a re-run — or an upgrade
+whose seed text didn't change — is a per-document no-op). Upgrade semantics
+follow: **changed seed texts become new documents**, unchanged ones dedup
+silently. Like everything in the manifest, `seedDocuments` is covered by the
+pack checksum and signature.
+
+Uninstall leaves seed documents and their facts in place — the same
+facts-survive philosophy as predicate deprecation. The provenance meta keys
+above make them queryable (`source.meta.pack_id`) for manual cleanup or an
+ABAC deny rule.
+
 ## First-party pack library (industries)
 
 Beyond the builtin `code_memory`, brain ships a library of DISTRIBUTABLE

@@ -17,6 +17,7 @@ export type JobType =
   | 'commit_document'
   | 'candidate_sweeper'
   | 'reindex_documents'
+  | 'pack_seed_ingest'
   | 'scenarios_batch'
   | 'registry_mirror';
 

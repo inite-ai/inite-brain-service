@@ -18,6 +18,7 @@ import { CandidateCommitService } from './candidate-commit.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
 import { DocumentReindexService } from './document-reindex.service';
+import { PackSeedIngestService } from './pack-seed-ingest.service';
 import { CandidateSweeperService } from './candidate-sweeper.service';
 import { MentionViaDocumentService } from './mention-via-document.service';
 
@@ -46,6 +47,7 @@ import { MentionViaDocumentService } from './mention-via-document.service';
     DocumentIngestService,
     DocumentAsyncService,
     DocumentReindexService,
+    PackSeedIngestService,
     CandidateSweeperService,
     MentionViaDocumentService,
     ExternalCandidatesService,
@@ -57,6 +59,7 @@ import { MentionViaDocumentService } from './mention-via-document.service';
     DocumentStoreService,
     CandidateStoreService,
     MentionViaDocumentService,
+    PackSeedIngestService,
   ],
 })
 export class DocumentsModule {}

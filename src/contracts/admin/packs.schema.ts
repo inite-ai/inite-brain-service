@@ -42,6 +42,21 @@ export const InstallPackResponseSchema = z.object({
   version: z.string(),
   predicatesSeeded: z.number().int().nonnegative(),
   checksum: z.string(),
+  seedDocuments: z
+    .object({
+      count: z.number().int().nonnegative(),
+      status: z.enum([
+        'enqueued',
+        'enqueue_failed',
+        'skipped_flag_disabled',
+        'skipped_ingest_disabled',
+        'skipped_no_queue',
+      ]),
+    })
+    .optional()
+    .describe(
+      'Present iff the manifest ships seedDocuments — whether their document-pipeline ingest was enqueued. Install never fails because of seeds.',
+    ),
 });
 
 export const UninstallPackResponseSchema = z.object({

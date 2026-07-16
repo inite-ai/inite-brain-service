@@ -427,6 +427,16 @@
           "publisher": {
             "type": "string"
           },
+          "seedDocuments": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
           "signature": {
             "description": "ed25519 signature (base64) over the canonical manifest sans this field.",
             "type": "string"
@@ -904,6 +914,32 @@
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
+          },
+          "seedDocuments": {
+            "additionalProperties": false,
+            "description": "Present iff the manifest ships seedDocuments — whether their document-pipeline ingest was enqueued. Install never fails because of seeds.",
+            "properties": {
+              "count": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "enqueued",
+                  "enqueue_failed",
+                  "skipped_flag_disabled",
+                  "skipped_ingest_disabled",
+                  "skipped_no_queue"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "count",
+              "status"
+            ],
+            "type": "object"
           },
           "version": {
             "type": "string"

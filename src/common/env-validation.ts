@@ -398,6 +398,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   'CHAT_ROUTE_NLI_WORKER',
   'THROTTLE_DISABLED',
   'INDEXER_WEBHOOK_PUSH_ENABLED',
+  'REINDEX_ON_PACK_INSTALL',
+  'DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL',
+  // Default-ON: read as `PACK_SEED_INGEST_ENABLED ?? '1'` before
+  // envFlagEnabled, so only an explicit 0/false skips pack seed ingest.
+  'PACK_SEED_INGEST_ENABLED',
 ];
 
 /**

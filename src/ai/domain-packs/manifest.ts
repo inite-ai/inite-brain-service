@@ -25,6 +25,26 @@ export type { ExtractionProfile, ExtractionExample } from '../predicate-registry
 /** Reserved namespace separator between packId and a predicate's localId. */
 export const PACK_NAMESPACE_SEP = '__';
 
+/** Per-document cap on a seed document's text. */
+export const SEED_DOC_MAX_CHARS = 65_536;
+/** Cap on all of a pack's seed documents' text combined. */
+export const SEED_TOTAL_MAX_CHARS = 262_144;
+/** Cap on how many seed documents a pack may ship. */
+export const SEED_MAX_DOCS = 32;
+
+/** Pre-populated knowledge shipped with a pack — ingested through the
+ *  NORMAL document pipeline on install (kind='pack_seed'). Covered by
+ *  checksum + signature like every other manifest section. */
+export interface PackSeedDocument {
+  localId: string;      // snake_case, unique within the pack
+  title: string;
+  text: string;         // <= SEED_DOC_MAX_CHARS; all docs together <= SEED_TOTAL_MAX_CHARS
+  vertical: string;     // contextRef.vertical at ingest — author-declared, required
+  originUri?: string;
+  occurredAt?: string;  // ISO datetime -> derived facts' validFrom; default: ingest time
+  meta?: Record<string, string | number | boolean>; // flat scalars only
+}
+
 /** A predicate as declared INSIDE a pack — a core PredicateDefinition minus the
  *  fully-qualified id (the loader composes it) and the provenance tag (the
  *  loader stamps it). The pack author supplies a `localId` instead. */
@@ -59,6 +79,13 @@ export interface DomainPackManifest {
    * extractor against these cases for a tenant. Typed as EvalFixture[].
    */
   evalFixtures?: import('./eval-fixture').EvalFixture[];
+  /**
+   * Pre-populated domain knowledge (see PackSeedDocument above). CONSUMED
+   * on install: each document is fed through the normal document pipeline
+   * (PACK_SEED_INGEST_ENABLED, via the pack_seed_ingest job), so seed
+   * facts get the same provenance/dedup/conflict machinery as any ingest.
+   */
+  seedDocuments?: PackSeedDocument[];
   /** ed25519 signature (base64) over the canonical manifest sans this field. */
   signature?: string;
   /** Publisher id — the key in the tenant's trust store used to verify. */
