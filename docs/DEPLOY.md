@@ -59,7 +59,10 @@ deploy:
 
 Optional (off by default in workflow, opt in per-feature):
 - `BRAIN_COHERE_API_KEY` — cross-encoder reranker
-- `BRAIN_API_KEYS` — static `[{keyHash, companyId, scopes}]` JSON; only if you need a non-JWT fallback path. NODE_ENV=production + JWKS enabled rejects static keys, so leaving this empty is correct.
+- `BRAIN_API_KEYS` — static `[{keyHash, companyId, scopes}]` JSON; only if you need a non-JWT fallback path. NODE_ENV=production + a remote verifier (JWKS/introspection) rejects static keys, so leaving this empty is correct.
+- `BRAIN_AUTH_INTROSPECTION_CLIENT_ID/SECRET` → `AUTH_SERVICE_INTROSPECTION_CLIENT_ID/SECRET` — enables auth-service `ik_…` API-key resolution (RFC 7662). Provision the `brain-service` client with `register-brain-clients` in the auth repo first.
+- `BRAIN_AUTH_SSF_POLL_URL` → `AUTH_SSF_POLL_URL` — CAEP revocation stream (create a poll stream in the auth admin → Shared Signals); revoked IdP sessions then die here within the poll interval instead of at token expiry.
+- `BRAIN_THROTTLE_TIER_MULTIPLIERS` → `THROTTLE_TIER_MULTIPLIERS` — per-plan rate-limit multipliers, e.g. `{"plan:pro":2}`.
 
 ## DNS
 

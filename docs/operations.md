@@ -38,6 +38,11 @@ the operator's reference for running Brain.
 | `CONFLICT_*` | per spec | Override the resolution weights at runtime; defaults match `core/capabilities/knowledge.yaml`. |
 | `MULTI_HOP_PLANNER_MODEL` | `OPENAI_CHAT_MODEL` | Override the chat model for the multi-hop planner LLM call. |
 | `MULTI_HOP_PLANNER_CONCURRENCY` | `4` | Max in-flight planner calls. |
+| `AUTH_SERVICE_INTROSPECTION_CLIENT_ID` / `_SECRET` | unset | Enables RFC 7662 resolution of auth-service `ik_…` API keys (brain-service M2M client credentials). |
+| `AUTH_SERVICE_INTROSPECTION_URL` | `AUTH_SERVICE_URL`+`/v1/oauth/introspect` | Endpoint override. |
+| `AUTH_SSF_POLL_URL` | unset | CAEP revocation stream poll endpoint (RFC 8936); enables the deny-list that rejects IdP-revoked tokens before `exp`. `AUTH_SSF_CLIENT_ID/SECRET` default to the introspection client; `AUTH_SSF_POLL_SCOPE` default `admin`; `AUTH_SSF_POLL_INTERVAL_MS` default `30000`. |
+| `THROTTLE_TIER_MULTIPLIERS` | unset | JSON map entitlement→rate-limit multiplier applied after credential verification, e.g. `{"plan:pro":2}`. |
+| `BRAIN_PUBLIC_URL` | derived from Host | Canonical resource URL advertised in RFC 9728 metadata + WWW-Authenticate challenges. |
 | `SYNTHESIZE_MODEL` | `OPENAI_CHAT_MODEL` | Override the chat model for `/v1/synthesize` generator + verifier calls. |
 | `SYNTHESIZE_DEFAULT_GUARDRAILS` | `strict` | `strict` / `lenient` / `off`. Caller can override per-request via `synthesisGuardrails`. |
 | `SYNTHESIZE_CONCURRENCY` | `4` | Max in-flight LLM calls across synthesize requests. Each request makes 2 calls (generator + verifier in strict/lenient). |

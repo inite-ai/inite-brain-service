@@ -42,14 +42,17 @@ JSON
 
 Hand the **plaintext** to the vertical operator over a secure channel. Brain only stores the hash.
 
-In prod, the static map is disabled (NODE_ENV=production && AUTH_SERVICE_JWKS_URL set → JWT-only). Issue keys through `inite-auth-service` — the vertical receives a JWT signed by that service, and brain verifies it via JWKS.
+In prod, the static map is disabled (NODE_ENV=production + any remote verifier configured). Two auth-service credential kinds replace it:
+
+- **JWTs** (user or M2M tokens) — verified locally via JWKS.
+- **Long-lived `ik_…` API keys** — issued in the auth-service admin panel (API Keys tab, audience `brain`) and resolved by brain through RFC 7662 introspection (`AUTH_SERVICE_INTROSPECTION_CLIENT_ID/SECRET`). Revocation in the panel takes effect within the introspection cache TTL (≤60 s).
 
 ## Promote a tenant from dev to prod auth
 
 1. Make sure `AUTH_SERVICE_JWKS_URL` points to the prod auth-service (`https://auth.inite.ai/.well-known/jwks.json`).
 2. Set `AUTH_SERVICE_ISSUER` and `AUTH_SERVICE_AUDIENCE` to the values that auth-service signs with.
-3. Set `NODE_ENV=production`. The boot log should say `Static BRAIN_API_KEYS disabled in production with JWKS enabled — JWT only`.
-4. Have the vertical re-issue its credentials. The brain accepts JWTs whose `sub` is the company ID and whose `scopes` claim contains the brain scopes (`brain:read`, `brain:write`, optionally `brain:read_pii`, `brain:admin`).
+3. Set `NODE_ENV=production`. The boot log should say `Static BRAIN_API_KEYS disabled in production with a remote verifier enabled`.
+4. Have the vertical re-issue its credentials. Brain accepts JWTs whose `scopes` claim contains the brain scopes (`brain:read`, `brain:write`, optionally `brain:read_pii`, `brain:admin`). Tenant/user mapping: an `org` claim makes it a user-bound token (tenant = `org`, end-user = `sub`, per-user memory pinned to that user); without `org`, `sub` is the company ID (M2M).
 5. Verify with a single `curl` that uses the JWT — expect `200 OK` on `GET /v1/entities/<id>` for the company's data.
 
 ## Troubleshoot: ingest is failing
