@@ -1,12 +1,23 @@
 # ABAC — attribute-based access control for API keys
 
+Per-key policy sets that narrow what a scoped key may call and see —
+the policy model, enforcement points, and rollout runbook for tenant
+operators.
+
 Scopes answer "may this key search at all"; they cannot answer "may this key
 see facts that came from HR documents". ABAC adds named **policy sets** a
 tenant attaches to individual API keys. A set carries rules of two kinds:
 
 - **action rules** gate which REST endpoints and MCP tools the key can call,
   by name (`search_knowledge`, `record_fact`, `rest.documents.get`, …) or via
-  the macros `@readonly` / `@write` / `@all`;
+  the macros `@readonly` / `@write` / `@all`. The full gateable namespace —
+  MCP tool names verbatim, `rest.*` names for REST-only routes, and
+  auto-names for anything undecorated — is defined in
+  [`src/policy/action-registry.ts`](../src/policy/action-registry.ts) (the
+  source of truth; `GET /v1/admin/policy/registry` serves it to tooling).
+  Pack-declared MCP tools are gateable by their concrete
+  `<packId>__<toolName>` names — query tools are `read`-kind, external
+  tools `write`-kind ([mcp-pack-tools.md](mcp-pack-tools.md));
 - **source rules** gate which *rows* (facts, and edges via their `kind`) the
   key can read, by attribute match on the fact's provenance.
 
@@ -166,3 +177,10 @@ query() boundary. This applies equally to the pre-existing 0005 PII fence:
 every read surface (e2e-enforced). The canary test fails loudly the moment an
 upgrade or a move to record users makes PERMISSIONS fire — activate the fence
 then, deliberately.
+
+## See also
+
+- [API reference](api.md#abac-policy-sets) — every policy-set endpoint with wire notes.
+- [`src/policy/action-registry.ts`](../src/policy/action-registry.ts) — the gateable action namespace (source of truth).
+- [MCP pack tools](mcp-pack-tools.md) — how pack tools slot into the action model.
+- [Operations](operations.md) — `ABAC_*` flags and cache knobs.

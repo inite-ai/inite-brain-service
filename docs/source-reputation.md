@@ -1,5 +1,8 @@
 # Source reputation & trust
 
+How Brain models who claimed a fact and how much that claim is trusted —
+for operators tuning trust and consumers reading it.
+
 > *A fact isn't true. It's claimed by a source, extracted from evidence, and
 > trusted under context.*
 
@@ -142,3 +145,10 @@ committing to a value.
   multiplicative trust composite is read-time only, behind the flags above.
 - Sources are **not** knowledge entities — no embeddings / merge / forget-cascade
   machinery is pointed at them.
+
+## See also
+
+- [Data model](data-model.md) — where the trust snapshot lives on a fact.
+- [Document pipeline](document-pipeline.md) — origin-keyed corroboration for multi-reader documents.
+- [External indexer protocol](indexer-protocol.md#trust-earned-not-granted) — how a new indexer earns weight.
+- [Operations](operations.md#retrieval-feature-flags) — the β/γ/δ ranking flags.

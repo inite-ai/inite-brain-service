@@ -1,7 +1,20 @@
 # Operations
 
-Required + optional env vars, retrieval feature flags, queue tuning,
-boot validation, graceful shutdown, test commands.
+Every env var and feature flag, queue tuning, the api/worker role
+split, staged enablement runbooks, boot validation, and test commands —
+the operator's reference for running Brain.
+
+**Contents:**
+[Required env vars](#required-env-vars) ·
+[Optional env vars](#optional-env-vars) ·
+[Job queue](#job-queue-phase-jk--env-vars) ·
+[Splitting API and worker roles](#splitting-api-and-worker-roles) ·
+[Retrieval feature flags](#retrieval-feature-flags) ·
+[Enabling the document pipeline + external indexers](#enabling-the-document-pipeline--external-indexers) ·
+[Enabling MCP pack tools](#enabling-mcp-pack-tools) ·
+[Enabling marketplace billing](#enabling-marketplace-billing-paid-packs) ·
+[Boot-time validation](#boot-time-validation) ·
+[Tests](#tests)
 
 ## Required env vars
 
@@ -68,6 +81,11 @@ boot validation, graceful shutdown, test commands.
 | `DOMAIN_PACK_TRUSTED_KEYS` | unset | Pack-install trust store: JSON object mapping `publisher` → ed25519 PEM public key. Malformed JSON fails boot (env validation) — a typo would silently empty the store and every signed pack would fail as "unknown publisher". |
 | `DOMAIN_PACK_REQUIRE_SIGNATURE` | `0` | When `1`/`true`, `POST /v1/admin/packs` rejects unsigned manifests. Values outside `1/0/true/false` fail boot — an unrecognized value would silently disable enforcement. |
 | `PACK_REGISTRY_REQUIRE_SIGNATURE` | `0` | Same policy for `POST /v1/admin/registry/packs` (publish into the global catalogue). Same strict value set. |
+| `PACK_SEED_INGEST_ENABLED` | `1` | Ingest a pack's `seedDocuments` through the document pipeline on install (`pack_seed_ingest` job). Requires `DOCUMENT_INGEST_ENABLED`; when either is off the install response reports a skip — install never fails because of seeds. |
+| `INDEXER_WEBHOOK_PUSH_ENABLED` | `1` | Signed `work_available` webhook hints to external packs declaring `indexer.external.callbackUrl`. Best-effort (retries + per-URL circuit breaker; `INDEXER_WEBHOOK_RETRY_BASE_MS` tunes backoff); polling stays the source of truth. |
+| `REGISTRY_UPSTREAM_URL` | unset | Pull-only registry mirroring: pull the upstream catalogue and republish missing versions locally through the normal publish path. Unset = off, no job registered. Optional `REGISTRY_UPSTREAM_TOKEN` (a `brain:read` key on the upstream); cadence via `REGISTRY_MIRROR_INTERVAL_HOURS` (default 24). |
+| `MCP_PACK_TOOLS_ENABLED` | `0` | Master switch for [pack-declared MCP tools](mcp-pack-tools.md). Off = the MCP surface is exactly the static tool families. Sub-flags: `MCP_PACK_QUERY_TOOLS_ENABLED` (default `1`), `MCP_PACK_EXTERNAL_TOOLS_ENABLED` (default `0`), `MCP_PACK_TOOLS_ALLOW_HTTP` (dev/test ONLY — disables the SSRF egress guard), `MCP_PACK_TOOLS_CACHE_TTL_MS` (default 30000). |
+| `DOMAIN_PACK_BILLING_ENABLED` | `0` | Paid packs via the central billing service — see [Enabling marketplace billing](#enabling-marketplace-billing-paid-packs). Off (the self-hosted posture) = pricing metadata is ignored, every pack installs free. Requires `BILLING_SERVICE_URL` + `BILLING_SERVICE_API_KEY` when on (boot-validated); `BILLING_TIMEOUT_MS` / `BILLING_ENTITLEMENT_CACHE_TTL_MS` tune the client. |
 | `OTEL_ENABLED` | `0` | Enable OpenTelemetry tracing. When `1`, exports OTLP/HTTP traces with auto-instrumentation for `http` (so OpenAI + JWKS calls show up) + `express` (Nest). The pipeline emits explicit child spans under `search`: `vector_leg`, `lexical_leg`, `route`, `ppr`, `fetch_neighbours`, `rerank` — each annotated with candidate counts. Plus Phase K3 queue handoff spans: `jobs.enqueue` (PRODUCER) + `jobs.process <jobType>` (CONSUMER, linked via traceparent on the row). Bring-your-own backend via `OTEL_EXPORTER_OTLP_ENDPOINT` (base URL, no path — the exporter appends `/v1/traces`; prod points it at the monitoring stack's Alloy, see `monitoring/README.md`). Service name defaults to `inite-brain-service`; override via `OTEL_SERVICE_NAME`. No-op when off — zero cost. |
 
 Prod observability (metrics scrape, log shipping, trace storage,
@@ -91,6 +109,7 @@ The queue is on by default. Every var has a safe default; tune below.
 | `JOB_RUN_BACKOFF_BASE_MS` | `30000` | Exponential-backoff base for failed/zombie-reaped jobs. Cap is 1h regardless of base × `2^(attempts-1)`. |
 | `JOB_WORKER_POOL_SIZE` | `2` (dev) / `0` (prod) | `node:worker_threads` pool size for `cpuBound: true` handlers. `0` disables the pool entirely (no current handler is cpuBound). |
 | `JOB_RUN_PERSIST` | `1` | Set `0` only in unit tests to disable job_run persistence entirely. Never in prod. |
+| `WORKER_LOOP_MAX_CONCURRENT` | `1` | In-flight dispatch bound per job type on this pod. Override per type with `WORKER_LOOP_MAX_CONCURRENT_<JOBTYPE>` (job type upper-cased, e.g. `WORKER_LOOP_MAX_CONCURRENT_DREAMS=2`, `WORKER_LOOP_MAX_CONCURRENT_INDEX_DOCUMENT=2`). `WORKER_LOOP_TENANT_MAX_CONCURRENT` (default 1) bounds per-tenant fan-out; `WORKER_LOOP_GLOBAL_MAX_CONCURRENT` (default 0 = unbounded) caps the pod total. |
 | `PROCESS_ROLE` | `all` | One-env role split: `all` / `api` / `worker`. Maps to the flag bundle described in [Splitting API and worker roles](#splitting-api-and-worker-roles). Explicitly-set flags always win over the role defaults. |
 
 ## Splitting API and worker roles
@@ -258,6 +277,30 @@ data loss. Staged candidates expire per `CANDIDATE_PENDING_TTL_DAYS`;
 stuck runs are reaped per the stale window; committed facts stay (they
 are ordinary memory — retract/forget applies as usual).
 
+## Enabling MCP pack tools
+
+Pack-declared MCP tools ([mcp-pack-tools.md](mcp-pack-tools.md)) ship
+dark behind `MCP_PACK_TOOLS_ENABLED` (default off). Two-stage rollout:
+
+1. **`MCP_PACK_TOOLS_ENABLED=1`** — query tools only (the
+   `MCP_PACK_QUERY_TOOLS_ENABLED=1` default). Query tools are served
+   entirely in-process, fenced to each pack's own predicates, and run
+   under the caller's scopes + ABAC row filter — the low-risk half.
+   Re-install (or install) packs with `acceptMcpTools: true`; without
+   stored consent nothing is served.
+2. **`MCP_PACK_EXTERNAL_TOOLS_ENABLED=1`** — only after reviewing each
+   consented pack's declared endpoints (the install refusal message
+   lists them). External calls are HMAC-signed, SSRF-fenced, budget- and
+   size-capped, and carry an opaque `installId` — never the tenant id.
+
+> [!WARNING]
+> `MCP_PACK_TOOLS_ALLOW_HTTP=1` disables the SSRF egress guard (plain
+> http + loopback endpoints allowed). Dev/test only — never in
+> production.
+
+Rollback: flip the master flag off — pack tools vanish from
+`tools/list` on the next binding-cache refresh (≤ `MCP_PACK_TOOLS_CACHE_TTL_MS`).
+
 ## Enabling marketplace billing (paid packs)
 
 The registry marketplace (docs/domain-packs.md "Marketplace") ships dark:
@@ -323,3 +366,10 @@ docker / fly / k8s don't `SIGKILL` you with no log line.
 | `pnpm test:eval:json` | Loads a directory from `BRAIN_DIRECTORY_JSON=…/file.json` and runs retrieval + lifecycle assertions; same runner, your data. | Bringing up brain on a real customer dataset; smoke-testing a CSV→JSON export against the eval harness. |
 | `pnpm test:e2e:jobs` | Real-Surreal e2e: enqueue → claim → renew → complete cycle, dedup collision, fail+requeue, zombie reap, leader_lease in `system` DB. | After touching anything in `src/jobs/` or migrations 0028-0031. |
 | `pnpm lint` | ESLint flat config. | Every commit. |
+
+## See also
+
+- [Operator playbook](operator-playbook.md) — day-2 troubleshooting runbooks.
+- [Deploy runbook](DEPLOY.md) — the production deployment + observability stack.
+- [API reference](api.md) — the endpoint families these flags gate.
+- [Document pipeline](document-pipeline.md) — the architecture behind the pipeline flags.

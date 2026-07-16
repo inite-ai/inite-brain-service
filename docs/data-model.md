@@ -1,9 +1,12 @@
 # Data model
 
+What Brain stores and why — facts, vocabulary, tenancy, and erasure —
+for anyone writing to or reasoning about the graph.
+
 Brain stores **bitemporal facts** about entities, governed by a
 declarative **predicate vocabulary**. Tenancy is physical-isolation;
-PII gating runs at the database layer. GDPR forgets cascade
-synchronously.
+PII gating runs at the JS read layer (every read surface, e2e-enforced).
+GDPR forgets cascade synchronously.
 
 ## Bitemporal facts
 
@@ -25,11 +28,14 @@ Full semantics: [bitemporal-semantics.md](bitemporal-semantics.md).
 ## Predicate vocabulary
 
 Brain governs how facts are merged via per-predicate policies
-(semantics, decay half-life, PII class). The vocabulary and the
-conflict-resolution algorithm are **declared in the spec** at
+(semantics, decay half-life, PII class). The live vocabulary is each
+tenant's **predicate registry** (`knowledge_predicate`, managed via
+`/v1/admin/predicates`), seeded from the core set plus any installed
+[Domain Packs](domain-packs.md); the core set and the
+conflict-resolution algorithm are declared in the spec at
 `inite-ecosystem/core/capabilities/knowledge.yaml`.
 
-Quick reference (full table in spec):
+Quick reference (core predicates):
 
 | Predicate | Semantics | Decay half-life | PII class |
 |---|---|---|---|
@@ -72,7 +78,10 @@ A separate `system` database holds global state — `leader_lease`,
   cascades through facts, edges, and embeddings, leaving only an
   HMAC-hash tombstone in `forgotten_entity`.
 - Sensitive predicates are gated by `brain:read_pii` scope — they
-  never appear in MCP results to AI agents without it.
+  never appear in MCP results to AI agents without it. The gate is
+  enforced in the app layer on every read surface (the DB-level
+  PERMISSIONS fence exists but is inert for the pooled system user —
+  see [ABAC § DB-level fence status](abac.md#db-level-fence-status-migration-0057)).
 
 ### `FORGET_HMAC_KEY`
 
@@ -88,3 +97,10 @@ flip status flags. The `audit_event` table records every
 `create`/`update`/`delete`/`define` operation per tenant (migration
 0023). Operators read it through `GET /v1/admin/audit`; admin UI has a
 filterable page with per-source / per-op rollups.
+
+## See also
+
+- [Bitemporal semantics](bitemporal-semantics.md) — the two clocks in depth.
+- [Source reputation & trust](source-reputation.md) — the trust snapshot stamped on every fact.
+- [Domain Packs](domain-packs.md) — extending the predicate vocabulary.
+- [ABAC access policies](abac.md) — narrowing what individual keys read.

@@ -1,8 +1,11 @@
 # API reference
 
+An index of every HTTP endpoint Brain serves, grouped by area, with
+auth scopes — for anyone calling Brain over REST or wiring an admin UI.
 A generated [OpenAPI 3.1 document](openapi.json) covers the platform
-surface (registry, packs, documents, indexer work) — regenerate with
-`pnpm openapi:build`.
+surface (registry, packs, documents, indexer work) with full request /
+response schemas — regenerate with `pnpm openapi:build`; this page
+stays an index, not a second spec.
 
 All v1 endpoints are live; MCP transport is mounted per tenant. Every
 v1 call requires `Authorization: Bearer <plaintext>` where the key's
@@ -15,7 +18,8 @@ SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require
 | Endpoint | Notes |
 |---|---|
 | `GET /health` | Container + SurrealDB readiness. No auth. |
-| `GET /metrics` | Prometheus exposition (in-cluster scrape). |
+| `GET /ready` | Readiness probe (schema + connectivity). No auth. |
+| `GET /metrics` | Prometheus exposition (in-cluster scrape; keep off the public surface). |
 
 ## Ingest
 
@@ -65,6 +69,10 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/artifacts/:type/:entityId` | Derived artifacts (profile / digest / etc) with manual `recompile` POST. |
 | `GET /v1/sources` | Read-only trust inputs: declared `type`/`authLevel` ⋈ learned reputation, one row per source. Filters `domain` / `type` / `minSamples`, paginated (`limit` ≤ 200 / `offset`). Public projection — operator annotations (`owner`/`note`) stay on the admin surface. |
 | `GET /v1/sources/:sourceKey` | One source's declared identity, per-domain trust rows, and reputation history (newest first, ≤ 50). Same data as the `get_source_reputation` MCP tool. |
+| `GET /v1/communities` | Persisted graph communities (label propagation), paginated. |
+| `GET /v1/communities/search` | Vector search over community summaries. |
+| `GET /v1/communities/for-entity/:entityId` | Communities an entity belongs to. |
+| `GET /v1/stats/overview` | Tenant-level counts (entities / facts / edges) for dashboards. |
 
 ## Mutation (audited)
 
@@ -80,6 +88,50 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/dreams/run` | Off-hours self-improvement: dedup / resolve / summarize (admin scope). |
+
+## Domain Packs (admin)
+
+Manifest format + install semantics: [domain-packs.md](domain-packs.md).
+All routes `brain:admin`.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/admin/packs` | Installed packs for the tenant. |
+| `POST /v1/admin/packs` | Install/upgrade from a manifest body (`{manifest, expectedChecksum?, acceptMcpTools?}`). A manifest with an `mcpTools` section **requires `acceptMcpTools: true`** (400 otherwise; re-required when an upgrade changes the section). Response includes `webhookSecret` (once, external packs) and `seedDocuments: {count, status}` when the manifest ships seeds. |
+| `POST /v1/admin/packs/from-registry` | Install from the global registry (`{packId, version?, acceptMcpTools?}`). Paid packs answer a self-describing `402` until the entitlement exists — see [Marketplace](domain-packs.md#marketplace). |
+| `POST /v1/admin/packs/:packId/eval` | Run the pack's own `evalFixtures` through the live extractor (`?mode=union\|dedicated`). |
+| `DELETE /v1/admin/packs/:packId` | Uninstall — deprecates the pack's predicates; facts survive. |
+
+## Registry + marketplace
+
+Global pack catalogue (shared `system` database) + instance-local
+marketplace state. Semantics: [domain-packs.md § Registry](domain-packs.md#the-registry-global-catalogue).
+
+| Endpoint | Scope | Notes |
+|---|---|---|
+| `GET /v1/registry/packs` | `brain:read` | Discovery: `?q=&tag=&publisher=`; carries `featured` / download counters / `verified` / `origin` (mirrored rows). |
+| `GET /v1/registry/packs/:packId` | `brain:read` | All versions + latest. |
+| `GET /v1/registry/packs/:packId/:version` | `brain:read` | One version (`latest` accepted). |
+| `GET /v1/registry/publishers/:publisher` | `brain:read` | Publisher page: profile (or null) + published packs. |
+| `POST /v1/admin/registry/packs` | `registry:publish` | Publish a manifest; `(packId, version)` immutable, identical republish idempotent. |
+| `POST /v1/admin/registry/packs/:packId/:version/yank` / `unyank` | `registry:publish` | Flag a bad version out of resolution; never deletes. |
+| `PUT /v1/admin/registry/packs/:packId/pricing` | `registry:publish` | Price the pack (`{amount, currency}`, minor units); mints a billing product + price. |
+| `DELETE /v1/admin/registry/packs/:packId/pricing` | `registry:publish` | Back to free. |
+| `POST /v1/admin/registry/packs/:packId/checkout` | `brain:admin` | Create a billing checkout session for a paid pack (`{successUrl?, errorUrl?}`, optional `idempotency-key` header). |
+| `POST /v1/admin/registry/packs/:packId/feature` / `unfeature` | `registry:curate` | Featured curation (hosting-operator scope). |
+| `PUT /v1/admin/registry/publishers/:publisher` | `registry:publish` | Upsert the public publisher profile (requires ≥1 verified pack under that publisher id). |
+| `GET /registry/ui` · `GET /registry/ui/publisher/:publisher` | none | Public server-rendered HTML catalogue / publisher page. |
+
+## Admin — sources
+
+Source registry + trust management (all `brain:admin`); the model lives
+in [source-reputation.md](source-reputation.md).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/admin/sources` | Registry ⋈ learned trust, one row per source (includes `owner` / `note`). |
+| `GET /v1/admin/sources/:sourceKey` | Detail: per-domain trust rows + history + recent facts. |
+| `PUT /v1/admin/sources/:sourceKey` | Declare `type` / `authLevel` / `owner` / `note`. |
 
 ## Admin — jobs + leases
 
@@ -105,6 +157,24 @@ has a zod wire contract. The browser-side BFF at
 response through the same schema — drift becomes a loud 502 instead of
 a quiet stale field.
 
+## Admin — governance + ops
+
+The rest of the `brain:admin` surface, compactly (one row per family —
+the admin UI at brain-landing is the primary consumer):
+
+| Family | Endpoints | Notes |
+|---|---|---|
+| Overview + audit | `GET /v1/admin/overview`, `GET /v1/admin/audit` | Tenant dashboard counts; filterable `audit_event` feed. |
+| Predicates | `GET/POST /v1/admin/predicates`, `PATCH/DELETE /v1/admin/predicates/:id`, `POST …/:id/promote`, `POST …/:id/alias` | Tenant predicate-registry CRUD + proposed→active promotion + alias lifecycle. |
+| Ops | `GET /v1/admin/config`, `GET /v1/admin/dlq`, `DELETE /v1/admin/dlq/:companyId/:id`, `GET /v1/admin/forgotten` (+`/export`), `GET /v1/admin/pii`, `GET /v1/admin/operator-actions` | Config catalogue (effective values + defaults), dead-letter queue, forget tombstones, PII-surface inventory, operator action log. |
+| Infra | `GET /v1/admin/health/components`, `GET /v1/admin/migrations`, `GET /v1/admin/throttler`, `GET /v1/admin/now` | Component health, per-tenant migration ledger, rate-limiter state, server clock. |
+| Retrieval ops | `GET /v1/admin/router/stats`, `GET /v1/admin/cost`, `GET /v1/admin/calibration`, `POST /v1/admin/reindex/embeddings` | Router cache stats, LLM cost rollups, calibration curves, re-embed kick. |
+| Eval | `GET /v1/admin/scenarios` (+`/:id`, `POST /:id/run`, `POST /run-batch`), `GET/POST /v1/admin/baselines…`, `GET /v1/admin/traces…` | Runtime scenario runner over `src/eval/`, baseline diffing, debug traces. |
+| Dreams detail | `GET /v1/admin/dreams/runs/:runId/emits`, `GET /v1/admin/dreams/summary`, `POST /v1/admin/dreams/run` | Per-run emit drill-down + rollups; synchronous dreams trigger. |
+| Code memory | `GET /v1/admin/code-memory/anchors`, `POST /v1/admin/code-memory/anchors/apply` | Drift-resistant anchor review + apply. |
+| Demo | `POST /v1/admin/demo/*`, `GET /v1/admin/demo/state` | Sandboxed demo-tenant flows for the public playground. |
+| Tenancy | `DELETE /v1/admin/tenants/:companyId` | Whole-tenant erasure (`REMOVE DATABASE`). |
+
 ## MCP
 
 | Endpoint | Notes |
@@ -119,7 +189,8 @@ a quiet stale field.
 | `brain:write` | All ingest endpoints. |
 | `brain:read_pii` | Lifts the PII gate — `dob` / `email` / `phone` / `address` facts return real values. |
 | `brain:admin` | All `/v1/admin/*` endpoints, dreams trigger, retraction / forget. |
-| `registry:publish` | Publish/yank in the global pack registry (catalogue shared across tenants). |
+| `registry:publish` | Publish/yank in the global pack registry (catalogue shared across tenants); also pricing + publisher-profile writes for the publisher's own packs. |
+| `registry:curate` | Feature/unfeature packs in the catalogue — a hosting-operator scope, distinct from `registry:publish` (publishers manage their own packs; curation ranks everyone's). Env-key-only, like `registry:publish`. |
 | `indexer:write` | Stage candidates as an external indexer (`POST /v1/documents/:id/candidates`) — can propose hypotheses, never write facts directly. Optionally pack-bound: a key with `packIds` (static entry) or a `packs` JWT claim acts ONLY as those pack identities (403 outside the binding). |
 
 Keys are stored as `sha256:<hex>` — see [Getting started](getting-started.md#seed-an-apikey)
@@ -158,3 +229,10 @@ gets a synthetic enforce/deny-all set and
 
 Denied REST calls answer `403 {error: 'policy_denied', action, policySet,
 ruleId}`. Enforce-denied MCP tools disappear from `tools/list` entirely.
+
+## See also
+
+- [OpenAPI 3.1 spec](openapi.json) — request/response schemas for the platform surface (generated).
+- [Operations](operations.md) — the env flags that gate whole endpoint families.
+- [Domain Packs](domain-packs.md) — pack manifest + registry + marketplace semantics.
+- [External indexer protocol](indexer-protocol.md) — the work API end to end.

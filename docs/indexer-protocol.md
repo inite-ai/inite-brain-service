@@ -329,3 +329,10 @@ routed to their pack (`/content`) — that text can carry anything the
 source carried (post-redaction). Mint per-integration keys, scope packs
 narrowly via relevance, and treat external indexers as processors in
 your data-protection terms.
+
+## See also
+
+- [Document pipeline](document-pipeline.md) — where work items come from and how candidates become memory.
+- [Domain Packs](domain-packs.md) — authoring the pack that registers your indexer.
+- [API reference](api.md) — the work API + candidates endpoints in the full surface index.
+- [Operations](operations.md#enabling-the-document-pipeline--external-indexers) — the operator enablement runbook.

@@ -106,3 +106,9 @@ The "actual now" default is the convention in:
 - **Graphiti / Zep** (Jan 2025) — bitemporal KG specifically for AI-agent memory; default search is "current truth", `as_of` for historical context. Cited in the research that informed this design.
 
 Brain follows the same family. The `includeStale` flag exists for exotic callers (admin tooling, batch jobs that build full-history exports), not as a mode toggle for normal application code.
+
+## See also
+
+- [Data model](data-model.md) — the fact shape these axes live on.
+- [Architecture](architecture.md) — how the cutoff pushes into the retrieval WHERE clause.
+- [API reference](api.md) — `asOf` / `includeStale` / timeline endpoints.

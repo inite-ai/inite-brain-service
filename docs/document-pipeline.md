@@ -6,13 +6,23 @@ exactly one decision engine DISPOSES. Everything here is dark behind
 `DOCUMENT_INGEST_ENABLED` (default off); with the flag off the legacy
 mention/fact paths behave byte-identically.
 
+```mermaid
+flowchart LR
+  conn["connectors<br/>(PDF · email · chat · git)"] --> src["Source<br/>normalized document<br/>hash-deduped · PII-redacted · chunked"]
+  seeds["pack seedDocuments<br/>(install-triggered)"] --> src
+  src --> router{"relevance router<br/>L0 vertical / L1 keywords / L2 cosine"}
+  router --> union["Indexer: union pass<br/>('_general' + virtual packs)"]
+  router --> ded["Indexer: dedicated pack runs<br/>(own model / prompt budget)"]
+  router --> work["external work items<br/>(pending indexer_run)"]
+  work <--> ext["external indexer ✳<br/>poll → claim → content → submit"]
+  union --> cand["Candidates<br/>staged hypotheses — not memory"]
+  ded --> cand
+  ext --> ground["span re-grounding"] --> cand
+  cand --> commit["Brain: CommitMemory<br/>unify entities · merge facts ·<br/>fn::resolve_fact"]
+  commit --> graph[("bitemporal graph")]
 ```
-Source          normalized document (brain doesn't know what a PDF is)
-  → Indexer     composable domain readers (one union pass + opt-in
-                dedicated pack runs, gated by a relevance router)
-  → Candidates  "this MIGHT be a fact" — staged hypotheses, not memory
-  → Brain       merge / dedupe / conflict-resolve → CommitMemory
-```
+
+✳ = the third-party seam — see [indexer-protocol.md](indexer-protocol.md).
 
 Schema: migrations `0048` (source_document + source_chunk), `0049`
 (indexer_run + candidate), `0050` (origin-keyed corroboration). Code:
@@ -136,6 +146,19 @@ skips whatever the pack version already processed; the extraction cache
 eats unchanged text. New candidates merge against existing memory through
 the same resolver — originKey keeps a document from corroborating itself.
 
+## Seed documents (pack-shipped knowledge)
+
+A Domain Pack may ship `seedDocuments` — pre-populated domain knowledge
+ingested through THIS pipeline when the pack is installed (flag
+`PACK_SEED_INGEST_ENABLED`, default on; requires `DOCUMENT_INGEST_ENABLED`
+since seeds ride the normal path). Each seed becomes an ordinary document
+with `kind: 'pack_seed'` and provenance meta on every derived fact's
+`source.meta` (`pack_seed`, `pack_id`, `pack_version`, `pack_seed_doc`) —
+same chunking, staging, conflict resolution, and contentHash dedupe as any
+connector's document, so a same-version reinstall or an unchanged seed on
+upgrade is a no-op. Caps, upgrade semantics, and the install-response
+status field: [Domain Packs § Seed documents](domain-packs.md#seed-documents-consumed).
+
 ## External indexers
 
 A remote service (CI job, SaaS integration, an agent) registers as a pack
@@ -221,6 +244,8 @@ only — polling remains the source of truth
 | `CANDIDATE_PENDING_TTL_DAYS` | `7` | Sweeper: expire stuck pending candidates after. |
 | `REINDEX_MAX_DOCS_PER_RUN` | `500` | Backfill batch budget per job. |
 | `INDEXER_EXTERNAL_PENDING_TTL_DAYS` | `7` | Sweeper: expire unclaimed external work items after. |
+| `PACK_SEED_INGEST_ENABLED` | `1` | Ingest pack `seedDocuments` on install (also needs `DOCUMENT_INGEST_ENABLED`). |
+| `INDEXER_WEBHOOK_PUSH_ENABLED` | `1` | `work_available` push hints to packs with a `callbackUrl` (polling stays the source of truth). |
 
 ## Observability
 
@@ -231,3 +256,10 @@ Prometheus: `brain_documents_total{result}`,
 `brain.commit` (+ a `brain.commit.merge` artifact with per-document merge
 stats). Per-pack stats live on `indexer_run.stats` rows — pack ids are
 unbounded, so they are deliberately not metric labels.
+
+## See also
+
+- [External indexer protocol](indexer-protocol.md) — the third-party side of the work API.
+- [Domain Packs](domain-packs.md) — indexer descriptors, relevance routing, seed documents.
+- [Operations](operations.md#enabling-the-document-pipeline--external-indexers) — the staged enablement runbook.
+- [API reference](api.md) — every document + indexer endpoint with scopes.

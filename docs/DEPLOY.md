@@ -1,5 +1,8 @@
 # brain.inite.ai — deployment runbook
 
+How the production instance is built, shipped, rolled back, and
+observed — for whoever operates the deploy pipeline.
+
 Production target: `brain.inite.ai`
 Docker host: `inite-temporal` droplet (SFO), self-hosted GitHub runner `[self-hosted, sfo]`
 Reverse proxy: Traefik global, automatic Let's Encrypt
@@ -26,9 +29,11 @@ Workflow: `.github/workflows/deploy-brain.yml` (manual dispatch)
 ```
 
 The shared `inite-surrealdb` is **the** decision point — chosen for ops
-simplicity over hard isolation. Brain's namespace `brain` is fully isolated
-data-wise from gateway's `inite`. CPU/IO is shared. Watch for hot-tenant
-contention if either side starts running heavy graph queries.
+simplicity over hard isolation. Brain shares the `inite` namespace with the
+gateway but owns its per-tenant `co_<companyId>` databases and the
+`knowledge_*` tables, so the two never collide data-wise. CPU/IO is shared.
+Watch for hot-tenant contention if either side starts running heavy graph
+queries.
 
 Brain holds an **internal SQL connection pool** (root + scoped). The DB-
 level PII fence (migration `0005_pii_permissions.surql`) creates the
@@ -76,9 +81,11 @@ retries for 2 minutes.
      pulls the new image, `docker-compose up -d`.
    - Waits 25s for the container, then probes `https://brain.inite.ai/health`
      with retries (cert provisioning).
-5. First request to any tenant triggers `ensureSchema` — migrations 0001-0009
-   apply on the per-tenant `co_<companyId>` DB, including 0005 (PII PERMISSIONS
-   + `brain_caller` user). No separate migration step needed.
+5. First request to any tenant triggers `ensureSchema` — every numbered
+   migration in `src/db/migrations/` (0001 through the current head) applies
+   on the per-tenant `co_<companyId>` DB, including 0005 (PII PERMISSIONS +
+   `brain_caller` user). No separate migration step needed; concurrent
+   appliers racing the ledger insert are tolerated.
 
 ## Subsequent deploys
 
@@ -173,3 +180,9 @@ see [`monitoring/README.md`](../monitoring/README.md) and
   in-depth becomes app-only — DB-level fence not enforced). On password
   rotation: re-deploy. Brain's `ensureSchema` re-syncs the password
   once per process boot for any tenant DB that already has 0005 applied.
+
+## See also
+
+- [Operations](operations.md) — every env var the compose file sets.
+- [Operator playbook](operator-playbook.md) — day-2 troubleshooting once deployed.
+- [`monitoring/README.md`](../monitoring/README.md) — the observability stack in depth.

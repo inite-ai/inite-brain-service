@@ -1,7 +1,9 @@
 # Getting started
 
-Brain runs on Node 22 + SurrealDB 2.3.10 + OpenAI. The fast path is
-five commands; everything else is in the linked docs.
+Zero to a running Brain with one ingested fact — for anyone standing up
+the service for the first time. Brain runs on Node 22 + SurrealDB 3.1.5
++ OpenAI. The fast path is five commands; everything else is in the
+linked docs.
 
 ## Prerequisites
 
@@ -79,6 +81,15 @@ idempotent.
 
 ## Next steps
 
+- Connect an MCP agent: point any MCP-capable harness at
+  `http://localhost:3000/mcp/co_demo` with the same Bearer key
+  (per-client recipes in [README § Connect an agent](../README.md#connect-an-agent)).
+- Feed it documents: set `DOCUMENT_INGEST_ENABLED=1` and POST to
+  `/v1/ingest/document` — [Document pipeline](document-pipeline.md).
+- Install a Domain Pack (needs a `brain:admin`-scoped key):
+  `BRAIN_API_KEY=... pnpm pack:install -- --brain-url http://localhost:3000
+  --file packs/fintech.pack.json` extends the ontology at runtime —
+  [Domain Packs](domain-packs.md).
 - Wire your vertical: [Migration guide](migration-guide.md)
 - Understand the read path: [Architecture](architecture.md)
 - All knobs: [Operations](operations.md)

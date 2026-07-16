@@ -1,8 +1,13 @@
 # Architecture
 
+How Brain's read path, background plane, and serving surfaces fit
+together — the developer's mental model of the service.
+
 Brain has four moving parts: a layered **retrieval pipeline**, an
 optional **multi-hop planner** that chains it, a **synthesize**
-guardrail on top, and a **dreams + jobs** background plane.
+guardrail on top, and a **dreams + jobs** background plane — served
+over REST and a per-tenant [MCP endpoint](#mcp-surface), with CPU-heavy
+work pushed to [worker threads](#worker-threads--process-roles).
 
 ## Retrieval pipeline
 
@@ -264,3 +269,46 @@ rows are currently in `running` state (with `claimedBy` / `attempts`
 `worker_loop` leader flag. The admin UI page at `/admin/leases` auto-
 refreshes every 5s and colour-codes stale heartbeats / expired
 leases. See [Operator playbook § Drain a stuck queue](operator-playbook.md).
+
+## Worker threads + process roles
+
+Everything CPU-shaped runs off the main event loop in
+`node:worker_threads`, so a burst of embeddings or a rerank never
+starves HTTP: the BGE-M3 embedder (`BGE_M3_WORKER=1`), the local
+ONNX cross-encoder, the NLI intent classifier behind chat routing,
+local NER, community label propagation, and tiktoken token counting.
+Models lazy-load where they're used, so a pod only pays for what its
+role touches.
+
+When one process stops being enough, `PROCESS_ROLE=api|worker|all`
+splits the same image into an HTTP-only pod and a jobs pod against the
+same SurrealDB — no new infrastructure, just a flag bundle over the
+existing worker-loop kill switch and leader leases. Semantics, compose
+recipe, and when to actually split:
+[Operations § Splitting API and worker roles](operations.md#splitting-api-and-worker-roles).
+(A dedicated workflow engine was evaluated and deliberately not
+adopted — see [platform-gap-2026-07.md](roadmap/platform-gap-2026-07.md).)
+
+## MCP surface
+
+Every tenant gets a Streamable HTTP MCP endpoint (`ALL /mcp/:companyId`)
+serving the same knowledge over agent-native tools: 28 static tools
+across read / write / community / procedural / source families
+(`ingest_document` registers only under `DOCUMENT_INGEST_ENABLED`),
+gated by the caller key's scopes (and, when enabled, per-key
+[ABAC policies](abac.md) — enforce-denied tools vanish from
+`tools/list`). Two MCP resources (`brain://entity/...`) and sampling
+round out the surface; REST and MCP share one action namespace, so a
+policy written once gates both.
+
+Installed Domain Packs can extend the surface with consented,
+flag-gated tools of their own — declarative query tools over the
+pack's predicates or HMAC-proxied external tools. Model + security
+posture: [mcp-pack-tools.md](mcp-pack-tools.md).
+
+## See also
+
+- [Data model](data-model.md) — the facts the pipeline retrieves.
+- [Bitemporal semantics](bitemporal-semantics.md) — the two clocks behind `asOf`.
+- [Document pipeline](document-pipeline.md) — the ingestion plane.
+- [Operations](operations.md) — every flag named above, with rollout guidance.
