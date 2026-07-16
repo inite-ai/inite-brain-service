@@ -403,11 +403,24 @@ async function forward(
   const debug = query.debug === '1'
   if (debug) delete query.debug
 
+  // The registry catalogue scopes (registry:publish / registry:curate)
+  // are env-key-only on the backend — JWT tokens get them stripped at
+  // verification. When the operator provisions BRAIN_REGISTRY_API_KEY
+  // (a BRAIN_API_KEYS entry with e.g. `brain:admin registry:publish
+  // registry:curate`), marketplace admin calls ride it instead of the
+  // M2M token; without it they degrade to the M2M path and the panel
+  // shows its missing-scope note.
+  const registryKey =
+    subpath.startsWith('v1/admin/registry') && process.env.BRAIN_REGISTRY_API_KEY
+      ? process.env.BRAIN_REGISTRY_API_KEY
+      : undefined
+
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
     body,
     query,
     headers: debug ? { 'X-Brain-Debug': '1' } : undefined,
+    apiKey: registryKey,
   })
 
   const schema = res.ok ? findSchema(request.method, subpath) : undefined

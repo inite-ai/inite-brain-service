@@ -342,13 +342,19 @@ plus all Marketplace *reads*; Marketplace *writes* need more:
 
 Missing scopes degrade gracefully — the Marketplace panel stays usable
 read-only and shows an amber note naming the missing scope instead of a
-generic error. To actually enable those writes, widening `BRAIN_SCOPE`
-is necessary but not sufficient today: the registry scopes are
-env-key-only (deliberately absent from the JWT `VALID_SCOPES` set in
-`src/auth/jwks.service.ts`), so a JWT-based BFF token gets them
-stripped at verification. Until that allowlist decision changes,
-perform registry curation/publishing with a `BRAIN_API_KEYS` env key
-(see docs/domain-packs.md) rather than through the admin UI.
+generic error. The registry scopes are env-key-only by design
+(deliberately absent from the JWT `VALID_SCOPES` set in
+`src/auth/jwks.service.ts`), so a JWT-based BFF token can never carry
+them. To enable Marketplace writes from the admin UI:
+
+1. Add a key to the backend's `BRAIN_API_KEYS` with scopes
+   `brain:admin registry:publish registry:curate` (see
+   docs/domain-packs.md for key minting).
+2. Set the plaintext key as `BRAIN_REGISTRY_API_KEY` in the
+   brain-landing environment. The BFF proxy then sends it as the Bearer
+   token on `v1/admin/registry/*` calls only; everything else stays on
+   the M2M JWT path. Without the env var, marketplace writes keep the
+   read-only degradation.
 
 **Deliberately NOT in v1**
 
