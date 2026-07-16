@@ -484,6 +484,16 @@
             },
             "type": "object"
           },
+          "mcpTools": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
           "predicates": {
             "items": {
               "additionalProperties": {},
@@ -960,6 +970,9 @@
       "InstallFromRegistryRequest": {
         "additionalProperties": false,
         "properties": {
+          "acceptMcpTools": {
+            "type": "boolean"
+          },
           "packId": {
             "type": "string"
           },
@@ -975,6 +988,9 @@
       "InstallPackRequest": {
         "additionalProperties": false,
         "properties": {
+          "acceptMcpTools": {
+            "type": "boolean"
+          },
           "expectedChecksum": {
             "type": "string"
           },
@@ -1028,6 +1044,9 @@
             "type": "object"
           },
           "version": {
+            "type": "string"
+          },
+          "webhookSecret": {
             "type": "string"
           }
         },

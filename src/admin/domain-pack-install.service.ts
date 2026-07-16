@@ -31,6 +31,7 @@ import {
   type PackExternalToolSpec,
 } from '../ai/domain-packs';
 import { assertPublicHttpUrl, EgressDeniedError } from '../common/egress-guard';
+import { PackToolsReaderService } from '../mcp/pack-tools-reader.service';
 
 export interface InstalledPack {
   packId: string;
@@ -70,15 +71,17 @@ export class DomainPackInstallService {
   private readonly logger = new Logger(DomainPackInstallService.name);
   private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
-  // The optional 4th dep serves the REINDEX_ON_PACK_INSTALL and seed-ingest
-  // queue hooks — fire-and-forget enqueues, not a responsibility worth a
-  // wrapper class.
+  // The optional 4th/5th deps are hooks — the REINDEX_ON_PACK_INSTALL /
+  // seed-ingest queue enqueues and the MCP pack-tools cache invalidation
+  // — fire-and-forget concerns, not responsibilities worth a wrapper
+  // class.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     private readonly registry: PredicateRegistryService,
     @Optional() private readonly claim?: JobClaimService,
+    @Optional() private readonly packToolsReader?: PackToolsReaderService,
   ) {}
 
   /** Trust store: publisher → PEM public key, from DOMAIN_PACK_TRUSTED_KEYS
@@ -270,6 +273,7 @@ export class DomainPackInstallService {
     });
 
     this.registry.invalidate(companyId);
+    this.packToolsReader?.invalidate(companyId);
     this.logger.log(
       `Installed pack ${manifest.id} v${manifest.version} into ${companyId} (${seeded} predicate(s) seeded)`,
     );
@@ -537,6 +541,7 @@ export class DomainPackInstallService {
     });
 
     this.registry.invalidate(companyId);
+    this.packToolsReader?.invalidate(companyId);
     this.logger.log(
       `Uninstalled pack ${packId} from ${companyId} (${deprecated} predicate(s) deprecated)`,
     );

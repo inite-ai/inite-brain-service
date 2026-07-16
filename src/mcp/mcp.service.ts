@@ -29,7 +29,14 @@ import { DocumentIngestService } from '../documents/document-ingest.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { evaluateAction } from '../policy/policy-engine';
-import { PolicyContext } from '../policy/policy.types';
+import { ActionKind, PolicyContext } from '../policy/policy.types';
+import { envFlagEnabled } from '../common/env-validation';
+import { PACK_NAMESPACE_SEP } from '../ai/domain-packs';
+import {
+  PackToolsReaderService,
+  type PackToolBinding,
+} from './pack-tools-reader.service';
+import { registerPackTools } from './pack-tools';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -96,6 +103,7 @@ export class McpService {
     private readonly documents: DocumentIngestService,
     private readonly feedback: FeedbackService,
     private readonly policyGate: PolicyGateService,
+    private readonly packToolsReader: PackToolsReaderService,
   ) {}
 
   /**
@@ -151,16 +159,24 @@ export class McpService {
       }) as never);
   }
 
-  private applyPolicyToolGate(server: McpServer, policy: PolicyContext): void {
+  // `kinds` carries the explicit read/write classification for tool
+  // names OUTSIDE the static action registry (pack-declared tools:
+  // query=read, external=write); registry names resolve as before.
+  private applyPolicyToolGate(
+    server: McpServer,
+    policy: PolicyContext,
+    kinds?: ReadonlyMap<string, ActionKind>,
+  ): void {
     const raw = server.registerTool.bind(server);
     (server as McpServer & { registerTool: unknown }).registerTool = (
       name: string,
       config: unknown,
       handler: (...args: unknown[]) => unknown,
     ) => {
-      const denied = evaluateAction(policy, name).decision === 'deny';
+      const denied =
+        evaluateAction(policy, name, kinds?.get(name)).decision === 'deny';
       const tool = raw(name as never, config as never, ((...args: unknown[]) => {
-        this.policyGate.enforceAction(policy, name);
+        this.policyGate.enforceToolAction(policy, name, kinds?.get(name));
         return handler(...args);
       }) as never);
       // Enforce-denied tools unregister immediately: gone from
@@ -203,7 +219,7 @@ export class McpService {
     }
   }
 
-  buildServer(
+  async buildServer(
     companyId: string,
     scopes: BrainScope[],
     caller?: {
@@ -218,16 +234,33 @@ export class McpService {
        * policies attached, tool surface identical to pre-ABAC.
        */
       policy?: PolicyContext;
+      /**
+       * Per-pack key binding (ApiKeyRecord.packIds): a bound key sees
+       * only its packs' declared tools; absent = every consented pack.
+       */
+      packIds?: string[];
     },
-  ): McpServer {
+  ): Promise<McpServer> {
     const actorKeyHash = caller?.actorKeyHash;
     const policy = caller?.policy;
+    // Bindings are fetched BEFORE the wrappers so the ABAC gate knows
+    // each pack tool's read/write kind at registration time.
+    const packBindings = await this.packToolBindings(companyId, caller?.packIds);
+    const packToolKinds = new Map<string, ActionKind>();
+    for (const b of packBindings) {
+      for (const t of b.tools) {
+        packToolKinds.set(
+          `${b.packId}${PACK_NAMESPACE_SEP}${t.name}`,
+          t.kind === 'query' ? 'read' : 'write',
+        );
+      }
+    }
     const server = new McpServer({
       name: 'inite-brain-service',
       version: MCP_SERVER_VERSION,
     });
     this.wrapToolErrors(server);
-    if (policy) this.applyPolicyToolGate(server, policy);
+    if (policy) this.applyPolicyToolGate(server, policy, packToolKinds);
     registerReadTools({
       server,
       companyId,
@@ -289,6 +322,29 @@ export class McpService {
         actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
       });
     }
+    registerPackTools({
+      server,
+      companyId,
+      scopes,
+      bindings: packBindings,
+      deps: { search: this.search, facts: this.facts },
+    });
     return server;
+  }
+
+  /**
+   * Consented pack tool bindings for this request — [] when the master
+   * flag is off (no DB round-trip on the pre-existing surface), fenced
+   * to the key's packIds binding when one is present.
+   */
+  private async packToolBindings(
+    companyId: string,
+    packIds?: string[],
+  ): Promise<PackToolBinding[]> {
+    if (!envFlagEnabled(process.env.MCP_PACK_TOOLS_ENABLED)) return [];
+    const bindings = await this.packToolsReader.installedPackTools(companyId);
+    return packIds
+      ? bindings.filter((b) => packIds.includes(b.packId))
+      : bindings;
   }
 }

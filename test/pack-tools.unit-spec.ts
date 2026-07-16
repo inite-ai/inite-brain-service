@@ -28,6 +28,15 @@ import {
   assertPublicHttpUrl,
   EgressDeniedError,
 } from '../src/common/egress-guard';
+import { z } from 'zod';
+import {
+  renderPackToolDescription,
+  renderPackToolTitle,
+  sanitizePackText,
+} from '../src/mcp/pack-tool-render';
+import { registerPackTools } from '../src/mcp/pack-tools';
+import type { PackToolBinding } from '../src/mcp/pack-tools-reader.service';
+import { McpService } from '../src/mcp/mcp.service';
 
 function packPredicate(localId: string): PackPredicate {
   return {
@@ -350,5 +359,270 @@ describe('egress guard (assertPublicHttpUrl)', () => {
     ).resolves.toBeUndefined();
     await denied('http://user:pass@127.0.0.1/tool', { allowHttp: true });
     await denied('ftp://127.0.0.1/tool', { allowHttp: true });
+  });
+});
+
+
+describe('pack tool renderer', () => {
+  it('prepends the kind-specific server preamble', () => {
+    expect(
+      renderPackToolDescription({ packId: 'demo', version: '0.1.0', tool: queryTool() }),
+    ).toBe(
+      '[third-party tool from domain pack "demo" v0.1.0; reads this ' +
+        "tenant's knowledge graph] Find things recorded by this pack.",
+    );
+    expect(
+      renderPackToolDescription({ packId: 'demo', version: '0.1.0', tool: externalTool() }),
+    ).toContain('calls an external endpoint operated by the pack publisher] ');
+  });
+
+  it('strips control/bidi/zero-width characters and collapses whitespace', () => {
+    expect(sanitizePackText('a‮b​cd  e\n\tf', 100)).toBe('abcd e f');
+    expect(sanitizePackText('⁦hidden⁩ ﻿text', 100)).toBe('hidden text');
+  });
+
+  it('caps to the given length and tolerates non-strings', () => {
+    expect(sanitizePackText('x'.repeat(600), 500)).toHaveLength(500);
+    expect(sanitizePackText(42, 10)).toBe('');
+  });
+
+  it('title: sanitized, undefined when absent or empty after strip', () => {
+    expect(renderPackToolTitle(queryTool({ title: ' Nice‎ tool ' }))).toBe('Nice tool');
+    expect(renderPackToolTitle(queryTool())).toBeUndefined();
+    expect(renderPackToolTitle(queryTool({ title: '​​' }))).toBeUndefined();
+  });
+});
+
+// ---- registration through a stub McpServer ----------------------------
+
+interface RegisteredTool {
+  config: {
+    title?: string;
+    description?: string;
+    inputSchema?: Record<string, z.ZodTypeAny>;
+  };
+  handler: (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+function stubServer(): {
+  server: never;
+  tools: Map<string, RegisteredTool>;
+} {
+  const tools = new Map<string, RegisteredTool>();
+  const server = {
+    registerTool: (
+      name: string,
+      config: RegisteredTool['config'],
+      handler: RegisteredTool['handler'],
+    ) => {
+      tools.set(name, { config, handler });
+    },
+  };
+  return { server: server as never, tools };
+}
+
+function binding(over: Partial<PackToolBinding> = {}): PackToolBinding {
+  return {
+    packId: 'demo',
+    version: '0.1.0',
+    installId: 'inst-1',
+    webhookSecret: 'sec-1',
+    tools: [
+      queryTool(),
+      queryTool({
+        name: 'things_by_status',
+        query: { surface: 'facts_by_predicate', predicates: ['status'], defaultLimit: 5 },
+      }),
+    ],
+    namespacedPredicates: new Set(['demo__thing', 'demo__status']),
+    ...over,
+  };
+}
+
+function stubSearch(calls: unknown[]) {
+  return {
+    search: async (companyId: string, dto: unknown, scopes: unknown) => {
+      calls.push({ companyId, dto, scopes });
+      return { results: [] };
+    },
+  } as never;
+}
+
+function stubFacts(calls: unknown[]) {
+  return {
+    listByPredicate: async (opts: unknown) => {
+      calls.push(opts);
+      return { predicate: 'x', found: 0, facts: [] };
+    },
+  } as never;
+}
+
+describe('registerPackTools', () => {
+  const FLAGS = [
+    'MCP_PACK_TOOLS_ENABLED',
+    'MCP_PACK_QUERY_TOOLS_ENABLED',
+    'MCP_PACK_EXTERNAL_TOOLS_ENABLED',
+  ];
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const f of FLAGS) saved[f] = process.env[f];
+    process.env.MCP_PACK_TOOLS_ENABLED = '1';
+  });
+  afterEach(() => {
+    for (const f of FLAGS) {
+      if (saved[f] === undefined) delete process.env[f];
+      else process.env[f] = saved[f];
+    }
+  });
+
+  function register(bindings: PackToolBinding[]) {
+    const { server, tools } = stubServer();
+    const searchCalls: unknown[] = [];
+    const factsCalls: unknown[] = [];
+    registerPackTools({
+      server,
+      companyId: 'co_test',
+      scopes: ['brain:read'],
+      bindings,
+      deps: { search: stubSearch(searchCalls), facts: stubFacts(factsCalls) },
+    });
+    return { tools, searchCalls, factsCalls };
+  }
+
+  it('registers nothing when the master flag is off', () => {
+    delete process.env.MCP_PACK_TOOLS_ENABLED;
+    expect(register([binding()]).tools.size).toBe(0);
+  });
+
+  it('registers nothing when the query sub-flag is explicitly off', () => {
+    process.env.MCP_PACK_QUERY_TOOLS_ENABLED = '0';
+    expect(register([binding()]).tools.size).toBe(0);
+  });
+
+  it('registers namespaced names with the server preamble + fixed search schema', () => {
+    const { tools } = register([binding()]);
+    expect([...tools.keys()].sort()).toEqual(['demo__find_things', 'demo__things_by_status']);
+    const search = tools.get('demo__find_things')!;
+    expect(search.config.description).toMatch(/^\[third-party tool from domain pack "demo" v0\.1\.0;/);
+    // Fixed input surface: a pack cannot add parameters to a query tool.
+    expect(Object.keys(search.config.inputSchema ?? {}).sort()).toEqual(['limit', 'query']);
+    const schema = z.object(search.config.inputSchema!);
+    expect(schema.safeParse({ query: 'x'.repeat(501) }).success).toBe(false);
+    expect(schema.safeParse({ query: 'ok', limit: 21 }).success).toBe(false);
+  });
+
+  it('search handler locks server-computed namespaced predicates + clamps limit', async () => {
+    const { tools, searchCalls } = register([binding()]);
+    await tools.get('demo__find_things')!.handler({ query: 'what things?', limit: 20 });
+    const call = searchCalls[0] as { companyId: string; dto: any; scopes: unknown };
+    expect(call.companyId).toBe('co_test');
+    expect(call.scopes).toEqual(['brain:read']);
+    // No spec predicates -> ALL pack predicates, namespaced. Never caller-supplied.
+    expect([...call.dto.predicates].sort()).toEqual(['demo__status', 'demo__thing']);
+    expect(call.dto.limit).toBe(20);
+  });
+
+  it('search handler applies spec defaultLimit/minConfidence and predicate subset', async () => {
+    const withSpec = binding({
+      tools: [
+        queryTool({
+          query: {
+            surface: 'search',
+            predicates: ['thing'],
+            defaultLimit: 3,
+            minConfidence: 0.7,
+          },
+        }),
+      ],
+    });
+    const { tools, searchCalls } = register([withSpec]);
+    await tools.get('demo__find_things')!.handler({ query: 'q' });
+    const dto = (searchCalls[0] as { dto: any }).dto;
+    expect(dto.predicates).toEqual(['demo__thing']);
+    expect(dto.limit).toBe(3);
+    expect(dto.minConfidence).toBe(0.7);
+  });
+
+  it('facts handler composes the namespaced predicate and clamps the limit', async () => {
+    const { tools, factsCalls } = register([binding()]);
+    await tools.get('demo__things_by_status')!.handler({ predicate: 'status', limit: 99 });
+    const call = factsCalls[0] as { predicate: string; limit: number; scopes: unknown };
+    expect(call.predicate).toBe('demo__status');
+    expect(call.limit).toBe(50);
+    expect(call.scopes).toEqual(['brain:read']);
+  });
+
+  it('facts input schema enum rejects a predicate outside the declared set', () => {
+    const { tools } = register([binding()]);
+    const shape = tools.get('demo__things_by_status')!.config.inputSchema!;
+    expect(z.object(shape).safeParse({ predicate: 'status' }).success).toBe(true);
+    expect(z.object(shape).safeParse({ predicate: 'thing' }).success).toBe(false);
+    expect(z.object(shape).safeParse({ predicate: 'other__salary' }).success).toBe(false);
+  });
+
+  it('skips a duplicate full name instead of overwriting', () => {
+    const dup = binding({ tools: [queryTool(), queryTool()] });
+    const { tools } = register([dup]);
+    expect(tools.size).toBe(1);
+  });
+});
+
+describe('packIds fence (McpService.buildServer)', () => {
+  const stubEmbedder = {
+    cacheStats: () => ({ provider: 'openai:text-embedding-3-small' }),
+    getDimensions: () => 1536,
+  };
+
+  function service(bindings: PackToolBinding[]): McpService {
+    const reader = { installedPackTools: async () => bindings };
+    return new McpService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      stubEmbedder as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      reader as never,
+    );
+  }
+
+  function toolNames(server: unknown): string[] {
+    return Object.keys(
+      (server as { _registeredTools: Record<string, unknown> })._registeredTools,
+    );
+  }
+
+  it('a packIds-bound key sees only its packs declared tools', async () => {
+    process.env.MCP_PACK_TOOLS_ENABLED = '1';
+    try {
+      const bindings = [
+        binding({ packId: 'packa', namespacedPredicates: new Set(['packa__thing']) }),
+        binding({ packId: 'packb', namespacedPredicates: new Set(['packb__thing']) }),
+      ];
+      const bound = await service(bindings).buildServer('co_test', ['brain:read'], {
+        packIds: ['packa'],
+      });
+      const names = toolNames(bound);
+      expect(names).toContain('packa__find_things');
+      expect(names).not.toContain('packb__find_things');
+
+      const unbound = await service(bindings).buildServer('co_test', ['brain:read']);
+      expect(toolNames(unbound)).toEqual(
+        expect.arrayContaining(['packa__find_things', 'packb__find_things']),
+      );
+    } finally {
+      delete process.env.MCP_PACK_TOOLS_ENABLED;
+    }
   });
 });

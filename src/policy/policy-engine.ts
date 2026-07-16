@@ -1,5 +1,6 @@
 import { actionKind, actionRuleMatches } from './action-registry';
 import {
+  ActionKind,
   CompiledPolicySet,
   CompiledSourceRule,
   PolicyContext,
@@ -31,8 +32,11 @@ export function sourceRuleMatches(
   return true;
 }
 
-function setVerdictForAction(set: CompiledPolicySet, action: string): SetVerdict {
-  const kind = actionKind(action);
+function setVerdictForAction(
+  set: CompiledPolicySet,
+  action: string,
+  kind: ActionKind,
+): SetVerdict {
   for (const rule of set.actionDeny) {
     if (actionRuleMatches(rule, action, kind)) {
       return { policySet: set.name, mode: set.mode, verdict: 'deny', ruleId: rule.id };
@@ -85,11 +89,21 @@ function combine(
   return { decision, verdicts };
 }
 
-/** Combined action decision across all sets in the context. */
-export function evaluateAction(ctx: PolicyContext, action: string): PolicyEvaluation {
+/**
+ * Combined action decision across all sets in the context. `kind`
+ * defaults to the static registry's classification; callers whose
+ * actions aren't in the registry (pack-declared MCP tools — query=read,
+ * external=write) pass it explicitly so the readonly/@write macros
+ * still apply correctly.
+ */
+export function evaluateAction(
+  ctx: PolicyContext,
+  action: string,
+  kind: ActionKind = actionKind(action),
+): PolicyEvaluation {
   return combine(
     ctx,
-    ctx.sets.map((s) => setVerdictForAction(s, action)),
+    ctx.sets.map((s) => setVerdictForAction(s, action, kind)),
   );
 }
 
@@ -164,8 +178,11 @@ export function explainRow(ctx: PolicyContext, view: PolicyRowView): SetTrace[] 
   });
 }
 
-export function explainAction(ctx: PolicyContext, action: string): SetTrace[] {
-  const kind = actionKind(action);
+export function explainAction(
+  ctx: PolicyContext,
+  action: string,
+  kind: ActionKind = actionKind(action),
+): SetTrace[] {
   return ctx.sets.map((set) => {
     const rules: RuleTrace[] = [...set.actionDeny, ...set.actionAllow].map(
       (r) => ({
@@ -174,7 +191,7 @@ export function explainAction(ctx: PolicyContext, action: string): SetTrace[] {
         matched: actionRuleMatches(r, action, kind),
       }),
     );
-    const verdict = setVerdictForAction(set, action);
+    const verdict = setVerdictForAction(set, action, kind);
     return {
       policySet: set.name,
       mode: set.mode,
