@@ -406,12 +406,26 @@ async function forward(
   // Preserve the operator's identity downstream via token exchange —
   // brain's audit trail then names the real admin, not the anonymous
   // service credential. Dev-bypass sessions keep the M2M path.
+  //
+  // Exception: the registry catalogue scopes (registry:publish /
+  // registry:curate) are env-key-only on the backend — any JWT gets
+  // them stripped at verification. When the operator provisions
+  // BRAIN_REGISTRY_API_KEY (a BRAIN_API_KEYS entry with e.g.
+  // `brain:admin registry:publish registry:curate`), marketplace admin
+  // calls ride it instead of the JWT paths; without it they degrade and
+  // the panel shows its missing-scope note.
+  const registryKey =
+    subpath.startsWith('v1/admin/registry') && process.env.BRAIN_REGISTRY_API_KEY
+      ? process.env.BRAIN_REGISTRY_API_KEY
+      : undefined
+
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
     body,
     query,
     userToken: await extractAccessToken(request),
     headers: debug ? { 'X-Brain-Debug': '1' } : undefined,
+    apiKey: registryKey,
   })
 
   const schema = res.ok ? findSchema(request.method, subpath) : undefined

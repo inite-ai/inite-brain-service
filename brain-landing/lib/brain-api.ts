@@ -251,6 +251,15 @@ export interface BrainFetchOptions {
    * anonymous M2M mint.
    */
   userToken?: string | null
+  /**
+   * Static brain API key sent as the Bearer token INSTEAD of any JWT
+   * path (exchange or M2M). Needed for the registry catalogue scopes
+   * (`registry:publish` / `registry:curate`), which are deliberately
+   * absent from the JWT `VALID_SCOPES` allowlist on the backend and can
+   * only ride an env-provisioned `BRAIN_API_KEYS` key. Takes precedence
+   * over `userToken`.
+   */
+  apiKey?: string
 }
 
 export interface BrainResponse<T = unknown> {
@@ -276,14 +285,18 @@ export async function brainFetch<T = unknown>(
 ): Promise<BrainResponse<T>> {
   const scope = options.scope ?? ADMIN_SCOPE
   let token: string
-  try {
-    token = await getBrainToken({ scope, userToken: options.userToken })
-  } catch (err) {
-    return {
-      ok: false,
-      status: 500,
-      data: null,
-      error: (err as Error).message,
+  if (options.apiKey) {
+    token = options.apiKey
+  } else {
+    try {
+      token = await getBrainToken({ scope, userToken: options.userToken })
+    } catch (err) {
+      return {
+        ok: false,
+        status: 500,
+        data: null,
+        error: (err as Error).message,
+      }
     }
   }
 
@@ -308,8 +321,9 @@ export async function brainFetch<T = unknown>(
       // raw text below
     }
     // On 401 the cached token may have been revoked — invalidate the
-    // entries for this scope and let the next request re-mint.
-    if (res.status === 401) {
+    // entries for this scope and let the next request re-mint. (Static
+    // apiKey calls never touched the caches.)
+    if (res.status === 401 && !options.apiKey) {
       tokenCache.delete(scope)
       if (options.userToken) {
         exchangeCache.delete(exchangeKey(options.userToken, scope))
