@@ -279,6 +279,97 @@ recomputed locally and a mismatch is rejected. Work is bounded (200 versions
 per run, 10s per request; per-pack failures don't abort the run). Unset
 `REGISTRY_UPSTREAM_URL` (the default) = feature off, no job registered.
 
+## Marketplace
+
+The registry doubles as a marketplace: featured curation, publisher
+profiles, and paid packs via the central billing service. All marketplace
+state is **instance-local** (`registry_pack_meta` / `publisher_profile`,
+migrations 0066/0067): the pull-only mirror only writes `registry_pack`, so
+a downstream instance curates and prices its own catalogue; and none of it
+is part of the **signed manifest** — price and curation are hosting-instance
+decisions, not pack content, so changing them must not invalidate
+signatures or checksums.
+
+### Paid packs
+
+Pricing is **registry-level, per pack** (not per version): the publishing
+company (`registry:publish`, same `publishedBy` provenance as the publish)
+prices its pack with
+
+```
+PUT /v1/admin/registry/packs/:packId/pricing   { "amount": 2900, "currency": "USD" }
+DELETE /v1/admin/registry/packs/:packId/pricing        # back to free
+```
+
+`amount` is in minor units. Brain is registered as one `Service` in the
+billing admin; the PUT idempotently ensures a billing product
+(code `pack_<packId>`) whose metadata grants the entitlement key
+**`domain_pack:<packId>`**, and mints a fresh price (billing prices are
+immutable — every re-price mints a new `priceCode`; sessions in flight keep
+their old one). The registry stores the `priceCode` plus a denormalized
+display price for discovery; the billing service stays authoritative.
+
+The **billing `userId` is the brain `companyId`** — the buying tenant, not a
+person. Install flow (`brain:admin`):
+
+```
+POST /v1/admin/packs/from-registry {packId}
+  → 402 { message, packId, priceCode, displayPrice,
+          checkout: { method: 'POST', path: '/v1/admin/registry/packs/<id>/checkout' } }
+POST /v1/admin/registry/packs/:packId/checkout {successUrl?, errorUrl?}
+  → { sessionId, checkoutUrl }        # open checkoutUrl, pay
+POST /v1/admin/packs/from-registry {packId}    # retry — now installs
+```
+
+The 402 is self-describing; an optional `idempotency-key` header on the
+checkout call is forwarded to billing so client retries collapse into one
+order. The gate sits in `resolveForInstall` — the single install choke
+point — after the yank refusal and **before** the download counter (a
+refused install is not a download).
+
+Posture: **pull-only + fail-closed**. Billing v1 sends no signed inbound
+webhooks, so entitlements are polled (`GET /v1/entitlements/:companyId`)
+behind a short TTL cache (`BILLING_ENTITLEMENT_CACHE_TTL_MS`, default 60s)
+that is never served stale — when the cache is cold and billing is
+unreachable, paid installs answer **503** rather than leak. With
+`DOMAIN_PACK_BILLING_ENABLED` off (the default, and the self-hosted
+posture) paid metadata is ignored and every pack installs free. Free packs
+never touch billing at all.
+
+### Featured curation
+
+`registry:curate` (a hosting-operator scope, distinct from
+`registry:publish`: publishers manage their own packs, curation ranks
+everyone's) flips the featured flag:
+
+```
+POST /v1/admin/registry/packs/:packId/feature | unfeature
+```
+
+Featured packs surface on top of the catalogue (`featured`/`featuredAt` in
+`GET /v1/registry/packs`, a Featured section on `/registry/ui`), most
+recently featured first.
+
+### Publisher profiles
+
+A public profile per publisher id (the key id in
+`DOMAIN_PACK_TRUSTED_KEYS`):
+
+```
+PUT /v1/admin/registry/publishers/:publisher     (registry:publish)
+    { displayName, url?, bio?, contactEmail? }
+GET /v1/registry/publishers/:publisher           (brain:read)
+    → { publisher, profile|null, packs }
+GET /registry/ui/publisher/:publisher            (public HTML)
+```
+
+The write rule is the point: only a company that has published **≥1
+VERIFIED pack** under the publisher id may write its profile — the ed25519
+signature validated against this instance's trust store is what ties a
+`companyId` to a publisher name; without it anyone could squat a well-known
+publisher's public page. Profile URLs render as links only when they parse
+as http(s).
+
 ## Eval fixtures (consumed)
 
 A pack may ship `evalFixtures` — small extraction test cases for its domain,

@@ -83,6 +83,15 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.stats.overview': { kind: 'read', family: 'rest', title: 'Stats overview' },
   'rest.dreams.run': { kind: 'write', family: 'rest', title: 'Run dreams pass' },
   'rest.sources.list': { kind: 'read', family: 'rest', title: 'List source reputations' },
+
+  // Registry marketplace (docs/domain-packs.md "Marketplace")
+  'rest.registry.pricing.set': { kind: 'write', family: 'rest', title: 'Set pack pricing' },
+  'rest.registry.pricing.clear': { kind: 'write', family: 'rest', title: 'Clear pack pricing' },
+  'rest.registry.feature': { kind: 'write', family: 'rest', title: 'Feature pack' },
+  'rest.registry.unfeature': { kind: 'write', family: 'rest', title: 'Unfeature pack' },
+  'rest.registry.publisher.upsert': { kind: 'write', family: 'rest', title: 'Upsert publisher profile' },
+  'rest.registry.publisher.get': { kind: 'read', family: 'rest', title: 'Get publisher page' },
+  'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
 };
 
 /**

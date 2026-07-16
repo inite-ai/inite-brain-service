@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import {
   DomainPackManifestSchema,
+  PublisherResponseSchema,
   PublishPackRequestSchema,
   PublishPackResponseSchema,
   RegistryListResponseSchema,
@@ -36,6 +37,17 @@ import {
   YankPackRequestSchema,
   YankPackResponseSchema,
 } from '../src/contracts/registry/registry.schema';
+import {
+  CheckoutRequestSchema,
+  CheckoutResponseSchema,
+  DisplayPriceSchema,
+  FeatureResponseSchema,
+  PackPricingResponseSchema,
+  PaymentRequiredHintSchema,
+  PublisherProfileSchema,
+  SetPricingRequestSchema,
+  UpsertPublisherProfileRequestSchema,
+} from '../src/contracts/registry/marketplace.schema';
 import {
   AvailablePackSchema,
   InstalledPackSchema,
@@ -105,6 +117,17 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   RegistryVersionsResponse: RegistryVersionsResponseSchema,
   YankPackRequest: YankPackRequestSchema,
   YankPackResponse: YankPackResponseSchema,
+  PublisherResponse: PublisherResponseSchema,
+  // --- registry marketplace (src/contracts/registry/marketplace.schema.ts)
+  CheckoutRequest: CheckoutRequestSchema,
+  CheckoutResponse: CheckoutResponseSchema,
+  DisplayPrice: DisplayPriceSchema,
+  FeatureResponse: FeatureResponseSchema,
+  PackPricingResponse: PackPricingResponseSchema,
+  PaymentRequiredHint: PaymentRequiredHintSchema,
+  PublisherProfile: PublisherProfileSchema,
+  SetPricingRequest: SetPricingRequestSchema,
+  UpsertPublisherProfileRequest: UpsertPublisherProfileRequestSchema,
   // --- tenant pack admin (src/contracts/admin/packs.schema.ts)
   AvailablePack: AvailablePackSchema,
   InstalledPack: InstalledPackSchema,
@@ -403,6 +426,156 @@ function registryPaths(): Json {
         },
       }),
     },
+    '/v1/registry/publishers/{publisher}': {
+      get: operation({
+        operationId: 'getRegistryPublisher',
+        tag: 'Registry',
+        summary: "A publisher's public page as JSON",
+        description:
+          'The publisher profile (when one was written — see PUT ' +
+          '/v1/admin/registry/publishers/{publisher}) plus the ' +
+          "publisher's catalogue entries. 404 only when the publisher " +
+          'is entirely unknown (no profile AND no packs). ' +
+          'Source: src/registry/registry.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam('publisher', 'The publisher id (trust-store key id).'),
+        ],
+        responses: {
+          '200': jsonResponse('The publisher page.', ref('PublisherResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+  };
+}
+
+function marketplacePaths(): Json {
+  return {
+    '/v1/admin/registry/packs/{packId}/pricing': {
+      put: operation({
+        operationId: 'setRegistryPackPricing',
+        tag: 'Marketplace',
+        summary: 'Price a pack (publisher-owned)',
+        description:
+          'Marks the pack paid: ensures the billing product exists ' +
+          '(entitlement key `domain_pack:<packId>`), mints a fresh ' +
+          'immutable price, and stores the priceCode + display price in ' +
+          'the instance-local registry meta. Only the company that ' +
+          'published the pack may price it. Answers 400 while the ' +
+          'billing integration is disabled. ' +
+          'Source: src/registry/marketplace-admin.controller.ts.',
+        scope: 'registry:publish',
+        parameters: [pathParam('packId', 'The pack id.')],
+        requestBody: jsonBody(ref('SetPricingRequest')),
+        responses: {
+          '200': jsonResponse('The pricing state.', ref('PackPricingResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+      delete: operation({
+        operationId: 'clearRegistryPackPricing',
+        tag: 'Marketplace',
+        summary: 'Make a pack free again (publisher-owned)',
+        description:
+          'Clears the paid flag — installs stop requiring an ' +
+          'entitlement. Billing products/prices are immutable and stay.',
+        scope: 'registry:publish',
+        parameters: [pathParam('packId', 'The pack id.')],
+        responses: {
+          '200': jsonResponse('The pricing state.', ref('PackPricingResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/registry/packs/{packId}/feature': {
+      post: operation({
+        operationId: 'featureRegistryPack',
+        tag: 'Marketplace',
+        summary: 'Feature a pack (hosting-operator curation)',
+        description:
+          'Surfaces the pack in the featured section on top of the ' +
+          'catalogue listing and /registry/ui. Instance-local; never ' +
+          'mirrored.',
+        scope: 'registry:curate',
+        parameters: [pathParam('packId', 'The pack id.')],
+        responses: {
+          '201': jsonResponse('The curation state.', ref('FeatureResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/registry/packs/{packId}/unfeature': {
+      post: operation({
+        operationId: 'unfeatureRegistryPack',
+        tag: 'Marketplace',
+        summary: 'Remove a pack from the featured section',
+        description: 'Reverses a feature.',
+        scope: 'registry:curate',
+        parameters: [pathParam('packId', 'The pack id.')],
+        responses: {
+          '201': jsonResponse('The curation state.', ref('FeatureResponse')),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+    '/v1/admin/registry/publishers/{publisher}': {
+      put: operation({
+        operationId: 'upsertRegistryPublisherProfile',
+        tag: 'Marketplace',
+        summary: "Write a publisher's public profile",
+        description:
+          'Full-replace upsert. Writable ONLY by a company that has ' +
+          'published at least one VERIFIED pack under the publisher id — ' +
+          'the ed25519 signature validated against the hosting ' +
+          "instance's trust store is what ties a company to the " +
+          'publisher name (403 otherwise).',
+        scope: 'registry:publish',
+        parameters: [
+          pathParam('publisher', 'The publisher id (trust-store key id).'),
+        ],
+        requestBody: jsonBody(ref('UpsertPublisherProfileRequest')),
+        responses: {
+          '200': jsonResponse('The stored profile.', ref('PublisherProfile')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/admin/registry/packs/{packId}/checkout': {
+      post: operation({
+        operationId: 'createRegistryPackCheckout',
+        tag: 'Marketplace',
+        summary: 'Start a hosted checkout for a paid pack',
+        description:
+          'Creates a billing checkout session for the BUYING tenant ' +
+          '(the caller\'s company is the billing userId). Open ' +
+          '`checkoutUrl`, pay, then retry ' +
+          'POST /v1/admin/packs/from-registry — the 402 hint on that ' +
+          'route points here. Answers 400 for a free pack or while the ' +
+          'billing integration is disabled. An `idempotency-key` header ' +
+          'is forwarded to billing so client retries collapse into one ' +
+          'order. Throttled to 10 requests/min per credential.',
+        scope: 'brain:admin',
+        parameters: [pathParam('packId', 'The paid pack id.')],
+        requestBody: jsonBody(ref('CheckoutRequest')),
+        responses: {
+          '201': jsonResponse('The checkout session.', ref('CheckoutResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+          '429': errorRef('TooManyRequests'),
+          '502': errorRef('BadGateway'),
+          '503': errorRef('BillingUnavailable'),
+        },
+      }),
+    },
   };
 }
 
@@ -446,14 +619,25 @@ function packsAdminPaths(): Json {
         description:
           'Resolves the manifest (latest non-yanked, or a pinned version) ' +
           'and installs it with the registry checksum pinned — the ' +
-          'installed content is exactly what the registry served.',
+          'installed content is exactly what the registry served. A PAID ' +
+          'pack without an active `domain_pack:<packId>` entitlement ' +
+          'answers 402 with a self-describing hint (the checkout route ' +
+          'to call, then retry); while the billing service is ' +
+          'unreachable, paid installs fail CLOSED with 503.',
         scope: 'brain:admin',
         requestBody: jsonBody(ref('InstallFromRegistryRequest')),
         responses: {
           '201': jsonResponse('Installed.', ref('InstallPackResponse')),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
+          '402': jsonResponse(
+            'Paid pack, no entitlement — purchase via the checkout ' +
+              'route in the hint, then retry.',
+            ref('PaymentRequiredHint'),
+          ),
           '404': errorRef('NotFound'),
+          '502': errorRef('BadGateway'),
+          '503': errorRef('BillingUnavailable'),
         },
       }),
     },
@@ -821,6 +1005,11 @@ function errorResponses(): Json {
       'The document pipeline is dark (DOCUMENT_INGEST_ENABLED off).',
       ref('FeatureDisabledResponse'),
     ),
+    BadGateway: err('The billing service rejected the request.'),
+    BillingUnavailable: err(
+      'The billing service is unreachable — paid-pack entitlements ' +
+        'cannot be verified (fail-closed). Retry shortly.',
+    ),
   };
 }
 
@@ -872,6 +1061,15 @@ export function buildOpenApiDocument(): Json {
           '(scope `registry:publish`).',
       },
       {
+        name: 'Marketplace',
+        description:
+          'Featured curation (scope `registry:curate`), pack pricing + ' +
+          'publisher profiles (scope `registry:publish`) and the ' +
+          'paid-pack checkout (scope `brain:admin`). State is ' +
+          'instance-local — never part of the signed manifest, never ' +
+          'mirrored.',
+      },
+      {
         name: 'Domain Packs',
         description:
           'Tenant-level pack management: install, list, eval, uninstall ' +
@@ -900,6 +1098,7 @@ export function buildOpenApiDocument(): Json {
     ],
     paths: {
       ...registryPaths(),
+      ...marketplacePaths(),
       ...packsAdminPaths(),
       ...documentsPaths(),
       ...indexerWorkPaths(),
@@ -914,8 +1113,8 @@ export function buildOpenApiDocument(): Json {
             'API key (`Authorization: Bearer <key>`); its SHA-256 must be ' +
             'registered in BRAIN_API_KEYS. Keys carry scopes ' +
             '(`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, ' +
-            '`registry:publish`, `indexer:write`) — each operation states ' +
-            'the scope it requires. Not an OAuth flow.',
+            '`registry:publish`, `registry:curate`, `indexer:write`) — ' +
+            'each operation states the scope it requires. Not an OAuth flow.',
         },
       },
       schemas: generateComponentSchemas(),

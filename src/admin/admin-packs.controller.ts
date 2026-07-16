@@ -70,10 +70,11 @@ export class AdminPacksController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { packId: string; version?: string },
   ): Promise<InstallPackResponse> {
-    const { manifest, checksum } = await this.registry.resolveForInstall(
-      body?.packId,
-      body?.version,
-    );
+    const { manifest, checksum } = await this.registry.resolveForInstall({
+      packId: body?.packId,
+      version: body?.version,
+      companyId: req.brainAuth.companyId,
+    });
     return this.packs.install(req.brainAuth.companyId, manifest, {
       expectedChecksum: checksum,
     });

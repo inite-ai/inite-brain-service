@@ -258,6 +258,45 @@ data loss. Staged candidates expire per `CANDIDATE_PENDING_TTL_DAYS`;
 stuck runs are reaped per the stale window; committed facts stay (they
 are ordinary memory — retract/forget applies as usual).
 
+## Enabling marketplace billing (paid packs)
+
+The registry marketplace (docs/domain-packs.md "Marketplace") ships dark:
+with `DOMAIN_PACK_BILLING_ENABLED` unset/`0` every pack installs free and
+pricing metadata is ignored — the correct self-hosted posture.
+
+**Prerequisites**
+
+- Migrations current (`schema_migrations` through at least 0067).
+- Brain registered as a `Service` in the billing-service admin; the
+  service API key it issues is what brain sends as `x-api-key`.
+
+**Env**
+
+```bash
+DOMAIN_PACK_BILLING_ENABLED=1
+BILLING_SERVICE_URL=https://billing.inite.ai   # valid http(s) — fails boot otherwise
+BILLING_SERVICE_API_KEY=<service key>          # required while the flag is on
+#BILLING_TIMEOUT_MS=5000                       # per-request budget
+#BILLING_ENTITLEMENT_CACHE_TTL_MS=60000        # entitlement cache; never served stale
+```
+
+Fail-closed: when billing is unreachable and the entitlement cache is
+cold, PAID installs answer 503 (free packs are unaffected — they never
+touch billing). Curation keys: mint a `registry:curate` env key for the
+hosting operator (env-key-only, like `registry:publish` — JWT tokens
+cannot carry it).
+
+**Deliberately NOT in v1**
+
+- No inbound billing webhooks — billing's outbound events are unsigned;
+  entitlements are pull-only behind the TTL cache.
+- No refund-driven uninstall: a refund revokes the entitlement (blocking
+  REinstall), but packs already installed stay installed.
+- No tax/VAT handling — amounts are passed to billing verbatim.
+- Direct manifest install (`POST /v1/admin/packs` with a manifest body)
+  is not fenced — the paywall guards the REGISTRY resolve path only; an
+  operator who already has the manifest file can always install it.
+
 ## Boot-time validation
 
 The service runs `validateEnv()` before NestJS starts. Missing or

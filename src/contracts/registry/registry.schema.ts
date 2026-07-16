@@ -1,8 +1,14 @@
 import { z } from 'zod';
+import {
+  DisplayPriceSchema,
+  PublisherProfileSchema,
+} from './marketplace.schema';
 
 /**
  * Wire contracts for the GLOBAL Domain Pack registry — discovery reads
  * (/v1/registry) + publish/yank (/v1/admin/registry). See docs/domain-packs.md.
+ * Marketplace-only shapes (pricing, checkout, profiles) live in
+ * marketplace.schema.ts; imports go one direction (this file ← marketplace).
  */
 
 /** One published version's discovery metadata (no manifest body). */
@@ -46,6 +52,14 @@ export const RegistryPackSummarySchema = z.object({
   versionCount: z.number().int().nonnegative(),
   /** origin of the latest installable version (see RegistryVersion). */
   origin: z.string().optional(),
+  /** Marketplace metadata (migration 0066) — instance-local (never part of
+   *  the signed manifest, never mirrored). Stamped only when meaningful:
+   *  featured/paid are present-and-true or absent. */
+  featured: z.boolean().optional(),
+  /** When the pack was featured (ISO 8601) — the curation sort key. */
+  featuredAt: z.string().optional(),
+  paid: z.boolean().optional(),
+  displayPrice: DisplayPriceSchema.optional(),
 });
 
 export const RegistryListResponseSchema = z.object({
@@ -113,6 +127,16 @@ export const YankPackResponseSchema = z.object({
   yanked: z.boolean(),
 });
 
+/** GET /v1/registry/publishers/:publisher — profile (when one was written)
+ *  plus the publisher's catalogue entries. Lives here (not in
+ *  marketplace.schema.ts) because it embeds RegistryPackSummary and the
+ *  contract import direction is one-way. */
+export const PublisherResponseSchema = z.object({
+  publisher: z.string(),
+  profile: PublisherProfileSchema.nullable(),
+  packs: z.array(RegistryPackSummarySchema),
+});
+
 export type RegistryVersion = z.infer<typeof RegistryVersionSchema>;
 export type RegistryPackSummary = z.infer<typeof RegistryPackSummarySchema>;
 export type RegistryListResponse = z.infer<typeof RegistryListResponseSchema>;
@@ -127,3 +151,4 @@ export type PublishPackRequest = z.infer<typeof PublishPackRequestSchema>;
 export type YankPackRequest = z.infer<typeof YankPackRequestSchema>;
 export type PublishPackResponse = z.infer<typeof PublishPackResponseSchema>;
 export type YankPackResponse = z.infer<typeof YankPackResponseSchema>;
+export type PublisherResponse = z.infer<typeof PublisherResponseSchema>;

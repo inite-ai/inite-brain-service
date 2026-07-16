@@ -1,6 +1,16 @@
 {
   "components": {
     "responses": {
+      "BadGateway": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The billing service rejected the request."
+      },
       "BadRequest": {
         "content": {
           "application/json": {
@@ -10,6 +20,16 @@
           }
         },
         "description": "Validation failed."
+      },
+      "BillingUnavailable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "description": "The billing service is unreachable — paid-pack entitlements cannot be verified (fail-closed). Retry shortly."
       },
       "Conflict": {
         "content": {
@@ -157,6 +177,35 @@
         ],
         "type": "object"
       },
+      "CheckoutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "errorUrl": {
+            "type": "string"
+          },
+          "successUrl": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CheckoutResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkoutUrl": {
+            "description": "Hosted billing checkout URL to open.",
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "checkoutUrl"
+        ],
+        "type": "object"
+      },
       "ClaimWorkResponse": {
         "additionalProperties": false,
         "properties": {
@@ -220,6 +269,27 @@
           "committed",
           "merged",
           "rejected"
+        ],
+        "type": "object"
+      },
+      "DisplayPrice": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "Minor units (e.g. cents).",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "currency": {
+            "description": "3-letter ISO 4217 currency code.",
+            "pattern": "^[A-Za-z]{3}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
         ],
         "type": "object"
       },
@@ -539,6 +609,22 @@
         "required": [
           "error",
           "message"
+        ],
+        "type": "object"
+      },
+      "FeatureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "featured": {
+            "type": "boolean"
+          },
+          "packId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "featured"
         ],
         "type": "object"
       },
@@ -1049,6 +1135,28 @@
         ],
         "type": "object"
       },
+      "PackPricingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "displayPrice": {
+            "$ref": "#/components/schemas/DisplayPrice"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "paid": {
+            "type": "boolean"
+          },
+          "priceCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packId",
+          "paid"
+        ],
+        "type": "object"
+      },
       "PacksListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1068,6 +1176,56 @@
         "required": [
           "available",
           "installed"
+        ],
+        "type": "object"
+      },
+      "PaymentRequiredHint": {
+        "additionalProperties": false,
+        "properties": {
+          "checkout": {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "POST",
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "displayPrice": {
+            "$ref": "#/components/schemas/DisplayPrice"
+          },
+          "error": {
+            "const": "Payment Required",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string"
+          },
+          "priceCode": {
+            "type": "string"
+          },
+          "statusCode": {
+            "const": 402,
+            "type": "number"
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "packId",
+          "checkout"
         ],
         "type": "object"
       },
@@ -1263,6 +1421,93 @@
         ],
         "type": "object"
       },
+      "PublisherProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "bio": {
+            "type": "string"
+          },
+          "contactEmail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "publisher",
+          "displayName",
+          "url",
+          "bio",
+          "contactEmail",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "PublisherResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryPackSummary"
+            },
+            "type": "array"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublisherProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publisher": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "publisher",
+          "profile",
+          "packs"
+        ],
+        "type": "object"
+      },
       "RegistryListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1316,11 +1561,20 @@
           "description": {
             "type": "string"
           },
+          "displayPrice": {
+            "$ref": "#/components/schemas/DisplayPrice"
+          },
           "downloads": {
             "default": 0,
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "featuredAt": {
+            "type": "string"
           },
           "keywords": {
             "items": {
@@ -1336,6 +1590,9 @@
           },
           "packId": {
             "type": "string"
+          },
+          "paid": {
+            "type": "boolean"
           },
           "publishedAt": {
             "type": "string"
@@ -1483,6 +1740,26 @@
           "packId",
           "latestVersion",
           "versions"
+        ],
+        "type": "object"
+      },
+      "SetPricingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "Minor units (e.g. cents).",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "currency": {
+            "pattern": "^[A-Za-z]{3}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
         ],
         "type": "object"
       },
@@ -1799,6 +2076,30 @@
         ],
         "type": "object"
       },
+      "UpsertPublisherProfileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bio": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "contactEmail": {
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ],
+        "type": "object"
+      },
       "WorkContentChunk": {
         "additionalProperties": false,
         "properties": {
@@ -1886,7 +2187,7 @@
     },
     "securitySchemes": {
       "bearerAuth": {
-        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `registry:publish`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
+        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `registry:publish`, `registry:curate`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -1973,7 +2274,7 @@
     },
     "/v1/admin/packs/from-registry": {
       "post": {
-        "description": "Resolves the manifest (latest non-yanked, or a pinned version) and installs it with the registry checksum pinned — the installed content is exactly what the registry served.\n\nRequired scope: `brain:admin`.",
+        "description": "Resolves the manifest (latest non-yanked, or a pinned version) and installs it with the registry checksum pinned — the installed content is exactly what the registry served. A PAID pack without an active `domain_pack:<packId>` entitlement answers 402 with a self-describing hint (the checkout route to call, then retry); while the billing service is unreachable, paid installs fail CLOSED with 503.\n\nRequired scope: `brain:admin`.",
         "operationId": "installDomainPackFromRegistry",
         "requestBody": {
           "content": {
@@ -2002,11 +2303,27 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequiredHint"
+                }
+              }
+            },
+            "description": "Paid pack, no entitlement — purchase via the checkout route in the hint, then retry."
+          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/BillingUnavailable"
           }
         },
         "summary": "Install a pack from the global registry",
@@ -2162,6 +2479,249 @@
         ]
       }
     },
+    "/v1/admin/registry/packs/{packId}/checkout": {
+      "post": {
+        "description": "Creates a billing checkout session for the BUYING tenant (the caller's company is the billing userId). Open `checkoutUrl`, pay, then retry POST /v1/admin/packs/from-registry — the 402 hint on that route points here. Answers 400 for a free pack or while the billing integration is disabled. An `idempotency-key` header is forwarded to billing so client retries collapse into one order. Throttled to 10 requests/min per credential.\n\nRequired scope: `brain:admin`.",
+        "operationId": "createRegistryPackCheckout",
+        "parameters": [
+          {
+            "description": "The paid pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            },
+            "description": "The checkout session."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/BillingUnavailable"
+          }
+        },
+        "summary": "Start a hosted checkout for a paid pack",
+        "tags": [
+          "Marketplace"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs/{packId}/feature": {
+      "post": {
+        "description": "Surfaces the pack in the featured section on top of the catalogue listing and /registry/ui. Instance-local; never mirrored.\n\nRequired scope: `registry:curate`.",
+        "operationId": "featureRegistryPack",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureResponse"
+                }
+              }
+            },
+            "description": "The curation state."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Feature a pack (hosting-operator curation)",
+        "tags": [
+          "Marketplace"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs/{packId}/pricing": {
+      "delete": {
+        "description": "Clears the paid flag — installs stop requiring an entitlement. Billing products/prices are immutable and stay.\n\nRequired scope: `registry:publish`.",
+        "operationId": "clearRegistryPackPricing",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackPricingResponse"
+                }
+              }
+            },
+            "description": "The pricing state."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Make a pack free again (publisher-owned)",
+        "tags": [
+          "Marketplace"
+        ]
+      },
+      "put": {
+        "description": "Marks the pack paid: ensures the billing product exists (entitlement key `domain_pack:<packId>`), mints a fresh immutable price, and stores the priceCode + display price in the instance-local registry meta. Only the company that published the pack may price it. Answers 400 while the billing integration is disabled. Source: src/registry/marketplace-admin.controller.ts.\n\nRequired scope: `registry:publish`.",
+        "operationId": "setRegistryPackPricing",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPricingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackPricingResponse"
+                }
+              }
+            },
+            "description": "The pricing state."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Price a pack (publisher-owned)",
+        "tags": [
+          "Marketplace"
+        ]
+      }
+    },
+    "/v1/admin/registry/packs/{packId}/unfeature": {
+      "post": {
+        "description": "Reverses a feature.\n\nRequired scope: `registry:curate`.",
+        "operationId": "unfeatureRegistryPack",
+        "parameters": [
+          {
+            "description": "The pack id.",
+            "in": "path",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureResponse"
+                }
+              }
+            },
+            "description": "The curation state."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Remove a pack from the featured section",
+        "tags": [
+          "Marketplace"
+        ]
+      }
+    },
     "/v1/admin/registry/packs/{packId}/{version}/unyank": {
       "post": {
         "description": "Reverses a yank — the version becomes installable again.\n\nRequired scope: `registry:publish`.",
@@ -2271,6 +2831,58 @@
         "summary": "Yank a published version",
         "tags": [
           "Registry publishing"
+        ]
+      }
+    },
+    "/v1/admin/registry/publishers/{publisher}": {
+      "put": {
+        "description": "Full-replace upsert. Writable ONLY by a company that has published at least one VERIFIED pack under the publisher id — the ed25519 signature validated against the hosting instance's trust store is what ties a company to the publisher name (403 otherwise).\n\nRequired scope: `registry:publish`.",
+        "operationId": "upsertRegistryPublisherProfile",
+        "parameters": [
+          {
+            "description": "The publisher id (trust-store key id).",
+            "in": "path",
+            "name": "publisher",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertPublisherProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherProfile"
+                }
+              }
+            },
+            "description": "The stored profile."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Write a publisher's public profile",
+        "tags": [
+          "Marketplace"
         ]
       }
     },
@@ -2920,6 +3532,48 @@
         ]
       }
     },
+    "/v1/registry/publishers/{publisher}": {
+      "get": {
+        "description": "The publisher profile (when one was written — see PUT /v1/admin/registry/publishers/{publisher}) plus the publisher's catalogue entries. 404 only when the publisher is entirely unknown (no profile AND no packs). Source: src/registry/registry.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getRegistryPublisher",
+        "parameters": [
+          {
+            "description": "The publisher id (trust-store key id).",
+            "in": "path",
+            "name": "publisher",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublisherResponse"
+                }
+              }
+            },
+            "description": "The publisher page."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "A publisher's public page as JSON",
+        "tags": [
+          "Registry"
+        ]
+      }
+    },
     "/v1/sources": {
       "get": {
         "description": "Catalogue of everything brain knows ABOUT its fact sources: the operator-declared identity (type, authLevel) joined with the learned agreement rates, one row per sourceKey. Public projection — operator annotations (owner/note) are served only on the brain:admin surface. `domain` additionally captures that domain's learned rate into `domainTrust` and makes `minSamples` judge it (falling back to the global row). Source: src/sources/public-sources.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -3069,6 +3723,10 @@
     {
       "description": "Publisher-facing writes to the global registry (scope `registry:publish`).",
       "name": "Registry publishing"
+    },
+    {
+      "description": "Featured curation (scope `registry:curate`), pack pricing + publisher profiles (scope `registry:publish`) and the paid-pack checkout (scope `brain:admin`). State is instance-local — never part of the signed manifest, never mirrored.",
+      "name": "Marketplace"
     },
     {
       "description": "Tenant-level pack management: install, list, eval, uninstall (scope `brain:admin`).",
