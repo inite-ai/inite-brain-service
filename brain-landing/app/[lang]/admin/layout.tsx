@@ -11,6 +11,7 @@ import {
   Coins,
   Cpu,
   Database,
+  Fingerprint,
   FlaskConical,
   Gauge,
   Heart,
@@ -21,6 +22,7 @@ import {
   Menu,
   Moon,
   Network,
+  Package,
   Presentation,
   Play,
   Radio,
@@ -32,6 +34,7 @@ import {
   Sigma,
   Skull,
   SlidersHorizontal,
+  Store,
   Tags,
   Trash2,
   UserRound,
@@ -61,6 +64,14 @@ const GROUPS: ShellGroup[] = [
       { slug: 'operator-actions', title: 'Operator actions', icon: KeyRound },
       { slug: 'router', title: 'Router / cache', icon: Gauge },
       { slug: 'predicates', title: 'Predicates', icon: Tags },
+      { slug: 'sources', title: 'Sources', icon: Fingerprint },
+    ],
+  },
+  {
+    label: 'Platform',
+    items: [
+      { slug: 'packs', title: 'Packs', icon: Package },
+      { slug: 'marketplace', title: 'Marketplace', icon: Store },
     ],
   },
   {

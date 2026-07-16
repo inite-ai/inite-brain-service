@@ -510,6 +510,222 @@
       "recentJobs": "Недавние запуски",
       "fullHistory": "вся история →",
       "noRecentJobs": "Пока нет персистнутых запусков. Запусти джобу выше или дождись следующего срабатывания крона."
+    },
+    "packs": {
+      "title": "Доменные паки",
+      "subtitle": "Установка паков в тенант: сидинг предикатов, прогон eval-фикстур, удаление (предикаты депрекейтятся, записанные факты остаются). Встроенные паки сидятся глобально при старте.",
+      "installed": {
+        "title": "Установленные",
+        "subtitle": "Паки, установленные в этот тенант.",
+        "headers": {
+          "packId": "пак",
+          "version": "версия",
+          "installedAt": "установлен",
+          "predicates": "предикаты",
+          "checksum": "checksum",
+          "actions": "действия"
+        },
+        "eval": "Eval",
+        "uninstall": "Удалить",
+        "empty": "В этом тенанте пока нет установленных паков.",
+        "uninstallPrompt": "Удаление \"{packId}\" — его предикаты будут депрекейтнуты (записанные факты останутся). Введи id пака для подтверждения.",
+        "confirmMismatch": "Фраза подтверждения не совпала — отмена.",
+        "uninstalled": "Пак {packId} удалён: депрекейтнуто предикатов — {n}."
+      },
+      "available": {
+        "title": "Встроенные паки",
+        "subtitle": "Поставляются с сервисом и сидятся глобально — уже активны для всех тенантов, устанавливать нечего.",
+        "headers": {
+          "id": "id",
+          "version": "версия",
+          "description": "описание",
+          "predicates": "предикаты"
+        },
+        "builtinBadge": "builtin",
+        "empty": "Встроенных паков нет."
+      },
+      "eval": {
+        "title": "Eval-фикстуры — {packId}",
+        "modeLabel": "режим",
+        "throttleHint": "Гоняет живой экстрактор (LLM-вызовы) — не чаще 3 прогонов в минуту.",
+        "run": "Прогнать eval",
+        "running": "выполняется…",
+        "passedOf": "{passed} / {total} фикстур прошло",
+        "results": "результаты по фикстурам"
+      },
+      "install": {
+        "fromRegistryTitle": "Установка из реестра",
+        "fromRegistrySubtitle": "Резолвит пак из глобального реестра и ставит в этот тенант (checksum пиннится).",
+        "packIdLabel": "id пака",
+        "versionLabel": "версия",
+        "versionHint": "пусто = последняя не-yanked",
+        "submit": "Установить",
+        "installing": "установка…",
+        "manifestTitle": "Установка по манифесту",
+        "manifestSubtitle": "Вставь полный JSON манифеста — для паков, распространяемых мимо реестра.",
+        "manifestLabel": "JSON манифеста",
+        "checksumLabel": "ожидаемый checksum",
+        "checksumHint": "опционально — установка падает при расхождении",
+        "invalidJson": "Манифест — не валидный JSON."
+      },
+      "consent": {
+        "title": "Пак объявляет MCP-инструменты",
+        "note": "Установка меняет агентную поверхность тенанта; внешние инструменты шлют подписанные запросы на endpoint паблишера. Проверь декларацию:",
+        "accept": "Принять MCP-инструменты и установить",
+        "cancel": "Отмена"
+      },
+      "payment": {
+        "title": "Требуется оплата",
+        "packLabel": "пак",
+        "priceLabel": "цена",
+        "checkout": "Создать checkout-сессию",
+        "checkoutBusy": "создаём сессию…",
+        "opened": "Checkout открыт в новой вкладке.",
+        "retryNote": "После оплаты повтори установку — entitlement проверяется на каждой попытке.",
+        "retry": "Повторить установку"
+      },
+      "success": {
+        "title": "Установлен {packId} v{version}",
+        "predicatesSeeded": "предикатов засеяно",
+        "checksum": "checksum",
+        "seedDocuments": "seed-документы",
+        "webhookTitle": "Webhook-секрет — показывается один раз",
+        "webhookNote": "Сохрани сейчас: этим HMAC-секретом подписываются пуши индексера и вызовы внешних MCP-инструментов. Больше он НЕ покажется.",
+        "copy": "Скопировать",
+        "copied": "скопировано"
+      }
+    },
+    "marketplace": {
+      "title": "Маркетплейс",
+      "subtitle": "Глобальный реестр паков: каталог, кураторский featured, цены, профили паблишеров и yank версий.",
+      "filters": {
+        "qPlaceholder": "поиск по пакам…",
+        "publisherPlaceholder": "паблишер",
+        "tagPlaceholder": "тег"
+      },
+      "table": {
+        "headers": {
+          "pack": "пак",
+          "version": "последняя",
+          "publisher": "паблишер",
+          "badges": "бейджи",
+          "downloads": "установки",
+          "published": "публикация"
+        },
+        "empty": "Нет паков по фильтрам."
+      },
+      "badges": {
+        "verified": "verified",
+        "signed": "signed",
+        "featured": "featured",
+        "paid": "платный",
+        "mirror": "зеркало",
+        "yanked": "yanked"
+      },
+      "scopeNote": "Операции нужен скоуп {scope}, которого нет у админ-токена. Расширь BRAIN_SCOPE у brain-landing И разреши этот скоуп для JWT-токенов (по умолчанию registry-скоупы доступны только env-ключам) — см. docs/operations.md.",
+      "detail": {
+        "prompt": "Выбери пак для просмотра.",
+        "descriptionLabel": "описание",
+        "keywordsLabel": "теги",
+        "publisherLabel": "паблишер",
+        "originLabel": "зеркало с",
+        "installLink": "Установить через Packs",
+        "feature": "В featured",
+        "unfeature": "Убрать из featured",
+        "setPricing": "Назначить цену",
+        "clearPricing": "Сбросить цену",
+        "versions": "версии",
+        "versionHeaders": {
+          "version": "версия",
+          "published": "публикация",
+          "downloads": "установки",
+          "status": "статус",
+          "actions": "действия"
+        },
+        "ok": "ok",
+        "yank": "Yank",
+        "unyank": "Unyank",
+        "yankPrompt": "Yank {packId}@{version} — версия перестанет резолвиться для новых установок (существующие продолжат работать). Введи версию для подтверждения.",
+        "yankReasonPrompt": "Причина yank (опционально, пусто = без причины):",
+        "confirmMismatch": "Фраза подтверждения не совпала — отмена."
+      },
+      "pricing": {
+        "title": "Цена — {packId}",
+        "amountLabel": "сумма (минорные единицы)",
+        "amountHint": "целое в минорных единицах, напр. 1999 = 19.99",
+        "currencyLabel": "валюта",
+        "currencyHint": "трёхбуквенный код ISO 4217, напр. USD",
+        "save": "Сохранить цену",
+        "saving": "сохраняем…",
+        "invalid": "Нужны целая положительная сумма и трёхбуквенный код валюты."
+      },
+      "publisher": {
+        "title": "Паблишер — {publisher}",
+        "noProfile": "Профиль ещё не заполнен.",
+        "displayNameLabel": "отображаемое имя",
+        "urlLabel": "url",
+        "bioLabel": "био",
+        "contactEmailLabel": "контактный email",
+        "save": "Сохранить профиль",
+        "saving": "сохраняем…",
+        "createdLabel": "создан",
+        "updatedLabel": "обновлён",
+        "packsTitle": "паки"
+      }
+    },
+    "sources": {
+      "title": "Источники",
+      "subtitle": "Объявленная идентичность (source_registry) вместе с выученной репутацией (source_trust); ключ — vertical:recorder. Объявление типа и authLevel включает вес авторитетности в резолвере.",
+      "table": {
+        "headers": {
+          "sourceKey": "ключ источника",
+          "type": "тип",
+          "authLevel": "auth",
+          "globalTrust": "глобальный trust",
+          "domains": "домены"
+        },
+        "empty": "Источников пока нет — строки появятся после записи фактов и прогона trust-рефита."
+      },
+      "undeclared": "не объявлен",
+      "trustCell": "{rate} × {n}",
+      "detail": {
+        "prompt": "Выбери источник для просмотра.",
+        "declaredTitle": "объявленная идентичность",
+        "ownerLabel": "владелец",
+        "noteLabel": "заметка",
+        "updatedLabel": "обновлён",
+        "trustTitle": "скоупы репутации",
+        "trustHeaders": {
+          "domain": "домен",
+          "rate": "rate",
+          "samples": "выборка",
+          "wins": "победы",
+          "losses": "поражения",
+          "lastSeen": "посл. появление"
+        },
+        "global": "глобально",
+        "trustEmpty": "Выученной репутации пока нет — источник не проходил через разрешение конфликтов.",
+        "historyTitle": "история",
+        "historyHeaders": {
+          "domain": "домен",
+          "rate": "rate",
+          "samples": "выборка",
+          "recorded": "записано"
+        },
+        "historyEmpty": "Снапшотов рефита пока нет.",
+        "historyMore": "показаны последние {n} из {total}"
+      },
+      "declare": {
+        "title": "Объявить идентичность",
+        "typeLabel": "тип",
+        "authLevelLabel": "authLevel",
+        "authLevelHint": "0–1; включает спящий вес авторитетности в резолвере",
+        "ownerLabel": "владелец",
+        "noteLabel": "заметка",
+        "save": "Сохранить",
+        "saving": "сохраняем…",
+        "saved": "Объявлено."
+      }
     }
   }
 }
