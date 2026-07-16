@@ -109,7 +109,7 @@ a quiet stale field.
 
 | Endpoint | Notes |
 |---|---|
-| `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant. |
+| `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant. Besides the static tool families, installed Domain Packs with a consented `mcpTools` section contribute tools named `<packId>__<toolName>` (behind `MCP_PACK_TOOLS_ENABLED`, default off) — see [mcp-pack-tools.md](mcp-pack-tools.md). Installing such a pack requires `acceptMcpTools: true` in the `POST /v1/admin/packs` (or `/from-registry`) body; a changed section on upgrade re-requires it. The unauthenticated `/health` probe lists only the static read baseline. |
 
 ## Auth + scopes
 

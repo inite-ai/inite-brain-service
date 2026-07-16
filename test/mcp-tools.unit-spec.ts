@@ -53,6 +53,7 @@ function buildWithScopes(scopes: BrainScope[]): Promise<McpServer> {
     {} as never, // feedback
     {} as never, // policyGate — unused without a policy context
     stubPackToolsReader as never,
+    {} as never, // packToolProxy — no external tools in these fixtures
   );
   return svc.buildServer('co_test', scopes);
 }
@@ -184,6 +185,7 @@ describe('McpService.health — unauthenticated probe payload', () => {
       {} as never, // feedback
       {} as never, // policyGate — unused without a policy context
       stubPackToolsReader as never,
+      {} as never, // packToolProxy
     );
     const health = svc.health();
     expect(health.ok).toBe(true);

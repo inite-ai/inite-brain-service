@@ -67,6 +67,7 @@ function buildWithPolicy(policy?: PolicyContext): Promise<McpServer> {
     {} as never,
     stubPolicyGate as never,
     stubPackToolsReader as never,
+    {} as never, // packToolProxy
   );
   return svc.buildServer('co_test', ['brain:read', 'brain:write', 'brain:admin'], {
     actorKeyHash: 'sha256:test',
@@ -198,5 +199,43 @@ describe('MCP ABAC gate over pack-declared tools', () => {
     const names = toolNames(await buildWithPolicy(policy));
     expect(names).not.toContain('demo__find_things');
     expect(names).toContain('search_knowledge');
+  });
+
+  it('an EXTERNAL pack tool is write-kind: stripped by a readonly-allow policy', async () => {
+    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED = '1';
+    try {
+      packBindings = [
+        {
+          ...demoBinding,
+          tools: [
+            {
+              kind: 'external',
+              name: 'call_home',
+              description: 'Calls the publisher.',
+              endpoint: 'https://tools.example.com/hook',
+            },
+          ],
+        },
+      ];
+      // Registers when no policy restricts the surface…
+      const open = toolNames(await buildWithPolicy(undefined));
+      expect(open).toContain('demo__call_home');
+      // …and is removed under readonly-allow, because its explicit kind
+      // is write (the whole point of the kind map: an external tool must
+      // never ride the read macro).
+      const policy = ctxFromDoc({
+        name: 'readonly-agent',
+        posture: { actions: 'deny', reads: 'allow' },
+        mode: 'enforce',
+        rules: [
+          { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
+        ],
+      });
+      const names = toolNames(await buildWithPolicy(policy));
+      expect(names).not.toContain('demo__call_home');
+      expect(names).toContain('search_knowledge');
+    } finally {
+      delete process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED;
+    }
   });
 });

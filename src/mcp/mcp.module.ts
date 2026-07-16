@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { McpController } from './mcp.controller';
 import { McpService } from './mcp.service';
 import { PackToolsReaderService } from './pack-tools-reader.service';
+import { PackToolProxyService } from './pack-tool-proxy.service';
 import { SearchModule } from '../search/search.module';
 import { EntitiesModule } from '../entities/entities.module';
 import { IngestModule } from '../ingest/ingest.module';
@@ -35,7 +36,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
     FeedbackModule,
   ],
   controllers: [McpController],
-  providers: [McpService, PackToolsReaderService],
+  providers: [McpService, PackToolsReaderService, PackToolProxyService],
   // Exported for DomainPackInstallService's cache invalidation hook
   // (AdminModule imports McpModule).
   exports: [PackToolsReaderService],

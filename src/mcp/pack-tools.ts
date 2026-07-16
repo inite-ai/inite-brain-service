@@ -5,15 +5,20 @@ import { envFlagEnabled } from '../common/env-validation';
 import {
   composePredicateId,
   PACK_NAMESPACE_SEP,
+  type PackExternalToolSpec,
   type PackQueryToolSpec,
+  type PackToolParam,
 } from '../ai/domain-packs';
 import type { SearchService } from '../search/search.service';
 import type { FactsService } from '../facts/facts.service';
 import type { BrainScope } from '../auth/api-key.types';
 import type { PackToolBinding } from './pack-tools-reader.service';
+import type { PackToolProxyService } from './pack-tool-proxy.service';
 import {
+  PARAM_DESCRIPTION_CAP,
   renderPackToolDescription,
   renderPackToolTitle,
+  sanitizePackText,
 } from './pack-tool-render';
 
 /**
@@ -31,6 +36,8 @@ import {
 export interface PackToolsDeps {
   search: SearchService;
   facts: FactsService;
+  /** Absent = external tools cannot be served and are skipped. */
+  proxy?: PackToolProxyService;
 }
 
 const logger = new Logger('PackTools');
@@ -45,10 +52,14 @@ export interface RegisterPackToolsOptions {
 
 export function registerPackTools(opts: RegisterPackToolsOptions): void {
   if (!envFlagEnabled(process.env.MCP_PACK_TOOLS_ENABLED)) return;
-  // Sub-flag: query tools default ON under the master flag
-  // (independently toggleable, like the external-tools flag).
+  // Sub-flags, independently toggleable: query tools default ON under
+  // the master flag; external tools default OFF (outbound calls are a
+  // bigger operator decision than tenant-local reads).
   const queryEnabled = envFlagEnabled(
     process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1',
+  );
+  const externalEnabled = envFlagEnabled(
+    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED,
   );
   const seen = new Set<string>();
   for (const binding of opts.bindings) {
@@ -63,6 +74,8 @@ export function registerPackTools(opts: RegisterPackToolsOptions): void {
       seen.add(fullName);
       if (tool.kind === 'query' && queryEnabled) {
         registerQueryTool({ ...opts, binding, tool, fullName });
+      } else if (tool.kind === 'external' && externalEnabled && opts.deps.proxy) {
+        registerExternalTool({ ...opts, binding, tool, fullName });
       }
     }
   }
@@ -161,4 +174,66 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
       };
     },
   );
+}
+
+interface ExternalToolContext extends RegisterPackToolsOptions {
+  binding: PackToolBinding;
+  tool: PackExternalToolSpec;
+  fullName: string;
+}
+
+function registerExternalTool(ctx: ExternalToolContext): void {
+  const { server, binding, tool, fullName, deps } = ctx;
+  const inputSchema: Record<string, z.ZodTypeAny> = {};
+  for (const p of tool.params ?? []) {
+    inputSchema[p.name] = paramSchema(p);
+  }
+  // Only declared params are forwarded — the SDK's schema parse strips
+  // extras, but the handler is also called directly in unit fixtures.
+  const declared = new Set((tool.params ?? []).map((p) => p.name));
+  server.registerTool(
+    fullName,
+    {
+      title: renderPackToolTitle(tool),
+      description: renderPackToolDescription({
+        packId: binding.packId,
+        version: binding.version,
+        tool,
+      }),
+      inputSchema,
+    },
+    async (args: Record<string, unknown>) => {
+      const forwarded = Object.fromEntries(
+        Object.entries(args ?? {}).filter(([k]) => declared.has(k)),
+      );
+      const out = await deps.proxy!.call({ binding, tool, args: forwarded });
+      return {
+        content: out.content,
+        ...(out.structuredContent
+          ? { structuredContent: out.structuredContent as any }
+          : {}),
+      };
+    },
+  );
+}
+
+/** Declared param → zod schema. Enum wins over maxLength for strings;
+ *  a plain string is capped (author's maxLength or the 2000 ceiling). */
+function paramSchema(p: PackToolParam): z.ZodTypeAny {
+  let schema: z.ZodTypeAny;
+  if (p.type === 'string') {
+    schema = p.enum?.length
+      ? z.enum(p.enum as [string, ...string[]])
+      : z.string().max(p.maxLength ?? 2_000);
+  } else if (p.type === 'number') {
+    schema = z.number();
+  } else {
+    schema = z.boolean();
+  }
+  if (p.description) {
+    schema = schema.describe(
+      sanitizePackText(p.description, PARAM_DESCRIPTION_CAP),
+    );
+  }
+  return p.required ? schema : schema.optional();
 }

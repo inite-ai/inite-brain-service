@@ -36,6 +36,7 @@ import {
   PackToolsReaderService,
   type PackToolBinding,
 } from './pack-tools-reader.service';
+import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 
 const MCP_SERVER_VERSION = '0.3.0';
@@ -104,6 +105,7 @@ export class McpService {
     private readonly feedback: FeedbackService,
     private readonly policyGate: PolicyGateService,
     private readonly packToolsReader: PackToolsReaderService,
+    private readonly packToolProxy: PackToolProxyService,
   ) {}
 
   /**
@@ -327,7 +329,11 @@ export class McpService {
       companyId,
       scopes,
       bindings: packBindings,
-      deps: { search: this.search, facts: this.facts },
+      deps: {
+        search: this.search,
+        facts: this.facts,
+        proxy: this.packToolProxy,
+      },
     });
     return server;
   }

@@ -36,7 +36,11 @@ import {
 } from '../src/mcp/pack-tool-render';
 import { registerPackTools } from '../src/mcp/pack-tools';
 import type { PackToolBinding } from '../src/mcp/pack-tools-reader.service';
+import { PackToolProxyService } from '../src/mcp/pack-tool-proxy.service';
 import { McpService } from '../src/mcp/mcp.service';
+import http from 'node:http';
+import { createHmac } from 'node:crypto';
+import type { PackExternalToolSpec } from '../src/ai/domain-packs';
 
 function packPredicate(localId: string): PackPredicate {
   return {
@@ -594,6 +598,7 @@ describe('packIds fence (McpService.buildServer)', () => {
       {} as never,
       {} as never,
       reader as never,
+      {} as never, // packToolProxy
     );
   }
 
@@ -624,5 +629,246 @@ describe('packIds fence (McpService.buildServer)', () => {
     } finally {
       delete process.env.MCP_PACK_TOOLS_ENABLED;
     }
+  });
+});
+
+
+// ---- external tools: registration + proxy ------------------------------
+
+describe('registerPackTools — external tools', () => {
+  const FLAGS = ['MCP_PACK_TOOLS_ENABLED', 'MCP_PACK_EXTERNAL_TOOLS_ENABLED'];
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const f of FLAGS) saved[f] = process.env[f];
+    process.env.MCP_PACK_TOOLS_ENABLED = '1';
+    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED = '1';
+  });
+  afterEach(() => {
+    for (const f of FLAGS) {
+      if (saved[f] === undefined) delete process.env[f];
+      else process.env[f] = saved[f];
+    }
+  });
+
+  function registerExternal(opts: {
+    tools?: PackToolSpec[];
+    proxy?: unknown;
+  } = {}) {
+    const { server, tools } = stubServer();
+    const proxyCalls: unknown[] = [];
+    const proxy =
+      opts.proxy === undefined
+        ? {
+            call: async (o: unknown) => {
+              proxyCalls.push(o);
+              return { content: [{ type: 'text', text: 'ok' }] };
+            },
+          }
+        : opts.proxy;
+    registerPackTools({
+      server,
+      companyId: 'co_test',
+      scopes: ['brain:read'],
+      bindings: [
+        binding({
+          tools: opts.tools ?? [
+            externalTool({
+              params: [
+                { name: 'thing_id', type: 'string', required: true, maxLength: 64 },
+                { name: 'mode', type: 'string', enum: ['fast', 'deep'] },
+                { name: 'depth', type: 'number' },
+              ],
+            }),
+          ],
+        }),
+      ],
+      deps: {
+        search: stubSearch([]),
+        facts: stubFacts([]),
+        ...(proxy ? { proxy: proxy as never } : {}),
+      },
+    });
+    return { tools, proxyCalls };
+  }
+
+  it('registers only under the external flag AND with a proxy dep', () => {
+    expect(registerExternal().tools.has('demo__check_thing')).toBe(true);
+    expect(registerExternal({ proxy: null }).tools.size).toBe(0);
+    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED = '0';
+    expect(registerExternal().tools.size).toBe(0);
+  });
+
+  it('declared params map to the zod input schema (required/enum/maxLength/type)', () => {
+    const { tools } = registerExternal();
+    const shape = tools.get('demo__check_thing')!.config.inputSchema!;
+    expect(Object.keys(shape).sort()).toEqual(['depth', 'mode', 'thing_id']);
+    const schema = z.object(shape);
+    expect(schema.safeParse({ thing_id: 'x' }).success).toBe(true);
+    expect(schema.safeParse({}).success).toBe(false); // thing_id required
+    expect(schema.safeParse({ thing_id: 'x'.repeat(65) }).success).toBe(false);
+    expect(schema.safeParse({ thing_id: 'x', mode: 'slow' }).success).toBe(false);
+    expect(schema.safeParse({ thing_id: 'x', depth: 'nope' }).success).toBe(false);
+    expect(schema.safeParse({ thing_id: 'x', mode: 'deep', depth: 2 }).success).toBe(true);
+  });
+
+  it('handler forwards ONLY declared args to the proxy', async () => {
+    const { tools, proxyCalls } = registerExternal();
+    await tools.get('demo__check_thing')!.handler({
+      thing_id: 'x1',
+      smuggled: 'nope',
+    });
+    const call = proxyCalls[0] as { args: Record<string, unknown> };
+    expect(call.args).toEqual({ thing_id: 'x1' });
+  });
+
+  it('external description carries the endpoint-calling preamble', () => {
+    const { tools } = registerExternal();
+    expect(tools.get('demo__check_thing')!.config.description).toContain(
+      'calls an external endpoint operated by the pack publisher] ',
+    );
+  });
+});
+
+describe('PackToolProxyService — against a real local http server', () => {
+  let server: http.Server;
+  let port = 0;
+  let behavior: (res: http.ServerResponse) => void;
+  const received: Array<{ headers: http.IncomingHttpHeaders; body: string }> = [];
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        received.push({ headers: req.headers, body });
+        behavior(res);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    port = (server.address() as { port: number }).port;
+    process.env.MCP_PACK_TOOLS_ALLOW_HTTP = '1';
+  });
+  afterAll(async () => {
+    delete process.env.MCP_PACK_TOOLS_ALLOW_HTTP;
+    await new Promise((resolve) => server.close(resolve));
+  });
+  beforeEach(() => {
+    received.length = 0;
+    behavior = (res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ content: 'ok' }));
+    };
+  });
+
+  const proxy = () => new PackToolProxyService();
+  const extTool = (over: Record<string, unknown> = {}) =>
+    ({
+      kind: 'external',
+      name: 'check_thing',
+      description: 'd',
+      endpoint: `http://127.0.0.1:${port}/tool`,
+      ...over,
+    }) as PackExternalToolSpec;
+  const callOnce = (
+    p: PackToolProxyService,
+    over: Record<string, unknown> = {},
+    b: Partial<PackToolBinding> = {},
+  ) => p.call({ binding: binding(b), tool: extTool(over), args: { thing_id: 'x1' } });
+
+  it('signs the raw body with the install secret; installId (not companyId) on the wire', async () => {
+    const out = await callOnce(proxy());
+    expect(out.content[0].text).toBe('ok');
+    const { headers, body } = received[0];
+    expect(headers['x-brain-event']).toBe('mcp_tool_call');
+    expect(headers['content-type']).toBe('application/json');
+    const expected =
+      'sha256=' + createHmac('sha256', 'sec-1').update(body).digest('hex');
+    expect(headers['x-brain-signature']).toBe(expected);
+    const parsed = JSON.parse(body);
+    expect(parsed).toMatchObject({
+      event: 'mcp_tool_call',
+      tool: 'check_thing',
+      packId: 'demo',
+      installId: 'inst-1',
+      args: { thing_id: 'x1' },
+    });
+    expect(parsed.companyId).toBeUndefined();
+    expect(typeof parsed.requestId).toBe('string');
+    expect(typeof parsed.ts).toBe('string');
+  });
+
+  it('object content is relayed as text + structuredContent', async () => {
+    behavior = (res) => {
+      res.writeHead(200);
+      res.end(JSON.stringify({ content: { verdict: 'clean', score: 0.9 } }));
+    };
+    const out = await callOnce(proxy());
+    expect(out.structuredContent).toEqual({ verdict: 'clean', score: 0.9 });
+    expect(JSON.parse(out.content[0].text)).toEqual({ verdict: 'clean', score: 0.9 });
+  });
+
+  it('timeout yields a clean 424 error, never a raw stack', async () => {
+    behavior = () => undefined; // never respond
+    await expect(callOnce(proxy(), { timeoutMs: 150 } as never)).rejects.toThrow(
+      /timed out after 150ms/,
+    );
+  });
+
+  it('responses above 64 KB are rejected', async () => {
+    behavior = (res) => {
+      res.writeHead(200);
+      res.end(JSON.stringify({ content: 'x'.repeat(70_000) }));
+    };
+    await expect(callOnce(proxy())).rejects.toThrow(/exceeded 64 KB/);
+  });
+
+  it('{error} bodies surface sanitized; non-200 surfaces the status', async () => {
+    behavior = (res) => {
+      res.writeHead(200);
+      res.end(JSON.stringify({ error: 'boom‮ details' }));
+    };
+    await expect(callOnce(proxy())).rejects.toThrow(
+      /external tool returned an error: boom details/,
+    );
+    behavior = (res) => {
+      res.writeHead(503);
+      res.end('oops');
+    };
+    await expect(callOnce(proxy())).rejects.toThrow(/answered HTTP 503/);
+  });
+
+  it('circuit breaker: 3 consecutive failures latch the endpoint for 60s', async () => {
+    const p = proxy();
+    behavior = (res) => {
+      res.writeHead(500);
+      res.end();
+    };
+    for (let i = 0; i < 3; i++) {
+      await expect(callOnce(p)).rejects.toThrow(/answered HTTP 500/);
+    }
+    const hits = received.length;
+    await expect(callOnce(p)).rejects.toThrow(/circuit open/);
+    expect(received.length).toBe(hits); // latched call never left the process
+  });
+
+  it('egress guard applies per call: loopback blocked without ALLOW_HTTP', async () => {
+    delete process.env.MCP_PACK_TOOLS_ALLOW_HTTP;
+    try {
+      await expect(callOnce(proxy())).rejects.toThrow(/must use https/);
+      await expect(
+        callOnce(proxy(), { endpoint: `https://127.0.0.1:${port}/tool` }),
+      ).rejects.toThrow(/non-public address/);
+    } finally {
+      process.env.MCP_PACK_TOOLS_ALLOW_HTTP = '1';
+    }
+  });
+
+  it('a pre-0068 install (no installId/secret) gets a clean reinstall hint', async () => {
+    await expect(callOnce(proxy(), {}, { installId: null })).rejects.toThrow(
+      /reinstall the pack/,
+    );
+    await expect(callOnce(proxy(), {}, { webhookSecret: null })).rejects.toThrow(
+      /reinstall the pack/,
+    );
   });
 });

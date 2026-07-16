@@ -214,6 +214,25 @@ cover it with no extra machinery:
   no in-process extraction runs for it. The builtin `code_memory` pack is the
   reference external indexer — its capture pipeline runs where the code lives.
 
+## MCP tools (consumed)
+
+A pack MAY ship an `mcpTools` section — up to 8 tools contributed to the
+tenant's MCP surface, registered as `<packId>__<toolName>` once the
+operator installs the pack with explicit consent (`acceptMcpTools:
+true`; an upgrade that changes the section re-requires it). Two shapes,
+by hard design constraint (no third-party code runs in-process):
+
+- **`query`** — a declarative read over the pack's OWN namespaced
+  predicates (`search` or `facts_by_predicate` surface); input schemas
+  are fixed server-side.
+- **`external`** — an HMAC-signed HTTPS proxy to a publisher-operated
+  endpoint; the wire carries an opaque per-install `installId`, never
+  the tenant id.
+
+Both are flag-gated (`MCP_PACK_TOOLS_ENABLED` master, default off).
+Full reference — manifest fields, consent flow, endpoint protocol with
+signature verification, security model: [mcp-pack-tools.md](mcp-pack-tools.md).
+
 ## The registry (global catalogue)
 
 Packs are published to and installed from a **global registry** — a shared,
