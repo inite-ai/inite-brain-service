@@ -46,7 +46,7 @@ export interface FactPolicyView {
   userId?: string | null;
 }
 
-const SUBJECT_SHAPE = /^(key|jwt):[A-Za-z0-9:_-]{1,128}$/;
+const SUBJECT_SHAPE = /^(key|jwt|agent):[A-Za-z0-9:._-]{1,200}$/;
 
 /**
  * CRUD over the per-tenant ABAC tables (migration 0056). Writes are

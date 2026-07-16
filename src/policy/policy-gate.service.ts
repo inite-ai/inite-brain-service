@@ -48,11 +48,11 @@ export class PolicyGateService {
     action: string,
     requestId?: string,
   ): Promise<PolicyContext | undefined> {
-    const ctx = await this.resolver.contextFor(
-      record.companyId,
-      record.keyHash,
-      record.policyNames,
-    );
+    const ctx = await this.resolver.contextFor(record.companyId, {
+      keyHash: record.keyHash,
+      claimNames: record.policyNames,
+      actorId: record.actorId,
+    });
     if (!ctx) return undefined;
     if (action !== POLICY_ACTION_EXEMPT) {
       this.enforceAction(ctx, action, requestId);
