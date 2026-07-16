@@ -1,7 +1,7 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
-import { createHash } from 'node:crypto';
+import { ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
 import { envFlagEnabled } from '../common/env-validation';
+import { tierMultiplier, tokenTrackerKey } from '../auth/tier-cache';
 
 /**
  * Per-credential rate limiter.
@@ -16,10 +16,13 @@ import { envFlagEnabled } from '../common/env-validation';
  * the ApiKeyGuard anyway, but bucketing them by IP prevents an unauth
  * flood from spending one tenant's quota.
  *
- * Per-tier overrides: today every credential gets the same default
- * limit. When @inite/auth surfaces tier in the JWT (scopes or claim), the
- * matching path is `req.brainAuth.tier` → distinct ThrottlerOptions array
- * + per-tier @Throttle() decorators on the routes that need it.
+ * Per-tier limits: the auth-service stamps plan entitlements on issued
+ * tokens; after verification the resolver records the entitlement-derived
+ * multiplier in the tier cache (keyed by the same tracker key), and
+ * handleRequest scales the bucket limit by it. Claims are never read off
+ * the raw token here — this guard runs before authentication, and an
+ * unverified "enterprise" claim must not widen anyone's window.
+ * Configure via THROTTLE_TIER_MULTIPLIERS (see tier-cache.ts).
  */
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {
@@ -44,13 +47,24 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
     return super.shouldSkip(context);
   }
 
+  protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+    const req = requestProps.context.switchToHttp().getRequest();
+    const tracker = await this.getTracker(req);
+    const multiplier = tierMultiplier(tracker);
+    if (multiplier > 1) {
+      return super.handleRequest({
+        ...requestProps,
+        limit: Math.ceil(requestProps.limit * multiplier),
+      });
+    }
+    return super.handleRequest(requestProps);
+  }
+
   protected async getTracker(req: Record<string, unknown>): Promise<string> {
     const headers = (req.headers as Record<string, string> | undefined) ?? {};
     const auth = headers.authorization;
     if (auth && auth.toLowerCase().startsWith('bearer ')) {
-      const token = auth.slice(7).trim();
-      const digest = createHash('sha256').update(token).digest('hex').slice(0, 32);
-      return `k:${digest}`;
+      return tokenTrackerKey(auth.slice(7).trim());
     }
     const ip = (req.ip as string | undefined) ?? 'unknown';
     return `ip:${ip}`;
