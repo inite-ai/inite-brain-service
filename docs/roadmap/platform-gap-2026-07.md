@@ -64,38 +64,43 @@ requires ≥2 pods. Until then the in-process worker offloads (NLI,
 local NER, cross-encoder, label propagation, token counting) keep the
 event loop clear at zero extra memory baseline.
 
-## Directions that wait for product decisions
+## Product decisions — resolved 2026-07-16
 
-These are NOT engineering backlog — each needs a product call (pricing,
-curation, security posture) before code makes sense. Draft proposals to
-react to:
+All five directions received product decisions and (where code was the
+answer) shipped:
 
-- **Marketplace economic layer.** The registry already has the
-  prerequisite telemetry (downloads, verified badges). The missing
-  decisions: paid packs or free-only? Who curates — first-party review,
-  reputation, or open? Proposal: start with a "featured" curated list +
-  publisher profiles on the registry UI; defer payments until a pack has
-  organic demand.
-- **In-process code plugins.** Deliberately rejected: arbitrary
-  third-party code in the tenant process breaks the security model. The
-  external-indexer seam IS the sanctioned extension point (out-of-process,
-  scoped, re-grounded). Revisit only with a sandboxing story (isolates/WASM)
-  and a concrete use-case polling can't serve.
-- **Pluggable trust-score specs.** Source-trust already adapts per
-  external indexer (neutral 0.5 + nightly refit). A plug point for
-  custom trust math has no consumer yet. Proposal: expose trust
-  *inputs* (per-source agreement stats) read-only via the API first;
-  build the plug point when someone actually consumes them.
-- **Knowledge-content package format.** Packs carry ontology, not
-  facts. Shipping pre-populated knowledge (fixtures, reference data)
-  has a different lifecycle (updates, provenance, dedup vs tenant
-  facts). Proposal: model it as a seed *document set* ingested through
-  the normal pipeline (provenance intact) rather than a new format.
-- **MCP tool plugins.** Third-party tool injection into the MCP surface
-  is a separate security review (tool descriptions reach LLM agents —
-  prompt-injection surface). Proposal: packs may *declare* extra MCP
-  read tools bound to their predicates, server-rendered from a
-  template, never free-form code or prompts.
+- **Marketplace economic layer — DECIDED, shipped.** Featured curation
+  (`registry:curate` scope) + publisher profiles on the registry UI, AND
+  paid packs wired to the central billing service immediately (it was
+  already deployed). Entitlement key `domain_pack:<packId>`, pull-only
+  verification, fail-closed, 402 → checkout → retry-install flow. See
+  docs/domain-packs.md § "Marketplace" and docs/operations.md for the
+  billing prerequisites. Behind `DOMAIN_PACK_BILLING_ENABLED` (default
+  off — self-hosted instances treat the catalogue as free).
+- **In-process code plugins — still rejected** (decision unchanged):
+  arbitrary third-party code in the tenant process breaks the security
+  model. The external seams (indexers, external MCP tools) are the
+  sanctioned extension points. Revisit only with a sandboxing story
+  (isolates/WASM) and a concrete use-case the out-of-process seams
+  can't serve.
+- **Pluggable trust-score specs — DECIDED, shipped.** Trust *inputs*
+  (per-source agreement stats, declared authority, bounded history) are
+  exposed read-only under `brain:read` via `GET /v1/sources` and
+  `GET /v1/sources/:sourceKey`. The plug point for custom trust math is
+  deliberately deferred until someone actually consumes these inputs.
+- **Knowledge-content package format — DECIDED, shipped.** Packs ship
+  pre-populated knowledge as `seedDocuments` ingested through the
+  NORMAL document pipeline on install (provenance, dedup, and trust
+  intact; no new fact format). See docs/domain-packs.md § "Seed
+  documents".
+- **MCP tool plugins — DECIDED, shipped (full plugins).** The
+  template-only proposal was superseded by the product decision to go
+  further: packs declare MCP tools — declarative *query* tools locked
+  to the pack's predicate namespace, and *external* tools proxied to a
+  pack-operated HTTPS endpoint with per-install HMAC signing. Sanitized
+  author text behind an unspoofable server preamble, explicit
+  install-time consent (`acceptMcpTools`), SSRF egress guard, and
+  everything behind default-off flags. See docs/mcp-pack-tools.md.
 
 ## Residual engineering backlog (small)
 
