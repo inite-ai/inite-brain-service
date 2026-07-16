@@ -23,7 +23,14 @@ const CLIENT_ID =
   process.env.NEXT_PUBLIC_OAUTH_CLIENT_ID ||
   'brain-landing'
 
-const SCOPE = 'openid profile email'
+// brain:* scopes ride the session token so the BFF can RFC 8693-exchange
+// it for an aud=brain token that keeps the user's identity (org + sub).
+// Scope is authority ceiling, not role: admin routes still require the
+// admin role (middleware + withAdmin), and the exchange narrows per proxy
+// (USER_SCOPE vs ADMIN_SCOPE).
+const SCOPE =
+  process.env.OAUTH_SCOPE ||
+  'openid profile email brain:read brain:write brain:admin brain:read_pii'
 
 function appOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
