@@ -1,0 +1,132 @@
+---
+title: "Tool descriptions are prompts: extending MCP without inviting injection"
+seoTitle: "Pack-declared MCP tools — extending an agent's tool surface safely"
+description: "Every MCP tool's name and description is delivered into the model's context, so letting third parties add tools means letting them write into every conversation's prompt. Here is how Domain Packs extend the MCP surface anyway: two locked-down tool shapes, sanitized author text behind an unspoofable preamble, checksum-bound consent, and no third-party code in-process."
+date: "2026-07-16"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["MCP", "domain packs", "prompt injection", "security", "agent tools", "extensibility"]
+directAnswer: "Pack-declared MCP tools extend an agent's tool surface without running third-party code in-process. A Domain Pack may declare exactly two tool shapes: declarative query tools whose predicate reach is computed server-side from the pack's own namespace and whose every row passes the scope, PII, and ABAC fences; and external tools proxied to a publisher-operated HTTPS endpoint with per-install HMAC signing, an opaque install id instead of the tenant id, response caps, timeouts, and a circuit breaker. Every pack-authored string is sanitized and prefixed with a server-owned preamble the pack cannot spoof, installation requires explicit consent that is re-required whenever the tool section's checksum changes, and the whole surface sits behind default-off flags."
+definitionSentence: "A pack-declared MCP tool is a manifest-described extension of a tenant's MCP surface — either a server-executed declarative query locked to the pack's own predicates or an HMAC-signed HTTPS proxy call to the publisher — registered only under explicit, checksum-bound operator consent and never as in-process code."
+faqs:
+  - question: "Why can't a pack just ship code for its tools?"
+    answer: "Because in-process code doesn't extend the tool surface, it dissolves the trust boundary: the pack would inherit the tenant's data, the process's credentials, and the service's stability. The settled constraint is that no third-party code runs inside Brain — a pack tool is either a declarative query Brain executes itself or a signed HTTPS call to an endpoint the publisher operates. Everything a tool can do is therefore something the platform already knows how to fence, cap, and audit."
+  - question: "How is a query tool prevented from reading data it shouldn't?"
+    answer: "Its reach is not something the author writes — it is computed server-side from the pack's own manifest, so the tool can only query predicates in the pack's namespace, never core predicates or another pack's. Input schemas are fixed server-side too; a pack chooses names and descriptions, never the query shape. And every returned row still passes the caller's fences: the predicate-level PII scope gate and the per-key ABAC row filter. A pack tool grants a new way to ask, not a new right to see."
+  - question: "What does the publisher's endpoint learn about my tenant when an external tool is called?"
+    answer: "It sees the tool name, the declared arguments, and an opaque per-install id — never the tenant id. The install id is minted at install time and stays stable across upgrades, so the publisher can keep per-customer state without learning who the customer is. Every request is HMAC-signed with the per-install secret so the endpoint can reject forgeries, and the response path is capped: bounded size, bounded time, no retries, sanitized errors, and a circuit breaker per endpoint."
+  - question: "What happens when a pack upgrade changes its tools?"
+    answer: "Consent is stored with a checksum of the canonical tool section, so an upgrade that leaves the section byte-identical carries consent over silently. Any change — a tool added, removed, or edited — invalidates the checksum and the upgrade is refused until the operator re-consents, with the refusal listing every tool's name, kind, and endpoint. An upgrade that drops the section clears the stored consent. Nothing is ever served from a consent that doesn't match the bytes it was given for."
+---
+
+Extending an agent's tool list sounds like extending an API. It isn't.
+An MCP tool's name, title, and description are delivered into the model's
+context — they are *prompt*, not metadata. Let a third party add tools
+and you have let a third party write into every conversation your agent
+has. And once the model can call the tool, the channel runs both ways:
+instructions smuggled in through descriptions, tenant data smuggled out
+through arguments.
+
+The industry's two standard answers are both bad. Don't extend — safe,
+and a dead end for any platform that wants an ecosystem. Or run reviewed
+plugin code in-process — which trades a prompt-injection problem for an
+arbitrary-code-execution problem and calls it progress.
+
+Domain Packs take a third path: extend the surface, but treat every byte
+a pack author writes as hostile.
+
+## Two shapes, no residence
+
+A pack's manifest may declare up to eight MCP tools, registered as
+`<packId>__<toolName>` on the tenant's MCP endpoint once installed. The
+settled constraint: **no third-party code runs in-process**. So a tool is
+one of exactly two shapes — a *query* Brain executes itself, or a call
+Brain *proxies* to the publisher. There is no third shape, and both are
+covered by the pack's signature and checksum like everything else in the
+manifest.
+
+## Query tools: reach is computed, not declared
+
+A query tool is a declarative read over the tenant's knowledge graph —
+a scoped search, or facts by predicate. Two properties make it safe to
+accept from a stranger:
+
+- **The input schema is fixed server-side.** A pack picks names,
+  descriptions, and a few knobs (default limit, minimum confidence). It
+  never supplies a JSON Schema of its own — there is no schema
+  passthrough to hide instructions or widen inputs in.
+- **The predicate reach is server-computed from the pack's own
+  manifest.** A tool can query `compliance__violation` because the
+  `compliance` pack declared that predicate; it cannot name a core
+  predicate or another pack's namespace. The author has no field in
+  which to even *ask* for wider reach.
+
+And the fences that guard every other read still apply per row: the
+predicate-level PII scope gate (a plain read key never sees
+scope-fenced facts through a pack tool) and the per-key
+[ABAC row filter](/en/blog/abac-per-key-policies). Under ABAC, query
+tools register as read-kind — a readonly policy admits them, and any
+concrete tool can still be denied by name.
+
+## External tools: a proxy with a leash
+
+An external tool is a single signed POST to an HTTPS endpoint the
+publisher operates. The wire protocol is built around one privacy
+decision: **the tenant id never leaves the building.** The request
+carries an opaque `installId`, minted at install time and stable across
+upgrades — the publisher keys its per-customer state on it without ever
+learning which tenant it serves. Every request is HMAC-signed with the
+per-install secret (the same one external indexers use), so the endpoint
+can cheaply reject forgeries.
+
+The response path is where the paranoia concentrates: a timeout with a
+hard cap, no retries, redirects treated as errors, the body capped at
+64 KB, non-200s and malformed JSON collapsed into a sanitized,
+length-capped error — raw endpoint output never reaches the calling
+agent as an exception. Three consecutive transport failures latch a
+per-endpoint circuit breaker. And under ABAC, external tools are
+write-kind: a readonly key never sees them at all.
+
+Egress gets its own fence. Endpoints must be HTTPS without embedded
+credentials, and their DNS answers may not resolve to loopback, private,
+link-local, or ULA space — the cloud-metadata address included — checked
+at install *and* on every call. One residual risk is documented rather
+than hidden: a fast-flux DNS rebinding between the check and the fetch
+remains possible, mitigated by re-checking per call.
+
+## The words themselves are hostile
+
+Even a tool that can't reach anything still talks to the model. So every
+pack-authored string — title, description, parameter descriptions — is
+Unicode-normalized, stripped of control, bidi, and zero-width characters,
+whitespace-collapsed, and length-capped before it ever enters a tool
+list. And every description is prefixed with a **server-owned preamble**
+naming the pack and stating what the tool actually does — reads tenant
+knowledge, or calls an external endpoint. The pack cannot spoof, move, or
+imitate that preamble; the model always sees third-party origin labelled
+by the platform, not by the third party.
+
+## Consent that tracks bytes, and flags that default to off
+
+Installing a pack that declares MCP tools fails unless the request
+carries an explicit `acceptMcpTools: true` — and the refusal lists every
+tool's name, kind, and endpoint, so the operator reviews exactly what
+they are accepting. Consent is stored with a checksum of the canonical
+tool section: an upgrade that changes nothing carries consent over, an
+upgrade that changes *anything* re-requires it, and the registration path
+serves only tools whose stored consent matches the stored bytes.
+
+Above all of it sit operator flags, default off — the master switch, and
+a separate, independently-off switch for external proxy tools. A tenant
+that never opts in has an MCP surface identical to a build in which none
+of this exists.
+
+## The shape of the idea
+
+The tool surface grows; the trust boundary doesn't move. Third parties
+get real extension power — new queries over their own vocabulary, calls
+into their own services — while everything that could hurt is either
+computed server-side, signed, capped, sanitized, labelled, consented to
+by checksum, or off by default. Extending the prompt is a privilege the
+platform rents out one reviewed byte at a time — never a door it leaves
+open.
