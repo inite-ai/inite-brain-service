@@ -625,6 +625,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Dedicated per-pack indexer runs + relevance router + async fan-out + external work items. Off = only the generalist union pass runs.',
       },
       {
+        key: 'PACK_SEED_INGEST_ENABLED',
+        category: 'pipeline',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Ingest a pack’s seedDocuments through the document pipeline on install (pack_seed_ingest job). Requires DOCUMENT_INGEST_ENABLED; when either is off the install response reports a skip — install never fails because of seeds.',
+      },
+      {
         key: 'INDEXER_EXTERNAL_PENDING_TTL_DAYS',
         category: 'pipeline',
         defaultValue: '7',

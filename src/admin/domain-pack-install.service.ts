@@ -43,6 +43,15 @@ export interface AvailablePack {
   builtin: boolean;
 }
 
+/** Outcome of the seed-documents install hook. Contract mirror:
+ *  src/contracts/admin/packs.schema.ts (InstallPackResponseSchema). */
+export type SeedIngestEnqueueStatus =
+  | 'enqueued'
+  | 'enqueue_failed'
+  | 'skipped_flag_disabled'
+  | 'skipped_ingest_disabled'
+  | 'skipped_no_queue';
+
 /**
  * Runtime per-tenant Domain Pack install (docs/domain-packs.md). Additive to
  * the builtin packs, which stay globally seeded via SEED_PREDICATES: this lets
@@ -56,8 +65,9 @@ export class DomainPackInstallService {
   private readonly logger = new Logger(DomainPackInstallService.name);
   private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
-  // The optional 4th dep is the REINDEX_ON_PACK_INSTALL queue hook — a
-  // fire-and-forget enqueue, not a responsibility worth a wrapper class.
+  // The optional 4th dep serves the REINDEX_ON_PACK_INSTALL and seed-ingest
+  // queue hooks — fire-and-forget enqueues, not a responsibility worth a
+  // wrapper class.
   // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
@@ -127,6 +137,9 @@ export class DomainPackInstallService {
      * existing secret and omit the field.
      */
     webhookSecret?: string;
+    /** Present iff the manifest ships seedDocuments — whether their
+     *  pipeline ingest was enqueued (install itself never fails on it). */
+    seedDocuments?: { count: number; status: SeedIngestEnqueueStatus };
   }> {
     if (!manifest || typeof manifest !== 'object') {
       throw new BadRequestException('request body must include a pack manifest');
@@ -271,12 +284,14 @@ export class DomainPackInstallService {
       `Installed pack ${manifest.id} v${manifest.version} into ${companyId} (${seeded} predicate(s) seeded)`,
     );
     await this.maybeEnqueueReindex(companyId, manifest);
+    const seedDocuments = await this.maybeEnqueueSeedIngest(companyId, manifest);
     return {
       packId: manifest.id,
       version: manifest.version,
       predicatesSeeded: seeded,
       checksum,
       ...(mintedSecret ? { webhookSecret: mintedSecret } : {}),
+      ...(seedDocuments ? { seedDocuments } : {}),
     };
   }
 
@@ -305,6 +320,47 @@ export class DomainPackInstallService {
       this.logger.warn(
         `reindex enqueue after install of ${manifest.id} failed: ${(e as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * PACK_SEED_INGEST_ENABLED hook (default ON): a manifest shipping
+   * seedDocuments gets a pack_seed_ingest job (PackSeedIngestService owns
+   * the handler) that feeds each seed through the normal document
+   * pipeline. Enqueue-only via the global queue — like the reindex hook —
+   * and best-effort: install NEVER fails because of seeds. The dedupKey is
+   * version-stable, so a same-version reinstall doesn't re-run a completed
+   * seed ingest.
+   */
+  private async maybeEnqueueSeedIngest(
+    companyId: string,
+    manifest: DomainPackManifest,
+  ): Promise<{ count: number; status: SeedIngestEnqueueStatus } | undefined> {
+    const count = manifest.seedDocuments?.length ?? 0;
+    if (count === 0) return undefined;
+    if (!envFlagEnabled(process.env.PACK_SEED_INGEST_ENABLED ?? '1')) {
+      return { count, status: 'skipped_flag_disabled' };
+    }
+    // Seeds ride the document pipeline; with its master switch off the
+    // ingest entry would 503-shape anyway — skip loudly in the response.
+    if (!envFlagEnabled(process.env.DOCUMENT_INGEST_ENABLED)) {
+      return { count, status: 'skipped_ingest_disabled' };
+    }
+    if (!this.claim) return { count, status: 'skipped_no_queue' };
+    try {
+      await this.claim.enqueue({
+        jobType: 'pack_seed_ingest',
+        companyId,
+        triggeredBy: 'manual',
+        dedupKey: `pack_seed_${manifest.id}_${manifest.version}`,
+        payload: { packId: manifest.id, packVersion: manifest.version },
+      });
+      return { count, status: 'enqueued' };
+    } catch (e) {
+      this.logger.warn(
+        `seed ingest enqueue after install of ${manifest.id} failed: ${(e as Error).message}`,
+      );
+      return { count, status: 'enqueue_failed' };
     }
   }
 

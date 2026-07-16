@@ -9,8 +9,12 @@ import {
   packChecksum,
   validatePack,
   DomainPackError,
+  SEED_DOC_MAX_CHARS,
+  SEED_MAX_DOCS,
+  SEED_TOTAL_MAX_CHARS,
   type DomainPackManifest,
   type PackPredicate,
+  type PackSeedDocument,
 } from '../src/ai/domain-packs';
 import { computeHash } from '../src/ai/predicate-registry-internals/db-mapping';
 import {
@@ -130,6 +134,116 @@ describe('validatePack', () => {
         }),
       ),
     ).toThrow(/fewShot entries must be/);
+  });
+});
+
+describe('validateSeedDocuments (via validatePack)', () => {
+  function seed(over: Partial<PackSeedDocument> = {}): PackSeedDocument {
+    return {
+      localId: 'primer',
+      title: 'Domain primer',
+      text: 'Some seed knowledge.',
+      vertical: 'demo',
+      ...over,
+    };
+  }
+
+  it('accepts a well-formed seed document set', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          seedDocuments: [
+            seed({
+              originUri: 'https://example.com/primer',
+              occurredAt: '2026-01-01T00:00:00Z',
+              meta: { audience: 'agents', priority: 2, curated: true },
+            }),
+            seed({ localId: 'glossary' }),
+          ],
+        }),
+      ),
+    ).not.toThrow();
+  });
+  it('rejects duplicate seed localIds', () => {
+    expect(() =>
+      validatePack(pack({ seedDocuments: [seed(), seed()] })),
+    ).toThrow(/duplicate seed document localId/);
+  });
+  it('rejects a non-snake_case seed localId', () => {
+    expect(() =>
+      validatePack(pack({ seedDocuments: [seed({ localId: 'Primer-1' })] })),
+    ).toThrow(DomainPackError);
+  });
+  it('rejects a seed localId containing the namespace separator', () => {
+    expect(() =>
+      validatePack(pack({ seedDocuments: [seed({ localId: 'a__b' })] })),
+    ).toThrow(/__/);
+  });
+  it('rejects a seed text over the per-document cap', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          seedDocuments: [seed({ text: 'x'.repeat(SEED_DOC_MAX_CHARS + 1) })],
+        }),
+      ),
+    ).toThrow(/per-document cap/);
+  });
+  it('rejects seed texts over the combined cap', () => {
+    const chunk = 'x'.repeat(SEED_DOC_MAX_CHARS);
+    const docs = Array.from(
+      { length: Math.ceil(SEED_TOTAL_MAX_CHARS / SEED_DOC_MAX_CHARS) + 1 },
+      (_, i) => seed({ localId: `doc_${i}`, text: chunk }),
+    );
+    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(
+      /chars of text combined/,
+    );
+  });
+  it('rejects a seed without a vertical', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          seedDocuments: [seed({ vertical: undefined as unknown as string })],
+        }),
+      ),
+    ).toThrow(/vertical/);
+  });
+  it('rejects an unparseable occurredAt', () => {
+    expect(() =>
+      validatePack(pack({ seedDocuments: [seed({ occurredAt: 'yesterday' })] })),
+    ).toThrow(/occurredAt/);
+  });
+  it('rejects non-scalar meta values', () => {
+    expect(() =>
+      validatePack(
+        pack({
+          seedDocuments: [
+            seed({
+              meta: { nested: { deep: true } } as unknown as PackSeedDocument['meta'],
+            }),
+          ],
+        }),
+      ),
+    ).toThrow(/meta value/);
+  });
+  it('rejects a non-snake_case meta key', () => {
+    expect(() =>
+      validatePack(
+        pack({ seedDocuments: [seed({ meta: { 'Bad-Key': 'x' } })] }),
+      ),
+    ).toThrow(/meta key/);
+  });
+  it(`rejects more than ${SEED_MAX_DOCS} seed documents`, () => {
+    const docs = Array.from({ length: SEED_MAX_DOCS + 1 }, (_, i) =>
+      seed({ localId: `doc_${i}` }),
+    );
+    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(
+      /the cap is/,
+    );
+  });
+  it('changes the pack checksum when a seed text changes', () => {
+    const a = pack({ seedDocuments: [seed({ text: 'version one' })] });
+    const b = pack({ seedDocuments: [seed({ text: 'version two' })] });
+    expect(packChecksum(a)).not.toBe(packChecksum(b));
   });
 });
 

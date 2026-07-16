@@ -2,6 +2,9 @@ import type { PredicateDefinition } from '../predicate-registry-internals/types'
 import {
   composePredicateId,
   PACK_NAMESPACE_SEP,
+  SEED_DOC_MAX_CHARS,
+  SEED_MAX_DOCS,
+  SEED_TOTAL_MAX_CHARS,
   type DomainPackManifest,
 } from './manifest';
 
@@ -98,6 +101,9 @@ export function validatePack(pack: DomainPackManifest): void {
   }
   if (pack.evalFixtures !== undefined) {
     validateEvalFixtures(pack.id, pack.evalFixtures);
+  }
+  if (pack.seedDocuments !== undefined) {
+    validateSeedDocuments(pack.id, pack.seedDocuments);
   }
   if (pack.indexer !== undefined) {
     validateIndexerDescriptor(pack.id, pack.indexer);
@@ -263,6 +269,147 @@ function validateEvalFixtures(packId: string, fixtures: unknown): void {
           );
         }
       }
+    }
+  }
+}
+
+// Local mirror of the source-meta constraints (src/policy/source-meta.ts:
+// META_KEY + SOURCE_META_MAX_VALUE_CHARS). Duplicated on purpose — this pure
+// validator is what `pnpm pack:validate` runs and must stay dependency-free.
+const SEED_META_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const SEED_META_MAX_VALUE_CHARS = 256;
+
+/**
+ * Validate a pack's seed documents (consumed by the pack_seed_ingest job —
+ * each entry becomes a normal document-pipeline ingest on install, so a
+ * malformed one must be a clean 400 at author/install time). The text caps
+ * bound the install-time LLM fan-out a single manifest can trigger.
+ */
+interface SeedShape {
+  localId?: unknown;
+  title?: unknown;
+  text?: unknown;
+  vertical?: unknown;
+  originUri?: unknown;
+  occurredAt?: unknown;
+  meta?: unknown;
+}
+
+function validateSeedDocuments(packId: string, seeds: unknown): void {
+  if (!Array.isArray(seeds)) {
+    throw new DomainPackError(`pack "${packId}" seedDocuments must be an array`);
+  }
+  if (seeds.length > SEED_MAX_DOCS) {
+    throw new DomainPackError(
+      `pack "${packId}" ships ${seeds.length} seed documents — the cap is ${SEED_MAX_DOCS}`,
+    );
+  }
+  const ids = new Set<string>();
+  let totalChars = 0;
+  for (const s of seeds) {
+    if (typeof s !== 'object' || s === null || Array.isArray(s)) {
+      throw new DomainPackError(
+        `pack "${packId}" seedDocuments entries must be objects`,
+      );
+    }
+    const seed = s as SeedShape;
+    if (
+      typeof seed.localId !== 'string' ||
+      !SNAKE.test(seed.localId) ||
+      seed.localId.includes(PACK_NAMESPACE_SEP)
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" seed document localId "${String(seed.localId)}" must be snake_case and must not contain "${PACK_NAMESPACE_SEP}"`,
+      );
+    }
+    if (ids.has(seed.localId)) {
+      throw new DomainPackError(
+        `pack "${packId}" declares duplicate seed document localId "${seed.localId}"`,
+      );
+    }
+    ids.add(seed.localId);
+    validateSeedFields(packId, seed.localId, seed);
+    totalChars += (seed.text as string).length;
+    if (totalChars > SEED_TOTAL_MAX_CHARS) {
+      throw new DomainPackError(
+        `pack "${packId}" seed documents exceed ${SEED_TOTAL_MAX_CHARS} chars of text combined`,
+      );
+    }
+  }
+}
+
+/** Per-document field checks (localId already vetted by the caller). */
+function validateSeedFields(
+  packId: string,
+  localId: string,
+  seed: SeedShape,
+): void {
+  if (typeof seed.title !== 'string' || !seed.title || seed.title.length > 512) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" needs a non-empty title of at most 512 chars`,
+    );
+  }
+  if (typeof seed.text !== 'string' || !seed.text) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" needs a non-empty text`,
+    );
+  }
+  if (seed.text.length > SEED_DOC_MAX_CHARS) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" text is ${seed.text.length} chars — the per-document cap is ${SEED_DOC_MAX_CHARS}`,
+    );
+  }
+  if (
+    typeof seed.vertical !== 'string' ||
+    !seed.vertical ||
+    seed.vertical.length > 64
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" needs a non-empty vertical of at most 64 chars`,
+    );
+  }
+  if (
+    seed.originUri !== undefined &&
+    (typeof seed.originUri !== 'string' || seed.originUri.length > 512)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" originUri must be a string of at most 512 chars`,
+    );
+  }
+  if (
+    seed.occurredAt !== undefined &&
+    (typeof seed.occurredAt !== 'string' ||
+      !Number.isFinite(Date.parse(seed.occurredAt)))
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" occurredAt must be an ISO datetime`,
+    );
+  }
+  if (seed.meta !== undefined) validateSeedMeta(packId, localId, seed.meta);
+}
+
+/** Seed meta must survive sanitizeSourceMeta verbatim (flat scalar bag) —
+ *  a key the sanitizer would drop is an authoring error, not a runtime one. */
+function validateSeedMeta(packId: string, localId: string, meta: unknown): void {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+    throw new DomainPackError(
+      `pack "${packId}" seed document "${localId}" meta must be an object of scalar values`,
+    );
+  }
+  for (const [key, value] of Object.entries(meta as Record<string, unknown>)) {
+    if (!SEED_META_KEY.test(key)) {
+      throw new DomainPackError(
+        `pack "${packId}" seed document "${localId}" meta key "${key}" is not snake_case (${SEED_META_KEY})`,
+      );
+    }
+    const ok =
+      typeof value === 'boolean' ||
+      (typeof value === 'number' && Number.isFinite(value)) ||
+      (typeof value === 'string' && value.length <= SEED_META_MAX_VALUE_CHARS);
+    if (!ok) {
+      throw new DomainPackError(
+        `pack "${packId}" seed document "${localId}" meta value of "${key}" must be a boolean, finite number, or string of at most ${SEED_META_MAX_VALUE_CHARS} chars`,
+      );
     }
   }
 }
