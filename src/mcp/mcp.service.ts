@@ -29,6 +29,7 @@ import { DocumentIngestService } from '../documents/document-ingest.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { evaluateAction } from '../policy/policy-engine';
+import { ACTIONS } from '../policy/action-registry';
 import { ActionKind, PolicyContext } from '../policy/policy.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs';
@@ -191,6 +192,38 @@ export class McpService {
   }
 
   /**
+   * RFC 9396 grant gate — the consent-time counterpart of the ABAC gate
+   * above. Active only when the token carried inite_mcp_resource
+   * entries: a tool stays registered iff its name is in the granted
+   * union, or its kind is covered by a 'read'/'write' macro grant.
+   * Applied AFTER the policy gate, and removals are independent, so
+   * deny-overrides holds: a policy deny removes a tool the grant
+   * allows, and a grant omission removes a tool the policy allows.
+   */
+  private applyGrantToolGate(
+    server: McpServer,
+    granted: readonly string[],
+    kinds?: ReadonlyMap<string, ActionKind>,
+  ): void {
+    const grantSet = new Set(granted);
+    const allows = (name: string): boolean => {
+      if (grantSet.has(name)) return true;
+      const kind = kinds?.get(name) ?? ACTIONS[name]?.kind;
+      return kind !== undefined && grantSet.has(kind);
+    };
+    const raw = server.registerTool.bind(server);
+    (server as McpServer & { registerTool: unknown }).registerTool = (
+      name: string,
+      config: unknown,
+      handler: (...args: unknown[]) => unknown,
+    ) => {
+      const tool = raw(name as never, config as never, handler as never);
+      if (!allows(name)) tool.remove();
+      return tool;
+    };
+  }
+
+  /**
    * Unauthenticated health probe payload — surfaces version + the
    * read-baseline tool list so setup scripts can confirm the MCP
    * endpoint is reachable BEFORE the operator pastes the API key.
@@ -241,6 +274,13 @@ export class McpService {
        * only its packs' declared tools; absent = every consented pack.
        */
       packIds?: string[];
+      /** Acting client (agent) identity — provenance attribution. */
+      actorId?: string;
+      /**
+       * RFC 9396 inite_mcp_resource grant (ApiKeyRecord.mcpGrantedActions):
+       * undefined = gate inactive; [] = granted nothing (all tools removed).
+       */
+      mcpGrantedActions?: string[];
     },
   ): Promise<McpServer> {
     const actorKeyHash = caller?.actorKeyHash;
@@ -263,6 +303,9 @@ export class McpService {
     });
     this.wrapToolErrors(server);
     if (policy) this.applyPolicyToolGate(server, policy, packToolKinds);
+    if (caller?.mcpGrantedActions !== undefined) {
+      this.applyGrantToolGate(server, caller.mcpGrantedActions, packToolKinds);
+    }
     registerReadTools({
       server,
       companyId,
@@ -304,6 +347,7 @@ export class McpService {
         companyId,
         scopes,
         actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
+        actorId: caller?.actorId,
         deps: {
           ingest: this.ingest,
           facts: this.facts,

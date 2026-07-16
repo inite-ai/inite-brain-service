@@ -88,6 +88,8 @@ export class McpController {
       actorKeyHash: auth.keyHash,
       policy: auth.policy,
       packIds: auth.packIds,
+      actorId: auth.actorId,
+      mcpGrantedActions: auth.mcpGrantedActions,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless

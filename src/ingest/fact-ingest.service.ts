@@ -12,6 +12,7 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { evidenceValidationError } from './ingest-utils';
 import { pinUserScope } from '../auth/user-scope';
+import { getRequestContext } from '../common/request-context';
 
 /**
  * The typed direct-ingest path (`ingestFact`): a single fully-specified fact
@@ -92,6 +93,14 @@ export class FactIngestService {
         );
       }
       if (meta) source.meta = meta;
+    }
+    // Agent attribution: the verified acting-client identity (token act/
+    // client_id, stamped into ALS by the guard) lands on source.meta.actor
+    // — auth-derived, so it OVERRIDES any caller-asserted `actor` meta.
+    // Gives ABAC source rules and audits a per-agent handle on every fact.
+    const actorId = getRequestContext()?.authActorId;
+    if (actorId) {
+      source.meta = { ...((source.meta as Record<string, unknown>) ?? {}), actor: actorId };
     }
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
