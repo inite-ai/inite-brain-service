@@ -53,10 +53,17 @@ export class AdminPacksController {
   @RequireScopes('brain:admin')
   async install(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { manifest: DomainPackManifest; expectedChecksum?: string },
+    @Body()
+    body: {
+      manifest: DomainPackManifest;
+      expectedChecksum?: string;
+      /** Consent to the manifest's mcpTools section (docs/mcp-pack-tools.md). */
+      acceptMcpTools?: boolean;
+    },
   ): Promise<InstallPackResponse> {
     return this.packs.install(req.brainAuth.companyId, body?.manifest, {
       expectedChecksum: body?.expectedChecksum,
+      acceptMcpTools: body?.acceptMcpTools,
     });
   }
 
@@ -68,7 +75,8 @@ export class AdminPacksController {
   @RequireScopes('brain:admin')
   async installFromRegistry(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { packId: string; version?: string },
+    @Body()
+    body: { packId: string; version?: string; acceptMcpTools?: boolean },
   ): Promise<InstallPackResponse> {
     const { manifest, checksum } = await this.registry.resolveForInstall({
       packId: body?.packId,
@@ -77,6 +85,7 @@ export class AdminPacksController {
     });
     return this.packs.install(req.brainAuth.companyId, manifest, {
       expectedChecksum: checksum,
+      acceptMcpTools: body?.acceptMcpTools,
     });
   }
 
