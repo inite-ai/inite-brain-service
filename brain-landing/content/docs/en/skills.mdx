@@ -1,6 +1,6 @@
 # Skills bundle
 
-Brain ships four Anthropic Skills that teach an AI agent how to use the MCP surface. They're plain markdown — `SKILL.md` with YAML frontmatter — and Claude reads them natively when they land in `~/.claude/skills/`.
+Brain ships six Anthropic Skills that teach an AI agent how to use the MCP surface. They're plain markdown — `SKILL.md` with YAML frontmatter — and Claude reads them natively when they land in `~/.claude/skills/`.
 
 ## One-line install
 
@@ -15,14 +15,16 @@ Optional flags:
 
 The installer downloads `skills.tar.gz`, unpacks each skill into `~/.claude/skills/<name>/SKILL.md`, and drops a `VERSION.brain` file alongside so the staleness check has a single number to compare against.
 
-## The four skills
+## The six skills
 
 | Skill | Activates when… | What it teaches |
 | --- | --- | --- |
-| `brain-search` | The user asks to find / look up / search knowledge | How to call `search_knowledge` with predicate hints and asOf semantics |
-| `brain-recall` | The user names an entity and asks for the full picture | How to combine `get_entity_profile` + `get_entity_timeline` + `find_related_entities` |
-| `brain-bitemporal` | The user has a temporal question (“on X date”, “before Y”) | asOf semantics, validFrom / validUntil, retracted-row handling |
-| `brain-mcp-setup` | The user is wiring brain MCP into a new client | Step-by-step config for Claude Desktop, Cursor, Goose, n8n |
+| `brain-search` | The user asks to find / look up / search knowledge | How to call `search_knowledge` (+ `search_multi_hop` / `synthesize`) with predicate hints and asOf semantics |
+| `brain-recall` | The user names an entity and asks for the full picture | How to combine `summarize_entity` + `get_entity_profile` + `get_entity_timeline` + `find_related_entities` + `get_competing_facts` |
+| `brain-bitemporal` | The user has a temporal question (“on X date”, “before Y”) | asOf semantics, `memory_diff`, validFrom / validUntil, retracted-row handling |
+| `brain-write` | The user wants to record / merge / revise structured knowledge | `record_fact` / `link_entities` / `retract_fact` with a `detect_contradiction` preflight |
+| `brain-conflict` | Two facts disagree on the same predicate (COMPETING status) | Adjudication workflow via `get_competing_facts` + `detect_contradiction` |
+| `brain-mcp-setup` | The user is wiring brain MCP into a new client | Step-by-step config for Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, and a raw `@modelcontextprotocol/sdk` client |
 
 ## Format
 
@@ -45,7 +47,7 @@ Single semver in `skills/VERSION`. No per-skill semvers. The whole bundle ships 
 
 ```bash
 cat ~/.claude/skills/VERSION.brain
-# → 0.1.0
+# → 0.3.0
 ```
 
 Bumped automatically by `pnpm skills:bump --staged` on pre-commit when any file under `skills/<name>/**` changes. Patch-bump only — manual minor / major: edit `skills/VERSION`, then `pnpm skills:build`.
@@ -68,6 +70,8 @@ The installer is idempotent. It replaces the contents of `~/.claude/skills/brain
 ├── brain-search/SKILL.md
 ├── brain-recall/SKILL.md
 ├── brain-bitemporal/SKILL.md
+├── brain-write/SKILL.md
+├── brain-conflict/SKILL.md
 └── brain-mcp-setup/SKILL.md
 ```
 

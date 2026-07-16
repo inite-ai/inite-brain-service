@@ -21,13 +21,28 @@ Plaintext is never persisted. If a key is lost, issue a new one and remove the o
 
 | Scope | Effect |
 | --- | --- |
-| `brain:read` | Read-only — search, profile, timeline, connections. Sensitive PII redacted. |
-| `brain:write` | Adds `record_fact`, `retract_fact`. |
+| `brain:read` | Read-only — search, profile, timeline, connections, `/v1/sources` trust reads, registry discovery. Sensitive PII redacted. |
+| `brain:write` | Adds the write surface — `record_fact`, `retract_fact`, `/v1/ingest/*`. |
 | `brain:read_pii` | Unlocks `email` / `phone` / `dob` / `address` object values in reads. |
-| `brain:forget` | Required (with `brain:write`) for hard `forget` cascade. |
-| `brain:admin` | Required for `/v1/dreams/run` manual trigger. |
+| `brain:admin` | Tenant operations — hard `forget` cascade, `/v1/dreams/run`, Domain Pack install / uninstall, document re-indexing. |
+| `registry:publish` | Publish / yank in the global pack registry, publisher profile, pack pricing. |
+| `registry:curate` | Hosting-operator curation (feature / unfeature) of the global registry. |
+| `indexer:write` | External indexers — poll / claim work, read routed document content, stage candidates. Never commits facts. |
 
-Least-privilege by default — keys for agent surfaces should be `brain:read` only unless you have a specific write use case.
+Least-privilege by default — keys for agent surfaces should be `brain:read` only unless you have a specific write use case. Keys can additionally carry ABAC policy sets (see the [security model](/en/docs/security)) and, for `indexer:write`, a `packIds` binding that fences the key to its own packs.
+
+## Process roles — api / worker split
+
+One image, three roles via a single env: `PROCESS_ROLE=all` (default — byte-identical single-process behaviour), `api` (serves HTTP, never claims queued jobs, skips the job worker-thread pool), `worker` (runs the queue loop + crons; keeps HTTP up for healthchecks but publishes no ports, and skips the ~135 MB NLI chat-routing model). Explicitly-set flags always win over the role defaults, and `api` / `worker` require the default `JOBS_QUEUE_MODE=enqueue` — the combination with `inline` fails boot validation.
+
+Independent of the role split, CPU-heavy work (BGE-M3 embeddings, the local cross-encoder, NLI intent routing, local NER, label propagation, token counting) runs in `worker_threads`, so the event loop keeps serving HTTP even in single-process mode. Split when you have ≥4 CPUs, when nightly crons visibly bump API p95, or when you scale the API horizontally. Details: [`docs/operations.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md).
+
+## Dark-shipped surfaces (enablement pointers)
+
+Two platform surfaces ship dark and have their own staged runbooks — don't flip them ad hoc:
+
+- **Document pipeline + external indexers** — everything sits behind `DOCUMENT_INGEST_ENABLED` (and `DOCUMENT_MULTI_INDEXER_ENABLED` for dedicated/external runs). Staged enablement: [`docs/operations.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md), surface overview on the [document pipeline page](/en/docs/platform/document-pipeline).
+- **Registry / marketplace ops** — mirroring (`REGISTRY_UPSTREAM_URL`), signature requirements (`PACK_REGISTRY_REQUIRE_SIGNATURE`), paid packs (`DOMAIN_PACK_BILLING_ENABLED`, off by default and the self-hosted posture — every pack installs free). See [Domain Packs](/en/docs/platform/domain-packs) and [`docs/domain-packs.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/domain-packs.md).
 
 ## Retrieval feature flags
 

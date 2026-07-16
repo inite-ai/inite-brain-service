@@ -123,7 +123,7 @@
     "correctness": "correctness · all gated at 1.0",
     "footnote": "From the eval report, n=262 (multi-vertical suite + wikidata). Temporal queries hit recall@1 1.000 (n=21), current 0.959 (n=241). Every push re-runs it; the build fails below the gate.",
     "items": [
-      { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
+      { "label": "recall@1", "value": "0.962", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
       { "label": "identity-F1", "value": "1.000", "floor": "≥ 0.8" },
       { "label": "memory-lifecycle", "value": "1.000", "floor": "= 1.0" }
@@ -140,19 +140,14 @@
         "desc": "Two ingests for one fact go through a scored ladder — confidence × source-trust × recency × authority. Close calls land as COMPETING, never a silent overwrite."
       },
       {
+        "tag": "Trust",
+        "title": "Source-aware trust",
+        "desc": "A fact is claimed, not true. Every source earns a learned, domain-scoped agreement rate; declared authority and cross-document corroboration feed ranking. Inspect it all via GET /v1/sources."
+      },
+      {
         "tag": "Graph",
         "title": "Identity resolution",
-        "desc": "Cross-vertical merges collapse duplicates into one entity via identity_of edges; re-attribution follows mergedInto. B³ identity-F1 holds at 1.0."
-      },
-      {
-        "tag": "Lifecycle",
-        "title": "GDPR forget",
-        "desc": "A forget is a synchronous hard delete — facts, edges, and embeddings gone. Only an HMAC tombstone stays, so you can prove it happened."
-      },
-      {
-        "tag": "Safety",
-        "title": "PII fence",
-        "desc": "PII is gated at the database layer with PERMISSIONS and caller scopes. Every predicate declares its PII class up front."
+        "desc": "Cross-vertical merges collapse duplicates into one entity via identity_of edges; re-attribution follows mergedInto. The nightly Dreams pass proposes merges for near-duplicates on its own."
       },
       {
         "tag": "Retrieval",
@@ -165,14 +160,34 @@
         "desc": "/v1/synthesize runs corrective-RAG with strict / lenient / off guardrails and a claim-level faithfulness scorer. Pass-rate gates at 1.0."
       },
       {
-        "tag": "Schema",
-        "title": "Predicate ontology",
-        "desc": "A per-tenant, OWL-equivalent registry. Each predicate carries semantics, decay, and PII class — the router and resolver both read it."
+        "tag": "Platform",
+        "title": "Domain Packs",
+        "desc": "Versioned ontology plugins: typed predicates, extraction tuning, seed documents, MCP tools. Ed25519-signed manifests, a global registry with verified publishers — and a marketplace with featured and paid packs."
       },
       {
-        "tag": "Ops",
-        "title": "Dreams",
-        "desc": "Off-hours, Brain dedups entities, resolves competing facts, and summarizes — self-improvement on a cron, not a manual chore."
+        "tag": "Documents",
+        "title": "Document pipeline",
+        "desc": "Source → Indexer → Candidates → Brain. Extraction proposes, one resolver disposes. Stored documents re-index when a new pack lands; external indexers join over a pull work API."
+      },
+      {
+        "tag": "MCP",
+        "title": "Pack MCP tools",
+        "desc": "Installed packs extend the MCP surface — declarative query tools over their own predicates, HMAC-signed proxies to publisher endpoints. Operator consent required; no third-party code in-process."
+      },
+      {
+        "tag": "Access",
+        "title": "ABAC policies",
+        "desc": "Named policy sets per API key: allow / deny over REST + MCP actions, row-level read filters by PII class, trust thresholds, and provenance. Report-only mode makes the rollout safe."
+      },
+      {
+        "tag": "Safety",
+        "title": "PII fence",
+        "desc": "PII is gated at the database layer with PERMISSIONS and caller scopes. Every predicate declares its PII class up front."
+      },
+      {
+        "tag": "Lifecycle",
+        "title": "GDPR forget",
+        "desc": "A forget is a synchronous hard delete — facts, edges, and embeddings gone. Only an HMAC tombstone stays, so you can prove it happened."
       },
       {
         "tag": "Tenancy",
@@ -188,16 +203,16 @@
   },
   "mcpBlock": {
     "eyebrow": "Model Context Protocol",
-    "title": "One config block. Six tools. Any client.",
-    "subtitle": "A per-tenant MCP URL, scope-aware. Drop it into Claude Desktop, Cursor, Goose, or n8n and the agent gets the same six tools.",
-    "toolsLabel": "Six scope-aware tools",
+    "title": "One config block. The full tool surface. Any client.",
+    "subtitle": "A per-tenant MCP URL, scope-aware. Drop it into Claude Desktop, Cursor, Goose, or n8n — the agent gets 28 built-in tools, and installed Domain Packs can add more.",
+    "toolsLabel": "28 scope-aware tools · highlights",
     "clients": "Same URL, same auth header, no glue code — whatever speaks MCP.",
     "linkLabel": "MCP setup guide"
   },
   "skillsBlock": {
     "eyebrow": "Agent skills",
     "title": "Skills that teach the agent to use Brain.",
-    "subtitle": "Four Anthropic-format skills — search, recall, bitemporal queries, and the setup walkthrough. One curl installs them into ~/.claude/skills.",
+    "subtitle": "Six Anthropic-format skills — search, recall, bitemporal queries, writes, conflict adjudication, and the setup walkthrough. One curl installs them into ~/.claude/skills.",
     "linkLabel": "All skills",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
   },
@@ -258,6 +273,7 @@
       "start": "Start here",
       "concepts": "Concepts",
       "rest": "REST API",
+      "platform": "Platform",
       "mcp": "MCP",
       "ops": "Operations"
     },
@@ -302,25 +318,37 @@
         "title": "POST /v1/facts/:id/retract",
         "description": "Mark a fact retracted. Survives in audit trail with reason."
       },
+      "domain-packs": {
+        "title": "Domain Packs",
+        "description": "Versioned ontology plugins — manifest, signing, registry, marketplace."
+      },
+      "document-pipeline": {
+        "title": "Document pipeline",
+        "description": "Source → Indexer → Candidates → Brain. Re-indexing, corroboration, privacy dials."
+      },
+      "external-indexers": {
+        "title": "External indexers",
+        "description": "The pull work API — poll, claim, read, submit. HMAC push hints, per-pack keys."
+      },
       "mcp-setup": {
         "title": "MCP setup",
         "description": "Claude Desktop, Cursor, Goose, n8n configs."
       },
       "mcp-tools": {
         "title": "MCP tools reference",
-        "description": "Six scope-aware tools with their full Zod schemas."
+        "description": "28 scope-aware tools, 2 resources, pack-declared extensions."
       },
       "skills": {
         "title": "Skills bundle",
-        "description": "Four Anthropic-format skills, install.sh, versioning model."
+        "description": "Six Anthropic-format skills, install.sh, versioning model."
       },
       "operator-playbook": {
         "title": "Operator playbook",
-        "description": "Day-2 ops — keys, scopes, dreams cron, baseline diffs."
+        "description": "Day-2 ops — keys, scopes, process roles, dreams cron, baseline diffs."
       },
       "security": {
         "title": "Security model",
-        "description": "JWT, scopes, per-tenant isolation, GDPR forget, PII gating."
+        "description": "JWT, scopes, ABAC policies, per-tenant isolation, GDPR forget, PII gating."
       }
     },
     "prev": "Previous",

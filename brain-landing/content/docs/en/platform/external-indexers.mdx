@@ -1,0 +1,52 @@
+# External indexers
+
+Build a service that reads documents stored in Brain and contributes structured knowledge — without running inside Brain's process. An external indexer is a plain HTTP client: it polls for work, reads stored text, extracts whatever its domain knows how to extract, and submits candidate facts. Brain re-validates everything server-side and decides what becomes memory.
+
+You need: a Domain Pack with `indexer: { mode: 'external' }` installed for the tenant, an API key with the **`indexer:write`** scope (it can stage hypotheses, never write facts directly), and the operator flags on (`DOCUMENT_INGEST_ENABLED=1`, `DOCUMENT_MULTI_INDEXER_ENABLED=1`).
+
+## The loop — poll → claim → content → submit
+
+```
+GET  /v1/indexer/work?packId=my_pack&limit=50   list pending work items
+POST /v1/indexer/work/:runId/claim              CAS claim + claimToken lease
+POST /v1/indexer/work/:runId/heartbeat          renew the lease (30 min default)
+GET  /v1/indexer/work/:runId/content            the stored, PII-redacted chunks
+POST /v1/documents/:id/candidates               submit entities / facts / relations
+POST /v1/indexer/work/:runId/fail               release (default) or permanent fail
+```
+
+A work item is one `(document, pack, packVersion)` slot — the UNIQUE triple that makes every run idempotent. Ingest creates work items when the relevance router selects your pack; re-indexing backfills them; a pack version bump opens fresh slots.
+
+Key rules:
+
+- **Claiming is optional.** A single-instance poller may poll → read → submit; the submission itself atomically takes the slot (a concurrent duplicate gets `409`). Run a fleet? Claim first.
+- **Your work never blocks Brain.** Pending external slots don't defer a document's commit; a late submission re-commits incrementally. Take hours if you need them — keep heartbeating.
+- **Abandoned work is never lost.** An expired claim releases back to `pending`; unclaimed items expire after 7 days (`INDEXER_EXTERNAL_PENDING_TTL_DAYS`) — poll at least that often.
+
+## Grounding: Brain never trusts an external span
+
+Every entity name and fact object is re-checked against the stored document text with the same normalization + whole-token boundary rules the in-process extractor uses. Paraphrases are dropped and reported (`dropped[]` with `reason: "ungrounded_value"`), never silently swallowed. Predicates must live in your pack's own namespace (`my_pack__*`) or unfenced core — squatting another pack's vocabulary is a `400`.
+
+Trust is earned, not granted: a new external indexer starts at the neutral 0.5 agreement rate, and the nightly source-trust refit moves it with the evidence.
+
+## Push hints (optional)
+
+Polling is the source of truth, but a pack that declares `indexer.external.callbackUrl` also gets a `work_available` POST when a document routes to it — HMAC-SHA256-signed (`X-Brain-Signature: sha256=<hex>`) with the **per-install webhook secret** returned once in the pack-install response. Verify the signature, respond `2xx` fast, then run your normal poll loop. Delivery is best-effort (retries + a per-URL circuit breaker) — never assume every work item produces a webhook.
+
+## Per-integration keys
+
+Mint one `indexer:write` key per integration and bind it to its packs (`packIds` on the key, or a `packs` JWT claim): a bound key can poll, claim, read, and submit ONLY for those packs — one leaked key can't impersonate another integration. Operator note: such keys can read the verbatim stored text of documents routed to their pack; treat external indexers as processors in your data-protection terms.
+
+## Reference client
+
+A dependency-free reference implementation ships in the repo: [`examples/reference-indexer.ts`](https://github.com/inite-ai/inite-brain-service/blob/main/examples/reference-indexer.ts) (`pnpm indexer:reference`).
+
+## Going deeper
+
+- [`docs/indexer-protocol.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/indexer-protocol.md) — the full protocol: lifecycle diagram, every endpoint, error table, ungrounded-submission policy.
+- [`docs/openapi.json`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/openapi.json) — the work API, machine-readable.
+
+## Related
+
+- [Document pipeline](/en/docs/platform/document-pipeline) — where work items come from and how candidates become memory
+- [Domain Packs](/en/docs/platform/domain-packs) — authoring the pack that registers your indexer

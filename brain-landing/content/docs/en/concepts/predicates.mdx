@@ -38,7 +38,7 @@ A scope-less caller still sees the predicate exists; the `object` field comes ba
 
 ## v1.1 content predicates
 
-Added in `feat/v1.1-content-predicates`. First-class semantics for content-domain knowledge:
+Added in migration `0010_content_predicates`. First-class semantics for content-domain knowledge:
 
 | Predicate | Semantic | Decay | PII |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ Added in `feat/v1.1-content-predicates`. First-class semantics for content-domai
 | `category` | `bitemporal` | 60d | none |
 | `rating` | `bitemporal` | 30d | none |
 
-The conflict resolver, NLU extractor, and predicate router all know about these — see the [v1.1 content-predicate vocabulary ledger entry](https://github.com/inite-ai/inite-brain-service/blob/feat/v1.1-content-predicates/src/db/migrations/0010-content-predicates.sql) (comment-only DDL, no migration cost).
+The conflict resolver, NLU extractor, and predicate router all know about these — see [`0010_content_predicates.surql` in the migrations directory](https://github.com/inite-ai/inite-brain-service/tree/main/src/db/migrations) (comment-only DDL, no migration cost).
 
 ## Reading the full table
 

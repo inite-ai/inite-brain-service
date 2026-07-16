@@ -1,6 +1,6 @@
 # MCP tools reference
 
-The server registers **26 tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 18 read (`brain:read`), 7 more with `brain:write` (one of which, `ingest_document`, is registered only when `DOCUMENT_INGEST_ENABLED=1`), and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated in the repo's `docs/roadmap/mcp-and-memory.md`.
+The server registers **28 built-in tools + 2 resources** against `McpServer({ name: 'inite-brain-service' })`, gated by scope: 19 read (`brain:read`), 8 more with `brain:write` (one of which, `ingest_document`, is registered only when `DOCUMENT_INGEST_ENABLED=1`), and 1 with `brain:admin`. Sensitive PII values require an additional `brain:read_pii` scope. On top of the built-ins, installed Domain Packs can contribute consented, namespaced tools — see the "Pack-declared tools" section below. This page documents the most commonly used tools; the full surface (communities, procedural memory, source reputation, code memory) is enumerated per scope in the [MCP setup scope matrix](/en/docs/mcp/setup) and in the repo's [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md).
 
 ## search_knowledge
 
@@ -11,10 +11,11 @@ The server registers **26 tools + 2 resources** against `McpServer({ name: 'init
 ```ts
 {
   query: string                  // required — natural language
-  limit?: number                 // 1..50, default 10
+  limit?: number                 // 1..100, default 10
   predicates?: string[]          // restrict to these predicates
   asOf?: string                  // ISO 8601 — bitemporal cutoff
   minConfidence?: number         // 0..1 — drop low-confidence facts
+  userId?: string                // per-user memory scope (tenant-global + this user)
 }
 ```
 
@@ -22,7 +23,7 @@ Pairs with the `brain-search` skill at `~/.claude/skills/brain-search/`.
 
 ## get_entity_profile
 
-> Full profile of one entity: canonical name, type, externalRefs, and active facts. Use `externalRefs` to rehydrate fresh state from the originating vertical via `@inite/api-kit`.
+> Full profile of one entity: canonical name, type, externalRefs, and active facts. Use `externalRefs` to rehydrate fresh state from the originating vertical (e.g. via the `@inite/knowledge` client).
 
 **Required scope:** `brain:read`
 
@@ -94,6 +95,25 @@ Returns retracted rows too — the audit invariant.
   reason: string                 // required
 }
 ```
+
+## Pack-declared tools
+
+A [Domain Pack](/en/docs/platform/domain-packs) may ship an `mcpTools` section — up to 8 tools contributed to the tenant's MCP surface, registered as `<packId>__<toolName>` (double underscore, the reserved separator). A pack tool is one of exactly two shapes — no third-party code ever runs inside Brain:
+
+- **`query`** — a declarative read over the pack's OWN namespaced predicates (`search` or `facts_by_predicate` surface). Input schemas are fixed server-side; the pack picks names and descriptions, never the query shape.
+- **`external`** — an HMAC-signed HTTPS proxy to a publisher-operated endpoint. The wire carries an opaque per-install `installId`, never the tenant id; responses are size-capped (64 KB), timeout-capped, and a per-endpoint circuit breaker latches after repeated failures.
+
+Consent is explicit: installing a pack that declares `mcpTools` fails with `400` unless the install request carries `acceptMcpTools: true`, and an upgrade that changes the section re-requires it.
+
+Everything is flag-gated by the operator:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `MCP_PACK_TOOLS_ENABLED` | `0` | Master switch — off means the MCP surface is exactly the built-in families |
+| `MCP_PACK_QUERY_TOOLS_ENABLED` | `1` | Query tools (only reachable under the master flag) |
+| `MCP_PACK_EXTERNAL_TOOLS_ENABLED` | `0` | External proxy tools |
+
+Full reference — manifest fields, consent flow, endpoint protocol with signature verification, security model: [`docs/mcp-pack-tools.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/mcp-pack-tools.md) in the repo.
 
 ## Common response shape
 

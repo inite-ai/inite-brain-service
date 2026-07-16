@@ -11,7 +11,7 @@ interface Props {
 const STACK = [
   'NestJS 11',
   'TypeScript',
-  'SurrealDB 2.3',
+  'SurrealDB 3.x',
   'BGE-M3 · 1024d',
   'OpenAI',
   'Cohere Rerank',

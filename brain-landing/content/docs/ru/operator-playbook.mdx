@@ -21,13 +21,28 @@ echo '{"keyHash":"'$HASH'","companyId":"co_demo","scopes":["brain:read","brain:w
 
 | Scope | Эффект |
 | --- | --- |
-| `brain:read` | Только чтение — search, profile, timeline, connections. Чувствительная PII скрыта. |
-| `brain:write` | Добавляет `record_fact`, `retract_fact`. |
+| `brain:read` | Только чтение — search, profile, timeline, connections, чтение доверия `/v1/sources`, поиск по реестру паков. Чувствительная PII скрыта. |
+| `brain:write` | Добавляет поверхность записи — `record_fact`, `retract_fact`, `/v1/ingest/*`. |
 | `brain:read_pii` | Открывает значения `email` / `phone` / `dob` / `address` при чтении. |
-| `brain:forget` | Нужен (вместе с `brain:write`) для жёсткого каскада `forget`. |
-| `brain:admin` | Нужен для ручного триггера `/v1/dreams/run`. |
+| `brain:admin` | Операции тенанта — жёсткий каскад `forget`, `/v1/dreams/run`, установка и удаление Domain Packs, переиндексация документов. |
+| `registry:publish` | Публикация / yank в глобальном реестре паков, профиль издателя, цены на паки. |
+| `registry:curate` | Кураторство глобального реестра (feature / unfeature) — scope оператора хостинга. |
+| `indexer:write` | Внешние индексеры — poll / claim работы, чтение контента доставшихся документов, стейджинг кандидатов. Факты не коммитит никогда. |
 
-По умолчанию — least-privilege: ключи для агентских поверхностей должны быть только `brain:read`, если нет конкретного кейса на запись.
+По умолчанию — least-privilege: ключи для агентских поверхностей должны быть только `brain:read`, если нет конкретного кейса на запись. К ключу можно дополнительно прикрепить ABAC-политики (см. [модель безопасности](/ru/docs/security)), а к `indexer:write` — привязку `packIds`, ограничивающую ключ его собственными паками.
+
+## Роли процессов — разделение api / worker
+
+Один образ, три роли через одну переменную: `PROCESS_ROLE=all` (по умолчанию — байт-в-байт одно-процессное поведение), `api` (обслуживает HTTP, не берёт джобы из очереди, не поднимает пул worker-thread'ов для джобов), `worker` (крутит цикл очереди и кроны; HTTP остаётся для healthcheck'ов, но порты наружу не публикуются, а ~135 МБ NLI-модель чат-роутинга не грузится). Явно заданные флаги всегда важнее дефолтов роли, а `api` / `worker` требуют дефолтного `JOBS_QUEUE_MODE=enqueue` — сочетание с `inline` валидация не пропустит на старте.
+
+Независимо от разделения ролей, CPU-тяжёлая работа (эмбеддинги BGE-M3, локальный cross-encoder, NLI-роутинг интентов, локальный NER, label propagation, подсчёт токенов) выполняется в `worker_threads` — event loop продолжает обслуживать HTTP даже в одно-процессном режиме. Разделять стоит при ≥4 CPU, когда ночные кроны заметно поднимают p95 API, или когда API и так масштабируется горизонтально. Детали: [`docs/operations.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md).
+
+## Тёмные поверхности (куда смотреть перед включением)
+
+Две платформенные поверхности поставляются выключенными, и у каждой свой поэтапный ранбук — не включай их наобум:
+
+- **Пайплайн документов + внешние индексеры** — всё за `DOCUMENT_INGEST_ENABLED` (и `DOCUMENT_MULTI_INDEXER_ENABLED` для dedicated/external-прогонов). Поэтапное включение: [`docs/operations.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/operations.md), обзор поверхности — на странице [пайплайна документов](/ru/docs/platform/document-pipeline).
+- **Операции реестра / маркетплейса** — зеркалирование (`REGISTRY_UPSTREAM_URL`), требование подписи (`PACK_REGISTRY_REQUIRE_SIGNATURE`), платные паки (`DOMAIN_PACK_BILLING_ENABLED`, по умолчанию выключено — и это же поза self-hosted: каждый пак ставится бесплатно). См. [Domain Packs](/ru/docs/platform/domain-packs) и [`docs/domain-packs.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/domain-packs.md).
 
 ## Фичефлаги retrieval
 

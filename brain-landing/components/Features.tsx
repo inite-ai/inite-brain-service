@@ -5,23 +5,30 @@ import {
   ShieldCheck,
   Waypoints,
   Sparkles,
-  Network,
-  Moon,
+  BadgeCheck,
+  Package,
+  FileText,
+  Wrench,
+  KeyRound,
   Boxes,
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { SectionHeading } from './DualPath'
 import { getMessages, type Lang } from '../lib/i18n'
 
+// Order mirrors locales/<lang>/common.json → features.items.
 const ICONS: ComponentType<{ className?: string }>[] = [
   Scale, // conflict resolution
+  BadgeCheck, // source-aware trust
   Fingerprint, // identity resolution
-  Eraser, // gdpr forget
-  ShieldCheck, // pii fence
   Waypoints, // multi-hop
   Sparkles, // synthesize
-  Network, // predicate ontology
-  Moon, // dreams
+  Package, // domain packs + registry + marketplace
+  FileText, // document pipeline + external indexers
+  Wrench, // pack MCP tools
+  KeyRound, // ABAC policies
+  ShieldCheck, // pii fence
+  Eraser, // gdpr forget
   Boxes, // per-tenant isolation
 ]
 

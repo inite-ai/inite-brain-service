@@ -38,7 +38,7 @@ decay = 0.5 ^ (age_days / halflife_days)
 
 ## Контент-предикаты v1.1
 
-Добавлены в `feat/v1.1-content-predicates`. Семантика первого класса для контента:
+Добавлены миграцией `0010_content_predicates`. Семантика первого класса для контента:
 
 | Предикат | Семантика | Decay | PII |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ decay = 0.5 ^ (age_days / halflife_days)
 | `category` | `bitemporal` | 60d | none |
 | `rating` | `bitemporal` | 30d | none |
 
-Conflict-resolver, NLU-экстрактор и роутер предикатов знают о них все — см. [запись в реестре контент-предикатов v1.1](https://github.com/inite-ai/inite-brain-service/blob/feat/v1.1-content-predicates/src/db/migrations/0010-content-predicates.sql) (только комментированный DDL, миграция ничего не стоит).
+Conflict-resolver, NLU-экстрактор и роутер предикатов знают о них все — см. [`0010_content_predicates.surql` в каталоге миграций](https://github.com/inite-ai/inite-brain-service/tree/main/src/db/migrations) (только комментированный DDL, миграция ничего не стоит).
 
 ## Чтение полной таблицы
 

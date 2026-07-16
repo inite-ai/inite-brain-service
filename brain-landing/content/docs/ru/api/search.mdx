@@ -12,15 +12,47 @@ Content-Type: application/json
 
 ```ts
 {
-  query: string                    // natural language
-  limit?: number                   // 1..50, default 10
+  query: string                    // natural language, ≤ 8 000 chars
+  limit?: number                   // 1..100, default 10
   predicates?: string[]            // optional filter — restrict to these predicates
+  entityTypes?: string[]           // restrict to these entity types
+  entityIds?: string[]             // anchor on known entities (multi-hop chaining)
   asOf?: string                    // ISO 8601 — historical cutoff
-  minConfidence?: number           // 0..1 — drop facts below this confidence
-  includeStale?: boolean           // include retracted / superseded; default false
-  legs?: ('vector' | 'lexical')[]  // override default leg set (debug)
+  minConfidence?: number           // 0..1 — drop facts below this raw confidence
+  includeContested?: boolean       // include COMPETING facts
+  includeStale?: boolean           // ignore validity windows (audit shape)
+  includeRetracted?: boolean       // include retracted rows too
+  searchMode?: 'vector' | 'lexical' | 'hybrid'  // retrieval strategy, default hybrid
+  userId?: string                  // per-user memory scope (tenant-global + this user)
+
+  // Agent primitives (KnowQL-style)
+  confidenceFloor?: number         // 0..1 — floor AFTER decay × source-trust weighting
+  requireProvenance?: boolean      // drop facts without a source trail
+  tokenBudget?: number             // 50..50000 — cap response size, tiktoken-exact
+  outputShape?: 'full' | 'compact' | 'ids'  // response verbosity
 }
 ```
+
+Пояснения к полям:
+
+- **`searchMode`** — `hybrid` (по умолчанию) сводит vector + BM25 через
+  reciprocal-rank fusion; `vector` — только эмбеддинги (парафразы,
+  кросс-языковые запросы); `lexical` — только BM25 (точное совпадение
+  токенов: идентификаторы, регуляторные тексты).
+- **`userId`** — per-user scope памяти: в результатах общие факты тенанта
+  плюс личные факты этого пользователя; без поля — только общие (fail-closed).
+- **`confidenceFloor`** — строже, чем `minConfidence`: применяется после
+  decay и взвешивания по доверию к источнику. Агентам, которым нельзя шуметь,
+  стоит ставить ≥ 0.5.
+- **`requireProvenance`** — каждый возвращённый факт обязан нести непустой
+  объект `source`; нужно compliance-потокам с цитированием источника.
+- **`tokenBudget`** — сервер выбрасывает сущности с наименьшим score, пока
+  сериализованный ответ не влезет; считается tiktoken-энкодингом
+  `cl100k_base` — тем же, каким тарифицирует LLM.
+- **`outputShape`** — `full` (сущности + факты + score), `compact` (по одному
+  топ-факту на сущность, без score), `ids` (только id сущностей — дешевле всего).
+- **`entityIds`** — ограничить факты владельцами из списка; hop N в multi-hop
+  цепочке якорится на id, которые выдал hop N-1.
 
 ## Ответ
 
