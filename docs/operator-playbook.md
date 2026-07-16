@@ -1,6 +1,10 @@
-# Operator Playbook — INITE Brain Service
+# Operator playbook — INITE Brain Service
 
-This is the day-2 manual for the people who keep brain running. If you're trying to wire a vertical *into* brain, see `migration-guide.md` instead.
+The day-2 manual for the people who keep brain running — issue keys,
+troubleshoot, run maintenance, recover. If you're trying to wire a
+vertical *into* brain, see [migration-guide.md](migration-guide.md) instead;
+for enablement runbooks of dark-shipped features (document pipeline, MCP
+pack tools, billing), see [operations.md](operations.md).
 
 ## Contents
 
@@ -10,13 +14,14 @@ This is the day-2 manual for the people who keep brain running. If you're trying
 4. [Troubleshoot: search returns nothing](#troubleshoot-search-returns-nothing)
 5. [Run a forget (GDPR)](#run-a-forget-gdpr)
 6. [Monitor: metrics + logs](#monitor-metrics--logs)
-7. [Run dreams off-cycle](#run-dreams-off-cycle)
-8. [Enable dreams in production (staged checklist)](#enable-dreams-in-production-staged-checklist)
-9. [Run compaction off-cycle](#run-compaction-off-cycle)
-10. [Drain a stuck job queue](#drain-a-stuck-job-queue)
-11. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
-12. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
-13. [Restore from event replay](#restore-from-event-replay)
+7. [Tune `SEARCH_RERANK_SKIP_MARGIN`](#tune-search_rerank_skip_margin)
+8. [Run dreams off-cycle](#run-dreams-off-cycle)
+9. [Enable dreams in production (staged checklist)](#enable-dreams-in-production-staged-checklist)
+10. [Run compaction off-cycle](#run-compaction-off-cycle)
+11. [Drain a stuck job queue](#drain-a-stuck-job-queue)
+12. [Rollback queue mode (kill switch)](#rollback-queue-mode-kill-switch)
+13. [Run the memory-lifecycle eval](#run-the-memory-lifecycle-eval)
+14. [Restore from event replay](#restore-from-event-replay)
 
 ---
 
@@ -92,7 +97,7 @@ For a whole-tenant forget, hit `dropCompanyDatabase` directly (admin tooling, no
 - `brain_search_rerank_total{outcome}` — invoked / skipped_disabled / skipped_singleton / skipped_margin. The `skipped_margin` line tracks how often the LLM rerank was bypassed because the post-fusion top-1 vs top-2 gap was already wide; ratio against `invoked` is the cost-saving you got from `SEARCH_RERANK_SKIP_MARGIN`.
 - `brain_search_cross_encoder_total{outcome}` — invoked / error / skipped_disabled / skipped_singleton. `error` rate above ~1% means Cohere is timing out or 4xx-ing — bump `SEARCH_CROSS_ENCODER_TIMEOUT_MS`, check the Cohere status page, or rotate `COHERE_API_KEY`.
 - `brain_multi_hop_total{outcome}` — ok / single_hop / chain_empty / no_results / planner_error / hop_error. `single_hop` dominating means most queries are one-step (planner correctly skipping decomposition); `chain_empty` is normal — chains often disprove themselves on hop 2. Spike in `planner_error` ⇒ OpenAI is flaky; spike in `hop_error` ⇒ the search backend (Surreal) is unhappy.
-- `brain_synthesize_total{outcome}` — ok / no_results / no_grounded_evidence / verifier_partial / verifier_failed / generator_error / verifier_error. The healthy mix is `ok` dominant + a few `no_grounded_evidence` (the model honestly refused). High `verifier_failed` rate means generator is hallucinating or context window is too narrow — investigate `SEARCH_*` knobs upstream. High `*_error` means OpenAI is flaky — check `brain_openai_calls_total{outcome="error"}` for confirmation. `error` rate above ~1% means Cohere is timing out or 4xx-ing — bump `SEARCH_CROSS_ENCODER_TIMEOUT_MS`, check the Cohere status page, or rotate `COHERE_API_KEY`.
+- `brain_synthesize_total{outcome}` — ok / no_results / no_grounded_evidence / verifier_partial / verifier_failed / generator_error / verifier_error. The healthy mix is `ok` dominant + a few `no_grounded_evidence` (the model honestly refused). High `verifier_failed` rate means generator is hallucinating or context window is too narrow — investigate `SEARCH_*` knobs upstream. High `*_error` means OpenAI is flaky — check `brain_openai_calls_total{outcome="error"}` for confirmation.
 - `brain_retract_total`, `brain_forget_total` — usage counters
 - `brain_compaction_facts_total` — sums across tenants
 - `brain_process_*`, `brain_nodejs_*` — node defaults (heap, event-loop lag)
@@ -260,3 +265,9 @@ Brain is a **system of insight**. If the storage layer is wiped, restore by repl
 3. Re-publish them into brain's normal ingest path. The conflict resolver will deduplicate against any survivors.
 
 Replay produces the same state modulo timestamps and CUIDs. If your downstream consumers depend on stable IDs, restore from a snapshot instead — the SurrealDB native backup CLI is the right tool for that.
+
+## See also
+
+- [Operations](operations.md) — every env var + the staged enablement runbooks.
+- [Deploy runbook](DEPLOY.md) — the production stack, rollback, observability wiring.
+- [API reference](api.md) — the admin endpoints used throughout this playbook.

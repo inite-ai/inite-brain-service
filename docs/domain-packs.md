@@ -1,10 +1,15 @@
 # Domain Packs — the ontology extension standard
 
+The manifest format, authoring loop, registry, and marketplace for pack
+authors and operators — the standard third parties conform to.
+
+> [!NOTE]
 > A **Domain Pack** is a versioned, pluggable bundle of ontology that extends
 > the brain predicate registry **without forking core**. Packs let a domain
 > (code-memory, real-estate, fintech, …) — or the community — ship its own
-> typed predicates that brain merges into every tenant's registry. This file is
-> the standard third parties conform to.
+> typed predicates that brain merges into every tenant's registry, plus
+> optional extraction tuning, eval fixtures, indexer execution, seed
+> documents, and MCP tools.
 
 ## Why packs
 
@@ -15,6 +20,16 @@ but baking every domain's predicates into the core seed doesn't scale and can't
 be community-extended. Packs make the ontology a first-class, versioned plugin.
 
 ## Quickstart: author → validate → sign → publish → install
+
+```mermaid
+flowchart LR
+  init["pnpm pack:init"] --> edit["edit manifest<br/>predicates · profile · fixtures ·<br/>indexer · seeds · tools"]
+  edit --> validate["pack:validate"] --> sign["pack:sign<br/>(ed25519)"] --> publish["pack:publish"]
+  publish --> registry[("global registry<br/>immutable versions · yank ·<br/>verified · downloads")]
+  registry --> install["pack:install / from-registry<br/>(consent · checksum pin)"] --> evalstep["POST /v1/admin/packs/:id/eval"]
+  upstream[("upstream registry")] -. "pull-only mirror" .-> registry
+  market["marketplace<br/>featured · profiles · paid"] -. "instance-local" .-> registry
+```
 
 The whole community-author loop, copy-paste ready (details for each step live
 in the sections below):
@@ -55,15 +70,22 @@ published to a registry instance and installed per-tenant.
 
 ## The manifest
 
-A pack is a `DomainPackManifest` (`src/ai/domain-packs/manifest.ts`):
+A pack is a `DomainPackManifest` (`src/ai/domain-packs/manifest.ts`).
+Every optional section is covered by the pack checksum + signature —
+there is no out-of-band pack content:
 
 ```ts
 interface DomainPackManifest {
   id: string;            // snake_case, no "__" — the predicate namespace
   version: string;       // semver MAJOR.MINOR.PATCH — bump to ship an update
   description: string;
-  predicates: PackPredicate[];   // the ontology this pack contributes
-  indexer?: IndexerDescriptor;   // document-pipeline execution (see below)
+  predicates: PackPredicate[];        // the ontology this pack contributes
+  extractionProfile?: {…};            // extractor tuning (see below)
+  evalFixtures?: EvalFixture[];       // per-pack extraction tests (see below)
+  indexer?: IndexerDescriptor;        // document-pipeline execution (see below)
+  seedDocuments?: SeedDocument[];     // knowledge shipped with the pack (see below)
+  mcpTools?: PackMcpTool[];           // MCP surface extension (see mcp-pack-tools.md)
+  publisher?: string; signature?: string;  // ed25519 authorship (pnpm pack:sign)
 }
 
 type PackPredicate = {
@@ -107,7 +129,12 @@ than silently shadowing.
 - So installing a builtin pack = author a manifest module + add it to
   `BUILTIN_PACKS`; its namespaced predicates are seeded into every tenant.
 
-## Authoring a pack
+## Authoring a builtin pack (in-repo)
+
+Community packs use the JSON quickstart above (`pnpm pack:init`) and need
+no PR; first-party distributable packs follow the recipe in
+[CONTRIBUTING.md](../CONTRIBUTING.md#building-a-domain-pack). A **builtin**
+pack (seeded into every tenant, like `code_memory`) is a code change:
 
 1. Create `src/ai/domain-packs/<your-pack>.pack.ts` exporting a
    `DomainPackManifest`. Use the reference: `code-memory.pack.ts`.
@@ -146,8 +173,7 @@ anchored to code anchors. See `docs/roadmap/code-memory-domain.md`.
 ## Extraction profiles (consumed)
 
 A pack MAY ship an `extractionProfile` — domain-specific tuning for the LLM
-extractor — and, unlike the still-forward-compat `evalFixtures`, it is now
-**consumed at extract time**:
+extractor, **consumed at extract time**:
 
 ```jsonc
 "extractionProfile": {
@@ -174,6 +200,40 @@ The first pack to use this is **real_estate** (`src/ai/domain-packs/
 real-estate.pack.ts`, distributable JSON at `packs/real-estate.pack.json`) — a
 DISTRIBUTABLE pack (installed per-tenant, deliberately NOT a builtin so its
 domain predicates don't seed into unrelated tenants).
+
+## Eval fixtures (consumed)
+
+A pack may ship `evalFixtures` — small extraction test cases for its domain,
+consumed at runtime (like `extractionProfile`):
+
+```jsonc
+"evalFixtures": [
+  {
+    "id": "zoning",
+    "text": "The parcel at 12 Elm St is zoned R-2.",
+    "expect": { "facts": [{ "predicate": "zoned_as", "objectIncludes": "R-2" }] }
+  }
+]
+```
+
+- `text` — the mention run through the LIVE extractor for the tenant (with the
+  pack's predicates + extractionProfile active).
+- `expect.facts[].predicate` — bare (`zoned_as`) resolves to the pack namespace
+  (`real_estate__zoned_as`); an already-namespaced id is used verbatim.
+  `objectIncludes` is an optional case-insensitive substring on the value.
+  `expect.minEntities` / `minFacts` are coarse thresholds.
+
+Flow: the manifest (already stored in `domain_pack` on install, or shipped for
+builtins) → `PackEvalService` runs each fixture through
+`ExtractorService.extract` → `scoreFixture` (pure) → a pass/fail report:
+
+```
+POST /v1/admin/packs/:packId/eval   (brain:admin)
+→ { packId, version, total, passed, results: [{ id, passed, failures[] }] }
+```
+
+`real_estate` ships three fixtures (zoning / valuation / tenure) as the
+demonstrator. Nothing forward-compat remains in the manifest.
 
 ## Indexer descriptor
 
@@ -389,40 +449,6 @@ signature validated against this instance's trust store is what ties a
 publisher's public page. Profile URLs render as links only when they parse
 as http(s).
 
-## Eval fixtures (consumed)
-
-A pack may ship `evalFixtures` — small extraction test cases for its domain,
-now **consumed at runtime** (like `extractionProfile`):
-
-```jsonc
-"evalFixtures": [
-  {
-    "id": "zoning",
-    "text": "The parcel at 12 Elm St is zoned R-2.",
-    "expect": { "facts": [{ "predicate": "zoned_as", "objectIncludes": "R-2" }] }
-  }
-]
-```
-
-- `text` — the mention run through the LIVE extractor for the tenant (with the
-  pack's predicates + extractionProfile active).
-- `expect.facts[].predicate` — bare (`zoned_as`) resolves to the pack namespace
-  (`real_estate__zoned_as`); an already-namespaced id is used verbatim.
-  `objectIncludes` is an optional case-insensitive substring on the value.
-  `expect.minEntities` / `minFacts` are coarse thresholds.
-
-Flow: the manifest (already stored in `domain_pack` on install, or shipped for
-builtins) → `PackEvalService` runs each fixture through
-`ExtractorService.extract` → `scoreFixture` (pure) → a pass/fail report:
-
-```
-POST /v1/admin/packs/:packId/eval   (brain:admin)
-→ { packId, version, total, passed, results: [{ id, passed, failures[] }] }
-```
-
-`real_estate` ships three fixtures (zoning / valuation / tenure) as the
-demonstrator. Nothing forward-compat remains in the manifest.
-
 ## Seed documents (consumed)
 
 A pack may ship `seedDocuments` — pre-populated domain knowledge that is
@@ -502,3 +528,10 @@ committed JSON in `packs/*.pack.json` (drift-guarded by
 `test/industry-packs.unit-spec.ts`). Install one with
 `pnpm pack:install -- --registry fintech` (after `registry:seed`) or
 `--file packs/fintech.pack.json`.
+
+## See also
+
+- [MCP pack tools](mcp-pack-tools.md) — the full `mcpTools` reference: consent, protocol, security model.
+- [External indexer protocol](indexer-protocol.md) — building the remote side of `indexer: { mode: 'external' }`.
+- [Document pipeline](document-pipeline.md) — where indexer descriptors and seed documents execute.
+- [API reference](api.md) — the pack, registry, and marketplace endpoints with scopes.

@@ -18,6 +18,21 @@ one of exactly two shapes:
 Each shape is independently toggleable by the operator (see
 [Operator flags](#operator-flags)).
 
+```mermaid
+sequenceDiagram
+    participant A as MCP agent
+    participant B as Brain (tenant MCP endpoint)
+    participant E as Publisher endpoint
+    A->>B: tools/call compliance__find_violations
+    Note over B: query tool — served in-process:<br/>predicate fence + scopes + ABAC row filter
+    B-->>A: results
+    A->>B: tools/call compliance__check_sanctions
+    Note over B: external tool — egress guard (https,<br/>no private IPs), circuit breaker
+    B->>E: POST (HMAC-signed, installId — never companyId)
+    E-->>B: 200 {content} (≤64 KB, timeout-capped)
+    B-->>A: sanitized result
+```
+
 ## Manifest reference
 
 ```jsonc
@@ -232,3 +247,10 @@ pack-provided MCP resources / prompts / sampling; streaming or progress
 on external calls; retries on external calls; DNS pinning between the
 egress check and the fetch; per-tool rate limits or metering;
 webhookSecret rotation.
+
+## See also
+
+- [Domain Packs](domain-packs.md) — the manifest this section lives in; install + upgrade semantics.
+- [External indexer protocol](indexer-protocol.md) — the other publisher-side integration, sharing the same webhook secret.
+- [API reference](api.md#mcp) — the MCP endpoint + `acceptMcpTools` on the install routes.
+- [Operations](operations.md) — enabling the flags in production.

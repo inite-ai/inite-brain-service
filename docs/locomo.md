@@ -1,5 +1,8 @@
 # LoCoMo benchmark
 
+Running the LoCoMo long-term conversational-memory benchmark against
+Brain's production surfaces — methodology, procurement, and cost.
+
 Brain runs against [LoCoMo](https://github.com/snap-research/locomo)
 through its production ingest + retrieval surface — no harness-only
 adapters. Each conversation is ingested via `POST /v1/ingest/mention`
@@ -221,3 +224,9 @@ leaks back into the graph mid-run.
   downstream consumer that reads `scores[].prediction` + `scores[].gold`.
 - **CI gating** — once a baseline is established, the LoCoMo report
   joins the existing eval baseline diff in CI (`scripts/eval-baseline-diff.ts`).
+
+## See also
+
+- [Eval harness](eval.md) — the in-house production gate this complements.
+- [Architecture § Multi-hop](architecture.md#multi-hop-search) — the surface answering LoCoMo's QA.
+- [API reference](api.md#mcp) — the MCP endpoint the agent variant drives.

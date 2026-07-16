@@ -37,6 +37,24 @@ sources that disagree, and can't truly delete a user on request. **Brain** is
 a per-tenant knowledge graph built for those jobs — a *system of insight, not
 a system of record*.
 
+```mermaid
+flowchart LR
+  subgraph ingest ["Ingest"]
+    facts["facts · mentions · links"]
+    docs["documents<br/>Source → Indexer → Candidates"]
+  end
+  ext["external indexers ✳<br/>pull work API"] --> docs
+  packs["Domain Packs ✳<br/>registry · marketplace"] -. "predicates · indexers<br/>seed documents" .-> ingest
+  facts --> resolver["conflict resolver<br/>+ trust snapshot"]
+  docs --> resolver
+  resolver --> graph[("bitemporal graph<br/>two clocks per fact")]
+  graph --> retrieval["retrieval pipeline<br/>vector + BM25 → router → PPR →<br/>cross-encoder → LLM rerank"]
+  retrieval --> rest["REST /v1"]
+  retrieval --> mcp["MCP per tenant<br/>+ pack tools ✳"]
+```
+
+✳ = extension points for third parties — see [Build on Brain](#build-on-brain).
+
 ## Why Brain
 
 - **Two clocks per fact.** Every fact carries *valid time* (when it was true)
@@ -61,10 +79,27 @@ a system of record*.
   thresholds, and corroboration. Deny-overrides, report-only rollout, per-rule
   explain, and a visual policy editor + Key Lens simulator in the admin UI.
   See [`docs/abac.md`](docs/abac.md).
-- **Pluggable ontology.** Domain Packs extend the predicate registry without
-  forking core: a signed, versioned manifest format, a six-pack industry library
-  (real-estate, fintech, medical, legal, insurance, HR), and a global pack
-  registry to publish and install them per tenant at runtime.
+- **Pluggable ontology — as a platform.** Domain Packs extend the predicate
+  registry without forking core: signed, versioned JSON manifests that carry
+  predicates, extraction tuning, eval fixtures, indexer descriptors, seed
+  documents, and MCP tools. A six-pack industry library ships in-repo
+  (real-estate, fintech, medical, legal, insurance, HR); a global registry
+  with immutable versions, verified-publisher badges, download counters, and
+  pull-only mirroring closes the publish → discover → install loop.
+- **An execution seam for third parties.** External indexers contribute
+  knowledge over a pull work API — poll → claim → read content → submit
+  candidates — without ever running inside Brain's process. Every submitted
+  span is re-grounded against the stored document text, and indexer trust is
+  earned through the nightly refit, not granted.
+- **Pack-declared MCP tools.** A pack can extend a tenant's MCP surface:
+  declarative query tools locked to its own predicates, or HMAC-signed proxies
+  to a publisher-operated endpoint. Registered only with explicit operator
+  consent, flag-gated, never in-process code.
+- **A marketplace with honest defaults.** Featured curation, publisher
+  profiles, and paid packs via a central billing service (per-pack
+  entitlements, self-describing 402 → checkout → retry, fail-closed when
+  billing is unreachable). With billing off — the default — every pack
+  installs free: the self-hosted posture.
 - **A document pipeline, not an upload button.** Ingestion is split into four
   layers — *Source* (a normalized document; Brain doesn't know what a PDF is) →
   *Indexer* (composable domain readers: one meeting can be read by the meetings,
@@ -144,6 +179,8 @@ pointing at the per-tenant URL with a Bearer key — no glue code.
   ```
 
 Full per-client guide: [MCP setup](https://brain.inite.ai/en/docs/mcp/setup).
+Installed Domain Packs can extend the tool surface with their own consented,
+flag-gated tools — see [MCP pack tools](docs/mcp-pack-tools.md).
 
 ## Feed it documents
 
@@ -184,6 +221,41 @@ What that buys:
 - **A privacy dial.** `storeContent: false` keeps only the content hash and
   metadata — extraction still runs, but nothing to re-index or leak later.
 
+## Build on Brain
+
+Brain is a platform, not just a service: third parties extend the ontology,
+the ingestion plane, and the tool surface without a PR to this repo.
+
+- **Author a Domain Pack.** `pnpm pack:init` scaffolds a valid manifest;
+  edit → `pack:validate` → `pack:sign` (ed25519) → `pack:publish` →
+  `pack:install`. A pack is JSON — no compiled module, no fork.
+  [Domain Packs](docs/domain-packs.md).
+- **Publish to the global registry.** Immutable versions, yank-not-delete,
+  verified-publisher badges, download counters, and pull-only cross-instance
+  mirroring (`REGISTRY_UPSTREAM_URL`). Public catalogue at `GET /registry/ui`.
+  [Registry](docs/domain-packs.md#the-registry-global-catalogue).
+- **Sell it on the marketplace.** Hosting instances can feature packs, render
+  publisher profiles, and price packs through the central billing service —
+  the entitlement `domain_pack:<packId>` gates the install, and a refused
+  install is a self-describing 402 with the checkout path. Billing off =
+  everything installs free. [Marketplace](docs/domain-packs.md#marketplace).
+- **Run an external indexer.** A plain HTTP client polls for routed documents,
+  claims a lease, reads stored text, and submits candidate facts that Brain
+  re-grounds and adjudicates. Protocol: [indexer-protocol.md](docs/indexer-protocol.md);
+  dependency-free reference client: [`examples/reference-indexer.ts`](examples/reference-indexer.ts)
+  (`pnpm indexer:reference`).
+- **Declare MCP tools.** Packs contribute query tools over their own
+  predicates or HMAC-proxied external tools, installed only with explicit
+  operator consent (`acceptMcpTools`). [MCP pack tools](docs/mcp-pack-tools.md).
+- **Ship knowledge with the pack.** `seedDocuments` in the manifest are
+  ingested through the normal document pipeline on install — same chunking,
+  staging, conflict resolution, and provenance as any connector's document.
+  [Seed documents](docs/domain-packs.md#seed-documents-consumed).
+
+The platform surface is machine-described in
+[`docs/openapi.json`](docs/openapi.json) (OpenAPI 3.1, regenerate with
+`pnpm openapi:build`).
+
 ## Quality (latest gate run)
 
 ```
@@ -209,16 +281,22 @@ Methodology: [`docs/eval.md`](docs/eval.md).
 NestJS 11 + TypeScript on Node 22 · SurrealDB 3.x (HNSW + BM25, one database
 per tenant) · BGE-M3 embeddings (ONNX, runs locally in a worker thread) ·
 OpenAI `gpt-4o-mini` for extraction / synthesize / verifier · optional Cohere
-Rerank · a SurrealDB-native job queue · OpenTelemetry. Ships as a Docker image;
-runs on any host.
+Rerank or a local ONNX cross-encoder · a SurrealDB-native job queue ·
+OpenTelemetry. CPU-heavy work (embeddings, cross-encoder, NLI intent routing,
+local NER, label propagation, token counting) runs in `worker_threads` so the
+event loop keeps serving HTTP, and `PROCESS_ROLE=api|worker` splits one image
+into an HTTP pod and a jobs pod when a deployment outgrows a single process.
+Ships as a Docker image; runs on any host.
 
 ## Documentation
+
+The hub with per-persona routing lives at [`docs/README.md`](docs/README.md).
 
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
 | **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [OpenAPI 3.1 spec](docs/openapi.json) (platform surface, generated) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) |
-| **Extend it** | [Domain Packs](docs/domain-packs.md) · [Pack distribution & registry](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
+| **Extend it** | [Domain Packs](docs/domain-packs.md) (registry + marketplace + seed documents) · [External indexer protocol](docs/indexer-protocol.md) · [MCP pack tools](docs/mcp-pack-tools.md) · [Listing playbook](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
 
@@ -249,14 +327,23 @@ public issue — see [`SECURITY.md`](SECURITY.md).
 ## Roadmap
 
 Shipped: bitemporal graph, hybrid retrieval pipeline, conflict resolution,
-domain-scoped source reputation + cross-source corroboration, identity merge,
-GDPR forget, native MCP, Domain Packs (industry library + signed global
-registry), code memory (record *why* a decision was made, drift-resistant symbol
-anchors), eval-gated CI, off-hours self-improvement (dreams).
+domain-scoped source reputation + cross-source corroboration + a read-only
+trust-inputs API, identity merge, GDPR forget, native MCP, per-key ABAC
+policy sets, the document pipeline with an external-indexer protocol
+(pull work API + signed webhook hints + reference client), Domain Packs
+(industry library, signed global registry with verified badges, download
+counters and pull-only mirroring, marketplace with paid packs, pack-declared
+MCP tools, seed documents), OpenAPI 3.1 platform spec, worker-thread offloads
++ `PROCESS_ROLE` api/worker split, code memory (record *why* a decision was
+made, drift-resistant symbol anchors), eval-gated CI, off-hours
+self-improvement (dreams).
 
-Exploring (issues + ideas welcome): HNSW on by default for large tenants,
-multi-hop edge-expansion by default, a local cross-encoder fallback, per-leg
-OpenTelemetry spans, and an embedding-upgrade path. Have a use case? Open an issue.
+Exploring (issues + ideas welcome): extractor span-grounding offload (profile
+first), worker-pool right-sizing as more handlers move to threads, and the
+full paid LoCoMo run with published numbers. Temporal was evaluated and
+deliberately not adopted — the re-evaluation triggers live in
+[docs/roadmap/platform-gap-2026-07.md](docs/roadmap/platform-gap-2026-07.md).
+Have a use case? Open an issue.
 
 ## License
 

@@ -1,6 +1,8 @@
-# Migration Guide — wiring a vertical into INITE Brain
+# Migration guide — wiring a vertical into INITE Brain
 
-This walks a vertical maintainer from "no brain integration" to "knowledge capability shipped" in their app. The runtime path is `inite.<vertical>` → `@inite/knowledge` SDK → brain HTTP/MCP.
+Walks a vertical maintainer from "no brain integration" to "knowledge
+capability shipped" in their app. The runtime path is `inite.<vertical>` →
+`@inite/knowledge` SDK → brain HTTP/MCP.
 
 ## What you get
 
@@ -160,3 +162,10 @@ Look for your vertical in the output. Recall@1 should be ≥ 0.6 across the scen
 - ADR: `docs/adr/0001-knowledge-system-of-insight.md`
 - SDK source: `packages/knowledge/` (in inite-shared)
 - Service source: `inite-brain-service/`
+
+## See also
+
+- [Getting started](getting-started.md) — running Brain itself.
+- [API reference](api.md) — the raw HTTP surface behind the SDK.
+- [Operator playbook](operator-playbook.md) — issuing keys, troubleshooting.
+- [Bitemporal semantics](bitemporal-semantics.md) — `validFrom` / `asOf` done right.

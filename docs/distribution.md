@@ -4,6 +4,15 @@ How to land `inite-brain-service` in the directories and awesome lists that MCP 
 
 This file is the source of truth — keep the row text and form fields here so the next push (new tool surface, new version) needs only a search-and-replace.
 
+> [!NOTE]
+> This playbook is about distributing **Brain itself**. Distributing
+> **Domain Packs** is a built-in product surface: the global registry with
+> verified-publisher badges, download counters, and pull-only
+> cross-instance mirroring, plus a marketplace layer (featured curation,
+> publisher profiles, paid packs) — see
+> [Domain Packs § Registry](domain-packs.md#the-registry-global-catalogue)
+> and [§ Marketplace](domain-packs.md#marketplace).
+
 ## Fast-path automation
 
 For the Tier 1-2 awesome-list PRs, `scripts/submit-awesome.sh` automates fork + clone + insert + commit + draft-PR for the 5 most-impactful targets:
@@ -259,3 +268,8 @@ Same row format as #9 unless a specific list uses a table. Each PR is ~5 minutes
 ## After landing
 
 Update the Status table at the top of this file with the live URL for each row. Add a Telegram / X teaser post per major hit (template lives in `docs/teasers.md` — create when first one ships). When you bump brain past a major version, re-publish `server.json`, re-check the top three (punkpeye / topoteretes / surrealdb) for stale descriptions, edit-PR if the row text doesn't reflect the new surface.
+
+## See also
+
+- [Domain Packs](domain-packs.md) — distributing packs through the built-in registry + marketplace.
+- [README](../README.md) — the positioning copy the list rows compress.

@@ -178,6 +178,10 @@ sequence: see the
 [Quickstart in docs/domain-packs.md](docs/domain-packs.md#quickstart-author--validate--sign--publish--install)
 (`pnpm pack:init my_pack` scaffolds a valid starter manifest; edit →
 `pack:validate` → `pack:sign` → `pack:publish` → `pack:install` → eval).
+Beyond predicates, a manifest can ship `seedDocuments` (knowledge ingested
+through the document pipeline on install) and `mcpTools` (consented MCP
+surface extensions) — both covered in
+[docs/domain-packs.md](docs/domain-packs.md).
 
 **First-party packs** (shipped in-repo, like the six industry packs:
 `real_estate`, `fintech`, `medical`, `legal`, `insurance`, `hr`) DO go
@@ -206,10 +210,11 @@ through a PR, and the recipe is fixed:
 ## Releasing
 
 Brain auto-deploys on push to `main` via `.github/workflows/deploy-brain.yml`
-(self-hosted SFO runner builds + ships the image, restarts the container).
-There's no semver release process for the service itself — every green main
-commit is "released" to prod. The version field in `package.json` (`0.1.0`)
-is decorative.
+(self-hosted SFO runner builds + ships the image, restarts the container) —
+every green main commit is live in prod. Versioned releases (the
+`package.json` version, `CHANGELOG.md`, GitHub Releases) are cut by
+release-please from conventional-commit titles; don't edit the changelog
+by hand.
 
 Rollback is via the workflow's `restart` action against a previous tag
 (see `docs/DEPLOY.md` § Rollback).

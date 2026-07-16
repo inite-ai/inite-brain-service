@@ -1,5 +1,8 @@
 # Eval harness
 
+The retrieval + memory-lifecycle quality gate and how to run it on your
+own data — for contributors and operators measuring Brain.
+
 `test/eval/` is the production gate, not a smoke folder. It runs
 against a spawned brain process with real OpenAI, against ~250
 retrieval queries plus 3 synthesize scenarios, and asserts hard
@@ -264,3 +267,9 @@ const score = await computeFaithfulness(new OpenAI(), {
 });
 // → { faithfulness: 0.83, totalClaims: 6, supportedClaims: 4, partialClaims: 1, unsupportedClaims: 1, claims: [...] }
 ```
+
+## See also
+
+- [LoCoMo benchmark](locomo.md) — the external long-term-memory benchmark run through the same surfaces.
+- [Operations § Tests](operations.md#tests) — the full test-command matrix.
+- [Domain Packs § Eval fixtures](domain-packs.md#eval-fixtures-consumed) — per-pack extraction evals.
