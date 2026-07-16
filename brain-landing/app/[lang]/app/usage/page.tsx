@@ -96,7 +96,7 @@ export default function UsagePage() {
                     <span className="text-xs">{c.label}</span>
                   </div>
                   <div className="mt-1 text-2xl font-semibold text-[var(--text)] tabular-nums">
-                    {stats[c.key].toLocaleString()}
+                    {(stats[c.key] ?? 0).toLocaleString()}
                   </div>
                   <div className="text-[10px] text-[var(--text-faint)]">
                     {c.hint}

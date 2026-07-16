@@ -65,8 +65,16 @@ export function SearchForm() {
             <label className="block text-xs text-[var(--text-muted)]">Limit</label>
             <input
               type="number"
+              min={1}
+              max={100}
               value={limit}
-              onChange={(e) => setLimit(parseInt(e.target.value) || 10)}
+              // Backend caps limit at 100 (search.dto) — clamp here so a
+              // free-typed value doesn't turn into an avoidable 400.
+              onChange={(e) =>
+                setLimit(
+                  Math.min(100, Math.max(1, parseInt(e.target.value) || 10)),
+                )
+              }
               className="w-full border border-[var(--border)] rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-sm font-mono text-[var(--text)]"
             />
           </div>

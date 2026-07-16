@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Clock,
   ShieldOff,
-  Trash2,
   CircleDot,
 } from 'lucide-react'
 import { useProxyBase } from '../playground/usePlaygroundCall'
@@ -57,15 +56,23 @@ interface EntityProfile {
   }>
 }
 
-interface TimelineRow {
-  factId?: string
+/**
+ * Backend GET /v1/entities/:id/timeline returns EVENTS, not fact rows:
+ *   { type: 'fact.recorded',  at, factId, predicate, object, source, confidence }
+ *   { type: 'fact.retracted', at, factId, retractedBy, reason, supersededBy }
+ * `at` is the transaction-time instant of the event.
+ */
+interface TimelineEvent {
+  type: 'fact.recorded' | 'fact.retracted'
+  at: string
+  factId: string
   predicate?: string
   object?: string | null
-  validFrom?: string
-  validUntil?: string | null
-  recordedAt?: string
-  retractedAt?: string | null
-  status?: string
+  source?: { vertical?: string; recorder?: string } | null
+  confidence?: number
+  retractedBy?: string
+  reason?: string
+  supersededBy?: string
 }
 
 export function EntityPanel({
@@ -77,7 +84,7 @@ export function EntityPanel({
 }: Props) {
   const proxyBase = useProxyBase()
   const [profile, setProfile] = useState<EntityProfile | null>(null)
-  const [timeline, setTimeline] = useState<TimelineRow[] | null>(null)
+  const [timeline, setTimeline] = useState<TimelineEvent[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -89,6 +96,11 @@ export function EntityPanel({
     }
     setLoading(true)
     setErr(null)
+    // Axis wiring: asOf (world-time) shapes the PROFILE's active-fact
+    // set only; timeline events live on the transaction-time axis, so
+    // the tx slider (recordedAt) is the one that cuts both surfaces.
+    // (Previously asOf was mis-mapped to the timeline's `until`, which
+    // filters recordedAt — the wrong axis.)
     const profileParams = new URLSearchParams()
     if (asOf) profileParams.set('asOf', asOf)
     if (recordedAt) profileParams.set('recordedAt', recordedAt)
@@ -96,7 +108,6 @@ export function EntityPanel({
       ? `?${profileParams.toString()}`
       : ''
     const timelineParams = new URLSearchParams()
-    if (asOf) timelineParams.set('until', asOf)
     if (recordedAt) timelineParams.set('recordedAt', recordedAt)
     const timelineQs = timelineParams.toString()
       ? `?${timelineParams.toString()}`
@@ -114,9 +125,7 @@ export function EntityPanel({
         const timelineData = await t.json()
         if (!p.ok) throw new Error(profileData?.error ?? `Profile ${p.status}`)
         setProfile(profileData as EntityProfile)
-        setTimeline(
-          (timelineData?.events ?? timelineData?.facts ?? []) as TimelineRow[],
-        )
+        setTimeline((timelineData?.events ?? []) as TimelineEvent[])
       })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false))
@@ -215,7 +224,7 @@ export function EntityPanel({
             </section>
 
             {timeline && timeline.length > 0 && (
-              <LineageTimeline rows={timeline} />
+              <LineageTimeline events={timeline} />
             )}
           </>
         )}
@@ -233,23 +242,21 @@ export function EntityPanel({
   )
 }
 
-function LineageTimeline({ rows }: { rows: TimelineRow[] }) {
-  // Sort newest first by max(validFrom, recordedAt) so the most recent
-  // event is at the top — operator's eye lands on "what's true now".
-  const sorted = [...rows].sort((a, b) => {
-    const aKey = (a.retractedAt ?? a.recordedAt ?? a.validFrom ?? '') as string
-    const bKey = (b.retractedAt ?? b.recordedAt ?? b.validFrom ?? '') as string
-    return bKey.localeCompare(aKey)
-  })
+function LineageTimeline({ events }: { events: TimelineEvent[] }) {
+  // Newest first by the event's tx instant — operator's eye lands on
+  // the most recent thing the graph learned (or unlearned).
+  const sorted = [...events].sort((a, b) =>
+    (b.at ?? '').localeCompare(a.at ?? ''),
+  )
   return (
     <section>
       <div className="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1">
-        <Clock className="w-3 h-3" /> bitemporal lineage ({rows.length})
+        <Clock className="w-3 h-3" /> bitemporal lineage ({events.length})
       </div>
       <ul className="space-y-1 relative">
         <div className="absolute left-2 top-2 bottom-2 w-px bg-[var(--border)]" />
-        {sorted.slice(0, 24).map((t, i) => (
-          <LineageRow key={t.factId ?? i} t={t} />
+        {sorted.slice(0, 24).map((e) => (
+          <LineageRow key={`${e.type}:${e.factId}`} e={e} />
         ))}
         {sorted.length > 24 && (
           <li className="pl-6 text-[10px] text-[var(--text-faint)]">
@@ -261,41 +268,55 @@ function LineageTimeline({ rows }: { rows: TimelineRow[] }) {
   )
 }
 
-function LineageRow({ t }: { t: TimelineRow }) {
-  const retracted = !!t.retractedAt || t.status === 'retracted'
-  const closed = !!t.validUntil
-  const validFromShort = (t.validFrom ?? '').slice(0, 10) || '—'
-  const recordedShort = (t.recordedAt ?? '').slice(0, 10)
-  const retractedShort = (t.retractedAt ?? '').slice(0, 10)
-  const Icon = retracted ? ShieldOff : closed ? Trash2 : CircleDot
-  const accent = retracted
-    ? 'text-[var(--danger)]'
-    : closed
-      ? 'text-[var(--warning)]'
-      : 'text-[var(--success)]'
+const shortId = (id: string) => id.replace(/^knowledge_fact:/, '')
+
+function LineageRow({ e }: { e: TimelineEvent }) {
+  const retracted = e.type === 'fact.retracted'
+  const atShort = (e.at ?? '').slice(0, 16).replace('T', ' ') || '—'
+  const Icon = retracted ? ShieldOff : CircleDot
+  const accent = retracted ? 'text-[var(--danger)]' : 'text-[var(--success)]'
   return (
     <li className="pl-6 relative">
-      <Icon
-        className={`w-3 h-3 absolute left-1 top-0.5 ${accent}`}
-      />
-      <div className="text-xs flex items-baseline gap-1.5">
-        <span className="font-mono text-[10px] text-[var(--text-muted)]">
-          {t.predicate ?? 'fact'}
-        </span>
-        <span
-          className={`flex-1 truncate ${retracted ? 'line-through text-[var(--text-faint)]' : 'text-[var(--text)]'}`}
-        >
-          {t.object ?? <em className="text-[var(--text-faint)]">[gated]</em>}
-        </span>
-      </div>
-      <div className="text-[10px] font-mono text-[var(--text-faint)] flex flex-wrap gap-x-2">
-        <span>valid: {validFromShort}</span>
-        {t.validUntil && <span>→ {t.validUntil.slice(0, 10)}</span>}
-        {recordedShort && <span>tx: {recordedShort}</span>}
-        {retractedShort && (
-          <span className="text-[var(--danger)]">retracted: {retractedShort}</span>
-        )}
-      </div>
+      <Icon className={`w-3 h-3 absolute left-1 top-0.5 ${accent}`} />
+      {retracted ? (
+        <>
+          <div className="text-xs flex items-baseline gap-1.5">
+            <span className="font-mono text-[10px] text-[var(--danger)]">
+              retracted
+            </span>
+            <span className="flex-1 truncate line-through text-[var(--text-faint)]">
+              {e.reason ?? shortId(e.factId)}
+            </span>
+          </div>
+          <div className="text-[10px] font-mono text-[var(--text-faint)] flex flex-wrap gap-x-2">
+            <span className="text-[var(--danger)]">tx: {atShort}</span>
+            {e.retractedBy && <span>by: {e.retractedBy}</span>}
+            {e.supersededBy && (
+              <span>superseded by: {shortId(e.supersededBy)}</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="text-xs flex items-baseline gap-1.5">
+            <span className="font-mono text-[10px] text-[var(--text-muted)]">
+              {e.predicate ?? 'fact'}
+            </span>
+            <span className="flex-1 truncate text-[var(--text)]">
+              {e.object ?? <em className="text-[var(--text-faint)]">[gated]</em>}
+            </span>
+            {e.confidence !== undefined && (
+              <span className="text-[10px] text-[var(--text-faint)] font-mono">
+                {e.confidence.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] font-mono text-[var(--text-faint)] flex flex-wrap gap-x-2">
+            <span>tx: {atShort}</span>
+            {e.source?.vertical && <span>src: {e.source.vertical}</span>}
+          </div>
+        </>
+      )}
     </li>
   )
 }
