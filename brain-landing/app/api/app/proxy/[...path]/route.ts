@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withUser, type UserSession } from '@/lib/server-auth'
+import { withUser, extractAccessToken, type UserSession } from '@/lib/server-auth'
 import { brainFetch, USER_SCOPE } from '@/lib/brain-api'
 import { extractProxyPath, collectQuery, isPathAllowed } from '@/lib/bff-proxy'
 
@@ -108,11 +108,16 @@ async function forward(
   if (wantsDebug) delete query.debug
   const forwardDebug = wantsDebug && session.isAdmin
 
+  // Ride the user's identity downstream via token exchange: brain then
+  // scopes memory to org (tenant) + sub (this user) instead of the
+  // anonymous service identity. Dev-bypass sessions have no token and
+  // keep the M2M path.
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
     body,
     query,
     scope: USER_SCOPE,
+    userToken: await extractAccessToken(request),
     headers: forwardDebug ? { 'X-Brain-Debug': '1' } : undefined,
   })
 

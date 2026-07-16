@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAdmin } from '@/lib/server-auth'
+import { withAdmin, extractAccessToken } from '@/lib/server-auth'
 import { brainFetch } from '@/lib/brain-api'
 import { extractProxyPath, collectQuery, isPathAllowed } from '@/lib/bff-proxy'
 import { LeasesResponseSchema } from '@/lib/contracts/admin-leases'
@@ -415,10 +415,14 @@ async function forward(
       ? process.env.BRAIN_REGISTRY_API_KEY
       : undefined
 
+  // Preserve the operator's identity downstream via token exchange —
+  // brain's audit trail then names the real admin, not the anonymous
+  // service credential. Dev-bypass sessions keep the M2M path.
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
     body,
     query,
+    userToken: await extractAccessToken(request),
     headers: debug ? { 'X-Brain-Debug': '1' } : undefined,
     apiKey: registryKey,
   })
