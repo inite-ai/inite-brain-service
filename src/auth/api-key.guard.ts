@@ -26,8 +26,10 @@ export const RequireScopes = (...scopes: BrainScope[]) =>
  * best-effort — unit fixtures without a response object just get the 401.
  */
 function unauthorized(context: ExecutionContext, message: string): UnauthorizedException {
-  const req = context.switchToHttp().getRequest();
-  const res = context.switchToHttp().getResponse();
+  const httpCtx = context.switchToHttp();
+  const req = httpCtx.getRequest();
+  // Unit fixtures mock only getRequest — degrade to a plain 401 there.
+  const res = typeof httpCtx.getResponse === 'function' ? httpCtx.getResponse() : undefined;
   const metadata = resourceMetadataUrl(req);
   if (metadata && typeof res?.setHeader === 'function') {
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
