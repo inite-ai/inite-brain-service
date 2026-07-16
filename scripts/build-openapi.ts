@@ -2,9 +2,9 @@
 /**
  * build-openapi — assemble the OpenAPI 3.1 document for the PLATFORM
  * surface (the community-facing API: pack registry, pack admin, document
- * ingest/read, external-indexer candidates + work discovery). The
- * admin/ops surface (jobs, leases, policy, stats, maintenance) is out of
- * scope on purpose.
+ * ingest/read, external-indexer candidates + work discovery, source
+ * reputation reads). The admin/ops surface (jobs, leases, policy, stats,
+ * maintenance) is out of scope on purpose.
  *
  * components.schemas are GENERATED from the zod wire contracts under
  * src/contracts/ (zod v4 z.toJSONSchema over a registry, so nested
@@ -47,6 +47,15 @@ import {
   PacksListResponseSchema,
   UninstallPackResponseSchema,
 } from '../src/contracts/admin/packs.schema';
+import {
+  PublicDeclaredSourceSchema,
+  PublicSourceDetailResponseSchema,
+  PublicSourceSummarySchema,
+  PublicSourcesListResponseSchema,
+  SOURCE_TYPES,
+  SourceHistoryRowSchema,
+  TrustScopeRowSchema,
+} from '../src/contracts/sources/sources.schema';
 import {
   ClaimWorkResponseSchema,
   FailWorkResponseSchema,
@@ -122,6 +131,13 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SubmittedEntity: SubmittedEntitySchema,
   SubmittedFact: SubmittedFactSchema,
   SubmittedRelation: SubmittedRelationSchema,
+  // --- source reputation reads (src/contracts/sources/sources.schema.ts)
+  PublicDeclaredSource: PublicDeclaredSourceSchema,
+  PublicSourceDetailResponse: PublicSourceDetailResponseSchema,
+  PublicSourceSummary: PublicSourceSummarySchema,
+  PublicSourcesListResponse: PublicSourcesListResponseSchema,
+  SourceHistoryRow: SourceHistoryRowSchema,
+  TrustScopeRow: TrustScopeRowSchema,
   // --- external-indexer work discovery (src/contracts/indexer/…)
   ClaimWorkResponse: ClaimWorkResponseSchema,
   FailWorkRequest: FailWorkRequestSchema,
@@ -592,6 +608,85 @@ function documentsPaths(): Json {
   };
 }
 
+function sourcesPaths(): Json {
+  return {
+    '/v1/sources': {
+      get: operation({
+        operationId: 'listSources',
+        tag: 'Sources',
+        summary: 'List source reputations (trust inputs)',
+        description:
+          'Catalogue of everything brain knows ABOUT its fact sources: the ' +
+          'operator-declared identity (type, authLevel) joined with the ' +
+          'learned agreement rates, one row per sourceKey. Public ' +
+          'projection — operator annotations (owner/note) are served only ' +
+          'on the brain:admin surface. `domain` additionally captures that ' +
+          "domain's learned rate into `domainTrust` and makes `minSamples` " +
+          'judge it (falling back to the global row). ' +
+          'Source: src/sources/public-sources.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          queryParam(
+            'domain',
+            'Capture this domain’s learned rate per source (`domainTrust`).',
+          ),
+          queryParam('type', 'Only sources declared with this type.', {
+            type: 'string',
+            enum: [...SOURCE_TYPES],
+          }),
+          queryParam(
+            'minSamples',
+            'Only sources whose learned rate rests on at least this many ' +
+              'samples (domain-scoped row when `domain` is given, global ' +
+              'row otherwise).',
+            { type: 'integer' },
+          ),
+          queryParam('limit', 'Page size (default 50, max 200).', {
+            type: 'integer',
+          }),
+          queryParam('offset', 'Page offset.', { type: 'integer' }),
+        ],
+        responses: {
+          '200': jsonResponse(
+            'The reputation catalogue page.',
+            ref('PublicSourcesListResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/sources/{sourceKey}': {
+      get: operation({
+        operationId: 'getSourceReputation',
+        tag: 'Sources',
+        summary: 'One source’s declared identity, trust scopes, and history',
+        description:
+          'Declared type/authLevel, every learned scope (global first, ' +
+          'then domains alphabetically), and the reputation-over-time ' +
+          'trail (newest first, capped at 50 rows). Public projection — ' +
+          'owner/note are excluded. Same data the `get_source_reputation` ' +
+          'MCP tool serves.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam(
+            'sourceKey',
+            'Source key, `vertical:recorder` (e.g. `rent:tenant_bot`).',
+          ),
+        ],
+        responses: {
+          '200': jsonResponse(
+            'The source reputation detail.',
+            ref('PublicSourceDetailResponse'),
+          ),
+          ...AUTH_ERRORS,
+          '404': errorRef('NotFound'),
+        },
+      }),
+    },
+  };
+}
+
 function indexerWorkPaths(): Json {
   return {
     '/v1/indexer/work': {
@@ -741,8 +836,8 @@ export function buildOpenApiDocument(): Json {
       version: pkg.version,
       summary:
         'The community-facing platform surface: Domain Pack registry, ' +
-        'tenant pack admin, document ingest, and the external-indexer ' +
-        'work protocol.',
+        'tenant pack admin, document ingest, the external-indexer ' +
+        'work protocol, and source reputation reads.',
       description:
         'Generated from the zod wire contracts (`pnpm openapi:build` — ' +
         'scripts/build-openapi.ts); do not edit by hand. The admin/ops ' +
@@ -795,12 +890,20 @@ export function buildOpenApiDocument(): Json {
           'claim → read content → submit candidates / fail. ' +
           'See docs/indexer-protocol.md.',
       },
+      {
+        name: 'Sources',
+        description:
+          'Read-only trust inputs (scope `brain:read`): declared source ' +
+          'identity ⋈ learned reputation. Public projection — operator ' +
+          'annotations (owner/note) stay on the admin surface.',
+      },
     ],
     paths: {
       ...registryPaths(),
       ...packsAdminPaths(),
       ...documentsPaths(),
       ...indexerWorkPaths(),
+      ...sourcesPaths(),
     },
     components: {
       securitySchemes: {

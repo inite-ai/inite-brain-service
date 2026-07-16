@@ -70,7 +70,22 @@ Manage it over REST (all `brain:admin`):
 | `GET` | `/v1/admin/sources/:sourceKey` | detail: per-domain trust rows + history + recent facts |
 | `PUT` | `/v1/admin/sources/:sourceKey` | declare `type` / `authLevel` / `owner` |
 
+Read-only trust inputs are also served to any `brain:read` key:
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/v1/sources` | catalogue: declared ⋈ learned; filters `domain` / `type` / `minSamples`; paginated (`limit` ≤ 200 / `offset`) |
+| `GET` | `/v1/sources/:sourceKey` | detail: declared identity + trust scopes + history (newest first, ≤ 50) |
+
+The public projection excludes the operator annotations (`owner`, `note`) and
+the registry row timestamps — those stay on the `brain:admin` surface. With
+`?domain=` the list additionally carries that domain's learned rate per source
+(`domainTrust`), and `minSamples` judges the domain-scoped row (global
+fallback).
+
 Agents can read reputation through the MCP tool **`get_source_reputation`**.
+(The MCP tool currently returns the full admin shape including `owner`/`note`;
+aligning it with the public projection is a tracked follow-up.)
 
 ## Corroboration
 

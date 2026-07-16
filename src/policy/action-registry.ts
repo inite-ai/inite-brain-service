@@ -82,6 +82,7 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.artifacts.recompile': { kind: 'write', family: 'rest', title: 'Recompile artifact' },
   'rest.stats.overview': { kind: 'read', family: 'rest', title: 'Stats overview' },
   'rest.dreams.run': { kind: 'write', family: 'rest', title: 'Run dreams pass' },
+  'rest.sources.list': { kind: 'read', family: 'rest', title: 'List source reputations' },
 };
 
 /**
