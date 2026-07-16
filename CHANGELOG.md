@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0](https://github.com/inite-ai/inite-brain-service/compare/v0.6.2...v0.7.0) (2026-07-16)
+
+
+### Features
+
+* **api:** generated OpenAPI 3.1 spec for the platform surface ([#195](https://github.com/inite-ai/inite-brain-service/issues/195)) ([9b22f66](https://github.com/inite-ai/inite-brain-service/commit/9b22f6662087c17b60d0661f05adc062a6c0ce70))
+* **auth:** per-pack binding for indexer:write keys ([#192](https://github.com/inite-ai/inite-brain-service/issues/192)) ([13576d1](https://github.com/inite-ai/inite-brain-service/commit/13576d1a82a61a65ecd49d7daf5bcc3bbd7e86e8))
+* **documents:** signed webhook push hints for external indexers ([#193](https://github.com/inite-ai/inite-brain-service/issues/193)) ([2b01184](https://github.com/inite-ai/inite-brain-service/commit/2b01184ce87280f5084bf9688ebdb64f22d81328))
+* **documents:** work-discovery pull API for external indexers ([#181](https://github.com/inite-ai/inite-brain-service/issues/181)) ([23ad966](https://github.com/inite-ai/inite-brain-service/commit/23ad966867063cedbdde2ac09d5e8186da02fda6))
+* **observability:** self-hosted monitoring stack (VictoriaMetrics + Loki + Tempo + Alloy + Grafana) ([#165](https://github.com/inite-ai/inite-brain-service/issues/165)) ([75d0952](https://github.com/inite-ai/inite-brain-service/commit/75d095263626656b54939d3c63d9af7574930a5b))
+* **ops:** PROCESS_ROLE api|worker|all split with compose recipe ([#190](https://github.com/inite-ai/inite-brain-service/issues/190)) ([0bf8bf9](https://github.com/inite-ai/inite-brain-service/commit/0bf8bf943ae555f1674202ff9d34bd74101344d3))
+* **packs:** pack:init scaffold + authoring quickstart docs ([#185](https://github.com/inite-ai/inite-brain-service/issues/185)) ([b372573](https://github.com/inite-ai/inite-brain-service/commit/b372573e81b0d1cd59fb016e846d2bc83ed97368))
+* **registry:** download counters and verified-publisher badge ([#186](https://github.com/inite-ai/inite-brain-service/issues/186)) ([a14d56d](https://github.com/inite-ai/inite-brain-service/commit/a14d56ddf87c6c4b6c64bb5dcf8793da50ac2c10))
+* **registry:** pull-only cross-instance mirroring (REGISTRY_UPSTREAM_URL) ([#196](https://github.com/inite-ai/inite-brain-service/issues/196)) ([9123e64](https://github.com/inite-ai/inite-brain-service/commit/9123e64cfe1da5360ea9405c00b73ff587324f0c))
+
+
+### Bug Fixes
+
+* **db:** shape-aware transaction return slot — 2.x answers without BEGIN/COMMIT slots ([#175](https://github.com/inite-ai/inite-brain-service/issues/175)) ([9bfe05f](https://github.com/inite-ai/inite-brain-service/commit/9bfe05fdc26e86b800746e0e13353b004b1d16be))
+* **deploy:** stop routing /metrics publicly + point OTLP at the monitoring collector ([#167](https://github.com/inite-ai/inite-brain-service/issues/167)) ([c6a865b](https://github.com/inite-ai/inite-brain-service/commit/c6a865bad8de88992d66a5843fb65c2e8a523d37))
+* **jobs:** audit wave P1 — reaper lease guard, missing indexes, catalogue drift ([#176](https://github.com/inite-ai/inite-brain-service/issues/176)) ([c5d7c62](https://github.com/inite-ai/inite-brain-service/commit/c5d7c621f3139b1b5f6c1dd5a50b0e8e71d58104))
+* **jobs:** point-read the lease record — end the leader_lease conflict storm ([#169](https://github.com/inite-ai/inite-brain-service/issues/169)) ([7610112](https://github.com/inite-ai/inite-brain-service/commit/7610112774c5a691489932b424d42f56ad0f46f7))
+* **jobs:** single-arg type::record in lease SQL — 2-arg form is a cast on SurrealDB 2.x ([#170](https://github.com/inite-ai/inite-brain-service/issues/170)) ([bde4a29](https://github.com/inite-ai/inite-brain-service/commit/bde4a2906f040264fc1389840509cff293fdb17c))
+* **jobs:** version-agnostic lease/claim deadlines — unblock background jobs in prod ([#166](https://github.com/inite-ai/inite-brain-service/issues/166)) ([ca45b36](https://github.com/inite-ai/inite-brain-service/commit/ca45b36bfdecf3c9216aa9280738c7e8b2aee58f))
+* **search,mcp:** audit wave P2 — flag parser sweep, MCP hardening, unified closure, hot-path ([#177](https://github.com/inite-ai/inite-brain-service/issues/177)) ([bf14a38](https://github.com/inite-ai/inite-brain-service/commit/bf14a389fbbdf3a5750371bac91825a7374b32a0))
+* **security:** resolve CodeQL findings, dependency alerts, and workflow hardening ([#198](https://github.com/inite-ai/inite-brain-service/issues/198)) ([01f5b49](https://github.com/inite-ai/inite-brain-service/commit/01f5b4914d6b5ea0c76bd29c122208ab8a7de225))
+
+
+### Performance Improvements
+
+* **admin:** move NLI intent classifier to a worker thread ([#182](https://github.com/inite-ai/inite-brain-service/issues/182)) ([e55296a](https://github.com/inite-ai/inite-brain-service/commit/e55296adfaceb8e250c84157f24d69b8c95a4643))
+* **ai:** local NER pipeline to a worker thread ([#191](https://github.com/inite-ai/inite-brain-service/issues/191)) ([09e7856](https://github.com/inite-ai/inite-brain-service/commit/09e7856da18939a4321933707de976eab7be78f2))
+* **communities:** offload label propagation to the job worker pool ([#184](https://github.com/inite-ai/inite-brain-service/issues/184)) ([ee4967c](https://github.com/inite-ai/inite-brain-service/commit/ee4967c48f43509a70f59fb86cedd1b72214a5dd))
+* **dreams,documents:** audit wave P3 — flag-gated pipeline fixes ([#178](https://github.com/inite-ai/inite-brain-service/issues/178)) ([e868254](https://github.com/inite-ai/inite-brain-service/commit/e868254df718871cf33839acd1b7c06de6dc30f7))
+* **jobs:** bounded per-jobType poller concurrency with tenant and global caps ([#183](https://github.com/inite-ai/inite-brain-service/issues/183)) ([fc97d01](https://github.com/inite-ai/inite-brain-service/commit/fc97d019851a821672dad2d8a08ac79495774d69))
+* **live:** audit wave P4 — nightly refit batching, bounded reads, gauge fixes ([#179](https://github.com/inite-ai/inite-brain-service/issues/179)) ([7509116](https://github.com/inite-ai/inite-brain-service/commit/7509116bd0f80085474c2a4fcfe2288707c7187f))
+* **search:** offload tokenBudget counting to the worker pool with sync fallback ([#189](https://github.com/inite-ai/inite-brain-service/issues/189)) ([ccc6c59](https://github.com/inite-ai/inite-brain-service/commit/ccc6c59be1fc0443b065641caabe590608fd0c1c))
+
 ## [0.6.2](https://github.com/inite-ai/inite-brain-service/compare/v0.6.1...v0.6.2) (2026-07-11)
 
 
