@@ -8,6 +8,7 @@ import {
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { envFlagEnabled } from '../common/env-validation';
+import { PackPurchaseGateService } from './pack-purchase-gate.service';
 import {
   BUILTIN_PACKS,
   DomainPackError,
@@ -69,7 +70,10 @@ export class PackRegistryService {
   private readonly logger = new Logger(PackRegistryService.name);
   private readonly builtinIds = new Set(BUILTIN_PACKS.map((p) => p.id));
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly purchaseGate: PackPurchaseGateService,
+  ) {}
 
   private requireSignature(): boolean {
     // envFlagEnabled accepts both '1' and 'true' — a 'true'-only check
@@ -284,12 +288,16 @@ export class PackRegistryService {
     };
   }
 
-  /** Resolve a manifest for INSTALL. Throws NotFound when nothing matches and
-   *  BadRequest when a pinned version is yanked / no non-yanked version exists. */
-  async resolveForInstall(
-    packId: string,
-    version?: string,
-  ): Promise<{ manifest: DomainPackManifest; checksum: string }> {
+  /** Resolve a manifest for INSTALL. Throws NotFound when nothing matches,
+   *  BadRequest when a pinned version is yanked / no non-yanked version
+   *  exists, and 402/503 for an unpurchased/unverifiable paid pack. */
+  async resolveForInstall(args: {
+    packId: string;
+    version?: string;
+    /** The installing tenant — the paid-pack gate's entitlement subject. */
+    companyId: string;
+  }): Promise<{ manifest: DomainPackManifest; checksum: string }> {
+    const { packId, version } = args;
     const row = await this.findRow(packId, version);
     if (!row || !row.manifest) {
       throw new NotFoundException(
@@ -301,6 +309,14 @@ export class PackRegistryService {
         `pack "${packId}" version ${row.version} is yanked and cannot be installed`,
       );
     }
+    // Paid-pack gate (docs/domain-packs.md "Marketplace"): this is the
+    // single install choke point, so the entitlement check lives here —
+    // after the yank refusal (a yank stays a yank even for a buyer) and
+    // BEFORE the download counter (a refused install is not a download).
+    await this.purchaseGate.assertInstallable({
+      companyId: args.companyId,
+      packId,
+    });
     // Download accounting lives HERE and only here: resolveForInstall serves
     // the install path (POST /v1/admin/packs/from-registry). Catalogue
     // browsing / manifest inspection (list/getVersions/getManifest) must not

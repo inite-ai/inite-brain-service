@@ -22,6 +22,7 @@ export type ConfigCategory =
   | 'jobs'
   | 'auth'
   | 'registry'
+  | 'billing'
   | 'misc';
 
 export interface ConfigEntry {

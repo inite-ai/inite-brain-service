@@ -8,6 +8,11 @@ export type BrainScope =
   // tenants. Discovery reads use brain:read; installing from the registry into
   // a tenant uses brain:admin.
   | 'registry:publish'
+  // Hosting-operator curation of the GLOBAL registry (feature/unfeature) —
+  // distinct from registry:publish: publishers manage their own packs,
+  // curation ranks everyone's. Env-key-only like registry:publish —
+  // deliberately NOT added to the jwks VALID_SCOPES set.
+  | 'registry:curate'
   // Stage candidates for a document as an EXTERNAL indexer — deliberately
   // narrower than brain:write: the key can propose hypotheses
   // (POST /v1/documents/:id/candidates), never commit facts directly.

@@ -24,6 +24,7 @@ const ConfigCategorySchema = z.enum([
   'jobs',
   'auth',
   'registry',
+  'billing',
   'misc',
 ]);
 

@@ -7,10 +7,16 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { PolicyAction } from '../policy/action-registry';
 import { PackRegistryService } from './pack-registry.service';
+import { RegistryMetaService } from './registry-meta.service';
+import { PublisherProfileService } from './publisher-profile.service';
+import { mergeMarketplaceMeta } from './marketplace-meta';
 import type {
+  PublisherResponse,
   RegistryListResponse,
   RegistryManifestResponse,
+  RegistryPackSummary,
   RegistryVersionsResponse,
 } from '../contracts/registry/registry.schema';
 
@@ -18,12 +24,18 @@ import type {
  * Discovery reads over the GLOBAL Domain Pack registry (docs/domain-packs.md).
  * Any authenticated tenant may browse the catalogue (brain:read) — publishing +
  * installing are separate, privileged surfaces. The catalogue is shared across
- * all tenants (system DB), so these reads are tenant-agnostic.
+ * all tenants (system DB), so these reads are tenant-agnostic. Listings carry
+ * the instance-local marketplace metadata (featured / paid / displayPrice,
+ * migration 0066) stamped over the registry rows.
  */
 @Controller('v1/registry')
 @UseGuards(ApiKeyGuard)
 export class RegistryController {
-  constructor(private readonly registry: PackRegistryService) {}
+  constructor(
+    private readonly registry: PackRegistryService,
+    private readonly meta: RegistryMetaService,
+    private readonly profiles: PublisherProfileService,
+  ) {}
 
   @Get('packs')
   @RequireScopes('brain:read')
@@ -44,7 +56,7 @@ export class RegistryController {
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
     });
-    return { packs };
+    return { packs: await this.withMarketplaceMeta(packs) };
   }
 
   @Get('packs/:packId')
@@ -53,6 +65,29 @@ export class RegistryController {
     @Param('packId') packId: string,
   ): Promise<RegistryVersionsResponse> {
     return this.registry.getVersions(packId);
+  }
+
+  /** A publisher's public page as JSON: profile (when one was written) +
+   *  their catalogue entries. 404 only when the publisher is entirely
+   *  unknown — no profile AND no packs. */
+  @Get('publishers/:publisher')
+  @RequireScopes('brain:read')
+  @PolicyAction('rest.registry.publisher.get')
+  async publisher(
+    @Param('publisher') publisher: string,
+  ): Promise<PublisherResponse> {
+    const [profile, packs] = await Promise.all([
+      this.profiles.get(publisher),
+      this.registry.list({ publisher }),
+    ]);
+    if (!profile && packs.length === 0) {
+      throw new NotFoundException(`publisher "${publisher}" not found`);
+    }
+    return {
+      publisher,
+      profile,
+      packs: await this.withMarketplaceMeta(packs),
+    };
   }
 
   @Get('packs/:packId/:version')
@@ -72,5 +107,12 @@ export class RegistryController {
       );
     }
     return resolved;
+  }
+
+  private async withMarketplaceMeta(
+    packs: RegistryPackSummary[],
+  ): Promise<RegistryPackSummary[]> {
+    const metaMap = await this.meta.getMetaForPacks(packs.map((p) => p.packId));
+    return mergeMarketplaceMeta(packs, metaMap);
   }
 }

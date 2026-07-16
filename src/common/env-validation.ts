@@ -113,6 +113,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Registry mirroring (pull-only) ────────────────────────────────
   validateRegistryMirrorEnv(env, errors);
 
+  // ── Marketplace billing (paid packs) ──────────────────────────────
+  validateBillingEnv(env, errors);
+
   // ── fact_trust ranking knobs (source-reputation Phase 5) ──────────
   nonNegativeFloat(env, 'SEARCH_TRUST_BETA', errors);
   nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
@@ -403,6 +406,7 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Default-ON: read as `PACK_SEED_INGEST_ENABLED ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false skips pack seed ingest.
   'PACK_SEED_INGEST_ENABLED',
+  'DOMAIN_PACK_BILLING_ENABLED',
 ];
 
 /**
@@ -482,6 +486,45 @@ function validateRegistryMirrorEnv(
     }
   }
   positiveInt(env, 'REGISTRY_MIRROR_INTERVAL_HOURS', errors);
+}
+
+/**
+ * Marketplace billing (paid packs via the central billing service).
+ * When DOMAIN_PACK_BILLING_ENABLED is on, the client needs a reachable
+ * base URL and a service API key — a missing/typo'd value would
+ * otherwise surface per-request as 503s on every paid-pack install
+ * (the client fails CLOSED). Mirrors validateRegistryMirrorEnv.
+ */
+function validateBillingEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
+  const enabled = envFlagEnabled(env.DOMAIN_PACK_BILLING_ENABLED);
+  const url = env.BILLING_SERVICE_URL;
+  if (url !== undefined && url.trim() !== '') {
+    let valid = false;
+    try {
+      const parsed = new URL(url.trim());
+      valid = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      errors.push(
+        'BILLING_SERVICE_URL must be a valid http(s) URL — the marketplace ' +
+          'billing client calls it for products, checkout and entitlements.',
+      );
+    }
+  } else if (enabled) {
+    errors.push(
+      'BILLING_SERVICE_URL is required when DOMAIN_PACK_BILLING_ENABLED is on.',
+    );
+  }
+  if (enabled && !env.BILLING_SERVICE_API_KEY?.trim()) {
+    errors.push(
+      'BILLING_SERVICE_API_KEY is required when DOMAIN_PACK_BILLING_ENABLED ' +
+        'is on — the billing service authenticates brain via x-api-key.',
+    );
+  }
+  positiveInt(env, 'BILLING_TIMEOUT_MS', errors);
+  positiveInt(env, 'BILLING_ENTITLEMENT_CACHE_TTL_MS', errors);
 }
 
 function required({
