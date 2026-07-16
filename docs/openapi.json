@@ -1035,6 +1035,153 @@
         ],
         "type": "object"
       },
+      "PublicDeclaredSource": {
+        "additionalProperties": false,
+        "properties": {
+          "authLevel": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "type": {
+            "enum": [
+              "human",
+              "website",
+              "document",
+              "api",
+              "agent",
+              "sensor",
+              "system"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "authLevel"
+        ],
+        "type": "object"
+      },
+      "PublicSourceDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "declared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicDeclaredSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/SourceHistoryRow"
+            },
+            "type": "array"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "trust": {
+            "items": {
+              "$ref": "#/components/schemas/TrustScopeRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sourceKey",
+          "declared",
+          "trust",
+          "history"
+        ],
+        "type": "object"
+      },
+      "PublicSourceSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "declared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicDeclaredSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "domainTrust": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrustScopeRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "globalTrust": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrustScopeRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopedDomains": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sourceKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceKey",
+          "declared",
+          "globalTrust",
+          "scopedDomains"
+        ],
+        "type": "object"
+      },
+      "PublicSourcesListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PublicSourceSummary"
+            },
+            "type": "array"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sources",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
       "PublishPackRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1303,6 +1450,39 @@
         ],
         "type": "object"
       },
+      "SourceHistoryRow": {
+        "additionalProperties": false,
+        "properties": {
+          "agreementRate": {
+            "type": "number"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recordedAt": {
+            "type": "string"
+          },
+          "sampleCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domain",
+          "agreementRate",
+          "sampleCount",
+          "recordedAt"
+        ],
+        "type": "object"
+      },
       "SubmitCandidatesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1513,6 +1693,58 @@
         ],
         "type": "object"
       },
+      "TrustScopeRow": {
+        "additionalProperties": false,
+        "properties": {
+          "agreementRate": {
+            "type": "number"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lossCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sampleCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "winCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domain",
+          "agreementRate",
+          "sampleCount",
+          "winCount",
+          "lossCount",
+          "lastSeenAt"
+        ],
+        "type": "object"
+      },
       "UninstallPackResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1630,9 +1862,9 @@
       "identifier": "AGPL-3.0-or-later",
       "name": "AGPL-3.0-or-later"
     },
-    "summary": "The community-facing platform surface: Domain Pack registry, tenant pack admin, document ingest, and the external-indexer work protocol.",
+    "summary": "The community-facing platform surface: Domain Pack registry, tenant pack admin, document ingest, the external-indexer work protocol, and source reputation reads.",
     "title": "INITE Brain — Platform API",
-    "version": "0.6.2"
+    "version": "0.7.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2651,6 +2883,135 @@
           "Registry"
         ]
       }
+    },
+    "/v1/sources": {
+      "get": {
+        "description": "Catalogue of everything brain knows ABOUT its fact sources: the operator-declared identity (type, authLevel) joined with the learned agreement rates, one row per sourceKey. Public projection — operator annotations (owner/note) are served only on the brain:admin surface. `domain` additionally captures that domain's learned rate into `domainTrust` and makes `minSamples` judge it (falling back to the global row). Source: src/sources/public-sources.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listSources",
+        "parameters": [
+          {
+            "description": "Capture this domain’s learned rate per source (`domainTrust`).",
+            "in": "query",
+            "name": "domain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only sources declared with this type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "enum": [
+                "human",
+                "website",
+                "document",
+                "api",
+                "agent",
+                "sensor",
+                "system"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only sources whose learned rate rests on at least this many samples (domain-scoped row when `domain` is given, global row otherwise).",
+            "in": "query",
+            "name": "minSamples",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page size (default 50, max 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page offset.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSourcesListResponse"
+                }
+              }
+            },
+            "description": "The reputation catalogue page."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "List source reputations (trust inputs)",
+        "tags": [
+          "Sources"
+        ]
+      }
+    },
+    "/v1/sources/{sourceKey}": {
+      "get": {
+        "description": "Declared type/authLevel, every learned scope (global first, then domains alphabetically), and the reputation-over-time trail (newest first, capped at 50 rows). Public projection — owner/note are excluded. Same data the `get_source_reputation` MCP tool serves.\n\nRequired scope: `brain:read`.",
+        "operationId": "getSourceReputation",
+        "parameters": [
+          {
+            "description": "Source key, `vertical:recorder` (e.g. `rent:tenant_bot`).",
+            "in": "path",
+            "name": "sourceKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSourceDetailResponse"
+                }
+              }
+            },
+            "description": "The source reputation detail."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "One source’s declared identity, trust scopes, and history",
+        "tags": [
+          "Sources"
+        ]
+      }
     }
   },
   "security": [
@@ -2684,6 +3045,10 @@
     {
       "description": "The external-indexer protocol (scope `indexer:write`): poll → claim → read content → submit candidates / fail. See docs/indexer-protocol.md.",
       "name": "Indexer work"
+    },
+    {
+      "description": "Read-only trust inputs (scope `brain:read`): declared source identity ⋈ learned reputation. Public projection — operator annotations (owner/note) stay on the admin surface.",
+      "name": "Sources"
     }
   ]
 }

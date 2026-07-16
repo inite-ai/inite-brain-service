@@ -50,6 +50,9 @@ export const SourceSummarySchema = z.object({
   globalTrust: TrustScopeRowSchema.nullable(),
   /** Number of domain-scoped reputation rows behind this source. */
   scopedDomains: z.number().int(),
+  /** The requested domain's learned rate — set only when list() was asked
+   *  to capture one domain (public /v1/sources?domain=). */
+  domainTrust: TrustScopeRowSchema.nullable().optional(),
 });
 export type SourceSummary = z.infer<typeof SourceSummarySchema>;
 
@@ -88,3 +91,47 @@ export const DeclareSourceResponseSchema = z.object({
   declared: DeclaredSourceSchema,
 });
 export type DeclareSourceResponse = z.infer<typeof DeclareSourceResponseSchema>;
+
+/**
+ * Public projection (/v1/sources, brain:read): the trust INPUTS a consumer
+ * needs to weigh a fact's trustSnapshot — declared type/authLevel and the
+ * learned rates. Operator annotations (owner/note) and the registry row
+ * timestamps stay on the brain:admin surface.
+ */
+export const PublicDeclaredSourceSchema = z.object({
+  type: z.enum(SOURCE_TYPES),
+  authLevel: z.number().min(0).max(1),
+});
+export type PublicDeclaredSource = z.infer<typeof PublicDeclaredSourceSchema>;
+
+export const PublicSourceSummarySchema = z.object({
+  sourceKey: z.string(),
+  declared: PublicDeclaredSourceSchema.nullable(),
+  globalTrust: TrustScopeRowSchema.nullable(),
+  scopedDomains: z.number().int(),
+  /** The requested domain's learned rate — present iff ?domain= given. */
+  domainTrust: TrustScopeRowSchema.nullable().optional(),
+});
+export type PublicSourceSummary = z.infer<typeof PublicSourceSummarySchema>;
+
+export const PublicSourcesListResponseSchema = z.object({
+  sources: z.array(PublicSourceSummarySchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type PublicSourcesListResponse = z.infer<
+  typeof PublicSourcesListResponseSchema
+>;
+
+export const PublicSourceDetailResponseSchema = z.object({
+  sourceKey: z.string(),
+  declared: PublicDeclaredSourceSchema.nullable(),
+  /** All learned scopes, global first then domains alphabetically. */
+  trust: z.array(TrustScopeRowSchema),
+  /** Reputation-over-time trail, newest first, capped at 50 rows. */
+  history: z.array(SourceHistoryRowSchema),
+});
+export type PublicSourceDetailResponse = z.infer<
+  typeof PublicSourceDetailResponseSchema
+>;

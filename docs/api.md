@@ -63,6 +63,8 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/entities/:id/timeline` | Bitemporal sweep — all facts ever known, with validFrom / validUntil / recordedAt / retractedAt. |
 | `GET /v1/entities/:id/connections` | Typed edges + direct neighbours. |
 | `GET /v1/artifacts/:type/:entityId` | Derived artifacts (profile / digest / etc) with manual `recompile` POST. |
+| `GET /v1/sources` | Read-only trust inputs: declared `type`/`authLevel` ⋈ learned reputation, one row per source. Filters `domain` / `type` / `minSamples`, paginated (`limit` ≤ 200 / `offset`). Public projection — operator annotations (`owner`/`note`) stay on the admin surface. |
+| `GET /v1/sources/:sourceKey` | One source's declared identity, per-domain trust rows, and reputation history (newest first, ≤ 50). Same data as the `get_source_reputation` MCP tool. |
 
 ## Mutation (audited)
 

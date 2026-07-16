@@ -38,6 +38,8 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/indexer/work/{runId}/heartbeat', 'post'],
   ['/v1/indexer/work/{runId}/content', 'get'],
   ['/v1/indexer/work/{runId}/fail', 'post'],
+  ['/v1/sources', 'get'],
+  ['/v1/sources/{sourceKey}', 'get'],
 ];
 
 describe('docs/openapi.json', () => {

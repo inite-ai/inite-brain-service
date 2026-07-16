@@ -25,8 +25,13 @@ import {
 export class SourcesService {
   constructor(private readonly surreal: SurrealService) {}
 
-  /** Catalogue: union of declared and learned sources, one line each. */
-  async list(companyId: string): Promise<SourceSummary[]> {
+  /** Catalogue: union of declared and learned sources, one line each.
+   *  opts.domain additionally captures that domain's learned rate onto
+   *  each summary (public /v1/sources?domain= projection). */
+  async list(
+    companyId: string,
+    opts?: { domain?: string },
+  ): Promise<SourceSummary[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [declaredRows] = await db.query<[any[]]>(
         `SELECT * FROM source_registry ORDER BY sourceKey`,
@@ -60,6 +65,7 @@ export class SourcesService {
           summary.globalTrust = mapTrustScope(r);
         } else {
           summary.scopedDomains += 1;
+          if (opts?.domain === r.domain) summary.domainTrust = mapTrustScope(r);
         }
       }
       return [...summaries.values()];
