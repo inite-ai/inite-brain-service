@@ -12,11 +12,28 @@ import { CredentialResolverService } from './credential-resolver.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { POLICY_ACTION_KEY } from '../policy/action-registry';
 import { getRequestContext } from '../common/request-context';
+import { resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 
 const REQUIRED_SCOPES_KEY = 'requiredScopes';
 export const RequireScopes = (...scopes: BrainScope[]) =>
   SetMetadata(REQUIRED_SCOPES_KEY, scopes);
+
+/**
+ * 401 with RFC 9728 discovery: WWW-Authenticate names the protected-
+ * resource metadata document so an MCP client can find the authorization
+ * server and self-onboard instead of failing opaquely. Header is
+ * best-effort — unit fixtures without a response object just get the 401.
+ */
+function unauthorized(context: ExecutionContext, message: string): UnauthorizedException {
+  const req = context.switchToHttp().getRequest();
+  const res = context.switchToHttp().getResponse();
+  const metadata = resourceMetadataUrl(req);
+  if (metadata && typeof res?.setHeader === 'function') {
+    res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
+  }
+  return new UnauthorizedException(message);
+}
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -33,13 +50,13 @@ export class ApiKeyGuard implements CanActivate {
     const header = request.headers['authorization'] as string | undefined;
 
     if (!header || !header.toLowerCase().startsWith('bearer ')) {
-      throw new UnauthorizedException('Missing or malformed Authorization header');
+      throw unauthorized(context, 'Missing or malformed Authorization header');
     }
 
     const token = header.slice(7).trim();
     const record: ApiKeyRecord | null = await this.credentials.resolve(token);
     if (!record) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw unauthorized(context, 'Invalid credentials');
     }
 
     const required =
