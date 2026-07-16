@@ -138,6 +138,28 @@ describe('SchemaMigrator', () => {
     ).toBe(false);
   });
 
+  it('tolerates a concurrent applier winning the ledger insert', async () => {
+    // Two processes booting against a SHARED DB (system DB under parallel
+    // e2e, multi-pod boots) both compute the same pending set; the loser's
+    // ledger CREATE hits the UNIQUE index and must be treated as applied.
+    dir = await makeMigrationsDir({
+      '0001_baseline.surql': 'DEFINE TABLE a;',
+    });
+    const migrator = new SchemaMigrator(dir);
+    const { conn } = makeFakeConn();
+    const rawQuery = conn.query.bind(conn);
+    conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+      if (sql.startsWith('CREATE schema_migrations')) {
+        throw new Error(
+          "Database index `schema_migrations_id_idx` already contains '0001', with record `schema_migrations:x`",
+        );
+      }
+      return rawQuery<T>(sql, params);
+    };
+    const result = await migrator.migrate(conn as never);
+    expect(result.applied).toEqual(['0001']);
+  });
+
   it('rejects duplicate migration IDs', async () => {
     dir = await makeMigrationsDir({
       '0001_baseline.surql': 'DEFINE TABLE a;',

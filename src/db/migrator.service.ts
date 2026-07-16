@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Surreal } from 'surrealdb';
 import { isReadConflict } from './surreal.service';
+import { isUniqueViolation } from './surreal-retry';
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -103,10 +104,21 @@ export class SchemaMigrator {
           await new Promise((r) => setTimeout(r, baseMs + Math.random() * baseMs));
         }
       }
-      await conn.query(
-        `CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`,
-        { id: m.id, name: m.name },
-      );
+      // The ledger insert is the only non-idempotent step. Two appliers
+      // racing on a SHARED DB (the system DB under parallel e2e boots;
+      // multi-pod boots in general) both compute the same pending set —
+      // the DDL is IF-NOT-EXISTS-idempotent, so the loser of this CREATE
+      // has already applied identical schema and must treat the unique
+      // violation as "someone else recorded it first", not a failure.
+      try {
+        await conn.query(
+          `CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`,
+          { id: m.id, name: m.name },
+        );
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        this.logger.log(`Ledger row for ${m.name} already written by a concurrent applier`);
+      }
     }
 
     return {
