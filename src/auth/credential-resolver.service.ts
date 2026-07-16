@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ApiKeyService } from './api-key.service';
 import { JwksService } from './jwks.service';
 import { IntrospectionClient } from './introspection.client';
+import { recordTier, tokenTrackerKey } from './tier-cache';
 import { ApiKeyRecord } from './api-key.types';
 
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
@@ -69,6 +70,9 @@ export class CredentialResolverService {
     if (!record && this.staticAllowed) {
       record = this.apiKeys.resolve(token);
     }
+    // Feed the verified tier to the throttler (which runs before this
+    // guard and must not trust unverified claims).
+    if (record) recordTier(tokenTrackerKey(token), record.entitlements);
     return record;
   }
 }
