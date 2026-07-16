@@ -20,7 +20,7 @@ export interface DocPage {
 
 export interface DocGroup {
   /** Key in `locales/<lang>/common.json` → `docs.groups.<key>`. */
-  headingKey: 'start' | 'concepts' | 'rest' | 'mcp' | 'ops'
+  headingKey: 'start' | 'concepts' | 'rest' | 'platform' | 'mcp' | 'ops'
   pages: DocPage[]
 }
 
@@ -46,6 +46,14 @@ export const DOCS_GROUPS: DocGroup[] = [
       { slug: 'api/multi-hop', key: 'multi-hop' },
       { slug: 'api/entities', key: 'entities' },
       { slug: 'api/retract', key: 'retract' },
+    ],
+  },
+  {
+    headingKey: 'platform',
+    pages: [
+      { slug: 'platform/domain-packs', key: 'domain-packs' },
+      { slug: 'platform/document-pipeline', key: 'document-pipeline' },
+      { slug: 'platform/external-indexers', key: 'external-indexers' },
     ],
   },
   {

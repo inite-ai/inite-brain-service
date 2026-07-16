@@ -56,7 +56,7 @@ Returns a batch result — every entity the NLU found, every fact emitted, per-f
 }
 ```
 
-The extractor is `gpt-4o-mini-2024-07-18` (snapshot-pinned). Cost is tracked per call; the operator playbook covers per-tenant budget alerts.
+The extractor model comes from the `OPENAI_CHAT_MODEL` env var (default `gpt-4o-mini`, operator-configurable). Cost is tracked per call; the operator playbook covers per-tenant budget alerts.
 
 ## POST /v1/ingest/link
 

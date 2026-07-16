@@ -1,6 +1,6 @@
 # Справочник MCP-инструментов
 
-Сервер регистрирует **26 инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 18 на чтение (`brain:read`), ещё 7 с `brain:write` (один из них, `ingest_document`, регистрируется только при `DOCUMENT_INGEST_ENABLED=1`) и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен в `docs/roadmap/mcp-and-memory.md` репозитория.
+Сервер регистрирует **28 встроенных инструментов + 2 ресурса** на `McpServer({ name: 'inite-brain-service' })`, с гейтингом по scope: 19 на чтение (`brain:read`), ещё 8 с `brain:write` (один из них, `ingest_document`, регистрируется только при `DOCUMENT_INGEST_ENABLED=1`) и 1 с `brain:admin`. Чувствительным PII-значениям нужен дополнительный scope `brain:read_pii`. Поверх встроенных установленные Domain Packs могут добавлять одобренные оператором namespaced-инструменты — см. раздел «Инструменты из паков» ниже. На этой странице описаны самые используемые инструменты; полный список (communities, процедурная память, репутация источников, code memory) перечислен по scope в [матрице scope настройки MCP](/ru/docs/mcp/setup) и в [`docs/api.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/api.md) репозитория.
 
 ## search_knowledge
 
@@ -11,10 +11,11 @@
 ```ts
 {
   query: string                  // required — natural language
-  limit?: number                 // 1..50, default 10
+  limit?: number                 // 1..100, default 10
   predicates?: string[]          // restrict to these predicates
   asOf?: string                  // ISO 8601 — bitemporal cutoff
   minConfidence?: number         // 0..1 — drop low-confidence facts
+  userId?: string                // per-user memory scope (tenant-global + this user)
 }
 ```
 
@@ -22,7 +23,7 @@
 
 ## get_entity_profile
 
-> Полный профиль одной сущности: каноническое имя, тип, externalRefs и активные факты. Через `externalRefs` подтягивай свежее состояние из исходной вертикали с помощью `@inite/api-kit`.
+> Полный профиль одной сущности: каноническое имя, тип, externalRefs и активные факты. Через `externalRefs` подтягивай свежее состояние из исходной вертикали (например, клиентом `@inite/knowledge`).
 
 **Нужный scope:** `brain:read`
 
@@ -94,6 +95,25 @@
   reason: string                 // required
 }
 ```
+
+## Инструменты из паков
+
+[Domain Pack](/ru/docs/platform/domain-packs) может нести секцию `mcpTools` — до 8 инструментов, добавляемых на MCP-поверхность тенанта под именем `<packId>__<toolName>` (двойное подчёркивание — зарезервированный разделитель). Инструмент пака бывает ровно двух видов — сторонний код внутри Brain не выполняется никогда:
+
+- **`query`** — декларативное чтение по СОБСТВЕННЫМ namespaced-предикатам пака (поверхности `search` или `facts_by_predicate`). Схемы входа фиксируются на стороне сервера; пак выбирает имена и описания, но не форму запроса.
+- **`external`** — HTTPS-прокси с HMAC-подписью на эндпоинт издателя пака. По проводу уходит непрозрачный per-install `installId`, но никогда — id тенанта; ответы ограничены по размеру (64 КБ) и таймауту, а circuit breaker на эндпоинт защёлкивается после серии сбоев.
+
+Согласие — явное: установка пака с секцией `mcpTools` падает с `400`, если в запросе нет `acceptMcpTools: true`; апгрейд, меняющий секцию, требует согласия заново.
+
+Всё закрыто флагами оператора:
+
+| Флаг | По умолчанию | Значение |
+| --- | --- | --- |
+| `MCP_PACK_TOOLS_ENABLED` | `0` | Главный выключатель — при выключенном MCP-поверхность состоит ровно из встроенных семейств |
+| `MCP_PACK_QUERY_TOOLS_ENABLED` | `1` | Query-инструменты (достижимы только под главным флагом) |
+| `MCP_PACK_EXTERNAL_TOOLS_ENABLED` | `0` | Внешние прокси-инструменты |
+
+Полный справочник — поля манифеста, флоу согласия, протокол эндпоинта с проверкой подписи, модель безопасности: [`docs/mcp-pack-tools.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/mcp-pack-tools.md) в репозитории.
 
 ## Общая форма ответа
 

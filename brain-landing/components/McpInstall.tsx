@@ -7,11 +7,14 @@ interface Props {
   lang: Lang
 }
 
+// Representative subset of the 28 built-in tools (19 read / 8 write /
+// 1 admin, per src/mcp/* registrations) — the label above the list says
+// "highlights"; installed Domain Packs can add consented tools on top.
 const TOOLS = [
   'search_knowledge',
+  'synthesize',
   'get_entity_profile',
-  'get_entity_timeline',
-  'find_related_entities',
+  'detect_contradiction',
   'record_fact',
   'retract_fact',
 ]

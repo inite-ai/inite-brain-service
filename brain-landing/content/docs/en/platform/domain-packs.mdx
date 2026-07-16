@@ -1,0 +1,70 @@
+# Domain Packs
+
+A **Domain Pack** is a versioned, pluggable bundle of ontology that extends Brain's predicate registry **without forking core**. A domain — real estate, fintech, compliance, your own — ships its typed predicates plus optional extraction tuning, eval fixtures, indexer execution, seed documents, and MCP tools. A community pack is plain JSON: no PR to the Brain repo, publish to a registry, install per tenant.
+
+## The manifest — six sections
+
+A pack is one signed, checksummed JSON manifest. Every optional section is covered by the checksum — there is no out-of-band pack content:
+
+| Section | What it does |
+| --- | --- |
+| `predicates` | The ontology: `localId`, datatype, semantics (`single_active` / `append_only` / `bitemporal`), decay half-life, PII class, optional `requiresScope`. Stored namespaced as `<packId>__<localId>` — double underscore is the reserved separator, and the loader fails boot on any collision with core or another pack. |
+| `extractionProfile` | Extractor tuning consumed at extract time: domain `guidance` appended to the system prompt + `fewShot` examples (rendered as illustrative text — they can't break the strict output schema). |
+| `evalFixtures` | Per-pack extraction tests. `POST /v1/admin/packs/:id/eval` runs each fixture through the LIVE extractor and reports pass / fail — measure before you trust. |
+| `indexer` | How the pack participates in the [document pipeline](/en/docs/platform/document-pipeline): `virtual` (rides the union extraction call, zero extra LLM cost), `dedicated` (its own extraction run, router-gated), or `external` (a remote indexer stages candidates). |
+| `seedDocuments` | Knowledge shipped with the pack — up to 32 documents (≤ 65 536 chars each) ingested through the normal document pipeline on install: same chunking, conflict resolution, and provenance as any connector's document. Provenance meta (`pack_id`, `pack_version`, …) is stamped on every derived fact. |
+| `mcpTools` | Up to 8 tools added to the tenant's MCP surface after explicit operator consent — see [MCP tools reference](/en/docs/mcp/tools). |
+
+## Authoring loop
+
+```bash
+pnpm pack:init my_pack               # scaffold a valid starter manifest
+# edit my_pack.pack.json — predicates, profile, fixtures…
+pnpm pack:validate my_pack.pack.json # standard + core collision check
+pnpm pack:sign -- --file my_pack.pack.json --key priv.pem --publisher acme  # ed25519
+pnpm pack:publish -- --brain-url https://brain.inite.ai \
+  --file my_pack.pack.json --verify  # needs registry:publish
+pnpm pack:install -- --brain-url https://brain.inite.ai \
+  --registry my_pack                 # needs brain:admin, checksum-pinned
+```
+
+Integrity is end-to-end: every install stores a sha256 `packChecksum` (pass `--verify` and the server rejects a mismatch — “the manifest I install is the one I reviewed”), and an ed25519 `signature` + `publisher` prove authorship against the tenant's trust store (`DOMAIN_PACK_TRUSTED_KEYS`; `DOMAIN_PACK_REQUIRE_SIGNATURE=true` makes signing mandatory).
+
+## The registry
+
+Packs publish to a **global registry** — a shared, tenant-agnostic catalogue with npm/crates.io-style invariants:
+
+- **Version immutability** — a `(packId, version)` is content-addressed; republishing different content is a `409`.
+- **Yank, not delete** — a bad version drops out of latest-resolution but pinned installs stay reproducible.
+- **Verified badges** — a pack whose signature validates against the instance's trust store is marked verified; publisher profiles are writable only by companies with ≥ 1 verified pack under that publisher id (no squatting a well-known name).
+- **Download counts** — installs from the registry increment a counter (a refused install is not a download).
+- **Mirroring** — set `REGISTRY_UPSTREAM_URL` and a background job pull-mirrors another instance's catalogue through the normal publish path (validation, immutability, and local trust re-verification all apply; local rows always win).
+
+Discovery is `brain:read` (`GET /v1/registry/packs`), publishing is `registry:publish`, installing into a tenant is `brain:admin`, and `GET /registry/ui` is a public HTML catalogue.
+
+## Marketplace
+
+The registry doubles as a marketplace, all state instance-local: **featured curation** (`registry:curate` flips the flag; featured packs top the catalogue), **publisher profiles** (public pages per publisher id), and **paid packs**. Pricing is registry-level per pack: the publisher `PUT`s a price, which mints a billing product granting the entitlement **`domain_pack:<packId>`**. Install flow for an unpaid tenant:
+
+```
+POST /v1/admin/packs/from-registry {packId}   → 402 + self-describing checkout pointer
+POST /v1/admin/registry/packs/:id/checkout    → { checkoutUrl } — open, pay
+POST /v1/admin/packs/from-registry {packId}   → installs
+```
+
+Fail-closed posture: entitlements are polled from the billing service behind a short TTL cache that is never served stale. With `DOMAIN_PACK_BILLING_ENABLED` off — the default and the self-hosted posture — paid metadata is ignored and **every pack installs free**. Price and curation live outside the signed manifest, so re-pricing never invalidates signatures.
+
+## First-party pack library
+
+Beyond the builtin `code_memory` (the engineering “why” of a codebase), Brain ships six distributable industry packs — `real_estate`, `fintech`, `medical`, `legal`, `insurance`, `hr` — each a complete ontology with predicates, an extraction profile, and eval fixtures.
+
+## Going deeper
+
+- [`docs/domain-packs.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/domain-packs.md) — the full standard: manifest reference, namespacing rules, seed-document caps, marketplace protocol.
+- [`docs/openapi.json`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/openapi.json) — the machine-readable platform surface (OpenAPI 3.1).
+
+## Related
+
+- [Document pipeline](/en/docs/platform/document-pipeline) — where indexer descriptors and seed documents execute
+- [External indexers](/en/docs/platform/external-indexers) — building the remote side of `indexer: { mode: 'external' }`
+- [MCP tools reference](/en/docs/mcp/tools) — pack-declared MCP tools and their consent flow

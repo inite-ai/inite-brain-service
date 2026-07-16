@@ -1,6 +1,6 @@
 # Набор скиллов
 
-Brain поставляет четыре Anthropic Skills, которые учат AI-агента пользоваться MCP-поверхностью. Это обычный markdown — `SKILL.md` с YAML-фронтматтером — и Claude читает их нативно, когда они попадают в `~/.claude/skills/`.
+Brain поставляет шесть Anthropic Skills, которые учат AI-агента пользоваться MCP-поверхностью. Это обычный markdown — `SKILL.md` с YAML-фронтматтером — и Claude читает их нативно, когда они попадают в `~/.claude/skills/`.
 
 ## Установка одной строкой
 
@@ -15,14 +15,16 @@ curl -fsSL https://brain.inite.ai/install.sh | sh
 
 Инсталлятор скачивает `skills.tar.gz`, распаковывает каждый скилл в `~/.claude/skills/<name>/SKILL.md` и кладёт рядом файл `VERSION.brain`, чтобы проверке свежести было с чем сравнивать одно число.
 
-## Четыре скилла
+## Шесть скиллов
 
 | Скилл | Срабатывает, когда… | Чему учит |
 | --- | --- | --- |
-| `brain-search` | Пользователь просит найти / посмотреть / поискать знание | Как звать `search_knowledge` с подсказками по предикатам и семантикой asOf |
-| `brain-recall` | Пользователь называет сущность и просит полную картину | Как сочетать `get_entity_profile` + `get_entity_timeline` + `find_related_entities` |
-| `brain-bitemporal` | У пользователя временной вопрос («на дату X», «до Y») | Семантика asOf, validFrom / validUntil, работа с отозванными строками |
-| `brain-mcp-setup` | Пользователь подключает MCP brain в новый клиент | Пошаговый конфиг для Claude Desktop, Cursor, Goose, n8n |
+| `brain-search` | Пользователь просит найти / посмотреть / поискать знание | Как звать `search_knowledge` (+ `search_multi_hop` / `synthesize`) с подсказками по предикатам и семантикой asOf |
+| `brain-recall` | Пользователь называет сущность и просит полную картину | Как сочетать `summarize_entity` + `get_entity_profile` + `get_entity_timeline` + `find_related_entities` + `get_competing_facts` |
+| `brain-bitemporal` | У пользователя временной вопрос («на дату X», «до Y») | Семантика asOf, `memory_diff`, validFrom / validUntil, работа с отозванными строками |
+| `brain-write` | Пользователь хочет записать / слить / поправить структурированное знание | `record_fact` / `link_entities` / `retract_fact` с прогонкой `detect_contradiction` перед записью |
+| `brain-conflict` | Два факта расходятся по одному предикату (статус COMPETING) | Процедура разбора через `get_competing_facts` + `detect_contradiction` |
+| `brain-mcp-setup` | Пользователь подключает MCP brain в новый клиент | Пошаговый конфиг для Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n и «сырого» клиента `@modelcontextprotocol/sdk` |
 
 ## Формат
 
@@ -45,7 +47,7 @@ description: One-line summary the agent reads before deciding to activate this s
 
 ```bash
 cat ~/.claude/skills/VERSION.brain
-# → 0.1.0
+# → 0.3.0
 ```
 
 Бампится автоматически через `pnpm skills:bump --staged` на pre-commit, когда меняется любой файл под `skills/<name>/**`. Только patch-бамп — ручные minor / major: правь `skills/VERSION`, затем `pnpm skills:build`.
@@ -68,6 +70,8 @@ curl -fsSL https://brain.inite.ai/install.sh | sh
 ├── brain-search/SKILL.md
 ├── brain-recall/SKILL.md
 ├── brain-bitemporal/SKILL.md
+├── brain-write/SKILL.md
+├── brain-conflict/SKILL.md
 └── brain-mcp-setup/SKILL.md
 ```
 

@@ -17,50 +17,58 @@ Every endpoint declares its required scope. Mismatch = 403, before any business 
 
 | Scope | Required by |
 | --- | --- |
-| `brain:read` | All `/v1/search*`, `/v1/entities/:id` (non-PII fields), MCP read tools |
-| `brain:write` | `/v1/ingest/*`, `/v1/facts/:id/retract`, MCP `record_fact` + `retract_fact` |
+| `brain:read` | All `/v1/search*`, `/v1/entities/:id` (non-PII fields), `/v1/sources` trust reads, registry discovery (`/v1/registry/*`), MCP read tools |
+| `brain:write` | `/v1/ingest/*`, `/v1/facts/:id/retract`, MCP write tools (`record_fact`, `retract_fact`, …) |
 | `brain:read_pii` | Unlocks sensitive predicate object values (`email`, `phone`, `dob`, `address`) |
-| `brain:forget` | `/v1/entities/:id/forget` — must be paired with `brain:write` |
-| `brain:admin` | `/v1/dreams/run` |
+| `brain:admin` | Tenant operations: `/v1/entities/:id/forget`, `/v1/dreams/run`, Domain Pack install / uninstall (`/v1/admin/packs*`, incl. install-from-registry), document re-indexing (`/v1/admin/documents/reindex`), admin config |
+| `registry:publish` | Publish / yank in the **global** pack registry, publisher profiles, pack pricing — distinct from `brain:admin` because it mutates the catalogue shared across tenants |
+| `registry:curate` | Hosting-operator curation of the global registry (feature / unfeature) |
+| `indexer:write` | External indexers: poll / claim work items, read routed document content, stage candidates (`POST /v1/documents/:id/candidates`) — deliberately narrower than `brain:write`: it can propose hypotheses, never commit facts |
 
-The scope check is also enforced at the **DB layer** via SurrealDB `PERMISSIONS WHERE $caller_scopes CONTAINS 'brain:read_pii'`. A bug in the controller can't accidentally leak — the database refuses to return the value.
+The PII scope check is also mirrored in the app-layer read fence on every surface (see PII gating below). A bug in one controller can't accidentally leak — the shared filter refuses to return the value.
 
-## 3. Per-tenant isolation
+## 3. ABAC policy sets
+
+Scopes answer “may this key search at all”; they can't answer “may this key see facts that came from HR documents”. ABAC adds named **policy sets** a tenant attaches to individual API keys:
+
+- **Action rules** allow / deny REST endpoints and MCP tools by name (`search_knowledge`, `rest.documents.get`, …) or via the `@readonly` / `@write` / `@all` macros. Pack-declared MCP tools are gateable by their concrete `<packId>__<tool>` names.
+- **Source rules** filter which *rows* a key can read, by attribute match on a fact's provenance: predicate, PII class, source vertical / recorder, document lineage, operator metadata, **numeric trust thresholds** (`trust.authority`, `trust.learnedTrust`), corroboration counts, per-user scope.
+
+Evaluation is deny-overrides (`explicit deny > explicit allow > default posture`); multiple sets combine most-restrictive. Everything is inert unless `ABAC_ENABLED=1` **and** the key references a set — an unpolicied tenant runs byte-identical to pre-ABAC.
+
+Rollout is designed to be safe: create a set in `report_only` mode, watch `would_deny` decisions, then flip to `enforce`. The **Key Lens** simulation (`POST /v1/admin/policy/simulate/search`) runs a real search as if holding a given key and annotates every row with its verdict and reasons — you see exactly what a policy would hide before enforcing it.
+
+Full model, attribute table, and the rollout runbook: [`docs/abac.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/abac.md).
+
+## 4. Per-tenant isolation
 
 Each company gets its own SurrealDB database `co_<companyId>` inside the shared `inite` namespace. There is **no shared table with row-level security** — cross-tenant queries are physically impossible at the storage layer.
 
 The scoped DB connection signs in as `brain_caller`, a non-root editor user. Root credentials are reserved for `DEFINE` / `REMOVE`. Schema migrations apply per tenant on first request via idempotent `DEFINE … IF NOT EXISTS`.
 
-## 4. MCP companyId binding
+## 5. MCP companyId binding
 
 Every MCP request includes the companyId in the URL path. Brain's controller checks `pathCompanyId === auth.companyId` and returns `400` on mismatch. An API key issued for `co_demo` cannot be used against `/mcp/co_other`.
 
-## 5. PII gating
+## 6. PII gating
 
-The DB-layer `PERMISSIONS` clause guards the `object` field of sensitive predicates:
-
-```sql
-DEFINE FIELD object ON TABLE knowledge_fact
-  PERMISSIONS FOR select
-  WHERE predicate NOT IN ['email', 'phone', 'dob', 'address']
-     OR $caller_scopes CONTAINS 'brain:read_pii';
-```
+Every read surface passes through a shared scope-aware filter that redacts the `object` field of sensitive predicates for callers without `brain:read_pii`. A matching DB-layer `PERMISSIONS` fence is defined on `knowledge_fact` as defence-in-depth (a canary e2e watches for the SurrealDB release where field permissions start applying to system users — the app-layer filter is the active gate today, and it is e2e-enforced on every surface).
 
 A scope-less caller still sees the row exists — `predicate`, `validFrom`, `factId` all visible. The `object` is `null`. This is the “we have this data, you don't have rights” surface.
 
 CI runs a PII-gating eval with threshold 1.0 — any leak blocks the release.
 
-## 6. GDPR forget
+## 7. GDPR forget
 
 `POST /v1/entities/:id/forget` cascades through facts, edges, embeddings, derived artifacts. Synchronous. Leaves an `HMAC(forgetHmacKey, entityId)` tombstone in `forgotten_entity`. The HMAC proves the request was honored without keeping the entity id in plaintext.
 
 `FORGET_HMAC_KEY` is a required env var in production — `validateEnv()` hard-fails the service if it's missing or default. Using the default lets an attacker forge tombstones.
 
-## 7. Audit trail
+## 8. Audit trail
 
 Every retract / forget / dreams-run lands in an audit table with caller identity, timestamp, reason. Audit rows are immutable (DB-level — no UPDATE / DELETE grant). Retract-cascade lists every derivative.
 
-## 8. Rate limiting
+## 9. Rate limiting
 
 Per-tenant per-endpoint via `@nestjs/throttler`. Defaults:
 - `/v1/ingest/*` — 100 req/min
@@ -70,16 +78,21 @@ Per-tenant per-endpoint via `@nestjs/throttler`. Defaults:
 
 Override per tenant via the admin API. Headers include `X-RateLimit-Remaining`.
 
-## 9. Boot-time validation
+## 10. Boot-time validation
 
 `validateEnv()` runs before NestJS starts. Missing or malformed values produce a single multi-line error and exit code 1. Better to refuse to start than dribble out 500s under load.
 
-## 10. Graceful shutdown
+## 11. Graceful shutdown
 
 `SIGTERM` / `SIGINT` close the SurrealDB connection and drain in-flight requests. 15s deadline so docker / fly / k8s don't `SIGKILL` mid-request.
+
+## Source trust API
+
+Trust inputs are readable, not secret: `GET /v1/sources` (list, filterable by `domain` / `type` / `minSamples`) and `GET /v1/sources/:sourceKey` (detail) are available to any `brain:read` key. They expose what a consumer needs to weigh a fact's trust snapshot — the declared source type and authority level, the learned agreement rates (global and per-domain, with sample / win / loss counts), and a bounded reputation history trail (capped at 50 rows). Operator annotations (`owner`, `note`) stay on the `brain:admin` surface — the public projection never leaks them.
 
 ## Related
 
 - [Operator playbook](/en/docs/operator-playbook) — key issuance, scope assignment
 - [POST /v1/entities/:id/forget](/en/docs/api/entities) — the forget cascade
 - [Predicate vocabulary](/en/docs/concepts/predicates) — PII classes per predicate
+- [Domain Packs](/en/docs/platform/domain-packs) — registry scopes, signed manifests, install consent

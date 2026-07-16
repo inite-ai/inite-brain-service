@@ -123,7 +123,7 @@
     "correctness": "корректность · всё под гейтом 1.0",
     "footnote": "Из eval-отчёта, n=262 (multi-vertical сьют + wikidata). На temporal-запросах recall@1 1.000 (n=21), на current — 0.959 (n=241). Каждый push прогоняет заново; ниже гейта сборка падает.",
     "items": [
-      { "label": "recall@1", "value": "0.965", "floor": "≥ 0.6" },
+      { "label": "recall@1", "value": "0.962", "floor": "≥ 0.6" },
       { "label": "faithfulness", "value": "1.000", "floor": "≥ 0.8" },
       { "label": "identity-F1", "value": "1.000", "floor": "≥ 0.8" },
       { "label": "memory-lifecycle", "value": "1.000", "floor": "= 1.0" }
@@ -140,19 +140,14 @@
         "desc": "Два ingest на один факт идут через лестницу скоринга — confidence × source-trust × recency × authority. Близкие по score случаи помечаются COMPETING, а не перезаписываются молча."
       },
       {
+        "tag": "Trust",
+        "title": "Доверие к источникам",
+        "desc": "Факт — это заявление, а не истина. Каждый источник зарабатывает agreement rate, отдельно по доменам; заявленная authority и подтверждения из независимых документов влияют на ранжирование. Всё видно через GET /v1/sources."
+      },
+      {
         "tag": "Граф",
         "title": "Резолюция идентичности",
-        "desc": "Слияния между вертикалями схлопывают дубликаты в одну сущность через рёбра identity_of; переатрибуция идёт по mergedInto. B³ identity-F1 держится на 1.0."
-      },
-      {
-        "tag": "Lifecycle",
-        "title": "GDPR-forget",
-        "desc": "Forget — синхронное жёсткое удаление: факты, рёбра, эмбеддинги исчезают. Остаётся только HMAC-tombstone — доказательство, что это произошло."
-      },
-      {
-        "tag": "Safety",
-        "title": "Барьер для PII",
-        "desc": "PII закрыта на уровне БД через PERMISSIONS и scope вызывающего. Каждый предикат заранее объявляет свой PII-класс."
+        "desc": "Слияния между вертикалями схлопывают дубликаты в одну сущность через рёбра identity_of; переатрибуция идёт по mergedInto. Ночной проход Dreams сам предлагает слияния почти-дублей."
       },
       {
         "tag": "Retrieval",
@@ -165,14 +160,34 @@
         "desc": "/v1/synthesize гоняет corrective-RAG в режимах strict / lenient / off и проверяет правдивость каждого утверждения. Pass-rate под гейтом 1.0."
       },
       {
-        "tag": "Schema",
-        "title": "Онтология предикатов",
-        "desc": "Реестр на каждого тенанта, по сути OWL. У каждого предиката есть семантика, decay и PII-класс — их читают и роутер, и резолвер."
+        "tag": "Платформа",
+        "title": "Domain Packs",
+        "desc": "Версионируемые плагины онтологии: типизированные предикаты, тюнинг экстракции, seed-документы, MCP-инструменты. Манифесты с подписью ed25519, глобальный реестр с verified-издателями — и маркетплейс с featured и платными паками."
       },
       {
-        "tag": "Ops",
-        "title": "Dreams",
-        "desc": "В нерабочие часы Brain дедупит сущности, разрешает конкурирующие факты и суммаризует. Самоулучшение по расписанию, а не руками."
+        "tag": "Документы",
+        "title": "Пайплайн документов",
+        "desc": "Source → Indexer → Candidates → Brain. Экстракция предлагает, решает один резолвер. Сохранённые документы переиндексируются, когда приходит новый пак; внешние индексеры подключаются по pull-API."
+      },
+      {
+        "tag": "MCP",
+        "title": "Инструменты паков",
+        "desc": "Установленные паки расширяют MCP-поверхность: декларативные query-инструменты по своим предикатам и HMAC-подписанные прокси на эндпоинты издателя. Только с явного согласия оператора; чужой код в процессе не выполняется."
+      },
+      {
+        "tag": "Доступ",
+        "title": "ABAC-политики",
+        "desc": "Именованные policy-наборы на API-ключ: allow / deny по REST- и MCP-действиям, построчные фильтры чтения по PII-классу, порогам доверия и провенансу. Режим report-only делает раскатку безопасной."
+      },
+      {
+        "tag": "Safety",
+        "title": "Барьер для PII",
+        "desc": "PII закрыта на уровне БД через PERMISSIONS и scope вызывающего. Каждый предикат заранее объявляет свой PII-класс."
+      },
+      {
+        "tag": "Lifecycle",
+        "title": "GDPR-forget",
+        "desc": "Forget — синхронное жёсткое удаление: факты, рёбра, эмбеддинги исчезают. Остаётся только HMAC-tombstone — доказательство, что это произошло."
       },
       {
         "tag": "Tenancy",
@@ -188,16 +203,16 @@
   },
   "mcpBlock": {
     "eyebrow": "Model Context Protocol",
-    "title": "Один блок конфига. Шесть инструментов. Любой клиент.",
-    "subtitle": "MCP-URL на тенанта, scope-aware. Вставь в Claude Desktop, Cursor, Goose или n8n — агент получает те же шесть инструментов.",
-    "toolsLabel": "Шесть scope-aware инструментов",
+    "title": "Один блок конфига. Вся поверхность инструментов. Любой клиент.",
+    "subtitle": "MCP-URL на тенанта, scope-aware. Вставь в Claude Desktop, Cursor, Goose или n8n — агент получает 28 встроенных инструментов, а установленные Domain Packs могут добавить свои.",
+    "toolsLabel": "28 scope-aware инструментов · избранное",
     "clients": "Один URL, один заголовок, ноль glue-кода — всё, что говорит на MCP.",
     "linkLabel": "Гайд по настройке MCP"
   },
   "skillsBlock": {
     "eyebrow": "Скиллы агента",
     "title": "Скиллы, которые учат агента работать с Brain.",
-    "subtitle": "Четыре Anthropic-skill — search, recall, битемпоральные запросы и пошаговая настройка. Один curl ставит их в ~/.claude/skills.",
+    "subtitle": "Шесть Anthropic-скиллов — search, recall, битемпоральные запросы, записи, разбор конфликтов и пошаговая настройка. Один curl ставит их в ~/.claude/skills.",
     "linkLabel": "Все скиллы",
     "installCmd": "curl -fsSL https://brain.inite.ai/install.sh | sh"
   },
@@ -258,6 +273,7 @@
       "start": "С чего начать",
       "concepts": "Концепции",
       "rest": "REST API",
+      "platform": "Платформа",
       "mcp": "MCP",
       "ops": "Эксплуатация"
     },
@@ -302,25 +318,37 @@
         "title": "POST /v1/facts/:id/retract",
         "description": "Пометить факт retracted. Остаётся в audit trail с причиной."
       },
+      "domain-packs": {
+        "title": "Domain Packs",
+        "description": "Версионируемые плагины онтологии — манифест, подпись, реестр, маркетплейс."
+      },
+      "document-pipeline": {
+        "title": "Пайплайн документов",
+        "description": "Source → Indexer → Candidates → Brain. Переиндексация, корроборация, приватность."
+      },
+      "external-indexers": {
+        "title": "Внешние индексеры",
+        "description": "Pull-API работы: poll, claim, read, submit. HMAC-пуши, ключи на пак."
+      },
       "mcp-setup": {
         "title": "Настройка MCP",
         "description": "Конфиги для Claude Desktop, Cursor, Goose, n8n."
       },
       "mcp-tools": {
         "title": "MCP инструменты",
-        "description": "Шесть scope-aware инструментов с полными Zod-схемами."
+        "description": "28 scope-aware инструментов, 2 ресурса и расширения от паков."
       },
       "skills": {
         "title": "Бандл скиллов",
-        "description": "Четыре Anthropic-skill, install.sh, модель версионирования."
+        "description": "Шесть Anthropic-скиллов, install.sh, модель версионирования."
       },
       "operator-playbook": {
         "title": "Оператор-плейбук",
-        "description": "Day-2 операции — ключи, скоупы, dreams cron, baseline diffs."
+        "description": "Day-2 операции — ключи, скоупы, роли процессов, dreams cron, baseline diffs."
       },
       "security": {
         "title": "Модель безопасности",
-        "description": "JWT, скоупы, per-tenant изоляция, GDPR forget, PII gating."
+        "description": "JWT, скоупы, ABAC-политики, per-tenant изоляция, GDPR forget, PII gating."
       }
     },
     "prev": "Назад",

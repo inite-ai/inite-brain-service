@@ -70,10 +70,11 @@ const hits = await brain.search({
   }
 }
 
-# Restart Claude. Six tools become available:
-#   search_knowledge, get_entity_profile,
-#   get_entity_timeline, find_related_entities,
-#   record_fact, retract_fact`,
+# Restart Claude. The key's scopes decide the surface —
+# 28 built-in tools (19 read, +8 write, +1 admin).
+# Highlights:
+#   search_knowledge, synthesize, get_entity_profile,
+#   detect_contradiction, record_fact, retract_fact`,
   },
 ]
 

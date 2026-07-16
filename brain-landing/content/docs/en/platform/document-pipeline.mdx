@@ -1,0 +1,54 @@
+# Document pipeline
+
+How whole documents become memory: **Source → Indexer → Candidates → Brain**. The pipeline splits ingestion into four layers with deliberately hard boundaries — extraction PROPOSES, exactly one decision engine DISPOSES. The whole surface ships dark behind `DOCUMENT_INGEST_ENABLED` (default off); with the flag off the classic mention / fact paths behave byte-identically.
+
+## The four layers
+
+1. **Source** — connectors own raw formats (PDF, email, chat, git); what crosses the API is a normalized document. Identity is content: `contentHash` (sha256 of the redacted text) is UNIQUE, so re-sending the same document dedupes at the door. PII is redacted before hashing, then the text is chunked for the extractor.
+2. **Indexer** — a domain-aware reader, declared in a Domain Pack manifest. Three execution modes: `virtual` (rides the single union extraction call — zero extra LLM cost), `dedicated` (its own extraction run over a pack-filtered vocabulary, gated per document by a relevance router), `external` (a remote service reads the document and stages candidates — see [external indexers](/en/docs/platform/external-indexers)).
+3. **Candidates** — an indexer's output is staged, one row per entity / fact / relation, with full provenance. Not memory yet: `pending → committed | merged | rejected | expired`.
+4. **Brain (commit)** — unifies entities across runs, merges duplicate facts (confidence is the max, never noisy-or — two readers of one document are not independent evidence), and drives the same `fn::resolve_fact` every other write path uses. There is no second decision engine.
+
+## Ingesting a document
+
+`occurredAt` (the document's own clock — it becomes the facts' `validFrom`) and `contextRef.vertical` are required:
+
+```bash
+curl -X POST "$BRAIN_URL/v1/ingest/document" \
+  -H "Authorization: Bearer $BRAIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "markdown",
+    "text": "…normalized document text…",
+    "title": "Q2 support review",
+    "originUri": "https://intranet/notes/q2",
+    "occurredAt": "2026-07-01T10:00:00Z",
+    "contextRef": { "vertical": "support" },
+    "storeContent": true
+  }'
+```
+
+Requires `brain:write`. Text is capped at 512 K chars; `mode: 'sync' | 'async'` picks between an inline run and the job queue.
+
+### The `storeContent` privacy dial
+
+`storeContent: false` keeps only the header + hash: extraction still runs from the request body, but the document can never be re-indexed or span-re-validated later — an explicit privacy trade. `DELETE /v1/documents/:id/content` purges stored chunks after the fact, and facts committed from a purged document are stamped `provenancePurged: true` — still believed, but distinguishable.
+
+## Origin-keyed corroboration
+
+Independence is decided by the **origin document**, not the reader. Two indexers over one meeting transcript can never “independently confirm” each other — same document means refresh, never corroboration. Different documents, even through one connector, are independent evidence (`CORROBORATED`, feeding read-time fact trust).
+
+## Re-indexing
+
+The payoff of storing normalized text: install or upgrade a pack and run its extraction over the tenant's already-stored documents — `POST /v1/admin/documents/reindex` (`brain:admin`), or automatically with `REINDEX_ON_PACK_INSTALL=1`. The run ledger (UNIQUE on document × pack × version) skips whatever a pack version already processed; new candidates merge against existing memory through the same resolver.
+
+## Going deeper
+
+- [`docs/document-pipeline.md`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/document-pipeline.md) — the full pipeline reference: async mode, candidate lifecycle, flags, observability.
+- [`docs/openapi.json`](https://github.com/inite-ai/inite-brain-service/blob/main/docs/openapi.json) — every document endpoint, machine-readable.
+
+## Related
+
+- [Domain Packs](/en/docs/platform/domain-packs) — indexer descriptors, seed documents
+- [External indexers](/en/docs/platform/external-indexers) — the pull work API for remote readers
+- [Operator playbook](/en/docs/operator-playbook) — the staged enablement pointer

@@ -28,7 +28,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel with six tools (or four if the key only has `brain:read`).
+Quit Claude Desktop fully (not just close the window) and reopen. The brain server appears in the MCP panel — a read-only key exposes 19 tools, a full-scope key up to 28 (see the scope matrix below).
 
 ## Cursor
 
@@ -134,7 +134,7 @@ Once connected, ask the assistant:
 
 > List available brain tools and call `search_knowledge` with query `"hello"` limit 1.
 
-You should see either four or six tools (depending on scope) and a `search_knowledge` result that is either empty (fresh tenant) or one hit (seed data).
+You should see the tool count that matches the key's scopes (19 for read-only, up to 28 for read+write+admin) and a `search_knowledge` result that is either empty (fresh tenant) or one hit (seed data).
 
 If you get a 401, the bearer token is malformed or the key is invalid. If you get `400: MCP path companyId (...) does not match ApiKey companyId`, you've pasted the wrong companyId for this key.
 
@@ -142,11 +142,14 @@ If you get a 401, the bearer token is malformed or the key is invalid. If you ge
 
 | Scope | Tools visible |
 | --- | --- |
-| `brain:read` (always) | `search_knowledge`, `get_entity_profile`, `get_entity_timeline`, `find_related_entities` |
-| `brain:write` (extra) | also `record_fact`, `retract_fact` |
-| `brain:read_pii` (extra) | unlocks `email` / `phone` / `dob` / `address` object values in results |
+| `brain:read` (always) | **19 read tools** — search (`search_knowledge`, `search_multi_hop`, `synthesize`, `memory_diff`, `graph_retrieve`), entity reads (`get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `find_related_entities`, `detect_contradiction`), communities (`search_communities`, `list_communities`, `find_entity_communities`), procedural memory (`match_procedure`, `list_procedures`), source reputation (`get_source_reputation`), code memory (`why`, `recall_decisions`) — plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:write` (extra) | **+8 write tools** — `record_fact`, `link_entities`, `retract_fact`, `record_procedure`, `retire_procedure`, `record_feedback`, `record_decision`, and `ingest_document` (registered only when the operator sets `DOCUMENT_INGEST_ENABLED=1`) |
+| `brain:admin` (extra) | **+1** — `forget_entity`, the GDPR-grade destructive cascade |
+| `brain:read_pii` (extra) | no new tools — unlocks `email` / `phone` / `dob` / `address` object values in results |
 
-A key with only `brain:read` sees four tools, not six. That's the security invariant, not a bug.
+Installed [Domain Packs](/en/docs/platform/domain-packs) with consented `mcpTools` add pack-declared tools (`<packId>__<tool>`) on top of these — see the [tools reference](/en/docs/mcp/tools).
+
+A key with only `brain:read` sees 19 tools, not 28. That's the security invariant, not a bug.
 
 ## Stateless mode
 
