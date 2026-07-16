@@ -12,23 +12,24 @@ import {
 } from 'lucide-react'
 import { JsonView } from './JsonView'
 import { getMessages, normalizeLang } from '../../lib/i18n'
+import { JOB_STATUSES } from '../../lib/contracts/admin-jobs'
 import type { JobRow } from '../../lib/contracts/admin-jobs'
 
 type AdminT = ReturnType<typeof getMessages>['admin']
 
-const JOB_TYPES = [
-  '',
-  'dreams',
-  'compaction',
-  'calibration_refit',
-  'source_trust_refit',
-  'reindex_embeddings',
-  'changefeed_drain',
-]
-// 'pending' MUST be in the list — Phase J/K queue mode creates pending
-// rows that the worker loop hasn't claimed yet. Pre-Phase-J this was
-// omitted because rows were born 'running'; that's no longer true.
-const STATUSES = ['', 'pending', 'running', 'succeeded', 'failed', 'cancelled']
+// Derived from the wire-contract mirror (not copied) so the status filter
+// can never drift; '' = all. 'pending' is in the contract — Phase J/K
+// queue mode creates rows the worker loop hasn't claimed yet.
+export const STATUSES: readonly string[] = ['', ...JOB_STATUSES]
+
+function mergeJobTypes(
+  prev: readonly string[],
+  rows: readonly JobRow[],
+): readonly string[] {
+  const next = new Set(prev)
+  for (const r of rows) next.add(r.jobType)
+  return next.size === prev.length ? prev : [...next].sort()
+}
 
 export function JobsPanel() {
   const params = useParams<{ lang: string }>()
@@ -47,6 +48,17 @@ export function JobsPanel() {
   })
   const [live, setLive] = useState(true)
   const [sseStatus, setSseStatus] = useState<'idle' | 'open' | 'closed'>('idle')
+  // Backend JobType union keeps growing — the dropdown derives from observed
+  // rows instead of a hardcoded list so it can never drift. Types accumulate
+  // across loads/SSE frames; otherwise an active type filter would shrink
+  // the options to itself.
+  const [seenTypes, setSeenTypes] = useState<readonly string[]>([])
+
+  const jobTypeOptions = useMemo(() => {
+    const types = new Set(seenTypes)
+    if (filter.jobType) types.add(filter.jobType)
+    return ['', ...[...types].sort()]
+  }, [seenTypes, filter.jobType])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -62,7 +74,9 @@ export function JobsPanel() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `Failed ${res.status}`)
-      setJobs(data.jobs ?? [])
+      const rows = (data.jobs ?? []) as JobRow[]
+      setJobs(rows)
+      setSeenTypes((prev) => mergeJobTypes(prev, rows))
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -93,6 +107,7 @@ export function JobsPanel() {
           next[idx] = j
           return next
         })
+        setSeenTypes((prev) => mergeJobTypes(prev, [j]))
       } catch {
         // ignore malformed frame
       }
@@ -164,7 +179,7 @@ export function JobsPanel() {
           onChange={(e) => setFilter((f) => ({ ...f, jobType: e.target.value }))}
           className="border border-[var(--border)] rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-[var(--text)]"
         >
-          {JOB_TYPES.map((jt) => (
+          {jobTypeOptions.map((jt) => (
             <option key={jt} value={jt}>
               {jt || t.jobs.filters.allTypes}
             </option>

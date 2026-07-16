@@ -27,6 +27,13 @@ const ConfigCategorySchema = z.enum([
   'misc',
 ])
 
+/**
+ * Canonical category list in display order. Panels must derive their
+ * ordering from this instead of hardcoding a copy (guarded by
+ * __tests__/admin-drift.test.ts).
+ */
+export const CONFIG_CATEGORIES = ConfigCategorySchema.options
+
 const ConfigEntrySchema = z.object({
   key: z.string(),
   category: ConfigCategorySchema,

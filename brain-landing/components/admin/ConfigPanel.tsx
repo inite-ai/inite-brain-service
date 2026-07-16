@@ -4,26 +4,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, KeyRound, RefreshCw, Settings2 } from 'lucide-react'
+import { CONFIG_CATEGORIES } from '../../lib/contracts/admin-config'
 import type { ConfigEntry } from '../../lib/contracts/admin-config'
 
-const CATEGORY_ORDER = [
-  'pipeline',
-  'extractor',
-  'embedder',
-  'dreams',
-  'compaction',
-  'audit',
-  'router',
-  'search',
-  'multihop',
-  'calibration',
-  'conflict',
-  'cost',
-  'throttle',
-  'jobs',
-  'auth',
-  'misc',
-]
+// Display order = contract enum order. Derived (not copied) so a category
+// added to the wire contract can never miss the dropdown / sort again.
+export const CATEGORY_ORDER: readonly string[] = CONFIG_CATEGORIES
 
 export function ConfigPanel() {
   const [entries, setEntries] = useState<ConfigEntry[]>([])
@@ -75,8 +61,8 @@ export function ConfigPanel() {
   }, [entries, q, category, onlyOverridden])
 
   const categories = useMemo(() => {
-    const seen = new Set(entries.map((e) => e.category))
-    return CATEGORY_ORDER.filter((c) => seen.has(c as ConfigEntry['category']))
+    const seen = new Set<string>(entries.map((e) => e.category))
+    return CATEGORY_ORDER.filter((c) => seen.has(c))
   }, [entries])
 
   const grouped = useMemo(() => {
