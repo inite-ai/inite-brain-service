@@ -8,10 +8,14 @@ response schemas — regenerate with `pnpm openapi:build`; this page
 stays an index, not a second spec.
 
 All v1 endpoints are live; MCP transport is mounted per tenant. Every
-v1 call requires `Authorization: Bearer <plaintext>` where the key's
-SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require
-`brain:admin` scope on top of base auth; PII surfaces require
-`brain:read_pii`.
+v1 call requires `Authorization: Bearer <credential>` — an
+auth-service JWT (verified via JWKS; `org`+`sub` = tenant+user,
+bare `sub` = M2M tenant), a long-lived `ik_…` API key (resolved via
+RFC 7662 introspection), or a static `BRAIN_API_KEYS` entry (dev
+fallback). Admin endpoints require `brain:admin` scope on top of base
+auth; PII surfaces require `brain:read_pii`. Unauthenticated requests
+get `WWW-Authenticate: Bearer resource_metadata=…` (RFC 9728) pointing
+at the discovery document below.
 
 ## Health + observability
 
@@ -20,6 +24,7 @@ SHA-256 lives in `BRAIN_API_KEYS`. Admin endpoints require
 | `GET /health` | Container + SurrealDB readiness. No auth. |
 | `GET /ready` | Readiness probe (schema + connectivity). No auth. |
 | `GET /metrics` | Prometheus exposition (in-cluster scrape; keep off the public surface). |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 metadata: which authorization server protects this deployment + user-delegable scopes. No auth — MCP clients use it to self-onboard. |
 
 ## Ingest
 
