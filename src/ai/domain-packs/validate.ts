@@ -6,6 +6,7 @@ import {
   SEED_MAX_DOCS,
   SEED_TOTAL_MAX_CHARS,
   type DomainPackManifest,
+  type PackToolParam,
 } from './manifest';
 
 /**
@@ -107,6 +108,9 @@ export function validatePack(pack: DomainPackManifest): void {
   }
   if (pack.indexer !== undefined) {
     validateIndexerDescriptor(pack.id, pack.indexer);
+  }
+  if (pack.mcpTools !== undefined) {
+    validateMcpTools(pack, pack.mcpTools);
   }
 }
 
@@ -451,6 +455,287 @@ function validateExtractionProfile(packId: string, profile: unknown): void {
           `pack "${packId}" extractionProfile.fewShot entries must be { text: string, note: string }`,
         );
       }
+    }
+  }
+}
+
+// ── MCP pack tools (docs/mcp-pack-tools.md) ──────────────────────────
+
+const TOOL_NAME = /^[a-z][a-z0-9_]{1,40}$/;
+const PARAM_NAME = /^[a-z][a-z0-9_]{0,30}$/;
+const TOOL_KINDS = new Set(['query', 'external']);
+const QUERY_SURFACES = new Set(['search', 'facts_by_predicate']);
+const MAX_TOOLS = 8;
+const MAX_TOOL_PARAMS = 8;
+
+/**
+ * Validate the pack's declared MCP tools (PackToolSpec[] in manifest.ts).
+ * Structural + referential only (predicates must be the pack's OWN
+ * localIds) and deliberately env-free: the https-only rule for external
+ * endpoints is enforced at install/call time by the egress guard, so a
+ * pure `pnpm pack:validate` run gives an author the same verdict a
+ * server would. Exported: the MCP reader re-runs it defensively against
+ * stored manifests before registering anything.
+ */
+export function validateMcpTools(pack: DomainPackManifest, tools: unknown): void {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    throw new DomainPackError(
+      `pack "${pack.id}" mcpTools must be a non-empty array`,
+    );
+  }
+  if (tools.length > MAX_TOOLS) {
+    throw new DomainPackError(
+      `pack "${pack.id}" declares ${tools.length} mcpTools — max is ${MAX_TOOLS}`,
+    );
+  }
+  const localIds = new Set(pack.predicates.map((p) => p.localId));
+  const seen = new Set<string>();
+  for (const t of tools) {
+    if (t === null || typeof t !== 'object' || Array.isArray(t)) {
+      throw new DomainPackError(`pack "${pack.id}" mcpTools entries must be objects`);
+    }
+    const tool = t as {
+      kind?: unknown;
+      name?: unknown;
+      title?: unknown;
+      description?: unknown;
+    };
+    if (!TOOL_KINDS.has(tool.kind as string)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" mcpTool kind "${tool.kind}" must be one of ${[...TOOL_KINDS].join('|')}`,
+      );
+    }
+    const name = tool.name as string;
+    if (
+      typeof name !== 'string' ||
+      !TOOL_NAME.test(name) ||
+      name.includes(PACK_NAMESPACE_SEP)
+    ) {
+      throw new DomainPackError(
+        `pack "${pack.id}" mcpTool name "${name}" must match ${TOOL_NAME} and must not contain "${PACK_NAMESPACE_SEP}"`,
+      );
+    }
+    if (seen.has(name)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" declares duplicate mcpTool name "${name}"`,
+      );
+    }
+    seen.add(name);
+    if (tool.title !== undefined && (typeof tool.title !== 'string' || tool.title.length > 80)) {
+      throw new DomainPackError(
+        `pack "${pack.id}" mcpTool "${name}" title must be a string of at most 80 characters`,
+      );
+    }
+    if (
+      typeof tool.description !== 'string' ||
+      tool.description.length === 0 ||
+      tool.description.length > 500
+    ) {
+      throw new DomainPackError(
+        `pack "${pack.id}" mcpTool "${name}" description must be a non-empty string of at most 500 characters`,
+      );
+    }
+    if (tool.kind === 'query') {
+      validateQueryTool({ packId: pack.id, name, tool: t, localIds });
+    } else {
+      validateExternalTool(pack.id, name, t);
+    }
+  }
+}
+
+function validateQueryTool({
+  packId,
+  name,
+  tool,
+  localIds,
+}: {
+  packId: string;
+  name: string;
+  tool: unknown;
+  localIds: Set<string>;
+}): void {
+  const { query } = tool as { query?: unknown };
+  if (typeof query !== 'object' || query === null || Array.isArray(query)) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" needs a query object`,
+    );
+  }
+  const q = query as {
+    surface?: unknown;
+    predicates?: unknown;
+    defaultLimit?: unknown;
+    minConfidence?: unknown;
+  };
+  if (!QUERY_SURFACES.has(q.surface as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" query.surface "${q.surface}" must be one of ${[...QUERY_SURFACES].join('|')}`,
+    );
+  }
+  if (q.predicates !== undefined) {
+    if (
+      !Array.isArray(q.predicates) ||
+      q.predicates.length === 0 ||
+      q.predicates.some((p) => typeof p !== 'string')
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" query.predicates must be a non-empty array of localIds`,
+      );
+    }
+    for (const p of q.predicates) {
+      if (!localIds.has(p as string)) {
+        throw new DomainPackError(
+          `pack "${packId}" mcpTool "${name}" query.predicates references "${p}", which is not a predicate of this pack`,
+        );
+      }
+    }
+  } else if (q.surface === 'facts_by_predicate') {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" surface facts_by_predicate requires query.predicates`,
+    );
+  }
+  if (
+    q.defaultLimit !== undefined &&
+    (typeof q.defaultLimit !== 'number' ||
+      !Number.isInteger(q.defaultLimit) ||
+      q.defaultLimit < 1 ||
+      q.defaultLimit > 20)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" query.defaultLimit must be an integer in [1, 20]`,
+    );
+  }
+  if (q.minConfidence !== undefined) {
+    if (q.surface !== 'search') {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" query.minConfidence applies to the search surface only`,
+      );
+    }
+    if (
+      typeof q.minConfidence !== 'number' ||
+      q.minConfidence < 0 ||
+      q.minConfidence > 1
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" query.minConfidence must be a number in [0, 1]`,
+      );
+    }
+  }
+}
+
+function validateExternalTool(packId: string, name: string, tool: unknown): void {
+  const t = tool as { endpoint?: unknown; timeoutMs?: unknown; params?: unknown };
+  // Pure structural URL check — http accepted here so the validator stays
+  // env-free; https-only (and the private-address fence) is enforced by
+  // the egress guard at install time and again on every call.
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(t.endpoint as string);
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" endpoint must be a valid http(s) URL`,
+    );
+  }
+  if (
+    t.timeoutMs !== undefined &&
+    (typeof t.timeoutMs !== 'number' ||
+      !Number.isInteger(t.timeoutMs) ||
+      t.timeoutMs < 1_000 ||
+      t.timeoutMs > 30_000)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" timeoutMs must be an integer in [1000, 30000]`,
+    );
+  }
+  if (t.params === undefined) return;
+  if (!Array.isArray(t.params) || t.params.length > MAX_TOOL_PARAMS) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" params must be an array of at most ${MAX_TOOL_PARAMS}`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const p of t.params) {
+    validateToolParam(packId, name, p);
+    const pname = (p as PackToolParam).name;
+    if (seen.has(pname)) {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" declares duplicate param "${pname}"`,
+      );
+    }
+    seen.add(pname);
+  }
+}
+
+const TOOL_PARAM_TYPES = new Set(['string', 'number', 'boolean']);
+
+function validateToolParam(packId: string, name: string, param: unknown): void {
+  if (param === null || typeof param !== 'object' || Array.isArray(param)) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" params entries must be objects`,
+    );
+  }
+  const p = param as Partial<PackToolParam>;
+  if (
+    typeof p.name !== 'string' ||
+    !PARAM_NAME.test(p.name) ||
+    p.name.includes(PACK_NAMESPACE_SEP)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" param name "${p.name}" must match ${PARAM_NAME} and must not contain "${PACK_NAMESPACE_SEP}"`,
+    );
+  }
+  if (!TOOL_PARAM_TYPES.has(p.type as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" param "${p.name}" type must be one of ${[...TOOL_PARAM_TYPES].join('|')}`,
+    );
+  }
+  if (
+    p.description !== undefined &&
+    (typeof p.description !== 'string' || p.description.length > 200)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" param "${p.name}" description must be a string of at most 200 characters`,
+    );
+  }
+  if (p.required !== undefined && typeof p.required !== 'boolean') {
+    throw new DomainPackError(
+      `pack "${packId}" mcpTool "${name}" param "${p.name}" required must be a boolean`,
+    );
+  }
+  if (p.enum !== undefined) {
+    if (p.type !== 'string') {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" param "${p.name}" enum applies to string params only`,
+      );
+    }
+    if (
+      !Array.isArray(p.enum) ||
+      p.enum.length === 0 ||
+      p.enum.length > 20 ||
+      p.enum.some((v) => typeof v !== 'string' || v.length === 0 || v.length > 60)
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" param "${p.name}" enum must be 1..20 non-empty strings of at most 60 characters`,
+      );
+    }
+  }
+  if (p.maxLength !== undefined) {
+    if (p.type !== 'string') {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" param "${p.name}" maxLength applies to string params only`,
+      );
+    }
+    if (
+      typeof p.maxLength !== 'number' ||
+      !Number.isInteger(p.maxLength) ||
+      p.maxLength < 1 ||
+      p.maxLength > 2_000
+    ) {
+      throw new DomainPackError(
+        `pack "${packId}" mcpTool "${name}" param "${p.name}" maxLength must be an integer in [1, 2000]`,
+      );
     }
   }
 }

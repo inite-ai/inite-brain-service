@@ -95,6 +95,15 @@ export interface DomainPackManifest {
    * Absent = 'virtual' — the pack rides the union extraction call.
    */
   indexer?: IndexerDescriptor;
+  /**
+   * MCP tools this pack contributes to the tenant's MCP surface (see
+   * PackToolSpec below and docs/mcp-pack-tools.md). Max 8. Deliberately
+   * NOT executable code: 'query' tools are declarative reads over the
+   * pack's own predicates; 'external' tools are HMAC-signed HTTPS
+   * proxies to the publisher's endpoint. Requires explicit operator
+   * consent at install time (`acceptMcpTools`).
+   */
+  mcpTools?: PackToolSpec[];
 }
 
 /** Compose the stored, namespaced predicate id for a pack-local predicate. */
@@ -147,3 +156,70 @@ export interface IndexerDescriptor {
     callbackUrl?: string;
   };
 }
+
+/**
+ * Pack-declared MCP tools (docs/mcp-pack-tools.md). The specs live INSIDE
+ * the signed/checksummed manifest, so signature and version-immutability
+ * cover them with zero new machinery. Registered tool names are
+ * namespaced `<packId>__<name>` — same separator discipline as
+ * predicates, so packs can't collide with core tools or each other.
+ *
+ * Settled product decision: NO in-process third-party code. A pack tool
+ * is either a declarative query over tenant knowledge ('query') or an
+ * HMAC-signed HTTPS proxy to the publisher's own endpoint ('external').
+ */
+
+/** One declared parameter of an external pack tool. */
+export interface PackToolParam {
+  /** snake_case name, `^[a-z][a-z0-9_]{0,30}$`, no `__`. */
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  /** Shown to the calling agent — sanitized + capped at 200 chars. */
+  description?: string;
+  required?: boolean;
+  /** string type only; ≤ 20 items, each ≤ 60 chars. */
+  enum?: string[];
+  /** string type only; 1..2000. */
+  maxLength?: number;
+}
+
+/** Declarative read over the tenant's knowledge, scoped to the pack's
+ *  own (namespaced) predicates. The server computes the predicate set —
+ *  a pack can never widen a tool onto core or another pack's vocabulary. */
+export interface PackQueryToolSpec {
+  kind: 'query';
+  /** `^[a-z][a-z0-9_]{1,40}$`, no `__`; registered as `<packId>__<name>`. */
+  name: string;
+  /** ≤ 80 chars (sanitized). */
+  title?: string;
+  /** ≤ 500 chars (sanitized, server preamble prepended). */
+  description: string;
+  query: {
+    surface: 'search' | 'facts_by_predicate';
+    /** localIds — MUST exist in pack.predicates. REQUIRED for
+     *  facts_by_predicate; absent on search = ALL pack predicates. */
+    predicates?: string[];
+    /** 1..20. */
+    defaultLimit?: number;
+    /** 0..1, search surface only. */
+    minConfidence?: number;
+  };
+}
+
+/** HTTPS-proxied tool: Brain POSTs the call (HMAC-signed with the pack's
+ *  install webhook secret) to the publisher-operated endpoint. The tenant
+ *  is identified by the opaque per-install `installId`, never companyId. */
+export interface PackExternalToolSpec {
+  kind: 'external';
+  name: string;
+  title?: string;
+  description: string;
+  /** ≤ 8 params. */
+  params?: PackToolParam[];
+  /** https URL (egress-guarded at install AND per call). */
+  endpoint: string;
+  /** default 10_000, range [1_000, 30_000]. */
+  timeoutMs?: number;
+}
+
+export type PackToolSpec = PackQueryToolSpec | PackExternalToolSpec;

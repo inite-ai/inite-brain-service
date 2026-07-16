@@ -100,6 +100,10 @@ export const DomainPackManifestSchema = z.looseObject({
   ),
   publisher: z.string().optional(),
   indexer: z.record(z.string(), z.unknown()).optional(),
+  /** Pack-declared MCP tools (PackToolSpec[] — docs/mcp-pack-tools.md).
+   *  NO raw JSON Schema passthrough by design; runtime validation is
+   *  validateMcpTools on the install/publish path. */
+  mcpTools: z.array(z.record(z.string(), z.unknown())).optional(),
 });
 
 export const PublishPackRequestSchema = z.object({
