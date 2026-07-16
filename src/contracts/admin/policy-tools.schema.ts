@@ -10,7 +10,7 @@ import { z } from 'zod';
  *   GET  /v1/admin/policy/decisions (+ /stats)
  *   GET  /v1/admin/keys
  *
- * Duplicated in brain-landing/lib/contracts/admin-policy-tools.ts.
+ * Duplicated in brain-landing/lib/contracts/admin-policies.ts.
  */
 
 export const PolicyRegistryResponseSchema = z.object({

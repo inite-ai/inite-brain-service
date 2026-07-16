@@ -15,6 +15,13 @@ const JobStatusSchema = z.enum([
   'cancelled',
 ])
 
+/**
+ * Canonical status list. Panels must derive their filter options from
+ * this instead of hardcoding a copy (guarded by
+ * __tests__/admin-drift.test.ts).
+ */
+export const JOB_STATUSES = JobStatusSchema.options
+
 const TriggeredBySchema = z.enum(['cron', 'manual', 'startup'])
 
 const JobErrorSchema = z.object({
