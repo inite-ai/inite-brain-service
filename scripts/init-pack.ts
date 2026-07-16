@@ -18,7 +18,7 @@
  * `makePackSkeleton` is exported pure so the unit suite
  * (test/pack-init.unit-spec.ts) can assert the skeleton stays valid.
  */
-import { existsSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import {
   BUILTIN_PACKS,
   FIRST_PARTY_PACKS,
@@ -134,10 +134,16 @@ function main(): void {
   }
   const skeleton = makePackSkeleton(id);
   const out = `${id}.pack.json`;
-  if (existsSync(out)) {
-    throw new Error(`refusing to overwrite existing ${out}`);
+  // Exclusive create ('wx') fails atomically if the file already exists —
+  // no check-then-write TOCTOU window.
+  try {
+    writeFileSync(out, `${JSON.stringify(skeleton, null, 2)}\n`, { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(`refusing to overwrite existing ${out}`);
+    }
+    throw e;
   }
-  writeFileSync(out, `${JSON.stringify(skeleton, null, 2)}\n`);
   console.log(`✓ wrote ${out} — a valid starter manifest for pack "${id}"`);
   console.log('next steps (docs/domain-packs.md § Quickstart):');
   console.log(`  1. edit ${out} — predicates, extractionProfile, evalFixtures`);

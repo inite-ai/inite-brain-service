@@ -134,6 +134,9 @@
       "tmp": "^0.2.6",
       "js-yaml": "^4.2.0",
       "@babel/core": "^7.29.6",
+      "undici": "^7.28.0",
+      "minimatch@10": "^10.2.3",
+      "uuid": "^11.1.1",
       "onnx-proto>protobufjs": "^7.6.3",
       "@grpc/proto-loader>protobufjs": "^8.6.0",
       "@opentelemetry/otlp-transformer>protobufjs": "^8.6.0"

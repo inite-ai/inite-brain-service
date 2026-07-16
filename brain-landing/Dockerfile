@@ -7,7 +7,7 @@
 # CI before the build-push step.
 # ────────────────────────────────────────────────────────────────
 
-FROM node:22-alpine AS builder
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 WORKDIR /app
 
 # pnpm via corepack — same channel the rest of the repo uses.
@@ -35,7 +35,7 @@ ENV NEXT_PUBLIC_BRAIN_API_URL=$NEXT_PUBLIC_BRAIN_API_URL
 RUN pnpm build
 
 # ── Runtime image ────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runtime
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10 --activate

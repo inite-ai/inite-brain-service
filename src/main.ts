@@ -68,8 +68,22 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: maxBody });
   app.useBodyParser('urlencoded', { limit: maxBody, extended: true });
 
+  // The only HTML this service serves is the server-rendered pack registry
+  // catalogue (src/registry/registry-ui.ts) — one inline <style> block, no
+  // inline scripts; everything else is JSON. Enforce a CSP that allows that
+  // one page's inline styles, pins scripts/objects to same-origin/none, and
+  // forbids framing. (Leaving CSP off entirely is what CodeQL flagged.)
   app.use(helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
   }));
 

@@ -82,12 +82,21 @@ export class OperatorActionInterceptor implements NestInterceptor {
   }
 }
 
+// Prototype-pollution guard: request keys are attacker-controlled, so they
+// must never be allowed to address __proto__/constructor/prototype on the
+// plain summary object literals below.
+const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function isUnsafeKey(k: string): boolean {
+  return PROTO_KEYS.has(k);
+}
+
 function summariseQuery(
   q: Record<string, unknown> | undefined,
 ): Record<string, string> | null {
   if (!q || Object.keys(q).length === 0) return null;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(q)) {
+    if (isUnsafeKey(k)) continue;
     out[k] = truncate(String(v));
   }
   return out;
@@ -99,6 +108,7 @@ function summariseBody(
   if (!body || typeof body !== 'object') return null;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    if (isUnsafeKey(k)) continue;
     if (v === null || v === undefined) {
       out[k] = v;
     } else if (typeof v === 'string') {

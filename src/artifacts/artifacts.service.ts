@@ -204,12 +204,15 @@ export class ArtifactsService {
    * of returning an empty bundle.
    */
   private compile(type: ArtifactType, facts: FactRow[]): CompiledArtifact {
-    const template = TEMPLATES[type];
-    if (!template) {
+    // `type` is request-derived: guard with hasOwn so a value like
+    // 'constructor'/'toString' can't resolve to an inherited Object member
+    // and get invoked as a template.
+    if (!Object.prototype.hasOwnProperty.call(TEMPLATES, type)) {
       throw new BadRequestException(
         `Unknown artifactType '${type}'. Known: ${Object.keys(TEMPLATES).join(', ')}`,
       );
     }
+    const template = TEMPLATES[type];
     const out = template(facts);
     // De-duplicate sourceFactIds — multiple template fields commonly cite
     // the same fact (e.g. customer_profile.name + identity_dossier.name).

@@ -41,10 +41,10 @@ export async function seedMissingPredicates(opts: {
   } catch {
     embeddings = missing.map(() => null);
   }
-  for (let i = 0; i < missing.length; i++) {
+  for (const [i, item] of missing.entries()) {
     await db.query(`CREATE knowledge_predicate CONTENT $content`, {
       content: {
-        ...serializeForInsert(missing[i]),
+        ...serializeForInsert(item),
         ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
       },
     });

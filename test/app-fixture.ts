@@ -42,7 +42,7 @@ export async function createApp(opts: {
     packIds?: string[];
   }>;
 } = {}): Promise<AppFixture> {
-  const companyId = opts.companyId ?? `co_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const companyId = opts.companyId ?? `co_test_${Date.now()}_${randomUUID().slice(0, 6)}`;
   const apiKey = `key_${randomUUID()}`;
   const keyHash = 'sha256:' + createHash('sha256').update(apiKey).digest('hex');
   const extraApiKeys = (opts.extraKeys ?? []).map(() => `key_${randomUUID()}`);

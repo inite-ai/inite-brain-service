@@ -19,5 +19,5 @@ export function newBrainKey(companyId: string, scopes: string[]): BrainKeySpec {
 }
 
 export function newCompanyId(): string {
-  return `co_real_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  return `co_real_${Date.now()}_${randomUUID().slice(0, 4)}`;
 }

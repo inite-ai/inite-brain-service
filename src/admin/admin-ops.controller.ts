@@ -134,12 +134,15 @@ export class AdminOpsController {
         'This manifest enumerates entities erased from the brain service. The original payloads have been deleted; only the hashed identifier, deletion reason, and counts of removed facts/edges remain. Issued in accordance with GDPR Art. 17 ("right to erasure") proof-of-deletion obligations.',
       entries: rows,
     };
-    res.setHeader('Content-Type', 'application/json');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="forgotten-${new Date().toISOString().slice(0, 10)}.json"`,
     );
-    res.send(JSON.stringify(manifest, null, 2));
+    // res.json() (not res.send): it fixes Content-Type to application/json and
+    // JSON-encodes, so the user-supplied filter values (companyId/since)
+    // echoed in the manifest can't be content-sniffed to text/html and
+    // reflected as markup.
+    res.json(manifest);
   }
 
   // ── PII inventory ──────────────────────────────────────────
