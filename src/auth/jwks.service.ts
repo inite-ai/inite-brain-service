@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { ApiKeyRecord, BrainScope } from './api-key.types';
+import { RevocationCacheService } from './revocation-cache.service';
 
 const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:read',
@@ -38,7 +39,10 @@ export class JwksService implements OnModuleInit {
   private audience?: string;
   private algorithms: string[] = ['RS256'];
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly revocations: RevocationCacheService,
+  ) {}
 
   onModuleInit() {
     const url = this.configService.get<string>('AUTH_SERVICE_JWKS_URL');
@@ -101,6 +105,14 @@ export class JwksService implements OnModuleInit {
     } catch (e) {
       // Don't log token contents — only the error class/message
       this.logger.debug(`JWT verification failed: ${(e as Error).message}`);
+      return null;
+    }
+
+    // CAEP deny-list (fed by the SSF receiver): a session/account the
+    // auth-service revoked is rejected here even though the signature
+    // is still cryptographically valid until exp.
+    if (typeof payload.sub === 'string' && this.revocations.isDenied(payload.sub)) {
+      this.logger.debug('JWT rejected: subject is deny-listed (CAEP revocation)');
       return null;
     }
 
