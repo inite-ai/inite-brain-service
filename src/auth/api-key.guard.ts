@@ -95,9 +95,12 @@ export class ApiKeyGuard implements CanActivate {
     // decision sink + metrics without DI. authUserId rides the same
     // store — per-user memory surfaces pin caller-asserted userId to
     // the token's end-user via pinUserScope().
-    if (record.userId) {
+    if (record.userId || record.actorId) {
       const store = getRequestContext();
-      if (store) store.authUserId = record.userId;
+      if (store) {
+        if (record.userId) store.authUserId = record.userId;
+        if (record.actorId) store.authActorId = record.actorId;
+      }
     }
     if (policy) {
       const store = getRequestContext();
@@ -121,6 +124,10 @@ export class ApiKeyGuard implements CanActivate {
       scopes: record.scopes,
       keyHash: record.keyHash,
       ...(record.userId ? { userId: record.userId } : {}),
+      ...(record.actorId ? { actorId: record.actorId } : {}),
+      ...(record.mcpGrantedActions !== undefined
+        ? { mcpGrantedActions: record.mcpGrantedActions }
+        : {}),
       ...(record.packIds ? { packIds: record.packIds } : {}),
       ...(policy ? { policy } : {}),
     };

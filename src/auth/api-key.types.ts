@@ -37,6 +37,20 @@ export interface ApiKeyRecord {
    * feeds tier-aware throttling. Absent = default tier.
    */
   entitlements?: string[];
+  /**
+   * Identity of the ACTING client (the agent): RFC 8693 `act`, falling
+   * back to the token's `client_id`. Drives provenance attribution
+   * (source.meta.actor / mcp_agent:<id> recorder) and `agent:<id>`
+   * policy bindings. Absent for static keys.
+   */
+  actorId?: string;
+  /**
+   * RFC 9396 inite_mcp_resource grant — the union of MCP actions the
+   * user consented to for this deployment. undefined = no grant claim,
+   * gate inactive (scopes/ABAC only); empty = granted nothing (every
+   * tool removed) — foreign-location grants fail closed this way.
+   */
+  mcpGrantedActions?: string[];
   /** Optional human label. */
   name?: string;
   /**
@@ -63,6 +77,10 @@ export interface AuthenticatedRequest {
     keyHash: string;
     /** End-user of a user-bound token; absent for M2M credentials. */
     userId?: string;
+    /** Acting client (agent) identity; see ApiKeyRecord.actorId. */
+    actorId?: string;
+    /** RFC 9396 MCP grant; see ApiKeyRecord.mcpGrantedActions. */
+    mcpGrantedActions?: string[];
     /** Per-pack binding of an indexer key; absent = all external packs. */
     packIds?: string[];
     /**

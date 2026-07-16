@@ -35,6 +35,22 @@ describe('mapIntrospectionRecord', () => {
     expect(rec?.userId).toBeUndefined();
   });
 
+  it('carries policy set names from the introspection answer', () => {
+    const rec = mapIntrospectionRecord(
+      {
+        active: true,
+        sub: 'co_acme',
+        org: 'co_acme',
+        aud: 'brain',
+        scope: 'brain:read',
+        policy: ['support-reader', 'BAD NAME!'],
+      },
+      hash,
+      'brain',
+    );
+    expect(rec?.policyNames).toEqual(['support-reader']);
+  });
+
   it('maps a user-bound key: tenant = org, userId = sub', () => {
     const rec = mapIntrospectionRecord(
       { active: true, sub: 'did:key:z6MkUser', org: 'co_acme', aud: 'brain', scope: 'brain:read' },

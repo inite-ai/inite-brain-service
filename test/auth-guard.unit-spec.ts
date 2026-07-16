@@ -184,6 +184,55 @@ describe('ApiKeyGuard — JWKS verification', () => {
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('extracts the acting client: act wins over client_id, charset-bounded', async () => {
+    const viaAct = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co_acme', act: { sub: 'brain-landing' }, client_id: 'other' },
+    });
+    expect((await jwks.verify(viaAct))?.actorId).toBe('brain-landing');
+
+    const viaClientId = await mintJwt({
+      sub: 'jwt_co_m2m',
+      extraClaims: { client_id: 'dcr_abc123' },
+    });
+    expect((await jwks.verify(viaClientId))?.actorId).toBe('dcr_abc123');
+
+    const none = await mintJwt({ sub: 'jwt_co_m2m' });
+    expect((await jwks.verify(none))?.actorId).toBeUndefined();
+  });
+
+  it('maps inite_mcp_resource grants to mcpGrantedActions (fail-closed on foreign location)', async () => {
+    const granted = await mintJwt({
+      sub: 'jwt_co_g',
+      extraClaims: {
+        authorization_details: [
+          { type: 'inite_mcp_resource', actions: ['search_knowledge', 'BAD ACTION!'] },
+          { type: 'payment_initiation', actions: ['initiate'] },
+        ],
+      },
+    });
+    expect((await jwks.verify(granted))?.mcpGrantedActions).toEqual(['search_knowledge']);
+
+    // Foreign-location grant → empty grant (all tools removed), never full access.
+    const foreign = await mintJwt({
+      sub: 'jwt_co_g',
+      extraClaims: {
+        authorization_details: [
+          {
+            type: 'inite_mcp_resource',
+            locations: ['https://other-brain.example'],
+            actions: ['search_knowledge'],
+          },
+        ],
+      },
+    });
+    expect((await jwks.verify(foreign))?.mcpGrantedActions).toEqual([]);
+
+    // No MCP entries at all → gate inactive.
+    const noGrant = await mintJwt({ sub: 'jwt_co_g' });
+    expect((await jwks.verify(noGrant))?.mcpGrantedActions).toBeUndefined();
+  });
+
   it('rejects a valid JWT whose subject is CAEP deny-listed (401)', async () => {
     const token = await mintJwt({ sub: 'jwt_co_revoked' });
     revocations.deny('jwt_co_revoked', 60_000);

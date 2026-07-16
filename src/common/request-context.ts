@@ -56,6 +56,12 @@ export interface RequestContext {
    * credentials (tenant-wide authority, caller may assert any userId).
    */
   authUserId?: string;
+  /**
+   * Acting client (agent) identity from the token (`act`/`client_id`),
+   * stamped by ApiKeyGuard. Fact ingest attributes writes to it via
+   * source.meta.actor — provenance without signature threading.
+   */
+  authActorId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
