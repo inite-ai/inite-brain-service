@@ -2,10 +2,11 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { ApiKeyRecord } from '../auth/api-key.types';
 import { getCorrelationId } from '../common/request-context';
+import { actionKind } from './action-registry';
 import { evaluateAction } from './policy-engine';
 import { PolicyDecisionSink } from './policy-decision.sink';
 import { PolicyResolverService } from './policy-resolver.service';
-import { PolicyContext } from './policy.types';
+import { ActionKind, PolicyContext } from './policy.types';
 import { RowDecisionSummary } from './row-filter';
 
 /**
@@ -64,7 +65,31 @@ export class PolicyGateService {
    * Emits metrics + decision rows and throws on an enforced deny.
    */
   enforceAction(ctx: PolicyContext, action: string, requestId?: string): void {
-    const evaluation = evaluateAction(ctx, action);
+    this.enforce({ ctx, action, kind: actionKind(action), requestId });
+  }
+
+  /**
+   * enforceAction twin for tool names OUTSIDE the static action
+   * registry — pack-declared MCP tools carry their kind explicitly
+   * (query=read, external=write) so the @readonly/@write macros apply
+   * correctly instead of the unknown-name write default.
+   */
+  enforceToolAction(ctx: PolicyContext, action: string, kind?: ActionKind): void {
+    this.enforce({ ctx, action, kind: kind ?? actionKind(action) });
+  }
+
+  private enforce({
+    ctx,
+    action,
+    kind,
+    requestId,
+  }: {
+    ctx: PolicyContext;
+    action: string;
+    kind: ActionKind;
+    requestId?: string;
+  }): void {
+    const evaluation = evaluateAction(ctx, action, kind);
     const denies = evaluation.verdicts.filter((v) => v.verdict === 'deny');
     const decided = denies[0];
 

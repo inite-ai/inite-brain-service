@@ -29,12 +29,19 @@ export const PacksListResponseSchema = z.object({
 export const InstallPackRequestSchema = z.object({
   manifest: DomainPackManifestSchema,
   expectedChecksum: z.string().optional(),
+  /** Explicit consent to the manifest's mcpTools section (docs/
+   *  mcp-pack-tools.md). Required (400 otherwise) whenever the section is
+   *  non-empty, unless a prior install already accepted the identical
+   *  section — an upgrade that CHANGES it re-requires the flag. */
+  acceptMcpTools: z.boolean().optional(),
 });
 
 export const InstallFromRegistryRequestSchema = z.object({
   packId: z.string(),
   /** Absent = latest non-yanked registry version. */
   version: z.string().optional(),
+  /** See InstallPackRequest.acceptMcpTools — same consent gate. */
+  acceptMcpTools: z.boolean().optional(),
 });
 
 export const InstallPackResponseSchema = z.object({
@@ -57,6 +64,10 @@ export const InstallPackResponseSchema = z.object({
     .describe(
       'Present iff the manifest ships seedDocuments — whether their document-pipeline ingest was enqueued. Install never fails because of seeds.',
     ),
+  /** HMAC secret for indexer webhook pushes AND external mcpTool calls —
+   *  present ONLY when freshly minted (first install of a pack that needs
+   *  one). Shown once; upgrades keep the existing secret and omit this. */
+  webhookSecret: z.string().optional(),
 });
 
 export const UninstallPackResponseSchema = z.object({

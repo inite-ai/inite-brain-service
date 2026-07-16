@@ -9,6 +9,7 @@ import {
   makeRowPolicyFilter,
   type PolicyFilterableRow,
 } from '../policy/row-filter';
+import { activeFactWhere } from '../entities/entity-read.helpers';
 
 /**
  * Predicate-class allowlist that requires `brain:admin` for retract,
@@ -393,6 +394,90 @@ export class FactsService {
         asOf: asOf ? asOf.toISOString() : undefined,
         groups: Array.from(groupMap.values()),
       };
+    });
+  }
+
+  /**
+   * Active-believed-now facts for ONE predicate, optionally scoped to an
+   * entity — the `facts_by_predicate` surface of pack-declared MCP query
+   * tools (docs/mcp-pack-tools.md). The caller (registerPackTools) has
+   * already composed the namespaced predicate id from the pack manifest,
+   * so this read can never leave the pack's own vocabulary. Mold:
+   * EntitiesService.getTimeline — scoped pool, bitemporal closure pushed
+   * into WHERE, overfetch ×2 for the row fence, slice after filtering.
+   */
+  async listByPredicate(opts: {
+    companyId: string;
+    /** FULL namespaced predicate id (`<packId>__<localId>`). */
+    predicate: string;
+    /** Optional entity scope — short or `knowledge_entity:` form. */
+    entityIdRaw?: string;
+    limit: number;
+    scopes: readonly BrainScope[];
+  }): Promise<{
+    predicate: string;
+    found: number;
+    facts: Array<{
+      factId: string;
+      entityId: string;
+      predicate: string;
+      object: string;
+      confidence: number;
+      validFrom: string;
+      validUntil?: string;
+      recordedAt: string;
+      status: string;
+    }>;
+  }> {
+    const { companyId, predicate, entityIdRaw, limit, scopes } = opts;
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const { clauses: activeClauses, params: activeParams } =
+        activeFactWhere(null);
+      const clauses = [
+        `predicate = $predicate`,
+        // User scope (0055): pack tool reads are tenant-global v1.
+        `userId IS NONE`,
+        ...activeClauses,
+      ];
+      const params: Record<string, unknown> = { predicate, ...activeParams };
+      if (entityIdRaw) {
+        const ref = this.normalizeEntityId(entityIdRaw);
+        clauses.push(`entityId = type::record('knowledge_entity:' + $rid)`);
+        params.rid = ref.id;
+      }
+      // ×2 headroom so the scope/ABAC row fence doesn't starve the page.
+      const overfetch = Math.min(limit * 2, 100);
+      const [rows] = await db.query<any[][]>(
+        `SELECT id, entityId, predicate, object, confidence,
+                validFrom, validUntil, recordedAt, status,
+                source, trustSnapshot, corroboration, userId
+           FROM knowledge_fact
+           WHERE ${clauses.join(' AND ')}
+           ORDER BY recordedAt DESC
+           LIMIT ${overfetch}`,
+        params,
+      );
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: scopes,
+        surface: 'pack_facts_by_predicate',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
+      });
+      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
+        (r) => rowPolicy.filter(r),
+      );
+      rowPolicy.finish();
+      const facts = (visible as any[]).slice(0, limit).map((r) => ({
+        factId: String(r.id),
+        entityId: String(r.entityId),
+        predicate: String(r.predicate),
+        object: String(r.object),
+        confidence: typeof r.confidence === 'number' ? r.confidence : 0,
+        validFrom: toIso(r.validFrom),
+        validUntil: r.validUntil ? toIso(r.validUntil) : undefined,
+        recordedAt: toIso(r.recordedAt),
+        status: String(r.status),
+      }));
+      return { predicate, found: facts.length, facts };
     });
   }
 

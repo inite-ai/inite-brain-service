@@ -28,6 +28,7 @@ export * from './manifest';
 export * from './validate';
 export * from './upgrade-diff';
 export * from './checksum';
+export * from './mcp-consent';
 export * from './signature';
 export * from './semver';
 export * from './eval-fixture';

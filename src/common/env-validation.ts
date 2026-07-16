@@ -167,6 +167,9 @@ validateAbacEnv(env, errors);
   // ── Chat-route NLI intent classifier ───────────────────────────────
   positiveInt(env, 'CHAT_ROUTE_NLI_TIMEOUT_MS', errors);
 
+  // ── MCP pack tools (migration 0068) ────────────────────────────────
+  positiveInt(env, 'MCP_PACK_TOOLS_CACHE_TTL_MS', errors);
+
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
 
@@ -407,6 +410,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // envFlagEnabled, so only an explicit 0/false skips pack seed ingest.
   'PACK_SEED_INGEST_ENABLED',
   'DOMAIN_PACK_BILLING_ENABLED',
+  'MCP_PACK_TOOLS_ENABLED',
+  // Default-ON under the master flag: read as
+  // `MCP_PACK_QUERY_TOOLS_ENABLED ?? '1'` before envFlagEnabled.
+  'MCP_PACK_QUERY_TOOLS_ENABLED',
+  'MCP_PACK_EXTERNAL_TOOLS_ENABLED',
+  // Dev/test only — permits http + loopback endpoints (disables the
+  // egress guard's SSRF fence for pack tool calls).
+  'MCP_PACK_TOOLS_ALLOW_HTTP',
 ];
 
 /**

@@ -29,7 +29,11 @@ const stubEmbedder = {
   getDimensions: () => 1536,
 };
 
-function buildWithScopes(scopes: BrainScope[]): McpServer {
+// Pack-tools reader — flag off in unit tests, but buildServer still
+// holds the dep; an empty read keeps the pre-pack surface identical.
+const stubPackToolsReader = { installedPackTools: async () => [] };
+
+function buildWithScopes(scopes: BrainScope[]): Promise<McpServer> {
   const svc = new McpService(
     {} as never,
     {} as never,
@@ -48,6 +52,8 @@ function buildWithScopes(scopes: BrainScope[]): McpServer {
     {} as never,
     {} as never, // feedback
     {} as never, // policyGate — unused without a policy context
+    stubPackToolsReader as never,
+    {} as never, // packToolProxy — no external tools in these fixtures
   );
   return svc.buildServer('co_test', scopes);
 }
@@ -93,13 +99,13 @@ const READ_BASELINE = [
 ];
 
 describe('McpService.buildServer — scope-gated tool surface', () => {
-  it('registers the read baseline with only brain:read', () => {
-    const names = toolNames(buildWithScopes(['brain:read']));
+  it('registers the read baseline with only brain:read', async () => {
+    const names = toolNames(await buildWithScopes(['brain:read']));
     for (const t of READ_BASELINE) expect(names).toContain(t);
   });
 
-  it('does NOT register mutation tools without brain:write', () => {
-    const names = toolNames(buildWithScopes(['brain:read']));
+  it('does NOT register mutation tools without brain:write', async () => {
+    const names = toolNames(await buildWithScopes(['brain:read']));
     expect(names).not.toContain('record_fact');
     expect(names).not.toContain('retract_fact');
     expect(names).not.toContain('link_entities');
@@ -109,8 +115,8 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).not.toContain('record_decision');
   });
 
-  it('registers mutation tools when brain:write is present', () => {
-    const names = toolNames(buildWithScopes(['brain:read', 'brain:write']));
+  it('registers mutation tools when brain:write is present', async () => {
+    const names = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
     expect(names).toContain('record_fact');
     expect(names).toContain('retract_fact');
     expect(names).toContain('link_entities');
@@ -120,29 +126,29 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('record_decision');
   });
 
-  it('does NOT register forget_entity without brain:admin (even with write)', () => {
-    const names = toolNames(buildWithScopes(['brain:read', 'brain:write']));
+  it('does NOT register forget_entity without brain:admin (even with write)', async () => {
+    const names = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
     expect(names).not.toContain('forget_entity');
   });
 
-  it('registers forget_entity only with brain:admin', () => {
+  it('registers forget_entity only with brain:admin', async () => {
     const names = toolNames(
-      buildWithScopes(['brain:read', 'brain:write', 'brain:admin']),
+      await buildWithScopes(['brain:read', 'brain:write', 'brain:admin']),
     );
     expect(names).toContain('forget_entity');
   });
 
-  it('registers brain://entity/ + /timeline resources at brain:read', () => {
-    const names = resourceNames(buildWithScopes(['brain:read']));
+  it('registers brain://entity/ + /timeline resources at brain:read', async () => {
+    const names = resourceNames(await buildWithScopes(['brain:read']));
     expect(names).toContain('entity-profile');
     expect(names).toContain('entity-timeline');
   });
 
-  it('ingest_document exposes the indexers param (REST parity: auto routes packs)', () => {
+  it('ingest_document exposes the indexers param (REST parity: auto routes packs)', async () => {
     const prev = process.env.DOCUMENT_INGEST_ENABLED;
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     try {
-      const server = buildWithScopes(['brain:read', 'brain:write']);
+      const server = await buildWithScopes(['brain:read', 'brain:write']);
       const internals = server as unknown as {
         _registeredTools: Record<string, { inputSchema?: { shape?: object } }>;
       };
@@ -178,6 +184,8 @@ describe('McpService.health — unauthenticated probe payload', () => {
       {} as never,
       {} as never, // feedback
       {} as never, // policyGate — unused without a policy context
+      stubPackToolsReader as never,
+      {} as never, // packToolProxy
     );
     const health = svc.health();
     expect(health.ok).toBe(true);

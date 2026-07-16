@@ -651,6 +651,52 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         description:
           'Signed work_available webhook hints to external packs declaring indexer.external.callbackUrl. Best-effort (retries + per-URL breaker); polling stays the source of truth.',
       },
+      // ── MCP pack tools (migration 0068) ───────────────────────
+      {
+        key: 'MCP_PACK_TOOLS_ENABLED',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Master switch for pack-declared MCP tools (installed packs with a consented mcpTools section). Off = the MCP surface is exactly the static tool families.',
+      },
+      {
+        key: 'MCP_PACK_QUERY_TOOLS_ENABLED',
+        category: 'misc',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Declarative query tools (search / facts_by_predicate over the pack’s own predicates). Default ON under the master flag; only reachable when MCP_PACK_TOOLS_ENABLED=1.',
+      },
+      {
+        key: 'MCP_PACK_EXTERNAL_TOOLS_ENABLED',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'HMAC-signed HTTPS proxy tools to publisher endpoints (opaque installId on the wire, never companyId). Off = external tool specs are ignored even when consented.',
+      },
+      {
+        key: 'MCP_PACK_TOOLS_ALLOW_HTTP',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Dev/test ONLY: permit plain-http + loopback/private external tool endpoints (disables the SSRF egress guard). Never enable in production.',
+      },
+      {
+        key: 'MCP_PACK_TOOLS_CACHE_TTL_MS',
+        category: 'misc',
+        defaultValue: '30000',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'TTL of the per-tenant pack-tool binding cache on the MCP hot path. Install/uninstall invalidate immediately; the TTL covers out-of-band domain_pack edits.',
+      },
       // ── Search: retrieval-evolution stages (migrations 0052–0055) ──
       {
         key: 'SEARCH_HNSW_ENABLED',

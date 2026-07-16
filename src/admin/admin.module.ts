@@ -37,6 +37,7 @@ import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
 import { IndexersModule } from '../indexers/indexers.module';
+import { McpModule } from '../mcp/mcp.module';
 import { DomainPackInstallService } from './domain-pack-install.service';
 import { PackEvalService } from './pack-eval.service';
 import { ScenarioRunnerService } from './scenario-runner.service';
@@ -74,6 +75,9 @@ import { ConfigInspectorService } from './config-inspector.service';
     // PackEvalService scores fixtures in 'dedicated' mode through the
     // pack-scoped extractor.
     IndexersModule,
+    // DomainPackInstallService invalidates the MCP pack-tools reader
+    // cache on install/uninstall (PackToolsReaderService export).
+    McpModule,
   ],
   controllers: [
     AdminController,

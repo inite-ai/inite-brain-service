@@ -84,9 +84,10 @@ export class McpController {
       );
     }
 
-    const server = this.mcp.buildServer(auth.companyId, auth.scopes, {
+    const server = await this.mcp.buildServer(auth.companyId, auth.scopes, {
       actorKeyHash: auth.keyHash,
       policy: auth.policy,
+      packIds: auth.packIds,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
