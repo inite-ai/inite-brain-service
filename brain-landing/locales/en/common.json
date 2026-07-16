@@ -482,6 +482,222 @@
       "recentJobs": "Recent job runs",
       "fullHistory": "full history →",
       "noRecentJobs": "No persisted job runs yet. Trigger one above or wait for the next cron tick."
+    },
+    "packs": {
+      "title": "Domain packs",
+      "subtitle": "Per-tenant pack installs: seed predicates, run eval fixtures, uninstall (predicates get deprecated, recorded facts survive). Builtin packs are seeded globally at boot.",
+      "installed": {
+        "title": "Installed",
+        "subtitle": "Packs installed into this tenant.",
+        "headers": {
+          "packId": "pack",
+          "version": "version",
+          "installedAt": "installed",
+          "predicates": "predicates",
+          "checksum": "checksum",
+          "actions": "actions"
+        },
+        "eval": "Eval",
+        "uninstall": "Uninstall",
+        "empty": "No packs installed in this tenant yet.",
+        "uninstallPrompt": "Uninstall \"{packId}\" — its predicates get deprecated (recorded facts survive). Type the pack id to confirm.",
+        "confirmMismatch": "Confirmation phrase mismatch — aborting.",
+        "uninstalled": "Uninstalled {packId}: {n} predicate(s) deprecated."
+      },
+      "available": {
+        "title": "Available builtin packs",
+        "subtitle": "Bundled with the service and seeded globally — already active for every tenant, nothing to install.",
+        "headers": {
+          "id": "id",
+          "version": "version",
+          "description": "description",
+          "predicates": "predicates"
+        },
+        "builtinBadge": "builtin",
+        "empty": "No builtin packs bundled."
+      },
+      "eval": {
+        "title": "Eval fixtures — {packId}",
+        "modeLabel": "mode",
+        "throttleHint": "Runs the live extractor (LLM calls) — throttled to 3 runs per minute.",
+        "run": "Run eval",
+        "running": "running…",
+        "passedOf": "{passed} / {total} fixtures passed",
+        "results": "per-fixture results"
+      },
+      "install": {
+        "fromRegistryTitle": "Install from registry",
+        "fromRegistrySubtitle": "Resolve a pack from the global registry and install it into this tenant (checksum-pinned).",
+        "packIdLabel": "pack id",
+        "versionLabel": "version",
+        "versionHint": "blank = latest non-yanked",
+        "submit": "Install",
+        "installing": "installing…",
+        "manifestTitle": "Install by manifest",
+        "manifestSubtitle": "Paste a full pack manifest JSON — for packs distributed outside the registry.",
+        "manifestLabel": "manifest JSON",
+        "checksumLabel": "expected checksum",
+        "checksumHint": "optional — install fails when the computed checksum differs",
+        "invalidJson": "Manifest is not valid JSON."
+      },
+      "consent": {
+        "title": "Pack declares MCP tools",
+        "note": "Installing changes this tenant's agent surface; external tools cause signed outbound calls to the publisher's endpoint. Review the declaration:",
+        "accept": "Accept MCP tools and install",
+        "cancel": "Cancel"
+      },
+      "payment": {
+        "title": "Payment required",
+        "packLabel": "pack",
+        "priceLabel": "price",
+        "checkout": "Create checkout session",
+        "checkoutBusy": "creating session…",
+        "opened": "Checkout opened in a new tab.",
+        "retryNote": "After payment completes, retry the install — the entitlement is checked on every attempt.",
+        "retry": "Retry install"
+      },
+      "success": {
+        "title": "Installed {packId} v{version}",
+        "predicatesSeeded": "predicates seeded",
+        "checksum": "checksum",
+        "seedDocuments": "seed documents",
+        "webhookTitle": "Webhook secret — shown once",
+        "webhookNote": "Store it now: this HMAC secret signs indexer pushes and external MCP tool calls. It will NOT be shown again.",
+        "copy": "Copy",
+        "copied": "copied"
+      }
+    },
+    "marketplace": {
+      "title": "Marketplace",
+      "subtitle": "Global pack registry: browse the catalogue, curate featured packs, manage pricing, publisher profiles and yanked versions.",
+      "filters": {
+        "qPlaceholder": "search packs…",
+        "publisherPlaceholder": "publisher",
+        "tagPlaceholder": "tag"
+      },
+      "table": {
+        "headers": {
+          "pack": "pack",
+          "version": "latest",
+          "publisher": "publisher",
+          "badges": "badges",
+          "downloads": "installs",
+          "published": "published"
+        },
+        "empty": "No packs match the filters."
+      },
+      "badges": {
+        "verified": "verified",
+        "signed": "signed",
+        "featured": "featured",
+        "paid": "paid",
+        "mirror": "mirror",
+        "yanked": "yanked"
+      },
+      "scopeNote": "This operation needs the {scope} scope, which the admin token does not carry. Widen BRAIN_SCOPE on brain-landing AND allow the scope for JWT tokens (registry scopes are env-key-only by default) — see docs/operations.md.",
+      "detail": {
+        "prompt": "Pick a pack to inspect.",
+        "descriptionLabel": "description",
+        "keywordsLabel": "keywords",
+        "publisherLabel": "publisher",
+        "originLabel": "mirrored from",
+        "installLink": "Install via Packs",
+        "feature": "Feature",
+        "unfeature": "Unfeature",
+        "setPricing": "Set pricing",
+        "clearPricing": "Clear pricing",
+        "versions": "versions",
+        "versionHeaders": {
+          "version": "version",
+          "published": "published",
+          "downloads": "installs",
+          "status": "status",
+          "actions": "actions"
+        },
+        "ok": "ok",
+        "yank": "Yank",
+        "unyank": "Unyank",
+        "yankPrompt": "Yank {packId}@{version} — it stops resolving for new installs (existing installs keep working). Type the version to confirm.",
+        "yankReasonPrompt": "Optional yank reason (empty = none):",
+        "confirmMismatch": "Confirmation phrase mismatch — aborting."
+      },
+      "pricing": {
+        "title": "Set pricing — {packId}",
+        "amountLabel": "amount (minor units)",
+        "amountHint": "integer in minor units, e.g. 1999 = 19.99",
+        "currencyLabel": "currency",
+        "currencyHint": "3-letter ISO 4217 code, e.g. USD",
+        "save": "Save price",
+        "saving": "saving…",
+        "invalid": "Enter a positive integer amount and a 3-letter currency code."
+      },
+      "publisher": {
+        "title": "Publisher — {publisher}",
+        "noProfile": "No profile written yet.",
+        "displayNameLabel": "display name",
+        "urlLabel": "url",
+        "bioLabel": "bio",
+        "contactEmailLabel": "contact email",
+        "save": "Save profile",
+        "saving": "saving…",
+        "createdLabel": "created",
+        "updatedLabel": "updated",
+        "packsTitle": "packs"
+      }
+    },
+    "sources": {
+      "title": "Sources",
+      "subtitle": "Declared identity (source_registry) joined with learned reputation (source_trust), keyed by vertical:recorder. Declaring type + authLevel activates the resolver's authority weight.",
+      "table": {
+        "headers": {
+          "sourceKey": "source key",
+          "type": "type",
+          "authLevel": "auth",
+          "globalTrust": "global trust",
+          "domains": "domains"
+        },
+        "empty": "No sources yet — rows appear once facts get recorded and the trust refit has run."
+      },
+      "undeclared": "undeclared",
+      "trustCell": "{rate} × {n}",
+      "detail": {
+        "prompt": "Pick a source to inspect.",
+        "declaredTitle": "declared identity",
+        "ownerLabel": "owner",
+        "noteLabel": "note",
+        "updatedLabel": "updated",
+        "trustTitle": "reputation scopes",
+        "trustHeaders": {
+          "domain": "domain",
+          "rate": "rate",
+          "samples": "samples",
+          "wins": "wins",
+          "losses": "losses",
+          "lastSeen": "last seen"
+        },
+        "global": "global",
+        "trustEmpty": "No learned reputation yet — the source hasn't been through conflict resolutions.",
+        "historyTitle": "history",
+        "historyHeaders": {
+          "domain": "domain",
+          "rate": "rate",
+          "samples": "samples",
+          "recorded": "recorded"
+        },
+        "historyEmpty": "No refit snapshots yet.",
+        "historyMore": "showing latest {n} of {total}"
+      },
+      "declare": {
+        "title": "Declare identity",
+        "typeLabel": "type",
+        "authLevelLabel": "authLevel",
+        "authLevelHint": "0–1; activates the resolver's dormant authority weight",
+        "ownerLabel": "owner",
+        "noteLabel": "note",
+        "save": "Save",
+        "saving": "saving…",
+        "saved": "Declared."
+      }
     }
   }
 }

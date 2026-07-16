@@ -329,6 +329,27 @@ touch billing). Curation keys: mint a `registry:curate` env key for the
 hosting operator (env-key-only, like `registry:publish` — JWT tokens
 cannot carry it).
 
+**Admin UI (brain-landing)**
+
+The admin panels Packs / Marketplace / Sources talk to brain through the
+landing's BFF proxy, which mints an M2M JWT with the scopes in
+`BRAIN_SCOPE` (default `brain:read brain:write brain:admin
+brain:read_pii`). That covers everything on the Packs and Sources pages
+plus all Marketplace *reads*; Marketplace *writes* need more:
+
+- feature / unfeature → `registry:curate`
+- pricing, publisher profiles, yank / unyank → `registry:publish`
+
+Missing scopes degrade gracefully — the Marketplace panel stays usable
+read-only and shows an amber note naming the missing scope instead of a
+generic error. To actually enable those writes, widening `BRAIN_SCOPE`
+is necessary but not sufficient today: the registry scopes are
+env-key-only (deliberately absent from the JWT `VALID_SCOPES` set in
+`src/auth/jwks.service.ts`), so a JWT-based BFF token gets them
+stripped at verification. Until that allowlist decision changes,
+perform registry curation/publishing with a `BRAIN_API_KEYS` env key
+(see docs/domain-packs.md) rather than through the admin UI.
+
 **Deliberately NOT in v1**
 
 - No inbound billing webhooks — billing's outbound events are unsigned;

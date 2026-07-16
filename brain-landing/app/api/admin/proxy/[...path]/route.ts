@@ -62,6 +62,27 @@ import {
   BaselineSaveResponseSchema,
   BaselineDiffResponseSchema,
 } from '@/lib/contracts/admin-write-responses'
+import {
+  InstallPackResponseSchema,
+  PackEvalReportSchema,
+  PacksListResponseSchema,
+  UninstallPackResponseSchema,
+} from '@/lib/contracts/admin-packs'
+import {
+  CheckoutResponseSchema,
+  FeatureResponseSchema,
+  PackPricingResponseSchema,
+  PublisherProfileSchema,
+  PublisherResponseSchema,
+  RegistryListResponseSchema,
+  RegistryVersionsResponseSchema,
+  YankPackResponseSchema,
+} from '@/lib/contracts/admin-marketplace'
+import {
+  DeclareSourceResponseSchema,
+  SourceDetailResponseSchema,
+  SourcesListResponseSchema,
+} from '@/lib/contracts/admin-sources'
 import type { ZodType } from 'zod'
 
 /**
@@ -110,6 +131,9 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/policy/decisions': PolicyDecisionsResponseSchema,
     'v1/admin/policy/decisions/stats': PolicyDecisionsStatsResponseSchema,
     'v1/admin/keys': AdminKeysResponseSchema,
+    'v1/admin/packs': PacksListResponseSchema,
+    'v1/registry/packs': RegistryListResponseSchema,
+    'v1/admin/sources': SourcesListResponseSchema,
   },
   POST: {
     'v1/admin/dreams/run': DreamsRunResponseSchema,
@@ -129,6 +153,8 @@ const RESPONSE_SCHEMAS: Partial<
     'v1/admin/policy/simulate/search': SimulateSearchResponseSchema,
     'v1/admin/policy/simulate/actions': SimulateActionsResponseSchema,
     'v1/admin/policy/preview-rule': PreviewRuleResponseSchema,
+    'v1/admin/packs': InstallPackResponseSchema,
+    'v1/admin/packs/from-registry': InstallPackResponseSchema,
   },
   PATCH: {},
   DELETE: {},
@@ -155,6 +181,18 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       schema: DreamsEmitsResponseSchema,
     },
     { pattern: 'v1/admin/policy-sets/:name', schema: PolicySetResponseSchema },
+    {
+      pattern: 'v1/registry/packs/:packId',
+      schema: RegistryVersionsResponseSchema,
+    },
+    {
+      pattern: 'v1/registry/publishers/:publisher',
+      schema: PublisherResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/sources/:sourceKey',
+      schema: SourceDetailResponseSchema,
+    },
   ],
   POST: [
     { pattern: 'v1/admin/jobs/:runId/cancel', schema: JobCancelResponseSchema },
@@ -179,6 +217,27 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       pattern: 'v1/admin/predicates/:predicateId/alias',
       schema: PredicateMutationResponseSchema,
     },
+    { pattern: 'v1/admin/packs/:packId/eval', schema: PackEvalReportSchema },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/feature',
+      schema: FeatureResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/unfeature',
+      schema: FeatureResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/checkout',
+      schema: CheckoutResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/:version/yank',
+      schema: YankPackResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/:version/unyank',
+      schema: YankPackResponseSchema,
+    },
   ],
   PATCH: [
     {
@@ -188,6 +247,18 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
   ],
   PUT: [
     { pattern: 'v1/admin/policy-sets/:name', schema: PolicySetResponseSchema },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/pricing',
+      schema: PackPricingResponseSchema,
+    },
+    {
+      pattern: 'v1/admin/registry/publishers/:publisher',
+      schema: PublisherProfileSchema,
+    },
+    {
+      pattern: 'v1/admin/sources/:sourceKey',
+      schema: DeclareSourceResponseSchema,
+    },
   ],
   DELETE: [
     { pattern: 'v1/admin/tenants/:companyId', schema: DropTenantResponseSchema },
@@ -200,6 +271,11 @@ const DYNAMIC_RESPONSE_SCHEMAS: Partial<
       pattern: 'v1/admin/policy-sets/:name',
       schema: PolicySetDeleteResponseSchema,
     },
+    {
+      pattern: 'v1/admin/registry/packs/:packId/pricing',
+      schema: PackPricingResponseSchema,
+    },
+    { pattern: 'v1/admin/packs/:packId', schema: UninstallPackResponseSchema },
   ],
 }
 
@@ -277,6 +353,11 @@ const ALLOWED_PREFIXES = [
   'v1/admin/migrations',
   'v1/admin/throttler',
   'v1/admin/now',
+  // Domain packs + global registry marketplace + source reputation
+  'v1/admin/packs',
+  'v1/admin/registry',
+  'v1/registry',
+  'v1/admin/sources',
   // ABAC (policy editor + Key Lens + decisions feed)
   'v1/admin/policy-sets',
   'v1/admin/policy/',
