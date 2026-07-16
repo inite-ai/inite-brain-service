@@ -851,6 +851,53 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         description:
           'Mirror sync cadence in hours. The hourly :26 UTC cron collapses ticks inside one interval bucket via dedup key.',
       },
+      // ── Marketplace billing (paid packs, migration 0066) ─────
+      {
+        key: 'DOMAIN_PACK_BILLING_ENABLED',
+        category: 'billing',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Paid-pack marketplace integration with the central billing service. Off (default) = self-hosted posture: paid metadata is ignored, every pack installs free.',
+      },
+      {
+        key: 'BILLING_SERVICE_URL',
+        category: 'billing',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Base URL of the billing service (e.g. https://billing.inite.ai). Required while the billing flag is on — validated at boot.',
+      },
+      {
+        key: 'BILLING_SERVICE_API_KEY',
+        category: 'billing',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        secret: true,
+        description:
+          'Service API key (x-api-key header) identifying brain as a registered Service in the billing admin.',
+      },
+      {
+        key: 'BILLING_TIMEOUT_MS',
+        category: 'billing',
+        defaultValue: '5000',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Per-request budget for billing HTTP calls; reads (entitlements, product list) get one retry on timeout/network/5xx.',
+      },
+      {
+        key: 'BILLING_ENTITLEMENT_CACHE_TTL_MS',
+        category: 'billing',
+        defaultValue: '60000',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'In-memory TTL for per-company entitlement lookups. Never served stale: expired cache + billing down fails paid installs CLOSED (503).',
+      },
       {
         key: 'PROCESS_ROLE',
         category: 'jobs',
