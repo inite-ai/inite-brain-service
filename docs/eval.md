@@ -268,6 +268,43 @@ const score = await computeFaithfulness(new OpenAI(), {
 // → { faithfulness: 0.83, totalClaims: 6, supportedClaims: 4, partialClaims: 1, unsupportedClaims: 1, claims: [...] }
 ```
 
+## A/B measuring domain-routed retrieval
+
+`SEARCH_DOMAIN_ROUTING_ENABLED` is a ranking-behaviour flag, so the
+golden-baseline gate (which runs flag-off) can't measure it — the two
+arms differ only when the flag flips. Measure it as a paired A/B on a
+tenant that actually has domain packs installed (routing is a no-op with
+none installed):
+
+```bash
+# Arm A — baseline (flag off)
+BRAIN_EVAL_REPORT_OUT=./ab-off.json pnpm test:eval
+
+# Arm B — filter mode on
+SEARCH_DOMAIN_ROUTING_ENABLED=1 \
+SEARCH_DOMAIN_ROUTING_MODE=filter \
+BRAIN_EVAL_REPORT_OUT=./ab-on.json pnpm test:eval
+
+pnpm eval:diff ./ab-off.json ./ab-on.json
+```
+
+Read it against two axes:
+
+- **Recall must not regress.** `recall@k` / `MRR` / `NDCG` diffs stay
+  within the `>3pp drop → block` tolerance — narrowing that strands the
+  gold answer shows up here. A high `search.retrieval_backoff` rate in
+  the arm-B traces means the `MIN_SIM` threshold is mis-calibrated
+  (queries matched a domain but the gold facts were outside it); raise
+  `SEARCH_DOMAIN_ROUTING_MIN_SIM` or fall back to `MODE=boost`.
+- **Precision / cost should improve.** Fewer candidates reach the
+  reranker (the `search.query` / vector-leg `candidates` trace counts)
+  for the same or better top-1 — the token-cost win. Compare the
+  per-vertical `recall@1` deltas for the packed domains.
+
+Start rollout at `MODE=boost` (zero recall risk — scoring multiplier
+only), and promote to `filter` per-tenant once the A/B on that tenant's
+corpus shows recall flat and candidate counts down.
+
 ## See also
 
 - [LoCoMo benchmark](locomo.md) — the external long-term-memory benchmark run through the same surfaces.

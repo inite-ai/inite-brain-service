@@ -112,6 +112,22 @@ export class SearchService {
   }
 
   /**
+   * Pure helper (exposed for unit testing): the filter-mode narrowing
+   * decision. Returns the predicate allow-list to narrow the retrieval
+   * legs to, or undefined when narrowing must NOT apply — boost mode, no
+   * domain signal, or a signal with no matched domain (narrowTo null).
+   * Core predicates are always inside `narrowTo`, so filtering never
+   * excludes identity/contact facts.
+   */
+  static resolveDomainNarrowing(
+    mode: 'boost' | 'filter',
+    domainSignal: DomainSignal | null | undefined,
+  ): string[] | undefined {
+    if (mode !== 'filter') return undefined;
+    return domainSignal?.narrowTo ?? undefined;
+  }
+
+  /**
    * Resolve the lang code to push into the WHERE builder. Honour an
    * explicit dto.queryLang first; otherwise run the pure detector on
    * the query text. Returns undefined when detection is `und` or the
@@ -358,6 +374,9 @@ export class SearchService {
     // filter → cross-lingual backoff strategy. `und` or disabled →
     // single-pass exactly as before.
     const langFilter = this.resolveLangFilter(ctx.dto);
+    // Un-narrowed WHERE — reused by edge expansion and backfill. Narrowing
+    // it there would starve entity-card backfill and edge walks of the
+    // very facts the domain filter excluded from the seed legs.
     const baseWhere = buildBaseWhere({
       dto: ctx.dto,
       asOf: ctx.asOf,
@@ -365,12 +384,30 @@ export class SearchService {
       includeContested: ctx.includeContested,
       opts: { langFilter },
     });
+    // Filter-mode domain narrowing (SEARCH_DOMAIN_ROUTING_MODE=filter):
+    // applied ONLY to the retrieval legs. Core is never excluded, so a
+    // query with no matched domain (narrowTo null) uses baseWhere as-is.
+    const domainPredicates = SearchService.resolveDomainNarrowing(
+      this.domainRouting?.mode() ?? 'boost',
+      ctx.domainSignal,
+    );
+    const domainNarrowed = !!domainPredicates;
+    const legsWhere = domainNarrowed
+      ? buildBaseWhere({
+          dto: ctx.dto,
+          asOf: ctx.asOf,
+          includeRetracted: ctx.includeRetracted,
+          includeContested: ctx.includeContested,
+          opts: { langFilter, domainPredicates },
+        })
+      : baseWhere;
     traceArtifact('search.query', {
       query: ctx.dto.query,
       mode: ctx.mode,
       candidateK: ctx.candidateK,
       asOf: ctx.dto.asOf,
       langFilter,
+      domainNarrowed,
     });
 
     // Router LLM (optional, budgeted) depends ONLY on the query text —
@@ -396,9 +433,13 @@ export class SearchService {
       });
     }
 
-    // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
-    const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
-    if (langFilter && fused.length < ctx.candidateK / 2) {
+    // 1. Retrieval legs (parallel) + fusion, with cross-lingual /
+    //    domain-narrowing backoff. The legs run against legsWhere (==
+    //    baseWhere unless filter mode narrowed it); a thin first pass
+    //    re-runs unfiltered (no langFilter, no domainPredicates) and
+    //    merges, so neither filter can strand recall.
+    const fused = await this.retrieval.runRetrievalStage(db, ctx, legsWhere);
+    if ((langFilter || domainNarrowed) && fused.length < ctx.candidateK / 2) {
       // Capture the first-pass size BEFORE the merge loop mutates `fused`.
       const firstPassCount = fused.length;
       const fallbackWhere = buildBaseWhere({
@@ -419,11 +460,12 @@ export class SearchService {
           seen.add(String(r.id));
         }
       }
-      traceArtifact('search.langfilter_backoff', {
+      traceArtifact('search.retrieval_backoff', {
         firstPass: firstPassCount,
         fallback: fallback.length,
         merged: fused.length - firstPassCount,
         langFilter,
+        domainNarrowed,
       });
     }
 

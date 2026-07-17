@@ -19,6 +19,16 @@ export interface BaseWhereOptions {
    * avoids regressing recall while the corpus catches up).
    */
   langFilter?: string;
+  /**
+   * Domain-routed retrieval, filter mode (SEARCH_DOMAIN_ROUTING_MODE=
+   * filter). Narrows the retrieval legs to this predicate allow-list
+   * (core ∪ matched-domain predicates). Bound to a DISTINCT param from
+   * the caller-supplied `dto.predicates` so the two compose rather than
+   * clobber, and the trace stays honest about which filter fired. The
+   * thin-results backoff in runPipeline rebuilds the WHERE without opts,
+   * dropping this filter, so a mis-routed query can't strand recall.
+   */
+  domainPredicates?: string[];
 }
 
 export interface BuildBaseWhereOptions {
@@ -60,6 +70,10 @@ export function buildBaseWhere({
   if (dto.predicates && dto.predicates.length > 0) {
     clauses.push(`AND predicate INSIDE $predicates`);
     params.predicates = dto.predicates;
+  }
+  if (opts.domainPredicates && opts.domainPredicates.length > 0) {
+    clauses.push(`AND predicate INSIDE $domainPredicates`);
+    params.domainPredicates = opts.domainPredicates;
   }
   if (dto.entityIds && dto.entityIds.length > 0) {
     // Multi-hop anchoring. Accept both short and fully-qualified ids;
