@@ -346,6 +346,51 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
       },
       {
+        key: 'SEARCH_DOMAIN_ROUTING_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Domain-routed retrieval: query→pack-domain affinity from registry embeddings; extends the router vocabulary with pack predicates and boosts matched-domain facts.',
+      },
+      {
+        key: 'SEARCH_DOMAIN_ROUTING_MODE',
+        category: 'search',
+        defaultValue: 'boost',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'boost = scoring-stage multiplier only; filter = additionally narrow retrieval-leg candidates to core + matched-domain predicates (with thin-results backoff).',
+      },
+      {
+        key: 'SEARCH_DOMAIN_ROUTING_MIN_SIM',
+        category: 'search',
+        defaultValue: '0.3',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Cosine threshold for a pack domain to count as matched by the query.',
+      },
+      {
+        key: 'SEARCH_DOMAIN_ROUTER_VOCAB_MAX',
+        category: 'search',
+        defaultValue: '24',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max pack predicates listed individually in the router LLM vocabulary; beyond it entries degrade to one domain-level line per pack.',
+      },
+      {
+        key: 'SEARCH_DOMAIN_BOOST_ALPHA',
+        category: 'search',
+        defaultValue: '0.3',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Score multiplier strength for matched-domain facts: ×(1 + α·sim).',
+      },
+      {
         key: 'SEARCH_TOKEN_COUNT_OFFLOAD',
         category: 'search',
         defaultValue: '1',

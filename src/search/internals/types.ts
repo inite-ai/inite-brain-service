@@ -113,6 +113,9 @@ export interface ScoreBreakdown {
   conformalPValue?: number;
   decay: number;
   predBoost: number;
+  /** Domain-routed retrieval: `1 + α·sim` for facts in a matched pack
+   *  domain (SEARCH_DOMAIN_ROUTING_ENABLED). Omitted when exactly 1.0. */
+  domainBoost?: number;
   /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the

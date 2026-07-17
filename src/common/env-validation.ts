@@ -125,6 +125,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
+  // ── Domain-routed retrieval (pack-aware router) ────────────────────
+  validateDomainRoutingEnv(env, errors);
+
   // ── Episodic→semantic promotion (compaction leg) ───────────────────
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
@@ -349,6 +352,27 @@ function validateWorkerConcurrencyEnv(
   }
 }
 
+/**
+ * Domain-routed retrieval knobs (SEARCH_DOMAIN_ROUTING_*). Extracted from
+ * validateEnv to keep its cyclomatic complexity under the lint ceiling —
+ * same pattern as validateAbacEnv / validateWorkerConcurrencyEnv.
+ */
+function validateDomainRoutingEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_ROUTING_MIN_SIM', errors);
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_BOOST_ALPHA', errors);
+  positiveInt(env, 'SEARCH_DOMAIN_ROUTER_VOCAB_MAX', errors);
+  const mode = env.SEARCH_DOMAIN_ROUTING_MODE;
+  if (mode !== undefined && mode !== 'boost' && mode !== 'filter') {
+    errors.push(
+      `SEARCH_DOMAIN_ROUTING_MODE must be "boost" or "filter" (got "${mode}") — ` +
+        'an unrecognized value would silently fall back to boost.',
+    );
+  }
+}
+
 function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   const maxBody = env.MAX_BODY_SIZE;
   if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
@@ -373,6 +397,7 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
  * boot warns (not errors) on values outside FLAG_VALUES.
  */
 const KNOWN_BOOLEAN_FLAGS = [
+  'SEARCH_DOMAIN_ROUTING_ENABLED',
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
   'SEARCH_PPR_ENABLED',

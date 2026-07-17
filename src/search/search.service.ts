@@ -43,6 +43,10 @@ import {
 } from './internals/graph-retrieve-db';
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
+import {
+  DomainRoutingService,
+  type DomainSignal,
+} from '../ai/domain-routing.service';
 import { PipelineContext } from './pipeline-context';
 import { envFlagEnabled } from '../common/env-validation';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
@@ -82,6 +86,7 @@ export class SearchService {
     private readonly rerank: SearchRerankService,
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
     @Optional() private readonly workerPool?: JobWorkerPool,
+    @Optional() private readonly domainRouting?: DomainRoutingService,
   ) {}
 
   /**
@@ -104,6 +109,22 @@ export class SearchService {
     marginThreshold: number,
   ): boolean {
     return shouldSkipRerankByMargin(candidates, marginThreshold);
+  }
+
+  /**
+   * Pure helper (exposed for unit testing): the filter-mode narrowing
+   * decision. Returns the predicate allow-list to narrow the retrieval
+   * legs to, or undefined when narrowing must NOT apply — boost mode, no
+   * domain signal, or a signal with no matched domain (narrowTo null).
+   * Core predicates are always inside `narrowTo`, so filtering never
+   * excludes identity/contact facts.
+   */
+  static resolveDomainNarrowing(
+    mode: 'boost' | 'filter',
+    domainSignal: DomainSignal | null | undefined,
+  ): string[] | undefined {
+    if (mode !== 'filter') return undefined;
+    return domainSignal?.narrowTo ?? undefined;
   }
 
   /**
@@ -292,6 +313,24 @@ export class SearchService {
       await this.retrieval.prewarmQueryEmbedding(dto.query);
     }
 
+    // Domain-routed retrieval (opt-in): compute the tenant's domain
+    // signal BEFORE the scoped-pool section — it reads the registry
+    // snapshot (root pool, 60s TTL cache) and the already-prewarmed
+    // query embedding, so it adds no scoped-connection hold time. A
+    // caller-supplied predicate filter wins: the explicit `dto.predicates`
+    // contract must not be second-guessed by the router.
+    let domainSignal: DomainSignal | null = null;
+    if (
+      mode !== 'lexical' &&
+      this.domainRouting?.isEnabled() &&
+      !(dto.predicates && dto.predicates.length > 0)
+    ) {
+      domainSignal = await this.domainRouting.getDomainSignal(
+        companyId,
+        dto.query,
+      );
+    }
+
     const out = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
@@ -306,6 +345,7 @@ export class SearchService {
           includeContested,
           mode,
           candidateK,
+          domainSignal,
         }),
     );
     // Usage reinforcement, write side (opt-in): stamp the facts this
@@ -334,6 +374,9 @@ export class SearchService {
     // filter → cross-lingual backoff strategy. `und` or disabled →
     // single-pass exactly as before.
     const langFilter = this.resolveLangFilter(ctx.dto);
+    // Un-narrowed WHERE — reused by edge expansion and backfill. Narrowing
+    // it there would starve entity-card backfill and edge walks of the
+    // very facts the domain filter excluded from the seed legs.
     const baseWhere = buildBaseWhere({
       dto: ctx.dto,
       asOf: ctx.asOf,
@@ -341,12 +384,30 @@ export class SearchService {
       includeContested: ctx.includeContested,
       opts: { langFilter },
     });
+    // Filter-mode domain narrowing (SEARCH_DOMAIN_ROUTING_MODE=filter):
+    // applied ONLY to the retrieval legs. Core is never excluded, so a
+    // query with no matched domain (narrowTo null) uses baseWhere as-is.
+    const domainPredicates = SearchService.resolveDomainNarrowing(
+      this.domainRouting?.mode() ?? 'boost',
+      ctx.domainSignal,
+    );
+    const domainNarrowed = !!domainPredicates;
+    const legsWhere = domainNarrowed
+      ? buildBaseWhere({
+          dto: ctx.dto,
+          asOf: ctx.asOf,
+          includeRetracted: ctx.includeRetracted,
+          includeContested: ctx.includeContested,
+          opts: { langFilter, domainPredicates },
+        })
+      : baseWhere;
     traceArtifact('search.query', {
       query: ctx.dto.query,
       mode: ctx.mode,
       candidateK: ctx.candidateK,
       asOf: ctx.dto.asOf,
       langFilter,
+      domainNarrowed,
     });
 
     // Router LLM (optional, budgeted) depends ONLY on the query text —
@@ -357,12 +418,28 @@ export class SearchService {
     // unhandled rejection while retrieval is still in flight (the
     // router stage degrades to null on its own errors anyway).
     const routerPromise = this.retrieval
-      .runRouterStage(ctx.dto.query)
+      .runRouterStage(ctx.dto.query, ctx.domainSignal?.vocab)
       .catch(() => null);
+    if (ctx.domainSignal) {
+      traceArtifact('search.domain_routing', {
+        mode: this.domainRouting?.mode() ?? 'boost',
+        version: ctx.domainSignal.version,
+        affinities: ctx.domainSignal.affinities.map((a) => ({
+          domain: a.domain,
+          sim: Number(a.sim.toFixed(4)),
+        })),
+        matched: ctx.domainSignal.matched.map((m) => m.domain),
+        vocabEntries: ctx.domainSignal.vocab.entries.length,
+      });
+    }
 
-    // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
-    const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
-    if (langFilter && fused.length < ctx.candidateK / 2) {
+    // 1. Retrieval legs (parallel) + fusion, with cross-lingual /
+    //    domain-narrowing backoff. The legs run against legsWhere (==
+    //    baseWhere unless filter mode narrowed it); a thin first pass
+    //    re-runs unfiltered (no langFilter, no domainPredicates) and
+    //    merges, so neither filter can strand recall.
+    const fused = await this.retrieval.runRetrievalStage(db, ctx, legsWhere);
+    if ((langFilter || domainNarrowed) && fused.length < ctx.candidateK / 2) {
       // Capture the first-pass size BEFORE the merge loop mutates `fused`.
       const firstPassCount = fused.length;
       const fallbackWhere = buildBaseWhere({
@@ -383,11 +460,12 @@ export class SearchService {
           seen.add(String(r.id));
         }
       }
-      traceArtifact('search.langfilter_backoff', {
+      traceArtifact('search.retrieval_backoff', {
         firstPass: firstPassCount,
         fallback: fallback.length,
         merged: fused.length - firstPassCount,
         langFilter,
+        domainNarrowed,
       });
     }
 
@@ -432,7 +510,11 @@ export class SearchService {
     const typeDist = routerOut?.types ?? null;
 
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
-    const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
+    const byEntity = this.retrieval.scoreAndBucket(
+      filtered,
+      predicateDist,
+      ctx.domainSignal?.boost ?? null,
+    );
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds.
     await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx, rowFilterFn });

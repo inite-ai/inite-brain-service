@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRouterService } from '../ai/predicate-router.service';
+import type { RouterVocabulary } from '../ai/domain-routing.service';
 import { QueryExpansionService } from '../ai/query-expansion.service';
 import { CalibrationService } from '../ai/calibration/calibration.service';
 import { withSpan } from '../common/tracing';
@@ -184,17 +185,20 @@ export class SearchRetrievalService {
     return legs.flat();
   }
 
-  /** Predicate / type router (optional LLM call, under budget). */
-  async runRouterStage(query: string) {
+  /** Predicate / type router (optional LLM call, under budget). The
+   *  optional vocab extends the classification vocabulary with the
+   *  tenant's pack predicates (domain-routed retrieval). */
+  async runRouterStage(query: string, vocab?: RouterVocabulary) {
     const out = await withSpan('search.route', async (span) => {
       const r = await withStageBudget({
         stage: 'router',
         budgetMs: this.budgets.router,
-        fn: () => this.predicateRouter.route(query),
+        fn: () => this.predicateRouter.route(query, vocab),
         fallback: null,
         logger: this.logger,
       });
       span.setAttribute('router.hit', r !== null);
+      span.setAttribute('router.vocab_extended', !!vocab);
       return r;
     });
     if (out) traceArtifact('search.router_classification', out);
@@ -209,6 +213,7 @@ export class SearchRetrievalService {
   scoreAndBucket(
     rows: Parameters<typeof scoreRows>[0]['rows'],
     predicateDist: PredicateDistribution | null,
+    domainBoost?: Parameters<typeof scoreRows>[0]['domainBoost'],
   ): Map<string, EntityBucket> {
     const scored = scoreRows({
       rows,
@@ -220,6 +225,7 @@ export class SearchRetrievalService {
       trustBeta: this.trustBeta,
       corroborationGamma: this.corroborationGamma,
       authorityDelta: this.authorityDelta,
+      domainBoost: domainBoost ?? null,
     });
     return bucketByEntity(scored);
   }

@@ -44,3 +44,45 @@ describe('buildBaseWhere default-now bitemporal visibility', () => {
     expect(sql).not.toContain("validUntil > time::now()");
   });
 });
+
+describe('buildBaseWhere domain-routing filter (opts.domainPredicates)', () => {
+  const base = () => ({
+    asOf: null,
+    includeRetracted: false,
+    includeContested: false,
+  });
+
+  it('absent domainPredicates → no clause, byte-identical SQL', () => {
+    const without = buildBaseWhere({ dto: dto(), ...base() });
+    const withEmpty = buildBaseWhere({
+      dto: dto(),
+      ...base(),
+      opts: { domainPredicates: [] },
+    });
+    expect(withEmpty.sql).toEqual(without.sql);
+    expect(withEmpty.params).toEqual(without.params);
+  });
+
+  it('narrows on a distinct $domainPredicates param', () => {
+    const { sql, params } = buildBaseWhere({
+      dto: dto(),
+      ...base(),
+      opts: { domainPredicates: ['name', 'persona__life_event'] },
+    });
+    expect(sql).toContain('AND predicate INSIDE $domainPredicates');
+    expect(params.domainPredicates).toEqual(['name', 'persona__life_event']);
+  });
+
+  it('composes with caller predicates on separate params', () => {
+    const { sql, params } = buildBaseWhere({
+      dto: dto({ predicates: ['status'] }),
+      ...base(),
+      opts: { domainPredicates: ['name', 'persona__felt'] },
+    });
+    // Both clauses present, each on its own bound param — they intersect.
+    expect(sql).toContain('AND predicate INSIDE $predicates');
+    expect(sql).toContain('AND predicate INSIDE $domainPredicates');
+    expect(params.predicates).toEqual(['status']);
+    expect(params.domainPredicates).toEqual(['name', 'persona__felt']);
+  });
+});

@@ -201,6 +201,28 @@ real-estate.pack.ts`, distributable JSON at `packs/real-estate.pack.json`) — a
 DISTRIBUTABLE pack (installed per-tenant, deliberately NOT a builtin so its
 domain predicates don't seed into unrelated tenants).
 
+## Retrieval routing (consumed, opt-in)
+
+Historically a pack influenced only the WRITE path (extraction). With
+`SEARCH_DOMAIN_ROUTING_ENABLED=1` a pack also shapes the READ path, without any
+extra LLM or embedding call:
+
+- `DomainRoutingService` groups the tenant's active predicates by namespace
+  (`<packId>__…`) and scores each pack domain by the max cosine between the
+  query embedding (already prewarmed) and the pack's predicate embeddings from
+  the registry snapshot.
+- Domains at or above `SEARCH_DOMAIN_ROUTING_MIN_SIM` (default `0.3`) get a
+  scoring boost `×(1 + SEARCH_DOMAIN_BOOST_ALPHA·sim)` on their facts, and the
+  predicate-router LLM vocabulary is extended with the pack's predicates so its
+  `predBoost` covers them too (cache-keyed by the snapshot `versionHash`, so a
+  pack install/upgrade busts it automatically).
+- `SEARCH_DOMAIN_ROUTING_MODE=filter` goes further and narrows the retrieval
+  legs to core + matched-domain predicates (core is never excluded; no matched
+  domain → no filter), with a thin-results backoff that re-runs unfiltered.
+
+Every path is fail-open, and a caller-supplied `predicates` filter disables
+domain routing for that request. See the flag table in `docs/operations.md`.
+
 ## Eval fixtures (consumed)
 
 A pack may ship `evalFixtures` — small extraction test cases for its domain,
