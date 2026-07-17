@@ -211,7 +211,7 @@ export class ArtifactsService {
     // Object members ('constructor'/'toString') the way obj[type] can,
     // so an unknown or hostile value dead-ends at undefined.
     const template = TEMPLATE_MAP.get(type);
-    if (!template) {
+    if (typeof template !== 'function') {
       throw new BadRequestException(
         `Unknown artifactType '${type}'. Known: ${[...TEMPLATE_MAP.keys()].join(', ')}`,
       );
