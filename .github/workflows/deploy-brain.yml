@@ -255,6 +255,20 @@ jobs:
                 # Backfill stored documents with a pack's vocabulary on
                 # install/upgrade (bounded by REINDEX_MAX_DOCS_PER_RUN=500).
                 - REINDEX_ON_PACK_INSTALL=1
+                # ── Marketplace billing (paid domain packs) ─────────────
+                # Pull-only entitlement checks against the central billing
+                # service (60s TTL cache, fail-closed for PAID packs only —
+                # free packs never touch billing). Brain is registered as
+                # billing Service code=brain; entitlement key is
+                # domain_pack:<packId>, billing userId = brain companyId.
+                - DOMAIN_PACK_BILLING_ENABLED=1
+                - BILLING_SERVICE_URL=https://billing.inite.ai
+                - BILLING_SERVICE_API_KEY=${{ secrets.BRAIN_BILLING_API_KEY }}
+                # ── MCP pack tools (docs/mcp-pack-tools.md) ─────────────
+                # Master ON: consented packs may register declarative QUERY
+                # tools (namespace-locked, row-fenced). EXTERNAL proxy tools
+                # stay off until a pack actually ships one.
+                - MCP_PACK_TOOLS_ENABLED=1
                 # Deliberately NOT set (default off): DOCUMENT_ALLOW_UNGROUNDED_
                 # EXTERNAL (security opt-in — lets external indexers stage
                 # unverifiable spans) and SEARCH_CROSS_ENCODER_LOCAL (prod uses
