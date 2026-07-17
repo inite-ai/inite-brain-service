@@ -54,17 +54,17 @@
   },
   "retrieval": {
     "eyebrow": "Retrieval engine",
-    "title": "Seven stages between a query and an answer.",
-    "subtitle": "Brain doesn't just rank embeddings by similarity. Every query runs a graph-aware pipeline — each stage a feature flag with its own per-tenant metrics.",
+    "title": "Seven stages — and only the first two are about vectors.",
+    "subtitle": "The unit of retrieval is a typed fact on the knowledge graph, never a text chunk. Vector + BM25 are just the doors in — they map free text onto candidate facts. Everything after is graph-native: ontology router, per-entity buckets, edge walks, PPR, rerank. Each stage is a feature flag with its own per-tenant metrics.",
     "queryIn": "query + tenant scope",
     "answerOut": "ranked facts + per-leg score breakdown",
-    "note": "Each stage toggles and is measured independently; the CI eval reports recall per leg. HNSW, HyPE, PPR, and rerank all flip per tenant.",
+    "note": "Each stage toggles and is measured independently; the CI eval reports recall per leg. Queries that already name their anchors skip the doors entirely — graph_retrieve and the multi-hop planner enter straight from entities.",
     "stages": [
-      { "name": "Hybrid fusion", "desc": "Vector + BM25, convex-combined at w=0.5" },
-      { "name": "HyPE alt-embeddings", "desc": "Hypothetical-prompt vectors; max(cos_main, cos_alt)" },
-      { "name": "Predicate + type router", "desc": "A joint LLM router boosts the right predicate class" },
-      { "name": "Edge expansion", "desc": "A 1-hop graph walk seeds neighbours as fresh candidates" },
-      { "name": "Tier-aware PPR", "desc": "HippoRAG-style personalized PageRank over the graph" },
+      { "name": "Entry legs: vector + BM25", "desc": "The doors into the graph — seed candidate FACTS (not chunks) from free text, convex-combined at w=0.5" },
+      { "name": "HyPE alt-embeddings", "desc": "A second door: hypothetical-prompt vectors; max(cos_main, cos_alt)" },
+      { "name": "Predicate + type router", "desc": "The ontology takes over — a joint LLM router boosts the right predicate class" },
+      { "name": "Edge expansion", "desc": "A literal graph walk: 1-hop neighbours of top entities join the candidates" },
+      { "name": "Tier-aware PPR", "desc": "HippoRAG-style personalized PageRank over the candidate subgraph" },
       { "name": "Cross-encoder rerank", "desc": "Cohere reranks a wide window" },
       { "name": "Listwise LLM rerank", "desc": "Permutation self-consistency, Borda-aggregated" }
     ]

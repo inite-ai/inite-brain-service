@@ -16,6 +16,20 @@ env-flagged and tracked in metrics so an operator can A/B per-tenant
 impact without redeploying. Production defaults in
 [DEPLOY.md](DEPLOY.md); per-flag tuning in [Operations](operations.md).
 
+> [!NOTE]
+> **Graph-first, with vector as the door.** The unit of retrieval is a
+> typed fact on the knowledge graph — never a text chunk. The vector and
+> BM25 legs exist for one job: mapping a free-text query onto candidate
+> facts (you need *some* way into the graph from natural language).
+> Everything downstream is graph-native — the router works over the
+> predicate ontology, candidates bucket per entity with a degree boost,
+> edge expansion and PPR are literal graph walks, and the bitemporal
+> closure + trust/corroboration multipliers are graph semantics. Queries
+> that already carry their anchors take the graph-first entrances
+> instead: `graph_retrieve` (named entities → 1-hop neighbourhood), the
+> multi-hop planner (entity anchoring → chained hops), and the
+> profile/timeline reads, which never touch a vector at all.
+
 ```
                  query
                    │

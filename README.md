@@ -48,9 +48,10 @@ flowchart LR
   facts --> resolver["conflict resolver<br/>+ trust snapshot"]
   docs --> resolver
   resolver --> kg[("bitemporal graph<br/>two clocks per fact")]
-  kg --> retrieval["retrieval pipeline<br/>vector + BM25 → router → PPR →<br/>cross-encoder → LLM rerank"]
-  retrieval --> rest["REST /v1"]
-  retrieval --> mcp["MCP per tenant<br/>+ pack tools ✳"]
+  kg --> entry["entry legs — doors into the graph<br/>vector + BM25 over typed facts"]
+  entry --> rank["graph-native ranking<br/>ontology router → entity buckets →<br/>edge walk → PPR → rerank"]
+  rank --> rest["REST /v1"]
+  rank --> mcp["MCP per tenant<br/>+ pack tools ✳"]
 ```
 
 ✳ = extension points for third parties — see [Build on Brain](#build-on-brain).
@@ -61,9 +62,15 @@ flowchart LR
   and *transaction time* (when Brain learned it). Query `now`, or replay
   exactly what the graph knew on any past date. History is replayed, never
   rewritten.
-- **A retrieval pipeline, not a cosine match.** Hybrid vector + BM25 fusion →
-  HyPE → predicate router → graph edge-expansion → tier-aware PPR →
-  cross-encoder → listwise LLM rerank with self-consistency.
+- **Graph-first retrieval, not a cosine match.** The unit of retrieval is a
+  typed fact on the graph — never a text chunk. Vector + BM25 (+ HyPE) are
+  only the *doors in*: they seed candidate facts from a free-text query, and
+  everything after is graph-native — ontology-driven predicate/type router,
+  per-entity bucketing with degree boost, 1-hop edge expansion, tier-aware
+  PPR over the candidate subgraph, then cross-encoder + listwise LLM rerank,
+  with bitemporal closure and trust/corroboration multipliers throughout.
+  Queries that already name their anchors skip the doors entirely:
+  `graph_retrieve` and the multi-hop planner walk the graph from entities.
 - **Conflict-aware ingest.** Two ingests for one fact go through a scored
   ladder; close calls land as `COMPETING`, not a silent overwrite.
 - **Source-aware trust.** A fact isn't *true* — it's *claimed by a source,
