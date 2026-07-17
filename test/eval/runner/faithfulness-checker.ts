@@ -88,15 +88,48 @@ export class FaithfulnessChecker {
     for (const e of expectations) {
       const floor = e.faithfulnessFloor ?? 0.85;
       try {
+        // False-premise queries run under STRICT guardrails — the
+        // production refusal contract — so the verifier actually
+        // fail-closes on an unsupported premise. Everything else keeps
+        // the lenient path.
         const res = await this.brain.synthesize({
           query: e.query,
           limit: 5,
-          synthesisGuardrails: 'lenient',
+          synthesisGuardrails: e.expectRefusal ? 'strict' : 'lenient',
           asOf: e.asOf,
         });
 
         const answer = res.answer;
         const diag = extractDiagnostics(answer, res, e.expectedAnswerLang);
+
+        // Hallucination-resistance gate: pass IFF the synthesizer
+        // refused. A null answer OR the "no grounded evidence" sentinel
+        // both count as a refusal; any confident answer is a
+        // confabulation and fails. Faithfulness is not scored — a
+        // fabricated answer is wrong regardless of internal consistency.
+        if (e.expectRefusal) {
+          const SENTINEL = "I don't have grounded evidence for that.";
+          const refused =
+            !answer || !answer.trim() || answer.trim() === SENTINEL;
+          outcomes.push({
+            scenarioId: scenario.id,
+            query: e.query,
+            answer: refused ? null : answer,
+            reason: res.reason,
+            faithfulness: null,
+            totalClaims: 0,
+            passed: refused,
+            expectedRefusal: true,
+            refused,
+            faithfulnessFloor: floor,
+            answerLangDetected: diag.answerLangDetected,
+            answerLangCorrect: diag.answerLangCorrect,
+            decisionLogCitationCount: diag.decisionLogCitationCount,
+            avgExtractionEntropy: diag.avgExtractionEntropy,
+          });
+          continue;
+        }
+
         if (!answer || !answer.trim()) {
           // Synthesizer rejected — guardrail engaged. Pass when the
           // scenario explicitly tolerates this (allowEmptyAnswer); fail
