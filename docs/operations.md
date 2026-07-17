@@ -330,9 +330,11 @@ BILLING_SERVICE_API_KEY=<service key>          # required while the flag is on
 
 Fail-closed: when billing is unreachable and the entitlement cache is
 cold, PAID installs answer 503 (free packs are unaffected — they never
-touch billing). Curation keys: mint a `registry:curate` env key for the
-hosting operator (env-key-only, like `registry:publish` — JWT tokens
-cannot carry it).
+touch billing). Curation keys: `registry:curate` / `registry:publish`
+never ride user JWTs (absent from the JWT `VALID_SCOPES`); carry them on
+an operator-issued credential — an auth-service `ik_…` key (resolved via
+RFC 7662 introspection) in production, or a static `BRAIN_API_KEYS` env
+entry in dev (the static table is disabled in production).
 
 **Admin UI (brain-landing)**
 
@@ -347,18 +349,23 @@ plus all Marketplace *reads*; Marketplace *writes* need more:
 
 Missing scopes degrade gracefully — the Marketplace panel stays usable
 read-only and shows an amber note naming the missing scope instead of a
-generic error. The registry scopes are env-key-only by design
-(deliberately absent from the JWT `VALID_SCOPES` set in
-`src/auth/jwks.service.ts`), so a JWT-based BFF token can never carry
-them. To enable Marketplace writes from the admin UI:
+generic error. The registry scopes never ride JWTs (absent from the JWT
+`VALID_SCOPES` set in `src/auth/jwks.service.ts`), so the BFF's M2M
+token can never carry them. To enable Marketplace writes from the admin
+UI:
 
-1. Add a key to the backend's `BRAIN_API_KEYS` with scopes
-   `brain:admin registry:publish registry:curate` (see
-   docs/domain-packs.md for key minting).
+1. Issue an operator credential carrying
+   `brain:admin registry:publish registry:curate`:
+   - **production** — an auth-service API key (`ik_…`); brain resolves
+     it via RFC 7662 introspection, which allows exactly these
+     integration scopes;
+   - **dev / self-hosted without auth-service** — a static
+     `BRAIN_API_KEYS` env entry (the static table is disabled in
+     production whenever a remote verifier is configured).
 2. Set the plaintext key as `BRAIN_REGISTRY_API_KEY` in the
    brain-landing environment. The BFF proxy then sends it as the Bearer
    token on `v1/admin/registry/*` calls only; everything else stays on
-   the M2M JWT path. Without the env var, marketplace writes keep the
+   the JWT paths. Without the env var, marketplace writes keep the
    read-only degradation.
 
 **Deliberately NOT in v1**

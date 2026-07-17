@@ -22,10 +22,12 @@ import { extractPolicyNames } from './claim-parsers';
 
 /**
  * Scopes an introspected (operator-issued) key may carry. Superset of the
- * JWT set: indexer:write / registry:publish are meaningful ONLY as
- * long-lived integration keys — exactly what auth-service API keys are —
- * while user JWTs must never smuggle them. registry:curate stays
- * env-key-only (hosting-operator surface).
+ * JWT set: indexer:write / registry:publish / registry:curate are
+ * meaningful ONLY as long-lived integration keys — exactly what
+ * auth-service API keys are — while user JWTs must never smuggle them.
+ * (registry:curate was briefly "env-key-only", but production disables
+ * the static key table entirely, which made curation unreachable —
+ * introspected keys ARE the operator-issued surface now.)
  */
 const INTROSPECTED_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:read',
@@ -33,6 +35,7 @@ const INTROSPECTED_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:admin',
   'brain:read_pii',
   'registry:publish',
+  'registry:curate',
   'indexer:write',
 ]);
 
