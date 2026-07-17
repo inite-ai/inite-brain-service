@@ -92,6 +92,8 @@ Field notes:
 
 The pipeline runs in one HTTP call. Each stage is feature-flagged at the service level — operators flip them per tenant.
 
+**Graph-first, with vector as the door.** The unit of retrieval is a typed fact on the knowledge graph — never a text chunk. The vector and BM25 legs exist for one job: mapping a free-text query onto candidate facts (you need *some* way into the graph from natural language). Everything downstream is graph-native — the router works over the predicate ontology, candidates bucket per entity, edge expansion and PPR are literal graph walks, and the bitemporal closure plus trust/corroboration multipliers are graph semantics. Queries that already name their anchors skip the doors entirely: `graph_retrieve` (entities → 1-hop neighbourhood) and the multi-hop planner enter the graph directly, and profile/timeline reads never touch a vector at all.
+
 ```
                    query
                      │
