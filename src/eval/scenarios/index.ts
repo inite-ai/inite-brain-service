@@ -14,6 +14,7 @@ import { memoryLifecycleScenarios } from './memory-lifecycle.scenarios';
 import { contentScenarios } from './content.scenarios';
 import { demoTalkScenarios } from './demo-talk.scenarios';
 import { multilingualScenarios } from './multilingual.scenarios';
+import { falsePremiseScenarios } from './false-premise.scenarios';
 
 export const allScenarios: Scenario[] = [
   ...demoTalkScenarios,
@@ -31,6 +32,7 @@ export const allScenarios: Scenario[] = [
   ...memoryLifecycleScenarios,
   ...contentScenarios,
   ...multilingualScenarios,
+  ...falsePremiseScenarios,
 ];
 
 export {
@@ -49,4 +51,5 @@ export {
   memoryLifecycleScenarios,
   contentScenarios,
   multilingualScenarios,
+  falsePremiseScenarios,
 };

@@ -20,6 +20,7 @@ export type {
   JointF1Aggregate,
 } from './joint-f1';
 export { computeFaithfulness, meanFaithfulness } from './faithfulness';
+export { refusalRate, confabulationCount } from './hallucination-resistance';
 export type {
   FaithfulnessInput,
   FaithfulnessScore,
