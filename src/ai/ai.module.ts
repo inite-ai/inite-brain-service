@@ -10,6 +10,7 @@ import { RerankerService } from './reranker.service';
 import { HypeService } from './hype.service';
 import { PredicateRouterService } from './predicate-router.service';
 import { QueryExpansionService } from './query-expansion.service';
+import { DomainRoutingService } from './domain-routing.service';
 import { CrossEncoderService } from './cross-encoder.service';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 import { PredicateRegistryService } from './predicate-registry.service';
@@ -41,6 +42,7 @@ import { EntityJudgeService } from './entity-judge.service';
     HypeService,
     PredicateRouterService,
     QueryExpansionService,
+    DomainRoutingService,
     CrossEncoderService,
     PredicateRegistryService,
     LocalPredicateSelectorService,
@@ -91,6 +93,7 @@ import { EntityJudgeService } from './entity-judge.service';
     HypeService,
     PredicateRouterService,
     QueryExpansionService,
+    DomainRoutingService,
     CrossEncoderService,
     PredicateRegistryService,
     LocalPredicateSelectorService,

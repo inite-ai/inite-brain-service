@@ -74,6 +74,17 @@ export interface ScoreRowsOptions {
    * Default 0 → factor exactly 1.0 → byte-identical ranking.
    */
   authorityDelta?: number;
+  /**
+   * Domain-routed retrieval (SEARCH_DOMAIN_ROUTING_ENABLED): cosine
+   * affinity of the query to the fact's pack domain, computed from the
+   * registry snapshot embeddings — `× (1 + α·sim)` for facts whose
+   * predicate belongs to a matched domain. Absent / no match → exactly
+   * 1.0 → byte-identical ranking.
+   */
+  domainBoost?: {
+    simByPredicate: Record<string, number>;
+    alpha: number;
+  } | null;
 }
 
 const CORROBORATION_CAP = 3;
@@ -86,6 +97,7 @@ export function scoreRows({
   trustBeta = 0,
   corroborationGamma = 0,
   authorityDelta = 0,
+  domainBoost = null,
 }: ScoreRowsOptions): ScoredRow[] {
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
@@ -109,6 +121,10 @@ export function scoreRows({
       PREDICATE_BOOST_ALPHA[row.predicate] ?? PREDICATE_BOOST_ALPHA_DEFAULT;
     const predBoost = predicateDist
       ? 1 + alpha * (predicateDist.weights[row.predicate] ?? 0)
+      : 1;
+    const domainFactor = domainBoost
+      ? 1 +
+        domainBoost.alpha * (domainBoost.simByPredicate[row.predicate] ?? 0)
       : 1;
     const calibratedConfidence = calibrator
       ? calibrator.calibrate(row.confidence)
@@ -153,6 +169,7 @@ export function scoreRows({
       decay *
       calibratedConfidence *
       predBoost *
+      domainFactor *
       trustFactor *
       corroborationFactor *
       authorityFactor;
@@ -165,6 +182,7 @@ export function scoreRows({
         calibratedConfidence,
         decay,
         predBoost,
+        ...(domainFactor !== 1 ? { domainBoost: domainFactor } : {}),
         factTrust,
         finalScore,
         stages: row.stages ?? [],

@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
+import type { RouterVocabulary } from './domain-routing.service';
 
 /**
  * Predicate-class query router.
@@ -118,14 +119,23 @@ export class PredicateRouterService {
     return this.enabled && !!this.openai;
   }
 
-  async route(query: string): Promise<RouterClassification | null> {
+  async route(
+    query: string,
+    vocab?: RouterVocabulary,
+  ): Promise<RouterClassification | null> {
     if (!this.isEnabled() || !query.trim()) return null;
-    const key = createHash('sha256').update(query.trim().toLowerCase()).digest('hex');
+    // Tenant pack vocabulary folds into the cache key via the registry
+    // snapshot versionHash — a pack install/upgrade busts the entry
+    // automatically. Undefined vocab keeps the historical key shape.
+    const keyInput = vocab
+      ? `${query.trim().toLowerCase()}\0${vocab.version}`
+      : query.trim().toLowerCase();
+    const key = createHash('sha256').update(keyInput).digest('hex');
     const cached = this.cache.get(key);
     if (cached) return cached;
 
     try {
-      const dist = await this.limiter.run(() => this.classify(query));
+      const dist = await this.limiter.run(() => this.classify(query, vocab));
       if (!dist) return null;
       // Bounded LRU — tiny: drop the oldest insertion when full.
       if (this.cache.size >= this.cacheLimit) {
@@ -142,7 +152,22 @@ export class PredicateRouterService {
     }
   }
 
-  private async classify(query: string): Promise<RouterClassification | null> {
+  private async classify(
+    query: string,
+    vocab?: RouterVocabulary,
+  ): Promise<RouterClassification | null> {
+    // Merged key list: fixed core vocabulary + the tenant's pack entries
+    // (predicate-level, or one domain-level entry per pack past the cap).
+    const extraEntries = vocab?.entries ?? [];
+    const predicateKeys = [
+      ...DEFAULT_VOCABULARY,
+      ...extraEntries.map((e) => e.id),
+    ];
+    const packSection = extraEntries.length
+      ? `\n\nTenant-specific predicates from installed domain packs:\n${extraEntries
+          .map((e) => `- ${e.id}: ${e.hint || e.label}`)
+          .join('\n')}`
+      : '';
     const sys = `You classify a search query into TWO joint distributions: the predicate-class it targets, and the entity-type it targets. The single LLM call returns both — they share the same query semantics, so co-classifying is cheaper than two separate calls.
 
 Predicates in our knowledge graph:
@@ -185,7 +210,7 @@ Examples of joint reasoning:
 - "broken washing machine" → predicate=complained_about targets a CUSTOMER entity (the complainer), not the asset. types: customer high.
 - "Anton Chekhov born 1860" → name AND dob both carry mass (≈0.45 each). The query intent is identity verification by birth year — the dob predicate is what discriminates among same-name persons. types: customer (or other-person) high.
 - "Mikhail Bulgakov from Kyiv" → address dominates (≈0.6) with name secondary (≈0.3). "from <place>" is the canonical address-lookup phrasing. types: customer / location both relevant.
-- "Maya age 34" → dob dominates. Age expressions imply a birth-year window.`;
+- "Maya age 34" → dob dominates. Age expressions imply a birth-year window.${packSection}`;
     const user = `Query: ${query}`;
 
     const res = await withGenAiCall(
@@ -216,9 +241,9 @@ Examples of joint reasoning:
                 type: 'object',
                 additionalProperties: false,
                 properties: Object.fromEntries(
-                  DEFAULT_VOCABULARY.map((p) => [p, { type: 'number' }]),
+                  predicateKeys.map((p) => [p, { type: 'number' }]),
                 ),
-                required: [...DEFAULT_VOCABULARY],
+                required: [...predicateKeys],
               },
               types: {
                 type: 'object',
@@ -233,7 +258,9 @@ Examples of joint reasoning:
           },
         },
       },
-      max_completion_tokens: 384,
+      // The strict schema echoes every vocabulary key; a merged tenant
+      // vocabulary needs more output headroom than the fixed core list.
+      max_completion_tokens: extraEntries.length ? 768 : 384,
       temperature: 0,
     }, { signal: getAbortSignal() }),
     );
@@ -245,9 +272,21 @@ Examples of joint reasoning:
     } catch {
       return null;
     }
-    const predicates = normalizeDist(parsed?.predicates, DEFAULT_VOCABULARY);
+    const predicates = normalizeDist(parsed?.predicates, predicateKeys);
     const types = normalizeDist(parsed?.types, TYPE_VOCABULARY);
     if (!predicates || !types) return null;
+    // Domain-level entries (vocab past the cap) carry the pack id as the
+    // schema key; fan the returned weight out to member predicates so the
+    // scoring-stage lookup by row.predicate finds it.
+    for (const entry of extraEntries) {
+      if (!entry.expandTo?.length) continue;
+      const w = predicates[entry.id] ?? 0;
+      delete predicates[entry.id];
+      if (w <= 0) continue;
+      for (const pid of entry.expandTo) {
+        predicates[pid] = Math.max(predicates[pid] ?? 0, w);
+      }
+    }
     return { predicates: { weights: predicates }, types: { weights: types } };
   }
 }

@@ -43,6 +43,10 @@ import {
 } from './internals/graph-retrieve-db';
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
+import {
+  DomainRoutingService,
+  type DomainSignal,
+} from '../ai/domain-routing.service';
 import { PipelineContext } from './pipeline-context';
 import { envFlagEnabled } from '../common/env-validation';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
@@ -82,6 +86,7 @@ export class SearchService {
     private readonly rerank: SearchRerankService,
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
     @Optional() private readonly workerPool?: JobWorkerPool,
+    @Optional() private readonly domainRouting?: DomainRoutingService,
   ) {}
 
   /**
@@ -292,6 +297,24 @@ export class SearchService {
       await this.retrieval.prewarmQueryEmbedding(dto.query);
     }
 
+    // Domain-routed retrieval (opt-in): compute the tenant's domain
+    // signal BEFORE the scoped-pool section — it reads the registry
+    // snapshot (root pool, 60s TTL cache) and the already-prewarmed
+    // query embedding, so it adds no scoped-connection hold time. A
+    // caller-supplied predicate filter wins: the explicit `dto.predicates`
+    // contract must not be second-guessed by the router.
+    let domainSignal: DomainSignal | null = null;
+    if (
+      mode !== 'lexical' &&
+      this.domainRouting?.isEnabled() &&
+      !(dto.predicates && dto.predicates.length > 0)
+    ) {
+      domainSignal = await this.domainRouting.getDomainSignal(
+        companyId,
+        dto.query,
+      );
+    }
+
     const out = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
@@ -306,6 +329,7 @@ export class SearchService {
           includeContested,
           mode,
           candidateK,
+          domainSignal,
         }),
     );
     // Usage reinforcement, write side (opt-in): stamp the facts this
@@ -357,8 +381,20 @@ export class SearchService {
     // unhandled rejection while retrieval is still in flight (the
     // router stage degrades to null on its own errors anyway).
     const routerPromise = this.retrieval
-      .runRouterStage(ctx.dto.query)
+      .runRouterStage(ctx.dto.query, ctx.domainSignal?.vocab)
       .catch(() => null);
+    if (ctx.domainSignal) {
+      traceArtifact('search.domain_routing', {
+        mode: this.domainRouting?.mode() ?? 'boost',
+        version: ctx.domainSignal.version,
+        affinities: ctx.domainSignal.affinities.map((a) => ({
+          domain: a.domain,
+          sim: Number(a.sim.toFixed(4)),
+        })),
+        matched: ctx.domainSignal.matched.map((m) => m.domain),
+        vocabEntries: ctx.domainSignal.vocab.entries.length,
+      });
+    }
 
     // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
     const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
@@ -432,7 +468,11 @@ export class SearchService {
     const typeDist = routerOut?.types ?? null;
 
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
-    const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
+    const byEntity = this.retrieval.scoreAndBucket(
+      filtered,
+      predicateDist,
+      ctx.domainSignal?.boost ?? null,
+    );
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds.
     await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx, rowFilterFn });

@@ -125,6 +125,20 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
+  // ── Domain-routed retrieval (pack-aware router) ────────────────────
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_ROUTING_MIN_SIM', errors);
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_BOOST_ALPHA', errors);
+  positiveInt(env, 'SEARCH_DOMAIN_ROUTER_VOCAB_MAX', errors);
+  {
+    const v = env.SEARCH_DOMAIN_ROUTING_MODE;
+    if (v !== undefined && v !== 'boost' && v !== 'filter') {
+      errors.push(
+        `SEARCH_DOMAIN_ROUTING_MODE must be "boost" or "filter" (got "${v}") — ` +
+          'an unrecognized value would silently fall back to boost.',
+      );
+    }
+  }
+
   // ── Episodic→semantic promotion (compaction leg) ───────────────────
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);
@@ -373,6 +387,7 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
  * boot warns (not errors) on values outside FLAG_VALUES.
  */
 const KNOWN_BOOLEAN_FLAGS = [
+  'SEARCH_DOMAIN_ROUTING_ENABLED',
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
   'SEARCH_PPR_ENABLED',
