@@ -12,6 +12,13 @@ import {
   PolicyDocument,
 } from './policy.types';
 
+/** Who is asking: credential hash + claim-carried set names + acting client. */
+export interface PolicySubject {
+  keyHash: string;
+  claimNames?: readonly string[];
+  actorId?: string;
+}
+
 interface TenantPolicySnapshot {
   /** Compiled sets by name — disabled/inactive sets are absent here… */
   sets: Map<string, CompiledPolicySet>;
@@ -78,10 +85,10 @@ export class PolicyResolverService {
    */
   async contextFor(
     companyId: string,
-    keyHash: string,
-    claimNames?: readonly string[],
+    subject: PolicySubject,
   ): Promise<PolicyContext | null> {
     if (!this.enabled) return null;
+    const { keyHash, claimNames, actorId } = subject;
     const snap = await this.snapshot(companyId);
 
     const names: string[] = [];
@@ -104,6 +111,11 @@ export class PolicyResolverService {
     // written against that stable subject too.
     if (keyHash.startsWith('jwt:')) {
       for (const n of snap.bindings.get(keyHash) ?? []) push(n);
+    }
+    // Per-agent bindings: a tenant can attach sets to the ACTING client
+    // (`agent:<client_id>`) regardless of which credential it presents.
+    if (actorId) {
+      for (const n of snap.bindings.get(`agent:${actorId}`) ?? []) push(n);
     }
     for (const n of claimNames ?? []) push(n);
     if (truncated) {

@@ -26,6 +26,7 @@ import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ApiKeyService } from '../src/auth/api-key.service';
 import { CredentialResolverService } from '../src/auth/credential-resolver.service';
 import { JwksService } from '../src/auth/jwks.service';
+import { RevocationCacheService } from '../src/auth/revocation-cache.service';
 
 const ISSUER = 'https://auth.test';
 const AUDIENCE = 'brain';
@@ -68,6 +69,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
   let guard: ApiKeyGuard;
   let jwks: JwksService;
   let apiKeys: ApiKeyService;
+  let revocations: RevocationCacheService;
 
   function mintJwt(opts: {
     sub: string;
@@ -77,10 +79,12 @@ describe('ApiKeyGuard — JWKS verification', () => {
     audience?: string;
     expiresIn?: string | number;
     signWith?: KeyLike;
+    extraClaims?: Record<string, unknown>;
   }): Promise<string> {
     return new SignJWT({
       scopes: opts.scopes ?? ['brain:read', 'brain:write'],
       ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
+      ...(opts.extraClaims ?? {}),
     })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
       .setSubject(opts.sub)
@@ -130,7 +134,8 @@ describe('ApiKeyGuard — JWKS verification', () => {
       NODE_ENV: 'test',
     });
 
-    jwks = new JwksService(config as unknown as ConfigService);
+    revocations = new RevocationCacheService();
+    jwks = new JwksService(config as unknown as ConfigService, revocations);
     jwks.onModuleInit();
 
     apiKeys = new ApiKeyService(config as unknown as ConfigService);
@@ -156,6 +161,92 @@ describe('ApiKeyGuard — JWKS verification', () => {
     expect(await guard.canActivate(ctx)).toBe(true);
     expect((req.brainAuth as { companyId: string }).companyId).toBe('jwt_co_alpha');
     expect((req.brainAuth as { keyHash: string }).keyHash).toMatch(/^jwt:/);
+  });
+
+  it('user-bound token (org claim): tenant = org, end-user = sub', async () => {
+    const token = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co_acme', org_id: 'org-uuid-1' },
+    });
+    const { ctx, req } = makeMockContext({ authorization: `Bearer ${token}` });
+    expect(await guard.canActivate(ctx)).toBe(true);
+    const auth = req.brainAuth as { companyId: string; userId?: string };
+    expect(auth.companyId).toBe('co_acme');
+    expect(auth.userId).toBe('did:key:z6MkUser');
+  });
+
+  it('rejects a user-bound token whose org fails the tenant charset (401)', async () => {
+    const token = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co:bad:chars' },
+    });
+    const { ctx } = makeMockContext({ authorization: `Bearer ${token}` });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('extracts the acting client: act wins over client_id, charset-bounded', async () => {
+    const viaAct = await mintJwt({
+      sub: 'did:key:z6MkUser',
+      extraClaims: { org: 'co_acme', act: { sub: 'brain-landing' }, client_id: 'other' },
+    });
+    expect((await jwks.verify(viaAct))?.actorId).toBe('brain-landing');
+
+    const viaClientId = await mintJwt({
+      sub: 'jwt_co_m2m',
+      extraClaims: { client_id: 'dcr_abc123' },
+    });
+    expect((await jwks.verify(viaClientId))?.actorId).toBe('dcr_abc123');
+
+    const none = await mintJwt({ sub: 'jwt_co_m2m' });
+    expect((await jwks.verify(none))?.actorId).toBeUndefined();
+  });
+
+  it('maps inite_mcp_resource grants to mcpGrantedActions (fail-closed on foreign location)', async () => {
+    const granted = await mintJwt({
+      sub: 'jwt_co_g',
+      extraClaims: {
+        authorization_details: [
+          { type: 'inite_mcp_resource', actions: ['search_knowledge', 'BAD ACTION!'] },
+          { type: 'payment_initiation', actions: ['initiate'] },
+        ],
+      },
+    });
+    expect((await jwks.verify(granted))?.mcpGrantedActions).toEqual(['search_knowledge']);
+
+    // Foreign-location grant → empty grant (all tools removed), never full access.
+    const foreign = await mintJwt({
+      sub: 'jwt_co_g',
+      extraClaims: {
+        authorization_details: [
+          {
+            type: 'inite_mcp_resource',
+            locations: ['https://other-brain.example'],
+            actions: ['search_knowledge'],
+          },
+        ],
+      },
+    });
+    expect((await jwks.verify(foreign))?.mcpGrantedActions).toEqual([]);
+
+    // No MCP entries at all → gate inactive.
+    const noGrant = await mintJwt({ sub: 'jwt_co_g' });
+    expect((await jwks.verify(noGrant))?.mcpGrantedActions).toBeUndefined();
+  });
+
+  it('rejects a valid JWT whose subject is CAEP deny-listed (401)', async () => {
+    const token = await mintJwt({ sub: 'jwt_co_revoked' });
+    revocations.deny('jwt_co_revoked', 60_000);
+    const { ctx } = makeMockContext({ authorization: `Bearer ${token}` });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('extracts entitlements (charset-filtered, capped)', async () => {
+    const token = await mintJwt({
+      sub: 'jwt_co_e',
+      extraClaims: { entitlements: ['plan:pro', 'BAD ENTRY!', 'app:read'] },
+    });
+    const rec = await jwks.verify(token);
+    expect(rec?.entitlements).toEqual(['plan:pro', 'app:read']);
   });
 
   it('extracts ABAC policy names from the policy claim (array + string forms, charset filter, cap 8)', async () => {
@@ -262,7 +353,7 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
       NODE_ENV: 'production',
     });
 
-    jwks = new JwksService(config as unknown as ConfigService);
+    jwks = new JwksService(config as unknown as ConfigService, new RevocationCacheService());
     jwks.onModuleInit();
     apiKeys = new ApiKeyService(config as unknown as ConfigService);
     apiKeys.onModuleInit();

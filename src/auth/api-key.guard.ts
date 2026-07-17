@@ -12,11 +12,30 @@ import { CredentialResolverService } from './credential-resolver.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { POLICY_ACTION_KEY } from '../policy/action-registry';
 import { getRequestContext } from '../common/request-context';
+import { resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 
 const REQUIRED_SCOPES_KEY = 'requiredScopes';
 export const RequireScopes = (...scopes: BrainScope[]) =>
   SetMetadata(REQUIRED_SCOPES_KEY, scopes);
+
+/**
+ * 401 with RFC 9728 discovery: WWW-Authenticate names the protected-
+ * resource metadata document so an MCP client can find the authorization
+ * server and self-onboard instead of failing opaquely. Header is
+ * best-effort — unit fixtures without a response object just get the 401.
+ */
+function unauthorized(context: ExecutionContext, message: string): UnauthorizedException {
+  const httpCtx = context.switchToHttp();
+  const req = httpCtx.getRequest();
+  // Unit fixtures mock only getRequest — degrade to a plain 401 there.
+  const res = typeof httpCtx.getResponse === 'function' ? httpCtx.getResponse() : undefined;
+  const metadata = resourceMetadataUrl(req);
+  if (metadata && typeof res?.setHeader === 'function') {
+    res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
+  }
+  return new UnauthorizedException(message);
+}
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -33,13 +52,13 @@ export class ApiKeyGuard implements CanActivate {
     const header = request.headers['authorization'] as string | undefined;
 
     if (!header || !header.toLowerCase().startsWith('bearer ')) {
-      throw new UnauthorizedException('Missing or malformed Authorization header');
+      throw unauthorized(context, 'Missing or malformed Authorization header');
     }
 
     const token = header.slice(7).trim();
     const record: ApiKeyRecord | null = await this.credentials.resolve(token);
     if (!record) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw unauthorized(context, 'Invalid credentials');
     }
 
     const required =
@@ -73,7 +92,16 @@ export class ApiKeyGuard implements CanActivate {
     // the pipeline (search fusion, graph_retrieve, competing facts,
     // entity reads) row-filter without signature threading. The
     // recorder closure gives the pure row-filter module a path to the
-    // decision sink + metrics without DI.
+    // decision sink + metrics without DI. authUserId rides the same
+    // store — per-user memory surfaces pin caller-asserted userId to
+    // the token's end-user via pinUserScope().
+    if (record.userId || record.actorId) {
+      const store = getRequestContext();
+      if (store) {
+        if (record.userId) store.authUserId = record.userId;
+        if (record.actorId) store.authActorId = record.actorId;
+      }
+    }
     if (policy) {
       const store = getRequestContext();
       if (store) {
@@ -95,6 +123,11 @@ export class ApiKeyGuard implements CanActivate {
       companyId: record.companyId,
       scopes: record.scopes,
       keyHash: record.keyHash,
+      ...(record.userId ? { userId: record.userId } : {}),
+      ...(record.actorId ? { actorId: record.actorId } : {}),
+      ...(record.mcpGrantedActions !== undefined
+        ? { mcpGrantedActions: record.mcpGrantedActions }
+        : {}),
       ...(record.packIds ? { packIds: record.packIds } : {}),
       ...(policy ? { policy } : {}),
     };

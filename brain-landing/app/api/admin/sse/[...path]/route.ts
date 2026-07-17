@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAdmin } from '@/lib/server-auth'
+import { withAdmin, extractAccessToken } from '@/lib/server-auth'
+import { getBrainToken } from '@/lib/brain-api'
 
 /**
  * /api/admin/sse/[...path] — admin-gated SSE pass-through.
@@ -27,32 +28,8 @@ function isAllowed(path: string): boolean {
   )
 }
 
-async function getToken(): Promise<string> {
-  const auth = process.env.AUTH_SERVICE_URL || 'https://auth.inite.ai'
-  const clientId = process.env.OAUTH_CLIENT_ID || 'brain-landing'
-  const clientSecret = process.env.OAUTH_CLIENT_SECRET || ''
-  const aud = process.env.BRAIN_AUDIENCE || 'brain'
-  const scope =
-    process.env.BRAIN_SCOPE || 'brain:read brain:write brain:admin brain:read_pii'
-  if (!clientSecret) throw new Error('OAUTH_CLIENT_SECRET is not configured')
-  const res = await fetch(`${auth}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-      audience: aud,
-      scope,
-    }).toString(),
-    cache: 'no-store',
-  })
-  if (!res.ok) {
-    throw new Error(`auth-service token mint failed (${res.status})`)
-  }
-  const body = (await res.json()) as { access_token: string }
-  return body.access_token
-}
+const SSE_SCOPE =
+  process.env.BRAIN_SCOPE || 'brain:read brain:write brain:admin brain:read_pii'
 
 export const GET = withAdmin(async (_session, request) => {
   const u = request.nextUrl
@@ -72,7 +49,12 @@ export const GET = withAdmin(async (_session, request) => {
 
   let token: string
   try {
-    token = await getToken()
+    // Same identity-preserving exchange as the JSON proxy (M2M fallback
+    // for dev-bypass sessions).
+    token = await getBrainToken({
+      scope: SSE_SCOPE,
+      userToken: await extractAccessToken(request),
+    })
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message },

@@ -1,15 +1,22 @@
 /**
  * Server-side client to the brain backend.
  *
- * The admin BFF (`/api/admin/proxy/[...path]`) calls into here. We
- * intentionally do NOT forward the user's cookie JWT — that token has
- * audience='brain-landing' and brain backend validates audience='brain'.
+ * The BFFs (`/api/admin/proxy`, `/api/app/proxy`) call into here. The
+ * user's cookie JWT is never forwarded verbatim — it has
+ * audience='brain-landing' and the brain backend validates
+ * audience='brain'.
  *
- * Instead, brain-landing acts as an OAuth client and mints a
- * machine-to-machine token via the `client_credentials` grant against
- * auth.inite.ai. The token has aud='brain' and scopes=brain:admin
- * (subject to client allowlist on the auth-service side). Tokens are
- * cached in-process until ~30s before expiry.
+ * Preferred path: RFC 8693 token exchange. The BFF trades the user's
+ * session token for an aud='brain' token that KEEPS the user identity —
+ * `sub` (end-user), `org`/`org_id` (tenant) and an `act` claim naming
+ * brain-landing as the acting party. Brain maps org→companyId and
+ * sub→userId, which is what makes per-user memory scoping and
+ * multi-tenant end-user deployments possible.
+ *
+ * Fallback path: `client_credentials` M2M mint (no user identity) —
+ * used for calls with no user in scope and as a graceful degrade while
+ * the auth-service hasn't granted the token-exchange grant yet.
+ * Tokens of both kinds are cached in-process until ~30s before expiry.
  */
 
 // Hard server-only gate. The OAUTH_CLIENT_SECRET this module mints
@@ -18,6 +25,7 @@
 // 'use client' file accidentally pulling brain-api in fails the
 // Next.js build instead of silently leaking the secret.
 import 'server-only'
+import { createHash } from 'node:crypto'
 
 const BRAIN_API_URL =
   process.env.BRAIN_API_URL ||
@@ -117,6 +125,112 @@ async function getServiceToken(scope: string): Promise<string> {
   }
 }
 
+// ── RFC 8693 token exchange (user identity preserved) ───────────────
+
+const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange'
+const SUBJECT_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token'
+
+// Exchanged tokens are per (user session × scope). Bounded so a busy
+// multi-user deployment can't grow the map unboundedly — entries are
+// tiny and expire in ~5min anyway.
+const exchangeCache = new Map<string, CachedToken>()
+const exchangeInFlight = new Map<string, Promise<CachedToken>>()
+const MAX_EXCHANGE_ENTRIES = 500
+
+function exchangeKey(subjectToken: string, scope: string): string {
+  const digest = createHash('sha256').update(subjectToken).digest('hex').slice(0, 32)
+  return `${digest}:${scope}`
+}
+
+async function fetchExchangedToken(
+  subjectToken: string,
+  scope: string,
+): Promise<CachedToken> {
+  if (!CLIENT_SECRET) {
+    throw new Error('OAUTH_CLIENT_SECRET is not configured')
+  }
+  const res = await fetch(`${AUTH_SERVICE_URL}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: TOKEN_EXCHANGE_GRANT,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      subject_token: subjectToken,
+      subject_token_type: SUBJECT_TOKEN_TYPE,
+      scope,
+      audience: BRAIN_AUDIENCE,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(
+      `token exchange failed: ${res.status} ${text.slice(0, 200)}`,
+    )
+  }
+  const body = (await res.json()) as {
+    access_token: string
+    expires_in?: number
+  }
+  const ttlSec = body.expires_in ?? 300
+  return {
+    accessToken: body.access_token,
+    expiresAtMs: Date.now() + (ttlSec - 30) * 1000,
+  }
+}
+
+async function getExchangedToken(
+  subjectToken: string,
+  scope: string,
+): Promise<string> {
+  const key = exchangeKey(subjectToken, scope)
+  const cached = exchangeCache.get(key)
+  if (cached && cached.expiresAtMs > Date.now()) {
+    return cached.accessToken
+  }
+  const pending = exchangeInFlight.get(key)
+  if (pending) {
+    const t = await pending
+    return t.accessToken
+  }
+  const p = fetchExchangedToken(subjectToken, scope)
+  exchangeInFlight.set(key, p)
+  try {
+    const fresh = await p
+    if (exchangeCache.size >= MAX_EXCHANGE_ENTRIES) {
+      const oldest = exchangeCache.keys().next().value
+      if (oldest !== undefined) exchangeCache.delete(oldest)
+    }
+    exchangeCache.set(key, fresh)
+    return fresh.accessToken
+  } finally {
+    exchangeInFlight.delete(key)
+  }
+}
+
+/**
+ * Resolve the bearer token for a brain call. With a user session token,
+ * prefer the identity-preserving exchange; degrade to the anonymous M2M
+ * mint when exchange is unavailable (grant not provisioned yet, subject
+ * token lacking brain scopes) so the dashboard keeps working during the
+ * auth-service rollout.
+ */
+export async function getBrainToken(opts: {
+  scope: string
+  userToken?: string | null
+}): Promise<string> {
+  if (opts.userToken) {
+    try {
+      return await getExchangedToken(opts.userToken, opts.scope)
+    } catch (err) {
+      console.warn(
+        `[brain-api] token exchange unavailable, falling back to client_credentials: ${(err as Error).message}`,
+      )
+    }
+  }
+  return getServiceToken(opts.scope)
+}
+
 export interface BrainFetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
@@ -135,9 +249,17 @@ export interface BrainFetchOptions {
    * M2M JWT. Needed for the registry catalogue scopes
    * (`registry:publish` / `registry:curate`), which are deliberately
    * absent from the JWT `VALID_SCOPES` allowlist on the backend and can
-   * only ride an env-provisioned `BRAIN_API_KEYS` key.
+   * only ride an env-provisioned `BRAIN_API_KEYS` key. Takes precedence
+   * over {@link userToken}.
    */
   apiKey?: string
+  /**
+   * The caller's session access token (cookie JWT). When present, the
+   * call rides an RFC 8693 exchange that preserves the user identity
+   * downstream (per-user memory, audit attribution) instead of the
+   * anonymous M2M mint.
+   */
+  userToken?: string | null
 }
 
 export interface BrainResponse<T = unknown> {
@@ -167,7 +289,7 @@ export async function brainFetch<T = unknown>(
     token = options.apiKey
   } else {
     try {
-      token = await getServiceToken(scope)
+      token = await getBrainToken({ scope, userToken: options.userToken })
     } catch (err) {
       return {
         ok: false,
@@ -199,10 +321,13 @@ export async function brainFetch<T = unknown>(
       // raw text below
     }
     // On 401 the cached token may have been revoked — invalidate the
-    // entry for this scope and let the next request re-mint. (Static
-    // apiKey calls never touched the cache.)
+    // entries for this scope and let the next request re-mint. (Static
+    // apiKey calls never touched the caches.)
     if (res.status === 401 && !options.apiKey) {
       tokenCache.delete(scope)
+      if (options.userToken) {
+        exchangeCache.delete(exchangeKey(options.userToken, scope))
+      }
     }
     if (!res.ok) {
       return {

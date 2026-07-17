@@ -42,6 +42,7 @@ export function registerWriteTools({
   deps,
   scopes,
   actorKeyHash,
+  actorId,
 }: {
   server: McpServer;
   companyId: string;
@@ -49,7 +50,12 @@ export function registerWriteTools({
   scopes: BrainScope[];
   /** Caller key hash — actor identity for record_feedback's one-vote fence. */
   actorKeyHash?: string;
+  /** Acting client (agent) identity — stamped into fact provenance. */
+  actorId?: string;
 }): void {
+  // The recorder names WHICH agent wrote the fact (token act/client_id),
+  // not just that "an MCP agent" did — feeds per-agent trust and audits.
+  const recorder = actorId ? `mcp_agent:${actorId}` : 'mcp_agent';
   // ── record_fact ────────────────────────────────────────────────
   server.registerTool(
     'record_fact',
@@ -86,7 +92,7 @@ export function registerWriteTools({
         validUntil: args.validUntil,
         confidence: args.confidence,
         userId: args.userId,
-        source: { vertical: args.sourceVertical, recorder: 'mcp_agent' },
+        source: { vertical: args.sourceVertical, recorder },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -99,7 +105,7 @@ export function registerWriteTools({
   // Registered only when the documents pipeline is wired AND enabled —
   // agents shouldn't see a tool that answers 503.
   if (deps.documents && envFlagEnabled(process.env.DOCUMENT_INGEST_ENABLED)) {
-    registerIngestDocumentTool({ server, companyId, documents: deps.documents });
+    registerIngestDocumentTool({ server, companyId, documents: deps.documents, recorder });
   }
 
   // ── link_entities ──────────────────────────────────────────────
@@ -346,10 +352,13 @@ function registerIngestDocumentTool({
   server,
   companyId,
   documents,
+  recorder,
 }: {
   server: McpServer;
   companyId: string;
   documents: DocumentIngestService;
+  /** Agent-attributed recorder identity (mcp_agent[:<client_id>]). */
+  recorder: string;
 }): void {
   server.registerTool(
     'ingest_document',
@@ -407,7 +416,7 @@ function registerIngestDocumentTool({
         title: args.title,
         originUri: args.originUri,
         occurredAt: args.occurredAt,
-        contextRef: { vertical: args.vertical, recorder: 'mcp_agent' },
+        contextRef: { vertical: args.vertical, recorder },
         storeContent: args.storeContent,
         indexers: args.indexers ?? 'general',
         mode: 'sync',

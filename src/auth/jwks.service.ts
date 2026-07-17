@@ -2,6 +2,16 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { ApiKeyRecord, BrainScope } from './api-key.types';
+import { RevocationCacheService } from './revocation-cache.service';
+import {
+  extractActorId,
+  extractEntitlements,
+  extractMcpGrantedActions,
+  extractPackIds,
+  extractPolicyNames,
+  extractScopes,
+  resolveTokenIdentity,
+} from './claim-parsers';
 
 const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:read',
@@ -9,15 +19,6 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:admin',
   'brain:read_pii',
 ]);
-
-// Tenant slug charset. The companyId becomes the `co_<id>` database name
-// and is interpolated into record ids, so it must stay within a safe
-// identifier charset (alnum / underscore / hyphen, bounded length).
-const VALID_COMPANY_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-// Defence-in-depth cap. A well-formed token carries a handful of scopes;
-// an absurdly long array is malformed/hostile and we refuse to parse it.
-const MAX_SCOPES = 64;
 
 /**
  * JWT verification against the @inite/auth-service JWKS endpoint.
@@ -37,8 +38,13 @@ export class JwksService implements OnModuleInit {
   private issuer?: string;
   private audience?: string;
   private algorithms: string[] = ['RS256'];
+  /** Canonical deployment URL — matches RFC 9396 grant `locations`. */
+  private publicUrl?: string;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly revocations: RevocationCacheService,
+  ) {}
 
   onModuleInit() {
     const url = this.configService.get<string>('AUTH_SERVICE_JWKS_URL');
@@ -51,6 +57,7 @@ export class JwksService implements OnModuleInit {
     this.jwks = createRemoteJWKSet(new URL(url));
     this.issuer = this.configService.get<string>('AUTH_SERVICE_ISSUER');
     this.audience = this.configService.get<string>('AUTH_SERVICE_AUDIENCE', 'brain');
+    this.publicUrl = this.configService.get<string>('BRAIN_PUBLIC_URL');
     // Pin the accepted signature algorithms. Without this, jwtVerify accepts
     // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
     // surface (e.g. a symmetric key smuggled into the key set). Configurable
@@ -104,14 +111,20 @@ export class JwksService implements OnModuleInit {
       return null;
     }
 
-    const companyId = typeof payload.sub === 'string' ? payload.sub : null;
-    if (!companyId) return null;
-    // The sub becomes the tenant database name (`co_<companyId>`) and is
-    // interpolated into SurrealDB record ids. An out-of-charset value would
-    // surface as a DB-layer 500 deep in a query; reject it here so a malformed
-    // token is a clean 401 instead. Tenant slugs are alnum/underscore/hyphen.
-    if (!VALID_COMPANY_ID.test(companyId)) {
-      this.logger.debug('JWT rejected: sub is not a valid companyId');
+    // CAEP deny-list (fed by the SSF receiver): a session/account the
+    // auth-service revoked is rejected here even though the signature
+    // is still cryptographically valid until exp.
+    if (typeof payload.sub === 'string' && this.revocations.isDenied(payload.sub)) {
+      this.logger.debug('JWT rejected: subject is deny-listed (CAEP revocation)');
+      return null;
+    }
+
+    // Tenant/user split (auth-service claim model):
+    //   `org` present → user-bound token: tenant = org, end-user = sub
+    //   `org` absent  → M2M token: tenant = sub, no end-user
+    const identity = resolveTokenIdentity(payload);
+    if (!identity) {
+      this.logger.debug('JWT rejected: no valid tenant identity in org/sub');
       return null;
     }
 
@@ -122,68 +135,22 @@ export class JwksService implements OnModuleInit {
 
     const policyNames = extractPolicyNames(payload);
     const packIds = extractPackIds(payload);
+    const entitlements = extractEntitlements(payload);
+    const actorId = extractActorId(payload);
+    // RFC 9396 per-tool grants; fail-closed for foreign-location entries
+    // (see claim-parsers.ts). undefined = gate inactive.
+    const mcpGrantedActions = extractMcpGrantedActions(payload, this.publicUrl);
 
     return {
       keyHash: `jwt:${payload.jti ?? payload.sub}`,
-      companyId,
+      companyId: identity.companyId,
       scopes,
+      ...(identity.userId ? { userId: identity.userId } : {}),
+      ...(actorId ? { actorId } : {}),
+      ...(mcpGrantedActions !== undefined ? { mcpGrantedActions } : {}),
+      ...(entitlements.length > 0 ? { entitlements } : {}),
       ...(policyNames.length > 0 ? { policyNames } : {}),
       ...(packIds.length > 0 ? { packIds } : {}),
     };
   }
-}
-
-// Policy set names live in the same identifier charset the CRUD layer
-// enforces; anything else in the claim is dropped here rather than
-// carried into resolution (where an out-of-charset name would fail
-// closed and brick the key on a claim-encoding quirk).
-const VALID_POLICY_NAME = /^[a-z][a-z0-9_-]{1,63}$/;
-const MAX_POLICY_NAMES = 8;
-
-/**
- * `policy` claim → ABAC policy set names. Array of strings or a single
- * space-delimited string, capped at MAX_POLICY_NAMES (mirrors the
- * resolver-side MAX_SETS_PER_KEY).
- */
-function extractPolicyNames(payload: JWTPayload): string[] {
-  const raw = (payload as Record<string, unknown>).policy;
-  let names: string[] = [];
-  if (Array.isArray(raw)) {
-    names = raw.filter((n): n is string => typeof n === 'string');
-  } else if (typeof raw === 'string') {
-    names = raw.split(' ').filter(Boolean);
-  }
-  return names.filter((n) => VALID_POLICY_NAME.test(n)).slice(0, MAX_POLICY_NAMES);
-}
-
-// Pack ids share the manifest's snake_case charset (validate.ts); an
-// out-of-charset claim entry is dropped, not carried into fencing.
-const VALID_PACK_ID = /^[a-z][a-z0-9_]{1,63}$/;
-const MAX_PACK_IDS = 16;
-
-/**
- * `packs` claim → per-pack indexer binding (ApiKeyRecord.packIds).
- * Array of strings or a single space-delimited string.
- */
-function extractPackIds(payload: JWTPayload): string[] {
-  const raw = (payload as Record<string, unknown>).packs;
-  let ids: string[] = [];
-  if (Array.isArray(raw)) {
-    ids = raw.filter((n): n is string => typeof n === 'string');
-  } else if (typeof raw === 'string') {
-    ids = raw.split(' ').filter(Boolean);
-  }
-  return ids.filter((n) => VALID_PACK_ID.test(n)).slice(0, MAX_PACK_IDS);
-}
-
-function extractScopes(payload: JWTPayload): string[] {
-  if (Array.isArray(payload.scopes)) {
-    return payload.scopes
-      .filter((s): s is string => typeof s === 'string')
-      .slice(0, MAX_SCOPES);
-  }
-  if (typeof payload.scope === 'string') {
-    return payload.scope.split(' ').filter(Boolean).slice(0, MAX_SCOPES);
-  }
-  return [];
 }
