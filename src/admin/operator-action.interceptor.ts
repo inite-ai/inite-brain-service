@@ -90,42 +90,43 @@ function isUnsafeKey(k: string): boolean {
   return PROTO_KEYS.has(k);
 }
 
+// Both summaries collect [key, value] pairs and materialise the object in
+// one Object.fromEntries call: request-controlled keys become own data
+// properties only — never a dynamic write that could reach a setter or an
+// inherited Object member.
 function summariseQuery(
   q: Record<string, unknown> | undefined,
 ): Record<string, string> | null {
   if (!q || Object.keys(q).length === 0) return null;
-  // Null prototype: request-controlled keys can't collide with (or
-  // pollute) inherited Object members.
-  const out: Record<string, string> = Object.create(null);
+  const entries: Array<[string, string]> = [];
   for (const [k, v] of Object.entries(q)) {
     if (isUnsafeKey(k)) continue;
-    out[k] = truncate(String(v));
+    entries.push([k, truncate(String(v))]);
   }
-  return out;
+  return Object.fromEntries(entries);
+}
+
+function summariseValue(v: unknown): unknown {
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'string') return truncate(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) return `[array len=${v.length}]`;
+  if (typeof v === 'object') {
+    return `[object keys=${Object.keys(v as Record<string, unknown>).length}]`;
+  }
+  return truncate(String(v));
 }
 
 function summariseBody(
   body: unknown,
 ): Record<string, unknown> | null {
   if (!body || typeof body !== 'object') return null;
-  const out: Record<string, unknown> = Object.create(null);
+  const entries: Array<[string, unknown]> = [];
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
     if (isUnsafeKey(k)) continue;
-    if (v === null || v === undefined) {
-      out[k] = v;
-    } else if (typeof v === 'string') {
-      out[k] = truncate(v);
-    } else if (typeof v === 'number' || typeof v === 'boolean') {
-      out[k] = v;
-    } else if (Array.isArray(v)) {
-      out[k] = `[array len=${v.length}]`;
-    } else if (typeof v === 'object') {
-      out[k] = `[object keys=${Object.keys(v as Record<string, unknown>).length}]`;
-    } else {
-      out[k] = truncate(String(v));
-    }
+    entries.push([k, summariseValue(v)]);
   }
-  return out;
+  return Object.fromEntries(entries);
 }
 
 function truncate(s: string, n = 200): string {
