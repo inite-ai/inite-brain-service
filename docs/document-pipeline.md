@@ -19,7 +19,7 @@ flowchart LR
   ded --> cand
   ext --> ground["span re-grounding"] --> cand
   cand --> commit["Brain: CommitMemory<br/>unify entities · merge facts ·<br/>fn::resolve_fact"]
-  commit --> graph[("bitemporal graph")]
+  commit --> kg[("bitemporal graph")]
 ```
 
 ✳ = the third-party seam — see [indexer-protocol.md](indexer-protocol.md).

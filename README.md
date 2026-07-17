@@ -47,8 +47,8 @@ flowchart LR
   packs["Domain Packs ✳<br/>registry · marketplace"] -. "predicates · indexers<br/>seed documents" .-> ingest
   facts --> resolver["conflict resolver<br/>+ trust snapshot"]
   docs --> resolver
-  resolver --> graph[("bitemporal graph<br/>two clocks per fact")]
-  graph --> retrieval["retrieval pipeline<br/>vector + BM25 → router → PPR →<br/>cross-encoder → LLM rerank"]
+  resolver --> kg[("bitemporal graph<br/>two clocks per fact")]
+  kg --> retrieval["retrieval pipeline<br/>vector + BM25 → router → PPR →<br/>cross-encoder → LLM rerank"]
   retrieval --> rest["REST /v1"]
   retrieval --> mcp["MCP per tenant<br/>+ pack tools ✳"]
 ```
