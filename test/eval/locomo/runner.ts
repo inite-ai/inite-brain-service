@@ -181,17 +181,22 @@ async function scoreQuestion(
   } catch (e) {
     errored = (e as Error).message;
   }
+  // Defensive: gold answers are coerced to string at the loader boundary,
+  // but a stray non-string here would throw inside the token metrics and
+  // abort the entire (expensive) run — coerce again so one odd field can't.
+  const gold = typeof q.answer === 'string' ? q.answer : String(q.answer ?? '');
+  const pred = typeof prediction === 'string' ? prediction : String(prediction ?? '');
   return {
     sampleId: conv.sampleId,
     category: q.category,
     question: q.question,
-    gold: q.answer,
-    prediction,
-    f1: tokenF1(prediction, q.answer),
-    rougeL: rougeL(prediction, q.answer),
-    bleu1: bleu1(prediction, q.answer),
-    exactMatch: exactMatch(prediction, q.answer),
-    adversarial: adversarialScore(prediction, q.answer),
+    gold,
+    prediction: pred,
+    f1: tokenF1(pred, gold),
+    rougeL: rougeL(pred, gold),
+    bleu1: bleu1(pred, gold),
+    exactMatch: exactMatch(pred, gold),
+    adversarial: adversarialScore(pred, gold),
     errored,
   };
 }

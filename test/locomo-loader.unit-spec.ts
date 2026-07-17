@@ -52,6 +52,25 @@ describe('LoCoMo loader', () => {
     expect(norm.sessions[0].dateTime).toBe('2023-05-01T12:00:00.000Z');
   });
 
+  it('coerces non-string gold answers to strings (LoCoMo has numeric answers)', () => {
+    // Real LoCoMo stores some gold answers as JSON numbers (counts, years);
+    // the token-F1 scorer does answer.toLowerCase() and would throw on a
+    // number, aborting the whole run. The loader coerces at the boundary.
+    const withNumeric = {
+      ...fixture,
+      // Runtime numeric/null answers (as the real dataset stores them),
+      // cast to the typed shape — the loader coerces them at runtime.
+      qa: [
+        { question: 'How many?', answer: 7, category: 2, evidence: [] },
+        { question: 'Which year?', answer: 2022, category: 3, evidence: [] },
+        { question: 'Nothing?', answer: null, category: 5, evidence: [] },
+      ] as unknown as typeof fixture.qa,
+    };
+    const norm = normalizeSample(withNumeric);
+    expect(norm.qa.map((q) => q.answer)).toEqual(['7', '2022', '']);
+    expect(norm.qa.every((q) => typeof q.answer === 'string')).toBe(true);
+  });
+
   it('best-effort parses human "8 May, 2023" form', () => {
     const norm = normalizeSample(fixture);
     expect(norm.sessions[1].dateTime).toMatch(/^2023-05-08T/);

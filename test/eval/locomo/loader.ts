@@ -44,7 +44,16 @@ export function normalizeSample(sample: LocomoSample): NormalizedConversation {
     speakerA: sample.conversation.speaker_a,
     speakerB: sample.conversation.speaker_b,
     sessions,
-    qa: sample.qa,
+    // LoCoMo gold answers are typed string, but the upstream JSON stores
+    // some as numbers (counts, years) — `answer.toLowerCase()` in the
+    // token-F1 scorer then throws. Coerce to string at the load boundary so
+    // every downstream metric sees a string; null/undefined → '' (harmless,
+    // and correct for category-5 adversarial golds where the answer is a
+    // refusal rather than a value).
+    qa: sample.qa.map((q) => ({
+      ...q,
+      answer: q.answer == null ? '' : String(q.answer),
+    })),
   };
 }
 
