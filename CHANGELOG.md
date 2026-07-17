@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0](https://github.com/inite-ai/inite-brain-service/compare/v0.7.0...v0.8.0) (2026-07-17)
+
+
+### Features
+
+* **admin-ui:** packs, marketplace curation, and sources reputation panels ([#210](https://github.com/inite-ai/inite-brain-service/issues/210)) ([3bac9c4](https://github.com/inite-ai/inite-brain-service/commit/3bac9c461f86f8ffcf8717a9c105db125eb6c734))
+* **admin-ui:** static registry API key path for marketplace writes ([#211](https://github.com/inite-ai/inite-brain-service/issues/211)) ([415928f](https://github.com/inite-ai/inite-brain-service/commit/415928f9af98d77e17be4b0f269d988c0b9a92b0))
+* **auth:** inite-auth vertical tightening — per-user memory, agent grants, ABAC delivery ([#214](https://github.com/inite-ai/inite-brain-service/issues/214)) ([b4e95c8](https://github.com/inite-ai/inite-brain-service/commit/b4e95c8eb7db249b96607e4a72ef3e659c7c0cfd))
+* **deploy:** enable marketplace billing and MCP pack query tools in prod ([#215](https://github.com/inite-ai/inite-brain-service/issues/215)) ([bccaa72](https://github.com/inite-ai/inite-brain-service/commit/bccaa7224e146250c600883fc32c4d51f07118cf))
+* **mcp:** pack-declared MCP tools — query tools over pack predicates + HMAC-proxied external tools ([#204](https://github.com/inite-ai/inite-brain-service/issues/204)) ([24c697a](https://github.com/inite-ai/inite-brain-service/commit/24c697a3c401c47f259a7788d606db063017ad41))
+* **packs:** seed documents — packs ship knowledge through the document pipeline ([#200](https://github.com/inite-ai/inite-brain-service/issues/200)) ([8e51dba](https://github.com/inite-ai/inite-brain-service/commit/8e51dbaa3ae96c9aa3a54270dfcef028a5cf3ef3))
+* **registry:** marketplace — featured curation, publisher profiles, paid packs via billing service ([#202](https://github.com/inite-ai/inite-brain-service/issues/202)) ([aee950f](https://github.com/inite-ai/inite-brain-service/commit/aee950f9d411aff0f02a01f4994db346b338b38d))
+* **sources:** read-only trust-inputs API under brain:read ([#199](https://github.com/inite-ai/inite-brain-service/issues/199)) ([3fc702d](https://github.com/inite-ai/inite-brain-service/commit/3fc702d2b3dec4782c2727ee7639e75d93c5f434))
+
+
+### Bug Fixes
+
+* **admin-ui:** config/jobs panel drift + in-repo drift guards ([#207](https://github.com/inite-ai/inite-brain-service/issues/207)) ([f6755dc](https://github.com/inite-ai/inite-brain-service/commit/f6755dc5bcb24231974e06ebc5c4a98b057998bc))
+* **auth:** allow registry:curate on introspected operator keys ([#216](https://github.com/inite-ai/inite-brain-service/issues/216)) ([fe39a82](https://github.com/inite-ai/inite-brain-service/commit/fe39a8295cc50d2c2c1fbb20d88092ae3a534dbc))
+* **db:** tolerate concurrent migration appliers racing the ledger insert ([#203](https://github.com/inite-ai/inite-brain-service/issues/203)) ([589c1e5](https://github.com/inite-ai/inite-brain-service/commit/589c1e5ca422833053f528a87baa5b0e76b509ab))
+* **entities,app:** real transaction-time axis for profile/timeline + timeline event rendering ([#208](https://github.com/inite-ai/inite-brain-service/issues/208)) ([67935a8](https://github.com/inite-ai/inite-brain-service/commit/67935a8a9d12dbdb3b898c032aef0a0fa3da4db7))
+* **release:** bump docs/openapi.json info.version in release PRs ([#217](https://github.com/inite-ai/inite-brain-service/issues/217)) ([d48b734](https://github.com/inite-ai/inite-brain-service/commit/d48b734fcd8fb217244fb5ef9737375fda7c1f3f))
+* **security:** CodeQL backlog — linear email check, Map template dispatch, null-proto summaries; tolerant AI summary ([#218](https://github.com/inite-ai/inite-brain-service/issues/218)) ([4786648](https://github.com/inite-ai/inite-brain-service/commit/4786648e7d39042105e34e66db752dc58451b910))
+
 ## [0.7.0](https://github.com/inite-ai/inite-brain-service/compare/v0.6.2...v0.7.0) (2026-07-16)
 
 
