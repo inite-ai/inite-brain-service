@@ -22,7 +22,16 @@ interface ProfileRow {
 
 // Loose email shape — enough to catch a pasted URL or a bare word, not an
 // RFC 5321 validator (the address is display metadata, nothing is sent).
-const LOOSE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Index-based instead of a regex: the natural /x+@x+\.x+/ shape is
+// polynomially backtrackable on untrusted input of unbounded length.
+function looksLikeEmail(s: string): boolean {
+  if (s.length > 254 || /\s/.test(s)) return false;
+  const at = s.indexOf('@');
+  if (at <= 0 || at !== s.lastIndexOf('@') || at === s.length - 1) return false;
+  const domain = s.slice(at + 1);
+  const dot = domain.lastIndexOf('.');
+  return dot > 0 && dot < domain.length - 1;
+}
 
 /**
  * Public marketplace profiles per registry publisher id (migration 0067;
@@ -155,7 +164,7 @@ export class PublisherProfileService {
       throw new BadRequestException('url must be a valid http(s) URL');
     }
     const contactEmail = profile.contactEmail?.trim();
-    if (contactEmail && !LOOSE_EMAIL.test(contactEmail)) {
+    if (contactEmail && !looksLikeEmail(contactEmail)) {
       throw new BadRequestException('contactEmail must look like an email address');
     }
     return {

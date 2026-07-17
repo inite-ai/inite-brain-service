@@ -94,7 +94,9 @@ function summariseQuery(
   q: Record<string, unknown> | undefined,
 ): Record<string, string> | null {
   if (!q || Object.keys(q).length === 0) return null;
-  const out: Record<string, string> = {};
+  // Null prototype: request-controlled keys can't collide with (or
+  // pollute) inherited Object members.
+  const out: Record<string, string> = Object.create(null);
   for (const [k, v] of Object.entries(q)) {
     if (isUnsafeKey(k)) continue;
     out[k] = truncate(String(v));
@@ -106,7 +108,7 @@ function summariseBody(
   body: unknown,
 ): Record<string, unknown> | null {
   if (!body || typeof body !== 'object') return null;
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = Object.create(null);
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
     if (isUnsafeKey(k)) continue;
     if (v === null || v === undefined) {
