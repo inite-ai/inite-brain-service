@@ -53,6 +53,10 @@ jobs:
 
       - name: AI summary
         id: ai
+        # Best-effort: GitHub Models may be unavailable (e.g. 403 when Models
+        # isn't enabled for the org/repo). A failed summary must not red-X the
+        # PR — the summary is advisory only.
+        continue-on-error: true
         uses: actions/ai-inference@a7805884c80886efc241e94a5351df715968a0ad # v2.1.1
         with:
           model: openai/gpt-4o-mini
@@ -73,6 +77,8 @@ jobs:
           prompt-file: prompt.txt
 
       - name: Post/update summary comment
+        # Skip when the model produced nothing (unavailable/errored).
+        if: ${{ steps.ai.outputs.response != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

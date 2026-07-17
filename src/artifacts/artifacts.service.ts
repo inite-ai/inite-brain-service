@@ -14,6 +14,9 @@ import {
   type Citation,
 } from './templates';
 
+// Own-key Map view of the template registry for request-derived lookups.
+const TEMPLATE_MAP = new Map(Object.entries(TEMPLATES));
+
 /**
  * ArtifactsService — compilation-stage knowledge layer.
  *
@@ -204,15 +207,15 @@ export class ArtifactsService {
    * of returning an empty bundle.
    */
   private compile(type: ArtifactType, facts: FactRow[]): CompiledArtifact {
-    // `type` is request-derived: guard with hasOwn so a value like
-    // 'constructor'/'toString' can't resolve to an inherited Object member
-    // and get invoked as a template.
-    if (!Object.prototype.hasOwnProperty.call(TEMPLATES, type)) {
+    // `type` is request-derived: a Map lookup can't resolve inherited
+    // Object members ('constructor'/'toString') the way obj[type] can,
+    // so an unknown or hostile value dead-ends at undefined.
+    const template = TEMPLATE_MAP.get(type);
+    if (!template) {
       throw new BadRequestException(
-        `Unknown artifactType '${type}'. Known: ${Object.keys(TEMPLATES).join(', ')}`,
+        `Unknown artifactType '${type}'. Known: ${[...TEMPLATE_MAP.keys()].join(', ')}`,
       );
     }
-    const template = TEMPLATES[type];
     const out = template(facts);
     // De-duplicate sourceFactIds — multiple template fields commonly cite
     // the same fact (e.g. customer_profile.name + identity_dossier.name).
