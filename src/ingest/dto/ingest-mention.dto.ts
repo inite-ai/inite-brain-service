@@ -44,4 +44,15 @@ export class IngestMentionDto {
 
   @IsISO8601()
   emittedAt: string;
+
+  /**
+   * Per-user memory scope (migration 0055). When set (or pinned from a
+   * user-bound token), the entities and facts extracted from this mention
+   * are stamped with this userId, so the fail-closed read fence only
+   * surfaces them to the same user + tenant-global reads. Omitted →
+   * tenant-global, byte-identical to the historical behaviour. This is the
+   * ingestion axis persona / personal-memory packs rely on.
+   */
+  @IsOptional() @IsString()
+  userId?: string;
 }

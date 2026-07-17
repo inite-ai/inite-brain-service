@@ -84,6 +84,7 @@ export class MentionPersistService {
             hint: knownHint,
             _contextRef: dto.contextRef,
             incomingFacts,
+            userId: dto.userId,
           }),
         { name: e.name, type: e.type },
       );
@@ -119,6 +120,7 @@ export class MentionPersistService {
             source,
             validFrom: new Date(dto.emittedAt),
             precomputedEmbedding: factEmbeddings[i],
+            userId: dto.userId,
           }),
         { predicate: f.predicate, entityId: eid },
       );
@@ -149,6 +151,7 @@ export class MentionPersistService {
       source: MentionSource;
       validFrom: Date;
       precomputedEmbedding: number[] | undefined;
+      userId?: string;
     },
   ): Promise<string | null> {
     const { f } = p;
@@ -164,6 +167,7 @@ export class MentionPersistService {
       source: p.source,
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
+      userId: p.userId,
     });
 
     const factId = result?.factId ? String(result.factId) : null;
@@ -220,6 +224,7 @@ export class MentionPersistService {
                 messageId: dto.contextRef.messageId,
                 confidence: e.confidence,
               },
+              userId: dto.userId,
             }),
           { kind: e.kind, from: fromEid, to: toEid },
         );

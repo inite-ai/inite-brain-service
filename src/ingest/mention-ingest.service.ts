@@ -4,6 +4,7 @@ import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceSpan } from '../common/debug-trace';
 import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
+import { pinUserScope } from '../auth/user-scope';
 
 /**
  * The mention ingest path (`ingestMention`): free-text → LLM extraction → fact
@@ -20,6 +21,10 @@ export class MentionIngestService {
   ) {}
 
   async ingestMention(companyId: string, dto: IngestMentionDto) {
+    // A user-bound token pins the caller-asserted userId to the token's
+    // end-user (403 on mismatch); M2M credentials pass their asserted
+    // userId through unchanged. Mirrors FactIngestService.
+    dto = { ...dto, userId: pinUserScope(dto.userId) };
     try {
       return await this.run(companyId, dto);
     } catch (err) {

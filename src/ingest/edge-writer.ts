@@ -17,19 +17,29 @@ export async function createEdgeBetween(
     toEntityId: string;
     kind: string;
     source: Record<string, unknown>;
+    /** User scope (0055). Stamped onto the edge so a personal social link
+     *  (e.g. persona family_of) is fenced to the same user + tenant-global
+     *  reads. Omitted → tenant-global, unchanged. */
+    userId?: string;
   },
 ): Promise<string | null> {
   const fromRid = new StringRecordId(p.fromEntityId);
   const toRid = new StringRecordId(p.toEntityId);
+  // `option<string>` rejects NULL — the global path must OMIT userId (drops
+  // to NONE), never set it to null, so unscoped edges stay byte-identical.
+  const content: Record<string, unknown> = {
+    kind: p.kind,
+    weight: 1.0,
+    source: p.source,
+    ...(p.userId ? { userId: p.userId } : {}),
+  };
   try {
     const [edgeRows] = await db.query<[any[]]>(
-      `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
+      `RELATE $from->knowledge_edge->$to CONTENT $content RETURN AFTER`,
       {
         from: fromRid,
         to: toRid,
-        kind: p.kind,
-        weight: 1.0,
-        source: p.source,
+        content,
       },
     );
     const edge = ((edgeRows as any[]) ?? [])[0];

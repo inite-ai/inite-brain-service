@@ -72,6 +72,7 @@ describe('first-party pack library', () => {
       'insurance',
       'legal',
       'medical',
+      'persona',
       'real_estate',
     ]);
   });
