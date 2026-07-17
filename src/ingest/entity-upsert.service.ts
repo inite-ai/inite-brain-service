@@ -106,21 +106,29 @@ export class EntityUpsertService {
     hint,
     _contextRef,
     incomingFacts = [],
+    userId,
   }: {
     db: Surreal;
     e: { name: string; type: string; canonical?: string };
     hint: { vertical: string; id: string; role?: string } | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
+    /** User scope (0055). When set, the entity is resolved/created within
+     *  the user's private scope; omitted → tenant-global (unchanged). */
+    userId?: string;
   }): Promise<string> {
-    // 1. Caller hint wins — same atomic upsert as fact ingest.
+    // 1. Caller hint wins — same atomic upsert as fact ingest. Fold the
+    // user scope into the ref key + stamp it so a hinted personal entity
+    // never collides with the tenant-global ref for the same (vertical, id).
     if (hint) {
-      const hintKey = externalRefKey(hint.vertical, hint.id);
+      const baseKey = externalRefKey(hint.vertical, hint.id);
+      const hintKey = userId ? `${baseKey}::u::${userId}` : baseKey;
       return this.upsertEntityByExternalRef(db, hintKey, () => ({
         type: this.normalizeEntityType(e.type),
         canonicalName: e.canonical ?? e.name,
         aliases: [e.name],
         externalRefs: { [hintKey]: hint.id },
+        ...(userId ? { userId } : {}),
       }));
     }
 
@@ -132,19 +140,20 @@ export class EntityUpsertService {
     // name canonicalisation is heuristic. Identity merge via
     // ingestLink consolidates downstream.
     const target = (e.canonical ?? e.name).toLowerCase();
-    // This is the tenant-GLOBAL naming path (mention/document ingest never
-    // stamps a userId). Pin `userId IS NONE` so a same-named PERSONAL
-    // entity never matches — otherwise global facts attach to a user's
-    // private entity and leak its identity (externalRefs, canonicalName)
-    // onto the global surface. Mirrors the scope fence on the embedding
-    // resolver (entity-resolver.service.ts).
+    // Scope the match to the SAME axis we'll create on: a user-scoped
+    // ingest matches only that user's entities (never a global or another
+    // user's same-named entity), a global ingest matches only global ones.
+    // The global path pins `userId IS NONE` so a same-named PERSONAL entity
+    // never matches — otherwise global facts attach to a user's private
+    // entity and leak its identity onto the global surface. Mirrors the
+    // scope fence on the embedding resolver (entity-resolver.service.ts).
     const [nRows] = await db.query<any[][]>(
       `SELECT id FROM knowledge_entity
        WHERE (canonicalNameLc = $name
           OR aliases CONTAINS $rawName)
-          AND userId IS NONE
+          AND ${userId ? 'userId = $scopeUserId' : 'userId IS NONE'}
        LIMIT 1`,
-      { name: target, rawName: e.name },
+      { name: target, rawName: e.name, ...(userId ? { scopeUserId: userId } : {}) },
     );
     const nRow = ((nRows as any[]) ?? [])[0];
     if (nRow) return String(nRow.id);
@@ -154,7 +163,10 @@ export class EntityUpsertService {
     // an LLM judge confirm same-as using the incoming facts. A confirmed
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
-    if (this.entityResolver?.isEnabled()) {
+    // Scoped-ingest skips it: the embedding resolver is a global surface,
+    // so consulting it would risk matching a user's mention onto a global
+    // (or another user's) entity — the exact leak the scope fence prevents.
+    if (!userId && this.entityResolver?.isEnabled()) {
       const resolved = await this.entityResolver.resolveByName({
         db,
         name: e.name,
@@ -169,6 +181,7 @@ export class EntityUpsertService {
       canonicalName: e.canonical ?? e.name,
       aliases: [e.name],
       externalRefs: {},
+      ...(userId ? { userId } : {}),
     });
     return String(created?.id);
   }

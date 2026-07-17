@@ -522,6 +522,17 @@ industry packs (installed per-tenant, published to the registry via
 | `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on |
 | `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes |
 | `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location |
+| `persona` | personal user memory (per-user) | education, health_condition, life_event, felt, dislike, relationship_role, closeness, occupation, employer, skill |
+
+`persona` is the personal-memory pack: it models an end user's biography,
+experiences, preferences, social circle, and work history for assistants
+that keep a long-running relationship with a specific person. Identity
+(name/dob/address/…) and positive likes route to CORE predicates; social
+links stay `knowledge_edge` kinds (family_of / friend_of / colleague_of).
+`health_condition` is `piiClass: sensitive` + `requiresScope:
+brain:read_pii`. Persona facts are per-user memory — ingest under a
+user-bound token (or pass `userId`) so migration 0055's read fence scopes
+them.
 
 Sources: `src/ai/domain-packs/*.pack.ts` (the `FIRST_PARTY_PACKS` list) →
 committed JSON in `packs/*.pack.json` (drift-guarded by
