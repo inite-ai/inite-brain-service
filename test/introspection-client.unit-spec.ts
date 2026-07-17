@@ -81,19 +81,23 @@ describe('mapIntrospectionRecord', () => {
     ).toBeNull();
   });
 
-  it('allows integration scopes (indexer:write, registry:publish) but drops registry:curate', () => {
+  it('allows integration scopes (indexer:write, registry:publish, registry:curate) and drops unknown ones', () => {
     const rec = mapIntrospectionRecord(
       {
         active: true,
         sub: 'co_a',
         org: 'co_a',
         aud: 'brain',
-        scope: 'indexer:write registry:publish registry:curate',
+        scope: 'indexer:write registry:publish registry:curate made:up',
       },
       hash,
       'brain',
     );
-    expect(rec?.scopes).toEqual(['registry:publish', 'indexer:write'].sort());
+    expect(rec?.scopes).toEqual([
+      'indexer:write',
+      'registry:publish',
+      'registry:curate',
+    ]);
   });
 });
 
