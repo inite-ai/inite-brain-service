@@ -26,6 +26,7 @@ import {
   bleu1,
   adversarialScore,
 } from './metrics';
+import type { LlmJudge } from './judge';
 
 export interface QaAgent {
   /** companyId is the per-sample brain tenant the conversation lives in. */
@@ -48,6 +49,10 @@ export interface QuestionScore {
   exactMatch: number;
   adversarial: number;
   errored?: string;
+  /** LLM-judge verdict (--judge). undefined when judge off or errored. */
+  judgeCorrect?: boolean;
+  /** Judge error message — recorded, never fails the run. */
+  judgeErrored?: string;
 }
 
 export interface CategorySummary {
@@ -58,6 +63,11 @@ export interface CategorySummary {
   bleu1: number;
   exactMatch: number;
   adversarial: number;
+  /** Mean over successfully-judged questions in the category. Omitted
+   *  when the judge is off. */
+  judgeAccuracy?: number;
+  /** Count of successfully-judged questions the mean is over. */
+  judgedN?: number;
 }
 
 export interface RunReport {
@@ -82,6 +92,10 @@ export async function runLocomo(
     /** Per-question wall-clock cap. Some LLM-heavy paths can hang. */
     perQuestionTimeoutMs?: number;
     onProgress?: (done: number, total: number) => void;
+    /** Optional LLM judge (--judge). Reported ALONGSIDE token-F1, not
+     *  instead of it; a judge failure is recorded per-question and never
+     *  fails the run. */
+    judge?: LlmJudge;
   } = {},
 ): Promise<RunReport> {
   const scores: QuestionScore[] = [];
@@ -97,12 +111,49 @@ export async function runLocomo(
         q,
         options.perQuestionTimeoutMs,
       );
+      if (options.judge) await applyJudge(options.judge, score);
       scores.push(score);
       done += 1;
       options.onProgress?.(done, total);
     }
   }
   return summarize(scores);
+}
+
+/**
+ * Re-grade an EXISTING set of question scores with a judge and re-derive
+ * the report — the `--judge-report` offline path. The paid QA run is
+ * expensive; this lets a saved report be judged (and re-judged with a
+ * future prompt version) for cents, without re-ingesting or re-querying.
+ */
+export async function rejudgeScores(
+  scores: QuestionScore[],
+  judge: LlmJudge,
+  onProgress?: (done: number, total: number) => void,
+): Promise<RunReport> {
+  let done = 0;
+  for (const score of scores) {
+    delete score.judgeErrored;
+    await applyJudge(judge, score);
+    onProgress?.(++done, scores.length);
+  }
+  return summarize(scores);
+}
+
+/** Grade one question with the LLM judge, in place. Contained: a judge
+ *  error is recorded on judgeErrored and never propagates. */
+async function applyJudge(judge: LlmJudge, score: QuestionScore): Promise<void> {
+  try {
+    const { correct } = await judge.grade({
+      question: score.question,
+      gold: score.gold,
+      prediction: score.prediction,
+      category: score.category,
+    });
+    score.judgeCorrect = correct;
+  } catch (e) {
+    score.judgeErrored = (e as Error).message;
+  }
 }
 
 async function scoreQuestion(
@@ -180,6 +231,7 @@ function summarize(scores: QuestionScore[]): RunReport {
       bleu1: mean(arr, (s) => s.bleu1),
       exactMatch: mean(arr, (s) => s.exactMatch),
       adversarial: mean(arr, (s) => s.adversarial),
+      ...judgeStats(arr),
     });
   }
   const bySample = new Map<string, QuestionScore[]>();
@@ -198,6 +250,7 @@ function summarize(scores: QuestionScore[]): RunReport {
       bleu1: mean(scores, (s) => s.bleu1),
       exactMatch: mean(scores, (s) => s.exactMatch),
       adversarial: mean(scores, (s) => s.adversarial),
+      ...judgeStats(scores),
     },
     perCategory,
     perSample: [...bySample.entries()].map(([sampleId, arr]) => ({
@@ -214,4 +267,21 @@ function mean<T>(arr: T[], pick: (item: T) => number): number {
   let sum = 0;
   for (const item of arr) sum += pick(item);
   return sum / arr.length;
+}
+
+/**
+ * Judge accuracy over the questions that were successfully judged (a
+ * defined judgeCorrect). Returns {} when the judge was off (or every
+ * question errored), so the additive report fields stay absent and old
+ * report JSONs remain schema-compatible.
+ */
+function judgeStats(
+  arr: QuestionScore[],
+): { judgeAccuracy: number; judgedN: number } | Record<string, never> {
+  const judged = arr.filter((s) => typeof s.judgeCorrect === 'boolean');
+  if (judged.length === 0) return {};
+  return {
+    judgeAccuracy: judged.filter((s) => s.judgeCorrect).length / judged.length,
+    judgedN: judged.length,
+  };
 }

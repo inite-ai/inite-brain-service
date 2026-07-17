@@ -29,9 +29,15 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import OpenAI from 'openai';
 import { loadLocomoDataset } from '../test/eval/locomo/loader';
 import { planIngest, executeIngest } from '../test/eval/locomo/ingest';
-import { runLocomo } from '../test/eval/locomo/runner';
+import {
+  runLocomo,
+  rejudgeScores,
+  type RunReport,
+} from '../test/eval/locomo/runner';
+import { createOpenAiJudge, type LlmJudge } from '../test/eval/locomo/judge';
 import {
   createHttpIngestSink,
   createHttpQaAgent,
@@ -52,6 +58,12 @@ interface Args {
   /** Tenant id used to build the MCP URL when --agent claude-mcp. */
   companyId?: string;
   anthropicApiKey?: string;
+  /** LLM-as-judge: binary correct/wrong grading ALONGSIDE token-F1. */
+  judge: boolean;
+  judgeModel: string;
+  openaiApiKey?: string;
+  /** Re-grade a previously written report offline (no ingest / no QA). */
+  judgeReport?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -63,6 +75,9 @@ function parseArgs(argv: string[]): Args {
     agent: 'http',
     companyId: process.env.BRAIN_COMPANY_ID,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    judge: false,
+    judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
+    openaiApiKey: process.env.OPENAI_API_KEY,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -75,9 +90,16 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--skip-ingest') args.skipIngest = true;
     else if (a === '--agent') (args.agent = next as AgentKind), i++;
     else if (a === '--company-id') (args.companyId = next), i++;
+    else if (a === '--judge') args.judge = true;
+    else if (a === '--judge-model') (args.judgeModel = next), i++;
+    else if (a === '--judge-report') (args.judgeReport = next), i++;
   }
-  if (!args.dataset) {
+  // --judge-report re-grades an existing report offline; it needs no dataset.
+  if (!args.dataset && !args.judgeReport) {
     throw new Error('missing --dataset path/to/locomo10.json');
+  }
+  if ((args.judge || args.judgeReport) && !args.openaiApiKey) {
+    throw new Error('--judge requires OPENAI_API_KEY env');
   }
   if (args.agent === 'claude-mcp') {
     if (!args.companyId) {
@@ -96,6 +118,32 @@ function parseArgs(argv: string[]): Args {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const judge: LlmJudge | undefined =
+    args.judge || args.judgeReport
+      ? createOpenAiJudge(
+          new OpenAI({ apiKey: args.openaiApiKey }),
+          args.judgeModel,
+        )
+      : undefined;
+
+  // Offline re-grade path: load a saved report, judge its scores, rewrite.
+  if (args.judgeReport) {
+    console.error(
+      `[locomo] re-grading ${args.judgeReport} with judge=${args.judgeModel}`,
+    );
+    const prior = JSON.parse(
+      await fs.readFile(args.judgeReport, 'utf8'),
+    ) as RunReport;
+    const report = await rejudgeScores(prior.scores, judge!, (done, total) => {
+      if (done % 25 === 0 || done === total) {
+        console.error(`[locomo:judge] ${done}/${total}`);
+      }
+    });
+    await fs.writeFile(args.judgeReport, JSON.stringify(report, null, 2));
+    printReport(report, args.judgeReport);
+    return;
+  }
+
   console.error(
     `[locomo] dataset=${args.dataset} brain=${args.brainUrl} out=${args.out}`,
   );
@@ -144,6 +192,7 @@ async function main() {
         });
 
   const report = await runLocomo(sliced, agent, {
+    judge,
     onProgress: (done, total) => {
       if (done % 10 === 0 || done === total) {
         console.error(`[locomo:qa] ${done}/${total}`);
@@ -154,23 +203,30 @@ async function main() {
 
   await fs.mkdir(path.dirname(path.resolve(args.out)), { recursive: true });
   await fs.writeFile(args.out, JSON.stringify(report, null, 2));
+  printReport(report, args.out);
+}
 
+function printReport(report: RunReport, out: string): void {
   console.error('');
   console.error('LoCoMo report');
   console.error('=============');
   console.error(`total questions: ${report.totalQuestions}`);
   console.error(
-    `overall F1: ${pct(report.overall.f1)}   ROUGE-L: ${pct(report.overall.rougeL)}   BLEU-1: ${pct(report.overall.bleu1)}   EM: ${pct(report.overall.exactMatch)}`,
+    `overall F1: ${pct(report.overall.f1)}   ROUGE-L: ${pct(report.overall.rougeL)}   BLEU-1: ${pct(report.overall.bleu1)}   EM: ${pct(report.overall.exactMatch)}` +
+      (report.overall.judgeAccuracy !== undefined
+        ? `   judge=${pct(report.overall.judgeAccuracy)} (n=${report.overall.judgedN})`
+        : ''),
   );
   console.error('');
   console.error('per category:');
   for (const c of report.perCategory) {
     console.error(
-      `  ${categoryLabel(c.category).padEnd(20)} n=${String(c.n).padStart(4)}   F1=${pct(c.f1)}   ROUGE-L=${pct(c.rougeL)}   adversarial=${pct(c.adversarial)}`,
+      `  ${categoryLabel(c.category).padEnd(20)} n=${String(c.n).padStart(4)}   F1=${pct(c.f1)}   ROUGE-L=${pct(c.rougeL)}   adversarial=${pct(c.adversarial)}` +
+        (c.judgeAccuracy !== undefined ? `   judge=${pct(c.judgeAccuracy)}` : ''),
     );
   }
   console.error('');
-  console.error(`report written to ${args.out}`);
+  console.error(`report written to ${out}`);
 }
 
 function pct(x: number): string {
