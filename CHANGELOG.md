@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.1](https://github.com/inite-ai/inite-brain-service/compare/v0.8.0...v0.8.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **docs:** rename reserved mermaid node id 'graph' — README diagram failed to render ([#220](https://github.com/inite-ai/inite-brain-service/issues/220)) ([fa991ff](https://github.com/inite-ai/inite-brain-service/commit/fa991ff50a1047abfd948a1d03c1070fce2ab9ff))
+* **security:** CodeQL-recognizable shapes — fromEntries summaries, typeof template guard ([#219](https://github.com/inite-ai/inite-brain-service/issues/219)) ([7a51da0](https://github.com/inite-ai/inite-brain-service/commit/7a51da0d48c167ff18066ceafe3566d4c4c9815d))
+
 ## [0.8.0](https://github.com/inite-ai/inite-brain-service/compare/v0.7.0...v0.8.0) (2026-07-17)
 
 
