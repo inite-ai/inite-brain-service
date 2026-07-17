@@ -126,18 +126,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
   // ── Domain-routed retrieval (pack-aware router) ────────────────────
-  nonNegativeFloat(env, 'SEARCH_DOMAIN_ROUTING_MIN_SIM', errors);
-  nonNegativeFloat(env, 'SEARCH_DOMAIN_BOOST_ALPHA', errors);
-  positiveInt(env, 'SEARCH_DOMAIN_ROUTER_VOCAB_MAX', errors);
-  {
-    const v = env.SEARCH_DOMAIN_ROUTING_MODE;
-    if (v !== undefined && v !== 'boost' && v !== 'filter') {
-      errors.push(
-        `SEARCH_DOMAIN_ROUTING_MODE must be "boost" or "filter" (got "${v}") — ` +
-          'an unrecognized value would silently fall back to boost.',
-      );
-    }
-  }
+  validateDomainRoutingEnv(env, errors);
 
   // ── Episodic→semantic promotion (compaction leg) ───────────────────
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
@@ -360,6 +349,27 @@ function validateWorkerConcurrencyEnv(
     if (name.startsWith('WORKER_LOOP_MAX_CONCURRENT_')) {
       positiveInt(env, name, errors);
     }
+  }
+}
+
+/**
+ * Domain-routed retrieval knobs (SEARCH_DOMAIN_ROUTING_*). Extracted from
+ * validateEnv to keep its cyclomatic complexity under the lint ceiling —
+ * same pattern as validateAbacEnv / validateWorkerConcurrencyEnv.
+ */
+function validateDomainRoutingEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_ROUTING_MIN_SIM', errors);
+  nonNegativeFloat(env, 'SEARCH_DOMAIN_BOOST_ALPHA', errors);
+  positiveInt(env, 'SEARCH_DOMAIN_ROUTER_VOCAB_MAX', errors);
+  const mode = env.SEARCH_DOMAIN_ROUTING_MODE;
+  if (mode !== undefined && mode !== 'boost' && mode !== 'filter') {
+    errors.push(
+      `SEARCH_DOMAIN_ROUTING_MODE must be "boost" or "filter" (got "${mode}") — ` +
+        'an unrecognized value would silently fall back to boost.',
+    );
   }
 }
 
