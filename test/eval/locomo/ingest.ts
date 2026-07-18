@@ -137,8 +137,7 @@ export interface ExecuteIngestOptions {
 
 export interface IngestOutcome {
   ingested: number;
-  /** Mentions that failed every attempt and were skipped (never partially
-   *  persisted — extraction throws before any fact is written). */
+  /** Mentions that failed every attempt and were skipped. */
   dropped: Array<{ sourceMessageId: string; error: string }>;
 }
 
@@ -151,6 +150,17 @@ export interface IngestOutcome {
  * never silently swallowed, so a degraded run is visible, not mistaken for a
  * clean one. Speaker registration still throws (it's cheap, ordered, and a
  * failure there means the tenant/key is wrong — not worth continuing).
+ *
+ * Retry caveat (honest): a mention is NOT written in one transaction — the
+ * server persists facts one-by-one and has no messageId idempotency. So a
+ * failure AFTER partial persist (a 5xx or lost response once some facts are
+ * committed) will, on retry, re-run a fresh (nondeterministic) extraction and
+ * write a second, possibly different, fact set on top of the survivors —
+ * inflating append_only predicates. In practice the dominant transient is an
+ * OpenAI error DURING extraction, before any write, which retries cleanly;
+ * post-commit failures are rare. This is acceptable for a benchmark but is a
+ * real reproducibility caveat, not a guarantee. A true fix is server-side
+ * messageId idempotency (skip an already-ingested mention) — out of scope here.
  */
 export async function executeIngest(
   plan: IngestPlan,

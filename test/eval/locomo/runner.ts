@@ -120,6 +120,13 @@ export interface RunReport {
   perCategory: CategorySummary[];
   perSample: Array<{ sampleId: string; n: number; f1: number }>;
   scores: QuestionScore[];
+  /**
+   * Ingest completeness for this run, when the runner ingested (absent on
+   * --skip-ingest). `degraded` flags that mentions were dropped after retries,
+   * so the headline was measured on a PARTIAL brain — provenance the saved
+   * artifact must carry, else a degraded run looks clean.
+   */
+  ingest?: { ingested: number; dropped: number; degraded: boolean };
 }
 
 export async function runLocomo(
@@ -177,6 +184,11 @@ export async function rejudgeScores(
   let done = 0;
   for (const score of scores) {
     delete score.judgeErrored;
+    // Clear the PRIOR verdict too: if this re-grade errors, applyJudge leaves
+    // judgeCorrect untouched — and a stale boolean from the loaded report would
+    // then be counted as a fresh verdict. Start undefined (like the online
+    // path) so an errored re-grade is excluded, not silently carried over.
+    delete score.judgeCorrect;
     await applyJudge(judge, score);
     onProgress?.(++done, scores.length);
   }
@@ -248,7 +260,12 @@ async function scoreQuestion(
     bleu1: bleu1(pred, gold),
     exactMatch: exactMatch(pred, gold),
     adversarial: adversarialScore(pred, gold),
-    abstained: isAbstention(pred),
+    // An errored/timed-out question produces an empty prediction, which
+    // isAbstention('') reads as `true` — but a network failure is NOT a
+    // deliberate decline. Counting it as one would inflate the adversarial
+    // (cat5) abstention rate with mere infrastructure failures. Only a
+    // genuine (non-errored) empty/refusal answer counts as an abstention.
+    abstained: errored ? false : isAbstention(pred),
     errored,
   };
 }

@@ -167,9 +167,10 @@ async function main() {
     apiKey: args.apiKey,
   });
 
+  let totalIngested = 0;
+  let totalDropped = 0;
   if (!args.skipIngest) {
     const sink = createHttpIngestSink(client);
-    let totalDropped = 0;
     for (const conv of sliced) {
       const plan = planIngest(conv);
       console.error(
@@ -181,6 +182,7 @@ async function main() {
             `[locomo:ingest] DROPPED ${sourceMessageId} after retries: ${error}`,
           ),
       });
+      totalIngested += outcome.ingested;
       totalDropped += outcome.dropped.length;
       console.error(
         `[locomo:ingest] sample=${conv.sampleId} ingested=${outcome.ingested} dropped=${outcome.dropped.length}`,
@@ -231,6 +233,16 @@ async function main() {
     },
   });
   if (agentClose) await agentClose();
+
+  // Record ingest completeness in the artifact so a headline measured on a
+  // partial brain is never mistaken for a clean run (stderr scrolls away).
+  if (!args.skipIngest) {
+    report.ingest = {
+      ingested: totalIngested,
+      dropped: totalDropped,
+      degraded: totalDropped > 0,
+    };
+  }
 
   await fs.mkdir(path.dirname(path.resolve(args.out)), { recursive: true });
   await fs.writeFile(args.out, JSON.stringify(report, null, 2));
