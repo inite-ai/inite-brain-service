@@ -25,8 +25,9 @@ import type { IngestSink } from './ingest';
 import type { QaAgent } from './runner';
 
 export interface HttpAgentOptions {
-  /** synthesize mode — strict closes to null on partial; lenient returns the answer. */
-  synthesisGuardrails?: 'strict' | 'lenient' | 'off';
+  /** synthesize mode — strict closes to null on partial; lenient returns the
+   *  answer; 'answer' never abstains (best-effort short answer). */
+  synthesisGuardrails?: 'strict' | 'lenient' | 'off' | 'answer';
   /** Cap on planner hops. The default 3 matches the paper's multi-hop split. */
   maxHops?: number;
   /** When true, drives /v1/search/multi-hop; else single-shot /v1/synthesize. */

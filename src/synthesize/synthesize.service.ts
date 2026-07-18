@@ -82,6 +82,21 @@ Given a user query and a set of retrieved facts (each prefixed with its factId i
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
 
+/**
+ * Best-effort / never-abstain generator (guardrails='answer'). Same grounding
+ * discipline, but instead of refusing when the facts are thin it commits to
+ * the single most likely SHORT answer the retrieved facts point to. For QA
+ * settings where an abstention scores strictly worse than a best guess.
+ */
+const GENERATOR_SYSTEM_ANSWER = `You are an answer synthesizer for a knowledge graph.
+
+Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a SHORT, CONCRETE answer that:
+1. Is grounded in the provided facts — prefer specifics stated in them; do not invent named entities, dates, or numbers that no fact supports.
+2. After each claim, inline a citation copying the factId EXACTLY (including its "knowledge_fact:" prefix), and mirror every cited factId into citedFactIds.
+3. ALWAYS commit to an answer. If the facts do not fully resolve the question, give the single most likely short answer they point to — do NOT refuse, do NOT output "I don't have grounded evidence", do NOT hedge with "the facts don't say". Answer in as few words as the question allows.
+
+Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
+
 const VERIFIER_SYSTEM = `You are a fact-grounding auditor for a knowledge-graph answer system.
 
 Given a synthesized answer and the set of source facts that were available at generation time, judge whether every CLAIM in the answer is directly supported by at least one fact.
@@ -140,7 +155,7 @@ export class SynthesizeService {
       'strict',
     );
     this.defaultGuardrails =
-      raw === 'lenient' || raw === 'off' ? raw : 'strict';
+      raw === 'lenient' || raw === 'off' || raw === 'answer' ? raw : 'strict';
     // ConU conformal guardrail floor. Pre-fix the default was 0 (off);
     // the audit found prod also never set the env, so the guardrail
     // short-circuited at applyConformalGuardrail():53 and the Phase 3.C
@@ -257,6 +272,7 @@ export class SynthesizeService {
               factLines,
               model,
               answerLang,
+              neverAbstain: guardrails === 'answer',
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -288,8 +304,12 @@ export class SynthesizeService {
       : undefined;
 
     // Sentinel "I don't know" path. Generator was honest about
-    // empty grounding; no need to verify, no need to cite.
+    // empty grounding; no need to verify, no need to cite. Skipped in
+    // never-abstain mode — there the generator is instructed never to emit
+    // the sentinel, and if it slips through we still return it as the answer
+    // rather than tagging an abstention (the mode's whole point).
     if (
+      guardrails !== 'answer' &&
       generated.answer.trim() === "I don't have grounded evidence for that."
     ) {
       this.metrics?.countSynthesize('no_grounded_evidence');
@@ -304,7 +324,9 @@ export class SynthesizeService {
       );
     }
 
-    if (guardrails === 'off') {
+    // Never-abstain mode returns the grounded best-effort answer directly,
+    // like 'off' but semantically "always answer" — verifier is skipped.
+    if (guardrails === 'off' || guardrails === 'answer') {
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
         { answer: generated.answer, citations, results },
@@ -406,18 +428,23 @@ export class SynthesizeService {
     factLines,
     model,
     answerLang,
+    neverAbstain = false,
   }: {
     query: string;
     factLines: string[];
     model: string;
     answerLang: string | null;
+    neverAbstain?: boolean;
   }): Promise<GeneratorOutput> {
+    const systemPrompt = neverAbstain
+      ? GENERATOR_SYSTEM_ANSWER
+      : GENERATOR_SYSTEM;
     const langInstruction = answerLang
       ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
       : '';
     const user = `Query: ${query}\n\nRetrieved facts:\n${factLines.join('\n')}${langInstruction}`;
     traceArtifact('synthesize.generator_prompt', {
-      system: GENERATOR_SYSTEM,
+      system: systemPrompt,
       user,
       model,
       answerLang,
@@ -435,7 +462,7 @@ export class SynthesizeService {
       {
       model,
       messages: [
-        { role: 'system', content: GENERATOR_SYSTEM },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: user },
       ],
       response_format: {

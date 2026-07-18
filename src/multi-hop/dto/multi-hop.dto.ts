@@ -34,7 +34,7 @@ export class MultiHopDto extends SearchDto {
    * synthesize endpoint; ignored otherwise.
    */
   @IsOptional()
-  @IsIn(['strict', 'lenient', 'off'])
+  @IsIn(['strict', 'lenient', 'off', 'answer'])
   synthesisGuardrails?: SynthesisGuardrails;
 
   /**

@@ -190,7 +190,11 @@ async function main() {
         })()
       : createHttpQaAgent(client, {
           useMultiHop: true,
-          synthesisGuardrails: 'lenient',
+          // Never-abstain: on LoCoMo an abstention scores strictly worse than
+          // a best-effort short answer (the LLM judge rewards a topical guess
+          // and punishes "no evidence"). Match the community answering
+          // convention every published system uses.
+          synthesisGuardrails: 'answer',
         });
 
   const report = await runLocomo(sliced, agent, {

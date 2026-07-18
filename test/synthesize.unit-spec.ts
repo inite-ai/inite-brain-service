@@ -120,6 +120,51 @@ describe('SynthesizeService', () => {
     expect(out.citations).toEqual([]);
   });
 
+  it('answer mode never abstains — returns the answer, skips the verifier', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [
+        { factId: 'f1', predicate: 'preference', object: 'sunsets' },
+      ]),
+    ]);
+    // ONLY a generator response is stubbed — if the verifier ran it would
+    // consume a second call. It must not; answer mode returns directly.
+    const { svc } = makeSvc(
+      search,
+      {},
+      [JSON.stringify({ answer: 'Sunsets [f1].', citedFactIds: ['f1'] })],
+    );
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'answer' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.answer).toBe('Sunsets [f1].');
+    expect(out.reason).toBeUndefined();
+  });
+
+  it('answer mode: a stray sentinel is NOT tagged as abstention', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
+    ]);
+    const { svc } = makeSvc(
+      search,
+      {},
+      [
+        JSON.stringify({
+          answer: "I don't have grounded evidence for that.",
+          citedFactIds: [],
+        }),
+      ],
+    );
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'answer' },
+      callerScopes: ['brain:read'],
+    });
+    // Returned as the answer, never the no_grounded_evidence reason.
+    expect(out.reason).not.toBe('no_grounded_evidence');
+  });
+
   it('strict mode + supported verdict returns answer with citations', async () => {
     const search = makeSearch([
       makeHit('cust_a', [
