@@ -61,6 +61,8 @@ interface Args {
   /** Tenant id used to build the MCP URL when --agent claude-mcp. */
   companyId?: string;
   anthropicApiKey?: string;
+  /** Anthropic model for --agent claude-mcp (default in claude-agent.ts is stale). */
+  agentModel?: string;
   /** LLM-as-judge: binary correct/wrong grading ALONGSIDE token-F1. */
   judge: boolean;
   judgeModel: string;
@@ -78,6 +80,7 @@ function parseArgs(argv: string[]): Args {
     agent: 'http',
     companyId: process.env.BRAIN_COMPANY_ID,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    agentModel: process.env.LOCOMO_AGENT_MODEL,
     judge: false,
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
     openaiApiKey: process.env.OPENAI_API_KEY,
@@ -92,6 +95,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
     else if (a === '--skip-ingest') args.skipIngest = true;
     else if (a === '--agent') (args.agent = next as AgentKind), i++;
+    else if (a === '--agent-model') (args.agentModel = next), i++;
     else if (a === '--company-id') (args.companyId = next), i++;
     else if (a === '--judge') args.judge = true;
     else if (a === '--judge-model') (args.judgeModel = next), i++;
@@ -202,6 +206,7 @@ async function main() {
             companyId: args.companyId!,
             apiKey: args.apiKey,
             anthropicApiKey: args.anthropicApiKey!,
+            options: args.agentModel ? { model: args.agentModel } : undefined,
           });
           agentClose = close;
           return a;
