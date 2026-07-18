@@ -414,6 +414,54 @@ describe('MultiHopService', () => {
     expect(out.finalEntityIds).toEqual(['e2']);
   });
 
+  it('runs synthesizer on a SINGLE-hop plan too (regression: was skipped)', async () => {
+    // A planner-classified single-hop query is still a synthesize:true
+    // request. The short-circuit used to return before synthesizing, so
+    // callers got no answer for the majority of factoid questions.
+    const { svc: search } = makeSearch([[hit('e1'), hit('e2')]]);
+    let seenEntityIds: string[] | undefined;
+    const synth = {
+      synthesize: async ({ dto }: { dto: { entityIds?: string[] } }) => {
+        seenEntityIds = dto.entityIds;
+        return { answer: 'grounded single-hop answer', citations: [], results: [] };
+      },
+    } as unknown as SynthesizeService;
+    const svc = makeSvc(
+      search,
+      makePlanner({
+        isMultiHop: false,
+        hops: [
+          { subQuery: 'refined', combination: 'seed', predicates: ['name'], asOf: null, rationale: null },
+        ],
+      }),
+      synth,
+    );
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(false);
+    expect(out.synthesis?.answer).toBe('grounded single-hop answer');
+    // Synthesis re-searches within the surfaced entity set.
+    expect(seenEntityIds).toEqual(['e1', 'e2']);
+  });
+
+  it('runs synthesizer on the planner-outage fallback too', async () => {
+    const { svc: search } = makeSearch([[hit('e1')]]);
+    const synth = {
+      synthesize: async () => ({ answer: 'fallback answer', citations: [], results: [] }),
+    } as unknown as SynthesizeService;
+    const svc = makeSvc(search, makePlanner(null), synth);
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(false);
+    expect(out.synthesis?.answer).toBe('fallback answer');
+  });
+
   it('skips synthesize when finalHits is empty', async () => {
     const { svc: search } = makeSearch([
       [hit('e1')],
