@@ -810,7 +810,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: false,
         isBooleanFlag: true,
         description:
-          "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"the Friday before\", \"3 weeks ago\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Deterministic (regex, no LLM contract change); unresolvable clauses fall back to message time. Requires re-ingest.",
+          "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
       },
       {
         key: 'SEARCH_HYPE_ENABLED',
