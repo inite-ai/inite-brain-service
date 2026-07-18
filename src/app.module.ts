@@ -15,6 +15,7 @@ import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
 import { SynthesizeModule } from './synthesize/synthesize.module';
 import { MultiHopModule } from './multi-hop/multi-hop.module';
+import { AgentQaModule } from './agent-qa/agent-qa.module';
 import { FactsModule } from './facts/facts.module';
 import { EntitiesModule } from './entities/entities.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
@@ -85,6 +86,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     SearchModule,
     SynthesizeModule,
     MultiHopModule,
+    AgentQaModule,
     FactsModule,
     EntitiesModule,
     ArtifactsModule,

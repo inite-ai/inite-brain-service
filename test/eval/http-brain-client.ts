@@ -163,6 +163,20 @@ export class HttpBrainClient {
       body,
     );
   }
+
+  /**
+   * `/v1/answer` — agent-in-loop QA. The answering LLM iteratively calls a
+   * memory-search tool (rewrite/chain/decide) and returns a short answer.
+   */
+  async answer(body: unknown): Promise<EvalAgentQaResponse> {
+    return this.call<EvalAgentQaResponse>('POST', '/v1/answer', body);
+  }
+}
+
+export interface EvalAgentQaResponse {
+  answer: string;
+  rounds: number;
+  queries: string[];
 }
 
 export interface EvalMultiHopResponse {

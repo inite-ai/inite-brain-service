@@ -132,6 +132,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
+  // ── Agent-in-loop QA ───────────────────────────────────────────────
+  positiveInt(env, 'AGENT_QA_MAX_ROUNDS', errors);
+  positiveInt(env, 'AGENT_QA_SEARCH_LIMIT', errors);
+  positiveInt(env, 'AGENT_QA_MAX_FACTS_PER_ROUND', errors);
+
   // ── Episodic→semantic promotion (compaction leg) ───────────────────
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
   positiveInt(env, 'COMPACTION_PROMOTION_MIN_GROUP', errors);

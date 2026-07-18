@@ -43,11 +43,12 @@ import { createOpenAiJudge, type LlmJudge } from '../test/eval/locomo/judge';
 import {
   createHttpIngestSink,
   createHttpQaAgent,
+  createHttpAgenticAgent,
 } from '../test/eval/locomo/http-agent';
 import { createClaudeMcpAgent } from '../test/eval/locomo/claude-agent';
 import { HttpBrainClient } from '../test/eval/http-brain-client';
 
-type AgentKind = 'http' | 'claude-mcp';
+type AgentKind = 'http' | 'claude-mcp' | 'agentic';
 
 interface Args {
   dataset: string;
@@ -188,6 +189,8 @@ async function main() {
           agentClose = close;
           return a;
         })()
+      : args.agent === 'agentic'
+      ? createHttpAgenticAgent(client)
       : createHttpQaAgent(client, {
           useMultiHop: true,
           // Never-abstain: on LoCoMo an abstention scores strictly worse than

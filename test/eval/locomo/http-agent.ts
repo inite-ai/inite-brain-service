@@ -69,6 +69,22 @@ export function createHttpQaAgent(
 }
 
 /**
+ * Agent-in-loop QaAgent — drives `/v1/answer`, where the server runs a ReAct
+ * loop (LLM issues memory-search tool calls, reformulates, chains, then
+ * answers). The literature's biggest lever on LoCoMo; reuses all of brain's
+ * retrieval machinery as the tool.
+ */
+export function createHttpAgenticAgent(client: HttpBrainClient): QaAgent {
+  return {
+    async answer({ companyId: _companyId, question, asOf }) {
+      void _companyId;
+      const res = await client.answer({ query: question, asOf });
+      return res.answer ?? '';
+    },
+  };
+}
+
+/**
  * HTTP-backed IngestSink wired to the production endpoints.
  *
  *   - registerSpeaker → POST /v1/ingest/fact   (entityRef + predicate=name)

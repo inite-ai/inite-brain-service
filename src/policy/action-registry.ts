@@ -32,6 +32,7 @@ export const ACTIONS: Record<string, ActionSpec> = {
   search_multi_hop: { kind: 'read', family: 'mcp_read', title: 'Multi-hop search' },
   graph_retrieve: { kind: 'read', family: 'mcp_read', title: 'Graph-first retrieval' },
   synthesize: { kind: 'read', family: 'mcp_read', title: 'Synthesize answer' },
+  agent_qa: { kind: 'read', family: 'mcp_read', title: 'Agent-in-loop answer' },
   memory_diff: { kind: 'read', family: 'mcp_read', title: 'Memory diff' },
   get_entity_profile: { kind: 'read', family: 'mcp_read', title: 'Entity profile' },
   get_entity_timeline: { kind: 'read', family: 'mcp_read', title: 'Entity timeline' },
