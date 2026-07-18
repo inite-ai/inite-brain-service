@@ -21,6 +21,12 @@ import {
   parseRawFacts,
 } from './extractor-internals/grounding';
 import { validateEdges } from './extractor-internals/edge-validator';
+import {
+  buildConversationContext,
+  type ConversationContext,
+} from './extractor-internals/prompts';
+
+export type { ConversationContext } from './extractor-internals/prompts';
 
 type Snapshot = {
   versionHash: string;
@@ -81,9 +87,11 @@ export class ExtractorRunnerService {
     companyId: string;
     snapshot: Snapshot;
     overrides?: RunOverrides;
+    context?: ConversationContext;
   }): Promise<ExtractionResult | null> {
-    const { trimmed, companyId, snapshot, overrides } = args;
+    const { trimmed, companyId, snapshot, overrides, context } = args;
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
+    const contextPrefix = buildConversationContext(context ?? {});
 
     const skip = await this.local.trySkip(companyId, trimmed);
     if (skip) return skip;
@@ -101,6 +109,8 @@ export class ExtractorRunnerService {
         trimmed,
         snapshot,
         systemPrompt,
+        contextPrefix,
+        context,
         overrides: { ...overrides, scPasses },
       });
     }
@@ -108,11 +118,12 @@ export class ExtractorRunnerService {
     const rawJson = await this.llm.callLlm({
       trimmed,
       systemPrompt,
+      contextPrefix,
       temperature: 0.1,
       model: overrides?.model,
     });
     if (!rawJson) return null;
-    return this.assembleResult({ companyId, trimmed, snapshot, rawJson });
+    return this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
   }
 
   private async runMultiPassExtract(args: {
@@ -120,6 +131,8 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
+    contextPrefix?: string;
+    context?: ConversationContext;
     overrides?: RunOverrides;
   }): Promise<ExtractionResult | null> {
     const N = args.overrides?.scPasses ?? this.llm.scPasses;
@@ -135,6 +148,7 @@ export class ExtractorRunnerService {
           .callLlm({
             trimmed: args.trimmed,
             systemPrompt: args.systemPrompt,
+            contextPrefix: args.contextPrefix,
             temperature: t,
             model: args.overrides?.model,
           })
@@ -154,6 +168,7 @@ export class ExtractorRunnerService {
               trimmed: args.trimmed,
               snapshot: args.snapshot,
               rawJson: rj,
+              context: args.context,
             })
           : null,
       ),
@@ -223,8 +238,9 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     rawJson: any;
+    context?: ConversationContext;
   }): Promise<ExtractionResult> {
-    const { companyId, trimmed, snapshot, rawJson } = args;
+    const { companyId, trimmed, snapshot, rawJson, context } = args;
 
     const parsedEntities: ExtractedEntity[] = parseEntities(rawJson);
     const clauses = parseClauses(rawJson);
@@ -260,8 +276,13 @@ export class ExtractorRunnerService {
 
     // Entity span-grounding: drop entities whose name never appears in the
     // source, then re-index the surviving facts/edges onto the compacted
-    // entity array.
-    const groundedMask = groundEntities(trimmed, parsedEntities);
+    // entity array. Known participants (speaker/addressee) are allow-listed:
+    // a coreference-resolved speaker name is legitimately absent from a
+    // first-person-only turn ("I decided …") yet must survive.
+    const allowedNames = [context?.speakerName, context?.addresseeName].filter(
+      (n): n is string => !!n,
+    );
+    const groundedMask = groundEntities(trimmed, parsedEntities, allowedNames);
     const remap = new Map<number, number>();
     const entities: ExtractedEntity[] = [];
     parsedEntities.forEach((e, i) => {

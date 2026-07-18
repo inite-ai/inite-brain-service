@@ -82,7 +82,12 @@ address, etc.) instead.
 
 GENERAL RULES
   • Each clause produces zero or more facts. A clause that asserts no
-    extractable predicate (e.g. a greeting) produces zero.
+    extractable predicate produces ZERO facts. This explicitly includes
+    contentless social utterances — greetings ("Hey Mel!"), acknowledgements
+    and backchannels ("That's great!", "Wow, nice!", "lol same"), thanks,
+    and questions that assert nothing ("How's it going?"). Do NOT emit a
+    "said" fact for these; the said predicate is for an utterance that carries
+    real content no more-specific predicate captures, never for small talk.
   • Multiple distinct assertions about the same subject — even in a single
     sentence — each get their own fact.
   • Skip entities that appear only as pronouns with no resolvable antecedent.
@@ -96,6 +101,45 @@ PREDICATE VOCABULARY
 
 export function renderPredicateCard(p: PredicateDefinition): string {
   return `\n${p.predicateId} [${p.semantics}]\n${p.description.trim()}\n`;
+}
+
+/** Conversation participants for one turn — drives coreference resolution. */
+export interface ConversationContext {
+  /** Who is speaking this turn. First-person refers to them. */
+  speakerName?: string;
+  /** Who they address. Second-person ("you") refers to them. */
+  addresseeName?: string;
+}
+
+/**
+ * Render the per-turn speaker framing prepended to the user message. This
+ * is the single highest-leverage fix for pronoun-entity scatter: told who
+ * is speaking, the extractor attributes "I decided to transition" to the
+ * speaker instead of minting a junk "I" node. Mirrors LoCoMo's `Speaker
+ * said, "…"` serialization, Graphiti's pronoun ban, and Mem0's
+ * "replace pronouns with the speaker name" rule.
+ *
+ * Returns '' when no speaker is known, so the extractor input is
+ * byte-identical to the pre-coreference behaviour.
+ */
+export function buildConversationContext(ctx: ConversationContext): string {
+  if (!ctx.speakerName) return '';
+  const addressee = ctx.addresseeName
+    ? `, addressing "${ctx.addresseeName}"`
+    : '';
+  const secondPerson = ctx.addresseeName
+    ? ` Second-person ("you", "your") refers to "${ctx.addresseeName}".`
+    : '';
+  return (
+    `CONVERSATION CONTEXT\n` +
+    `This turn was spoken by "${ctx.speakerName}"${addressee}. ` +
+    `First-person references ("I", "me", "my", "myself") refer to "${ctx.speakerName}" — ` +
+    `emit "${ctx.speakerName}" as the entity for the speaker's own statements, NEVER a bare "I"/"me" node, ` +
+    `and attach the speaker's self-facts to it rather than to a topic or description entity from the same clause.` +
+    secondPerson +
+    ` Never create an entity whose name is a bare pronoun or a bare definite description ("the woman", "my ex"); ` +
+    `resolve it to the participant it refers to. Do NOT map group "we"/"us" to a single person.\n\n`
+  );
 }
 
 export function buildSystemPrompt(predicates: PredicateDefinition[]): string {

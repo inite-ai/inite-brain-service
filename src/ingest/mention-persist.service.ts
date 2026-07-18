@@ -8,6 +8,12 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
+import {
+  isFirstPersonSelfReference,
+  isSecondPersonReference,
+  matchesParticipantName,
+} from '../common/coreference';
+import type { KnownEntity } from './dto/ingest-mention.dto';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -61,15 +67,58 @@ export class MentionPersistService {
     });
   }
 
+  /**
+   * Decide which known participant (if any) an extracted entity corefers
+   * to, so resolveOrCreateNamedEntity can anchor it to that participant's
+   * externalRef instead of minting a pronoun/duplicate node:
+   *   - first-person singular ("I", "me", "my") or the speaker's own name
+   *     → the speaker;
+   *   - second-person ("you", "your") or the addressee's own name
+   *     → the addressee;
+   *   - anything else → no hint (normal name/embedding resolution).
+   * Returns undefined when no participant matches, preserving the prior
+   * behaviour for third-party named entities.
+   */
+  private hintFor(
+    e: { name: string },
+    speaker: KnownEntity | undefined,
+    addressee: KnownEntity | undefined,
+  ): KnownEntity | undefined {
+    if (
+      speaker &&
+      (isFirstPersonSelfReference(e.name) ||
+        matchesParticipantName(e.name, speaker.name))
+    ) {
+      return speaker;
+    }
+    if (
+      addressee &&
+      (isSecondPersonReference(e.name) ||
+        matchesParticipantName(e.name, addressee.name))
+    ) {
+      return addressee;
+    }
+    return undefined;
+  }
+
   private async persistEntities(
     db: Surreal,
     p: { extraction: any; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, dto } = p;
+    // Speaker/addressee anchors for coreference. The OLD code paired
+    // knownEntities to entities BY POSITION (knownEntities[i]), which only
+    // ever hinted extraction.entities[0] and never the pronoun entity the
+    // extractor actually emitted for a first-person statement — so "I decided
+    // to transition" minted a junk "I" node instead of attaching to the
+    // speaker. Resolve by ROLE instead, then hint each extracted entity by
+    // coreference (see hintFor).
+    const speakerHint = dto.knownEntities?.find((k) => k.role === 'speaker');
+    const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
       const e = extraction.entities[i];
-      const knownHint = dto.knownEntities?.[i];
+      const knownHint = this.hintFor(e, speakerHint, addresseeHint);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet).
       const incomingFacts = extraction.facts

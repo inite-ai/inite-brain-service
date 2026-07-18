@@ -51,8 +51,19 @@ export class MentionExtractionService {
       return { skip: 'empty' };
     }
 
+    // Coreference context: tell the extractor who is speaking (and whom
+    // they address), so first-person "I decided …" attaches to the speaker
+    // rather than a junk "I" node. Derived by ROLE from knownEntities;
+    // absent → the extractor runs speaker-agnostic exactly as before.
+    const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
+    const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
+    const context =
+      speaker?.name || addressee?.name
+        ? { speakerName: speaker?.name, addresseeName: addressee?.name }
+        : undefined;
+
     const extraction = await traceSpan('ingest.nlu.extract', () =>
-      this.extractor.extract(text, companyId),
+      this.extractor.extract(text, companyId, context),
     );
     traceArtifact('ingest.nlu.extracted', extraction);
 

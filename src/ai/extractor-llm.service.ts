@@ -87,10 +87,18 @@ export class ExtractorLlmService {
     systemPrompt: string;
     temperature?: number;
     model?: string;
+    /**
+     * Per-turn speaker framing prepended to the user message (see
+     * buildConversationContext). Grounding still runs against `trimmed`
+     * alone, so the prefix drives coreference without polluting valueSpan
+     * containment. Empty/absent → byte-identical to the pre-coreference call.
+     */
+    contextPrefix?: string;
   }): Promise<any> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
     const model = args.model ?? this.model;
+    const userContent = (args.contextPrefix ?? '') + trimmed;
     const res = await this.limiter.run(() =>
       withGenAiCall(
         {
@@ -107,7 +115,7 @@ export class ExtractorLlmService {
               model,
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: trimmed },
+                { role: 'user', content: userContent },
               ],
               response_format: {
                 type: 'json_schema',

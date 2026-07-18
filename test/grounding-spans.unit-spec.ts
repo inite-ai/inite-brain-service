@@ -48,6 +48,21 @@ describe('groundEntities', () => {
     ]);
     expect(mask).toEqual([true, false]);
   });
+
+  it('allow-lists known participant names absent from the verbatim text', () => {
+    // Coreference: a first-person-only turn spoken by Caroline resolves to
+    // the name "Caroline", which is NOT in the text — without the allowlist
+    // it would be dropped and the fact lost.
+    const mask = groundEntities(
+      'I decided to transition',
+      [
+        { name: 'Caroline', type: 'customer' }, // resolved speaker, not in text
+        { name: 'Hannibal', type: 'customer' }, // still hallucinated
+      ],
+      ['Caroline', 'Melanie'],
+    );
+    expect(mask).toEqual([true, false]);
+  });
 });
 
 describe('applyGroundingGate value word-boundary', () => {

@@ -68,11 +68,24 @@ export function isGroundedSpan(
 export function groundEntities(
   trimmedInput: string,
   entities: ExtractedEntity[],
+  /**
+   * Names that are grounded by construction even when absent from the raw
+   * text — the known conversation participants (speaker/addressee). A turn
+   * spoken by Caroline that says only "I decided to transition" legitimately
+   * has the resolved name "Caroline" nowhere in its verbatim span; without
+   * this allowlist the coreference-resolved entity would be dropped and its
+   * facts lost.
+   */
+  allowedNames: string[] = [],
 ): boolean[] {
   const normalizedInput = normalizeForGrounding(trimmedInput);
-  return entities.map((e) =>
-    isGroundedSpan(normalizedInput, normalizeForGrounding(e.name)),
+  const allowed = new Set(
+    allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean),
   );
+  return entities.map((e) => {
+    const normName = normalizeForGrounding(e.name);
+    return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
+  });
 }
 
 const ALLOWED_ENTITY_TYPES = new Set([
