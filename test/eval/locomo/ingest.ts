@@ -125,17 +125,78 @@ export function planIngest(conv: NormalizedConversation): IngestPlan {
   return { speakers, mentions };
 }
 
+export interface ExecuteIngestOptions {
+  companyId?: string;
+  /** Attempts per mention before giving up on it. Default 4. */
+  retries?: number;
+  /** Base backoff (ms) — grows exponentially per attempt. Default 3000. */
+  backoffMs?: number;
+  /** Called once per mention that exhausts its retries and is skipped. */
+  onDrop?: (info: { sourceMessageId: string; error: string }) => void;
+}
+
+export interface IngestOutcome {
+  ingested: number;
+  /** Mentions that failed every attempt and were skipped (never partially
+   *  persisted — extraction throws before any fact is written). */
+  dropped: Array<{ sourceMessageId: string; error: string }>;
+}
+
+/**
+ * Stream the plan into brain. Resilient by design: a single transient
+ * upstream hiccup (an OpenAI "Connection error" / 429 mid-extraction surfaces
+ * as a 500 here) must NOT throw away a 40-minute ingest. Each mention is
+ * retried with exponential backoff; one that still fails is dropped and the
+ * run continues. Drops are reported (via onDrop and the returned outcome) —
+ * never silently swallowed, so a degraded run is visible, not mistaken for a
+ * clean one. Speaker registration still throws (it's cheap, ordered, and a
+ * failure there means the tenant/key is wrong — not worth continuing).
+ */
 export async function executeIngest(
   plan: IngestPlan,
   sink: IngestSink,
-  companyId?: string,
-): Promise<void> {
+  options: ExecuteIngestOptions | string = {},
+): Promise<IngestOutcome> {
+  // Back-compat: the 3rd arg used to be a bare companyId string.
+  const opts: ExecuteIngestOptions =
+    typeof options === 'string' ? { companyId: options } : options;
+  const companyId = opts.companyId;
+  const retries = Math.max(1, opts.retries ?? 4);
+  const backoffMs = Math.max(0, opts.backoffMs ?? 3000);
+
   for (const speaker of plan.speakers) {
     await sink.registerSpeaker({ companyId, ...speaker });
   }
+
+  const dropped: IngestOutcome['dropped'] = [];
+  let ingested = 0;
   for (const mention of plan.mentions) {
-    await sink.ingestMention({ companyId, ...mention });
+    let lastErr: unknown;
+    let ok = false;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await sink.ingestMention({ companyId, ...mention });
+        ok = true;
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < retries) {
+          // Exponential backoff (3s, 9s, 27s …) — lets a transient OpenAI
+          // outage / rate-limit window clear before the next attempt.
+          const wait = backoffMs * Math.pow(3, attempt - 1);
+          await new Promise((r) => setTimeout(r, wait));
+        }
+      }
+    }
+    if (ok) {
+      ingested++;
+    } else {
+      const error = lastErr instanceof Error ? lastErr.message : String(lastErr);
+      dropped.push({ sourceMessageId: mention.sourceMessageId, error });
+      opts.onDrop?.({ sourceMessageId: mention.sourceMessageId, error });
+    }
   }
+  return { ingested, dropped };
 }
 
 function sanitizeId(name: string): string {

@@ -165,12 +165,29 @@ async function main() {
 
   if (!args.skipIngest) {
     const sink = createHttpIngestSink(client);
+    let totalDropped = 0;
     for (const conv of sliced) {
       const plan = planIngest(conv);
       console.error(
         `[locomo:ingest] sample=${conv.sampleId} speakers=${plan.speakers.length} mentions=${plan.mentions.length}`,
       );
-      await executeIngest(plan, sink);
+      const outcome = await executeIngest(plan, sink, {
+        onDrop: ({ sourceMessageId, error }) =>
+          console.error(
+            `[locomo:ingest] DROPPED ${sourceMessageId} after retries: ${error}`,
+          ),
+      });
+      totalDropped += outcome.dropped.length;
+      console.error(
+        `[locomo:ingest] sample=${conv.sampleId} ingested=${outcome.ingested} dropped=${outcome.dropped.length}`,
+      );
+    }
+    if (totalDropped > 0) {
+      // Surfaced, not silent: a run that dropped mentions is degraded — the
+      // headline is measured over whatever facts survived, so flag it.
+      console.error(
+        `[locomo] WARNING: ${totalDropped} mention(s) dropped after retries — results are on a partial ingest.`,
+      );
     }
   } else {
     console.error('[locomo] --skip-ingest: assuming brain already populated');
