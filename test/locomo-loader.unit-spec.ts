@@ -76,6 +76,23 @@ describe('LoCoMo loader', () => {
     expect(norm.sessions[1].dateTime).toMatch(/^2023-05-08T/);
   });
 
+  it('surfaces adversarial_answer for cat5 and leaves answer empty', () => {
+    const advSample = {
+      ...fixture,
+      qa: [
+        {
+          question: 'What did Alice realize?',
+          category: 5,
+          evidence: ['D1:1'],
+          adversarial_answer: 'self-care is important',
+        },
+      ] as unknown as typeof fixture.qa,
+    };
+    const norm = normalizeSample(advSample);
+    expect(norm.qa[0].answer).toBe('');
+    expect(norm.qa[0].adversarialAnswer).toBe('self-care is important');
+  });
+
   it('loads from disk and reads both shape variants', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'locomo-'));
     const wrappedPath = path.join(tmp, 'wrapped.json');

@@ -10,11 +10,13 @@
  *     [--samples 1]          # cap samples for a smoke run
  *     [--skip-ingest]        # assume brain already populated
  *
- * Cost note: a full LoCoMo run ingests ~6k turns × 10 samples through
- * the NLU extractor (one OpenAI call per turn) plus ~1.5k QA calls
- * through search + synthesize (2 OpenAI calls each). Budget ~$80 on
- * gpt-4o-mini at current pricing. Use --samples 1 for a smoke run
- * under $10.
+ * Cost note (measured, not guessed — brain runs gpt-4o-mini for
+ * extraction/synthesis + text-embedding-3-small; both are cheap):
+ * a 1-sample smoke (~420 mentions ingested + ~200 QA through
+ * multi-hop + synthesize, judge on) costs well under $1. A full
+ * 10-sample run with the retrieval stack enabled (reranker/HyPE/
+ * query-expansion each add gpt-4o-mini calls) lands in the low
+ * single-digit dollars. Use --samples 1 for a smoke.
  *
  * Tenancy: the api key pins the tenant. We do NOT pick a per-sample
  * companyId — all conversations co-exist in one tenant, namespaced by
@@ -207,22 +209,37 @@ async function main() {
 }
 
 function printReport(report: RunReport, out: string): void {
+  const o = report.overall;
   console.error('');
   console.error('LoCoMo report');
   console.error('=============');
   console.error(`total questions: ${report.totalQuestions}`);
   console.error(
-    `overall F1: ${pct(report.overall.f1)}   ROUGE-L: ${pct(report.overall.rougeL)}   BLEU-1: ${pct(report.overall.bleu1)}   EM: ${pct(report.overall.exactMatch)}` +
-      (report.overall.judgeAccuracy !== undefined
-        ? `   judge=${pct(report.overall.judgeAccuracy)} (n=${report.overall.judgedN})`
-        : ''),
+    `headline (cat 1-4, n=${o.n}) — the official LoCoMo denominator; adversarial excluded`,
+  );
+  if (o.judgeAccuracy !== undefined) {
+    // Judge accuracy is the market-comparable number; F1 shown for context.
+    console.error(
+      `  judge accuracy: ${pct(o.judgeAccuracy)} (n=${o.judgedN})   [token-F1: ${pct(o.f1)}  ROUGE-L: ${pct(o.rougeL)}  EM: ${pct(o.exactMatch)}]`,
+    );
+  } else {
+    console.error(
+      `  token-F1: ${pct(o.f1)}   ROUGE-L: ${pct(o.rougeL)}   BLEU-1: ${pct(o.bleu1)}   EM: ${pct(o.exactMatch)}   (run with --judge for the comparable number)`,
+    );
+  }
+  console.error(
+    `adversarial (cat 5, n=${report.adversarial.n}) — correct = abstain: ${pct(report.adversarial.abstentionRate)} abstention`,
   );
   console.error('');
   console.error('per category:');
   for (const c of report.perCategory) {
+    const metric =
+      c.category === 5
+        ? `abstention=${pct(c.abstentionRate)}`
+        : `F1=${pct(c.f1)}   ROUGE-L=${pct(c.rougeL)}` +
+          (c.judgeAccuracy !== undefined ? `   judge=${pct(c.judgeAccuracy)}` : '');
     console.error(
-      `  ${categoryLabel(c.category).padEnd(20)} n=${String(c.n).padStart(4)}   F1=${pct(c.f1)}   ROUGE-L=${pct(c.rougeL)}   adversarial=${pct(c.adversarial)}` +
-        (c.judgeAccuracy !== undefined ? `   judge=${pct(c.judgeAccuracy)}` : ''),
+      `  ${categoryLabel(c.category).padEnd(20)} n=${String(c.n).padStart(4)}   ${metric}`,
     );
   }
   console.error('');

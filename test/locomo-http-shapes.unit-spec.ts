@@ -97,6 +97,8 @@ describe('LoCoMo HTTP shapes', () => {
     const sink = createHttpIngestSink(client);
     await sink.ingestMention({
       speakerEntityId: 'conv_1__alice',
+      speakerName: 'Alice',
+      addressee: { entityId: 'conv_1__bob', name: 'Bob' },
       text: 'I bought a cat last weekend.',
       validFrom: '2023-05-01T12:00:00.000Z',
       sourceMessageId: 'locomo:conv-1:D1:5',
@@ -114,8 +116,11 @@ describe('LoCoMo HTTP shapes', () => {
       messageId: 'locomo:conv-1:D1:5',
       conversationId: 'locomo:conv-1',
     });
+    // Speaker + addressee carry roles AND display names so the extractor
+    // resolves first-/second-person coreference to the right entity.
     expect(body.knownEntities).toEqual([
-      { vertical: 'locomo', id: 'conv_1__alice', role: 'speaker' },
+      { vertical: 'locomo', id: 'conv_1__alice', role: 'speaker', name: 'Alice' },
+      { vertical: 'locomo', id: 'conv_1__bob', role: 'addressee', name: 'Bob' },
     ]);
     // Negative — the runner used to post these (wrong) fields. If they
     // ever re-appear, the test catches it before brain returns 400.

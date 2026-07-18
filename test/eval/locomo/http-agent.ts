@@ -109,12 +109,29 @@ export function createHttpIngestSink(
         },
       });
     },
-    async ingestMention({ speakerEntityId, text, validFrom, sourceMessageId }) {
+    async ingestMention({
+      speakerEntityId,
+      speakerName,
+      addressee,
+      text,
+      validFrom,
+      sourceMessageId,
+    }) {
       // conversationId = `locomo:<sampleId>` — the first two segments
       // of sourceMessageId. We can't strip the trailing segment because
       // dia_ids carry their own ':' (e.g. "D1:5"); splitting and
       // taking the prefix is the deterministic path.
       const conversationId = sourceMessageId.split(':').slice(0, 2).join(':');
+      // Pass speaker (+ addressee) with roles + display names so the
+      // extractor resolves first-person "I …" to the speaker and "you …"
+      // to the addressee, and persist anchors those to the right entity —
+      // instead of scattering self-facts onto junk "I"/"you" nodes.
+      const knownEntities = [
+        { vertical, id: speakerEntityId, role: 'speaker', name: speakerName },
+        ...(addressee
+          ? [{ vertical, id: addressee.entityId, role: 'addressee', name: addressee.name }]
+          : []),
+      ];
       await client.ingest.mention({
         text,
         emittedAt: validFrom,
@@ -124,9 +141,7 @@ export function createHttpIngestSink(
           messageId: sourceMessageId,
           recorder: 'locomo:loader',
         },
-        knownEntities: [
-          { vertical, id: speakerEntityId, role: 'speaker' },
-        ],
+        knownEntities,
       });
     },
   };

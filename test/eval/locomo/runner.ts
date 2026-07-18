@@ -25,8 +25,27 @@ import {
   rougeL,
   bleu1,
   adversarialScore,
+  isRefusal,
 } from './metrics';
 import type { LlmJudge } from './judge';
+
+/** LoCoMo category id for adversarial (unanswerable) questions. */
+const ADVERSARIAL_CATEGORY = 5;
+
+/**
+ * Did the agent decline to answer? For adversarial (cat5) questions this
+ * IS the correctness signal — the right move is to refuse, not to produce
+ * the tempting `adversarial_answer`. An empty prediction counts, as does
+ * the synthesize grounded-evidence sentinel (which the generic
+ * REFUSAL_PATTERNS list doesn't cover) and any of those patterns.
+ */
+export function isAbstention(prediction: string): boolean {
+  const p = (prediction ?? '').trim().toLowerCase();
+  if (p === '') return true;
+  if (p.includes('grounded evidence')) return true;
+  if (p.includes("don't have") || p.includes('do not have')) return true;
+  return isRefusal(prediction);
+}
 
 export interface QaAgent {
   /** companyId is the per-sample brain tenant the conversation lives in. */
@@ -48,6 +67,8 @@ export interface QuestionScore {
   bleu1: number;
   exactMatch: number;
   adversarial: number;
+  /** True when the agent declined to answer. For cat5 this is correctness. */
+  abstained: boolean;
   errored?: string;
   /** LLM-judge verdict (--judge). undefined when judge off or errored. */
   judgeCorrect?: boolean;
@@ -63,6 +84,8 @@ export interface CategorySummary {
   bleu1: number;
   exactMatch: number;
   adversarial: number;
+  /** Fraction of the category's questions the agent declined to answer. */
+  abstentionRate: number;
   /** Mean over successfully-judged questions in the category. Omitted
    *  when the judge is off. */
   judgeAccuracy?: number;
@@ -70,10 +93,30 @@ export interface CategorySummary {
   judgedN?: number;
 }
 
+/**
+ * Adversarial (cat5) summary. These questions are EXCLUDED from the
+ * headline per the official LoCoMo protocol; correctness here is
+ * abstention, reported on its own axis.
+ */
+export interface AdversarialSummary {
+  n: number;
+  abstentionRate: number;
+}
+
 export interface RunReport {
   generatedAt: string;
   totalQuestions: number;
-  overall: Omit<CategorySummary, 'category' | 'n'> & { n: number };
+  /**
+   * Headline metrics over the ANSWERABLE categories (1-4) only.
+   * `n` is the count of cat1-4 questions, not the grand total — this is
+   * the official LoCoMo denominator. Adversarial (cat5) is excluded and
+   * surfaced in `adversarial` instead.
+   */
+  overall: Omit<CategorySummary, 'category' | 'n' | 'abstentionRate'> & {
+    n: number;
+  };
+  /** Adversarial (cat5) abstention, reported separately from the headline. */
+  adversarial: AdversarialSummary;
   perCategory: CategorySummary[];
   perSample: Array<{ sampleId: string; n: number; f1: number }>;
   scores: QuestionScore[];
@@ -143,6 +186,14 @@ export async function rejudgeScores(
 /** Grade one question with the LLM judge, in place. Contained: a judge
  *  error is recorded on judgeErrored and never propagates. */
 async function applyJudge(judge: LlmJudge, score: QuestionScore): Promise<void> {
+  // Adversarial (cat5) has no answerable gold — grading a semantic match
+  // against the tempting `adversarial_answer` would invert correctness.
+  // Correctness here is abstention, which we already computed; skip the
+  // (billable) LLM call and mirror it into judgeCorrect for a uniform axis.
+  if (score.category === ADVERSARIAL_CATEGORY) {
+    score.judgeCorrect = score.abstained;
+    return;
+  }
   try {
     const { correct } = await judge.grade({
       question: score.question,
@@ -197,6 +248,7 @@ async function scoreQuestion(
     bleu1: bleu1(pred, gold),
     exactMatch: exactMatch(pred, gold),
     adversarial: adversarialScore(pred, gold),
+    abstained: isAbstention(pred),
     errored,
   };
 }
@@ -236,6 +288,7 @@ function summarize(scores: QuestionScore[]): RunReport {
       bleu1: mean(arr, (s) => s.bleu1),
       exactMatch: mean(arr, (s) => s.exactMatch),
       adversarial: mean(arr, (s) => s.adversarial),
+      abstentionRate: mean(arr, (s) => (s.abstained ? 1 : 0)),
       ...judgeStats(arr),
     });
   }
@@ -245,17 +298,25 @@ function summarize(scores: QuestionScore[]): RunReport {
     arr.push(s);
     bySample.set(s.sampleId, arr);
   }
+  // Official LoCoMo protocol: the headline denominator is cat1-4 only.
+  // Adversarial (cat5) is excluded and scored as abstention on its own axis.
+  const answerable = scores.filter((s) => s.category !== ADVERSARIAL_CATEGORY);
+  const adversarial = scores.filter((s) => s.category === ADVERSARIAL_CATEGORY);
   return {
     generatedAt: new Date().toISOString(),
     totalQuestions: scores.length,
     overall: {
-      n: scores.length,
-      f1: mean(scores, (s) => s.f1),
-      rougeL: mean(scores, (s) => s.rougeL),
-      bleu1: mean(scores, (s) => s.bleu1),
-      exactMatch: mean(scores, (s) => s.exactMatch),
-      adversarial: mean(scores, (s) => s.adversarial),
-      ...judgeStats(scores),
+      n: answerable.length,
+      f1: mean(answerable, (s) => s.f1),
+      rougeL: mean(answerable, (s) => s.rougeL),
+      bleu1: mean(answerable, (s) => s.bleu1),
+      exactMatch: mean(answerable, (s) => s.exactMatch),
+      adversarial: mean(answerable, (s) => s.adversarial),
+      ...judgeStats(answerable),
+    },
+    adversarial: {
+      n: adversarial.length,
+      abstentionRate: mean(adversarial, (s) => (s.abstained ? 1 : 0)),
     },
     perCategory,
     perSample: [...bySample.entries()].map(([sampleId, arr]) => ({

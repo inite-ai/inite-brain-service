@@ -136,6 +136,46 @@ describe('runLocomo — judge integration', () => {
     expect(report.scores.some((s) => s.judgeErrored)).toBe(true);
   });
 
+  it('excludes adversarial (cat5) from the headline and scores it as abstention', async () => {
+    // Two answerable (cat1) + two adversarial (cat5). The adversarial
+    // agent abstains on one, answers the other.
+    const advQa = [
+      { question: 'a1', answer: 'x', category: 1 },
+      { question: 'a2', answer: 'y', category: 1 },
+      { question: 'adv-abstains', answer: '', category: 5 },
+      { question: 'adv-answers', answer: '', category: 5 },
+    ] as NormalizedConversation['qa'];
+    let turn = 0;
+    const mixedAgent = {
+      answer: async () => {
+        // cat1 q1, cat1 q2, cat5 (abstain), cat5 (answers)
+        const replies = [
+          'some answer',
+          'some answer',
+          "I don't have grounded evidence for that.",
+          'self-care is important',
+        ];
+        return replies[turn++] ?? '';
+      },
+    };
+    // Judge is consulted ONLY for the two cat1 questions (both correct);
+    // cat5 must NOT reach the judge — its correctness is abstention.
+    const { client, create } = stubOpenAi([true, true]);
+    const judge = createOpenAiJudge(client, 'm');
+    const report = await runLocomo([convWith(advQa)], mixedAgent, { judge });
+
+    // Headline denominator is cat1-4 only (n=2), not the grand total (4).
+    expect(report.overall.n).toBe(2);
+    expect(report.overall.judgedN).toBe(2);
+    expect(report.overall.judgeAccuracy).toBe(1);
+    // The judge saw exactly the two answerable questions.
+    expect(create).toHaveBeenCalledTimes(2);
+    // Adversarial reported on its own axis: 1 of 2 abstained.
+    expect(report.adversarial.n).toBe(2);
+    expect(report.adversarial.abstentionRate).toBe(0.5);
+    expect(report.totalQuestions).toBe(4);
+  });
+
   it('rejudgeScores re-grades an existing score set offline', async () => {
     const scores: QuestionScore[] = [
       {
@@ -149,6 +189,7 @@ describe('runLocomo — judge integration', () => {
         bleu1: 0.5,
         exactMatch: 0,
         adversarial: 0,
+        abstained: false,
         judgeErrored: 'stale error',
       },
     ];

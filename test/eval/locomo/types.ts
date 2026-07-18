@@ -59,13 +59,31 @@ export type LocomoQACategory =
   | 3
   /** category 4 — open-domain: requires commonsense beyond what's in the conversation. */
   | 4
-  /** category 5 — adversarial: gold answer is "no information available" — the agent must refuse to invent one. */
+  /**
+   * category 5 — adversarial: the question presupposes something the
+   * conversation never establishes; the agent must decline rather than
+   * invent an answer. Upstream stores the tempting-but-wrong answer under
+   * `adversarial_answer` and leaves `answer` absent. Per the official
+   * LoCoMo protocol these are EXCLUDED from the headline accuracy
+   * (score = correct(cat1-4) / total(cat1-4)) and reported separately as
+   * an abstention rate. See docs/locomo.md.
+   */
   | 5;
 
 export interface LocomoQuestion {
   question: string;
+  /**
+   * Gold answer. Absent for adversarial (cat5) questions upstream — the
+   * loader leaves it '' there and the runner scores cat5 on abstention,
+   * not string overlap.
+   */
   answer: string;
   category: LocomoQACategory;
+  /**
+   * The tempting-but-unsupported answer for adversarial (cat5) questions,
+   * carried through for diagnostics/reporting. Absent for cat1-4.
+   */
+  adversarialAnswer?: string;
   /** Turn ids that the gold reasoning cites — useful for joint-F1 scoring. */
   evidence: string[];
 }

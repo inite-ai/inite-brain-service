@@ -56,6 +56,16 @@ describe('LoCoMo ingest planner', () => {
     });
   });
 
+  it('carries speaker display name + addressee (the other party) per mention', () => {
+    const plan = planIngest(normalizeSample(fixture));
+    // Alice speaks → addressee is Bob (the other main speaker).
+    expect(plan.mentions[0]).toMatchObject({
+      speakerEntityId: 'conv_1__alice_smith',
+      speakerName: 'Alice Smith',
+      addressee: { entityId: 'conv_1__bob', name: 'Bob' },
+    });
+  });
+
   it('sanitises and prefixes speaker names', () => {
     const plan = planIngest(
       normalizeSample({

@@ -46,6 +46,13 @@ export interface IngestSink {
   ingestMention(input: {
     companyId?: string;
     speakerEntityId: string;
+    /** Speaker display name — drives first-person coreference in the extractor. */
+    speakerName: string;
+    /**
+     * The addressed participant (the other speaker in 2-party dialogue) —
+     * drives second-person ("you") coreference. Omitted when ambiguous.
+     */
+    addressee?: { entityId: string; name: string };
     text: string;
     validFrom: string;
     sourceMessageId: string;
@@ -62,6 +69,8 @@ export interface IngestPlan {
    */
   mentions: Array<{
     speakerEntityId: string;
+    speakerName: string;
+    addressee?: { entityId: string; name: string };
     text: string;
     validFrom: string;
     sourceMessageId: string;
@@ -87,14 +96,26 @@ export function planIngest(conv: NormalizedConversation): IngestPlan {
   const mentions: IngestPlan['mentions'] = [];
   for (const session of conv.sessions) {
     for (const turn of session.turns) {
+      const speakerEntityId = speakerEntityFor(
+        turn,
+        speakerAId,
+        speakerBId,
+        prefix,
+        conv,
+      );
+      // Addressee = the other main speaker (2-party dialogue). Drives
+      // second-person "you" coreference. Omitted for stranger turns where
+      // the addressee is ambiguous.
+      const addressee =
+        speakerEntityId === speakerAId
+          ? { entityId: speakerBId, name: conv.speakerB }
+          : speakerEntityId === speakerBId
+            ? { entityId: speakerAId, name: conv.speakerA }
+            : undefined;
       mentions.push({
-        speakerEntityId: speakerEntityFor(
-          turn,
-          speakerAId,
-          speakerBId,
-          prefix,
-          conv,
-        ),
+        speakerEntityId,
+        speakerName: turn.speaker,
+        addressee,
         text: turn.text,
         validFrom: session.dateTime,
         sourceMessageId: `locomo:${conv.sampleId}:${turn.dia_id}`,
