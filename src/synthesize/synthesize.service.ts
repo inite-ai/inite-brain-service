@@ -571,11 +571,38 @@ function buildFactIndex(results: SearchHit[]): FactIndexResult {
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
       });
       factLines.push(
-        `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}`,
+        `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}`,
       );
     }
   }
   return { factIndex, factLines };
+}
+
+/**
+ * Render a fact's validity window as a compact suffix for the prompt.
+ * Without this the generator sees no temporal metadata and can only
+ * abstain on "when did X happen" questions even when the answering fact
+ * was retrieved — its validFrom carries the date. We surface a bare
+ * `YYYY-MM-DD` (the time-of-day is noise for recall dating) and a
+ * closing bound only when the fact is no longer open. Unparseable or
+ * epoch-sentinel dates render nothing rather than a misleading "1970".
+ */
+function formatFactValidity(validFrom?: string, validUntil?: string): string {
+  const from = toValidityDate(validFrom);
+  const until = toValidityDate(validUntil);
+  if (!from && !until) return '';
+  if (from && until) return ` (valid ${from} → ${until})`;
+  if (from) return ` (as of ${from})`;
+  return ` (until ${until})`;
+}
+
+function toValidityDate(value?: string): string | undefined {
+  if (!value) return undefined;
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return undefined;
+  // Drop epoch-sentinel (unknown-date fallback) so it never reads as 1970.
+  if (t <= 0) return undefined;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 /**
