@@ -795,6 +795,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Max backfill facts per predicate per entity. 1 = the historical one-fact-per-novel-predicate rule; 2 lets a crisp same-predicate fact surface when another already matched.',
       },
       {
+        key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
+        category: 'embedder',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Contextual fact embedding: embed mention-extracted facts with a speaker+date context stamp so the vector matches context-referencing queries (Anthropic Contextual Retrieval, fact-level). Changes the embedding basis — requires re-ingest.',
+      },
+      {
         key: 'SEARCH_HYPE_ENABLED',
         category: 'search',
         defaultValue: '0',
