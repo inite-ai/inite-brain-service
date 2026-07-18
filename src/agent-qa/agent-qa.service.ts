@@ -55,6 +55,18 @@ const SEARCH_TOOL: OpenAI.Chat.ChatCompletionTool = {
   },
 };
 
+/**
+ * Parse a positive integer from an env value, falling back on unset / empty /
+ * non-numeric / zero / negative. Without this a typo like AGENT_QA_MAX_ROUNDS=0
+ * (or garbage) makes the ReAct loop never run — the request then answers from
+ * ZERO retrieved facts, i.e. pure hallucination, which the never-abstain prompt
+ * confidently presents. Fail safe to the default instead.
+ */
+function positiveIntEnv(raw: string | undefined, fallback: number): number {
+  const n = parseInt(raw ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 export interface AgentQaInput {
   companyId: string;
   question: string;
@@ -88,17 +100,14 @@ export class AgentQaService {
       'AGENT_QA_MODEL',
       config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
-    this.maxRounds = parseInt(
-      config.get<string>('AGENT_QA_MAX_ROUNDS', '6'),
-      10,
+    this.maxRounds = positiveIntEnv(config.get<string>('AGENT_QA_MAX_ROUNDS'), 6);
+    this.searchLimit = positiveIntEnv(
+      config.get<string>('AGENT_QA_SEARCH_LIMIT'),
+      12,
     );
-    this.searchLimit = parseInt(
-      config.get<string>('AGENT_QA_SEARCH_LIMIT', '12'),
-      10,
-    );
-    this.maxFactsPerRound = parseInt(
-      config.get<string>('AGENT_QA_MAX_FACTS_PER_ROUND', '40'),
-      10,
+    this.maxFactsPerRound = positiveIntEnv(
+      config.get<string>('AGENT_QA_MAX_FACTS_PER_ROUND'),
+      40,
     );
   }
 

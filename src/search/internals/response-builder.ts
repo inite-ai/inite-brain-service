@@ -123,15 +123,23 @@ export function assembleHits({
       for (const f of matchedRender) {
         predicateCount.set(f.predicate, (predicateCount.get(f.predicate) ?? 0) + 1);
       }
+      // Relevance-ordered backfill is opt-in with the widened window: it only
+      // engages when backfillPerPredicate > 1 (the benchmark knob). At the
+      // default (1) backfill stays PURE RECENCY — byte-identical to the
+      // historical behaviour — so enabling nothing changes nothing. (The
+      // reorder is query-driven and would otherwise fire on every call, which
+      // is not default-safe.)
+      const relevanceOrder = backfillPerPredicate > 1 && qTerms.size > 0;
       const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
         .filter((r) => !matchedFactIds.has(String(r.id)))
         .filter((r) => !requireProvenance || hasProvenance(r.source))
-        // Order by query relevance first (a fact whose object overlaps the
-        // query beats an old unrelated one), recency as the tiebreak.
         .sort((a, b) => {
-          const rel =
-            relevanceOverlap(b.object, qTerms) - relevanceOverlap(a.object, qTerms);
-          if (rel !== 0) return rel;
+          if (relevanceOrder) {
+            const rel =
+              relevanceOverlap(b.object, qTerms) -
+              relevanceOverlap(a.object, qTerms);
+            if (rel !== 0) return rel;
+          }
           return (
             new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
           );

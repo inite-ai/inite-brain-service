@@ -168,6 +168,12 @@ export class MentionPersistService {
       // "painted last year") — so when INGEST_EVENT_TIME_EXTRACTION is on and
       // the clause carries a resolvable relative expression, use the resolved
       // event date; otherwise fall back to the message time (prior behaviour).
+      //
+      // PROD CAVEAT (see docs/operations.md): a backdated validFrom on a
+      // BITEMPORAL supersede can stamp the incumbent's validUntil earlier than
+      // its own validFrom (inverted interval, fact hidden from asOf). single_active
+      // is guarded (INSERTED_HISTORICAL); bitemporal is not. Keep the flag off in
+      // prod until the supersede clamps validUntil ≥ validFrom.
       const event = eventTimeOn
         ? resolveEventTime(f.clause, dto.emittedAt)
         : null;

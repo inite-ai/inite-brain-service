@@ -204,14 +204,21 @@ export class SynthesizeService {
       () => this.search.search(companyId, dto, callerScopes),
       { 'synthesize.guardrails': guardrails },
     );
-    // Conformal guardrail: drop facts below the calibrated-confidence
-    // floor BEFORE the generator sees them as citation targets. Facts
-    // still appear in the DecisionLog (with the `low_score` reject
-    // reason) when the caller asked for `explain: true`. With the
-    // default floor of 0 this is a no-op.
+    // Conformal guardrail: drop facts below the calibrated-confidence floor
+    // (default SYNTHESIZE_MIN_CONFIDENCE=0.30) BEFORE the generator sees them
+    // as citation targets. Facts still appear in the DecisionLog (with the
+    // `low_score` reject reason) when the caller asked for `explain: true`.
+    //
+    // In 'answer' (never-abstain) mode the floor is disabled: the whole point
+    // of that mode is to commit to a best-effort answer, so silently dropping
+    // low-confidence facts here — which can empty `results` and force the
+    // `no_results` null return below — would defeat it. That was a real
+    // cross-knob trap: 'answer' callers otherwise had to ALSO set
+    // SYNTHESIZE_MIN_CONFIDENCE=0 to actually never abstain.
+    const answerMode = guardrails === 'answer';
     const guardrail = applyConformalGuardrail(searchResult.results, {
-      minCalibratedConfidence: this.minCalibratedConfidence,
-      minFactTrust: this.minFactTrust,
+      minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
+      minFactTrust: answerMode ? 0 : this.minFactTrust,
     });
     const results = guardrail.kept;
     if (guardrail.droppedCount > 0) {
@@ -627,8 +634,10 @@ function toValidityDate(value?: string): string | undefined {
   if (!value) return undefined;
   const t = Date.parse(value);
   if (Number.isNaN(t)) return undefined;
-  // Drop epoch-sentinel (unknown-date fallback) so it never reads as 1970.
-  if (t <= 0) return undefined;
+  // Drop ONLY the epoch sentinel (new Date(0), the unknown-date fallback) so it
+  // never reads as 1970. `=== 0`, not `<= 0`: a real pre-1970 validFrom (an
+  // older person's dob, a historical event) must still render its date.
+  if (t === 0) return undefined;
   return new Date(t).toISOString().slice(0, 10);
 }
 
