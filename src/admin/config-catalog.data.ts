@@ -804,6 +804,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Contextual fact embedding: embed mention-extracted facts with a speaker+date context stamp so the vector matches context-referencing queries (Anthropic Contextual Retrieval, fact-level). Changes the embedding basis — requires re-ingest.',
       },
       {
+        key: 'INGEST_EVENT_TIME_EXTRACTION',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"the Friday before\", \"3 weeks ago\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Deterministic (regex, no LLM contract change); unresolvable clauses fall back to message time. Requires re-ingest.",
+      },
+      {
         key: 'SEARCH_HYPE_ENABLED',
         category: 'search',
         defaultValue: '0',

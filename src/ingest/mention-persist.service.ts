@@ -14,6 +14,8 @@ import {
   matchesParticipantName,
 } from '../common/coreference';
 import type { KnownEntity } from './dto/ingest-mention.dto';
+import { envFlagEnabled } from '../common/env-validation';
+import { resolveEventTime } from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -154,10 +156,30 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
+    const eventTimeOn = envFlagEnabled(
+      process.env.INGEST_EVENT_TIME_EXTRACTION,
+    );
     for (let i = 0; i < extraction.facts.length; i++) {
       const f = extraction.facts[i];
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
+      // validFrom is the fact's occurrence time. A conversational clause often
+      // refers to when something HAPPENED, in the past ("went yesterday",
+      // "painted last year") — so when INGEST_EVENT_TIME_EXTRACTION is on and
+      // the clause carries a resolvable relative expression, use the resolved
+      // event date; otherwise fall back to the message time (prior behaviour).
+      const event = eventTimeOn
+        ? resolveEventTime(f.clause, dto.emittedAt)
+        : null;
+      const validFrom = event ? event.date : new Date(dto.emittedAt);
+      if (event) {
+        traceArtifact('ingest.fact.event_time', {
+          predicate: f.predicate,
+          expr: event.expr,
+          resolved: event.date.toISOString().slice(0, 10),
+          emittedAt: String(dto.emittedAt).slice(0, 10),
+        });
+      }
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -166,7 +188,7 @@ export class MentionPersistService {
             entityId: eid,
             f,
             source,
-            validFrom: new Date(dto.emittedAt),
+            validFrom,
             precomputedEmbedding: factEmbeddings[i],
           }),
         { predicate: f.predicate, entityId: eid },
