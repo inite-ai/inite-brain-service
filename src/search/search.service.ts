@@ -50,6 +50,12 @@ import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
 
+/** Positive-int env knob with a default; unset/invalid/≤0 → default. */
+function positiveIntEnv(name: string, dflt: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : dflt;
+}
+
 /**
  * Search orchestrator. The retrieval pipeline lives in stage modules
  * under `./internals/` (pure functions) and the two stage services
@@ -484,6 +490,12 @@ export class SearchService {
       backfillByEntity,
       entityTypes: ctx.dto.entityTypes,
       requireProvenance: ctx.dto.requireProvenance === true,
+      // Fact-window shaping (default-preserving): wider per-entity window +
+      // relaxed backfill diversity so a substantive fact on a fact-dense
+      // entity isn't buried under the 5-slot cap. Backfill is query-ordered.
+      factsPerEntity: positiveIntEnv('SEARCH_FACTS_PER_ENTITY', 5),
+      backfillPerPredicate: positiveIntEnv('SEARCH_BACKFILL_PER_PREDICATE', 1),
+      query: ctx.dto.query,
     });
     rowPolicy.finish();
     return {

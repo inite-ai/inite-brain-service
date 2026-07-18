@@ -44,6 +44,10 @@ export class SearchRetrievalService {
   private readonly authorityDelta = nonNegativeFloatEnv(
     'SEARCH_AUTHORITY_DELTA',
   );
+  // Chatter demotion — a sub-1.0 multiplier on `said` facts. Unlike the
+  // trust knobs, the OFF value is 1.0 (not 0), so a dedicated reader with a
+  // (0,1] clamp; unset/invalid/≥1 → 1.0 → byte-identical ranking.
+  private readonly chatterPenalty = unitPenaltyEnv('SEARCH_CHATTER_PENALTY');
 
   // Fourth dep is the read-side query expansion (Wave 2) — a fire-and-
   // degrade LLM sidecar to the vector leg, not a new pipeline stage, so
@@ -220,6 +224,7 @@ export class SearchRetrievalService {
       trustBeta: this.trustBeta,
       corroborationGamma: this.corroborationGamma,
       authorityDelta: this.authorityDelta,
+      chatterPenalty: this.chatterPenalty,
     });
     return bucketByEntity(scored);
   }
@@ -229,4 +234,15 @@ export class SearchRetrievalService {
 function nonNegativeFloatEnv(name: string): number {
   const v = Number(process.env[name] ?? 0);
   return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+/**
+ * Penalty multiplier env knob; OFF is 1.0. Returns the value only when it's
+ * a real demotion in (0,1); unset / invalid / ≥1 → 1.0 (no penalty).
+ */
+function unitPenaltyEnv(name: string): number {
+  const raw = process.env[name];
+  if (raw === undefined) return 1;
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 && v < 1 ? v : 1;
 }

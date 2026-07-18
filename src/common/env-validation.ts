@@ -122,6 +122,13 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
+  // ── Retrieval fact-shaping (chatter demotion + per-entity window) ──
+  // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the
+  // "is a number" contract here (≥1 is accepted and means "no penalty").
+  nonNegativeFloat(env, 'SEARCH_CHATTER_PENALTY', errors);
+  positiveInt(env, 'SEARCH_FACTS_PER_ENTITY', errors);
+  positiveInt(env, 'SEARCH_BACKFILL_PER_PREDICATE', errors);
+
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 

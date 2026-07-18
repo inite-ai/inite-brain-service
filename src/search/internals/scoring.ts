@@ -22,6 +22,17 @@ const PREDICATE_BOOST_ALPHA: Record<string, number> = {
 };
 const PREDICATE_BOOST_ALPHA_DEFAULT = 0.5;
 
+// Low-value "chatter" predicates. `said` is the extractor's residual class
+// (a bare attributed utterance — "Hey Mel!", "That's great!") and, in a long
+// conversation, floods an entity with hundreds of contentless facts. Because
+// predBoost can only AMPLIFY (≥1.0), these facts compete at full strength for
+// the few per-entity slots that reach synthesis and bury the substantive
+// facts (preference/intent/status). The chatterPenalty (SEARCH_CHATTER_PENALTY,
+// default 1.0 = off) is a sub-1.0 multiplier that demotes them below real
+// facts of the same entity. Kept a set (not the α map) because it's a
+// PENALTY, structurally distinct from the boost that can't go below 1.
+const CHATTER_PREDICATES = new Set(['said']);
+
 const DEGREE_BOOST_WEIGHT = 0.3;
 const DEGREE_BOOST_TOP_N = 2;
 
@@ -74,6 +85,13 @@ export interface ScoreRowsOptions {
    * Default 0 → factor exactly 1.0 → byte-identical ranking.
    */
   authorityDelta?: number;
+  /**
+   * Sub-1.0 multiplier applied to CHATTER_PREDICATES (`said`) facts to
+   * demote contentless conversational utterances below substantive facts
+   * of the same entity. Default 1.0 → no penalty → byte-identical ranking.
+   * Only values in (0,1] make sense; ≥1 (or unset) leaves chatter unpenalized.
+   */
+  chatterPenalty?: number;
 }
 
 const CORROBORATION_CAP = 3;
@@ -86,7 +104,14 @@ export function scoreRows({
   trustBeta = 0,
   corroborationGamma = 0,
   authorityDelta = 0,
+  chatterPenalty = 1,
 }: ScoreRowsOptions): ScoredRow[] {
+  // A penalty is only meaningful in (0,1]; anything else (unset, ≥1, invalid)
+  // means "no penalty" so ranking is byte-identical to before.
+  const chatterFactorFor = (predicate: string): number =>
+    chatterPenalty > 0 && chatterPenalty < 1 && CHATTER_PREDICATES.has(predicate)
+      ? chatterPenalty
+      : 1;
   return rows.map((row) => {
     const policy = policyFor(row.predicate);
     // Usage reinforcement: when the pipeline attached a lastReadAt
@@ -148,11 +173,13 @@ export function scoreRows({
       authorityFactor,
     };
 
+    const chatterFactor = chatterFactorFor(row.predicate);
     const finalScore =
       row.fusedScore *
       decay *
       calibratedConfidence *
       predBoost *
+      chatterFactor *
       trustFactor *
       corroborationFactor *
       authorityFactor;
@@ -165,6 +192,7 @@ export function scoreRows({
         calibratedConfidence,
         decay,
         predBoost,
+        ...(chatterFactor !== 1 ? { chatterPenalty: chatterFactor } : {}),
         factTrust,
         finalScore,
         stages: row.stages ?? [],

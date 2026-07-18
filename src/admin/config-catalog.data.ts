@@ -768,6 +768,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Inherited-score multiplier for an expanded neighbour (≤0.4 so a neighbour can never outrank its seed).',
       },
       {
+        key: 'SEARCH_CHATTER_PENALTY',
+        category: 'search',
+        defaultValue: '1.0',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Sub-1.0 ranking multiplier on low-value "said" chatter facts so substantive facts of the same entity are not buried. 1.0 = off; a demotion needs a value in (0,1), e.g. 0.35.',
+      },
+      {
+        key: 'SEARCH_FACTS_PER_ENTITY',
+        category: 'search',
+        defaultValue: '5',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max facts rendered per entity into a search hit / the synthesis prompt. Raise (e.g. 10) so a substantive fact on a fact-dense entity is not clipped by the window.',
+      },
+      {
+        key: 'SEARCH_BACKFILL_PER_PREDICATE',
+        category: 'search',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max backfill facts per predicate per entity. 1 = the historical one-fact-per-novel-predicate rule; 2 lets a crisp same-predicate fact surface when another already matched.',
+      },
+      {
         key: 'SEARCH_HYPE_ENABLED',
         category: 'search',
         defaultValue: '0',

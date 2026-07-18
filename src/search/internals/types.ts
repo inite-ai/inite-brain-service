@@ -114,6 +114,11 @@ export interface ScoreBreakdown {
   decay: number;
   predBoost: number;
   /**
+   * Sub-1.0 chatter demotion applied to `said` facts (SEARCH_CHATTER_PENALTY).
+   * Omitted when 1.0 (no penalty) so unpenalised rows are byte-identical.
+   */
+  chatterPenalty?: number;
+  /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the
    * write-time snapshot ladder (learnedTrust ?? declaredTrust ?? 0.5 —

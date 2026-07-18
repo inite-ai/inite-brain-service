@@ -1,8 +1,9 @@
-import { bucketByEntity } from '../src/search/internals/scoring';
+import { bucketByEntity, scoreRows } from '../src/search/internals/scoring';
 import { assembleHits } from '../src/search/internals/response-builder';
 import type {
   ScoredRow,
   FactRow,
+  FusedRow,
   EntityBucket,
 } from '../src/search/internals/types';
 
@@ -127,5 +128,122 @@ describe('assembleHits requireProvenance', () => {
     });
     expect(hits).toHaveLength(1);
     expect(hits[0].facts).toHaveLength(1);
+  });
+});
+
+describe('scoreRows chatter penalty', () => {
+  // Fixed recordedAt + now = same instant → decay is exactly 1 for BOTH
+  // predicates, isolating the chatter factor from the said/preference
+  // half-life difference.
+  const AT = '2026-01-01T00:00:00.000Z';
+  const NOW = Date.parse(AT);
+  const fused = (predicate: string, object: string): FusedRow => ({
+    ...fact({ predicate, object, recordedAt: AT, validFrom: AT }),
+    fusedScore: 1,
+  });
+
+  it('demotes a said fact below a substantive fact at equal fusedScore', () => {
+    const [said, pref] = scoreRows({
+      rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
+      predicateDist: null,
+      now: NOW,
+      chatterPenalty: 0.35,
+    });
+    expect(said.score).toBeLessThan(pref.score);
+    expect(said.breakdown.chatterPenalty).toBe(0.35);
+    // Substantive fact is untouched — no chatterPenalty field.
+    expect(pref.breakdown.chatterPenalty).toBeUndefined();
+  });
+
+  it('penalty 1.0 (default/off) → byte-identical scores, no breakdown field', () => {
+    const [said, pref] = scoreRows({
+      rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
+      predicateDist: null,
+      now: NOW,
+    });
+    expect(said.score).toBeCloseTo(pref.score, 10);
+    expect(said.breakdown.chatterPenalty).toBeUndefined();
+  });
+
+  it('an out-of-range penalty (≥1) is treated as off', () => {
+    const [said] = scoreRows({
+      rows: [fused('said', 'x')],
+      predicateDist: null,
+      now: NOW,
+      chatterPenalty: 1.5,
+    });
+    expect(said.breakdown.chatterPenalty).toBeUndefined();
+  });
+});
+
+describe('assembleHits fact-window shaping', () => {
+  const bucket = (facts: ScoredRow[]): EntityBucket => ({
+    entityId: 'knowledge_entity:e1',
+    rankScore: 1,
+    bestScore: 1,
+    facts,
+  });
+
+  it('caps facts per entity at factsPerEntity (default 5, raisable)', () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      scored(fact({ predicate: `p${i}`, object: `v${i}` }), 1 - i * 0.01),
+    );
+    const def = assembleHits({
+      topEntities: [bucket(many)],
+      backfillByEntity: new Map(),
+      entityTypes: undefined,
+    });
+    expect(def[0].facts).toHaveLength(5);
+
+    const wide = assembleHits({
+      topEntities: [bucket(many)],
+      backfillByEntity: new Map(),
+      entityTypes: undefined,
+      factsPerEntity: 10,
+    });
+    expect(wide[0].facts).toHaveLength(10);
+  });
+
+  it('backfillPerPredicate=2 lets a second same-predicate fact surface', () => {
+    const matched = scored(fact({ predicate: 'preference', object: 'sunsets' }), 1);
+    const backfillSamePred: FactRow = fact({
+      predicate: 'preference',
+      object: 'transgender woman',
+    });
+    // Default (1): the same-predicate backfill fact is skipped.
+    const def = assembleHits({
+      topEntities: [bucket([matched])],
+      backfillByEntity: new Map([['knowledge_entity:e1', [backfillSamePred]]]),
+      entityTypes: undefined,
+    });
+    expect(def[0].facts.map((f) => f.object)).toEqual(['sunsets']);
+    // Relaxed (2): it surfaces.
+    const relaxed = assembleHits({
+      topEntities: [bucket([matched])],
+      backfillByEntity: new Map([['knowledge_entity:e1', [backfillSamePred]]]),
+      entityTypes: undefined,
+      backfillPerPredicate: 2,
+    });
+    expect(relaxed[0].facts.map((f) => f.object)).toContain('transgender woman');
+  });
+
+  it('orders backfill by query relevance, not just recency', () => {
+    const older = '2020-01-01T00:00:00.000Z';
+    const newer = '2025-01-01T00:00:00.000Z';
+    // Recent but irrelevant vs older but query-relevant.
+    const irrelevant = fact({ predicate: 'a', object: 'weather chatter', recordedAt: newer });
+    const relevant = fact({ predicate: 'b', object: 'transgender identity', recordedAt: older });
+    const hits = assembleHits({
+      topEntities: [bucket([scored(fact({ predicate: 'name', object: 'Caroline' }), 1)])],
+      backfillByEntity: new Map([
+        ['knowledge_entity:e1', [irrelevant, relevant]],
+      ]),
+      entityTypes: undefined,
+      factsPerEntity: 2, // name + exactly one backfill slot
+      query: 'what is her identity',
+    });
+    const objs = hits[0].facts.map((f) => f.object);
+    expect(objs).toContain('transgender identity'); // relevance beat recency
+    expect(objs).not.toContain('weather chatter');
   });
 });
