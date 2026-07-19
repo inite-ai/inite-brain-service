@@ -249,32 +249,19 @@ export class FactsService {
     now: Date;
     reason: string;
   }): Promise<string[]> {
-    const cascaded: string[] = [];
-    const stack = [parentFactId];
-
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      const [childRows] = await db.query<any[][]>(
-        `SELECT id FROM knowledge_fact
-         WHERE derivedFrom CONTAINS type::record('knowledge_fact', $cid)
-           AND retractedAt IS NONE`,
-        { cid: this.normalizeFactId(current).id },
-      );
-      const children = (childRows as any[]) ?? [];
-      for (const child of children) {
-        const childIdStr = String(child.id);
-        await dbMerge(db, childIdStr, {
-          status: 'retracted',
-          retractedAt: now,
-          retractedBy: 'cascade',
-          retractionReason: `parent retracted: ${reason}`,
-          validUntil: now,
-        });
-        cascaded.push(childIdStr);
-        stack.push(childIdStr);
-      }
-    }
-    return cascaded;
+    // Atomic reverse-derivedFrom closure in one call (migration 0069). Replaces
+    // the former per-node SELECT + per-child UPDATE loop, which was N+1 and
+    // interleavable with a concurrent retract / a child inserted mid-walk. The
+    // stored fn recurses level-by-level with a single set-based UPDATE each,
+    // applying identical field semantics.
+    const rid = this.normalizeFactId(parentFactId).id;
+    const [rows] = await db.query<[unknown[]]>(
+      `RETURN fn::cascade_retract(
+         [type::record('knowledge_fact', $rid)], $reason, $now
+       )`,
+      { rid, reason, now },
+    );
+    return ((rows as unknown[]) ?? []).map((r) => String(r));
   }
 
   /**
