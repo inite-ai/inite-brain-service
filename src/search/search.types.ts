@@ -28,6 +28,10 @@ export interface SearchHit {
      *  caller chase a citation back to WHO claimed it. Absent on
      *  pre-0044 facts. */
     sourceKey?: string;
+    /** BM25 match snippet with <em>…</em> around the matched terms, from
+     *  search::highlight (SEARCH_HIGHLIGHT_ENABLED). Present only for
+     *  lexically-matched facts when the flag is on. */
+    highlight?: string;
     score: number;
     breakdown?: ScoreBreakdown;
   }>;

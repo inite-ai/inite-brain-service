@@ -208,6 +208,16 @@ export function mergeVectorRows(
  * / test fixtures pre-dating migration 0007) — the vector leg keeps
  * serving the request.
  */
+/**
+ * BM25 match-snippet projection (SEARCH_HIGHLIGHT_ENABLED). The FULLTEXT
+ * indexes already carry HIGHLIGHTS but search::highlight was never queried.
+ * Highlights the searchHaystack match (ref 1 — the field the lexical WHERE
+ * matches on for most rows). Off (default) → empty string → byte-identical.
+ */
+const HIGHLIGHT_PROJECTION = envFlagEnabled(process.env.SEARCH_HIGHLIGHT_ENABLED)
+  ? `search::highlight('<em>', '</em>', 1) AS highlight,`
+  : '';
+
 export interface RunLexicalLegOptions {
   db: Surreal;
   logger: { warn: (msg: string) => void };
@@ -238,6 +248,7 @@ export async function runLexicalLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
+        ${HIGHLIGHT_PROJECTION}
         math::max([search::score(1), search::score(2)]) AS bm25Score
       FROM knowledge_fact
       WHERE (searchHaystack @1@ $query OR object @2@ $query)

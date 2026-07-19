@@ -822,6 +822,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Combined vector+graph retrieval: fold each fact's entity neighbourhood (->knowledge_edge->) into the vector KNN query as a co-equal projection, so candidate generation is ONE SurrealQL round-trip instead of a vector query plus a separate edge-expansion lookup (SurrealDB's native hybrid-retrieval strength). Edge-expansion reuses the prefetched neighbours and only queries uncovered seeds. Off = byte-identical (empty projection + legacy lookup). Read at boot.",
       },
       {
+        key: 'SEARCH_HIGHLIGHT_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "BM25 match snippets: project search::highlight('<em>','</em>',1) from the lexical leg (the FULLTEXT indexes already carry HIGHLIGHTS but it was never queried) and surface a `highlight` field on lexically-matched facts. Off = no highlight field (byte-identical payload). Read at boot.",
+      },
+      {
         key: 'SEARCH_HYPE_ENABLED',
         category: 'search',
         defaultValue: '0',

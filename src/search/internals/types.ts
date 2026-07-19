@@ -60,6 +60,9 @@ export interface FactRow {
   // record-id order instead of by score.
   simScore?: number;
   bm25Score?: number;
+  /** BM25 match snippet from search::highlight, set by the lexical leg when
+   *  SEARCH_HIGHLIGHT_ENABLED is on. Absent on vector-only rows. */
+  highlight?: string;
   /**
    * Write-time source-trust snapshot (migration 0044) — read straight
    * off the row so trust can enter ranking without a join. Absent on

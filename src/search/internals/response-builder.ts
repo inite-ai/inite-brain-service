@@ -114,6 +114,7 @@ export function assembleHits({
           validUntil: row.validUntil ?? undefined,
           status: row.status,
           sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
+          ...(row.highlight ? { highlight: row.highlight } : {}),
           score,
           breakdown,
         }));
