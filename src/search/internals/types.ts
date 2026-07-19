@@ -19,6 +19,14 @@ export type RetrievalStage =
   | 'ppr'
   | 'backfill';
 
+/** One graph edge to a neighbour entity, as projected by both the edge-
+ *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg. */
+export interface NeighbourEdge {
+  kind: string;
+  weight?: number;
+  peer: { id: unknown } | null;
+}
+
 export interface FactRow {
   id: unknown;
   entityId: unknown;
@@ -39,6 +47,11 @@ export interface FactRow {
     externalRefs?: Record<string, string>;
     mergedInto?: unknown;
   };
+  // Graph neighbourhood of this fact's entity, projected inline by the vector
+  // leg when SEARCH_COMBINED_VECTOR_GRAPH is on (KNN + graph traversal in one
+  // query). Absent otherwise; edge-expansion then does its own lookup.
+  outNeighbours?: NeighbourEdge[] | null;
+  inNeighbours?: NeighbourEdge[] | null;
   // One of these is set per row depending on which leg surfaced it;
   // hybrid mode merges both and lets the fusion stage combine. Field
   // names sidestep the SurrealQL `vec::*` and `lex::*` namespace

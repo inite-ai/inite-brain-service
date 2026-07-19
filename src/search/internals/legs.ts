@@ -17,6 +17,21 @@ import { envFlagEnabled } from '../../common/env-validation';
  * on the read path. NONE alt (legacy facts or HyPE disabled)
  * contributes -1 so it never wins the max.
  */
+/**
+ * Combined vector+graph: fold the fact's entity neighbourhood into the KNN
+ * query so candidate generation is ONE SurrealQL round-trip (KNN + `->edge->`
+ * traversal as co-equal projections) instead of a vector query followed by a
+ * separate edge-expansion lookup — SurrealDB's native hybrid-retrieval strength.
+ * Off (default) → empty string → the query is byte-identical to before; the
+ * legacy separate edge-expansion query runs instead. Verified on 3.2.0.
+ */
+const COMBINED_GRAPH_PROJECTION = envFlagEnabled(
+  process.env.SEARCH_COMBINED_VECTOR_GRAPH,
+)
+  ? `entityId->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
+     entityId<-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours,`
+  : '';
+
 export interface RunVectorLegOptions {
   db: Surreal;
   embedder: EmbedderService;
@@ -56,6 +71,7 @@ export async function runVectorLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
+        ${COMBINED_GRAPH_PROJECTION}
         math::max([
           vector::similarity::cosine(embedding, $q),
           IF altEmbedding != NONE THEN vector::similarity::cosine(altEmbedding, $q) ELSE -1 END

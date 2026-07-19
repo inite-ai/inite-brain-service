@@ -9,7 +9,7 @@ import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 
 import type { SearchHit } from './search.types';
-import type { EntityBucket, FactRow } from './internals/types';
+import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
 import {
   resolveStageBudgets,
   withStageBudget,
@@ -25,7 +25,7 @@ import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
-import { expandViaEdges } from './internals/edge-expansion';
+import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { backfillEntityFacts } from './internals/backfill';
@@ -440,8 +440,19 @@ export class SearchService {
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
     const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
 
-    // 5. Edge expansion (default ON) — graph-walk from top seeds.
-    await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx, rowFilterFn });
+    // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
+    // combined vector+graph leg ran, the vector-matched facts already carry
+    // their entity's neighbourhood (fetched in the same KNN query), so hand it
+    // over to skip re-querying those seeds.
+    const prefetchedNeighbours = buildNeighbourMap(filtered);
+    await this.runEdgeExpansionStage({
+      db,
+      byEntity,
+      baseWhere,
+      ctx,
+      rowFilterFn,
+      prefetchedNeighbours,
+    });
 
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
     await this.runPprStage(db, byEntity);
@@ -509,12 +520,17 @@ export class SearchService {
     baseWhere,
     ctx,
     rowFilterFn,
+    prefetchedNeighbours,
   }: {
     db: Surreal;
     byEntity: Map<string, EntityBucket>;
     baseWhere: { sql: string; params: Record<string, unknown> };
     ctx: PipelineContext;
     rowFilterFn: (row: FactRow) => boolean;
+    prefetchedNeighbours?: Map<
+      string,
+      { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+    >;
   }): Promise<void> {
     if (process.env.SEARCH_EDGE_EXPANSION_ENABLED === '0') return;
     if (byEntity.size < 1) return;
@@ -529,6 +545,7 @@ export class SearchService {
           dto: ctx.dto,
           callerScopes: ctx.callerScopes,
           passesPolicy: (row) => rowFilterFn(row),
+          prefetchedNeighbours,
         });
         span.setAttribute('edge_expansion.injected', injected);
         if (injected > 0) {
