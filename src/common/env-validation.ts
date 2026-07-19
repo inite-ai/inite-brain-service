@@ -146,6 +146,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
 
+  // ── HNSW on the inline entity-resolution name-candidate scan ───────
+  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
+  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -408,6 +412,7 @@ const KNOWN_BOOLEAN_FLAGS = [
   'COMPACTION_PROMOTION_ENABLED',
   'COMPACTION_SUMMARIES',
   'INGEST_INLINE_RESOLUTION_ENABLED',
+  'INGEST_INLINE_RESOLUTION_HNSW',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
