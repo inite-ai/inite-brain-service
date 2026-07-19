@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { Surreal, StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
@@ -277,6 +277,9 @@ export class MentionPersistService {
     p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
+    if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
+      return this.persistEdgesBatched(db, extraction, entityIds, dto);
+    }
     const edgeIds: string[] = [];
     for (const e of extraction.edges) {
       const fromEid = entityIds[e.fromEntityIndex];
@@ -308,5 +311,123 @@ export class MentionPersistService {
       }
     }
     return edgeIds;
+  }
+
+  /**
+   * Batched edge persistence (flag INGEST_BATCH_EDGES). Collapses the N
+   * per-edge RELATE round-trips into TWO queries: one multi-statement
+   * existence check, then one multi-statement RELATE for only the edges
+   * that don't already exist. On re-ingest (all edges present) it's a
+   * SINGLE round-trip. Same observable outcome as the per-edge loop —
+   * idempotent RELATE keyed on UNIQUE(in,out,kind).
+   *
+   * The existence check makes the RELATE batch collision-free in the
+   * common case, so a multi-statement RELATE (which throws atomically if
+   * ANY statement trips the unique index) is safe. A concurrent writer
+   * creating one of the missing edges between our check and RELATE is the
+   * one residual race — we catch the throw and redo the missing set
+   * through the per-edge idempotent primitive.
+   */
+  private async persistEdgesBatched(
+    db: Surreal,
+    extraction: any,
+    entityIds: string[],
+    dto: IngestMentionDto,
+  ): Promise<string[]> {
+    // Deduplicate candidates within the batch: the extraction can emit the
+    // same (from,to,kind) twice, which the per-edge loop would resolve to
+    // the same id twice. One entry keeps the RELATE batch collision-free.
+    const seen = new Set<string>();
+    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> =
+      [];
+    for (const e of extraction.edges) {
+      const from = entityIds[e.fromEntityIndex];
+      const to = entityIds[e.toEntityIndex];
+      if (!from || !to || from === to) continue;
+      const key = `${from} ${to} ${e.kind}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cands.push({ from, to, kind: e.kind, confidence: e.confidence });
+    }
+    if (cands.length === 0) return [];
+
+    const sourceOf = (c: { confidence: number }) => ({
+      vertical: dto.contextRef.vertical,
+      eventId: dto.contextRef.eventId,
+      conversationId: dto.contextRef.conversationId,
+      messageId: dto.contextRef.messageId,
+      confidence: c.confidence,
+    });
+
+    return traceSpan(
+      'ingest.edge.batch',
+      async () => {
+        // 1. One round-trip existence check (N SELECTs, one query).
+        const existParams: Record<string, unknown> = {};
+        const existStmts = cands
+          .map((c, i) => {
+            existParams[`f${i}`] = new StringRecordId(c.from);
+            existParams[`t${i}`] = new StringRecordId(c.to);
+            existParams[`k${i}`] = c.kind;
+            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} LIMIT 1;`;
+          })
+          .join('\n');
+        const existResults = await db.query<unknown[]>(existStmts, existParams);
+
+        const edgeIds: string[] = [];
+        const missing: typeof cands = [];
+        cands.forEach((c, i) => {
+          const row = ((existResults[i] as Array<{ id: unknown }>) ?? [])[0];
+          if (row?.id) edgeIds.push(String(row.id));
+          else missing.push(c);
+        });
+        if (missing.length === 0) return edgeIds;
+
+        // 2. One round-trip RELATE for the missing edges.
+        try {
+          const relParams: Record<string, unknown> = {};
+          const relStmts = missing
+            .map((c, i) => {
+              relParams[`f${i}`] = new StringRecordId(c.from);
+              relParams[`t${i}`] = new StringRecordId(c.to);
+              relParams[`k${i}`] = c.kind;
+              relParams[`s${i}`] = sourceOf(c);
+              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i} } RETURN AFTER;`;
+            })
+            .join('\n');
+          const relResults = await db.query<unknown[]>(relStmts, relParams);
+          missing.forEach((_c, i) => {
+            const edge = ((relResults[i] as Array<{ id: unknown }>) ?? [])[0];
+            if (edge?.id) edgeIds.push(String(edge.id));
+          });
+        } catch (err) {
+          // Residual race: a concurrent writer created one of these between
+          // the check and the RELATE, tripping UNIQUE(in,out,kind) and
+          // failing the whole multi-statement query. Redo the missing set
+          // through the per-edge idempotent primitive (each resolves its own
+          // violation to the existing id).
+          this.logger.warn(
+            `[ingest.edge] batch RELATE fell back to per-edge: ${(err as Error).message}`,
+          );
+          for (const c of missing) {
+            try {
+              const id = await createEdgeBetween(db, {
+                fromEntityId: c.from,
+                toEntityId: c.to,
+                kind: c.kind,
+                source: sourceOf(c),
+              });
+              if (id) edgeIds.push(id);
+            } catch (e2) {
+              this.logger.warn(
+                `[ingest.edge] kind=${c.kind} from=${c.from} to=${c.to} failed: ${(e2 as Error).message}`,
+              );
+            }
+          }
+        }
+        return edgeIds;
+      },
+      { edges: cands.length },
+    );
   }
 }

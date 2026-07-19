@@ -813,6 +813,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
       },
       {
+        key: 'INGEST_BATCH_EDGES',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Batched edge persistence: collapse the per-edge RELATE round-trips of a mention into TWO queries (one multi-statement existence check, then one multi-statement RELATE for only the missing edges); re-ingest with all edges present is a single round-trip. Same observable outcome as the per-edge loop (idempotent RELATE on UNIQUE(in,out,kind)); a concurrent-writer race falls back to the per-edge primitive. Read at boot.',
+      },
+      {
         key: 'SEARCH_COMBINED_VECTOR_GRAPH',
         category: 'search',
         defaultValue: '0',
