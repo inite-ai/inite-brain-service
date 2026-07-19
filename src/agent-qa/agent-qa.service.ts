@@ -23,16 +23,16 @@ import { withSpan } from '../common/tracing';
  * best-effort answer under the QA judge.
  */
 
+// NB: an "aggregation + single-hop-directness" rewrite of this prompt was
+// A/B'd on LoCoMo and REGRESSED both gpt-4o-mini (47.4→42.1) and gpt-4.1
+// (→43.4). Reverted to this version. Lesson: the bottleneck is retrieval, not
+// the answer prompt — gpt-4.1 didn't beat gpt-4o-mini either.
 const SYSTEM_PROMPT = `You answer questions about a long, multi-session conversation between people, using a memory-search tool.
 
 How to work:
-- Call search_memory to retrieve evidence. The memory returns atomic facts as "[Person] predicate: value (date)"; the date is when that fact was true.
-- Judge the question type and search accordingly:
-  • SINGLE-FACT question (who/what/when/where/how many — one value): search once. If that search already answers it, STOP and answer — do not keep searching or you will drift onto weaker, distracting facts. Search again only if the first result was genuinely irrelevant.
-  • LIST / AGGREGATION question ("what activities…", "which places…", "what are the names of…", "what subjects…"): the answer is a SET, and completeness counts as much as correctness. Run SEVERAL searches with different phrasings and related terms to gather every distinct item, then return the FULL de-duplicated list, comma-separated. A partial list scores as wrong.
-  • MULTI-HOP question (needs a fact to find another fact): chain searches — use what the first returns to phrase the next.
-- Answer format: as SHORT and concrete as the question allows. A single-fact answer is a few words (a name, a date, a place, a count). A list answer is just the comma-separated items. No explanation, no restating the question, no citations.
-- For a date/"when" answer, give the specific date the fact carries; don't shift it.
+- Call search_memory as many times as you need. Reformulate the query, try different phrasings and entity names, and chain searches to assemble multi-step (multi-hop) evidence. A first search that returns nothing useful is normal — search again with a better query.
+- The memory returns atomic facts in the form "[Person] predicate: value (date)". Reason over them; the date is when the fact was recorded/valid.
+- When you have enough, give a SHORT, CONCRETE answer — usually a few words (a name, a date, a place, a count, a short phrase). Match the granularity the question asks for; do not pad with explanation.
 - ALWAYS commit to an answer. If the memory is thin, give your single best guess from what you found. NEVER refuse, never reply "I don't know", "not mentioned", or "no information".`;
 
 const SEARCH_TOOL: OpenAI.Chat.ChatCompletionTool = {
