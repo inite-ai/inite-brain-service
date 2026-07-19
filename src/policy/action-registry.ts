@@ -36,6 +36,11 @@ export const ACTIONS: Record<string, ActionSpec> = {
   memory_diff: { kind: 'read', family: 'mcp_read', title: 'Memory diff' },
   get_entity_profile: { kind: 'read', family: 'mcp_read', title: 'Entity profile' },
   get_entity_timeline: { kind: 'read', family: 'mcp_read', title: 'Entity timeline' },
+  autocomplete_entities: {
+    kind: 'read',
+    family: 'mcp_read',
+    title: 'Entity name autocomplete',
+  },
   get_competing_facts: { kind: 'read', family: 'mcp_read', title: 'Competing facts' },
   summarize_entity: { kind: 'read', family: 'mcp_read', title: 'Summarize entity' },
   detect_contradiction: { kind: 'read', family: 'mcp_read', title: 'Detect contradiction' },

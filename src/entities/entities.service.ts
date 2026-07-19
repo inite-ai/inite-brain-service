@@ -111,6 +111,25 @@ export interface ForgetOptions {
   actorKeyHash?: string;
 }
 
+export interface AutocompleteOptions {
+  companyId: string;
+  q: string;
+  limit?: number;
+  scopes: BrainScope[];
+}
+
+export interface AutocompleteSuggestion {
+  entityId: string;
+  canonicalName: string;
+  type: string;
+  score: number;
+}
+
+/** edgengram(2,15) — a query shorter than 2 chars yields no tokens. */
+const AUTOCOMPLETE_MIN_CHARS = 2;
+const AUTOCOMPLETE_DEFAULT_LIMIT = 10;
+const AUTOCOMPLETE_MAX_LIMIT = 25;
+
 @Injectable()
 export class EntitiesService {
   // Fourth dep is the tenant predicate registry — the row fence must see
@@ -503,5 +522,59 @@ export class EntitiesService {
     const result = await this.forgetService.forget(opts);
     this.metrics?.countForget();
     return result;
+  }
+
+  /**
+   * Entity-name typeahead. Routes through the edge-ngram `prefix` fulltext
+   * index on canonicalNameLc (migration 0070) so matching is word-start
+   * prefix, ranked by BM25 `search::score` — no LIMIT-scan + JS substring
+   * filter. Returns only live, tenant-global entities (mergedInto IS NONE
+   * so identity-merged redirects don't resurface; userId IS NONE so a
+   * personal-scoped entity never leaks into the shared surface), mirroring
+   * the graph-retrieve name-resolution query.
+   *
+   * A query shorter than the analyzer's min n-gram (2 chars) produces no
+   * tokens — short-circuit to empty rather than issue a match that behaves
+   * undefined.
+   */
+  async autocomplete({
+    companyId,
+    q,
+    limit,
+    scopes,
+  }: AutocompleteOptions): Promise<{ suggestions: AutocompleteSuggestion[] }> {
+    const term = (q ?? '').trim().toLowerCase();
+    if (term.length < AUTOCOMPLETE_MIN_CHARS) return { suggestions: [] };
+    const lim = Math.min(
+      Math.max(Math.trunc(limit ?? AUTOCOMPLETE_DEFAULT_LIMIT), 1),
+      AUTOCOMPLETE_MAX_LIMIT,
+    );
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ id: unknown; type: string; canonicalName: string; score: number }>]
+      >(
+        `SELECT id, type, canonicalName, search::score(1) AS score
+           FROM knowledge_entity
+          WHERE mergedInto IS NONE
+            AND userId IS NONE
+            AND canonicalNameLc @1@ $q
+          ORDER BY score DESC
+          LIMIT $lim`,
+        { q: term, lim },
+      );
+      return {
+        suggestions: ((rows as Array<{
+          id: unknown;
+          type: string;
+          canonicalName: string;
+          score: number;
+        }>) ?? []).map((r) => ({
+          entityId: String(r.id),
+          canonicalName: r.canonicalName,
+          type: r.type,
+          score: r.score,
+        })),
+      };
+    });
   }
 }
