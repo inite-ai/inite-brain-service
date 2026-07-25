@@ -56,6 +56,9 @@ interface Args {
   apiKey: string;
   out: string;
   samples?: number;
+  /** Skip the first N conversations before applying --samples — selects a
+   *  held-out block (e.g. --sample-offset 5 --samples 5 = conv 6..10). */
+  sampleOffset?: number;
   /** Cost cap: stop QA after this many questions (ingest is unaffected). */
   maxQuestions?: number;
   /** Per-question wall-clock cap (ms). Default 60s; raise on a saturated
@@ -104,6 +107,8 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--api-key') (args.apiKey = next), i++;
     else if (a === '--out') (args.out = next), i++;
     else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
+    else if (a === '--sample-offset')
+      (args.sampleOffset = parseInt(next, 10)), i++;
     else if (a === '--max-questions') (args.maxQuestions = parseInt(next, 10)), i++;
     else if (a === '--qa-timeout-ms') (args.qaTimeoutMs = parseInt(next, 10)), i++;
     else if (a === '--ingest-concurrency')
@@ -172,9 +177,10 @@ async function main() {
     `[locomo] dataset=${args.dataset} brain=${args.brainUrl} out=${args.out}`,
   );
   const conversations = await loadLocomoDataset(args.dataset);
+  const offset = args.sampleOffset ?? 0;
   const sliced = args.samples
-    ? conversations.slice(0, args.samples)
-    : conversations;
+    ? conversations.slice(offset, offset + args.samples)
+    : conversations.slice(offset);
   console.error(
     `[locomo] loaded ${sliced.length}/${conversations.length} samples, ${sliced.reduce((a, c) => a + c.qa.length, 0)} QA pairs`,
   );

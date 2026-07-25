@@ -35,6 +35,8 @@ import type {
 interface Args {
   dataset: string;
   samples?: number;
+  /** Skip the first N conversations before --samples (held-out block). */
+  sampleOffset?: number;
   maxQuestions?: number;
   model: string;
   judgeModel: string;
@@ -60,6 +62,8 @@ function parseArgs(argv: string[]): Args {
     const next = argv[i + 1];
     if (a === '--dataset') (args.dataset = next), i++;
     else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
+    else if (a === '--sample-offset')
+      (args.sampleOffset = parseInt(next, 10)), i++;
     else if (a === '--max-questions') (args.maxQuestions = parseInt(next, 10)), i++;
     else if (a === '--model') (args.model = next), i++;
     else if (a === '--judge-model') (args.judgeModel = next), i++;
@@ -137,7 +141,8 @@ async function main() {
   const judge = createOpenAiJudge(client, args.judgeModel);
 
   const all = await loadLocomoDataset(args.dataset);
-  const convs = args.samples ? all.slice(0, args.samples) : all;
+  const off = args.sampleOffset ?? 0;
+  const convs = args.samples ? all.slice(off, off + args.samples) : all.slice(off);
 
   // Flatten to a work list, rendering each transcript once per sample.
   const items: QAItem[] = [];
