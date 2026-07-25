@@ -5,6 +5,11 @@ import { envFlagEnabled } from '../../common/env-validation';
 import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
 import type { EntityBucket, FactRow } from './types';
+import {
+  selectFactsWithOcclusion,
+  type OcclusionInputs,
+  type OcclusionSelection,
+} from './occlusion';
 
 /**
  * Assemble final SearchHit rows from a reranked top-K bucket list plus
@@ -38,6 +43,11 @@ export interface AssembleHitsOptions {
   backfillPerPredicate?: number;
   /** Raw query text — backfill is ordered by token overlap against it. */
   query?: string;
+  /**
+   * Occlusion ranking inputs (SEARCH_OCCLUSION_ENABLED), resolved by
+   * the orchestrator. null/undefined → legacy selection, byte-identical.
+   */
+  occlusion?: OcclusionInputs | null;
 }
 
 /** Content tokens of the query, ≥3 chars, lowercased — for backfill ordering. */
@@ -69,6 +79,7 @@ export function assembleHits({
   factsPerEntity = 5,
   backfillPerPredicate = 1,
   query,
+  occlusion,
 }: AssembleHitsOptions): SearchHit[] {
   const qTerms = queryTokens(query);
   // requireProvenance — DTO compliance primitive: keep only facts whose
@@ -77,13 +88,98 @@ export function assembleHits({
   // wire-format SearchHit fact, so the filter has to run at assembly time.
   const hasProvenance = (src: unknown): boolean =>
     !!src && typeof src === 'object' && Object.keys(src as object).length > 0;
-  return topEntities
+  // Relevance-ordered backfill is opt-in with the widened window: it only
+  // engages when backfillPerPredicate > 1 (the benchmark knob). At the
+  // default (1) backfill stays PURE RECENCY — byte-identical to the
+  // historical behaviour — so enabling nothing changes nothing. (The
+  // reorder is query-driven and would otherwise fire on every call, which
+  // is not default-safe.)
+  const relevanceOrder = backfillPerPredicate > 1 && qTerms.size > 0;
+  const renderBackfill = (row: FactRow) => ({
+    factId: String(row.id),
+    predicate: row.predicate,
+    object: row.object,
+    confidence: row.confidence,
+    validFrom: row.validFrom,
+    validUntil: row.validUntil ?? undefined,
+    status: row.status,
+    sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
+    score: 0,
+    breakdown: {
+      fusedScore: 0,
+      confidence: row.confidence,
+      decay: 1,
+      predBoost: 1,
+      finalScore: 0,
+      stages: ['backfill' as const],
+    },
+  });
+
+  // Per-entity render-order intermediates, computed once so the occlusion
+  // pre-pass and the render below see the exact same candidate order.
+  const prepared = topEntities
     .filter((e) => {
       if (!entityTypes) return true;
       const ent = e.facts[0]?.row.entity;
       return ent ? entityTypes.includes(ent.type) : false;
     })
     .map((e) => {
+      const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
+      const matchedSorted = e.facts
+        .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
+        .sort((a, b) => b.score - a.score);
+      const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
+        .filter((r) => !matchedFactIds.has(String(r.id)))
+        .filter((r) => !requireProvenance || hasProvenance(r.source))
+        .sort((a, b) => {
+          if (relevanceOrder) {
+            const rel =
+              relevanceOverlap(b.object, qTerms) -
+              relevanceOverlap(a.object, qTerms);
+            if (rel !== 0) return rel;
+          }
+          return (
+            new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+          );
+        });
+      return { e, matchedSorted, backfillRows };
+    });
+
+  // Occlusion pre-pass (SEARCH_OCCLUSION_ENABLED): front-to-back kept-set
+  // selection over the same render-order candidates. Absent occlusion →
+  // keptByEntity stays null and the legacy selection below is untouched.
+  let keptByEntity: Map<string, OcclusionSelection> | null = null;
+  if (occlusion) {
+    const selected = selectFactsWithOcclusion(
+      prepared.map(({ e, matchedSorted, backfillRows }) => ({
+        entityId: e.entityId,
+        matched: matchedSorted.map((sf) => ({
+          factId: String(sf.row.id),
+          score: sf.score,
+          validFrom: sf.row.validFrom,
+          predicate: sf.row.predicate,
+        })),
+        backfill: backfillRows.map((r) => ({
+          factId: String(r.id),
+          score: 0,
+          validFrom: r.validFrom,
+          predicate: r.predicate,
+        })),
+      })),
+      {
+        threshold: occlusion.threshold,
+        dateGuardDays: occlusion.dateGuardDays,
+        embeddings: occlusion.embeddings,
+        factsPerEntity,
+        backfillPerPredicate,
+      },
+    );
+    keptByEntity = selected.keptByEntity;
+    occlusion.onStats?.(selected.stats);
+  }
+
+  return prepared
+    .map(({ e, matchedSorted, backfillRows }) => {
       const ent = e.facts[0]?.row.entity ?? {
         id: e.entityId,
         type: 'other',
@@ -101,74 +197,49 @@ export function assembleHits({
         const refs = sf.row.entity?.externalRefs;
         if (refs) Object.assign(mergedRefs, refs);
       }
-      const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
-      const matchedRender = e.facts
-        .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
-        .sort((a, b) => b.score - a.score)
-        .map(({ row, score, breakdown }) => ({
-          factId: String(row.id),
-          predicate: row.predicate,
-          object: row.object,
-          confidence: row.confidence,
-          validFrom: row.validFrom,
-          validUntil: row.validUntil ?? undefined,
-          status: row.status,
-          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
-          ...(row.highlight ? { highlight: row.highlight } : {}),
-          score,
-          breakdown,
-        }));
-      // Count predicates already used by matched facts — backfill tops each
-      // predicate up to `backfillPerPredicate` total across matched+backfill.
-      const predicateCount = new Map<string, number>();
-      for (const f of matchedRender) {
-        predicateCount.set(f.predicate, (predicateCount.get(f.predicate) ?? 0) + 1);
-      }
-      // Relevance-ordered backfill is opt-in with the widened window: it only
-      // engages when backfillPerPredicate > 1 (the benchmark knob). At the
-      // default (1) backfill stays PURE RECENCY — byte-identical to the
-      // historical behaviour — so enabling nothing changes nothing. (The
-      // reorder is query-driven and would otherwise fire on every call, which
-      // is not default-safe.)
-      const relevanceOrder = backfillPerPredicate > 1 && qTerms.size > 0;
-      const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
-        .filter((r) => !matchedFactIds.has(String(r.id)))
-        .filter((r) => !requireProvenance || hasProvenance(r.source))
-        .sort((a, b) => {
-          if (relevanceOrder) {
-            const rel =
-              relevanceOverlap(b.object, qTerms) -
-              relevanceOverlap(a.object, qTerms);
-            if (rel !== 0) return rel;
-          }
-          return (
-            new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+      const kept = keptByEntity?.get(e.entityId);
+      const matchedRender = (kept
+        ? matchedSorted.filter((sf) => kept.matched.has(String(sf.row.id)))
+        : matchedSorted
+      ).map(({ row, score, breakdown }) => ({
+        factId: String(row.id),
+        predicate: row.predicate,
+        object: row.object,
+        confidence: row.confidence,
+        validFrom: row.validFrom,
+        validUntil: row.validUntil ?? undefined,
+        status: row.status,
+        sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
+        ...(row.highlight ? { highlight: row.highlight } : {}),
+        score,
+        breakdown,
+      }));
+      let backfillRender: typeof matchedRender;
+      if (kept) {
+        // The selector already did slot + predicate-diversity + occlusion
+        // accounting; render its kept ids in order.
+        const byId = new Map(backfillRows.map((r) => [String(r.id), r]));
+        backfillRender = kept.backfill
+          .map((id) => byId.get(id))
+          .filter((r): r is FactRow => r !== undefined)
+          .map(renderBackfill);
+      } else {
+        // Count predicates already used by matched facts — backfill tops each
+        // predicate up to `backfillPerPredicate` total across matched+backfill.
+        const predicateCount = new Map<string, number>();
+        for (const f of matchedRender) {
+          predicateCount.set(
+            f.predicate,
+            (predicateCount.get(f.predicate) ?? 0) + 1,
           );
-        });
-      const backfillRender: typeof matchedRender = [];
-      for (const row of backfillRows) {
-        const used = predicateCount.get(row.predicate) ?? 0;
-        if (used >= backfillPerPredicate) continue;
-        predicateCount.set(row.predicate, used + 1);
-        backfillRender.push({
-          factId: String(row.id),
-          predicate: row.predicate,
-          object: row.object,
-          confidence: row.confidence,
-          validFrom: row.validFrom,
-          validUntil: row.validUntil ?? undefined,
-          status: row.status,
-          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
-          score: 0,
-          breakdown: {
-            fusedScore: 0,
-            confidence: row.confidence,
-            decay: 1,
-            predBoost: 1,
-            finalScore: 0,
-            stages: ['backfill'],
-          },
-        });
+        }
+        backfillRender = [];
+        for (const row of backfillRows) {
+          const used = predicateCount.get(row.predicate) ?? 0;
+          if (used >= backfillPerPredicate) continue;
+          predicateCount.set(row.predicate, used + 1);
+          backfillRender.push(renderBackfill(row));
+        }
       }
       return {
         entityId: e.entityId,

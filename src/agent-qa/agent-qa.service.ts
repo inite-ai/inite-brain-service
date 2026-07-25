@@ -209,8 +209,9 @@ export class AgentQaService {
           lines.push(`[${r.canonicalName}] ${f.predicate}: ${f.object}${date}`);
         }
       }
-      if (lines.length === 0) return 'No facts found for that query.';
-      return lines.slice(0, this.maxFactsPerRound).join('\n');
+      const facts = lines.slice(0, this.maxFactsPerRound);
+      if (facts.length === 0) return 'No facts found for that query.';
+      return facts.join('\n');
     } catch (e) {
       this.logger.warn(`agent-qa search failed: ${(e as Error).message}`);
       return `Search error: ${(e as Error).message}`;

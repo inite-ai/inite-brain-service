@@ -29,6 +29,8 @@ import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { backfillEntityFacts } from './internals/backfill';
+import { selectFactCentric } from './internals/fact-centric';
+import { resolveOcclusion } from './internals/occlusion';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
 import {
@@ -71,6 +73,8 @@ function positiveIntEnv(name: string, dflt: number): number {
  *
  * Anything heavier than that belongs in a stage module or stage service.
  */
+
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
@@ -479,23 +483,64 @@ export class SearchService {
     }
     topEntities = topEntities.slice(0, ctx.limit);
 
-    // 8. Backfill missing facts for top-K, then assemble.
-    const backfillByEntity = await withStageBudget({
-      stage: 'backfill',
-      budgetMs: this.budgets.backfill,
-      fn: () =>
-        backfillEntityFacts({
-          db,
+    // Fact-centric selection (SEARCH_FACT_CENTRIC_ENABLED, Phase A of the
+    // typed-memory roadmap): facts compete globally for the window instead
+    // of entities — the top-`limit` entity gate made a gold fact
+    // unreachable whenever its entity missed the entity ranking. Draws
+    // from ALL buckets (pre-slice) and replaces per-entity backfill with
+    // a global score cut.
+    const factCentric = envFlagEnabled(
+      process.env.SEARCH_FACT_CENTRIC_ENABLED,
+    );
+    const factCentricBudget = positiveIntEnv('SEARCH_FACT_CENTRIC_BUDGET', 48);
+    if (factCentric) {
+      topEntities = selectFactCentric(
+        [...byEntity.values()],
+        factCentricBudget,
+      );
+      traceArtifact('search.fact_centric', {
+        entities: topEntities.length,
+        facts: topEntities.reduce((a, b) => a + b.facts.length, 0),
+      });
+    }
+
+    // 8. Backfill missing facts for top-K, then assemble. Skipped under
+    // fact-centric selection — the global cut replaces recency padding.
+    const backfillByEntity = factCentric
+      ? new Map<string, FactRow[]>()
+      : await withStageBudget({
+          stage: 'backfill',
+          budgetMs: this.budgets.backfill,
+          fn: () =>
+            backfillEntityFacts({
+              db,
+              logger: this.logger,
+              entityIds: topEntities.map((e) => e.entityId),
+              baseWhere,
+              dto: ctx.dto,
+              callerScopes: ctx.callerScopes,
+              passesPolicy: (row) => rowFilterFn(row),
+            }),
+          fallback: new Map<string, FactRow[]>(),
           logger: this.logger,
-          entityIds: topEntities.map((e) => e.entityId),
-          baseWhere,
-          dto: ctx.dto,
-          callerScopes: ctx.callerScopes,
-          passesPolicy: (row) => rowFilterFn(row),
-        }),
-      fallback: new Map<string, FactRow[]>(),
+        });
+    // Occlusion ranking (SEARCH_OCCLUSION_ENABLED, default off): resolve
+    // knobs + fetch candidate embeddings in one bounded round-trip. Every
+    // candidate id here already passed the row policy (rowFilterFn /
+    // backfill passesPolicy), so the by-id fetch widens nothing.
+    const factsPerEntity = factCentric
+      ? factCentricBudget
+      : positiveIntEnv('SEARCH_FACTS_PER_ENTITY', 5);
+    const occlusion = await resolveOcclusion({
+      db,
       logger: this.logger,
+      topEntities,
+      backfillByEntity,
+      factsPerEntity,
     });
+    if (occlusion) {
+      occlusion.onStats = (stats) => traceArtifact('search.occlusion', stats);
+    }
     const hits = assembleHits({
       topEntities,
       backfillByEntity,
@@ -504,9 +549,10 @@ export class SearchService {
       // Fact-window shaping (default-preserving): wider per-entity window +
       // relaxed backfill diversity so a substantive fact on a fact-dense
       // entity isn't buried under the 5-slot cap. Backfill is query-ordered.
-      factsPerEntity: positiveIntEnv('SEARCH_FACTS_PER_ENTITY', 5),
+      factsPerEntity,
       backfillPerPredicate: positiveIntEnv('SEARCH_BACKFILL_PER_PREDICATE', 1),
       query: ctx.dto.query,
+      occlusion,
     });
     rowPolicy.finish();
     return {

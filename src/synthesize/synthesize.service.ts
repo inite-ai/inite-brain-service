@@ -16,6 +16,8 @@ import {
 } from './dto/synthesize.dto';
 import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
+import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
+import { EpisodeLaneService } from './episode-lane.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import {
   NOOP_REPORTER,
@@ -27,6 +29,14 @@ export interface SynthesizeOptions {
   dto: SynthesizeDto;
   callerScopes: string[];
   onProgress?: ProgressReporter;
+  /**
+   * Pre-retrieved evidence merged into the re-search results before the
+   * generator sees them (multi-hop passes its hop hits here under
+   * MULTI_HOP_SYNTH_EVIDENCE_UNION). Base results keep their order;
+   * unseen extra facts append best-score-first, capped by
+   * SYNTHESIZE_EXTRA_EVIDENCE_CAP.
+   */
+  extraHits?: SearchHit[];
 }
 
 export interface Citation {
@@ -66,6 +76,39 @@ export interface SynthesizeResult {
 interface GeneratorOutput {
   answer: string;
   citedFactIds: string[];
+}
+
+/**
+ * Generator user-message assembly, exported for byte-equality tests.
+ * Without `dateContext` the output is identical to the historical
+ * format; with it, an anchored "Today" + date-arithmetic instruction
+ * sits between the query and the fact list (SYNTHESIZE_DATE_CONTEXT).
+ */
+export function buildGeneratorUserMessage({
+  query,
+  factLines,
+  transcriptLines,
+  answerLang,
+  dateContext,
+}: {
+  query: string;
+  factLines: string[];
+  /** Episodic-lane quotes (P2) — separate typed section after the facts. */
+  transcriptLines?: string[];
+  answerLang: string | null;
+  dateContext?: string;
+}): string {
+  const langInstruction = answerLang
+    ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
+    : '';
+  const dateInstruction = dateContext
+    ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n`
+    : '';
+  const transcriptSection =
+    transcriptLines && transcriptLines.length > 0
+      ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
+      : '';
+  return `Query: ${query}\n${dateInstruction}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
 }
 
 interface VerifierOutput {
@@ -134,10 +177,14 @@ export class SynthesizeService {
   private readonly minCalibratedConfidence: number;
   private readonly minFactTrust: number;
 
+  // Fourth dep is the flag-gated L0 episodic lane (P2 of the substrate
+  // redesign); optional so positionally-constructed unit tests stay as-is.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly search: SearchService,
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly episodeLane?: EpisodeLaneService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -181,6 +228,7 @@ export class SynthesizeService {
     dto,
     callerScopes,
     onProgress = NOOP_REPORTER,
+    extraHits,
   }: SynthesizeOptions): Promise<SynthesizeResult> {
     // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
     // covers HTTP callers, but multi-hop and admin-demo drive
@@ -215,48 +263,25 @@ export class SynthesizeService {
     // `no_results` null return below — would defeat it. That was a real
     // cross-knob trap: 'answer' callers otherwise had to ALSO set
     // SYNTHESIZE_MIN_CONFIDENCE=0 to actually never abstain.
+    // Evidence union (Phase A): fold the caller's pre-retrieved hits in
+    // BEFORE the guardrail so extra facts face the same floors. Base
+    // results stay first; unseen extras append best-score-first, capped.
+    const evidence = applyEvidenceUnion(searchResult.results, extraHits);
+
     const answerMode = guardrails === 'answer';
-    const guardrail = applyConformalGuardrail(searchResult.results, {
-      minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
-      minFactTrust: answerMode ? 0 : this.minFactTrust,
-    });
-    const results = guardrail.kept;
-    if (guardrail.droppedCount > 0) {
-      this.logger.debug(
-        `conformal guardrail dropped ${guardrail.droppedCount} fact(s) below ${this.minCalibratedConfidence}`,
-      );
-    }
+    const prepared = this.prepareEvidence(evidence, answerMode, explain);
+    if ('empty' in prepared) return prepared.empty;
+    const { results, factIndex, factLines } = prepared;
 
-    if (results.length === 0) {
-      this.metrics?.countSynthesize('no_results');
-      return attachDecisionLog(
-        {
-          answer: null,
-          reason: 'no_results',
-          citations: [],
-          results: [],
-        },
-        explain ? [] : undefined,
-      );
-    }
-
-    const { factIndex, factLines } = buildFactIndex(results);
-
-    if (factIndex.size === 0) {
-      // Search returned entities but they were stripped to ids by
-      // outputShape='ids' / token budget. Treat as no_results for
-      // synthesis purposes — we have nothing to cite.
-      this.metrics?.countSynthesize('no_results');
-      return attachDecisionLog(
-        {
-          answer: null,
-          reason: 'no_results',
-          citations: [],
-          results,
-        },
-        explain ? buildDecisionLog(results, new Set()) : undefined,
-      );
-    }
+    // Episodic lane (P2, SEARCH_EPISODIC_LANE_ENABLED): dated verbatim
+    // quotes from the L0 substrate as their own typed prompt section —
+    // the lossless fallback for facts extraction missed or fragmented.
+    const transcriptLines =
+      (await this.episodeLane?.transcriptLines({
+        companyId,
+        query: dto.query,
+        callerScopes,
+      })) ?? [];
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -277,9 +302,14 @@ export class SynthesizeService {
             this.callGenerator({
               query: dto.query,
               factLines,
+              transcriptLines,
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
+              // Date context (SYNTHESIZE_DATE_CONTEXT): anchor "today"
+              // for the generator so relative/when questions resolve
+              // against the facts' date stamps instead of guessing.
+              dateContext: resolveDateContext(dto.asOf),
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -430,26 +460,82 @@ export class SynthesizeService {
     );
   }
 
+  /**
+   * Guardrail + no-results prologue of synthesize(), extracted verbatim
+   * (complexity budget). Returns `{empty}` with the early-return result,
+   * or the prepared evidence for the generator.
+   */
+  private prepareEvidence(
+    evidence: SearchHit[],
+    answerMode: boolean,
+    explain: boolean,
+  ):
+    | { empty: SynthesizeResult }
+    | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
+    const guardrail = applyConformalGuardrail(evidence, {
+      minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
+      minFactTrust: answerMode ? 0 : this.minFactTrust,
+    });
+    const results = guardrail.kept;
+    if (guardrail.droppedCount > 0) {
+      this.logger.debug(
+        `conformal guardrail dropped ${guardrail.droppedCount} fact(s) below ${this.minCalibratedConfidence}`,
+      );
+    }
+    if (results.length === 0) {
+      this.metrics?.countSynthesize('no_results');
+      return {
+        empty: attachDecisionLog(
+          { answer: null, reason: 'no_results', citations: [], results: [] },
+          explain ? [] : undefined,
+        ),
+      };
+    }
+    const { factIndex, factLines } = buildFactIndex(results);
+    if (factIndex.size === 0) {
+      // Search returned entities but they were stripped to ids by
+      // outputShape='ids' / token budget. Treat as no_results for
+      // synthesis purposes — we have nothing to cite.
+      this.metrics?.countSynthesize('no_results');
+      return {
+        empty: attachDecisionLog(
+          { answer: null, reason: 'no_results', citations: [], results },
+          explain ? buildDecisionLog(results, new Set()) : undefined,
+        ),
+      };
+    }
+    return { results, factIndex, factLines };
+  }
+
   private async callGenerator({
     query,
     factLines,
+    transcriptLines,
     model,
     answerLang,
     neverAbstain = false,
+    dateContext,
   }: {
     query: string;
     factLines: string[];
+    /** Episodic-lane quotes (P2) — rendered as a separate typed section. */
+    transcriptLines?: string[];
     model: string;
     answerLang: string | null;
     neverAbstain?: boolean;
+    /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
+    dateContext?: string;
   }): Promise<GeneratorOutput> {
     const systemPrompt = neverAbstain
       ? GENERATOR_SYSTEM_ANSWER
       : GENERATOR_SYSTEM;
-    const langInstruction = answerLang
-      ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
-      : '';
-    const user = `Query: ${query}\n\nRetrieved facts:\n${factLines.join('\n')}${langInstruction}`;
+    const user = buildGeneratorUserMessage({
+      query,
+      factLines,
+      transcriptLines,
+      answerLang,
+      dateContext,
+    });
     traceArtifact('synthesize.generator_prompt', {
       system: systemPrompt,
       user,
