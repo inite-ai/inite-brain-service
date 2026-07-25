@@ -81,12 +81,14 @@ describe('MentionPersistService batched edge persistence', () => {
       svc as unknown as {
         persistEdgesBatched: (
           db: unknown,
-          extraction: unknown,
-          entityIds: string[],
-          dto: IngestMentionDto,
+          p: {
+            extraction: unknown;
+            entityIds: string[];
+            dto: IngestMentionDto;
+          },
         ) => Promise<string[]>;
       }
-    ).persistEdgesBatched(db, extraction, entityIds, dto);
+    ).persistEdgesBatched(db, { extraction, entityIds, dto });
   }
 
   afterEach(() => {

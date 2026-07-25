@@ -76,8 +76,52 @@ describe('applyGroundingGate value word-boundary', () => {
         confidence: 0.9,
       },
     ];
-    const { facts, dropped } = applyGroundingGate('she is active', raw, []);
+    const { facts, dropped } = applyGroundingGate('she is active', raw, { clauses: [] });
     expect(facts).toHaveLength(0);
     expect(dropped[0].reason).toBe('not_grounded');
+  });
+});
+
+describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () => {
+  const normalized: RawExtractedFact[] = [
+    {
+      entityIndex: 0,
+      clauseIndex: undefined,
+      // "single" is the NORMALIZED value; the input never contains the word.
+      predicate: 'relationship_status',
+      valueSpan: 'single',
+      confidence: 0.9,
+    },
+  ];
+
+  it('drops the normalized-but-ungrounded value by default (verbatim gate on)', () => {
+    const { facts, dropped } = applyGroundingGate(
+      "I'm not really seeing anyone right now",
+      normalized,
+      { clauses: [] },
+    );
+    expect(facts).toHaveLength(0);
+    expect(dropped[0].reason).toBe('not_grounded');
+  });
+
+  it('KEEPS the normalized value when allowUngrounded=true', () => {
+    const { facts, dropped } = applyGroundingGate(
+      "I'm not really seeing anyone right now",
+      normalized,
+      { clauses: [], allowUngrounded: true },
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0].object).toBe('single');
+    expect(facts[0].predicate).toBe('relationship_status');
+    expect(dropped).toHaveLength(0);
+  });
+
+  it('still drops an EMPTY value even with allowUngrounded=true', () => {
+    const empty: RawExtractedFact[] = [
+      { entityIndex: 0, clauseIndex: undefined, predicate: 'x', valueSpan: '', confidence: 0.5 },
+    ];
+    const { facts, dropped } = applyGroundingGate('anything', empty, { clauses: [], allowUngrounded: true });
+    expect(facts).toHaveLength(0);
+    expect(dropped[0].reason).toBe('empty');
   });
 });

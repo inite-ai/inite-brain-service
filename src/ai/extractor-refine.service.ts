@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
+import { envFlagEnabled } from '../common/env-validation';
 import {
   PredicateRegistryService,
   PredicateSnapshot,
@@ -31,6 +32,12 @@ export class ExtractorRefineService {
     snapshot: PredicateSnapshot,
     companyId: string,
   ): Promise<void> {
+    // Dialogue profile (Phase 4): the point is to KEEP the specific predicate
+    // the extractor coined (painted, researched, relationship_status) rather
+    // than snap it back to a generic catch-all. Both refinement passes
+    // (local-override 0.45, canonicalize 0.85) collapse specificity, so skip
+    // them entirely. Off → unchanged.
+    if (envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE)) return;
     const localThreshold = parseFloat(
       process.env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45',
     );

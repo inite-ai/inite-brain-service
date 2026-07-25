@@ -9,6 +9,7 @@ import { FactIngestService } from './fact-ingest.service';
 import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { MentionIngestService } from './mention-ingest.service';
+import { EpisodeStoreService } from './episode-store.service';
 import { LinkIngestService } from './link-ingest.service';
 
 /**
@@ -30,6 +31,7 @@ import { LinkIngestService } from './link-ingest.service';
     MentionExtractionService,
     MentionPersistService,
     MentionIngestService,
+    EpisodeStoreService,
     LinkIngestService,
   ],
   exports: [IngestService, IngestPredictionService, IngestCoreModule],

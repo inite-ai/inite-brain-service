@@ -173,7 +173,18 @@ export function parseRawFacts(
 export function applyGroundingGate(
   trimmedInput: string,
   rawFacts: RawExtractedFact[],
-  clauses: string[],
+  opts: {
+    /** Clause spans the facts index into, for clause attribution. */
+    clauses: string[];
+    /**
+     * Dialogue profile (Phase 4): the extractor emits NORMALIZED values that
+     * are intentionally not verbatim substrings ("single" for "not seeing
+     * anyone"). When true, a value that fails the substring check is KEPT
+     * rather than dropped — normalization IS the point. Empty values are still
+     * dropped (no value to store). Default false → verbatim gate unchanged.
+     */
+    allowUngrounded?: boolean;
+  },
 ): {
   facts: ExtractedFact[];
   dropped: Array<{
@@ -182,6 +193,7 @@ export function applyGroundingGate(
     reason: 'not_grounded' | 'empty';
   }>;
 } {
+  const { clauses, allowUngrounded = false } = opts;
   const normalizedInput = normalizeForGrounding(trimmedInput);
   const facts: ExtractedFact[] = [];
   const dropped: Array<{
@@ -200,7 +212,7 @@ export function applyGroundingGate(
       continue;
     }
     const normalizedSpan = normalizeForGrounding(rf.valueSpan);
-    if (!isGroundedSpan(normalizedInput, normalizedSpan)) {
+    if (!allowUngrounded && !isGroundedSpan(normalizedInput, normalizedSpan)) {
       dropped.push({
         predicate: rf.predicate,
         claimedValueSpan: rf.valueSpan,

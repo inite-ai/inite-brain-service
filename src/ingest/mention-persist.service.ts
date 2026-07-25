@@ -159,33 +159,14 @@ export class MentionPersistService {
     const eventTimeOn = envFlagEnabled(
       process.env.INGEST_EVENT_TIME_EXTRACTION,
     );
+    if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
+      return this.persistFactsBatched(db, p, eventTimeOn);
+    }
     for (let i = 0; i < extraction.facts.length; i++) {
       const f = extraction.facts[i];
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      // validFrom is the fact's occurrence time. A conversational clause often
-      // refers to when something HAPPENED, in the past ("went yesterday",
-      // "painted last year") — so when INGEST_EVENT_TIME_EXTRACTION is on and
-      // the clause carries a resolvable relative expression, use the resolved
-      // event date; otherwise fall back to the message time (prior behaviour).
-      //
-      // PROD CAVEAT (see docs/operations.md): a backdated validFrom on a
-      // BITEMPORAL supersede can stamp the incumbent's validUntil earlier than
-      // its own validFrom (inverted interval, fact hidden from asOf). single_active
-      // is guarded (INSERTED_HISTORICAL); bitemporal is not. Keep the flag off in
-      // prod until the supersede clamps validUntil ≥ validFrom.
-      const event = eventTimeOn
-        ? resolveEventTime(f.clause, dto.emittedAt)
-        : null;
-      const validFrom = event ? event.date : new Date(dto.emittedAt);
-      if (event) {
-        traceArtifact('ingest.fact.event_time', {
-          predicate: f.predicate,
-          expr: event.expr,
-          resolved: event.date.toISOString().slice(0, 10),
-          emittedAt: String(dto.emittedAt).slice(0, 10),
-        });
-      }
+      const validFrom = this.factValidFrom(f, dto, eventTimeOn);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -201,6 +182,95 @@ export class MentionPersistService {
       );
       if (factId) factIds.push(factId);
     }
+    return factIds;
+  }
+
+  /**
+   * The fact's occurrence time. A clause often refers to when something
+   * HAPPENED in the past ("went yesterday", "painted last year") — with
+   * INGEST_EVENT_TIME_EXTRACTION on and a resolvable relative expression, use
+   * the resolved event date; else the message time. Shared by the per-fact
+   * and batched persist paths.
+   *
+   * PROD CAVEAT (docs/operations.md): a backdated validFrom on a BITEMPORAL
+   * supersede can stamp the incumbent's validUntil earlier than its own
+   * validFrom (inverted interval, fact hidden from asOf). single_active is
+   * guarded (INSERTED_HISTORICAL); bitemporal is not.
+   */
+  private factValidFrom(
+    f: { predicate: string; clause?: string },
+    dto: IngestMentionDto,
+    eventTimeOn: boolean,
+  ): Date {
+    const event = eventTimeOn ? resolveEventTime(f.clause, dto.emittedAt) : null;
+    if (!event) return new Date(dto.emittedAt);
+    traceArtifact('ingest.fact.event_time', {
+      predicate: f.predicate,
+      expr: event.expr,
+      resolved: event.date.toISOString().slice(0, 10),
+      emittedAt: String(dto.emittedAt).slice(0, 10),
+    });
+    return event.date;
+  }
+
+  /**
+   * Batched fact persistence (flag INGEST_BATCH_FACTS): resolve all of a
+   * mention's facts through FactResolverService.resolveMany — append_only facts
+   * (the bulk) collapse into ONE fn::resolve_facts round-trip, single_active /
+   * bitemporal keep the per-fact + lock path. Same observable outcome as the
+   * per-fact loop; the trace tail is shared (emitFactOutcome).
+   */
+  private async persistFactsBatched(
+    db: Surreal,
+    p: {
+      companyId: string;
+      dto: IngestMentionDto;
+      extraction: any;
+      source: MentionSource;
+      factEmbeddings: number[][];
+      entityIds: string[];
+    },
+    eventTimeOn: boolean,
+  ): Promise<string[]> {
+    const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
+    const specs: Array<{
+      f: { predicate: string; object: string };
+      input: Parameters<FactResolverService['resolve']>[1];
+    }> = [];
+    for (let i = 0; i < extraction.facts.length; i++) {
+      const f = extraction.facts[i];
+      const eid = entityIds[f.entityIndex];
+      if (!eid) continue;
+      specs.push({
+        f,
+        input: {
+          companyId,
+          entityId: eid,
+          predicate: f.predicate,
+          object: f.object,
+          confidence: f.confidence,
+          validFrom: this.factValidFrom(f, dto, eventTimeOn),
+          source,
+          entropy:
+            typeof f.extractionEntropy === 'number'
+              ? f.extractionEntropy
+              : undefined,
+          precomputedEmbedding: factEmbeddings[i],
+        },
+      });
+    }
+    if (specs.length === 0) return [];
+
+    const resolved = await traceSpan(
+      'ingest.facts.batch',
+      () => this.factResolver.resolveMany(db, specs.map((s) => s.input)),
+      { facts: specs.length },
+    );
+    const factIds: string[] = [];
+    resolved.forEach((r, k) => {
+      const factId = this.emitFactOutcome(specs[k].f, r.result, r.semantics);
+      if (factId) factIds.push(factId);
+    });
     return factIds;
   }
 
@@ -242,12 +312,21 @@ export class MentionPersistService {
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
     });
+    return this.emitFactOutcome(f, result, semantics);
+  }
 
+  /**
+   * Surface supersede / compete outcomes in the trace so the demo can show
+   * "Berlin fact closed at July 1, Dublin became current" — otherwise the
+   * chain is invisible to the operator. Returns the resolved factId. Shared
+   * by the per-fact and batched (resolveMany) persist paths.
+   */
+  private emitFactOutcome(
+    f: { predicate: string; object: string },
+    result: any,
+    semantics: string,
+  ): string | null {
     const factId = result?.factId ? String(result.factId) : null;
-
-    // Surface supersede / compete outcomes in the trace so the demo can show
-    // "Berlin fact closed at July 1, Dublin became current" — otherwise the
-    // chain is invisible to the operator.
     traceArtifact('ingest.fact.outcome', {
       predicate: f.predicate,
       // Symmetric with the redacted ingest.mention.input trace: mask any
@@ -263,7 +342,6 @@ export class MentionPersistService {
         ? { competingFactIds: (result.competingFactIds as unknown[]).map(String) }
         : {}),
     });
-
     return factId;
   }
 
@@ -278,7 +356,7 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
     if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
-      return this.persistEdgesBatched(db, extraction, entityIds, dto);
+      return this.persistEdgesBatched(db, { extraction, entityIds, dto });
     }
     const edgeIds: string[] = [];
     for (const e of extraction.edges) {
@@ -330,10 +408,9 @@ export class MentionPersistService {
    */
   private async persistEdgesBatched(
     db: Surreal,
-    extraction: any,
-    entityIds: string[],
-    dto: IngestMentionDto,
+    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
+    const { extraction, entityIds, dto } = p;
     // Deduplicate candidates within the batch: the extraction can emit the
     // same (from,to,kind) twice, which the per-edge loop would resolve to
     // the same id twice. One entry keeps the RELATE batch collision-free.
@@ -344,7 +421,7 @@ export class MentionPersistService {
       const from = entityIds[e.fromEntityIndex];
       const to = entityIds[e.toEntityIndex];
       if (!from || !to || from === to) continue;
-      const key = `${from} ${to} ${e.kind}`;
+      const key = `${from} ${to} ${e.kind}`;
       if (seen.has(key)) continue;
       seen.add(key);
       cands.push({ from, to, kind: e.kind, confidence: e.confidence });

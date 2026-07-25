@@ -115,6 +115,11 @@ export class MentionExtractionService {
       factEmbeddings = [];
     }
 
-    return { skip: null, extraction, source, factEmbeddings };
+    return {
+      skip: null,
+      extraction,
+      source,
+      factEmbeddings,
+    };
   }
 }

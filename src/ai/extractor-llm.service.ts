@@ -12,9 +12,11 @@ import {
   EXTRACTION_PROMPT_HEADER,
   buildExtractionSchema,
   buildSystemPrompt,
+  buildDialogueSystemPrompt,
   renderExtractionProfiles,
   renderPredicateCard,
 } from './extractor-internals/prompts';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * ExtractorLlmService — the OpenAI I/O slice of the extractor: the chat
@@ -68,8 +70,16 @@ export class ExtractorLlmService {
     active: PredicateDefinition[];
     extractionProfiles?: PackExtractionProfile[];
   }): string {
-    const base =
-      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
+    // Phase 4 dialogue profile: swap the closed-vocab/verbatim header for the
+    // open/normalized one. Only when the operator hasn't pinned a custom header
+    // via EXTRACTION_SYSTEM_PROMPT (that escape hatch still wins). Off →
+    // byte-identical to before.
+    const dialogue =
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
+      envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE);
+    const base = dialogue
+      ? buildDialogueSystemPrompt(snapshot.active)
+      : this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
         ? buildSystemPrompt(snapshot.active)
         : this.systemPromptHeader +
           snapshot.active.map(renderPredicateCard).join('\n');

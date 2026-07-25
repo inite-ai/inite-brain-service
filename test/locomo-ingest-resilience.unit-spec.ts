@@ -61,6 +61,43 @@ describe('executeIngest resilience', () => {
     expect(counts['locomo:s:3']).toBe(1);
   });
 
+  it('concurrency>1: ingests every mention, bounds in-flight, keeps retry semantics', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const counts: Record<string, number> = {};
+    const many: IngestPlan = {
+      speakers: plan.speakers,
+      mentions: Array.from({ length: 12 }, (_v, i) => ({
+        speakerEntityId: 's__a',
+        speakerName: 'A',
+        text: `m${i}`,
+        validFrom: '2023-01-01T00:00:00Z',
+        sourceMessageId: `locomo:s:${i}`,
+      })),
+    };
+    const s: IngestSink = {
+      registerSpeaker: async () => {},
+      ingestMention: async ({ sourceMessageId }) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        counts[sourceMessageId] = (counts[sourceMessageId] ?? 0) + 1;
+        await new Promise((r) => setTimeout(r, 5));
+        // one mention fails once then succeeds — retry must still work concurrently
+        if (sourceMessageId === 'locomo:s:7' && counts[sourceMessageId] === 1) {
+          inFlight--;
+          throw new Error('HTTP 500: transient');
+        }
+        inFlight--;
+      },
+    };
+    const out = await executeIngest(many, s, { concurrency: 4, backoffMs: 1 });
+    expect(out.ingested).toBe(12);
+    expect(out.dropped).toEqual([]);
+    expect(counts['locomo:s:7']).toBe(2); // retried
+    expect(maxInFlight).toBeGreaterThan(1); // actually ran concurrently
+    expect(maxInFlight).toBeLessThanOrEqual(4); // bounded
+  });
+
   it('back-compat: a bare companyId string still works', async () => {
     const seen: (string | undefined)[] = [];
     const s: IngestSink = {
