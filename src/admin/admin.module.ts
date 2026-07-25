@@ -33,6 +33,10 @@ import { AdminPolicyDecisionsController } from './admin-policy-decisions.control
 import { AdminKeysController } from './admin-keys.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
+import { AdminAggregatesController } from './admin-aggregates.controller';
+import { AggregateComposerService } from './aggregate-composer.service';
+import { AdminDeriveController } from './admin-derive.controller';
+import { WindowDeriverService } from './window-deriver.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -94,10 +98,14 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminKeysController,
     AdminCodeMemoryController,
     AdminHnswController,
+    AdminAggregatesController,
+    AdminDeriveController,
   ],
   providers: [
     AdminService,
     HnswMaintenanceService,
+    AggregateComposerService,
+    WindowDeriverService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,

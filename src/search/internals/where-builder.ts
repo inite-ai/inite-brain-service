@@ -53,6 +53,19 @@ export function buildBaseWhere({
     clauses.push(`AND userId IS NONE`);
   }
 
+  // ── Derived-version namespace (substrate redesign P3 v1) ───────
+  // Versioned derivations coexist in one tenant: a batch deriver stamps
+  // its facts with derivedVersion and the read path pins exactly ONE
+  // world. Unset pin → legacy namespace only (field IS NONE), so a
+  // derived batch never leaks into default reads and vice versa.
+  const derivedVersion = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+  if (derivedVersion) {
+    clauses.push(`AND derivedVersion = $derivedVersion`);
+    params.derivedVersion = derivedVersion;
+  } else {
+    clauses.push(`AND derivedVersion IS NONE`);
+  }
+
   if (dto.minConfidence !== undefined) {
     clauses.push(`AND confidence >= $minConfidence`);
     params.minConfidence = dto.minConfidence;

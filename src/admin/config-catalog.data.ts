@@ -903,6 +903,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Transcript quotes per synthesis prompt from the episodic lane — verbatim turns are token-heavy, keep the cap low.',
       },
       {
+        key: 'RETRIEVAL_DERIVED_VERSION',
+        category: 'search',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Derived-namespace pin (substrate P3): read only facts stamped with this derivedVersion (e.g. wd-v2, written by POST /v1/admin/maintenance/derive). Unset = legacy namespace only (facts without a version). Switching the value switches the whole retrieval world atomically.',
+      },
+      {
         key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
         category: 'embedder',
         defaultValue: '0',
