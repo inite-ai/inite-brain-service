@@ -13,3 +13,6 @@ coverage/
 # Generated code-memory silver datasets + trained gate models (track C)
 data/code-memory/*.jsonl
 data/code-memory/*.model.json
+
+# LoCoMo eval run reports — throwaway scratch output, never source
+var/

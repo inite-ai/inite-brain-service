@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CompactionService } from './compaction.service';
 import { CompactionRunnerService } from './compaction-runner.service';
+import { RecomposeService } from './recompose.service';
 import { CompactionQueueService } from './compaction-queue.service';
 import { PromotionRunnerService } from './promotion-runner.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
@@ -30,6 +31,7 @@ import { envFlagEnabled } from '../common/env-validation';
     CompactionRunnerService,
     CompactionQueueService,
     PromotionRunnerService,
+    RecomposeService,
     {
       provide: SUMMARY_GENERATOR,
       inject: [ConfigService],

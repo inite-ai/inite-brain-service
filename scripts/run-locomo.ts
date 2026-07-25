@@ -56,6 +56,17 @@ interface Args {
   apiKey: string;
   out: string;
   samples?: number;
+  /** Cost cap: stop QA after this many questions (ingest is unaffected). */
+  maxQuestions?: number;
+  /** Per-question wall-clock cap (ms). Default 60s; raise on a saturated
+   *  stand so slow questions produce late answers instead of empty ones. */
+  qaTimeoutMs?: number;
+  /** Mentions in flight during ingest (default 1 serial). Speeds iteration. */
+  ingestConcurrency?: number;
+  /** Questions answered concurrently (default 1 serial). Each is an
+   *  independent read; a bounded pool turns the serial QA crawl into
+   *  wall-clock/concurrency. */
+  qaConcurrency?: number;
   skipIngest: boolean;
   agent: AgentKind;
   /** Tenant id used to build the MCP URL when --agent claude-mcp. */
@@ -93,6 +104,12 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--api-key') (args.apiKey = next), i++;
     else if (a === '--out') (args.out = next), i++;
     else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
+    else if (a === '--max-questions') (args.maxQuestions = parseInt(next, 10)), i++;
+    else if (a === '--qa-timeout-ms') (args.qaTimeoutMs = parseInt(next, 10)), i++;
+    else if (a === '--ingest-concurrency')
+      (args.ingestConcurrency = parseInt(next, 10)), i++;
+    else if (a === '--qa-concurrency')
+      (args.qaConcurrency = parseInt(next, 10)), i++;
     else if (a === '--skip-ingest') args.skipIngest = true;
     else if (a === '--agent') (args.agent = next as AgentKind), i++;
     else if (a === '--agent-model') (args.agentModel = next), i++;
@@ -177,6 +194,7 @@ async function main() {
         `[locomo:ingest] sample=${conv.sampleId} speakers=${plan.speakers.length} mentions=${plan.mentions.length}`,
       );
       const outcome = await executeIngest(plan, sink, {
+        concurrency: args.ingestConcurrency,
         onDrop: ({ sourceMessageId, error }) =>
           console.error(
             `[locomo:ingest] DROPPED ${sourceMessageId} after retries: ${error}`,
@@ -226,6 +244,9 @@ async function main() {
 
   const report = await runLocomo(sliced, agent, {
     judge,
+    maxQuestions: args.maxQuestions,
+    perQuestionTimeoutMs: args.qaTimeoutMs,
+    qaConcurrency: args.qaConcurrency,
     onProgress: (done, total) => {
       if (done % 10 === 0 || done === total) {
         console.error(`[locomo:qa] ${done}/${total}`);
@@ -294,10 +315,10 @@ function pct(x: number): string {
 function categoryLabel(c: number): string {
   return (
     {
-      1: 'single-hop',
-      2: 'multi-hop',
-      3: 'temporal',
-      4: 'open-domain',
+      1: 'multi-hop',
+      2: 'temporal',
+      3: 'open-domain',
+      4: 'single-hop',
       5: 'adversarial',
     } as Record<number, string>
   )[c] ?? `category-${c}`;

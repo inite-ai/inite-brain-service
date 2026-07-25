@@ -795,6 +795,114 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Max backfill facts per predicate per entity. 1 = the historical one-fact-per-novel-predicate rule; 2 lets a crisp same-predicate fact surface when another already matched.',
       },
       {
+        key: 'SEARCH_OCCLUSION_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Occlusion ranking: fill hit fact-windows front-to-back by score, where a kept fact suppresses later candidates whose embedding cosine is at or above SEARCH_OCCLUSION_THRESHOLD (globally across hits); each freed per-entity slot refills with the next non-duplicate fact, converting redundancy into coverage at the same context size. Read-path only; costs one bounded embedding fetch per search.',
+      },
+      {
+        key: 'SEARCH_OCCLUSION_THRESHOLD',
+        category: 'search',
+        defaultValue: '0.9',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Cosine at or above which a kept fact occludes a candidate, clamp (0,1]. Basis-dependent: retune when the fact-embedding text changes (INGEST_CONTEXTUAL_FACT_EMBEDDING).',
+      },
+      {
+        key: 'SEARCH_OCCLUSION_WINDOW',
+        category: 'search',
+        defaultValue: '24',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Candidate rows per entity (matched and backfill each) considered by occlusion — bounds the embedding fetch and the refill depth.',
+      },
+      {
+        key: 'SEARCH_OCCLUSION_DATE_GUARD_DAYS',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Temporal ablation guard: occlusion only fires between facts whose validFrom differ by at most N days, so recurring dated events keep their distinct evidence lines. 0 = guard off (any distance occludes).',
+      },
+      {
+        key: 'SEARCH_FACT_CENTRIC_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Fact-centric selection (Phase A, typed-memory roadmap): facts compete globally by score for the response window instead of entities, drawing from ALL scored buckets — removes the top-limit entity gate that hid a gold fact whose entity missed the entity ranking. Skips backfill; entity count follows the fact budget.',
+      },
+      {
+        key: 'SEARCH_FACT_CENTRIC_BUDGET',
+        category: 'search',
+        defaultValue: '48',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Global fact budget for fact-centric selection — total facts kept across all entities (also used as the per-entity render cap under the flag).',
+      },
+      {
+        key: 'MULTI_HOP_SYNTH_EVIDENCE_UNION',
+        category: 'multihop',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Hand every hop’s retrieved hits to synthesis as extra evidence. Without it the synthesizer re-searches anchored to the final entity set only, so evidence from entities the chain filtered out can never be cited. Extras append best-score-first under SYNTHESIZE_EXTRA_EVIDENCE_CAP.',
+      },
+      {
+        key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
+        category: 'pipeline',
+        defaultValue: '40',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max pre-retrieved extra facts (multi-hop evidence union) appended to the generator prompt after the re-search results.',
+      },
+      {
+        key: 'SYNTHESIZE_DATE_CONTEXT',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Prepend an anchored "Today: <date>" (dto.asOf, else now) plus a date-arithmetic instruction to the answer generator, so relative time expressions resolve against fact date stamps instead of being guessed.',
+      },
+      {
+        key: 'EPISODE_SUBSTRATE_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'L0 episode substrate (memory-substrate-redesign P1): store every ingested dialogue turn verbatim (P0-redacted, piiClass-tagged) BEFORE extraction — lossless, idempotent (INSERT IGNORE on conversationId+messageId), LLM- and embedder-free. Extraction failures stop losing turns; future derivers re-derive from here.',
+      },
+      {
+        key: 'SEARCH_EPISODIC_LANE_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Episodic retrieval lane (memory-substrate P2): BM25 top-k over the L0 episode substrate rendered as dated, chronological transcript quotes in their own generator-prompt section — the lossless fallback when extraction missed or fragmented a fact. Callers without brain:read_pii only see piiClass-clean episodes.',
+      },
+      {
+        key: 'SEARCH_EPISODIC_LANE_TOPK',
+        category: 'pipeline',
+        defaultValue: '8',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Transcript quotes per synthesis prompt from the episodic lane — verbatim turns are token-heavy, keep the cap low.',
+      },
+      {
         key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
         category: 'embedder',
         defaultValue: '0',
@@ -811,6 +919,36 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
+      },
+      // ── Dialogue memory mode ────────────────────────────────────────
+      // All default-off and all requiring a re-ingest: they change what gets
+      // WRITTEN, so toggling them only affects facts extracted afterwards.
+      {
+        key: 'EXTRACTOR_DIALOGUE_PROFILE',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Dialogue extraction profile: drop the closed CRM predicate vocabulary from the extraction call and let the model coin a SPECIFIC predicate per clause, keeping normalized (non-verbatim) values, attributing facts to the actor rather than the speaker, and enumerating lists. A closed label set as output contract is what drives the catch-all collapse ("conservative bias"); the vocabulary belongs downstream in canonicalization, not in the extractor. Measured +2.8pp on LoCoMo dev-5. Also bypasses the span-grounding drop (values are normalized by design) and skips the specificity-collapsing refinement passes. Requires re-ingest.',
+      },
+      {
+        key: 'EXTRACTOR_ROUTING_ENABLED',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Facet routing (dialogue profile only): a turn containing a list (3+ items) or a proper name also gets a SPECIALIST extraction pass whose only contract is that one thing, unioned with the general pass. Strictly additive recall — the general pass still runs and the union deduplicates. The router is a local heuristic, not an LLM call. Costs one extra extraction call per detected facet. Requires re-ingest.',
+      },
+      {
+        key: 'LIVE_SUBSCRIPTIONS_ENABLED',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Realtime fact subscriptions (SSE at /v1/live/facts). A dedicated per-tenant connection OUTSIDE both pools holds a LIVE SELECT on knowledge_fact, with the 30-day changefeed as the gap-replay bridge on reconnect and the per-row ABAC/scope gate applied to every pushed event using the SUBSCRIBER\'s scopes. Single-pod prototype: multi-pod fan-out needs per-tenant leader election, not yet built. Off → no socket is opened and the endpoint answers 503.',
       },
       {
         key: 'INGEST_BATCH_EDGES',

@@ -146,14 +146,54 @@ export async function runLocomo(
      *  instead of it; a judge failure is recorded per-question and never
      *  fails the run. */
     judge?: LlmJudge;
+    /** Cost cap for cheap iteration: stop after this many questions total
+     *  (across all conversations). Undefined = every question. The subset
+     *  is the QA order as loaded (naturally category-mixed); per-category n
+     *  in the report shows the resulting balance. */
+    maxQuestions?: number;
+    /**
+     * Questions answered concurrently. Each question is an independent read
+     * against an already-ingested tenant, so a bounded pool is race-safe and
+     * turns a serial ~1s-3s-per-question crawl into wall-clock/concurrency.
+     * Default 1 = serial, byte-identical to the pre-concurrency behaviour.
+     * Results are written back by load-order index, so the report is order-
+     * deterministic regardless of completion order.
+     */
+    qaConcurrency?: number;
   } = {},
 ): Promise<RunReport> {
-  const scores: QuestionScore[] = [];
-  const total = conversations.reduce((a, c) => a + c.qa.length, 0);
-  let done = 0;
-  for (const conv of conversations) {
+  const grand = conversations.reduce((a, c) => a + c.qa.length, 0);
+  const total = options.maxQuestions
+    ? Math.min(options.maxQuestions, grand)
+    : grand;
+
+  // Flatten to an ordered work list so a bounded pool can run questions
+  // concurrently. maxQuestions caps in load order, matching the serial path.
+  interface WorkItem {
+    conv: NormalizedConversation;
+    companyId: string;
+    q: LocomoQuestion;
+  }
+  const work: WorkItem[] = [];
+  outer: for (const conv of conversations) {
     const companyId = options.companyIdFor?.(conv) ?? '';
     for (const q of conv.qa) {
+      if (options.maxQuestions && work.length >= options.maxQuestions) {
+        break outer;
+      }
+      work.push({ conv, companyId, q });
+    }
+  }
+
+  const scores: QuestionScore[] = new Array(work.length);
+  let done = 0;
+  let cursor = 0;
+  const concurrency = Math.max(1, options.qaConcurrency ?? 1);
+
+  const worker = async (): Promise<void> => {
+    while (cursor < work.length) {
+      const idx = cursor++;
+      const { conv, companyId, q } = work[idx];
       const score = await scoreQuestion(
         agent,
         companyId,
@@ -162,11 +202,12 @@ export async function runLocomo(
         options.perQuestionTimeoutMs,
       );
       if (options.judge) await applyJudge(options.judge, score);
-      scores.push(score);
+      scores[idx] = score; // preserve load order regardless of finish order
       done += 1;
       options.onProgress?.(done, total);
     }
-  }
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return summarize(scores);
 }
 

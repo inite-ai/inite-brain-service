@@ -112,6 +112,12 @@ export class UserForgetService {
       await db.query(`DELETE knowledge_entity WHERE userId = $u`, {
         u: userId,
       });
+      // L0 episode substrate (P1): user-scoped verbatim turns go with the
+      // user. Episodes without a userId are tenant-global and follow the
+      // tenant's own deletion path — the substrate redesign's forget≠
+      // retention semantics (suppression list, derivation cascade) arrive
+      // with the derivation registry (P3).
+      await db.query(`DELETE episode WHERE userId = $u`, { u: userId });
 
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed

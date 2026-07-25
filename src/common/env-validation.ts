@@ -129,6 +129,18 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_FACTS_PER_ENTITY', errors);
   positiveInt(env, 'SEARCH_BACKFILL_PER_PREDICATE', errors);
 
+  // ── Occlusion ranking (front-to-back fact selection, flag-gated) ───
+  // Threshold is read with a (0,1] clamp; nonNegativeFloat only guards
+  // the "is a number" contract. DATE_GUARD_DAYS: 0 = guard disabled.
+  nonNegativeFloat(env, 'SEARCH_OCCLUSION_THRESHOLD', errors);
+  positiveInt(env, 'SEARCH_OCCLUSION_WINDOW', errors);
+  nonNegativeInt(env, 'SEARCH_OCCLUSION_DATE_GUARD_DAYS', errors);
+
+  // ── Phase A read-path (typed-memory roadmap 2026-07) ───────────────
+  positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
+  positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
+  positiveInt(env, 'SEARCH_EPISODIC_LANE_TOPK', errors);
+
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
 
@@ -391,6 +403,22 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
 const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
+  // Occlusion ranking: a kept higher-ranked fact suppresses ≥-threshold
+  // cosine near-duplicates globally across hits; freed per-entity slots
+  // refill with the next non-duplicate facts (read-path, no writes).
+  'SEARCH_OCCLUSION_ENABLED',
+  // Phase A read-path (typed-memory roadmap): facts compete globally for
+  // the window instead of entities; multi-hop hands its hop evidence to
+  // synthesis; the generator gets an anchored "today" for date arithmetic.
+  'SEARCH_FACT_CENTRIC_ENABLED',
+  'MULTI_HOP_SYNTH_EVIDENCE_UNION',
+  'SYNTHESIZE_DATE_CONTEXT',
+  // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
+  // turns before extraction — lossless, idempotent, LLM-free.
+  'EPISODE_SUBSTRATE_ENABLED',
+  // P2: episodic retrieval lane — BM25 quotes from L0 as a typed prompt
+  // section in synthesis (lossless fallback for extraction misses).
+  'SEARCH_EPISODIC_LANE_ENABLED',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',
@@ -413,9 +441,27 @@ const KNOWN_BOOLEAN_FLAGS = [
   'COMPACTION_SUMMARIES',
   'INGEST_INLINE_RESOLUTION_ENABLED',
   'INGEST_INLINE_RESOLUTION_HNSW',
+  'EXTRACTOR_DROP_SAID',
+  // Dialogue memory mode — Phase 4. On → open/normalized extraction profile:
+  // normalized values (not verbatim spans, grounding-drop bypassed), specific
+  // coined predicates kept (refinement collapse skipped), actor attribution.
+  // Targets the measured recall loss (catch-all predicates + raw-fragment
+  // objects). Off (default) → byte-identical closed-vocab extraction.
+  'EXTRACTOR_DIALOGUE_PROFILE',
+  // Facet routing (dialogue profile). On → a turn containing a list or a proper
+  // name also gets a SPECIALIST extraction pass whose only job is that one
+  // thing, unioned with the general pass. Strictly additive recall; costs one
+  // extra LLM call per detected facet. Off (default) → single pass.
+  'EXTRACTOR_ROUTING_ENABLED',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
+  'INGEST_BATCH_FACTS',
+  // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
+  // per-tenant connection outside both pools holds a LIVE SELECT, with the
+  // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate
+  // applied to every pushed event. Off (default) → no socket, controller 503s.
+  'LIVE_SUBSCRIPTIONS_ENABLED',
   'SEARCH_COMBINED_VECTOR_GRAPH',
   'SEARCH_HIGHLIGHT_ENABLED',
   'AUDIT_CHANGEFEED_ENABLED',

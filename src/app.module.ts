@@ -8,6 +8,7 @@ import { HealthController } from './common/health.controller';
 import { HealthService } from './common/health.service';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
 import { SurrealModule } from './db/surreal.module';
+import { LiveModule } from './live/live.module';
 import { AuthModule } from './auth/auth.module';
 import { PolicyModule } from './policy/policy.module';
 import { AiModule } from './ai/ai.module';
@@ -79,6 +80,7 @@ import { FeedbackModule } from './feedback/feedback.module';
 
     CommonModule,
     SurrealModule,
+    LiveModule,
     AuthModule,
     PolicyModule,
     AiModule,

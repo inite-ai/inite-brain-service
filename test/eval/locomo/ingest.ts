@@ -133,6 +133,15 @@ export interface ExecuteIngestOptions {
   backoffMs?: number;
   /** Called once per mention that exhausts its retries and is skipped. */
   onDrop?: (info: { sourceMessageId: string; error: string }) => void;
+  /**
+   * Max mentions in flight. Default 1 = serial (byte-identical to the old
+   * loop). >1 fans out the per-mention POSTs — the eval-iteration speedup,
+   * safe because the server serializes same-(entity,predicate) writes behind
+   * a KeyedMutex; the only nondeterminism is recordedAt tiebreak order among
+   * same-validFrom facts (extraction is already nondeterministic at temp 0.1).
+   * Hold this constant across an A/B pair.
+   */
+  concurrency?: number;
 }
 
 export interface IngestOutcome {
@@ -173,38 +182,54 @@ export async function executeIngest(
   const companyId = opts.companyId;
   const retries = Math.max(1, opts.retries ?? 4);
   const backoffMs = Math.max(0, opts.backoffMs ?? 3000);
+  const concurrency = Math.max(1, Math.trunc(opts.concurrency ?? 1));
 
+  // Speakers register first (ordered, cheap) — a failure here means the
+  // tenant/key is wrong, so it still throws.
   for (const speaker of plan.speakers) {
     await sink.registerSpeaker({ companyId, ...speaker });
   }
 
   const dropped: IngestOutcome['dropped'] = [];
   let ingested = 0;
-  for (const mention of plan.mentions) {
+
+  // One mention through its retry budget. Shared by the serial and
+  // concurrent paths so the resilience contract is identical.
+  const ingestOne = async (mention: IngestPlan['mentions'][number]) => {
     let lastErr: unknown;
-    let ok = false;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         await sink.ingestMention({ companyId, ...mention });
-        ok = true;
-        break;
+        ingested++;
+        return;
       } catch (e) {
         lastErr = e;
         if (attempt < retries) {
-          // Exponential backoff (3s, 9s, 27s …) — lets a transient OpenAI
-          // outage / rate-limit window clear before the next attempt.
           const wait = backoffMs * Math.pow(3, attempt - 1);
           await new Promise((r) => setTimeout(r, wait));
         }
       }
     }
-    if (ok) {
-      ingested++;
-    } else {
-      const error = lastErr instanceof Error ? lastErr.message : String(lastErr);
-      dropped.push({ sourceMessageId: mention.sourceMessageId, error });
-      opts.onDrop?.({ sourceMessageId: mention.sourceMessageId, error });
-    }
+    const error = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    dropped.push({ sourceMessageId: mention.sourceMessageId, error });
+    opts.onDrop?.({ sourceMessageId: mention.sourceMessageId, error });
+  };
+
+  if (concurrency === 1) {
+    for (const mention of plan.mentions) await ingestOne(mention);
+  } else {
+    // Bounded worker pool: `concurrency` workers pull from a shared cursor.
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const i = cursor++;
+        if (i >= plan.mentions.length) return;
+        await ingestOne(plan.mentions[i]);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, plan.mentions.length) }, worker),
+    );
   }
   return { ingested, dropped };
 }
