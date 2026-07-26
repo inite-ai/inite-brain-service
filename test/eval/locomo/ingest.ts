@@ -112,11 +112,20 @@ export function planIngest(conv: NormalizedConversation): IngestPlan {
           : speakerEntityId === speakerBId
             ? { entityId: speakerAId, name: conv.speakerA }
             : undefined;
+      // Image turns carry the answer-bearing detail in the BLIP caption
+      // ("they made this!" + photo of a cup with a dog face). The
+      // full-context baseline renders captions into its transcript
+      // (locomo-fullcontext-baseline.ts) — omitting them here blinded the
+      // memory side to ~21% of turns and skewed every FC comparison.
+      // Same rendering as the baseline, for protocol symmetry.
+      const caption = turn.blip_caption
+        ? ` [shares an image: ${turn.blip_caption}]`
+        : '';
       mentions.push({
         speakerEntityId,
         speakerName: turn.speaker,
         addressee,
-        text: turn.text,
+        text: `${turn.text}${caption}`,
         validFrom: session.dateTime,
         sourceMessageId: `locomo:${conv.sampleId}:${turn.dia_id}`,
       });
