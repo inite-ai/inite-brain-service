@@ -33,7 +33,8 @@ export class AdminAggregatesController {
   @RequireScopes('brain:admin')
   async run(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { tenant?: string; entities?: number } = {},
+    @Body()
+    body: { tenant?: string; entities?: number; version?: string } = {},
   ): Promise<AggregateRunResult> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
     if (
@@ -44,6 +45,12 @@ export class AdminAggregatesController {
         `Unknown tenant '${tenant}' — not a registered tenant`,
       );
     }
-    return this.composer.run(tenant, { entities: body.entities });
+    const version = body.version?.trim() || undefined;
+    if (version && !/^[a-z0-9-]{2,32}$/.test(version)) {
+      throw new BadRequestException(
+        'version must be a short kebab-case tag (e.g. wd-v2)',
+      );
+    }
+    return this.composer.run(tenant, { entities: body.entities, version });
   }
 }

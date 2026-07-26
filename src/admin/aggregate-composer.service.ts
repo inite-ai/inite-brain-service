@@ -69,12 +69,23 @@ export class AggregateComposerService {
     );
   }
 
-  /** Compose aggregates for the top-`entities` fact-densest entities. */
+  /**
+   * Compose aggregates for the top-`entities` fact-densest entities.
+   * With `version` set (memory-rebuild R4), sources come from that
+   * derived namespace and the aggregates are stamped with the same
+   * `derivedVersion` — REQUIRED for a RETRIEVAL_DERIVED_VERSION-pinned
+   * world to see them (v1 wrote into the legacy namespace, which a
+   * pinned read never surfaces).
+   */
   async run(
     companyId: string,
-    opts: { entities?: number } = {},
+    opts: { entities?: number; version?: string } = {},
   ): Promise<AggregateRunResult> {
     const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
+    const version = opts.version?.trim() || undefined;
+    const versionClause = version
+      ? 'AND derivedVersion = $version'
+      : 'AND derivedVersion IS NONE';
     const result: AggregateRunResult = {
       entities: 0,
       aggregatesWritten: 0,
@@ -86,13 +97,14 @@ export class AggregateComposerService {
       >(
         `SELECT entityId, count() AS n FROM knowledge_fact
           WHERE status = 'active' AND source.recorder != $recorder
+            ${versionClause}
           GROUP BY entityId ORDER BY n DESC LIMIT $k`,
-        { k: entityCap, recorder: AGGREGATE_RECORDER },
+        { k: entityCap, recorder: AGGREGATE_RECORDER, version },
       );
       for (const top of tops ?? []) {
         const entityId = String(top.entityId);
         try {
-          const written = await this.composeEntity(db, entityId);
+          const written = await this.composeEntity(db, entityId, version);
           result.entities += 1;
           result.aggregatesWritten += written;
         } catch (e) {
@@ -109,7 +121,11 @@ export class AggregateComposerService {
   private async composeEntity(
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
     entityId: string,
+    version?: string,
   ): Promise<number> {
+    const versionClause = version
+      ? 'AND derivedVersion = $version'
+      : 'AND derivedVersion IS NONE';
     const [[entity]] = await db.query<[Array<{ canonicalName?: string }>]>(
       `SELECT canonicalName FROM $eid`,
       { eid: new StringRecordId(entityId) },
@@ -119,8 +135,13 @@ export class AggregateComposerService {
       `SELECT id, predicate, object, validFrom FROM knowledge_fact
         WHERE entityId = $eid AND status = 'active'
           AND source.recorder != $recorder
+          ${versionClause}
         ORDER BY validFrom ASC LIMIT 400`,
-      { eid: new StringRecordId(entityId), recorder: AGGREGATE_RECORDER },
+      {
+        eid: new StringRecordId(entityId),
+        recorder: AGGREGATE_RECORDER,
+        version,
+      },
     );
     if (!facts || facts.length < 4) return 0;
 
@@ -138,8 +159,13 @@ export class AggregateComposerService {
     // Wholesale replace: aggregates are derived state, a re-run owns them.
     await db.query(
       `DELETE knowledge_fact
-        WHERE entityId = $eid AND source.recorder = $recorder`,
-      { eid: new StringRecordId(entityId), recorder: AGGREGATE_RECORDER },
+        WHERE entityId = $eid AND source.recorder = $recorder
+          ${versionClause}`,
+      {
+        eid: new StringRecordId(entityId),
+        recorder: AGGREGATE_RECORDER,
+        version,
+      },
     );
     if (valid.length === 0) return 0;
 
@@ -161,7 +187,8 @@ export class AggregateComposerService {
            source: { vertical: 'aggregate', recorder: $recorder },
            status: 'active',
            embedding: $embedding,
-           derivedFrom: $derivedFrom
+           derivedFrom: $derivedFrom,
+           derivedVersion: $version
          }`,
         {
           eid: new StringRecordId(entityId),
@@ -172,6 +199,7 @@ export class AggregateComposerService {
           derivedFrom: agg.members.map(
             (m) => new StringRecordId(String(facts[m].id)),
           ),
+          version,
         },
       );
     }

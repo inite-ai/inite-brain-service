@@ -114,6 +114,42 @@ describe('AggregateComposerService (Lane C v1)', () => {
     expect(queries.some((q) => q.sql.includes('DELETE'))).toBe(false);
   });
 
+  it('version mode scopes sources and stamps derivedVersion (R4)', async () => {
+    const { svc, queries } = makeSvc({
+      tops: [{ entityId: 'knowledge_entity:mel', n: 5 }],
+      facts: FACTS,
+      llm: {
+        aggregates: [
+          {
+            aspect: 'activities',
+            proposition: "Melanie's activities: pottery, hiking, camping.",
+            members: [2, 3, 4],
+          },
+        ],
+      },
+    });
+    const res = await svc.run('co_x', { version: 'wd-v2' });
+    expect(res.aggregatesWritten).toBe(1);
+    const tops = queries.find((q) => q.sql.includes('GROUP BY entityId'));
+    expect(tops?.sql).toContain('derivedVersion = $version');
+    expect(tops?.params?.version).toBe('wd-v2');
+    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
+    expect(create?.params?.version).toBe('wd-v2');
+    const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
+    expect(del?.sql).toContain('derivedVersion = $version');
+  });
+
+  it('legacy mode pins the NONE namespace on all three queries', async () => {
+    const { svc, queries } = makeSvc({
+      tops: [],
+      facts: [],
+      llm: { aggregates: [] },
+    });
+    await svc.run('co_x');
+    const tops = queries.find((q) => q.sql.includes('GROUP BY entityId'));
+    expect(tops?.sql).toContain('derivedVersion IS NONE');
+  });
+
   it('records per-entity failures without failing the run', async () => {
     const { svc } = makeSvc({
       tops: [{ entityId: 'knowledge_entity:mel', n: 5 }],
