@@ -921,6 +921,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
       },
       {
+        key: 'SEARCH_SEGMENT_LANE_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'L0 segment lane (memory-rebuild R1): retrieve verbatim multi-turn segments (episode_segment, built by POST /v1/admin/maintenance/segments) via dense+BM25 RRF as retrieval units in their own right, rendered as transcript excerpts in the synthesis prompt. PII-gated like the episodic lane.',
+      },
+      {
+        key: 'SEARCH_SEGMENT_LANE_TOPK',
+        category: 'pipeline',
+        defaultValue: '5',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Segments per synthesis prompt from the segment lane — segments are multi-turn and token-heavy, keep the cap low.',
+      },
+      {
+        key: 'SEARCH_SEGMENT_LANE_RERANK',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Precision-trim the fused segment pool with the listwise reranker (requires SEARCH_RERANKER_ENABLED) before the top-k cut.',
+      },
+      {
         key: 'RETRIEVAL_DERIVED_VERSION',
         category: 'search',
         defaultValue: null,

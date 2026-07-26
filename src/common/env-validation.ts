@@ -141,6 +141,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
   positiveInt(env, 'SEARCH_EPISODIC_LANE_TOPK', errors);
   positiveInt(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', errors);
+  positiveInt(env, 'SEARCH_SEGMENT_LANE_TOPK', errors);
 
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
@@ -423,6 +424,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // A1: provenance lane — verbatim source turns of the selected evidence
   // facts (via source.episodeIds) quoted in the synthesis prompt.
   'SYNTHESIZE_SOURCE_EXCERPTS',
+  // R1: segment lane — verbatim multi-turn L0 segments retrieved
+  // dense+BM25 as units in their own right; optional listwise rerank.
+  'SEARCH_SEGMENT_LANE_ENABLED',
+  'SEARCH_SEGMENT_LANE_RERANK',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',

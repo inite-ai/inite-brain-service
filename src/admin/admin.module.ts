@@ -37,6 +37,8 @@ import { AdminAggregatesController } from './admin-aggregates.controller';
 import { AggregateComposerService } from './aggregate-composer.service';
 import { AdminDeriveController } from './admin-derive.controller';
 import { WindowDeriverService } from './window-deriver.service';
+import { AdminSegmentsController } from './admin-segments.controller';
+import { SegmentComposerService } from './segment-composer.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -100,12 +102,14 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminHnswController,
     AdminAggregatesController,
     AdminDeriveController,
+    AdminSegmentsController,
   ],
   providers: [
     AdminService,
     HnswMaintenanceService,
     AggregateComposerService,
     WindowDeriverService,
+    SegmentComposerService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,

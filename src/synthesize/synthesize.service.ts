@@ -18,6 +18,7 @@ import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import { EpisodeLaneService } from './episode-lane.service';
+import { SegmentLaneService } from './segment-lane.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import {
   NOOP_REPORTER,
@@ -185,6 +186,7 @@ export class SynthesizeService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly episodeLane?: EpisodeLaneService,
+    @Optional() private readonly segmentLane?: SegmentLaneService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -273,26 +275,12 @@ export class SynthesizeService {
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
 
-    // Episodic lane (P2, SEARCH_EPISODIC_LANE_ENABLED): dated verbatim
-    // quotes from the L0 substrate as their own typed prompt section —
-    // the lossless fallback for facts extraction missed or fragmented.
-    // Provenance lane (A1, SYNTHESIZE_SOURCE_EXCERPTS): source turns of
-    // the selected evidence facts — carries the concrete detail the
-    // derivation summarized away. Both render into the same transcript
-    // section; dedupe keeps a turn surfaced by both lanes single.
-    const laneLines =
-      (await this.episodeLane?.transcriptLines({
-        companyId,
-        query: dto.query,
-        callerScopes,
-      })) ?? [];
-    const sourceLines =
-      (await this.episodeLane?.sourceExcerpts({
-        companyId,
-        factIds: [...factIndex.keys()],
-        callerScopes,
-      })) ?? [];
-    const transcriptLines = [...new Set([...sourceLines, ...laneLines])];
+    const transcriptLines = await this.collectTranscriptLines({
+      companyId,
+      query: dto.query,
+      callerScopes,
+      factIds: [...factIndex.keys()],
+    });
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -476,6 +464,46 @@ export class SynthesizeService {
    * (complexity budget). Returns `{empty}` with the early-return result,
    * or the prepared evidence for the generator.
    */
+  /**
+   * Verbatim L0 quotes for the generator, one deduped section from three
+   * flag-gated lanes: episodic BM25 (P2) — question-driven turn quotes;
+   * provenance excerpts (A1) — source turns of the selected evidence
+   * facts; segment lane (R1) — multi-turn segments retrieved on their own
+   * dense+BM25 merit, so raw L0 competes for the prompt instead of only
+   * riding along with selected facts.
+   */
+  private async collectTranscriptLines({
+    companyId,
+    query,
+    callerScopes,
+    factIds,
+  }: {
+    companyId: string;
+    query: string;
+    callerScopes: string[];
+    factIds: string[];
+  }): Promise<string[]> {
+    const laneLines =
+      (await this.episodeLane?.transcriptLines({
+        companyId,
+        query,
+        callerScopes,
+      })) ?? [];
+    const sourceLines =
+      (await this.episodeLane?.sourceExcerpts({
+        companyId,
+        factIds,
+        callerScopes,
+      })) ?? [];
+    const segmentLines =
+      (await this.segmentLane?.transcriptLines({
+        companyId,
+        query,
+        callerScopes,
+      })) ?? [];
+    return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
+  }
+
   private prepareEvidence(
     evidence: SearchHit[],
     answerMode: boolean,
