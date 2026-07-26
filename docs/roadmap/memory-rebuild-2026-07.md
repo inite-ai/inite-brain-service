@@ -144,3 +144,64 @@ SOTA class; nobody demonstrably >85 here). Club axis: `SYNTHESIZE_MODEL=
 gpt-4.1-mini` — report alongside for comparability with published 85–92 systems.
 Dataset ceilings under strict judging (Penfield audit): single-hop 91–94,
 multi-hop 84–88, temporal 78–85, open-domain 65–75.
+
+---
+
+## 5. Three-tier verdict: raw / vector / graph + background normalization (2026-07-26)
+
+Question studied (three sweeps: graph-tier ablation evidence, background
+normalization pipelines, internal inventory): should the architecture be
+formalized as raw → vector → graph with background normalization, and what
+deserves investment?
+
+### 5.1 The triad is right — with corrected roles
+
+- **RAW is the asset.** Strongest numbers in the whole study: RGMem without its
+  raw layer −29.9pp; our E9 union-retrieval +6.6pp held-out; fidelity-dial
+  accuracy tracks surviving source text monotonically. Raw is both source of
+  truth AND a first-class ranking citizen — never just provenance.
+- **VECTOR (derived propositions) is the reasoning layer.** Self-contained
+  propositions already "carry the hop" — the direct explanation of why Mem0's
+  graph variant LOSES multi-hop on LoCoMo (−3.96) while dense text wins.
+- **GRAPH is not a knowledge store on this task.** The only multiply-confirmed
+  paying pattern: entity resolution as canonicalization + a graph lane that
+  RE-RANKS raw/propositions via entity joins (HippoRAG 2: passage nodes in the
+  graph, query→triple entry points, PPR ranks passages; removing passage nodes
+  −6.1 recall). Everything that makes the LLM read triplets instead of raw
+  text loses (LightRAG F1 6.6 vs BM25 47.7). Typed inference edges, temporal
+  graphs (dates-in-text + arithmetic already beat them — TReMu), and
+  community summaries for factoid QA have zero positive ablations.
+- **Immediate ablation owed: SEARCH_EDGE_EXPANSION_ENABLED** — default ON in
+  our eval path, never measured; external evidence predicts a possible
+  multi-hop negative.
+
+### 5.2 Background normalization worth running (ranked, all measured)
+
+1. **Slot-supersession maintenance** — changefeed-triggered, same
+   (entity, predicate) scope, narrow JSON-LLM "same slot?", bitemporal
+   supersede (we have it), deterministic max(validFrom) arbitration at read.
+   ForgetEval: +22.6–24.1pt on forgetting axes at ~$0.0004/mutation. Never
+   LLM freshness arbitration at read (prior-override, serial drift 75→61%).
+2. **Deterministic entity canonicalization sweep** — heuristics-first cascade
+   (normalized exact → entropy gate for short names like "Luna" → MinHash/LSH
+   Jaccard 0.9 → LLM only ambiguous, with episode context); two passes
+   (vs live graph, then intra-batch); merge-log + archived loser for unmerge;
+   regenerate node summary after merge. Graphiti's production overhaul shape.
+3. **θ=3 threshold consolidation of profile aggregates** (never per
+   observation: θ=2 chases noise, θ≥4 stalls — RGMem's sharp peak), L0
+   untouched, periodic full re-synthesis via targeted re-derivation.
+4. **Embedding-resync invariant sweep** — content-hash vs embedding stamp,
+   re-embed on mismatch (guards the A-Mem desync class); ~free.
+5. **Novelty write-gate** (SAGE): density check → NOOP obvious duplicates
+   before the LLM; −3.4× add-cost, quality-neutral. Route the signal to the
+   corroborate lane instead of dropping.
+
+### 5.3 Explicitly NOT building (measured failures)
+
+Per-observation LLM rewriting of facts/profiles; A-Mem-style in-place memory
+evolution (embedding desync, no convergence); background pairwise
+CAUSE/CONDITION edge inference (O(N·k) LLM cost, no measured QA profit,
+LazyGraphRAG argues read-time); aggressive write-time near-duplicate merging
+(near-dupes answer different questions; our corroborate lane is the correct
+form); community summaries for QA; whole-log rewrites outside a
+context-block architecture.
