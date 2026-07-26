@@ -105,7 +105,7 @@ export class WindowDeriverService {
 
   async run(
     companyId: string,
-    opts: { version?: string } = {},
+    opts: { version?: string; conversationId?: string } = {},
   ): Promise<DeriveRunResult> {
     const version = opts.version ?? WINDOW_DERIVER_VERSION;
     const result: DeriveRunResult = {
@@ -125,6 +125,11 @@ export class WindowDeriverService {
       );
       for (const conv of convs ?? []) {
         const conversationId = String(conv.conversationId);
+        // Targeted re-derivation: one bad conversation should not force a
+        // full-tenant (paid) re-run.
+        if (opts.conversationId && conversationId !== opts.conversationId) {
+          continue;
+        }
         try {
           await this.deriveConversation({ db, conversationId, version, result });
           result.conversations += 1;
@@ -243,9 +248,21 @@ export class WindowDeriverService {
           .toLowerCase()
           .replace(/[^a-z0-9_]+/g, '_')
           .slice(0, 40);
-        const validFrom =
+        // Regex alone admits impossible calendar dates the LLM sometimes
+        // emits ("2023-02-30") — depending on the engine those parse to
+        // Invalid Date (poisons the CREATE; used to skip the whole
+        // conversation) or silently roll over to another day. Round-trip
+        // check accepts only real dates; anything else falls back to the
+        // session date.
+        const occurred =
           p.occurred_on && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_on)
             ? new Date(`${p.occurred_on}T00:00:00.000Z`)
+            : null;
+        const validFrom =
+          occurred &&
+          !Number.isNaN(occurred.getTime()) &&
+          occurred.toISOString().slice(0, 10) === p.occurred_on
+            ? occurred
             : sessionDate;
         await db.query(
           `CREATE knowledge_fact CONTENT {

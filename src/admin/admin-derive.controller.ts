@@ -34,7 +34,8 @@ export class AdminDeriveController {
   @RequireScopes('brain:admin')
   async run(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { tenant?: string; version?: string } = {},
+    @Body()
+    body: { tenant?: string; version?: string; conversation?: string } = {},
   ): Promise<DeriveRunResult> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
     if (
@@ -51,6 +52,10 @@ export class AdminDeriveController {
         'version must be a short kebab-case tag (e.g. wd-v2)',
       );
     }
-    return this.deriver.run(tenant, { version });
+    const conversationId = body.conversation?.trim() || undefined;
+    if (conversationId && conversationId.length > 128) {
+      throw new BadRequestException('conversation id too long');
+    }
+    return this.deriver.run(tenant, { version, conversationId });
   }
 }

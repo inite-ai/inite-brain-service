@@ -182,6 +182,47 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     );
   });
 
+  it('impossible calendar occurred_on falls back to the session date', async () => {
+    const { svc, queries } = makeSvc({
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'events',
+          proposition: 'Caroline attended a workshop.',
+          occurred_on: '2023-02-30',
+          turns: [1],
+        },
+      ],
+    });
+    const res = await svc.run('co_x');
+    // The regex admits 2023-02-30 but it is not a real date — the guard
+    // must fall back instead of poisoning the CREATE (used to skip the
+    // whole conversation on conv-48).
+    expect(res.propositions).toBe(1);
+    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
+    expect(create?.params?.validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
+  });
+
+  it('conversationId filter derives only the requested conversation', async () => {
+    const { svc, queries } = makeSvc({
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'pets',
+          proposition: 'p',
+          occurred_on: null,
+          turns: [1],
+        },
+      ],
+    });
+    const res = await svc.run('co_x', { conversationId: 'conv-other' });
+    expect(res.conversations).toBe(0);
+    expect(res.propositions).toBe(0);
+    expect(
+      queries.some((q) => q.sql.includes('DELETE knowledge_fact')),
+    ).toBe(false);
+  });
+
   it('records conversation failures without failing the run', async () => {
     const { svc } = makeSvc({ propositions: [] });
     (svc as unknown as { openai: unknown }).openai = {
