@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService } from '../search/search.service';
+import { SurrealService } from '../db/surreal.service';
+import { EmbedderService } from '../ai/embedder.service';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * AgentQaService — agent-in-loop question answering.
@@ -34,6 +37,70 @@ How to work:
 - The memory returns atomic facts in the form "[Person] predicate: value (date)". Reason over them; the date is when the fact was recorded/valid.
 - When you have enough, give a SHORT, CONCRETE answer — usually a few words (a name, a date, a place, a count, a short phrase). Match the granularity the question asks for; do not pad with explanation.
 - ALWAYS commit to an answer. If the memory is thin, give your single best guess from what you found. NEVER refuse, never reply "I don't know", "not mentioned", or "no information".`;
+
+/**
+ * V2 loop prompt (AGENT_QA_TOOLS_V2, memory-rebuild R3): three typed
+ * tools + the date-arithmetic discipline the Letta harness measured as
+ * load-bearing. Search results are MASKED — facts already shown are
+ * never repeated, so every search must surface NEW evidence (the
+ * largest ablation in the iterative-retrieval literature).
+ */
+const SYSTEM_PROMPT_V2 = `You answer questions about a long, multi-session conversation between people, using memory tools.
+
+Tools and when to use them:
+- search_memory: your default. Start by searching the QUESTION VERBATIM, then reformulate with different phrasings and entity names. Results are deduplicated across calls — repeated searches return only NEW facts, so keep queries varied.
+- timeline: for "how many times", "list/name all", "what are the different", "first/last/when did X start" questions — returns topic-related facts in chronological order so you can collect and count instances completely.
+- grep_episodes: literal word search over the RAW conversation turns. Use for exact names, titles, quoted phrases, and details too specific for semantic search.
+
+Date discipline:
+- Always convert relative time references to specific dates: if a memory dated 4 May 2023 says "went to India last year", the trip was in 2022. "This summer" is not precise; "June 2023" is precise.
+- The date in parentheses is when the fact was recorded/valid. If memories contradict, prefer the most recent.
+- Do not confuse people mentioned INSIDE memories with the speakers who created them.
+
+Answering:
+- When you have enough, give a SHORT, CONCRETE answer — a name, a date, a place, a count, a short phrase. Match the granularity the question asks for.
+- ALWAYS commit to an answer. If evidence is thin, give your single best guess. NEVER refuse, never reply "I don't know", "not mentioned", or "no information".`;
+
+const GREP_TOOL: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'grep_episodes',
+    description:
+      'Literal keyword search over the raw conversation transcript. Returns matching turns as "[date] speaker: text" lines. Best for exact names, titles, and quoted phrases.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Words to match literally in turn text.',
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+};
+
+const TIMELINE_TOOL: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'timeline',
+    description:
+      'Chronological scan of memory facts related to a topic or person — returns dated facts oldest-first so instances can be collected and counted completely. Use for enumeration, counting, and first/last questions.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        topic: {
+          type: 'string',
+          description:
+            'The topic, activity, or person to scan chronologically.',
+        },
+      },
+      required: ['topic'],
+    },
+  },
+};
 
 const SEARCH_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
@@ -91,9 +158,14 @@ export class AgentQaService {
   private readonly searchLimit: number;
   private readonly maxFactsPerRound: number;
 
+  // DI fan-in: the V2 tool set needs substrate + embedder access
+  // alongside the search stack.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly search: SearchService,
     private readonly config: ConfigService,
+    @Optional() private readonly surreal?: SurrealService,
+    @Optional() private readonly embedder?: EmbedderService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>(
@@ -120,18 +192,22 @@ export class AgentQaService {
   }
 
   private async runLoop(input: AgentQaInput): Promise<AgentQaResult> {
+    const v2 = envFlagEnabled(process.env.AGENT_QA_TOOLS_V2);
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: v2 ? SYSTEM_PROMPT_V2 : SYSTEM_PROMPT },
       { role: 'user', content: input.question },
     ];
     const queries: string[] = [];
+    // Masked retrieval (V2): fact ids already shown this question are
+    // never re-rendered, forcing each search to surface NEW evidence.
+    const seenFactIds = new Set<string>();
 
     for (let round = 0; round < this.maxRounds; round++) {
       const res = await this.openai.chat.completions.create(
         {
           model: this.model,
           messages,
-          tools: [SEARCH_TOOL],
+          tools: v2 ? [SEARCH_TOOL, TIMELINE_TOOL, GREP_TOOL] : [SEARCH_TOOL],
           tool_choice: 'auto',
           temperature: 0,
         },
@@ -148,7 +224,12 @@ export class AgentQaService {
           if (call.type !== 'function') continue;
           const query = this.parseQuery(call.function.arguments);
           queries.push(query);
-          const rendered = await this.runSearch(input, query);
+          const rendered = await this.dispatchTool({
+            input,
+            name: call.function.name,
+            query,
+            mask: v2 ? seenFactIds : undefined,
+          });
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
@@ -187,14 +268,41 @@ export class AgentQaService {
 
   private parseQuery(argsJson: string): string {
     try {
-      const args = JSON.parse(argsJson) as { query?: unknown };
-      return typeof args.query === 'string' ? args.query : '';
+      const args = JSON.parse(argsJson) as {
+        query?: unknown;
+        topic?: unknown;
+        pattern?: unknown;
+      };
+      for (const v of [args.query, args.topic, args.pattern]) {
+        if (typeof v === 'string' && v.trim()) return v;
+      }
+      return '';
     } catch {
       return '';
     }
   }
 
-  private async runSearch(input: AgentQaInput, query: string): Promise<string> {
+  private async dispatchTool({
+    input,
+    name,
+    query,
+    mask,
+  }: {
+    input: AgentQaInput;
+    name: string;
+    query: string;
+    mask?: Set<string>;
+  }): Promise<string> {
+    if (name === 'timeline') return this.runTimeline(input, query);
+    if (name === 'grep_episodes') return this.runGrep(input, query);
+    return this.runSearch(input, query, mask);
+  }
+
+  private async runSearch(
+    input: AgentQaInput,
+    query: string,
+    mask?: Set<string>,
+  ): Promise<string> {
     if (!query.trim()) return 'No query provided.';
     try {
       const { results } = await this.search.search(
@@ -205,16 +313,124 @@ export class AgentQaService {
       const lines: string[] = [];
       for (const r of results) {
         for (const f of r.facts) {
+          if (mask?.has(f.factId)) continue;
+          mask?.add(f.factId);
           const date = f.validFrom ? ` (${String(f.validFrom).slice(0, 10)})` : '';
           lines.push(`[${r.canonicalName}] ${f.predicate}: ${f.object}${date}`);
         }
       }
       const facts = lines.slice(0, this.maxFactsPerRound);
-      if (facts.length === 0) return 'No facts found for that query.';
+      if (facts.length === 0) {
+        return mask
+          ? 'No NEW facts for that query — everything matching was already shown. Try a different angle or another tool.'
+          : 'No facts found for that query.';
+      }
       return facts.join('\n');
     } catch (e) {
       this.logger.warn(`agent-qa search failed: ${(e as Error).message}`);
       return `Search error: ${(e as Error).message}`;
+    }
+  }
+
+  /**
+   * Chronological enumerator (V2): topic-similar facts of the pinned
+   * derived world, oldest-first — collection and counting instead of
+   * top-k similarity sampling.
+   */
+  private async runTimeline(
+    input: AgentQaInput,
+    topic: string,
+  ): Promise<string> {
+    if (!topic.trim()) return 'No topic provided.';
+    if (!this.surreal || !this.embedder) return 'Timeline unavailable.';
+    try {
+      const vec = await this.embedder.embed(topic);
+      const version = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+      const versionClause = version
+        ? 'AND derivedVersion = $dv'
+        : 'AND derivedVersion IS NONE';
+      const rows = await this.surreal.withCompany(
+        input.companyId,
+        async (db) => {
+          const [r] = await db.query<
+            [Array<{ predicate: string; object: string; validFrom?: unknown }>]
+          >(
+            `SELECT predicate, object, validFrom,
+                    vector::similarity::cosine(embedding, $q) AS score
+               FROM knowledge_fact
+              WHERE status = 'active' AND embedding != NONE ${versionClause}
+              ORDER BY score DESC
+              LIMIT 40`,
+            { q: vec, dv: version },
+          );
+          return r ?? [];
+        },
+      );
+      if (rows.length === 0) return 'No facts found for that topic.';
+      return rows
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(String(a.validFrom ?? 0)).getTime() -
+            new Date(String(b.validFrom ?? 0)).getTime(),
+        )
+        .map(
+          (f) =>
+            `[${String(f.validFrom ?? '').slice(0, 10) || 'undated'}] ${f.predicate}: ${f.object}`,
+        )
+        .join('\n');
+    } catch (e) {
+      this.logger.warn(`agent-qa timeline failed: ${(e as Error).message}`);
+      return `Timeline error: ${(e as Error).message}`;
+    }
+  }
+
+  /** Literal transcript search (V2), PII-gated like the read lanes. */
+  private async runGrep(input: AgentQaInput, pattern: string): Promise<string> {
+    if (!pattern.trim()) return 'No pattern provided.';
+    if (!this.surreal) return 'Transcript search unavailable.';
+    const piiGate = input.callerScopes.includes('brain:read_pii')
+      ? ''
+      : 'AND piiClass IS NONE';
+    try {
+      const rows = await this.surreal.withCompany(
+        input.companyId,
+        async (db) => {
+          const [r] = await db.query<
+            [
+              Array<{
+                speaker?: string;
+                text: string;
+                occurredAt: unknown;
+              }>,
+            ]
+          >(
+            `SELECT speaker, text, occurredAt, search::score(1) AS score
+               FROM episode
+              WHERE text @1@ $q ${piiGate}
+              ORDER BY score DESC
+              LIMIT 10`,
+            { q: pattern },
+          );
+          return r ?? [];
+        },
+      );
+      if (rows.length === 0) return 'No transcript turns match.';
+      return rows
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(String(a.occurredAt)).getTime() -
+            new Date(String(b.occurredAt)).getTime(),
+        )
+        .map(
+          (t) =>
+            `[${String(t.occurredAt).slice(0, 10)}] ${t.speaker ?? 'unknown'}: ${t.text}`,
+        )
+        .join('\n');
+    } catch (e) {
+      this.logger.warn(`agent-qa grep failed: ${(e as Error).message}`);
+      return `Transcript search error: ${(e as Error).message}`;
     }
   }
 }

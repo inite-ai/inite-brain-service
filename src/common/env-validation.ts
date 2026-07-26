@@ -428,6 +428,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // dense+BM25 as units in their own right; optional listwise rerank.
   'SEARCH_SEGMENT_LANE_ENABLED',
   'SEARCH_SEGMENT_LANE_RERANK',
+  // R3: agent-qa V2 tool set — masked search + timeline enumerator +
+  // literal transcript grep in the ReAct loop.
+  'AGENT_QA_TOOLS_V2',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',

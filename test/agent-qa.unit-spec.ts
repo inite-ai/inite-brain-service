@@ -100,4 +100,235 @@ describe('AgentQaService', () => {
     expect(out.rounds).toBe(0);
     expect(out.queries).toEqual([]);
   });
+
+  describe('V2 tool set (AGENT_QA_TOOLS_V2)', () => {
+    const saved = process.env.AGENT_QA_TOOLS_V2;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.AGENT_QA_TOOLS_V2;
+      else process.env.AGENT_QA_TOOLS_V2 = saved;
+      delete process.env.RETRIEVAL_DERIVED_VERSION;
+    });
+
+    const factRow = {
+      canonicalName: 'Caroline',
+      facts: [
+        {
+          factId: 'knowledge_fact:f1',
+          predicate: 'pets',
+          object: 'cats Luna and Oliver',
+          validFrom: '2023-05-07T00:00:00Z',
+        },
+      ],
+    };
+    const searchCall = (id: string) => ({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id,
+                type: 'function',
+                function: {
+                  name: 'search_memory',
+                  arguments: JSON.stringify({ query: 'pets' }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    it('masks facts already shown across search rounds', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      const toolMsgs: string[] = [];
+      const svc = new AgentQaService(search([factRow]), cfg());
+      let i = 0;
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async (req: any) => {
+              // Capture tool results fed back into the transcript.
+              for (const m of req.messages)
+                if (m.role === 'tool') toolMsgs.push(m.content);
+              const replies = [searchCall('t1'), searchCall('t2'), finalReply];
+              return replies[Math.min(i++, 2)];
+            },
+          },
+        },
+      };
+      const out = await svc.answer({
+        companyId: 'co_x',
+        question: 'What pets?',
+        callerScopes: ['brain:read'],
+      });
+      expect(out.answer).toBe('Transgender woman');
+      const unique = [...new Set(toolMsgs)];
+      // Round 1 renders the fact; round 2 must NOT repeat it.
+      expect(unique.some((m) => m.includes('Luna and Oliver'))).toBe(true);
+      expect(unique.some((m) => m.includes('No NEW facts'))).toBe(true);
+    });
+
+    it('timeline tool renders chronological facts of the pinned world', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
+      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
+        [];
+      const surreal = {
+        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
+          fn({
+            query: async (sql: string, params?: Record<string, unknown>) => {
+              queries.push({ sql, params });
+              return [
+                [
+                  { predicate: 'activities', object: 'later hike', validFrom: '2023-08-01T00:00:00Z' },
+                  { predicate: 'activities', object: 'first hike', validFrom: '2023-02-01T00:00:00Z' },
+                ],
+              ];
+            },
+          }),
+      };
+      const embedder = { embed: async () => [1, 0] };
+      const svc = new AgentQaService(
+        search([]),
+        cfg(),
+        surreal as never,
+        embedder as never,
+      );
+      const timelineCall = {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 't1',
+                  type: 'function',
+                  function: {
+                    name: 'timeline',
+                    arguments: JSON.stringify({ topic: 'hiking' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      const toolMsgs: string[] = [];
+      let i = 0;
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async (req: any) => {
+              for (const m of req.messages)
+                if (m.role === 'tool') toolMsgs.push(m.content);
+              return [timelineCall, finalReply][Math.min(i++, 1)];
+            },
+          },
+        },
+      };
+      await svc.answer({
+        companyId: 'co_x',
+        question: 'How many hikes?',
+        callerScopes: ['brain:read'],
+      });
+      expect(queries[0].sql).toContain('derivedVersion = $dv');
+      expect(queries[0].params?.dv).toBe('wd-v2');
+      const rendered = toolMsgs.find((m) => m.includes('hike'));
+      // Chronological: first hike before later hike.
+      expect(rendered!.indexOf('first hike')).toBeLessThan(
+        rendered!.indexOf('later hike'),
+      );
+    });
+
+    it('grep tool searches transcript BM25 with PII gate', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      const queries: Array<{ sql: string }> = [];
+      const surreal = {
+        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
+          fn({
+            query: async (sql: string) => {
+              queries.push({ sql });
+              return [
+                [{ speaker: 'Mel', text: 'Matt Patterson sang', occurredAt: '2023-06-01T00:00:00Z' }],
+              ];
+            },
+          }),
+      };
+      const svc = new AgentQaService(
+        search([]),
+        cfg(),
+        surreal as never,
+        undefined,
+      );
+      const grepCall = {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 't1',
+                  type: 'function',
+                  function: {
+                    name: 'grep_episodes',
+                    arguments: JSON.stringify({ pattern: 'Patterson' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      const toolMsgs: string[] = [];
+      let i = 0;
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async (req: any) => {
+              for (const m of req.messages)
+                if (m.role === 'tool') toolMsgs.push(m.content);
+              return [grepCall, finalReply][Math.min(i++, 1)];
+            },
+          },
+        },
+      };
+      await svc.answer({
+        companyId: 'co_x',
+        question: 'Who performed?',
+        callerScopes: ['brain:read'],
+      });
+      expect(queries[0].sql).toContain('@1@');
+      expect(queries[0].sql).toContain('piiClass IS NONE');
+      expect(toolMsgs.some((m) => m.includes('Matt Patterson sang'))).toBe(
+        true,
+      );
+    });
+
+    it('flag off keeps the single-tool loop', async () => {
+      delete process.env.AGENT_QA_TOOLS_V2;
+      const svc = new AgentQaService(search([]), cfg());
+      let tools: unknown[] = [];
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async (req: any) => {
+              tools = req.tools;
+              return finalReply;
+            },
+          },
+        },
+      };
+      await svc.answer({
+        companyId: 'co_x',
+        question: 'q',
+        callerScopes: ['brain:read'],
+      });
+      expect(tools).toHaveLength(1);
+    });
+  });
 });

@@ -948,6 +948,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Precision-trim the fused segment pool with the listwise reranker (requires SEARCH_RERANKER_ENABLED) before the top-k cut.',
       },
       {
+        key: 'AGENT_QA_TOOLS_V2',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Agent-QA V2 tool set (memory-rebuild R3): masked search_memory (facts already shown are never repeated — each call must surface new evidence), timeline (chronological topic scan for enumeration/counting), grep_episodes (literal transcript search), plus date-arithmetic loop prompt. Off = the original single-tool loop, byte-identical.',
+      },
+      {
         key: 'RETRIEVAL_DERIVED_VERSION',
         category: 'search',
         defaultValue: null,
