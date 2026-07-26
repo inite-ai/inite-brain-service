@@ -172,3 +172,76 @@ Memobase locomo-benchmark repo · TRACE arXiv:2607.00339 · Letta filesystem-age
 Mastra Observational Memory · Penfield LoCoMo audit (6.4% wrong key) · LoCoMo-Refined
 (strict judge, 1,382-question cleaned set) · full citation list in the 2026-07-24
 research transcript.
+
+---
+
+## 6. Road to 90 — research synthesis 2026-07-25 (post-E3)
+
+Context: the window-deriver world (wd-v2) measures **70.6% on dev-5, above our own
+full-context baseline (69.3%)**. This section reconciles "we want ~90 everywhere"
+with three deep-research sweeps (SOTA survey, dataset-ceiling audit, technique
+evidence) plus a mechanism-level decomposition of all 224 remaining E3 failures.
+
+### 6.1 What "90%" actually means on LoCoMo
+
+- **Answer key is 6.4% wrong** (Penfield audit, 99/1540 score-corrupting): hard caps
+  overall 93.57 / single-hop 95.7 / **multi-hop 90.07** / temporal 91.9 / open-domain 90.6.
+  Under a STRICT judge the realistic ceilings are lower: SH 91-94, MH 84-88, T 78-85
+  (23.7% of temporal golds are session-date-anchored relative phrases), OD 65-75 ±10
+  (n=96, speculative golds; even full-context gpt-4.1-mini+CoT = 80.9 under a lenient judge).
+- **The "90 club" is mostly generator + answer prompt, not memory.** Full-context as a
+  function of the answer model: gpt-4o-mini 72.6 → gpt-4.1-mini 87.5 → +CoT prompt 92.6.
+  Nobody verifiably exceeds 85 on an honest 4o-mini + strict-judge protocol (best clean:
+  ENGRAM 77.55 vs their FC 72.6). Judge-prompt strictness moves scores 10-22pp
+  (LoCoMo-Refined: every system −15.6..−22.1pp under a strict human-agreeing judge).
+- Category-label shift is endemic in mem0-lineage harnesses (the same bug we fixed
+  locally); per-category numbers across papers are not comparable without checking n's.
+
+**Target restated:** two axes, both reported. (1) Honest axis (gpt-4o-mini generator,
+our strict judge): push 70.6 → ~78-83 = verifiable SOTA-class. (2) Club-comparable
+axis (SYNTHESIZE_MODEL=gpt-4.1-mini, same retrieval): expected ~+8-15pp, lands in the
+published-85+ comparison class. "90 in every category" exceeds the dataset's floor of
+noise for MH and OD under a strict judge; 90+ is realistic for single-hop and temporal
+on the club axis.
+
+### 6.2 E3 failure decomposition (all 224 headline misses, gold cross-checked
+against wd-v2 facts AND L0 episodes)
+
+| Bucket | n | Mechanism | Lever |
+|---|---|---|---|
+| SH gold-in-facts, wrong answer | 48 | near-duplicate selection / synthesis phrasing | rerank + generator |
+| SH gold only in L0 episodes | 23 | deriver summarized away the concrete detail | verbatim evidence attach / detail pass |
+| MH enumeration golds | ~35 | every list item EXISTS individually (verified); no single atom holds the list | per-(entity, aspect) rollups |
+| Temporal | 33 | 19 date-in-facts (answer convention), 7 relative golds | mention-date hedging in prompt |
+| OD inference golds | 22 | "Would X be considered..." speculative; gold nowhere in text | persona-level inference prompt; low ceiling |
+
+### 6.3 Ranked program (each step one variable, dev-5 iterate → held-out confirm)
+
+1. **G1 generator swap** `SYNTHESIZE_MODEL=gpt-4.1-mini` (env only). PRISM isolated
+   +6.0pp swap-only; FC evidence suggests up to +15. Cheapest pp on the list.
+2. **G2 answer-prompt CoT + per-category conditioning** (evidence-first reasoning,
+   exhaustive facet coverage for OD, exact-token for SH, mention-date+resolved-date
+   hedging for temporal). Penfield: +10.7pp from prompt alone; CoN +5.4.
+3. **A1 verbatim evidence attach**: wd-v2 facts carry `source.episodeIds` — fetch and
+   quote the source turns under each retrieved fact at synthesis time. Controlled
+   ablation elsewhere: verbatim beats extracted-only by +15.9pp on LoCoMo; targets the
+   23 episode-only SH fails. (Alternative already built: episodic BM25 lane — retest
+   on the wd-v2 world; its E1 null predates proposition-quality selection.)
+4. **A2 aspect rollups (Lane C v2)**: enumerate per (entity × aspect) over wd-v2
+   propositions into one list-fact each ("Melanie's activities include camping,
+   swimming, pottery..."). Targets the 35 MH enumeration fails; MIRIX-style write-time
+   composition is the only pattern that beats FC on multi-hop in the literature.
+5. **A3 cross-encoder rerank** (repo already ships one, flag-gated) over fused
+   candidates: external evidence R@5 0.587→0.816; targets the 48 SH selection fails.
+6. **A4 agentic read path** for routed MH/OD questions (constrained search loop over
+   facts+episodes, must-search-first, ~6 step cap): MemR³ +7.3pp over one-shot,
+   Letta 74.0 overall on 4o-mini. Biggest engineering item; after A1-A3.
+
+Projected honest-axis stack (conservative halves): ~78-83 overall. Club axis:
+~86-90 overall, SH/T ≥90 plausible, MH ~80-84, OD ~65-75 (dataset-capped).
+
+### 6.4 Protocol integrity rules (unchanged)
+
+Judge stays gpt-4.1-mini strict on both axes; cat5 excluded from headline, scored as
+abstention; per-category McNemar for every step; dev-5 iterates, held-out conv-44..50
+confirms milestones only; dead-answer sanity check every run.
