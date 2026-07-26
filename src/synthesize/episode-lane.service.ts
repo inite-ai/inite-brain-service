@@ -1,6 +1,33 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
+
+interface EpisodeQuoteRow {
+  speaker?: string;
+  text: string;
+  occurredAt: Date | string;
+}
+
+/** Chronological `[YYYY-MM-DD] Speaker: text` rendering shared by both lanes. */
+function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
+  return rows
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.occurredAt as string).getTime() -
+        new Date(b.occurredAt as string).getTime(),
+    )
+    .map((r) => {
+      const day = String(
+        r.occurredAt instanceof Date
+          ? r.occurredAt.toISOString()
+          : r.occurredAt,
+      ).slice(0, 10);
+      const who = r.speaker ? `${r.speaker}` : 'unknown';
+      return `[${day}] ${who}: ${r.text}`;
+    });
+}
 
 /**
  * Episodic retrieval lane (SEARCH_EPISODIC_LANE_ENABLED — P2 of
@@ -65,28 +92,82 @@ export class EpisodeLaneService {
           return r ?? [];
         },
       );
-      return rows
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(a.occurredAt as string).getTime() -
-            new Date(b.occurredAt as string).getTime(),
-        )
-        .map((r) => {
-          const day = String(
-            r.occurredAt instanceof Date
-              ? r.occurredAt.toISOString()
-              : r.occurredAt,
-          ).slice(0, 10);
-          const who = r.speaker ? `${r.speaker}` : 'unknown';
-          return `[${day}] ${who}: ${r.text}`;
-        });
+      return renderQuoteLines(rows);
     } catch (e) {
       this.logger.warn(
         `episodic lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
       );
       return [];
     }
+  }
+
+  isSourceExcerptsEnabled(): boolean {
+    return envFlagEnabled(process.env.SYNTHESIZE_SOURCE_EXCERPTS);
+  }
+
+  /**
+   * Provenance lane (A1 of the road-to-90 program): verbatim source turns
+   * of the facts ALREADY selected as evidence. Unlike `transcriptLines`
+   * (which searches episodes by the question and can miss), this follows
+   * `knowledge_fact.source.episodeIds` — the derivation stamped exactly
+   * which turns ground each proposition, so the quote containing the
+   * concrete detail the derivation summarized away ("a cup with a dog
+   * face") rides along with the fact. Same PII gate, same degradation
+   * contract: [] when disabled, on failure, or when nothing resolves.
+   */
+  async sourceExcerpts(opts: {
+    companyId: string;
+    factIds: string[];
+    callerScopes: string[];
+  }): Promise<string[]> {
+    if (!this.isSourceExcerptsEnabled() || opts.factIds.length === 0) {
+      return [];
+    }
+    const cap = this.sourceExcerptsCap();
+    const piiGate = opts.callerScopes.includes('brain:read_pii')
+      ? ''
+      : 'AND piiClass IS NONE';
+    try {
+      return await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [facts] = await db.query<
+          [Array<{ eps?: unknown }>]
+        >(
+          `SELECT source.episodeIds AS eps FROM knowledge_fact
+            WHERE id INSIDE $ids AND source.episodeIds IS NOT NONE`,
+          { ids: opts.factIds.map((id) => new StringRecordId(id)) },
+        );
+        // Evidence order ≈ relevance order, so first-seen wins the cap.
+        const episodeIds: string[] = [];
+        const seen = new Set<string>();
+        for (const f of facts ?? []) {
+          if (!Array.isArray(f.eps)) continue;
+          for (const e of f.eps) {
+            const id = String(e);
+            if (!id.startsWith('episode:') || seen.has(id)) continue;
+            seen.add(id);
+            if (episodeIds.length < cap) episodeIds.push(id);
+          }
+        }
+        if (episodeIds.length === 0) return [];
+        const [rows] = await db.query<[EpisodeQuoteRow[]]>(
+          `SELECT speaker, text, occurredAt FROM episode
+            WHERE id INSIDE $ids ${piiGate}`,
+          { ids: episodeIds.map((id) => new StringRecordId(id)) },
+        );
+        return renderQuoteLines(rows ?? []);
+      });
+    } catch (e) {
+      this.logger.warn(
+        `source-excerpt lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /** Episode quotes per prompt from the provenance lane. */
+  private sourceExcerptsCap(): number {
+    const v = parseInt(process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP ?? '', 10);
+    return Number.isFinite(v) && v > 0 ? v : 16;
   }
 
   /** Quotes per prompt; verbatim turns are token-heavy, keep the cap low. */

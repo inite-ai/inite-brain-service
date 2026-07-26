@@ -903,6 +903,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Transcript quotes per synthesis prompt from the episodic lane — verbatim turns are token-heavy, keep the cap low.',
       },
       {
+        key: 'SYNTHESIZE_SOURCE_EXCERPTS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Provenance lane (road-to-90 A1): quote the verbatim source turns of the selected evidence facts (knowledge_fact.source.episodeIds → episode) in the synthesis prompt — restores the concrete detail a derivation summarized away. Same PII gate and degradation contract as the episodic lane.',
+      },
+      {
+        key: 'SYNTHESIZE_SOURCE_EXCERPTS_CAP',
+        category: 'pipeline',
+        defaultValue: '16',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
+      },
+      {
         key: 'RETRIEVAL_DERIVED_VERSION',
         category: 'search',
         defaultValue: null,

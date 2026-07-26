@@ -140,6 +140,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
   positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
   positiveInt(env, 'SEARCH_EPISODIC_LANE_TOPK', errors);
+  positiveInt(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', errors);
 
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
@@ -419,6 +420,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // P2: episodic retrieval lane — BM25 quotes from L0 as a typed prompt
   // section in synthesis (lossless fallback for extraction misses).
   'SEARCH_EPISODIC_LANE_ENABLED',
+  // A1: provenance lane — verbatim source turns of the selected evidence
+  // facts (via source.episodeIds) quoted in the synthesis prompt.
+  'SYNTHESIZE_SOURCE_EXCERPTS',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',

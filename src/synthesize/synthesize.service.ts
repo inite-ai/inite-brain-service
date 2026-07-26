@@ -276,12 +276,23 @@ export class SynthesizeService {
     // Episodic lane (P2, SEARCH_EPISODIC_LANE_ENABLED): dated verbatim
     // quotes from the L0 substrate as their own typed prompt section —
     // the lossless fallback for facts extraction missed or fragmented.
-    const transcriptLines =
+    // Provenance lane (A1, SYNTHESIZE_SOURCE_EXCERPTS): source turns of
+    // the selected evidence facts — carries the concrete detail the
+    // derivation summarized away. Both render into the same transcript
+    // section; dedupe keeps a turn surfaced by both lanes single.
+    const laneLines =
       (await this.episodeLane?.transcriptLines({
         companyId,
         query: dto.query,
         callerScopes,
       })) ?? [];
+    const sourceLines =
+      (await this.episodeLane?.sourceExcerpts({
+        companyId,
+        factIds: [...factIndex.keys()],
+        callerScopes,
+      })) ?? [];
+    const transcriptLines = [...new Set([...sourceLines, ...laneLines])];
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
