@@ -957,6 +957,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Agent-QA V2 tool set (memory-rebuild R3): masked search_memory (facts already shown are never repeated — each call must surface new evidence), timeline (chronological topic scan for enumeration/counting), grep_episodes (literal transcript search), plus date-arithmetic loop prompt. Off = the original single-tool loop, byte-identical.',
       },
       {
+        key: 'AGENT_QA_ROUTE_MODE',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Agent-QA routing (memory-rebuild R3b): 'escalate' answers one-shot (multi-hop search + synthesis) first and runs the ReAct loop ONLY when the one-shot answer is null, hedging, or citation-free — the loop replacing one-shot wholesale measured −4.6pp. Unset = pure loop.",
+      },
+      {
         key: 'RETRIEVAL_DERIVED_VERSION',
         category: 'search',
         defaultValue: null,

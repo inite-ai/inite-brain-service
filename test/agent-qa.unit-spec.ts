@@ -309,6 +309,72 @@ describe('AgentQaService', () => {
       );
     });
 
+    it('escalate mode keeps a confident cited one-shot answer (no loop)', async () => {
+      process.env.AGENT_QA_ROUTE_MODE = 'escalate';
+      const multiHop = {
+        run: async () => ({
+          synthesis: {
+            answer: 'Luna and Oliver',
+            citations: [{ factId: 'knowledge_fact:f1' }],
+          },
+        }),
+      };
+      const svc = new AgentQaService(
+        search([]),
+        cfg(),
+        undefined,
+        undefined,
+        multiHop as never,
+      );
+      let llmCalls = 0;
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async () => {
+              llmCalls += 1;
+              return finalReply;
+            },
+          },
+        },
+      };
+      const out = await svc.answer({
+        companyId: 'co_x',
+        question: 'What pets?',
+        callerScopes: ['brain:read'],
+      });
+      expect(out.answer).toBe('Luna and Oliver');
+      expect(out.escalated).toBe(false);
+      expect(llmCalls).toBe(0);
+      delete process.env.AGENT_QA_ROUTE_MODE;
+    });
+
+    it('escalate mode runs the loop on hedging or uncited answers', async () => {
+      process.env.AGENT_QA_ROUTE_MODE = 'escalate';
+      for (const synthesis of [
+        { answer: 'There is no information about pets.', citations: [{ f: 1 }] },
+        { answer: 'Luna', citations: [] },
+        { answer: null, citations: [] },
+      ]) {
+        const multiHop = { run: async () => ({ synthesis }) };
+        const svc = new AgentQaService(
+          search([]),
+          cfg(),
+          undefined,
+          undefined,
+          multiHop as never,
+        );
+        (svc as any).openai = stubOpenAi([finalReply]).client;
+        const out = await svc.answer({
+          companyId: 'co_x',
+          question: 'What pets?',
+          callerScopes: ['brain:read'],
+        });
+        expect(out.answer).toBe('Transgender woman');
+        expect(out.escalated).toBe(true);
+      }
+      delete process.env.AGENT_QA_ROUTE_MODE;
+    });
+
     it('flag off keeps the single-tool loop', async () => {
       delete process.env.AGENT_QA_TOOLS_V2;
       const svc = new AgentQaService(search([]), cfg());

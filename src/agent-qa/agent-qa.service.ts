@@ -5,6 +5,7 @@ import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService } from '../search/search.service';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { MultiHopService } from '../multi-hop/multi-hop.service';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
@@ -147,7 +148,24 @@ export interface AgentQaResult {
   rounds: number;
   /** Distinct search queries the agent issued (for tracing). */
   queries: string[];
+  /** Escalation routing (AGENT_QA_ROUTE_MODE=escalate): whether the
+   *  one-shot answer was kept (false) or the loop ran (true). */
+  escalated?: boolean;
 }
+
+/** Hedging phrases that mark a one-shot answer as too weak to keep. */
+const HEDGE = new RegExp(
+  [
+    'no (information|memory|data|record)',
+    'not (mentioned|available|enough|specified|provided)',
+    "(do not|don't) know",
+    'cannot (determine|find|answer)',
+    'unclear',
+    'insufficient',
+    'unable to',
+  ].join('|'),
+  'i',
+);
 
 @Injectable()
 export class AgentQaService {
@@ -166,6 +184,7 @@ export class AgentQaService {
     private readonly config: ConfigService,
     @Optional() private readonly surreal?: SurrealService,
     @Optional() private readonly embedder?: EmbedderService,
+    @Optional() private readonly multiHop?: MultiHopService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>(
@@ -186,9 +205,46 @@ export class AgentQaService {
   async answer(input: AgentQaInput): Promise<AgentQaResult> {
     return withSpan(
       'agent_qa.answer',
-      () => this.runLoop(input),
+      () => this.route(input),
       { 'agent_qa.max_rounds': this.maxRounds },
     );
+  }
+
+  /**
+   * Escalation routing (memory-rebuild R3b). Measured on LoCoMo: the
+   * loop REPLACING one-shot loses −4.6pp (over-searching easy
+   * questions), while one-shot's failures cluster in hedged/uncited
+   * answers — so the loop runs ONLY when the one-shot answer is null,
+   * hedging, or citation-free. AGENT_QA_ROUTE_MODE=escalate; any other
+   * value keeps the pure loop (measurement mode).
+   */
+  private async route(input: AgentQaInput): Promise<AgentQaResult> {
+    const escalate =
+      (process.env.AGENT_QA_ROUTE_MODE ?? '').trim() === 'escalate';
+    if (!escalate || !this.multiHop) return this.runLoop(input);
+    try {
+      const oneShot = await this.multiHop.run({
+        companyId: input.companyId,
+        dto: {
+          query: input.question,
+          synthesize: true,
+          synthesisGuardrails: 'answer',
+          ...(input.asOf ? { asOf: input.asOf } : {}),
+        } as never,
+        callerScopes: input.callerScopes,
+      });
+      const answer = oneShot.synthesis?.answer?.trim() ?? '';
+      const cited = (oneShot.synthesis?.citations ?? []).length > 0;
+      if (answer && cited && !HEDGE.test(answer)) {
+        return { answer, rounds: 0, queries: [], escalated: false };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `one-shot leg failed, escalating to loop: ${(e as Error).message}`,
+      );
+    }
+    const loop = await this.runLoop(input);
+    return { ...loop, escalated: true };
   }
 
   private async runLoop(input: AgentQaInput): Promise<AgentQaResult> {
