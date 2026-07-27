@@ -47,6 +47,9 @@ export interface DeriveRunResult {
   propositions: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
+  /** Set when opts.activate flipped the live read pin to this version. */
+  activated?: boolean;
+  previousVersion?: string | null;
 }
 
 export interface EpisodeRow {
@@ -103,11 +106,33 @@ export class WindowDeriverService {
     );
   }
 
+  /**
+   * Derived worlds are FORKS, never in-place rewrites: deriving into the
+   * version readers are currently pinned to (RETRIEVAL_DERIVED_VERSION)
+   * would expose them to a half-built world mid-run — delete-by-version
+   * happens before the new rows land. Derive into a NEW version, then
+   * flip the pin (opts.activate); the old world stays queryable as a
+   * residual until gc() reaps it. opts.force overrides the guard for
+   * deliberate in-place eval workflows.
+   */
   async run(
     companyId: string,
-    opts: { version?: string; conversationId?: string } = {},
+    opts: {
+      version?: string;
+      conversationId?: string;
+      activate?: boolean;
+      force?: boolean;
+    } = {},
   ): Promise<DeriveRunResult> {
     const version = opts.version ?? WINDOW_DERIVER_VERSION;
+    const activePin = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+    if (version === activePin && !opts.force) {
+      throw new Error(
+        `version '${version}' is the live read pin — derive into a new ` +
+          `version and flip the pin (activate: true), or pass force: true ` +
+          `to rewrite the live world in place`,
+      );
+    }
     const result: DeriveRunResult = {
       conversations: 0,
       sessions: 0,
@@ -141,7 +166,51 @@ export class WindowDeriverService {
         }
       }
     });
+    // Atomic world flip: readers switch from the old fork to the new one
+    // between requests, never mid-build. Process-local (env pin) — the
+    // per-tenant DB pointer is the prod follow-up.
+    if (opts.activate && result.conversations > 0) {
+      result.previousVersion = process.env.RETRIEVAL_DERIVED_VERSION ?? null;
+      process.env.RETRIEVAL_DERIVED_VERSION = version;
+      result.activated = true;
+      this.logger.log(
+        `derived world '${version}' activated (was: ${result.previousVersion ?? 'legacy'})`,
+      );
+    }
     return result;
+  }
+
+  /**
+   * Reap residual worlds: delete derived facts of every version that is
+   * neither the live pin nor explicitly kept. The legacy namespace
+   * (derivedVersion IS NONE) is never touched.
+   */
+  async gc(
+    companyId: string,
+    opts: { keep?: string[] } = {},
+  ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
+    const activePin = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+    const keep = new Set([activePin, ...(opts.keep ?? [])].filter(Boolean));
+    const deleted: Record<string, number> = {};
+    await this.surreal.withCompany(companyId, async (db) => {
+      const [versions] = await db.query<
+        [Array<{ derivedVersion?: string; n: number }>]
+      >(
+        `SELECT derivedVersion, count() AS n FROM knowledge_fact
+          WHERE derivedVersion IS NOT NONE
+          GROUP BY derivedVersion`,
+      );
+      for (const v of versions ?? []) {
+        const name = String(v.derivedVersion);
+        if (keep.has(name)) continue;
+        await db.query(
+          `DELETE knowledge_fact WHERE derivedVersion = $version`,
+          { version: name },
+        );
+        deleted[name] = v.n;
+      }
+    });
+    return { deleted, kept: [...keep] as string[] };
   }
 
   private async deriveConversation({

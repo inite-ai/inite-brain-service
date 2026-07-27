@@ -35,7 +35,15 @@ export class AdminDeriveController {
   async run(
     @Req() req: AuthenticatedRequest,
     @Body()
-    body: { tenant?: string; version?: string; conversation?: string } = {},
+    body: {
+      tenant?: string;
+      version?: string;
+      conversation?: string;
+      /** Flip the live read pin to this version after a successful run. */
+      activate?: boolean;
+      /** Allow rewriting the currently pinned world in place (eval only). */
+      force?: boolean;
+    } = {},
   ): Promise<DeriveRunResult> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
     if (
@@ -56,6 +64,44 @@ export class AdminDeriveController {
     if (conversationId && conversationId.length > 128) {
       throw new BadRequestException('conversation id too long');
     }
-    return this.deriver.run(tenant, { version, conversationId });
+    try {
+      return await this.deriver.run(tenant, {
+        version,
+        conversationId,
+        activate: body.activate === true,
+        force: body.force === true,
+      });
+    } catch (e) {
+      // The live-pin guard is a caller mistake, not a server fault.
+      if ((e as Error).message.includes('live read pin')) {
+        throw new BadRequestException((e as Error).message);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Reap residual derived worlds (forks that are no longer the live pin
+   * and not explicitly kept). Legacy facts are never touched.
+   */
+  @Post('maintenance/derive/gc')
+  @RequireScopes('brain:admin')
+  async gc(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string; keep?: string[] } = {},
+  ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
+    const tenant = body.tenant?.trim() || req.brainAuth.companyId;
+    if (
+      tenant !== req.brainAuth.companyId &&
+      !this.apiKeys.knownCompanyIds().includes(tenant)
+    ) {
+      throw new BadRequestException(
+        `Unknown tenant '${tenant}' — not a registered tenant`,
+      );
+    }
+    const keep = (body.keep ?? []).filter(
+      (v) => typeof v === 'string' && /^[a-z0-9-]{2,32}$/.test(v),
+    );
+    return this.deriver.gc(tenant, { keep });
   }
 }

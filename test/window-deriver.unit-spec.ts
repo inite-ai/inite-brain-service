@@ -231,6 +231,90 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     ).toBe(false);
   });
 
+  describe('world forks (Mandela guard + flip + gc)', () => {
+    const savedPin = process.env.RETRIEVAL_DERIVED_VERSION;
+    afterEach(() => {
+      if (savedPin === undefined) delete process.env.RETRIEVAL_DERIVED_VERSION;
+      else process.env.RETRIEVAL_DERIVED_VERSION = savedPin;
+    });
+
+    const oneProp = {
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'pets',
+          proposition: 'p',
+          occurred_on: null,
+          turns: [1],
+        },
+      ],
+    };
+
+    it('refuses to derive into the live read pin without force', async () => {
+      process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
+      const { svc, queries } = makeSvc(oneProp);
+      await expect(svc.run('co_x', { version: 'wd-v2' })).rejects.toThrow(
+        'live read pin',
+      );
+      expect(queries).toHaveLength(0);
+      // force overrides for deliberate in-place eval rewrites
+      const { svc: svc2 } = makeSvc(oneProp);
+      const res = await svc2.run('co_x', { version: 'wd-v2', force: true });
+      expect(res.propositions).toBe(1);
+    });
+
+    it('activate flips the pin only after a successful run', async () => {
+      process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
+      const { svc } = makeSvc(oneProp);
+      const res = await svc.run('co_x', { version: 'wd-v3', activate: true });
+      expect(res.activated).toBe(true);
+      expect(res.previousVersion).toBe('wd-v2');
+      expect(process.env.RETRIEVAL_DERIVED_VERSION).toBe('wd-v3');
+    });
+
+    it('gc reaps residual versions but never the pin, keeps, or legacy', async () => {
+      process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v3';
+      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
+        [];
+      const db = {
+        query: async (sql: string, params?: Record<string, unknown>) => {
+          queries.push({ sql, params });
+          if (sql.includes('GROUP BY derivedVersion'))
+            return [
+              [
+                { derivedVersion: 'wd-v1', n: 100 },
+                { derivedVersion: 'wd-v2', n: 200 },
+                { derivedVersion: 'wd-v3', n: 300 },
+              ],
+            ];
+          return [[]];
+        },
+      };
+      const surreal = {
+        withCompany: async (
+          _c: string,
+          fn: (d: unknown) => Promise<unknown>,
+        ) => fn(db),
+      } as unknown as SurrealService;
+      const config = {
+        get: (k: string, d?: string) => d,
+        getOrThrow: () => 'sk',
+      } as unknown as ConfigService;
+      const embedding = {
+        embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      } as unknown as FactEmbeddingService;
+      const svc = new WindowDeriverService(surreal, config, embedding);
+      const res = await svc.gc('co_x', { keep: ['wd-v2'] });
+      expect(res.deleted).toEqual({ 'wd-v1': 100 });
+      expect(res.kept.sort()).toEqual(['wd-v2', 'wd-v3']);
+      const dels = queries.filter((q) =>
+        q.sql.includes('DELETE knowledge_fact'),
+      );
+      expect(dels).toHaveLength(1);
+      expect(dels[0].params?.version).toBe('wd-v1');
+    });
+  });
+
   it('records conversation failures without failing the run', async () => {
     const { svc } = makeSvc({ propositions: [] });
     (svc as unknown as { openai: unknown }).openai = {
