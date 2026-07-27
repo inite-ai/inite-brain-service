@@ -178,15 +178,24 @@ export class WindowDeriverService {
       .toLowerCase()
       .replace(/-/g, '_');
     const entityBySpeaker = new Map<string, string>();
+    // All exact slugs in one round trip; CONTAINS stays as a per-speaker
+    // fallback only for the (rare) names the exact pass missed.
+    const slugBySpeaker = new Map<string, string>(
+      speakers.map((sp) => [`${convSlug}__${sp.toLowerCase()}`, sp]),
+    );
+    const [exactRows] = await db.query<
+      [Array<{ id: unknown; canonicalNameLc: string }>]
+    >(
+      `SELECT id, canonicalNameLc FROM knowledge_entity
+        WHERE canonicalNameLc INSIDE $slugs`,
+      { slugs: [...slugBySpeaker.keys()] },
+    );
+    for (const row of exactRows ?? []) {
+      const sp = slugBySpeaker.get(row.canonicalNameLc);
+      if (sp) entityBySpeaker.set(sp.toLowerCase(), String(row.id));
+    }
     for (const sp of speakers) {
-      const [exact] = await db.query<[Array<{ id: unknown }>]>(
-        `SELECT id FROM knowledge_entity WHERE canonicalNameLc = $lc LIMIT 1`,
-        { lc: `${convSlug}__${sp.toLowerCase()}` },
-      );
-      if (exact && exact.length === 1) {
-        entityBySpeaker.set(sp.toLowerCase(), String(exact[0].id));
-        continue;
-      }
+      if (entityBySpeaker.has(sp.toLowerCase())) continue;
       const [rows] = await db.query<[Array<{ id: unknown }>]>(
         `SELECT id FROM knowledge_entity
           WHERE canonicalNameLc CONTAINS string::lowercase($name)
@@ -243,14 +252,17 @@ export class WindowDeriverService {
       const vectors = await this.embedding.embedMany(
         resolved.map(({ p }) => p.proposition),
       );
-      for (const [i, { p, entityId: subjectEntity }] of resolved.entries()) {
+      // One multi-row INSERT per session instead of a CREATE per
+      // proposition — a 40-proposition session used to cost 40 round
+      // trips (Surreal-usage audit §9).
+      const rows = resolved.map(({ p, entityId: subjectEntity }, i) => {
         const aspect = p.aspect
           .toLowerCase()
           .replace(/[^a-z0-9_]+/g, '_')
           .slice(0, 40);
         // Regex alone admits impossible calendar dates the LLM sometimes
         // emits ("2023-02-30") — depending on the engine those parse to
-        // Invalid Date (poisons the CREATE; used to skip the whole
+        // Invalid Date (poisons the write; used to skip the whole
         // conversation) or silently roll over to another day. Round-trip
         // check accepts only real dates; anything else falls back to the
         // session date.
@@ -264,37 +276,27 @@ export class WindowDeriverService {
           occurred.toISOString().slice(0, 10) === p.occurred_on
             ? occurred
             : sessionDate;
-        await db.query(
-          `CREATE knowledge_fact CONTENT {
-             entityId: $eid,
-             predicate: $predicate,
-             object: $object,
-             confidence: 0.85,
-             validFrom: $validFrom,
-             source: $source,
-             status: 'active',
-             embedding: $embedding,
-             derivedVersion: $version
-           }`,
-          {
-            eid: new StringRecordId(subjectEntity),
-            predicate: aspect || 'other',
-            object: p.proposition,
-            validFrom,
-            source: {
-              vertical: 'derived',
-              recorder: version,
-              conversationId,
-              episodeIds: p.turns
-                .filter((t) => t >= 0 && t < session.length)
-                .map((t) => String(session[t].id)),
-            },
-            embedding: vectors[i],
-            version,
+        return {
+          entityId: new StringRecordId(subjectEntity),
+          predicate: aspect || 'other',
+          object: p.proposition,
+          confidence: 0.85,
+          validFrom,
+          source: {
+            vertical: 'derived',
+            recorder: version,
+            conversationId,
+            episodeIds: p.turns
+              .filter((t) => t >= 0 && t < session.length)
+              .map((t) => String(session[t].id)),
           },
-        );
-        result.propositions += 1;
-      }
+          status: 'active',
+          embedding: vectors[i],
+          derivedVersion: version,
+        };
+      });
+      await db.query(`INSERT INTO knowledge_fact $rows`, { rows });
+      result.propositions += rows.length;
     }
   }
 

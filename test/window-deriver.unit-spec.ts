@@ -154,11 +154,15 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     });
     const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
     expect(del?.params?.version).toBe(WINDOW_DERIVER_VERSION);
-    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
-    expect(create?.params?.predicate).toBe('pets');
-    expect(create?.params?.version).toBe(WINDOW_DERIVER_VERSION);
-    expect(create?.params?.object).toContain('Luna and Oliver');
-    const source = create?.params?.source as Record<string, unknown>;
+    const insert = queries.find((q) =>
+      q.sql.includes('INSERT INTO knowledge_fact'),
+    );
+    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    expect(rows[0].predicate).toBe('pets');
+    expect(rows[0].derivedVersion).toBe(WINDOW_DERIVER_VERSION);
+    expect(String(rows[0].object)).toContain('Luna and Oliver');
+    const source = rows[0].source as Record<string, unknown>;
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
     expect(source.episodeIds).toEqual(['episode:e1']);
   });
@@ -176,10 +180,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       ],
     });
     await svc.run('co_x');
-    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
-    expect(create?.params?.validFrom).toEqual(
-      new Date('2022-06-15T00:00:00.000Z'),
+    const insert = queries.find((q) =>
+      q.sql.includes('INSERT INTO knowledge_fact'),
     );
+    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows[0].validFrom).toEqual(new Date('2022-06-15T00:00:00.000Z'));
   });
 
   it('impossible calendar occurred_on falls back to the session date', async () => {
@@ -199,8 +204,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // must fall back instead of poisoning the CREATE (used to skip the
     // whole conversation on conv-48).
     expect(res.propositions).toBe(1);
-    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
-    expect(create?.params?.validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
+    const insert = queries.find((q) =>
+      q.sql.includes('INSERT INTO knowledge_fact'),
+    );
+    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows[0].validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
   });
 
   it('conversationId filter derives only the requested conversation', async () => {

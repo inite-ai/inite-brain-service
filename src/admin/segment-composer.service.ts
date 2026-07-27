@@ -139,40 +139,28 @@ export class SegmentComposerService {
 
     const texts = windows.map((w) => renderSegmentText(w.turns));
     const vectors = await this.embedding.embedMany(texts);
-    for (const [i, w] of windows.entries()) {
-      const pii = [
-        ...new Set(w.turns.flatMap((t) => t.piiClass ?? [])),
-      ];
+    // One multi-row INSERT per conversation — per-segment CREATEs cost a
+    // round trip each (Surreal-usage audit §9).
+    const rows = windows.map((w, i) => {
+      const pii = [...new Set(w.turns.flatMap((t) => t.piiClass ?? []))];
       const userIds = [
         ...new Set(
           w.turns.map((t) => t.userId).filter((u): u is string => !!u),
         ),
       ];
-      await db.query(
-        `CREATE episode_segment CONTENT {
-           conversationId: $conv,
-           seq: $seq,
-           episodeIds: $eps,
-           text: $text,
-           occurredAt: $occurredAt,
-           piiClass: $pii,
-           userId: $userId,
-           embedding: $embedding,
-           recorder: $recorder
-         }`,
-        {
-          conv: conversationId,
-          seq: w.seq,
-          eps: w.turns.map((t) => new StringRecordId(String(t.id))),
-          text: texts[i],
-          occurredAt: new Date(w.turns[0].occurredAt as string),
-          pii: pii.length > 0 ? pii : undefined,
-          userId: userIds.length === 1 ? userIds[0] : undefined,
-          embedding: vectors[i],
-          recorder: SEGMENT_RECORDER,
-        },
-      );
-      result.segments += 1;
-    }
+      return {
+        conversationId,
+        seq: w.seq,
+        episodeIds: w.turns.map((t) => new StringRecordId(String(t.id))),
+        text: texts[i],
+        occurredAt: new Date(w.turns[0].occurredAt as string),
+        piiClass: pii.length > 0 ? pii : undefined,
+        userId: userIds.length === 1 ? userIds[0] : undefined,
+        embedding: vectors[i],
+        recorder: SEGMENT_RECORDER,
+      };
+    });
+    await db.query(`INSERT INTO episode_segment $rows`, { rows });
+    result.segments += rows.length;
   }
 }

@@ -94,10 +94,14 @@ describe('SegmentComposerService', () => {
     expect(
       queries.some((q) => q.sql.includes('DELETE episode_segment')),
     ).toBe(true);
-    const create = queries.find((q) => q.sql.includes('CREATE episode_segment'));
-    expect(create?.params?.recorder).toBe(SEGMENT_RECORDER);
-    expect(create?.params?.pii).toEqual(['phone']);
-    expect(String(create?.params?.text)).toContain('[2023-05-01] A: q1');
+    const insert = queries.find((q) =>
+      q.sql.includes('INSERT INTO episode_segment'),
+    );
+    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].recorder).toBe(SEGMENT_RECORDER);
+    expect(rows[0].piiClass).toEqual(['phone']);
+    expect(String(rows[0].text)).toContain('[2023-05-01] A: q1');
   });
 });
 
