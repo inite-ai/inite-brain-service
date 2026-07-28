@@ -5,6 +5,7 @@ import { traceSpan } from '../common/debug-trace';
 import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { EpisodeStoreService } from './episode-store.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 /**
  * The mention ingest path (`ingestMention`): free-text → LLM extraction → fact
@@ -41,6 +42,21 @@ export class MentionIngestService {
       // extraction, so an extractor failure or skip no longer loses the
       // turn forever. Non-fatal by contract; idempotent on retry.
       await this.episodes?.captureTurn(companyId, dto);
+
+      // Episode-only mode (INGEST_EPISODE_ONLY): capture the raw turn and
+      // stop — no LLM extraction, no fact persistence. The readable world
+      // is built later by the window deriver + segment composer over L0.
+      // LLM-free archive ingestion; requires the substrate flag to be on
+      // to be useful.
+      if (envFlagEnabled(process.env.INGEST_EPISODE_ONLY)) {
+        this.metrics?.countIngestMention('skipped');
+        return {
+          skipped: true,
+          reason: 'episode_only',
+          extractedEntityIds: [],
+          extractedFactIds: [],
+        };
+      }
 
       const prep = await this.extraction.prepare(companyId, dto);
       if (prep.skip) {

@@ -431,6 +431,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',
+  // Eval-harness primitives: per-call tenant override for admin keys
+  // (X-Brain-Tenant) and LLM-free episode-only ingestion.
+  'BRAIN_TENANT_OVERRIDE_ENABLED',
+  'INGEST_EPISODE_ONLY',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',

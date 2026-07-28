@@ -277,6 +277,7 @@ export class MultiHopChainService {
       answer: synth.answer,
       reason: synth.reason,
       citations: synth.citations,
+      ...(synth.tokenUsage ? { tokenUsage: synth.tokenUsage } : {}),
     };
   }
 

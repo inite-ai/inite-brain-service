@@ -72,11 +72,25 @@ export interface SynthesizeResult {
    * rejection reason. See `decision-log.ts`.
    */
   decisionLog?: DecisionLogEntry[];
+  /**
+   * Generator-call token cost. The context-minimization axis is only
+   * manageable if every leg reports it — evidence budgets that grow
+   * silently (facts, segments, unions) show up here first.
+   */
+  tokenUsage?: TokenUsage;
+}
+
+/** Prompt/completion cost of one LLM call, surfaced for token accounting. */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
 }
 
 interface GeneratorOutput {
   answer: string;
   citedFactIds: string[];
+  /** Generator-call usage, when the provider reported it. */
+  usage?: TokenUsage;
 }
 
 /**
@@ -365,7 +379,12 @@ export class SynthesizeService {
     if (guardrails === 'off' || guardrails === 'answer') {
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
-        { answer: generated.answer, citations, results },
+        {
+          answer: generated.answer,
+          citations,
+          results,
+          ...(generated.usage ? { tokenUsage: generated.usage } : {}),
+        },
         decisionLog,
       );
     }
@@ -625,6 +644,12 @@ export class SynthesizeService {
     }
     if (!Array.isArray(parsed.citedFactIds)) {
       parsed.citedFactIds = [];
+    }
+    if (res.usage) {
+      parsed.usage = {
+        promptTokens: res.usage.prompt_tokens ?? 0,
+        completionTokens: res.usage.completion_tokens ?? 0,
+      };
     }
     traceArtifact('synthesize.generator_output', parsed);
     return parsed;

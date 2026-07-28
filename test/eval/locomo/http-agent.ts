@@ -55,7 +55,11 @@ export function createHttpQaAgent(
           synthesisGuardrails: guardrails,
           asOf,
         });
-        return res.synthesis?.answer ?? '';
+        return {
+          answer: res.synthesis?.answer ?? '',
+          promptTokens: res.synthesis?.tokenUsage?.promptTokens,
+          completionTokens: res.synthesis?.tokenUsage?.completionTokens,
+        };
       }
       const synth = await client.synthesize({
         query: question,
@@ -63,7 +67,11 @@ export function createHttpQaAgent(
         synthesisGuardrails: guardrails,
         asOf,
       });
-      return synth.answer ?? '';
+      return {
+        answer: synth.answer ?? '',
+        promptTokens: synth.tokenUsage?.promptTokens,
+        completionTokens: synth.tokenUsage?.completionTokens,
+      };
     },
   };
 }

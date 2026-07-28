@@ -298,6 +298,12 @@ function printReport(report: RunReport, out: string): void {
   console.error(
     `adversarial (cat 5, n=${report.adversarial.n}) — correct = abstain: ${pct(report.adversarial.abstentionRate)} abstention`,
   );
+  if (report.tokens) {
+    const t = report.tokens;
+    console.error(
+      `tokens/question (n=${t.reportedN}): prompt avg ${t.avgPromptTokens} p90 ${t.p90PromptTokens} max ${t.maxPromptTokens}; completion avg ${t.avgCompletionTokens}; total prompt ${(t.totalPromptTokens / 1000).toFixed(0)}k`,
+    );
+  }
   console.error('');
   console.error('per category:');
   for (const c of report.perCategory) {

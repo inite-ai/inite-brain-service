@@ -47,13 +47,18 @@ export function isAbstention(prediction: string): boolean {
   return isRefusal(prediction);
 }
 
+/** Agents may return a bare answer string or an answer with token cost. */
+export type AgentAnswer =
+  | string
+  | { answer: string; promptTokens?: number; completionTokens?: number };
+
 export interface QaAgent {
   /** companyId is the per-sample brain tenant the conversation lives in. */
   answer(input: {
     companyId: string;
     question: string;
     asOf?: string;
-  }): Promise<string>;
+  }): Promise<AgentAnswer>;
 }
 
 export interface QuestionScore {
@@ -74,6 +79,20 @@ export interface QuestionScore {
   judgeCorrect?: boolean;
   /** Judge error message — recorded, never fails the run. */
   judgeErrored?: string;
+  /** Generator prompt tokens for this question, when the agent reports it. */
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
+/** Per-run token accounting — the context-minimization axis. */
+export interface TokenSummary {
+  /** Questions that carried usage (others ran through agents that don't report it). */
+  reportedN: number;
+  avgPromptTokens: number;
+  p90PromptTokens: number;
+  maxPromptTokens: number;
+  avgCompletionTokens: number;
+  totalPromptTokens: number;
 }
 
 export interface CategorySummary {
@@ -106,6 +125,8 @@ export interface AdversarialSummary {
 export interface RunReport {
   generatedAt: string;
   totalQuestions: number;
+  /** Per-question generator token accounting, when agents report usage. */
+  tokens?: TokenSummary;
   /**
    * Headline metrics over the ANSWERABLE categories (1-4) only.
    * `n` is the count of cat1-4 questions, not the grand total — this is
@@ -268,9 +289,11 @@ async function scoreQuestion(
   timeoutMs = 60_000,
 ): Promise<QuestionScore> {
   let prediction = '';
+  let promptTokens: number | undefined;
+  let completionTokens: number | undefined;
   let errored: string | undefined;
   try {
-    prediction = await withTimeout(
+    const raw = await withTimeout(
       agent.answer({
         companyId,
         question: q.question,
@@ -282,6 +305,13 @@ async function scoreQuestion(
       }),
       timeoutMs,
     );
+    if (typeof raw === 'string') {
+      prediction = raw;
+    } else {
+      prediction = raw.answer;
+      promptTokens = raw.promptTokens;
+      completionTokens = raw.completionTokens;
+    }
   } catch (e) {
     errored = (e as Error).message;
   }
@@ -308,6 +338,34 @@ async function scoreQuestion(
     // genuine (non-errored) empty/refusal answer counts as an abstention.
     abstained: errored ? false : isAbstention(pred),
     errored,
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completionTokens } : {}),
+  };
+}
+
+/** Aggregate per-question usage into the run-level token summary. */
+export function summarizeTokens(
+  scores: QuestionScore[],
+): TokenSummary | undefined {
+  const reported = scores.filter((s) => s.promptTokens !== undefined);
+  if (reported.length === 0) return undefined;
+  const prompts = reported
+    .map((s) => s.promptTokens as number)
+    .sort((a, b) => a - b);
+  const sum = prompts.reduce((a, b) => a + b, 0);
+  return {
+    reportedN: reported.length,
+    avgPromptTokens: Math.round(sum / reported.length),
+    p90PromptTokens: prompts[Math.min(
+      prompts.length - 1,
+      Math.floor(prompts.length * 0.9),
+    )],
+    maxPromptTokens: prompts[prompts.length - 1],
+    avgCompletionTokens: Math.round(
+      reported.reduce((a, s) => a + (s.completionTokens ?? 0), 0) /
+        reported.length,
+    ),
+    totalPromptTokens: sum,
   };
 }
 
@@ -363,6 +421,7 @@ function summarize(scores: QuestionScore[]): RunReport {
   return {
     generatedAt: new Date().toISOString(),
     totalQuestions: scores.length,
+    tokens: summarizeTokens(scores),
     overall: {
       n: answerable.length,
       f1: mean(answerable, (s) => s.f1),

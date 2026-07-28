@@ -68,6 +68,7 @@ export interface EvalSynthesizeResponse {
   reason?: string;
   citations: EvalCitation[];
   results: EvalSearchHit[];
+  tokenUsage?: { promptTokens: number; completionTokens: number };
   [k: string]: unknown;
 }
 
@@ -195,6 +196,7 @@ export interface EvalMultiHopResponse {
     answer: string | null;
     reason?: string;
     citations: EvalCitation[];
+    tokenUsage?: { promptTokens: number; completionTokens: number };
   };
   [k: string]: unknown;
 }

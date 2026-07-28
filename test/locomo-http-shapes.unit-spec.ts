@@ -153,7 +153,9 @@ describe('LoCoMo HTTP shapes', () => {
       question: 'What did Alice buy in May?',
       asOf: '2023-06-01T00:00:00.000Z',
     });
-    expect(answer).toBe('Alice bought a cat in May 2023.');
+    expect(
+      typeof answer === 'string' ? answer : answer.answer,
+    ).toBe('Alice bought a cat in May 2023.');
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('http://brain/v1/search/multi-hop');
     expect(calls[0].body).toMatchObject({
@@ -181,7 +183,9 @@ describe('LoCoMo HTTP shapes', () => {
       companyId: 'ignored',
       question: 'unanswerable adversarial',
     });
-    expect(answer).toBe('no information available');
+    expect(
+      typeof answer === 'string' ? answer : answer.answer,
+    ).toBe('no information available');
     expect(calls[0].url).toBe('http://brain/v1/synthesize');
   });
 });
