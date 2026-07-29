@@ -138,39 +138,66 @@ describe('runWorlds', () => {
 
   interface RecordedCall {
     url: string;
+    tenant?: string;
     body: Record<string, any>;
   }
 
-  function fakeFetch(calls: RecordedCall[]): typeof fetch {
-    return (async (url: any, init?: any) => {
-      const body = init?.body ? JSON.parse(init.body) : {};
-      calls.push({ url: String(url), body });
-      const payload = String(url).includes('multi-hop')
-        ? { synthesis: { answer: 'no information about that', tokenUsage: { promptTokens: 42 } } }
-        : { propositions: 1, segments: 1 };
-      return {
-        ok: true,
-        json: async () => payload,
-      } as Response;
-    }) as typeof fetch;
-  }
+  // A REAL loopback HTTP server, not a fetch mock — the client is
+  // node:http (undici's 5-min headers timeout killed live derive calls),
+  // and a live run proved transport-level fakes hide wire bugs.
+  const calls: RecordedCall[] = [];
+  let server: import('node:http').Server;
+  let brainUrl = '';
 
-  const realFetch = global.fetch;
-  afterEach(() => {
-    global.fetch = realFetch;
+  beforeAll(async () => {
+    const { createServer } = await import('node:http');
+    server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const body = chunks.length
+          ? JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+          : {};
+        calls.push({
+          url: req.url ?? '',
+          tenant: req.headers['x-brain-tenant'] as string | undefined,
+          body,
+        });
+        const payload = (req.url ?? '').includes('multi-hop')
+          ? {
+              synthesis: {
+                answer: 'no information about that',
+                tokenUsage: { promptTokens: 42 },
+              },
+            }
+          : { propositions: 1, segments: 1 };
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(payload));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const addr = server.address() as { port: number };
+    brainUrl = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  beforeEach(() => {
+    calls.length = 0;
   });
 
   it('ingests with protocol invariants and scores abstention', async () => {
-    const calls: RecordedCall[] = [];
-    global.fetch = fakeFetch(calls);
     const { scores } = await runWorlds('lme', [world], {
-      brainUrl: 'http://brain',
+      brainUrl,
       apiKey: 'k',
       derivedVersion: 'wd-v2',
       concurrency: 1,
       skipIngest: false,
       log: () => undefined,
     });
+    expect(calls.every((c) => c.tenant === 't1')).toBe(true);
 
     // Live-run finding: /v1/ingest/fact REJECTS bodies without an ISO
     // validFrom (fake fetch can't see DTO validation — this pin can).
@@ -214,10 +241,8 @@ describe('runWorlds', () => {
       abstained: false,
       judgeCorrect: true,
     });
-    const calls: RecordedCall[] = [];
-    global.fetch = fakeFetch(calls);
     const { scores, checkpointed } = await runWorlds('lme', [world], {
-      brainUrl: 'http://brain',
+      brainUrl,
       apiKey: 'k',
       derivedVersion: 'wd-v2',
       concurrency: 1,
