@@ -256,6 +256,40 @@ describe('runWorlds', () => {
   });
 });
 
+describe('TenantClient retries', () => {
+  it('retries transient 5xx and succeeds; fails fast on 400', async () => {
+    const { createServer } = await import('node:http');
+    const { TenantClient } = await import('../test/eval/harness/tenant-client');
+    let flaky = 0;
+    const srv = createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url === '/flaky') {
+        flaky += 1;
+        if (flaky <= 2) {
+          res.statusCode = 500;
+          res.end('{"boom":true}');
+          return;
+        }
+        res.end('{"ok":true}');
+        return;
+      }
+      res.statusCode = 400; // contract error — must NOT retry
+      res.end('{"bad":true}');
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const { port } = srv.address() as { port: number };
+    const client = new TenantClient(`http://127.0.0.1:${port}`, 'k', 't');
+    try {
+      const out = await client.call<{ ok: boolean }>('POST', '/flaky', {});
+      expect(out.ok).toBe(true);
+      expect(flaky).toBe(3); // two 500s retried, third succeeded
+      await expect(client.call('POST', '/bad', {})).rejects.toThrow('HTTP 400');
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  }, 90_000); // retry backoff is 2s+6s
+});
+
 describe('estimateHaystackTokens', () => {
   it('approximates chars/4 across worlds', () => {
     const worlds = [
