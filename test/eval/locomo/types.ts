@@ -51,13 +51,13 @@ export interface LocomoSession {
 }
 
 export type LocomoQACategory =
-  /** category 1 — single-hop: answer is in one turn. */
+  /** category 1 — multi-hop: requires joining evidence across turns. */
   | 1
-  /** category 2 — multi-hop: requires joining evidence across turns. */
+  /** category 2 — temporal: requires reasoning about WHEN something happened. */
   | 2
-  /** category 3 — temporal: requires reasoning about WHEN something happened. */
+  /** category 3 — open-domain: requires commonsense beyond what's in the conversation. */
   | 3
-  /** category 4 — open-domain: requires commonsense beyond what's in the conversation. */
+  /** category 4 — single-hop: answer is in one turn. */
   | 4
   /**
    * category 5 — adversarial: the question presupposes something the
@@ -105,4 +105,21 @@ export interface NormalizedConversation {
   speakerB: string;
   sessions: LocomoSession[];
   qa: LocomoQuestion[];
+}
+
+/**
+ * The VERIFIED category mapping (checked against dataset counts — see
+ * docs/eval-protocol.md rule 1; mem0-lineage harnesses ship it shifted).
+ * Single source of truth for every runner, baseline, and compare script.
+ */
+export const LOCOMO_CATEGORY_NAMES: Record<number, string> = {
+  1: 'multi-hop',
+  2: 'temporal',
+  3: 'open-domain',
+  4: 'single-hop',
+  5: 'adversarial',
+};
+
+export function categoryLabel(category: number): string {
+  return LOCOMO_CATEGORY_NAMES[category] ?? `category-${category}`;
 }

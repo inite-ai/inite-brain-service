@@ -46,11 +46,13 @@ import {
   createHttpAgenticAgent,
 } from '../test/eval/locomo/http-agent';
 import { createClaudeMcpAgent } from '../test/eval/locomo/claude-agent';
+import { categoryLabel } from '../test/eval/locomo/types';
 import { HttpBrainClient } from '../test/eval/http-brain-client';
+import { parseFlags } from '../test/eval/harness/flags';
 
 type AgentKind = 'http' | 'claude-mcp' | 'agentic';
 
-interface Args {
+interface Args extends Record<string, unknown> {
   dataset: string;
   brainUrl: string;
   apiKey: string;
@@ -83,10 +85,34 @@ interface Args {
   openaiApiKey?: string;
   /** Re-grade a previously written report offline (no ingest / no QA). */
   judgeReport?: string;
+  /** JSONL checkpoint: finished questions survive quota deaths / OOMs. */
+  resume?: string;
 }
 
+const FLAGS = {
+  '--dataset': { key: 'dataset', type: 'string' },
+  '--brain-url': { key: 'brainUrl', type: 'string' },
+  '--api-key': { key: 'apiKey', type: 'string' },
+  '--out': { key: 'out', type: 'string' },
+  '--samples': { key: 'samples', type: 'int' },
+  '--sample-offset': { key: 'sampleOffset', type: 'int' },
+  '--max-questions': { key: 'maxQuestions', type: 'int' },
+  '--qa-timeout-ms': { key: 'qaTimeoutMs', type: 'int' },
+  '--ingest-concurrency': { key: 'ingestConcurrency', type: 'int' },
+  '--qa-concurrency': { key: 'qaConcurrency', type: 'int' },
+  '--skip-ingest': { key: 'skipIngest', type: 'bool' },
+  '--agent': { key: 'agent', type: 'string' },
+  '--agent-model': { key: 'agentModel', type: 'string' },
+  '--company-id': { key: 'companyId', type: 'string' },
+  '--judge': { key: 'judge', type: 'bool' },
+  '--judge-model': { key: 'judgeModel', type: 'string' },
+  '--judge-report': { key: 'judgeReport', type: 'string' },
+  '--resume': { key: 'resume', type: 'string' },
+} as const;
+
 function parseArgs(argv: string[]): Args {
-  const args: Partial<Args> = {
+  const args = parseFlags<Args>(argv, FLAGS, {
+    dataset: '',
     brainUrl: process.env.BRAIN_URL ?? 'http://localhost:3000',
     apiKey: process.env.BRAIN_API_KEY ?? 'local-dev-key',
     out: 'locomo-report.json',
@@ -98,31 +124,7 @@ function parseArgs(argv: string[]): Args {
     judge: false,
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
     openaiApiKey: process.env.OPENAI_API_KEY,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const next = argv[i + 1];
-    if (a === '--dataset') (args.dataset = next), i++;
-    else if (a === '--brain-url') (args.brainUrl = next), i++;
-    else if (a === '--api-key') (args.apiKey = next), i++;
-    else if (a === '--out') (args.out = next), i++;
-    else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
-    else if (a === '--sample-offset')
-      (args.sampleOffset = parseInt(next, 10)), i++;
-    else if (a === '--max-questions') (args.maxQuestions = parseInt(next, 10)), i++;
-    else if (a === '--qa-timeout-ms') (args.qaTimeoutMs = parseInt(next, 10)), i++;
-    else if (a === '--ingest-concurrency')
-      (args.ingestConcurrency = parseInt(next, 10)), i++;
-    else if (a === '--qa-concurrency')
-      (args.qaConcurrency = parseInt(next, 10)), i++;
-    else if (a === '--skip-ingest') args.skipIngest = true;
-    else if (a === '--agent') (args.agent = next as AgentKind), i++;
-    else if (a === '--agent-model') (args.agentModel = next), i++;
-    else if (a === '--company-id') (args.companyId = next), i++;
-    else if (a === '--judge') args.judge = true;
-    else if (a === '--judge-model') (args.judgeModel = next), i++;
-    else if (a === '--judge-report') (args.judgeReport = next), i++;
-  }
+  });
   // --judge-report re-grades an existing report offline; it needs no dataset.
   if (!args.dataset && !args.judgeReport) {
     throw new Error('missing --dataset path/to/locomo10.json');
@@ -142,7 +144,7 @@ function parseArgs(argv: string[]): Args {
       );
     }
   }
-  return args as Args;
+  return args;
 }
 
 async function main() {
@@ -253,6 +255,7 @@ async function main() {
     maxQuestions: args.maxQuestions,
     perQuestionTimeoutMs: args.qaTimeoutMs,
     qaConcurrency: args.qaConcurrency,
+    resume: args.resume,
     onProgress: (done, total) => {
       if (done % 10 === 0 || done === total) {
         console.error(`[locomo:qa] ${done}/${total}`);
@@ -322,18 +325,6 @@ function printReport(report: RunReport, out: string): void {
 
 function pct(x: number): string {
   return `${(x * 100).toFixed(1)}%`;
-}
-
-function categoryLabel(c: number): string {
-  return (
-    {
-      1: 'multi-hop',
-      2: 'temporal',
-      3: 'open-domain',
-      4: 'single-hop',
-      5: 'adversarial',
-    } as Record<number, string>
-  )[c] ?? `category-${c}`;
 }
 
 main().catch((e) => {

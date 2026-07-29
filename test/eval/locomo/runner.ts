@@ -28,6 +28,8 @@ import {
   isRefusal,
 } from './metrics';
 import type { LlmJudge } from './judge';
+import { runPool } from '../harness/pool';
+import { loadCheckpoint, appendCheckpoint } from '../checkpoint';
 
 /** LoCoMo category id for adversarial (unanswerable) questions. */
 const ADVERSARIAL_CATEGORY = 5;
@@ -181,6 +183,15 @@ export async function runLocomo(
      * deterministic regardless of completion order.
      */
     qaConcurrency?: number;
+    /**
+     * JSONL checkpoint path: finished questions are appended as they
+     * complete and skipped on rerun, so a quota death or stand OOM
+     * mid-run costs nothing. Keyed by content (sample+category+question),
+     * so the same file is valid across --samples/--max-questions slices.
+     * Errored rows (and judge-failed rows when the judge is on) are NOT
+     * checkpointed — a resume retries them.
+     */
+    resume?: string;
   } = {},
 ): Promise<RunReport> {
   const grand = conversations.reduce((a, c) => a + c.qa.length, 0);
@@ -206,30 +217,55 @@ export async function runLocomo(
     }
   }
 
+  const restored = await loadCheckpoint<QuestionScore>(
+    options.resume,
+    scoreKey,
+  );
   const scores: QuestionScore[] = new Array(work.length);
   let done = 0;
-  let cursor = 0;
-  const concurrency = Math.max(1, options.qaConcurrency ?? 1);
 
-  const worker = async (): Promise<void> => {
-    while (cursor < work.length) {
-      const idx = cursor++;
-      const { conv, companyId, q } = work[idx];
-      const score = await scoreQuestion(
-        agent,
-        companyId,
-        conv,
-        q,
-        options.perQuestionTimeoutMs,
-      );
-      if (options.judge) await applyJudge(options.judge, score);
-      scores[idx] = score; // preserve load order regardless of finish order
+  await runPool(options.qaConcurrency ?? 1, work, async (item, idx) => {
+    const { conv, companyId, q } = item;
+    const prior = restored.get(
+      scoreKey({ sampleId: conv.sampleId, category: q.category, question: q.question }),
+    );
+    if (prior) {
+      scores[idx] = prior; // preserve load order regardless of finish order
       done += 1;
       options.onProgress?.(done, total);
+      return;
     }
-  };
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    const score = await scoreQuestion(
+      agent,
+      companyId,
+      conv,
+      q,
+      options.perQuestionTimeoutMs,
+    );
+    if (options.judge) await applyJudge(options.judge, score);
+    scores[idx] = score;
+    // A row is checkpointed only when complete for this run's config:
+    // never on an errored answer, and — with the judge on — never on a
+    // failed grade, so a resume retries instead of freezing the gap.
+    if (
+      !score.errored &&
+      (!options.judge || score.judgeCorrect !== undefined)
+    ) {
+      await appendCheckpoint(options.resume, score);
+    }
+    done += 1;
+    options.onProgress?.(done, total);
+  });
   return summarize(scores);
+}
+
+/** Content-addressed checkpoint key — stable across dataset slices. */
+function scoreKey(s: {
+  sampleId: string;
+  category: number;
+  question: string;
+}): string {
+  return `${s.sampleId}::${s.category}::${s.question}`;
 }
 
 /**

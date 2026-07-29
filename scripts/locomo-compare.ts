@@ -12,13 +12,11 @@
  * are directly comparable to the report's own `overall.judgeAccuracy`.
  */
 import * as fs from 'node:fs';
+import { LOCOMO_CATEGORY_NAMES } from '../test/eval/locomo/types';
 
-const CATEGORY_NAMES: Record<number, string> = {
-  1: 'multi-hop',
-  2: 'temporal',
-  3: 'open-domain',
-  4: 'single-hop',
-};
+const CATEGORY_NAMES: Record<number, string> = Object.fromEntries(
+  Object.entries(LOCOMO_CATEGORY_NAMES).filter(([cat]) => cat !== '5'),
+);
 
 interface Score {
   sampleId: string;

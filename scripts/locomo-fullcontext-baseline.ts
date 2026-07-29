@@ -27,12 +27,16 @@ import { promises as fs } from 'node:fs';
 import OpenAI from 'openai';
 import { loadLocomoDataset } from '../test/eval/locomo/loader';
 import { createOpenAiJudge } from '../test/eval/locomo/judge';
-import type {
-  NormalizedConversation,
-  LocomoQuestion,
+import {
+  LOCOMO_CATEGORY_NAMES,
+  type NormalizedConversation,
+  type LocomoQuestion,
 } from '../test/eval/locomo/types';
+import { parseFlags } from '../test/eval/harness/flags';
+import { runPool } from '../test/eval/harness/pool';
+import { loadCheckpoint, appendCheckpoint } from '../test/eval/checkpoint';
 
-interface Args {
+interface Args extends Record<string, unknown> {
   dataset: string;
   samples?: number;
   /** Skip the first N conversations before --samples (held-out block). */
@@ -45,10 +49,25 @@ interface Args {
   openaiApiKey?: string;
   /** Include cat5 (adversarial) in the run — scored as abstention, not headline. */
   includeAdversarial: boolean;
+  /** JSONL checkpoint: finished questions survive quota deaths. */
+  resume?: string;
 }
 
+const FLAGS = {
+  '--dataset': { key: 'dataset', type: 'string' },
+  '--samples': { key: 'samples', type: 'int' },
+  '--sample-offset': { key: 'sampleOffset', type: 'int' },
+  '--max-questions': { key: 'maxQuestions', type: 'int' },
+  '--model': { key: 'model', type: 'string' },
+  '--judge-model': { key: 'judgeModel', type: 'string' },
+  '--concurrency': { key: 'concurrency', type: 'int' },
+  '--out': { key: 'out', type: 'string' },
+  '--include-adversarial': { key: 'includeAdversarial', type: 'bool' },
+  '--resume': { key: 'resume', type: 'string' },
+} as const;
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = {
+  const args = parseFlags<Args>(argv, FLAGS, {
     dataset: '',
     model: process.env.LOCOMO_FC_MODEL ?? 'gpt-4o-mini',
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
@@ -56,21 +75,7 @@ function parseArgs(argv: string[]): Args {
     out: 'locomo-fullcontext.json',
     openaiApiKey: process.env.OPENAI_API_KEY,
     includeAdversarial: false,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const next = argv[i + 1];
-    if (a === '--dataset') (args.dataset = next), i++;
-    else if (a === '--samples') (args.samples = parseInt(next, 10)), i++;
-    else if (a === '--sample-offset')
-      (args.sampleOffset = parseInt(next, 10)), i++;
-    else if (a === '--max-questions') (args.maxQuestions = parseInt(next, 10)), i++;
-    else if (a === '--model') (args.model = next), i++;
-    else if (a === '--judge-model') (args.judgeModel = next), i++;
-    else if (a === '--concurrency') (args.concurrency = parseInt(next, 10)), i++;
-    else if (a === '--out') (args.out = next), i++;
-    else if (a === '--include-adversarial') args.includeAdversarial = true;
-  }
+  });
   if (!args.dataset) throw new Error('missing --dataset path/to/locomo10.json');
   if (!args.openaiApiKey) throw new Error('OPENAI_API_KEY env required');
   return args;
@@ -165,59 +170,63 @@ async function main() {
       `model=${args.model} judge=${args.judgeModel} concurrency=${args.concurrency}`,
   );
 
+  const restored = await loadCheckpoint<Scored>(
+    args.resume,
+    (s) => `${s.sampleId}::${s.category}::${s.question}`,
+  );
   const scored: Scored[] = new Array(work.length);
   let done = 0;
-  let cursor = 0;
 
-  async function worker(): Promise<void> {
-    while (cursor < work.length) {
-      const idx = cursor++;
-      const it = work[idx];
-      const prediction = await withRetry(async () => {
-        const res = await client.chat.completions.create({
-          model: args.model,
-          messages: [
-            { role: 'system', content: SYSTEM(it.speakerA, it.speakerB) },
-            {
-              role: 'user',
-              content: `${it.transcript}\n\nQuestion: ${it.q.question}\nAnswer:`,
-            },
-          ],
-          max_completion_tokens: 300,
-          temperature: 0,
-        });
-        return res.choices?.[0]?.message?.content?.trim() ?? '';
-      }, `answer[${it.sampleId}#${idx}]`);
-
-      const { correct } = await withRetry(
-        () =>
-          judge.grade({
-            question: it.q.question,
-            gold: it.q.answer,
-            prediction,
-            category: it.q.category,
-          }),
-        `judge[${it.sampleId}#${idx}]`,
-      );
-
-      scored[idx] = {
-        sampleId: it.sampleId,
-        category: it.q.category,
-        question: it.q.question,
-        gold: it.q.answer,
-        prediction,
-        correct,
-      };
+  await runPool(args.concurrency, work, async (it, idx) => {
+    const prior = restored.get(
+      `${it.sampleId}::${it.q.category}::${it.q.question}`,
+    );
+    if (prior) {
+      scored[idx] = prior;
       done++;
-      if (done % 20 === 0 || done === work.length) {
-        console.error(`[fc] ${done}/${work.length}`);
-      }
+      return;
     }
-  }
+    const prediction = await withRetry(async () => {
+      const res = await client.chat.completions.create({
+        model: args.model,
+        messages: [
+          { role: 'system', content: SYSTEM(it.speakerA, it.speakerB) },
+          {
+            role: 'user',
+            content: `${it.transcript}\n\nQuestion: ${it.q.question}\nAnswer:`,
+          },
+        ],
+        max_completion_tokens: 300,
+        temperature: 0,
+      });
+      return res.choices?.[0]?.message?.content?.trim() ?? '';
+    }, `answer[${it.sampleId}#${idx}]`);
 
-  await Promise.all(
-    Array.from({ length: Math.max(1, args.concurrency) }, () => worker()),
-  );
+    const { correct } = await withRetry(
+      () =>
+        judge.grade({
+          question: it.q.question,
+          gold: it.q.answer,
+          prediction,
+          category: it.q.category,
+        }),
+      `judge[${it.sampleId}#${idx}]`,
+    );
+
+    scored[idx] = {
+      sampleId: it.sampleId,
+      category: it.q.category,
+      question: it.q.question,
+      gold: it.q.answer,
+      prediction,
+      correct,
+    };
+    await appendCheckpoint(args.resume, scored[idx]);
+    done++;
+    if (done % 20 === 0 || done === work.length) {
+      console.error(`[fc] ${done}/${work.length}`);
+    }
+  });
 
   // Aggregate: headline = cat1-4 judgeAccuracy; per-category and per-sample.
   const headline = scored.filter((s) => s.category >= 1 && s.category <= 4);
@@ -263,7 +272,7 @@ async function main() {
     `headline (cat1-4) judgeAccuracy: ${(report.headlineJudgeAccuracy * 100).toFixed(1)}%  (n=${headline.length})`,
   );
   for (const [cat, v] of Object.entries(byCategory)) {
-    const name = { '1': 'multi-hop', '2': 'temporal', '3': 'open-domain', '4': 'single-hop', '5': 'adversarial' }[cat];
+    const name = LOCOMO_CATEGORY_NAMES[Number(cat)];
     console.error(`  cat${cat} ${name?.padEnd(11)}: ${(v.acc * 100).toFixed(1)}%  (${v.correct}/${v.n})`);
   }
   console.error('  per-sample:');

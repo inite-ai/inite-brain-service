@@ -24,6 +24,7 @@
  * default HTTP sink doesn't dedupe.
  */
 import type { NormalizedConversation, LocomoTurn } from './types';
+import { runPool } from '../harness/pool';
 
 export interface IngestSink {
   /**
@@ -224,22 +225,8 @@ export async function executeIngest(
     opts.onDrop?.({ sourceMessageId: mention.sourceMessageId, error });
   };
 
-  if (concurrency === 1) {
-    for (const mention of plan.mentions) await ingestOne(mention);
-  } else {
-    // Bounded worker pool: `concurrency` workers pull from a shared cursor.
-    let cursor = 0;
-    const worker = async () => {
-      for (;;) {
-        const i = cursor++;
-        if (i >= plan.mentions.length) return;
-        await ingestOne(plan.mentions[i]);
-      }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(concurrency, plan.mentions.length) }, worker),
-    );
-  }
+  // concurrency 1 = serial, byte-identical to the original loop.
+  await runPool(concurrency, plan.mentions, ingestOne);
   return { ingested, dropped };
 }
 

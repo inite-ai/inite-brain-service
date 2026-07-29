@@ -75,12 +75,17 @@ async function ingestWorld(
   const roles = [
     ...new Set(world.sessions.flatMap((s) => s.turns.map((t) => t.role))),
   ];
+  // validFrom is REQUIRED by the ingest DTO (live-run finding: the fake-
+  // fetch specs can't see DTO validation) — earliest session date, same
+  // convention as the LoCoMo ingest sink.
+  const validFrom = world.sessions[0]?.dateIso ?? new Date(0).toISOString();
   for (const role of roles) {
     const name = speakerEntityName(world.conversationRef, role);
     await client.call('POST', '/v1/ingest/fact', {
       entityRef: { vertical: world.vertical, id: name, name, type: 'person' },
       predicate: 'name',
       object: name,
+      validFrom,
       source: { vertical: world.vertical, recorder: `${world.vertical}-harness` },
     });
   }

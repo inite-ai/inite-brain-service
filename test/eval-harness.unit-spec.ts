@@ -172,6 +172,14 @@ describe('runWorlds', () => {
       log: () => undefined,
     });
 
+    // Live-run finding: /v1/ingest/fact REJECTS bodies without an ISO
+    // validFrom (fake fetch can't see DTO validation — this pin can).
+    const facts = calls.filter((c) => c.url.includes('/v1/ingest/fact'));
+    expect(facts.length).toBeGreaterThan(0);
+    for (const f of facts) {
+      expect(f.body.validFrom).toBe('2023-05-20T02:21:00.000Z');
+    }
+
     const mentions = calls.filter((c) => c.url.includes('/v1/ingest/mention'));
     expect(mentions).toHaveLength(2);
     expect(mentions[0].body.text).toHaveLength(TURN_CHAR_CAP); // cap applied
