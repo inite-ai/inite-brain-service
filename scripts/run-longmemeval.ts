@@ -19,7 +19,10 @@
  *     scripts/run-longmemeval.ts --dataset /tmp/longmemeval_s.json \
  *     --brain-url http://localhost:3031 --api-key loco-dev-key \
  *     --samples 50 --question-concurrency 2 --judge \
- *     --out var/lme-baseline.json
+ *     --resume var/lme.ckpt.jsonl --out var/lme-baseline.json
+ *
+ * Full 500-question runs MUST pass --resume: every finished question is
+ * checkpointed to JSONL, so a quota death mid-run resumes for free.
  */
 import { promises as fs } from 'node:fs';
 import OpenAI from 'openai';
@@ -27,6 +30,8 @@ import {
   loadLongMemEval,
   LmeQuestion,
 } from '../test/eval/longmemeval/loader';
+import { ABSTAIN_RE } from '../test/eval/abstain';
+import { loadCheckpoint, appendCheckpoint } from '../test/eval/checkpoint';
 import { createOpenAiJudge } from '../test/eval/locomo/judge';
 
 interface Args {
@@ -45,6 +50,8 @@ interface Args {
   openaiApiKey?: string;
   /** Skip ingest+derive for tenants that already have the derived world. */
   skipIngest: boolean;
+  /** JSONL checkpoint: completed questions survive quota deaths (full run). */
+  resume?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -77,6 +84,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--judge') args.judge = true;
     else if (a === '--judge-model') (args.judgeModel = next), i++;
     else if (a === '--skip-ingest') args.skipIngest = true;
+    else if (a === '--resume') (args.resume = next), i++;
   }
   if (!args.dataset) throw new Error('missing --dataset longmemeval_s.json');
   if (args.judge && !args.openaiApiKey)
@@ -109,9 +117,6 @@ class TenantClient {
     return (await res.json()) as T;
   }
 }
-
-const ABSTAIN_RE =
-  /no (information|memory|data|record)|not (mentioned|available|enough)|(do not|don't) know|cannot (determine|find|answer)|unable to/i;
 
 interface LmeScore {
   questionId: string;
@@ -237,14 +242,32 @@ async function main() {
   if (args.types?.length) {
     picked = picked.filter((q) => args.types!.includes(q.questionType));
   }
+  const done = await loadCheckpoint<LmeScore>(
+    args.resume,
+    (s) => s.questionId,
+  );
+  const pickedTotal = picked.length;
+  picked = picked.filter((q) => !done.has(q.questionId));
+  const haystackChars = picked.reduce(
+    (a, q) =>
+      a +
+      q.sessions.reduce(
+        (b, s) => b + s.turns.reduce((t, u) => t + u.content.length, 0),
+        0,
+      ),
+    0,
+  );
   console.error(
-    `[lme] ${picked.length}/${all.length} questions, version=${args.derivedVersion}`,
+    `[lme] ${picked.length}/${all.length} questions ` +
+      `(${done.size ? `${pickedTotal - picked.length} checkpointed, ` : ''}` +
+      `~${Math.round(haystackChars / 4 / 1000)}k haystack tokens to ingest), ` +
+      `version=${args.derivedVersion}`,
   );
   const judge = args.judge
     ? createOpenAiJudge(new OpenAI({ apiKey: args.openaiApiKey }), args.judgeModel)
     : undefined;
 
-  const scores: LmeScore[] = [];
+  const scores: LmeScore[] = [...done.values()];
   let idx = 0;
   const workers = Array.from(
     { length: Math.max(1, args.questionConcurrency) },
@@ -261,12 +284,21 @@ async function main() {
           const s = await answerQuestion(args, q);
           if (judge && !q.isAbstention && !s.errored) {
             try {
-              s.judgeCorrect = await judge(q.question, s.gold, s.prediction);
+              s.judgeCorrect = (
+                await judge.grade({
+                  question: q.question,
+                  gold: s.gold,
+                  prediction: s.prediction,
+                  category: 0, // non-LoCoMo axis — prompt context only
+                })
+              ).correct;
             } catch (e) {
               console.error(`${tag} judge error: ${(e as Error).message}`);
             }
           }
           scores.push(s);
+          // Errored scores are NOT checkpointed — a resume retries them.
+          if (!s.errored) await appendCheckpoint(args.resume, s);
           console.error(
             `${tag} ${s.errored ? 'ERROR' : q.isAbstention ? `abstain=${s.abstained}` : `judge=${s.judgeCorrect}`}`,
           );

@@ -975,6 +975,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Derived-namespace pin (substrate P3): read only facts stamped with this derivedVersion (e.g. wd-v2, written by POST /v1/admin/maintenance/derive). Unset = legacy namespace only (facts without a version). Switching the value switches the whole retrieval world atomically.',
       },
       {
+        key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Allow an admin-scoped key to address another tenant via the X-Brain-Tenant header (slug-validated). Built for eval harnesses needing per-question tenant isolation (LongMemEval/BEAM: one haystack per tenant) without minting hundreds of keys. Never enable in multi-tenant prod without a policy review.',
+      },
+      {
+        key: 'INGEST_EPISODE_ONLY',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Mention ingest captures the raw episode and returns before LLM extraction — the derived world is then built in batch by POST /v1/admin/maintenance/derive. LLM-free ingest for eval harnesses and bulk backfills; requires EPISODE_SUBSTRATE_ENABLED.',
+      },
+      {
         key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
         category: 'embedder',
         defaultValue: '0',

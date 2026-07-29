@@ -1,8 +1,16 @@
 # Memory evaluation protocol
 
-How we measure long-term conversational memory (LoCoMo + LongMemEval), and
-why our numbers are deliberately harder to inflate than most published
-results. Written to be shared with evaluation partners.
+How we measure long-term conversational memory (LoCoMo + LongMemEval +
+BEAM), and why our numbers are deliberately harder to inflate than most
+published results. Written to be shared with evaluation partners.
+
+The three axes are deliberately orthogonal:
+
+| Axis | Benchmark | Haystack | What it isolates |
+|---|---|---|---|
+| Representation quality | LoCoMo (10 conv, 16–26k tok) | fits context | does derived memory beat reading the transcript? |
+| Capacity | LongMemEval-S (500 q × ~115k tok) | larger than comfortable | does accuracy survive when full-context stops being viable? |
+| Scale decay | BEAM (90 conv, 100K/500K/1M tok tiers) | far beyond context | how fast does accuracy decay as the haystack grows 10×? |
 
 ## Why a strict protocol
 
@@ -94,12 +102,53 @@ Harness design:
 - **Reporting**: accuracy per question type (6 types), abstention rate
   on the `_abs` subset, per-question token accounting, error counts.
   Same strict judge as the LoCoMo axis.
+- **Checkpointed full runs**: every finished question is appended to a
+  JSONL checkpoint; the full 500-question run survives quota deaths and
+  resumes for free, and errored questions are always retried rather than
+  silently counted.
+
+## BEAM axis — scale decay (added 2026-07-29)
+
+BEAM (ICLR 2026, arXiv 2510.27246): 100 auto-generated but
+human-validated conversations probed by 2,000 questions across **ten
+memory abilities** (abstention, contradiction resolution, event
+ordering, information extraction, instruction following, knowledge
+update, multi-session reasoning, preference following, summarization,
+temporal reasoning). Conversations come in token tiers — 20 × 100K,
+35 × 500K, 35 × 1M (plus a separately-shaped 10 × 10M tier we do not
+run yet) — so the same system can be measured per tier and the
+*decay curve* reported, not a single blended number. At these sizes
+full-context baselines are not runnable at all; the comparison is
+across tiers and across memory systems under the same protocol.
+
+Harness design (mirrors the LongMemEval axis):
+
+- **Per-conversation tenant isolation** via the same admin-scoped
+  per-call tenant override; one haystack = one world.
+- **LLM-free ingestion** into the episode substrate; 60–70-turn BEAM
+  sessions are chunked into 20-turn sub-sessions at ingest time so each
+  batch derivation call sees a bounded transcript.
+- **Gold + rubric judging**: BEAM ships an ideal answer plus a rubric
+  of key points per question (compliance indicators for the two
+  "following" abilities); the judge receives both. We keep our strict
+  binary judge — the official BEAM protocol grades on a numeric scale,
+  so our numbers are the harsher reading, stated as such.
+- **Abstention** scored as decline-detection with the same convention
+  as LongMemEval's `_abs` subset (shared regex, one implementation).
+- **Reporting**: accuracy per ability × per tier, abstention rate,
+  per-question token accounting, error counts, JSONL checkpointing for
+  resumable paid runs.
+
+Reproduction: `scripts/fetch-beam-dataset.py --split 100K` normalizes
+the published parquet (Python-literal question strings, per-ability
+gold keys) into a pinned JSON; `scripts/run-beam.ts` runs the axis.
 
 ## Sharing and comparability
 
-For any joint evaluation we propose pinning, per leg: dataset file hash,
-category mapping, judge model + prompt, answer model, denominator rules,
-abstention convention, and paired-test methodology — before any numbers
-are exchanged. We are happy to run partner systems through this harness
+For any joint evaluation we propose pinning, per leg: dataset file hash
+(for BEAM: the normalizer script version too), category/ability mapping,
+judge model + prompt, answer model, denominator rules, abstention
+convention, and paired-test methodology — before any numbers are
+exchanged. We are happy to run partner systems through this harness
 and/or re-run ours through theirs; under matched protocols, deltas are
 meaningful — absolute numbers alone are not.
