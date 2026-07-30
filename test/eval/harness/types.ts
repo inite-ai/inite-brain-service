@@ -40,6 +40,14 @@ export interface EvalWorld {
   vertical: string;
   sessions: EvalSession[];
   questions: EvalQuestion[];
+  /**
+   * Resolve benchmark first-person questions ("Have I…", "my project")
+   * to the speaker entity the deriver attributed everything to. When
+   * set, the driver appends a persona note to each query — production
+   * callers carry the same information as userId context, so this is
+   * protocol-honest, not a hint leak.
+   */
+  personaHint?: boolean;
 }
 
 export interface EvalScore {

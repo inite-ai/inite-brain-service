@@ -55,6 +55,8 @@ interface Args extends Record<string, unknown> {
   judgeModel: string;
   skipIngest: boolean;
   resume?: string;
+  /** Resolve first-person questions to the speaker entity (B2 leg). */
+  personaHint: boolean;
 }
 
 const FLAGS = {
@@ -71,9 +73,14 @@ const FLAGS = {
   '--judge-model': { key: 'judgeModel', type: 'string' },
   '--skip-ingest': { key: 'skipIngest', type: 'bool' },
   '--resume': { key: 'resume', type: 'string' },
+  '--persona-hint': { key: 'personaHint', type: 'bool' },
 } as const;
 
-function toWorld(conv: BeamConversation, abilities?: string[]): EvalWorld {
+function toWorld(
+  conv: BeamConversation,
+  abilities: string[] | undefined,
+  personaHint: boolean,
+): EvalWorld {
   const askedAtIso = beamQuestionDateIso(conv);
   const questions = conv.questions
     .filter((q) => !abilities?.length || abilities.includes(q.ability))
@@ -102,6 +109,7 @@ function toWorld(conv: BeamConversation, abilities?: string[]): EvalWorld {
     vertical: 'beam',
     sessions: conv.sessions,
     questions,
+    ...(personaHint ? { personaHint } : {}),
   };
 }
 
@@ -116,6 +124,7 @@ async function main() {
     judge: false,
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
     skipIngest: false,
+    personaHint: false,
   });
   if (!args.dataset) throw new Error('missing --dataset beam_100k.json');
   if (args.judge && !process.env.OPENAI_API_KEY)
@@ -128,7 +137,7 @@ async function main() {
     args.samples ? offset + args.samples : undefined,
   );
   const worlds = picked
-    .map((c) => toWorld(c, args.abilities))
+    .map((c) => toWorld(c, args.abilities, args.personaHint))
     .filter((w) => w.questions.length > 0);
   console.error(
     `[beam] ${worlds.length}/${all.length} conversations, ` +

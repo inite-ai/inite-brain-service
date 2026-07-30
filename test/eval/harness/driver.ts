@@ -130,6 +130,7 @@ async function ingestWorld(
 async function answerQuestion(
   q: EvalQuestion,
   client: TenantClient,
+  world?: EvalWorld,
 ): Promise<EvalScore> {
   const score: EvalScore = {
     questionId: q.id,
@@ -142,13 +143,17 @@ async function answerQuestion(
     ...(q.meta ?? {}),
   };
   try {
+    const query =
+      world?.personaHint === true
+        ? `${q.question}\n(First person "I"/"my" refers to ${speakerEntityName(world.conversationRef, 'user')}; the assistant in the conversation is ${speakerEntityName(world.conversationRef, 'assistant')}.)`
+        : q.question;
     const res = await client.call<{
       synthesis?: {
         answer: string | null;
         tokenUsage?: { promptTokens: number };
       };
     }>('POST', '/v1/search/multi-hop', {
-      query: q.question,
+      query,
       synthesize: true,
       synthesisGuardrails: q.isAbstention ? 'lenient' : 'answer',
       asOf: q.askedAtIso,
@@ -208,7 +213,7 @@ export async function runWorlds(
       }
       const client = new TenantClient(opts.brainUrl, opts.apiKey, world.tenant);
       for (const q of pending) {
-        const s = await answerQuestion(q, client);
+        const s = await answerQuestion(q, client, world);
         let judgeFailed = false;
         if (opts.judge && !q.isAbstention && !s.errored) {
           try {

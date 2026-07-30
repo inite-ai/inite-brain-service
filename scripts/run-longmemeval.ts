@@ -48,6 +48,8 @@ interface Args extends Record<string, unknown> {
   judgeModel: string;
   skipIngest: boolean;
   resume?: string;
+  /** Resolve first-person questions to the speaker entity. */
+  personaHint: boolean;
 }
 
 const FLAGS = {
@@ -64,9 +66,10 @@ const FLAGS = {
   '--judge-model': { key: 'judgeModel', type: 'string' },
   '--skip-ingest': { key: 'skipIngest', type: 'bool' },
   '--resume': { key: 'resume', type: 'string' },
+  '--persona-hint': { key: 'personaHint', type: 'bool' },
 } as const;
 
-function toWorld(q: LmeQuestion): EvalWorld {
+function toWorld(q: LmeQuestion, personaHint: boolean): EvalWorld {
   const tenant = `lme_${q.questionId
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '_')}`.slice(0, 60);
@@ -85,6 +88,7 @@ function toWorld(q: LmeQuestion): EvalWorld {
         askedAtIso: q.questionDateIso,
       },
     ],
+    ...(personaHint ? { personaHint } : {}),
   };
 }
 
@@ -99,6 +103,7 @@ async function main() {
     judge: false,
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
     skipIngest: false,
+    personaHint: false,
   });
   if (!args.dataset) throw new Error('missing --dataset longmemeval_s.json');
   if (args.judge && !process.env.OPENAI_API_KEY)
@@ -113,7 +118,7 @@ async function main() {
   if (args.types?.length) {
     picked = picked.filter((q) => args.types!.includes(q.questionType));
   }
-  const worlds = picked.map(toWorld);
+  const worlds = picked.map((q) => toWorld(q, args.personaHint));
   console.error(
     `[lme] ${worlds.length}/${all.length} questions, ` +
       `~${Math.round(estimateHaystackTokens(worlds) / 1000)}k haystack tokens, ` +
