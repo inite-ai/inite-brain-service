@@ -1,4 +1,8 @@
 import { envFlagEnabled } from '../common/env-validation';
+import {
+  parseDisabledLanes,
+  type DispatchLane,
+} from './lanes-disabled';
 import type { SearchHit } from '../search/search.service';
 
 /**
@@ -74,24 +78,51 @@ export function routerEnabled(): boolean {
   return envFlagEnabled(process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
 }
 
-/** Flag-gated entry: null (legacy path) unless the router is enabled. */
-export function routeLane(query: string): AnswerLane | null {
-  return routerEnabled() ? detectLane(query) : null;
+/**
+ * Per-lane ablation set (SYNTHESIZE_LANES_DISABLED=t3,t5 …): a disabled
+ * lane behaves as if it was never built — its patterns are skipped
+ * during detection, so the query falls through to later lexicons or the
+ * legacy path. Unknown tokens are rejected at boot (env-validation).
+ */
+export function disabledLanes(): ReadonlySet<DispatchLane> {
+  return parseDisabledLanes(process.env.SYNTHESIZE_LANES_DISABLED).lanes;
 }
 
-export function detectLane(query: string): AnswerLane | null {
+/** Router on AND the specific lane not ablated. */
+export function laneEnabled(lane: DispatchLane): boolean {
+  return routerEnabled() && !disabledLanes().has(lane);
+}
+
+/** Flag-gated entry: null (legacy path) unless the router is enabled. */
+export function routeLane(query: string): AnswerLane | null {
+  return routerEnabled() ? detectLane(query, disabledLanes()) : null;
+}
+
+export function detectLane(
+  query: string,
+  skip?: ReadonlySet<DispatchLane>,
+): AnswerLane | null {
   const q = query ?? '';
-  for (const p of TEMPORAL_PATTERNS) {
-    if (p.test(q)) return 'temporal';
+  const off = (lane: AnswerLane) => skip?.has(lane) === true;
+  if (!off('temporal')) {
+    for (const p of TEMPORAL_PATTERNS) {
+      if (p.test(q)) return 'temporal';
+    }
   }
-  for (const p of ENUMERATION_PATTERNS) {
-    if (p.test(q)) return 'enumeration';
+  if (!off('enumeration')) {
+    for (const p of ENUMERATION_PATTERNS) {
+      if (p.test(q)) return 'enumeration';
+    }
   }
-  for (const p of PREFERENCE_PATTERNS) {
-    if (p.test(q)) return 'preference';
+  if (!off('preference')) {
+    for (const p of PREFERENCE_PATTERNS) {
+      if (p.test(q)) return 'preference';
+    }
   }
-  for (const p of SUMMARY_PATTERNS) {
-    if (p.test(q)) return 'summary';
+  if (!off('summary')) {
+    for (const p of SUMMARY_PATTERNS) {
+      if (p.test(q)) return 'summary';
+    }
   }
   return null;
 }
@@ -201,7 +232,7 @@ export const SUMMARY_LANE_INSTRUCTION =
 export function detectEvidenceConflicts(
   results: SearchHit[],
 ): Array<{ factIds: string[]; label: string }> {
-  if (!routerEnabled()) return [];
+  if (!laneEnabled('contradiction')) return [];
   const bySlot = new Map<
     string,
     Array<{ factId: string; object: string; status?: string }>

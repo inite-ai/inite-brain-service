@@ -984,6 +984,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
       },
       {
+        key: 'SYNTHESIZE_LANES_DISABLED',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Per-lane ablation for the typed answer dispatcher: comma-separated lane tokens (t1..t6 or temporal, enumeration, contradiction, preference, recency, summary) that behave as if never built while the rest of the router stays live. Built for one-variable-per-leg eval ablations (e.g. t3 vs t5 blame in a knowledge-update residual) — SYNTHESIZE_ANSWER_ROUTER_ENABLED alone is all-or-nothing. Unknown tokens refuse boot. Unset = all lanes live.',
+      },
+      {
         key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
         category: 'auth',
         defaultValue: '0',

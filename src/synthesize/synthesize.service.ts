@@ -19,7 +19,7 @@ import { applyConformalGuardrail } from './conformal-guardrail';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import {
   routeLane,
-  routerEnabled,
+  laneEnabled,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
@@ -353,8 +353,9 @@ export class SynthesizeService {
       chronological: lane === 'enumeration' || lane === 'summary',
       // T5: recency marker on the newest fact of multi-statement slots
       // (knowledge-update misses answer STALE values) — active for any
-      // routed request, independent of lane.
-      markRecency: routerEnabled(),
+      // routed request, independent of lane (ablatable via
+      // SYNTHESIZE_LANES_DISABLED=t5).
+      markRecency: laneEnabled('recency'),
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;

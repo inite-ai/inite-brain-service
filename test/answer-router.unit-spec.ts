@@ -7,10 +7,13 @@
  */
 import {
   detectLane,
+  routeLane,
+  laneEnabled,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
 } from '../src/synthesize/answer-router';
+import { parseDisabledLanes } from '../src/synthesize/lanes-disabled';
 import {
   buildGeneratorUserMessage,
   buildFactIndex,
@@ -81,6 +84,95 @@ describe('detectLane (preference and summary lexicons)', () => {
     'Summarize my budget tracker journey.',
   ])('routes to summary: %s', (q) => {
     expect(detectLane(q)).toBe('summary');
+  });
+});
+
+describe('SYNTHESIZE_LANES_DISABLED (per-lane ablation)', () => {
+  beforeEach(() => {
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+  });
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    delete process.env.SYNTHESIZE_LANES_DISABLED;
+  });
+
+  it('parses tokens, aliases and rejects unknowns', () => {
+    expect(parseDisabledLanes('t3,t5')).toEqual({
+      lanes: new Set(['contradiction', 'recency']),
+      unknown: [],
+    });
+    expect(parseDisabledLanes(' Temporal , SUMMARY ')).toEqual({
+      lanes: new Set(['temporal', 'summary']),
+      unknown: [],
+    });
+    expect(parseDisabledLanes('t1,t7,recensy')).toEqual({
+      lanes: new Set(['temporal']),
+      unknown: ['t7', 'recensy'],
+    });
+    expect(parseDisabledLanes(undefined)).toEqual({
+      lanes: new Set(),
+      unknown: [],
+    });
+  });
+
+  it('a disabled lane behaves as if never built (falls to legacy path)', () => {
+    process.env.SYNTHESIZE_LANES_DISABLED = 't1';
+    expect(routeLane('How many weeks ago did I attend the sale?')).toBeNull();
+    // other lanes stay live in the same process env
+    expect(routeLane('What are all the books I mentioned?')).toBe(
+      'enumeration',
+    );
+  });
+
+  it('disabling one lane lets the query fall through to later lexicons', () => {
+    // "list the order" matches enumeration; with t2 off the same query
+    // must not resurface via another lane (lexicons are disjoint).
+    process.env.SYNTHESIZE_LANES_DISABLED = 't2';
+    expect(
+      routeLane('Can you list the order in which I brought up aspects?'),
+    ).toBeNull();
+  });
+
+  it('laneEnabled composes router flag AND per-lane ablation', () => {
+    expect(laneEnabled('recency')).toBe(true);
+    process.env.SYNTHESIZE_LANES_DISABLED = 't5';
+    expect(laneEnabled('recency')).toBe(false);
+    expect(laneEnabled('contradiction')).toBe(true);
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    expect(laneEnabled('contradiction')).toBe(false);
+  });
+
+  it('t3 disable silences detectEvidenceConflicts with the router on', () => {
+    const hits = [
+      {
+        entityId: 'e1',
+        entityType: 'person',
+        canonicalName: 'n',
+        externalRefs: {},
+        score: 1,
+        facts: [
+          {
+            factId: 'knowledge_fact:f0',
+            predicate: 'has_api_key',
+            object: 'yes, for OpenWeather',
+            status: 'active',
+            confidence: 0.7,
+            score: 1,
+          },
+          {
+            factId: 'knowledge_fact:f1',
+            predicate: 'has_api_key',
+            object: 'no, never obtained one',
+            status: 'COMPETING',
+            confidence: 0.7,
+            score: 1,
+          },
+        ],
+      },
+    ] as unknown as SearchHit[];
+    expect(detectEvidenceConflicts(hits)).toHaveLength(1);
+    process.env.SYNTHESIZE_LANES_DISABLED = 't3';
+    expect(detectEvidenceConflicts(hits)).toEqual([]);
   });
 });
 

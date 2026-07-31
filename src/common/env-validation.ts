@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { isProcessRole, normalizeProcessRole } from './process-role';
+import { parseDisabledLanes } from '../synthesize/lanes-disabled';
 
 const log = new Logger('EnvValidation');
 
@@ -203,6 +204,9 @@ validateAbacEnv(env, errors);
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
 
+  // ── Typed-dispatch per-lane ablation ───────────────────────────────
+  validateLanesDisabled(env, errors);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -270,6 +274,23 @@ function validateProductionGuards(
       'THROTTLE_DISABLED=1 is a test-only flag and must not be set in ' +
         'production — it disables all rate limiting, including the ' +
         'expensive OpenAI-budget caps.',
+    );
+  }
+}
+
+/**
+ * SYNTHESIZE_LANES_DISABLED drives one-variable-per-leg eval ablations;
+ * an unnoticed typo ("t7", "recensy") would silently ablate NOTHING and
+ * the leg would measure the full dispatcher — reject unknown tokens.
+ */
+function validateLanesDisabled(env: NodeJS.ProcessEnv, errors: string[]): void {
+  if (env.SYNTHESIZE_LANES_DISABLED === undefined) return;
+  const { unknown } = parseDisabledLanes(env.SYNTHESIZE_LANES_DISABLED);
+  if (unknown.length > 0) {
+    errors.push(
+      `SYNTHESIZE_LANES_DISABLED contains unknown lane tokens: ` +
+        `${unknown.join(', ')} (known: t1..t6 or temporal, enumeration, ` +
+        `contradiction, preference, recency, summary)`,
     );
   }
 }
