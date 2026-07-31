@@ -290,8 +290,8 @@ function validateLanesDisabled(env: NodeJS.ProcessEnv, errors: string[]): void {
   if (unknown.length > 0) {
     errors.push(
       `SYNTHESIZE_LANES_DISABLED contains unknown lane tokens: ` +
-        `${unknown.join(', ')} (known: t1..t6 or temporal, enumeration, ` +
-        `contradiction, preference, recency, summary)`,
+        `${unknown.join(', ')} (known: t1..t7 or temporal, enumeration, ` +
+        `contradiction, preference, recency, summary, instruction)`,
     );
   }
 }
@@ -449,6 +449,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // T6/T2 wide probe: PRF second retrieval for summary/enumeration
   // lanes — recall breadth that a render frame alone cannot provide.
   'SYNTHESIZE_LANE_WIDE_PROBE',
+  // T7: unconditional standing-instructions section (probe + render) —
+  // instruction-following questions are deliberately neutral, so no
+  // lexical route can fire; injection must not be relevance-gated.
+  'SYNTHESIZE_INSTRUCTION_LANE',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

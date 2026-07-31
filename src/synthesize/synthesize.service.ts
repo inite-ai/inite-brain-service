@@ -25,13 +25,9 @@ import {
   temporalIntervalsEnabled,
   buildIntervalTable,
   laneProbeDto,
-  TEMPORAL_LANE_INSTRUCTION,
-  TEMPORAL_INTERVAL_INSTRUCTION,
-  ENUMERATION_LANE_INSTRUCTION,
-  ORDERING_LANE_INSTRUCTION,
-  CONTRADICTION_NOTE_INSTRUCTION,
-  PREFERENCE_LANE_INSTRUCTION,
-  SUMMARY_LANE_INSTRUCTION,
+  instructionLaneEnabled,
+  INSTRUCTION_PROBE_QUERY,
+  extractStandingInstructions,
   detectEvidenceConflicts,
   type AnswerLane,
 } from './answer-router';
@@ -39,6 +35,8 @@ export { detectEvidenceConflicts } from './answer-router';
 import { buildFactIndex } from './fact-index';
 export { buildFactIndex } from './fact-index';
 import type { Citation } from './fact-index';
+import { buildGeneratorUserMessage } from './generator-prompt';
+export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
@@ -104,72 +102,6 @@ interface GeneratorOutput {
   citedFactIds: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
-}
-
-/**
- * Generator user-message assembly, exported for byte-equality tests.
- * Without `dateContext` the output is identical to the historical
- * format; with it, an anchored "Today" + date-arithmetic instruction
- * sits between the query and the fact list (SYNTHESIZE_DATE_CONTEXT).
- */
-export function buildGeneratorUserMessage({
-  query,
-  factLines,
-  transcriptLines,
-  answerLang,
-  dateContext,
-  lane,
-  ordering,
-  intervalTable,
-  conflicts,
-}: {
-  query: string;
-  factLines: string[];
-  /** Episodic-lane quotes (P2) — separate typed section after the facts. */
-  transcriptLines?: string[];
-  answerLang: string | null;
-  dateContext?: string;
-  /** T1 typed dispatch: lane-specific answer instruction. */
-  lane?: AnswerLane | null;
-  /** T2b: mention-order frame replaces the enumeration instruction. */
-  ordering?: boolean;
-  /** T1b: precomputed pairwise date-interval lines (event-anchored). */
-  intervalTable?: string[];
-  /** T3: write-side COMPETING conflict pairs present in the evidence. */
-  conflicts?: Array<{ factIds: string[]; label: string }>;
-}): string {
-  const langInstruction = answerLang
-    ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
-    : '';
-  const dateInstruction = dateContext
-    ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n` +
-      (lane === 'temporal' ? TEMPORAL_LANE_INSTRUCTION : '')
-    : '';
-  const laneInstruction =
-    lane === 'enumeration'
-      ? ordering
-        ? ORDERING_LANE_INSTRUCTION
-        : ENUMERATION_LANE_INSTRUCTION
-      : lane === 'preference'
-        ? PREFERENCE_LANE_INSTRUCTION
-        : lane === 'summary'
-          ? SUMMARY_LANE_INSTRUCTION
-          : '';
-  const intervalSection =
-    intervalTable && intervalTable.length > 0
-      ? `${TEMPORAL_INTERVAL_INSTRUCTION}Date-interval table (computed):\n${intervalTable.join('\n')}\n`
-      : '';
-  const conflictSection =
-    conflicts && conflicts.length > 0
-      ? `Conflict pairs (write-side COMPETING):\n${conflicts
-          .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
-          .join('\n')}\n${CONTRADICTION_NOTE_INSTRUCTION}`
-      : '';
-  const transcriptSection =
-    transcriptLines && transcriptLines.length > 0
-      ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
-      : '';
-  return `Query: ${query}\n${dateInstruction}${laneInstruction}${intervalSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
 }
 
 interface VerifierOutput {
@@ -363,6 +295,11 @@ export class SynthesizeService {
       companyId,
       evidence,
     });
+    const instructions = await this.collectStandingInstructions({
+      companyId,
+      callerScopes,
+      evidence,
+    });
     const prepared = this.prepareEvidence(evidence, {
       answerMode,
       explain,
@@ -424,6 +361,8 @@ export class SynthesizeService {
                 lane === 'temporal' && temporalIntervalsEnabled()
                   ? buildIntervalTable(results)
                   : undefined,
+              // T7: standing instructions in their own section.
+              instructions,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
               conflicts: detectEvidenceConflicts(results),
@@ -658,6 +597,42 @@ export class SynthesizeService {
   }
 
   /**
+   * T7: standing user instructions for the prompt's dedicated section.
+   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
+   * route can fire): a fixed probe pulls instruction-shaped facts,
+   * merged with any already in the evidence. undefined when the lane is
+   * off or nothing qualifies; probe failures degrade to evidence-only.
+   */
+  private async collectStandingInstructions({
+    companyId,
+    callerScopes,
+    evidence,
+  }: {
+    companyId: string;
+    callerScopes: string[];
+    evidence: SearchHit[];
+  }): Promise<string[] | undefined> {
+    if (!instructionLaneEnabled()) return undefined;
+    let probeHits: SearchHit[] = [];
+    try {
+      const probe = await withSpan('synthesize.instruction_probe', () =>
+        this.search.search(
+          companyId,
+          { query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto,
+          callerScopes,
+        ),
+      );
+      probeHits = probe.results;
+    } catch (e) {
+      this.logger.warn(
+        `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
+      );
+    }
+    const list = extractStandingInstructions([...evidence, ...probeHits]);
+    return list.length > 0 ? list : undefined;
+  }
+
+  /**
    * Deterministic second retrievals per lane. T4 preference: the fixed
    * tastes probe (recommendation queries rarely surface stored tastes
    * by similarity). T6/T2 wide probe (flag-gated): PRF query built from
@@ -768,6 +743,7 @@ export class SynthesizeService {
     lane,
     ordering,
     intervalTable,
+    instructions,
     conflicts,
   }: {
     query: string;
@@ -785,6 +761,8 @@ export class SynthesizeService {
     ordering?: boolean;
     /** T1b: precomputed pairwise date-interval lines. */
     intervalTable?: string[];
+    /** T7: standing user instructions for their own section. */
+    instructions?: string[];
     /** T3: COMPETING conflict pairs detected in the evidence. */
     conflicts?: Array<{ factIds: string[]; label: string }>;
   }): Promise<GeneratorOutput> {
@@ -800,6 +778,7 @@ export class SynthesizeService {
       lane,
       ordering,
       intervalTable,
+      instructions,
       conflicts,
     });
     traceArtifact('synthesize.generator_prompt', {

@@ -993,6 +993,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'T1b event-interval program: the temporal lane renders a pairwise date-interval table (calendar difference between every two distinct evidence dates, computed in code) and frames the generator to read the asked interval off the table and name both dates. For event-anchored corpora (BEAM: golds are event-to-event intervals with NO notion of "today" — rubrics expect "N units, from DATE1 till DATE2"); pair with the harness --asof-policy none so no fabricated asOf produces decoy distance-to-today annotations. Requires the answer router; rides the temporal lane.',
       },
       {
+        key: 'SYNTHESIZE_INSTRUCTION_LANE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "T7 instruction lane: standing user instructions ('always format code with syntax highlighting when I ask about implementation') captured as preference facts are pulled by an UNCONDITIONAL fixed probe and rendered as a dedicated standing-instructions section with an apply-on-match frame. Unconditional because instruction-following questions are deliberately neutral — no lexical route can fire, and relevance-gating filters exactly these out (LIGHT's measured ceiling). Requires the answer router; ablate with SYNTHESIZE_LANES_DISABLED=t7.",
+      },
+      {
         key: 'SYNTHESIZE_LANE_WIDE_PROBE',
         category: 'pipeline',
         defaultValue: '0',
@@ -1026,7 +1035,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-lane ablation for the typed answer dispatcher: comma-separated lane tokens (t1..t6 or temporal, enumeration, contradiction, preference, recency, summary) that behave as if never built while the rest of the router stays live. Built for one-variable-per-leg eval ablations (e.g. t3 vs t5 blame in a knowledge-update residual) — SYNTHESIZE_ANSWER_ROUTER_ENABLED alone is all-or-nothing. Unknown tokens refuse boot. Unset = all lanes live.',
+          'Per-lane ablation for the typed answer dispatcher: comma-separated lane tokens (t1..t7 or temporal, enumeration, contradiction, preference, recency, summary, instruction) that behave as if never built while the rest of the router stays live. Built for one-variable-per-leg eval ablations (e.g. t3 vs t5 blame in a knowledge-update residual) — SYNTHESIZE_ANSWER_ROUTER_ENABLED alone is all-or-nothing. Unknown tokens refuse boot. Unset = all lanes live.',
       },
       {
         key: 'BRAIN_TENANT_OVERRIDE_ENABLED',

@@ -172,8 +172,8 @@ describe('validateEnv — SYNTHESIZE_LANES_DISABLED', () => {
 
   it('rejects unknown tokens (a typo would silently ablate nothing)', () => {
     const env = baseProdEnv();
-    env.SYNTHESIZE_LANES_DISABLED = 't3,t7';
-    expect(() => validateEnv(env)).toThrow(/SYNTHESIZE_LANES_DISABLED.*t7/s);
+    env.SYNTHESIZE_LANES_DISABLED = 't3,t9';
+    expect(() => validateEnv(env)).toThrow(/SYNTHESIZE_LANES_DISABLED.*t9/s);
   });
 });
 

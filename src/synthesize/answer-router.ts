@@ -204,6 +204,73 @@ export const PREFERENCE_PROBE_QUERY =
   'preferences likes dislikes favorite style enjoys prefers avoids';
 
 /**
+ * T7 instruction lane (SYNTHESIZE_INSTRUCTION_LANE): standing user
+ * instructions ("always format code with syntax highlighting when I ask
+ * about implementation") are captured by the substrate as preference
+ * facts (probed live 2026-07-31: the fact exists and even surfaces on a
+ * neutral question — at position 33/40, with nothing telling the
+ * generator to APPLY it to the answer's form). BEAM's IF questions are
+ * deliberately neutral, so no lexical route can fire — the lane is
+ * UNCONDITIONAL, like T3: a fixed probe pulls instruction-shaped facts
+ * and they render as a separate standing-instructions section. LIGHT's
+ * relevance-gated scratchpad filters exactly these out (its IF never
+ * exceeds 0.5); unconditional injection is the structural fix.
+ */
+export function instructionLaneEnabled(): boolean {
+  return (
+    laneEnabled('instruction') &&
+    envFlagEnabled(process.env.SYNTHESIZE_INSTRUCTION_LANE)
+  );
+}
+
+export const INSTRUCTION_PROBE_QUERY =
+  'always include format style make sure when I ask prefers ' +
+  'instructions how to answer respond';
+
+/**
+ * Instruction-shaped fact filter. Two tiers against false positives
+ * ("has never written any Flask routes" is a work fact, not an
+ * instruction): preference-aspect facts match on any trigger word;
+ * other aspects need a STRONG imperative trigger (bare "never"/"when
+ * asking" is not enough).
+ */
+const INSTRUCTION_TRIGGER_RE =
+  /\b(?:always|never|whenever|when(?:ever)? (?:i|they|the user) asks?|when asking|make sure)\b/i;
+const INSTRUCTION_STRONG_RE =
+  /\b(?:always|make sure|when(?:ever)? (?:i|they|the user) asks?)\b/i;
+
+/** Dedup + cap standing instructions found across evidence and probe. */
+export function extractStandingInstructions(
+  hits: SearchHit[],
+  cap = 8,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const h of hits) {
+    for (const f of h.facts) {
+      const re =
+        f.predicate === 'preferences'
+          ? INSTRUCTION_TRIGGER_RE
+          : INSTRUCTION_STRONG_RE;
+      if (!re.test(f.object)) continue;
+      const key = f.object.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (out.length < cap) out.push(f.object.trim());
+    }
+  }
+  return out;
+}
+
+/** T7 section header: compliance is part of correctness. */
+export const STANDING_INSTRUCTIONS_INSTRUCTION =
+  'Standing user instructions found in memory (they govern HOW you ' +
+  'answer — format, style, required elements): APPLY every instruction ' +
+  'whose trigger matches this question; an answer that ignores an ' +
+  'applicable instruction is a wrong answer. Ignore the ones whose ' +
+  'trigger does not match.\n';
+
+/**
  * Second-retrieval request per lane, or null when the lane probes
  * nothing: T4's fixed tastes probe; the flag-gated T6/T2 PRF widening.
  * Pure — the service just executes whatever this returns.

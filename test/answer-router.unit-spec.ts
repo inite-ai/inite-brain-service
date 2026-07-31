@@ -16,6 +16,9 @@ import {
   wideLaneProbeEnabled,
   wideProbeLimit,
   buildWideProbeQuery,
+  instructionLaneEnabled,
+  extractStandingInstructions,
+  STANDING_INSTRUCTIONS_INSTRUCTION,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
   TEMPORAL_INTERVAL_INSTRUCTION,
@@ -114,9 +117,9 @@ describe('SYNTHESIZE_LANES_DISABLED (per-lane ablation)', () => {
       lanes: new Set(['temporal', 'summary']),
       unknown: [],
     });
-    expect(parseDisabledLanes('t1,t7,recensy')).toEqual({
+    expect(parseDisabledLanes('t1,t9,recensy')).toEqual({
       lanes: new Set(['temporal']),
-      unknown: ['t7', 'recensy'],
+      unknown: ['t9', 'recensy'],
     });
     expect(parseDisabledLanes(undefined)).toEqual({
       lanes: new Set(),
@@ -701,6 +704,89 @@ describe('T6/T2 wide probe', () => {
 
   it('empty base hits degrade to the bare query', () => {
     expect(buildWideProbeQuery('q', [])).toBe('q');
+  });
+});
+
+describe('T7 instruction lane', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    delete process.env.SYNTHESIZE_INSTRUCTION_LANE;
+    delete process.env.SYNTHESIZE_LANES_DISABLED;
+  });
+
+  it('instructionLaneEnabled requires router + flag, ablatable via t7', () => {
+    expect(instructionLaneEnabled()).toBe(false);
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    process.env.SYNTHESIZE_INSTRUCTION_LANE = '1';
+    expect(instructionLaneEnabled()).toBe(true);
+    process.env.SYNTHESIZE_LANES_DISABLED = 't7';
+    expect(instructionLaneEnabled()).toBe(false);
+  });
+
+  const hitWith = (facts: Array<[string, string]>) =>
+    ({
+      entityId: 'e1',
+      entityType: 'person',
+      canonicalName: 'u',
+      externalRefs: {},
+      score: 1,
+      facts: facts.map(([predicate, object], i) => ({
+        factId: `knowledge_fact:i${i}`,
+        predicate,
+        object,
+        confidence: 0.7,
+        score: 1,
+      })),
+    }) as unknown as SearchHit;
+
+  it('keeps instruction-shaped preference facts, drops plain facts', () => {
+    const out = extractStandingInstructions([
+      hitWith([
+        [
+          'preferences',
+          'u prefers to have all code snippets formatted with syntax highlighting when asking about implementation details.',
+        ],
+        // bare "never" on a non-preference aspect = plain fact, not an
+        // instruction — the false-positive tier must exclude it
+        ['work', 'u has never written any Flask routes in this project.'],
+        ['activities', 'u went hiking in Utah.'],
+        // strong trigger on a non-preference aspect still qualifies
+        ['work', 'u asked to always include exact API version numbers.'],
+      ]),
+    ]);
+    expect(out).toEqual([
+      'u prefers to have all code snippets formatted with syntax highlighting when asking about implementation details.',
+      'u asked to always include exact API version numbers.',
+    ]);
+  });
+
+  it('dedups case-insensitively and honors the cap', () => {
+    const dup =
+      'u prefers bullet points whenever the user asks about planning.';
+    const out = extractStandingInstructions(
+      [hitWith([['preferences', dup], ['preferences', dup.toUpperCase()]])],
+      1,
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it('renders the standing-instructions section; absent → byte-identical', () => {
+    const base = {
+      query: 'Could you show me how to implement a login feature?',
+      factLines: ['[knowledge_fact:x] u — work: builds a Flask app'],
+      answerLang: null as string | null,
+    };
+    const msg = buildGeneratorUserMessage({
+      ...base,
+      instructions: ['always format code with syntax highlighting'],
+    });
+    expect(msg).toContain(STANDING_INSTRUCTIONS_INSTRUCTION.trim());
+    expect(msg).toContain('- always format code with syntax highlighting');
+    for (const instructions of [undefined, [] as string[]]) {
+      expect(buildGeneratorUserMessage({ ...base, instructions })).toBe(
+        buildGeneratorUserMessage(base),
+      );
+    }
   });
 });
 

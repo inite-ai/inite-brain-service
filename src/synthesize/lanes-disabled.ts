@@ -19,7 +19,8 @@ export type DispatchLane =
   | 'contradiction' // T3: COMPETING-evidence conflict notice
   | 'preference' // T4: stored-preference probe + conditioning
   | 'recency' // T5: newest-fact marker on multi-statement slots
-  | 'summary'; // T6: staged-narrative frame
+  | 'summary' // T6: staged-narrative frame
+  | 'instruction'; // T7: standing-instructions section (unconditional)
 
 export const LANE_TOKENS: Readonly<Record<string, DispatchLane>> = {
   t1: 'temporal',
@@ -34,6 +35,8 @@ export const LANE_TOKENS: Readonly<Record<string, DispatchLane>> = {
   recency: 'recency',
   t6: 'summary',
   summary: 'summary',
+  t7: 'instruction',
+  instruction: 'instruction',
 };
 
 /**
