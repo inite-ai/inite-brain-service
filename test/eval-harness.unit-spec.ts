@@ -256,6 +256,21 @@ describe('runWorlds', () => {
   });
 });
 
+describe('ABSTAIN_RE', () => {
+  it('matches the guardrail sentinel and common declines, not answers', async () => {
+    const { ABSTAIN_RE } = await import('../test/eval/abstain');
+    for (const decline of [
+      "I don't have grounded evidence for that.",
+      'No information available.',
+      "I don't know when that happened.",
+      "I don't have specific information about that.",
+    ]) {
+      expect(ABSTAIN_RE.test(decline)).toBe(true);
+    }
+    expect(ABSTAIN_RE.test('You adopted Brioche in spring 2024.')).toBe(false);
+  });
+});
+
 describe('TenantClient retries', () => {
   it('retries transient 5xx and succeeds; fails fast on 400', async () => {
     const { createServer } = await import('node:http');
