@@ -22,7 +22,10 @@ import {
   laneEnabled,
   detectOrderingShape,
   orderingFirstMentionEnabled,
+  temporalIntervalsEnabled,
+  buildIntervalTable,
   TEMPORAL_LANE_INSTRUCTION,
+  TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
@@ -117,6 +120,7 @@ export function buildGeneratorUserMessage({
   dateContext,
   lane,
   ordering,
+  intervalTable,
   conflicts,
 }: {
   query: string;
@@ -129,6 +133,8 @@ export function buildGeneratorUserMessage({
   lane?: AnswerLane | null;
   /** T2b: mention-order frame replaces the enumeration instruction. */
   ordering?: boolean;
+  /** T1b: precomputed pairwise date-interval lines (event-anchored). */
+  intervalTable?: string[];
   /** T3: write-side COMPETING conflict pairs present in the evidence. */
   conflicts?: Array<{ factIds: string[]; label: string }>;
 }): string {
@@ -149,6 +155,10 @@ export function buildGeneratorUserMessage({
         : lane === 'summary'
           ? SUMMARY_LANE_INSTRUCTION
           : '';
+  const intervalSection =
+    intervalTable && intervalTable.length > 0
+      ? `${TEMPORAL_INTERVAL_INSTRUCTION}Date-interval table (computed):\n${intervalTable.join('\n')}\n`
+      : '';
   const conflictSection =
     conflicts && conflicts.length > 0
       ? `Conflict pairs (write-side COMPETING):\n${conflicts
@@ -159,7 +169,7 @@ export function buildGeneratorUserMessage({
     transcriptLines && transcriptLines.length > 0
       ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${laneInstruction}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${laneInstruction}${intervalSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
 }
 
 interface VerifierOutput {
@@ -406,6 +416,12 @@ export class SynthesizeService {
               dateContext: resolveLaneDateContext(lane, dto.asOf),
               lane,
               ordering,
+              // T1b: event-anchored interval questions read pairwise
+              // date differences off a precomputed table.
+              intervalTable:
+                lane === 'temporal' && temporalIntervalsEnabled()
+                  ? buildIntervalTable(results)
+                  : undefined,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
               conflicts: detectEvidenceConflicts(results),
@@ -742,6 +758,7 @@ export class SynthesizeService {
     dateContext,
     lane,
     ordering,
+    intervalTable,
     conflicts,
   }: {
     query: string;
@@ -757,6 +774,8 @@ export class SynthesizeService {
     lane?: AnswerLane | null;
     /** T2b: mention-order frame for ordering-shaped enumeration. */
     ordering?: boolean;
+    /** T1b: precomputed pairwise date-interval lines. */
+    intervalTable?: string[];
     /** T3: COMPETING conflict pairs detected in the evidence. */
     conflicts?: Array<{ factIds: string[]; label: string }>;
   }): Promise<GeneratorOutput> {
@@ -771,6 +790,7 @@ export class SynthesizeService {
       dateContext,
       lane,
       ordering,
+      intervalTable,
       conflicts,
     });
     traceArtifact('synthesize.generator_prompt', {

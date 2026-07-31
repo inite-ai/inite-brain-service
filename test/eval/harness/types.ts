@@ -27,8 +27,14 @@ export interface EvalQuestion {
   judgeGold?: string;
   /** Correct behavior is declining to answer. */
   isAbstention: boolean;
-  /** as-of date for retrieval (question-dated correctness). */
-  askedAtIso: string;
+  /**
+   * as-of date for retrieval (question-dated correctness). OMIT for
+   * benchmarks whose golds are event-anchored with no notion of a
+   * question date (BEAM: intervals between events; a fabricated asOf
+   * makes distance-to-today annotations decoys) — the QA call then
+   * carries no asOf at all.
+   */
+  askedAtIso?: string;
   /** Copied verbatim onto the score row (difficulty etc.). */
   meta?: Record<string, unknown>;
 }

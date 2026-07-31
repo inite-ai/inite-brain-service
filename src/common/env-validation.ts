@@ -442,6 +442,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // T2b: mention-order questions sort/annotate evidence by earliest
   // grounding-episode date and force a bare ordered-list answer shape.
   'SYNTHESIZE_ORDERING_FIRST_MENTION',
+  // T1b: temporal lane renders a pairwise date-interval table (event-
+  // anchored benchmarks: no "today", answers read off the pair rows).
+  'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

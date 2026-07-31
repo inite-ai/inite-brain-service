@@ -162,11 +162,40 @@ export const PREFERENCE_PROBE_QUERY =
   'preferences likes dislikes favorite style enjoys prefers avoids';
 
 /**
+ * Calendar difference between two instants: whole days, whole weeks,
+ * whole calendar months (2022-10-22 → 2023-02-27 is 4 months, not
+ * 4.27). Shared by the T1 elapsed annotation and the T1b pair table.
+ */
+function calendarDiff(fromMs: number, toMs: number): {
+  days: number;
+  weeks: number;
+  months: number;
+} {
+  const days = Math.floor((toMs - fromMs) / 86_400_000);
+  const a = new Date(fromMs);
+  const b = new Date(toMs);
+  let months =
+    (b.getUTCFullYear() - a.getUTCFullYear()) * 12 +
+    (b.getUTCMonth() - a.getUTCMonth());
+  if (b.getUTCDate() < a.getUTCDate()) months -= 1;
+  return { days, weeks: Math.floor(days / 7), months };
+}
+
+/** "128 days ≈ 18 weeks ≈ 4 months" — sub-unit parts only when whole. */
+function renderDiffParts(d: ReturnType<typeof calendarDiff>): string {
+  const parts = [`${d.days} day${d.days === 1 ? '' : 's'}`];
+  if (d.weeks >= 1) parts.push(`≈ ${d.weeks} week${d.weeks === 1 ? '' : 's'}`);
+  if (d.months >= 1) {
+    parts.push(`≈ ${d.months} month${d.months === 1 ? '' : 's'}`);
+  }
+  return parts.join(' ');
+}
+
+/**
  * Deterministic elapsed-time annotation for one dated fact vs asOf.
  * All units rendered; the generator picks the one the question asks
- * for. Calendar months (not 30-day approximations): 2022-10-22 →
- * 2023-02-27 is 4 months, not 4.27. Future-dated facts annotate as
- * "in N days". Unparseable/epoch dates render nothing.
+ * for. Future-dated facts annotate as "in N days". Unparseable/epoch
+ * dates render nothing.
  */
 export function formatElapsed(
   validFromIso: string | undefined,
@@ -176,23 +205,71 @@ export function formatElapsed(
   const from = Date.parse(validFromIso);
   const asOf = Date.parse(asOfIso);
   if (Number.isNaN(from) || Number.isNaN(asOf) || from === 0) return '';
-  const dayMs = 86_400_000;
-  const days = Math.floor((asOf - from) / dayMs);
-  if (days < 0) {
-    return ` [elapsed: in ${-days} day${-days === 1 ? '' : 's'}]`;
+  const diff = calendarDiff(from, asOf);
+  if (diff.days < 0) {
+    return ` [elapsed: in ${-diff.days} day${-diff.days === 1 ? '' : 's'}]`;
   }
-  const weeks = Math.floor(days / 7);
-  const a = new Date(from);
-  const b = new Date(asOf);
-  let months =
-    (b.getUTCFullYear() - a.getUTCFullYear()) * 12 +
-    (b.getUTCMonth() - a.getUTCMonth());
-  if (b.getUTCDate() < a.getUTCDate()) months -= 1;
-  const parts = [`${days} day${days === 1 ? '' : 's'}`];
-  if (weeks >= 1) parts.push(`≈ ${weeks} week${weeks === 1 ? '' : 's'}`);
-  if (months >= 1) parts.push(`≈ ${months} month${months === 1 ? '' : 's'}`);
-  return ` [elapsed: ${parts.join(' ')} before today]`;
+  return ` [elapsed: ${renderDiffParts(diff)} before today]`;
 }
+
+export function temporalIntervalsEnabled(): boolean {
+  return (
+    laneEnabled('temporal') &&
+    envFlagEnabled(process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS)
+  );
+}
+
+/** Distinct evidence dates entering the pair table (first-seen wins). */
+const INTERVAL_TABLE_MAX_DATES = 10;
+
+/**
+ * T1b event-interval table (SYNTHESIZE_TEMPORAL_EVENT_INTERVALS): the
+ * pairwise calendar difference between every two distinct dates in the
+ * evidence, computed in code. Event-anchored benchmarks (BEAM) ask the
+ * time BETWEEN two events and their golds carry no notion of "today" —
+ * distance-to-today annotations are decoys there; the expected answer
+ * shape is "N units, from DATE1 till DATE2", which reads straight off
+ * a pair row. Dates cap at first-seen (evidence ≈ relevance) order.
+ */
+export function buildIntervalTable(results: SearchHit[]): string[] {
+  const days: string[] = [];
+  const seen = new Set<string>();
+  for (const r of results) {
+    for (const f of r.facts) {
+      const iso = (f as { validFrom?: string }).validFrom;
+      if (!iso) continue;
+      const t = Date.parse(iso);
+      if (Number.isNaN(t) || t === 0) continue;
+      const day = new Date(t).toISOString().slice(0, 10);
+      if (seen.has(day)) continue;
+      seen.add(day);
+      if (days.length < INTERVAL_TABLE_MAX_DATES) days.push(day);
+    }
+  }
+  days.sort();
+  const lines: string[] = [];
+  for (let i = 0; i < days.length; i += 1) {
+    for (let j = i + 1; j < days.length; j += 1) {
+      const from = Date.parse(`${days[i]}T00:00:00.000Z`);
+      const to = Date.parse(`${days[j]}T00:00:00.000Z`);
+      lines.push(
+        `${days[i]} → ${days[j]}: ${renderDiffParts(calendarDiff(from, to))}`,
+      );
+    }
+  }
+  return lines;
+}
+
+/** T1b frame: intervals are read off the table, never recomputed. */
+export const TEMPORAL_INTERVAL_INSTRUCTION =
+  'This is a temporal-interval question about the time between two ' +
+  'events. The date-interval table below lists the precomputed ' +
+  'calendar difference between every pair of dates present in the ' +
+  'facts. Identify the two events the question refers to, find their ' +
+  'dates in the facts, and READ the interval off the table — do NOT ' +
+  'compute calendar arithmetic yourself. Answer with the interval in ' +
+  'the unit the question asks for and name both dates (from DATE1 ' +
+  'till DATE2).\n';
 
 /** Generator instruction appended for the temporal lane. */
 export const TEMPORAL_LANE_INSTRUCTION =

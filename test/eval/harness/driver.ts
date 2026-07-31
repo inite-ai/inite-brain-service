@@ -156,7 +156,7 @@ async function answerQuestion(
       query,
       synthesize: true,
       synthesisGuardrails: q.isAbstention ? 'lenient' : 'answer',
-      asOf: q.askedAtIso,
+      ...(q.askedAtIso ? { asOf: q.askedAtIso } : {}),
     });
     score.prediction = res.synthesis?.answer ?? '';
     score.promptTokens = res.synthesis?.tokenUsage?.promptTokens;

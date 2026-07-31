@@ -984,6 +984,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
       },
       {
+        key: 'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'T1b event-interval program: the temporal lane renders a pairwise date-interval table (calendar difference between every two distinct evidence dates, computed in code) and frames the generator to read the asked interval off the table and name both dates. For event-anchored corpora (BEAM: golds are event-to-event intervals with NO notion of "today" — rubrics expect "N units, from DATE1 till DATE2"); pair with the harness --asof-policy none so no fabricated asOf produces decoy distance-to-today annotations. Requires the answer router; rides the temporal lane.',
+      },
+      {
         key: 'SYNTHESIZE_ORDERING_FIRST_MENTION',
         category: 'pipeline',
         defaultValue: '0',

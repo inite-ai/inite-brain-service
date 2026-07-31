@@ -11,8 +11,11 @@ import {
   laneEnabled,
   detectOrderingShape,
   orderingFirstMentionEnabled,
+  temporalIntervalsEnabled,
+  buildIntervalTable,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
+  TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
 } from '../src/synthesize/answer-router';
@@ -428,6 +431,107 @@ describe('buildFactIndex chronological ordering (T2)', () => {
     const { factLines } = buildFactIndex(hits);
     expect(factLines[0]).toContain(':b');
     expect(factLines[1]).toContain(':a');
+  });
+});
+
+describe('T1b event-interval table', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    delete process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS;
+    delete process.env.SYNTHESIZE_LANES_DISABLED;
+  });
+
+  it('temporalIntervalsEnabled requires router + t1 + its own flag', () => {
+    expect(temporalIntervalsEnabled()).toBe(false);
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    expect(temporalIntervalsEnabled()).toBe(false);
+    process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS = '1';
+    expect(temporalIntervalsEnabled()).toBe(true);
+    process.env.SYNTHESIZE_LANES_DISABLED = 't1';
+    expect(temporalIntervalsEnabled()).toBe(false);
+  });
+
+  const hitWithDates = (dates: Array<string | undefined>) =>
+    ({
+      entityId: 'e1',
+      entityType: 'person',
+      canonicalName: 'n',
+      externalRefs: {},
+      score: 1,
+      facts: dates.map((d, i) => ({
+        factId: `knowledge_fact:f${i}`,
+        predicate: 'events',
+        object: `event ${i}`,
+        confidence: 0.7,
+        score: 1,
+        ...(d ? { validFrom: d } : {}),
+      })),
+    }) as unknown as SearchHit;
+
+  it('renders every pair of distinct dates with calendar arithmetic', () => {
+    const lines = buildIntervalTable([
+      hitWithDates([
+        '2024-01-15T00:00:00.000Z',
+        '2024-03-15T00:00:00.000Z',
+        '2024-01-15T09:30:00.000Z', // same DAY → not a new date
+        undefined, // undated → ignored
+      ]),
+    ]);
+    // 2 distinct dates → 1 pair; Jan 15 → Mar 15 2024 = 60 days
+    expect(lines).toEqual([
+      '2024-01-15 → 2024-03-15: 60 days ≈ 8 weeks ≈ 2 months',
+    ]);
+  });
+
+  it('sorts dates ascending regardless of evidence order', () => {
+    const lines = buildIntervalTable([
+      hitWithDates([
+        '2024-03-01T00:00:00.000Z',
+        '2024-01-01T00:00:00.000Z',
+        '2024-02-01T00:00:00.000Z',
+      ]),
+    ]);
+    expect(lines).toHaveLength(3); // C(3,2)
+    expect(lines[0]).toBe('2024-01-01 → 2024-02-01: 31 days ≈ 4 weeks ≈ 1 month');
+    expect(lines[2]).toBe('2024-02-01 → 2024-03-01: 29 days ≈ 4 weeks ≈ 1 month');
+  });
+
+  it('caps at 10 distinct dates by first-seen evidence order', () => {
+    const dates = Array.from(
+      { length: 14 },
+      (_, i) => `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`,
+    );
+    const lines = buildIntervalTable([hitWithDates(dates)]);
+    expect(lines).toHaveLength(45); // C(10,2)
+  });
+
+  it('skips epoch-sentinel and unparseable dates; empty → []', () => {
+    expect(
+      buildIntervalTable([
+        hitWithDates([new Date(0).toISOString(), 'not-a-date', undefined]),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('interval section renders in the prompt; absent → byte-identical', () => {
+    const base = {
+      query: 'How many weeks between finishing X and the deadline?',
+      factLines: ['[knowledge_fact:f0] n — events: e (as of 2024-01-15)'],
+      answerLang: null as string | null,
+      lane: 'temporal' as const,
+    };
+    const msg = buildGeneratorUserMessage({
+      ...base,
+      intervalTable: ['2024-01-15 → 2024-03-15: 60 days ≈ 8 weeks ≈ 2 months'],
+    });
+    expect(msg).toContain(TEMPORAL_INTERVAL_INSTRUCTION.trim());
+    expect(msg).toContain('Date-interval table (computed):');
+    expect(msg).toContain('2024-01-15 → 2024-03-15: 60 days');
+    for (const table of [undefined, [] as string[]]) {
+      expect(buildGeneratorUserMessage({ ...base, intervalTable: table })).toBe(
+        buildGeneratorUserMessage(base),
+      );
+    }
   });
 });
 
