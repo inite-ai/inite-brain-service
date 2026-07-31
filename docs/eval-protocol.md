@@ -143,6 +143,52 @@ Reproduction: `scripts/fetch-beam-dataset.py --split 100K` normalizes
 the published parquet (Python-literal question strings, per-ability
 gold keys) into a pinned JSON; `scripts/run-beam.ts` runs the axis.
 
+### Official nugget scoring (`--nugget-judge`, added 2026-07-31)
+
+For numbers comparable to the paper's tables, the runner can grade each
+question per rubric item on the official 1.0/0.5/0.0 scale with the
+verbatim official judge prompt, alongside (never replacing) the strict
+binary judge. Two deliberate deviations from the reference
+implementation, both bugs there: partial credit survives aggregation
+(their `score += int(response['score'])` truncates every 0.5 to 0 in 8
+of 10 ability evaluators) and the judge sees the actual question (their
+`<question>` placeholder is never substituted). `event_ordering`
+follows the paper's reported metric: greedy LLM-equivalence alignment
+of the newline-split response against the rubric list, then normalized
+Kendall tau-b (their `report_results.py` reads `tau_norm`, not the
+tau × F1 `final_score` it also computes). When sharing nugget numbers,
+state whether the partner's run reproduces the two reference bugs —
+they move absolute scores.
+
+### Positioning: contradiction_resolution (researched 2026-07-31)
+
+Our typed-dispatch result — **52–55% contradiction_resolution at
+BEAM-100K under strict binary scoring, held across two paired legs** —
+against the published field:
+
+| System | CR @100K | Protocol caveat |
+| --- | --- | --- |
+| Original BEAM paper, all 12 configs (vanilla/RAG/LIGHT) | 0.6–5.0% | official nugget judge |
+| SimpleMem (MemIR's baseline) | 20.6% | official protocol |
+| MemIR (arXiv 2605.25869, typed memory IR) | 32.3% | official protocol — cleanest paper comparator |
+| Karta/MemPalace community run | 40% | official prompt + score clamping |
+| Roynard typed-routing pilot (arXiv 2604.11364) | 50.0% | position-paper pilot on a 100K split |
+| Mnemosyne v3 | 50.0% | self-run, non-official judge |
+| Exabase M-1 (vendor) | ~60.6% | judge unspecified, system proprietary, internally ambiguous table |
+
+Framing that survives review: "versus ≤5% for everything in the
+original benchmark paper, and at or above every *verifiable*
+follow-up" — not "the field is at zero" (it was in 2025; the 2026
+follow-ups moved). Two strengtheners: (a) no published system reports
+BEAM CR under strict binary scoring — every number above includes
+partial credit, so ours is the harsher reading; (b) the two nearest
+mechanisms (MemIR's typed memory IR, Roynard's typed routing) share
+our thesis — typed representation/dispatch, not retrieval quality, is
+what moves contradiction handling. Eywa's 93.21% is NOT comparable:
+their "BEAM" is an in-house 35-conversation suite introduced by their
+own paper, no stated context scale, self-judged with partial credit,
+no baselines.
+
 ## Sharing and comparability
 
 For any joint evaluation we propose pinning, per leg: dataset file hash
