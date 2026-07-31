@@ -19,18 +19,36 @@ import { envFlagEnabled } from '../common/env-validation';
  * true date arithmetic measurably hurts — E-series date-context leg).
  */
 
-export type AnswerLane = 'temporal';
+export type AnswerLane = 'temporal' | 'enumeration';
 
 const UNIT = '(?:day|week|month|year)s?';
+/**
+ * Temporal-DISTANCE questions require an interval marker (ago / since /
+ * passed / between). A bare "how many days did I spend camping" is an
+ * enumeration-SUM (add up durations across sessions) and belongs to the
+ * enumeration lane — the two lexicons are disjoint by construction.
+ */
 const TEMPORAL_PATTERNS: RegExp[] = [
-  // "how many days/weeks/months (ago|since|between|passed|have passed)"
-  new RegExp(`how (?:many|much) ${UNIT}`, 'i'),
   // "how long ago / how long since / how long has it been"
   /how long (?:ago|since|until|has it been|had it been|did it take)/i,
-  // "N days ago did/was ..." asked forms: "how many weeks ago did I ..."
+  // "weeks ago", "months have passed", "days elapsed", "years apart"
   new RegExp(`${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`, 'i'),
   // "days/weeks between X and Y"
   new RegExp(`${UNIT} (?:between|before|after) `, 'i'),
+];
+
+/**
+ * Enumeration/ordering questions: exhaustive-list discipline (the
+ * measured failure mode is PARTIAL enumeration — "4 of 5 model kits").
+ */
+const ENUMERATION_PATTERNS: RegExp[] = [
+  /how many (?!\S+ (?:ago|since))/i, // counting things (temporal wins first)
+  /how much (?:total|money|have i spent|did i spend)/i,
+  /\b(?:list|name) (?:all|every|the order)/i,
+  /what (?:are|were) all\b/i,
+  /in (?:what|which) order\b/i,
+  /\bwalk me through the order\b/i,
+  /\border in which\b/i,
 ];
 
 export function routerEnabled(): boolean {
@@ -41,6 +59,9 @@ export function detectLane(query: string): AnswerLane | null {
   const q = query ?? '';
   for (const p of TEMPORAL_PATTERNS) {
     if (p.test(q)) return 'temporal';
+  }
+  for (const p of ENUMERATION_PATTERNS) {
+    if (p.test(q)) return 'enumeration';
   }
   return null;
 }
@@ -84,3 +105,34 @@ export const TEMPORAL_LANE_INSTRUCTION =
   '[elapsed: …] annotations relative to Today — answer with the ' +
   'precomputed value in the unit the question asks for; do NOT recompute ' +
   'or estimate the interval yourself.\n';
+
+/**
+ * T3 contradiction note. Unlike T1/T2 this lane is EVIDENCE-conditional,
+ * not query-conditional: contradiction questions look innocent ("Have I
+ * ever …?"), so the trigger is competing facts in the retrieved
+ * evidence — the write side already adjudicated them as COMPETING. The
+ * measured failure mode (BEAM contradiction_resolution 0%, LIGHT ≤0.042
+ * everywhere) is confidently answering ONE side; the expected behavior
+ * is to surface both with dates and ask which is correct.
+ */
+export const CONTRADICTION_NOTE_INSTRUCTION =
+  'CONFLICT NOTICE: the facts below include statements the memory ' +
+  'system flagged as COMPETING (mutually contradictory), listed as ' +
+  'conflict pairs above the fact list. If the question touches a ' +
+  'conflict pair, do NOT silently pick a side: state both versions ' +
+  'with their dates, note that they contradict each other, and ask ' +
+  'which one is correct. This overrides the always-commit rule for ' +
+  'those facts only.\n';
+
+/**
+ * Generator instruction for the enumeration lane. The measured failure
+ * mode is PARTIAL enumeration (a list answer that stops at the first
+ * matching items), so the frame forces list-first-then-aggregate.
+ */
+export const ENUMERATION_LANE_INSTRUCTION =
+  'This is an enumeration/counting/ordering question. The facts are ' +
+  'sorted chronologically. FIRST enumerate every matching item with its ' +
+  'date — scan the whole list, never stop at the first matches; a ' +
+  'partial list is a wrong answer. THEN derive the final count, order, ' +
+  'or total from your enumeration (sum durations/amounts explicitly ' +
+  'when asked for totals).\n';

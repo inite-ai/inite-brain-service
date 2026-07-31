@@ -22,6 +22,8 @@ import {
   routerEnabled,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
+  ENUMERATION_LANE_INSTRUCTION,
+  CONTRADICTION_NOTE_INSTRUCTION,
   type AnswerLane,
 } from './answer-router';
 import { EpisodeLaneService } from './episode-lane.service';
@@ -113,6 +115,7 @@ export function buildGeneratorUserMessage({
   answerLang,
   dateContext,
   lane,
+  conflicts,
 }: {
   query: string;
   factLines: string[];
@@ -122,6 +125,8 @@ export function buildGeneratorUserMessage({
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
   lane?: AnswerLane | null;
+  /** T3: write-side COMPETING conflict pairs present in the evidence. */
+  conflicts?: Array<{ factIds: string[]; label: string }>;
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
@@ -130,11 +135,19 @@ export function buildGeneratorUserMessage({
     ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n` +
       (lane === 'temporal' ? TEMPORAL_LANE_INSTRUCTION : '')
     : '';
+  const laneInstruction =
+    lane === 'enumeration' ? ENUMERATION_LANE_INSTRUCTION : '';
+  const conflictSection =
+    conflicts && conflicts.length > 0
+      ? `Conflict pairs (write-side COMPETING):\n${conflicts
+          .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
+          .join('\n')}\n${CONTRADICTION_NOTE_INSTRUCTION}`
+      : '';
   const transcriptSection =
     transcriptLines && transcriptLines.length > 0
       ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${laneInstruction}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
 }
 
 interface VerifierOutput {
@@ -307,6 +320,7 @@ export class SynthesizeService {
       answerMode,
       explain,
       elapsedAsOf: lane === 'temporal' ? dto.asOf : undefined,
+      chronological: lane === 'enumeration',
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
@@ -352,6 +366,11 @@ export class SynthesizeService {
                   ? dto.asOf.slice(0, 10)
                   : resolveDateContext(dto.asOf),
               lane,
+              // T3: evidence-conditional — fires on write-side COMPETING
+              // facts regardless of what the question looks like.
+              conflicts: routerEnabled()
+                ? detectEvidenceConflicts(results)
+                : undefined,
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -559,11 +578,13 @@ export class SynthesizeService {
       explain: boolean;
       /** T1 temporal lane: asOf for precomputed [elapsed] annotations. */
       elapsedAsOf?: string;
+      /** T2 enumeration lane: chronological fact-line ordering. */
+      chronological?: boolean;
     },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
-    const { answerMode, explain, elapsedAsOf } = opts;
+    const { answerMode, explain, elapsedAsOf, chronological } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
       minFactTrust: answerMode ? 0 : this.minFactTrust,
@@ -583,7 +604,10 @@ export class SynthesizeService {
         ),
       };
     }
-    const { factIndex, factLines } = buildFactIndex(results, { elapsedAsOf });
+    const { factIndex, factLines } = buildFactIndex(results, {
+      elapsedAsOf,
+      chronological,
+    });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
       // outputShape='ids' / token budget. Treat as no_results for
@@ -608,6 +632,7 @@ export class SynthesizeService {
     neverAbstain = false,
     dateContext,
     lane,
+    conflicts,
   }: {
     query: string;
     factLines: string[];
@@ -620,6 +645,8 @@ export class SynthesizeService {
     dateContext?: string;
     /** T1 typed dispatch lane, when the router matched. */
     lane?: AnswerLane | null;
+    /** T3: COMPETING conflict pairs detected in the evidence. */
+    conflicts?: Array<{ factIds: string[]; label: string }>;
   }): Promise<GeneratorOutput> {
     const systemPrompt = neverAbstain
       ? GENERATOR_SYSTEM_ANSWER
@@ -631,6 +658,7 @@ export class SynthesizeService {
       answerLang,
       dateContext,
       lane,
+      conflicts,
     });
     traceArtifact('synthesize.generator_prompt', {
       system: systemPrompt,
@@ -788,10 +816,17 @@ export function buildFactIndex(
      * here — in code — and never in the generator.
      */
     elapsedAsOf?: string;
+    /**
+     * Enumeration lane (T2): render fact lines in chronological
+     * validFrom order (undated last, otherwise stable) so exhaustive
+     * list answers read off an ordered timeline. Sorting happens here —
+     * in code — never by the generator.
+     */
+    chronological?: boolean;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
-  const factLines: string[] = [];
+  const entries: Array<{ line: string; t: number }> = [];
   for (const r of results) {
     for (const f of r.facts) {
       factIndex.set(f.factId, {
@@ -805,13 +840,77 @@ export function buildFactIndex(
       const elapsed = opts?.elapsedAsOf
         ? formatElapsed(f.validFrom, opts.elapsedAsOf)
         : '';
-      factLines.push(
-        `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
-      );
+      const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
+      entries.push({
+        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
+        t: Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t,
+      });
     }
   }
-  return { factIndex, factLines };
+  if (opts?.chronological) {
+    // Stable by construction: Array.prototype.sort is stable, undated
+    // entries share +Infinity and keep their relative retrieval order.
+    entries.sort((a, b) => a.t - b.t);
+  }
+  return { factIndex, factLines: entries.map((e) => e.line) };
 }
+
+/**
+ * T3: detect write-side-adjudicated conflicts inside the retrieved
+ * evidence. Conservative by design: a slot counts as conflicted ONLY
+ * when its facts disagree on the object AND at least one carries the
+ * COMPETING status the conflict predictor assigned at write time —
+ * ordinary multi-value slots (works_at, likes, …) never trigger. Pure,
+ * exported for tests.
+ */
+export function detectEvidenceConflicts(
+  results: SearchHit[],
+): Array<{ factIds: string[]; label: string }> {
+  const bySlot = new Map<
+    string,
+    Array<{ factId: string; object: string; status?: string }>
+  >();
+  for (const r of results) {
+    for (const f of r.facts) {
+      const key = `${r.entityId}::${f.predicate}`;
+      const arr = bySlot.get(key) ?? [];
+      arr.push({
+        factId: f.factId,
+        object: f.object,
+        status: (f as { status?: string }).status,
+      });
+      bySlot.set(key, arr);
+    }
+  }
+  const conflicts: Array<{ factIds: string[]; label: string }> = [];
+  for (const [slot, facts] of bySlot) {
+    const objects = new Set(facts.map((f) => f.object));
+    if (objects.size < 2) continue;
+    const hasCompeting = facts.some(
+      (f) => (f.status ?? '').toUpperCase() === 'COMPETING',
+    );
+    // Second tier for DERIVED worlds: the window deriver batch-INSERTs
+    // propositions past the conflict predictor, so contradictions sit as
+    // plain 'active' rows. Seeded contradictions are never/always-shaped
+    // — flag a slot whose statements disagree on polarity (one side
+    // negated, the other not). Never fires on ordinary multi-value
+    // slots: two affirmative objects share polarity.
+    const negated = facts.filter((f) => NEGATION_RE.test(f.object));
+    const polaritySplit =
+      negated.length > 0 && negated.length < facts.length;
+    if (hasCompeting || polaritySplit) {
+      conflicts.push({
+        factIds: facts.map((f) => f.factId),
+        label: slot.split('::')[1] ?? slot,
+      });
+    }
+  }
+  return conflicts;
+}
+
+/** Negation markers for the polarity tier of the conflict detector. */
+const NEGATION_RE =
+  /\b(?:never|not|no longer|none|nothing|has(?:n't| not)|have(?:n't| not)|did(?:n't| not)|does(?:n't| not)|is(?:n't| not)|was(?:n't| not)|without any)\b/i;
 
 /**
  * Render a fact's validity window as a compact suffix for the prompt.
