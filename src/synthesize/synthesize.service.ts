@@ -18,7 +18,7 @@ import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import {
-  detectLane,
+  routeLane,
   routerEnabled,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
@@ -310,9 +310,7 @@ export class SynthesizeService {
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
     // second probe that similarity search would never surface.
-    const lane: AnswerLane | null = routerEnabled()
-      ? detectLane(dto.query)
-      : null;
+    const lane: AnswerLane | null = routeLane(dto.query);
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
@@ -401,9 +399,7 @@ export class SynthesizeService {
               lane,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
-              conflicts: routerEnabled()
-                ? detectEvidenceConflicts(results)
-                : undefined,
+              conflicts: detectEvidenceConflicts(results),
             }),
           ),
         { 'synthesize.facts': factIndex.size },

@@ -76,6 +76,11 @@ export function routerEnabled(): boolean {
   return envFlagEnabled(process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
 }
 
+/** Flag-gated entry: null (legacy path) unless the router is enabled. */
+export function routeLane(query: string): AnswerLane | null {
+  return routerEnabled() ? detectLane(query) : null;
+}
+
 export function detectLane(query: string): AnswerLane | null {
   const q = query ?? '';
   for (const p of TEMPORAL_PATTERNS) {
@@ -198,6 +203,7 @@ export const SUMMARY_LANE_INSTRUCTION =
 export function detectEvidenceConflicts(
   results: SearchHit[],
 ): Array<{ factIds: string[]; label: string }> {
+  if (!routerEnabled()) return [];
   const bySlot = new Map<
     string,
     Array<{ factId: string; object: string; status?: string }>

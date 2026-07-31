@@ -189,6 +189,19 @@ describe('buildFactIndex elapsed annotations', () => {
 });
 
 describe('detectEvidenceConflicts (T3)', () => {
+  // The detector is flag-gated internally (returns [] when the router
+  // is off — that IS the fail-open contract); enable it for these tests.
+  beforeAll(() => {
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+  });
+  afterAll(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+  });
+  it('returns [] with the router flag off (fail-open)', () => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    expect(detectEvidenceConflicts([])).toEqual([]);
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+  });
   const hitWith = (facts: Array<Record<string, unknown>>) =>
     ({
       entityId: 'e1',
