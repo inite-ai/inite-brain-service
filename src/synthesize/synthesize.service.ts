@@ -17,6 +17,13 @@ import {
 import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
+import {
+  detectLane,
+  routerEnabled,
+  formatElapsed,
+  TEMPORAL_LANE_INSTRUCTION,
+  type AnswerLane,
+} from './answer-router';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { detectLanguage } from '../ai/locale/language-detector';
@@ -105,6 +112,7 @@ export function buildGeneratorUserMessage({
   transcriptLines,
   answerLang,
   dateContext,
+  lane,
 }: {
   query: string;
   factLines: string[];
@@ -112,12 +120,15 @@ export function buildGeneratorUserMessage({
   transcriptLines?: string[];
   answerLang: string | null;
   dateContext?: string;
+  /** T1 typed dispatch: lane-specific answer instruction. */
+  lane?: AnswerLane | null;
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
     : '';
   const dateInstruction = dateContext
-    ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n`
+    ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n` +
+      (lane === 'temporal' ? TEMPORAL_LANE_INSTRUCTION : '')
     : '';
   const transcriptSection =
     transcriptLines && transcriptLines.length > 0
@@ -285,7 +296,18 @@ export class SynthesizeService {
     const evidence = applyEvidenceUnion(searchResult.results, extraHits);
 
     const answerMode = guardrails === 'answer';
-    const prepared = this.prepareEvidence(evidence, answerMode, explain);
+    // T1 typed dispatch: a lexically-routed temporal-distance question
+    // switches the prompt into compute-then-answer (elapsed annotations
+    // computed in code + forced date anchor). Fail-open: unrouted
+    // queries take the exact legacy path.
+    const lane: AnswerLane | null = routerEnabled()
+      ? detectLane(dto.query)
+      : null;
+    const prepared = this.prepareEvidence(evidence, {
+      answerMode,
+      explain,
+      elapsedAsOf: lane === 'temporal' ? dto.asOf : undefined,
+    });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
 
@@ -322,7 +344,14 @@ export class SynthesizeService {
               // Date context (SYNTHESIZE_DATE_CONTEXT): anchor "today"
               // for the generator so relative/when questions resolve
               // against the facts' date stamps instead of guessing.
-              dateContext: resolveDateContext(dto.asOf),
+              // The temporal lane FORCES the anchor from asOf even when
+              // the global flag is off — elapsed annotations are
+              // meaningless without a stated "today".
+              dateContext:
+                lane === 'temporal' && dto.asOf
+                  ? dto.asOf.slice(0, 10)
+                  : resolveDateContext(dto.asOf),
+              lane,
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -525,11 +554,16 @@ export class SynthesizeService {
 
   private prepareEvidence(
     evidence: SearchHit[],
-    answerMode: boolean,
-    explain: boolean,
+    opts: {
+      answerMode: boolean;
+      explain: boolean;
+      /** T1 temporal lane: asOf for precomputed [elapsed] annotations. */
+      elapsedAsOf?: string;
+    },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
+    const { answerMode, explain, elapsedAsOf } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
       minFactTrust: answerMode ? 0 : this.minFactTrust,
@@ -549,7 +583,7 @@ export class SynthesizeService {
         ),
       };
     }
-    const { factIndex, factLines } = buildFactIndex(results);
+    const { factIndex, factLines } = buildFactIndex(results, { elapsedAsOf });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
       // outputShape='ids' / token budget. Treat as no_results for
@@ -573,6 +607,7 @@ export class SynthesizeService {
     answerLang,
     neverAbstain = false,
     dateContext,
+    lane,
   }: {
     query: string;
     factLines: string[];
@@ -583,6 +618,8 @@ export class SynthesizeService {
     neverAbstain?: boolean;
     /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
     dateContext?: string;
+    /** T1 typed dispatch lane, when the router matched. */
+    lane?: AnswerLane | null;
   }): Promise<GeneratorOutput> {
     const systemPrompt = neverAbstain
       ? GENERATOR_SYSTEM_ANSWER
@@ -593,6 +630,7 @@ export class SynthesizeService {
       transcriptLines,
       answerLang,
       dateContext,
+      lane,
     });
     traceArtifact('synthesize.generator_prompt', {
       system: systemPrompt,
@@ -741,7 +779,17 @@ interface FactIndexResult {
  * plus a human-readable line-per-fact list rendered into the prompts.
  * No-IO, no DI — pure.
  */
-function buildFactIndex(results: SearchHit[]): FactIndexResult {
+export function buildFactIndex(
+  results: SearchHit[],
+  opts?: {
+    /**
+     * Temporal lane (T1): asOf date to annotate each dated fact with a
+     * precomputed [elapsed: …] suffix, so interval arithmetic happens
+     * here — in code — and never in the generator.
+     */
+    elapsedAsOf?: string;
+  },
+): FactIndexResult {
   const factIndex = new Map<string, Citation>();
   const factLines: string[] = [];
   for (const r of results) {
@@ -754,8 +802,11 @@ function buildFactIndex(results: SearchHit[]): FactIndexResult {
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
       });
+      const elapsed = opts?.elapsedAsOf
+        ? formatElapsed(f.validFrom, opts.elapsedAsOf)
+        : '';
       factLines.push(
-        `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}`,
+        `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
       );
     }
   }

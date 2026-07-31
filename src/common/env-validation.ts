@@ -415,6 +415,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_FACT_CENTRIC_ENABLED',
   'MULTI_HOP_SYNTH_EVIDENCE_UNION',
   'SYNTHESIZE_DATE_CONTEXT',
+  // T1 typed dispatch: lexical answer-lane router (temporal-distance lane
+  // computes elapsed intervals in code and forces the date anchor).
+  'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',
