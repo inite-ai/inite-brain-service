@@ -21,8 +21,11 @@ import {
   routeLane,
   laneEnabled,
   formatElapsed,
+  detectOrderingShape,
+  orderingFirstMentionEnabled,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
+  ORDERING_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
   PREFERENCE_LANE_INSTRUCTION,
   SUMMARY_LANE_INSTRUCTION,
@@ -121,6 +124,7 @@ export function buildGeneratorUserMessage({
   answerLang,
   dateContext,
   lane,
+  ordering,
   conflicts,
 }: {
   query: string;
@@ -131,6 +135,8 @@ export function buildGeneratorUserMessage({
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
   lane?: AnswerLane | null;
+  /** T2b: mention-order frame replaces the enumeration instruction. */
+  ordering?: boolean;
   /** T3: write-side COMPETING conflict pairs present in the evidence. */
   conflicts?: Array<{ factIds: string[]; label: string }>;
 }): string {
@@ -143,7 +149,9 @@ export function buildGeneratorUserMessage({
     : '';
   const laneInstruction =
     lane === 'enumeration'
-      ? ENUMERATION_LANE_INSTRUCTION
+      ? ordering
+        ? ORDERING_LANE_INSTRUCTION
+        : ENUMERATION_LANE_INSTRUCTION
       : lane === 'preference'
         ? PREFERENCE_LANE_INSTRUCTION
         : lane === 'summary'
@@ -345,6 +353,19 @@ export class SynthesizeService {
     );
 
     const answerMode = guardrails === 'answer';
+    // T2b: mention-order questions sort/annotate by FIRST MENTION
+    // (earliest grounding episode) — validFrom carries the EVENT date
+    // on derived facts, the wrong signal for "order brought up".
+    const ordering =
+      lane === 'enumeration' &&
+      detectOrderingShape(dto.query) &&
+      orderingFirstMentionEnabled();
+    const mentionDates = ordering
+      ? ((await this.episodeLane?.mentionDates({
+          companyId,
+          factIds: evidence.flatMap((h) => h.facts.map((f) => f.factId)),
+        })) ?? {})
+      : undefined;
     const prepared = this.prepareEvidence(evidence, {
       answerMode,
       explain,
@@ -356,6 +377,7 @@ export class SynthesizeService {
       // routed request, independent of lane (ablatable via
       // SYNTHESIZE_LANES_DISABLED=t5).
       markRecency: laneEnabled('recency'),
+      mentionDates,
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
@@ -398,6 +420,7 @@ export class SynthesizeService {
               // meaningless without a stated "today".
               dateContext: resolveLaneDateContext(lane, dto.asOf),
               lane,
+              ordering,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
               conflicts: detectEvidenceConflicts(results),
@@ -640,12 +663,20 @@ export class SynthesizeService {
       chronological?: boolean;
       /** T5: mark the newest fact of multi-statement slots. */
       markRecency?: boolean;
+      /** T2b: factId → earliest grounding-episode ISO date. */
+      mentionDates?: Record<string, string>;
     },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
-    const { answerMode, explain, elapsedAsOf, chronological, markRecency } =
-      opts;
+    const {
+      answerMode,
+      explain,
+      elapsedAsOf,
+      chronological,
+      markRecency,
+      mentionDates,
+    } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
       minFactTrust: answerMode ? 0 : this.minFactTrust,
@@ -669,6 +700,7 @@ export class SynthesizeService {
       elapsedAsOf,
       chronological,
       markRecency,
+      mentionDates,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
@@ -694,6 +726,7 @@ export class SynthesizeService {
     neverAbstain = false,
     dateContext,
     lane,
+    ordering,
     conflicts,
   }: {
     query: string;
@@ -707,6 +740,8 @@ export class SynthesizeService {
     dateContext?: string;
     /** T1 typed dispatch lane, when the router matched. */
     lane?: AnswerLane | null;
+    /** T2b: mention-order frame for ordering-shaped enumeration. */
+    ordering?: boolean;
     /** T3: COMPETING conflict pairs detected in the evidence. */
     conflicts?: Array<{ factIds: string[]; label: string }>;
   }): Promise<GeneratorOutput> {
@@ -720,6 +755,7 @@ export class SynthesizeService {
       answerLang,
       dateContext,
       lane,
+      ordering,
       conflicts,
     });
     traceArtifact('synthesize.generator_prompt', {
@@ -892,6 +928,13 @@ export function buildFactIndex(
      * STALE values; the marker makes recency selection a read-off.
      */
     markRecency?: boolean;
+    /**
+     * T2b mention-order: factId → earliest grounding-episode ISO date.
+     * Annotates each covered fact with "[first mentioned: …]" and makes
+     * that date the chronological sort key (validFrom is the EVENT date
+     * on derived facts — the wrong signal for "order brought up").
+     */
+    mentionDates?: Record<string, string>;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -910,10 +953,18 @@ export function buildFactIndex(
       const elapsed = opts?.elapsedAsOf
         ? formatElapsed(f.validFrom, opts.elapsedAsOf)
         : '';
+      const mentionIso = opts?.mentionDates?.[f.factId];
+      const mentionT = mentionIso ? Date.parse(mentionIso) : NaN;
+      const mention =
+        mentionIso && !Number.isNaN(mentionT)
+          ? ` [first mentioned: ${mentionIso.slice(0, 10)}]`
+          : '';
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
+      const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
-        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
-        t: Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t,
+        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}${mention}`,
+        // Mention date outranks validFrom as the sort key when known.
+        t: mention ? mentionT : validT,
         slot: `${r.entityId}::${f.predicate}`,
         obj: f.object,
       });

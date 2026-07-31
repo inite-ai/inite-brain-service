@@ -984,6 +984,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
       },
       {
+        key: 'SYNTHESIZE_ORDERING_FIRST_MENTION',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'T2b first-mention enumerator: ordering-shaped enumeration questions ("in what order did I bring up…") sort and annotate evidence by the EARLIEST GROUNDING-EPISODE date ([first mentioned: …]) instead of validFrom — on derived facts validFrom carries the event date, the wrong signal for mention order — and the generator is framed to answer with a bare newline-separated topic list of the requested length (BEAM event_ordering scores Kendall tau over the newline-split response). Requires the answer router; rides the enumeration lane.',
+      },
+      {
         key: 'SYNTHESIZE_LANES_DISABLED',
         category: 'pipeline',
         defaultValue: null,

@@ -164,6 +164,70 @@ export class EpisodeLaneService {
     }
   }
 
+  /**
+   * T2b first-mention enumerator: earliest grounding-episode date per
+   * fact. BEAM-style ordering questions ask the order topics were
+   * MENTIONED, while validFrom on derived facts carries occurred_on —
+   * the EVENT date — so sorting by validFrom lies whenever events are
+   * narrated out of order. The mention signal is the timestamp of the
+   * earliest episode the fact is grounded in. Dates only (no episode
+   * text), so no PII gate. Degrades to {} on any failure.
+   */
+  async mentionDates(opts: {
+    companyId: string;
+    factIds: string[];
+  }): Promise<Record<string, string>> {
+    if (opts.factIds.length === 0) return {};
+    try {
+      return await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [facts] = await db.query<
+          [Array<{ id: unknown; eps?: unknown }>]
+        >(
+          `SELECT id, source.episodeIds AS eps FROM knowledge_fact
+            WHERE id INSIDE $ids AND source.episodeIds IS NOT NONE`,
+          { ids: opts.factIds.map((id) => new StringRecordId(id)) },
+        );
+        const epIds = new Set<string>();
+        for (const f of facts ?? []) {
+          if (!Array.isArray(f.eps)) continue;
+          for (const e of f.eps) {
+            const id = String(e);
+            if (id.startsWith('episode:')) epIds.add(id);
+          }
+        }
+        if (epIds.size === 0) return {};
+        const [rows] = await db.query<
+          [Array<{ id: unknown; occurredAt: Date | string }>]
+        >(`SELECT id, occurredAt FROM episode WHERE id INSIDE $ids`, {
+          ids: [...epIds].map((id) => new StringRecordId(id)),
+        });
+        const epDate = new Map<string, number>();
+        for (const r of rows ?? []) {
+          const t = new Date(r.occurredAt as string).getTime();
+          if (Number.isFinite(t)) epDate.set(String(r.id), t);
+        }
+        const out: Record<string, string> = {};
+        for (const f of facts ?? []) {
+          if (!Array.isArray(f.eps)) continue;
+          let min = Number.POSITIVE_INFINITY;
+          for (const e of f.eps) {
+            const t = epDate.get(String(e));
+            if (t !== undefined && t < min) min = t;
+          }
+          if (Number.isFinite(min)) {
+            out[String(f.id)] = new Date(min).toISOString();
+          }
+        }
+        return out;
+      });
+    } catch (e) {
+      this.logger.warn(
+        `mention-date lookup failed (companyId=${opts.companyId}): ${(e as Error).message}`,
+      );
+      return {};
+    }
+  }
+
   /** Episode quotes per prompt from the provenance lane. */
   private sourceExcerptsCap(): number {
     const v = parseInt(process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP ?? '', 10);

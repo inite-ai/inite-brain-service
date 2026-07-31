@@ -439,6 +439,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // T1 typed dispatch: lexical answer-lane router (temporal-distance lane
   // computes elapsed intervals in code and forces the date anchor).
   'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
+  // T2b: mention-order questions sort/annotate evidence by earliest
+  // grounding-episode date and force a bare ordered-list answer shape.
+  'SYNTHESIZE_ORDERING_FIRST_MENTION',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

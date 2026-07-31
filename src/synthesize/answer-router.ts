@@ -128,6 +128,32 @@ export function detectLane(
 }
 
 /**
+ * T2b first-mention ordering: the subset of enumeration questions that
+ * ask for the ORDER topics were brought up (BEAM event_ordering: golds
+ * are ordered lists of topic introductions, scored by Kendall tau over
+ * an LLM-aligned list; the response is split on newlines). Gated by
+ * SYNTHESIZE_ORDERING_FIRST_MENTION on top of the enumeration lane.
+ */
+const ORDERING_PATTERNS: RegExp[] = [
+  /in (?:what|which) order\b/i,
+  /\border in which\b/i,
+  /\bwalk me through the order\b/i,
+  /\b(?:list|name) the order\b/i,
+];
+
+export function detectOrderingShape(query: string): boolean {
+  const q = query ?? '';
+  return ORDERING_PATTERNS.some((p) => p.test(q));
+}
+
+export function orderingFirstMentionEnabled(): boolean {
+  return (
+    laneEnabled('enumeration') &&
+    envFlagEnabled(process.env.SYNTHESIZE_ORDERING_FIRST_MENTION)
+  );
+}
+
+/**
  * T4: deterministic second retrieval probe that pulls the user's stored
  * preferences into evidence — recommendation queries rarely surface
  * them by similarity (the query is about hotels, not about tastes).
@@ -213,6 +239,24 @@ export const PREFERENCE_LANE_INSTRUCTION =
   'to the request; then condition your suggestion on them explicitly, ' +
   'naming which stored preference you applied. A generic recommendation ' +
   'that ignores a stated preference is a wrong answer.\n';
+
+/**
+ * T2b frame: the facts are sorted and annotated by FIRST MENTION (when
+ * the topic was brought up in conversation), which is the asked-for
+ * order — event dates inside the propositions are decoys whenever
+ * events were narrated out of order. The bare newline-separated list
+ * shape matches how ordering answers are consumed (BEAM splits the
+ * response on newlines; extra prose becomes spurious list items).
+ */
+export const ORDERING_LANE_INSTRUCTION =
+  'This is a mention-order question: it asks the order in which topics ' +
+  'were BROUGHT UP in conversation, not the order events happened. The ' +
+  'facts are sorted by their [first mentioned: …] annotations — derive ' +
+  'the order from those annotations only; ignore event dates inside the ' +
+  'fact text. Answer with ONLY a newline-separated list of short topic ' +
+  'labels in first-mention order, nothing else — no preamble, no ' +
+  'commentary. If the question asks for exactly N items, give exactly ' +
+  'N: cluster related facts into broader topics until N remain.\n';
 
 /** T6 staged-narrative frame over chronologically sorted facts. */
 export const SUMMARY_LANE_INSTRUCTION =

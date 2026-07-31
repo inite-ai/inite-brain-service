@@ -9,9 +9,12 @@ import {
   detectLane,
   routeLane,
   laneEnabled,
+  detectOrderingShape,
+  orderingFirstMentionEnabled,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
+  ORDERING_LANE_INSTRUCTION,
 } from '../src/synthesize/answer-router';
 import { parseDisabledLanes } from '../src/synthesize/lanes-disabled';
 import {
@@ -425,6 +428,117 @@ describe('buildFactIndex chronological ordering (T2)', () => {
     const { factLines } = buildFactIndex(hits);
     expect(factLines[0]).toContain(':b');
     expect(factLines[1]).toContain(':a');
+  });
+});
+
+describe('T2b first-mention ordering', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    delete process.env.SYNTHESIZE_ORDERING_FIRST_MENTION;
+  });
+
+  it('detectOrderingShape matches the ordering subset only', () => {
+    for (const q of [
+      'Can you list the order in which I brought up different aspects, in order?',
+      'In what order did I raise the topics?',
+      'Walk me through the order in which I raised topics.',
+      'Name the order of my project phases.',
+    ]) {
+      expect(detectOrderingShape(q)).toBe(true);
+    }
+    for (const q of [
+      'How many plants did I acquire?',
+      'What are all the books I mentioned?',
+      'How many weeks ago did I attend the sale?',
+    ]) {
+      expect(detectOrderingShape(q)).toBe(false);
+    }
+  });
+
+  it('orderingFirstMentionEnabled requires router + t2 + its own flag', () => {
+    expect(orderingFirstMentionEnabled()).toBe(false);
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    expect(orderingFirstMentionEnabled()).toBe(false);
+    process.env.SYNTHESIZE_ORDERING_FIRST_MENTION = '1';
+    expect(orderingFirstMentionEnabled()).toBe(true);
+    process.env.SYNTHESIZE_LANES_DISABLED = 't2';
+    expect(orderingFirstMentionEnabled()).toBe(false);
+    delete process.env.SYNTHESIZE_LANES_DISABLED;
+  });
+
+  const mk = (id: string, validFrom?: string) =>
+    ({
+      entityId: 'e1',
+      entityType: 'person',
+      canonicalName: 'n',
+      externalRefs: {},
+      score: 1,
+      facts: [
+        {
+          factId: `knowledge_fact:${id}`,
+          predicate: 'work',
+          object: id,
+          confidence: 0.7,
+          score: 1,
+          ...(validFrom ? { validFrom } : {}),
+        },
+      ],
+    }) as unknown as SearchHit;
+
+  it('mention dates outrank validFrom as sort key and annotate lines', () => {
+    // Event dates (validFrom) say core-func came SECOND; mention dates
+    // say it was brought up FIRST — mention order must win.
+    const hits = [
+      mk('error_handling', '2024-01-10T00:00:00.000Z'),
+      mk('core_functionality', '2024-02-01T00:00:00.000Z'),
+    ];
+    const { factLines } = buildFactIndex(hits, {
+      chronological: true,
+      mentionDates: {
+        'knowledge_fact:error_handling': '2024-03-05T00:00:00.000Z',
+        'knowledge_fact:core_functionality': '2024-03-01T00:00:00.000Z',
+      },
+    });
+    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
+    expect(order).toEqual(['core_functionality', 'error_handling']);
+    expect(factLines[0]).toContain('[first mentioned: 2024-03-01]');
+  });
+
+  it('facts without a mention date fall back to validFrom, unannotated', () => {
+    const hits = [
+      mk('unmapped', '2024-01-05T00:00:00.000Z'),
+      mk('mapped', '2024-04-01T00:00:00.000Z'),
+    ];
+    const { factLines } = buildFactIndex(hits, {
+      chronological: true,
+      mentionDates: { 'knowledge_fact:mapped': '2024-02-01T00:00:00.000Z' },
+    });
+    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
+    expect(order).toEqual(['unmapped', 'mapped']);
+    expect(factLines[0]).not.toContain('first mentioned');
+  });
+
+  it('without mentionDates output is byte-identical to legacy', () => {
+    const hits = [mk('a', '2024-01-05T00:00:00.000Z')];
+    expect(buildFactIndex(hits, {}).factLines).toEqual(
+      buildFactIndex(hits, { mentionDates: undefined }).factLines,
+    );
+  });
+
+  it('ordering frame replaces the enumeration instruction', () => {
+    const base = {
+      query: 'Can you list the order in which I brought up aspects?',
+      factLines: ['[knowledge_fact:x] n — work: a (as of 2024-01-05)'],
+      answerLang: null as string | null,
+      lane: 'enumeration' as const,
+    };
+    const msg = buildGeneratorUserMessage({ ...base, ordering: true });
+    expect(msg).toContain(ORDERING_LANE_INSTRUCTION.trim());
+    expect(msg).not.toContain(ENUMERATION_LANE_INSTRUCTION.trim());
+    // ordering flag off → plain enumeration frame, byte-identical
+    expect(buildGeneratorUserMessage({ ...base, ordering: false })).toBe(
+      buildGeneratorUserMessage(base),
+    );
   });
 });
 
