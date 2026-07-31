@@ -34,8 +34,6 @@ const TEMPORAL_PATTERNS: RegExp[] = [
   /how long (?:ago|since|until|has it been|had it been|did it take)/i,
   // "weeks ago", "months have passed", "days elapsed", "years apart"
   new RegExp(`${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`, 'i'),
-  // "days/weeks between X and Y"
-  new RegExp(`${UNIT} (?:between|before|after) `, 'i'),
 ];
 
 /**
@@ -248,4 +246,4 @@ export function detectEvidenceConflicts(
 
 /** Negation markers for the polarity tier of the conflict detector. */
 const NEGATION_RE =
-  /\b(?:never|not|no longer|none|nothing|has(?:n't| not)|have(?:n't| not)|did(?:n't| not)|does(?:n't| not)|is(?:n't| not)|was(?:n't| not)|without any)\b/i;
+  /\b(?:never|has(?:n't| not)|have(?:n't| not)|did(?:n't| not)|does not|doesn't)\b/i;

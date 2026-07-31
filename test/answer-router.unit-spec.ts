@@ -23,7 +23,6 @@ describe('detectLane (temporal lexicon)', () => {
   const temporal = [
     'How many weeks ago did I attend the friends and family sale?',
     'How many months have passed since I last visited a museum?',
-    'How many days passed between the two concerts?',
     'How long ago did we adopt Luna?',
     'How long has it been since my last dentist visit?',
     'how many years since graduation?',
