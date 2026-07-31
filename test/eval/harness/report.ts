@@ -22,6 +22,26 @@ export interface AxisReport {
   abstention: { n: number; abstainedRate?: number };
   avgPromptTokens?: number;
   errored: number;
+  /**
+   * BEAM official-protocol aggregate (--nugget-judge): mean nugget
+   * score over ALL graded rows, abstention included — the official
+   * scorer has no separate abstention denominator. Absent when the
+   * nugget judge did not run.
+   */
+  nugget?: {
+    n: number;
+    mean: number;
+    byGroup: Array<{ group: string; n: number; mean: number }>;
+  };
+}
+
+/** Mean of nuggetScore over rows that carry one; undefined when none. */
+function nuggetMean(rows: EvalScore[]): number | undefined {
+  const graded = rows.filter((s) => typeof s.nuggetScore === 'number');
+  if (graded.length === 0) return undefined;
+  return (
+    graded.reduce((a, s) => a + (s.nuggetScore as number), 0) / graded.length
+  );
 }
 
 export function buildAxisReport(scores: EvalScore[]): AxisReport {
@@ -62,6 +82,28 @@ export function buildAxisReport(scores: EvalScore[]): AxisReport {
         )
       : undefined,
     errored: scores.filter((s) => s.errored).length,
+    ...buildNuggetBlock(scores),
+  };
+}
+
+/** Nugget aggregate over ALL rows (abstention included) — see AxisReport. */
+function buildNuggetBlock(scores: EvalScore[]): Pick<AxisReport, 'nugget'> {
+  const graded = scores.filter((s) => typeof s.nuggetScore === 'number');
+  if (graded.length === 0) return {};
+  const byGroup = new Map<string, EvalScore[]>();
+  for (const s of graded) {
+    byGroup.set(s.group, [...(byGroup.get(s.group) ?? []), s]);
+  }
+  return {
+    nugget: {
+      n: graded.length,
+      mean: nuggetMean(graded) as number,
+      byGroup: [...byGroup.entries()].map(([group, arr]) => ({
+        group,
+        n: arr.length,
+        mean: nuggetMean(arr) as number,
+      })),
+    },
   };
 }
 

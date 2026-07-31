@@ -29,6 +29,12 @@ export interface DriverOptions {
   resume?: string;
   judge?: LlmJudge;
   /**
+   * Benchmark-specific second grader (e.g. BEAM nugget judge): annotates
+   * the score row IN PLACE before it is checkpointed. A throw counts as
+   * a judge failure — the row is not checkpointed and a resume retries.
+   */
+  extraGrader?: (q: EvalQuestion, s: EvalScore) => Promise<void>;
+  /**
    * Split long sessions into sub-sessions of this many turns (emittedAt
    * jumps past the deriver's inactivity gap) so each batch derivation
    * call sees a bounded transcript. Unset = natural sessions.
@@ -228,6 +234,14 @@ export async function runWorlds(
           } catch (e) {
             judgeFailed = true;
             log(`${tag} judge error: ${(e as Error).message}`);
+          }
+        }
+        if (opts.extraGrader && !s.errored) {
+          try {
+            await opts.extraGrader(q, s);
+          } catch (e) {
+            judgeFailed = true;
+            log(`${tag} extra-grader error: ${(e as Error).message}`);
           }
         }
         scores.push(s);

@@ -25,6 +25,11 @@ export interface EvalQuestion {
   gold: string;
   /** Richer gold shown to the judge (e.g. BEAM rubric); defaults to gold. */
   judgeGold?: string;
+  /**
+   * Structured rubric items for per-nugget grading (BEAM official
+   * protocol). Not copied onto score rows; consumed by extraGrader.
+   */
+  rubric?: string[];
   /** Correct behavior is declining to answer. */
   isAbstention: boolean;
   /**

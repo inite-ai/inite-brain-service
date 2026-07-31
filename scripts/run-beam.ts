@@ -37,6 +37,7 @@ import {
 } from '../test/eval/harness/report';
 import { EvalWorld } from '../test/eval/harness/types';
 import { createOpenAiJudge } from '../test/eval/locomo/judge';
+import { createNuggetJudge } from '../test/eval/beam/nugget-judge';
 
 /** Bounded transcripts for the session deriver (see header). */
 const CHUNK_TURNS = 20;
@@ -66,6 +67,13 @@ interface Args extends Record<string, unknown> {
    * SYNTHESIZE_TEMPORAL_EVENT_INTERVALS on the brain.
    */
   asofPolicy: string;
+  /**
+   * BEAM official per-nugget grading alongside the strict binary judge:
+   * partial-credit rubric items (event_ordering: aligned tau_norm) —
+   * numbers comparable to the paper's tables. See beam/nugget-judge.ts
+   * for the two deliberate fixes over the reference implementation.
+   */
+  nuggetJudge: boolean;
 }
 
 const FLAGS = {
@@ -84,6 +92,7 @@ const FLAGS = {
   '--resume': { key: 'resume', type: 'string' },
   '--persona-hint': { key: 'personaHint', type: 'bool' },
   '--asof-policy': { key: 'asofPolicy', type: 'string' },
+  '--nugget-judge': { key: 'nuggetJudge', type: 'bool' },
 } as const;
 
 function toWorld(
@@ -110,6 +119,7 @@ function toWorld(
         : undefined,
       isAbstention: q.ability === 'abstention',
       ...(askedAtIso ? { askedAtIso } : {}),
+      ...(q.rubric.length ? { rubric: q.rubric } : {}),
       meta: { difficulty: q.difficulty },
     }));
   return {
@@ -138,6 +148,7 @@ async function main() {
     skipIngest: false,
     personaHint: false,
     asofPolicy: 'synthetic',
+    nuggetJudge: false,
   });
   if (!args.dataset) throw new Error('missing --dataset beam_100k.json');
   if (!['synthetic', 'none'].includes(args.asofPolicy)) {
@@ -145,8 +156,8 @@ async function main() {
       `--asof-policy must be synthetic|none (got "${args.asofPolicy}")`,
     );
   }
-  if (args.judge && !process.env.OPENAI_API_KEY)
-    throw new Error('--judge requires OPENAI_API_KEY');
+  if ((args.judge || args.nuggetJudge) && !process.env.OPENAI_API_KEY)
+    throw new Error('--judge/--nugget-judge requires OPENAI_API_KEY');
 
   const all = await loadBeam(args.dataset);
   const offset = args.sampleOffset ?? 0;
@@ -169,6 +180,12 @@ async function main() {
       `version=${args.derivedVersion}`,
   );
 
+  const nugget = args.nuggetJudge
+    ? createNuggetJudge(
+        new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+        args.judgeModel,
+      )
+    : undefined;
   const { scores } = await runWorlds('beam', worlds, {
     brainUrl: args.brainUrl,
     apiKey: args.apiKey,
@@ -182,6 +199,30 @@ async function main() {
           new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
           args.judgeModel,
         )
+      : undefined,
+    extraGrader: nugget
+      ? async (q, s) => {
+          if (!q.rubric?.length) return;
+          if (q.group === 'event_ordering') {
+            const r = await nugget.orderingScore({
+              rubric: q.rubric,
+              prediction: s.prediction,
+            });
+            // tau_norm is what the paper's tables report for this
+            // ability; F1/final kept for depth.
+            s.nuggetScore = r.tauNorm;
+            s.orderingF1 = r.f1;
+            s.orderingFinal = r.finalScore;
+          } else {
+            const r = await nugget.scoreQuestion({
+              question: q.question,
+              rubric: q.rubric,
+              prediction: s.prediction,
+            });
+            s.nuggetScore = r.nuggetScore;
+            s.nuggetItemScores = r.itemScores;
+          }
+        }
       : undefined,
   });
 
