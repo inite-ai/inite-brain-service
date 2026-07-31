@@ -1,5 +1,25 @@
 # Next session: research + fix BEAM (typed-dispatch round 2)
 
+## STATUS 2026-07-31 (build session): ALL BUILD ITEMS DONE, unmeasured
+
+Commits a2b9dfb..d902b3b, everything flag-gated default-off. Built:
+per-lane ablation `SYNTHESIZE_LANES_DISABLED=t1..t7`; T1b interval
+table `SYNTHESIZE_TEMPORAL_EVENT_INTERVALS` + `--asof-policy none`
+(research: BEAM golds are event-to-event, NO question date exists —
+rubrics expect "N units, from D1 till D2"); T2b first-mention
+enumerator `SYNTHESIZE_ORDERING_FIRST_MENTION` (mention date =
+earliest grounding episode, NOT validFrom which is the event date;
+reported metric is tau_norm over the newline-split response); T6/T2
+wide probe `SYNTHESIZE_LANE_WIDE_PROBE`; T7 instruction lane
+`SYNTHESIZE_INSTRUCTION_LANE` (live probe: instructions ARE captured
+as preference facts, surface at position 33/40 — application, not
+extraction, is the gap); `--nugget-judge` official scoring with their
+two bugs fixed (int(0.5)→0, unsubstituted <question>). Research
+reports: BEAM repo conventions, Eywa (their "BEAM" is in-house, NOT
+comparable), CR positioning table (now in docs/eval-protocol.md),
+LIGHT scratchpad mechanics. NEXT: measure — one flag per leg, same
+worlds, contradiction must not regress; restart brain per leg.
+
 State on entry (2026-07-31): BEAM-100K worlds intact in the stand
 (cheap re-QA ~$1-2/leg, --skip-ingest). Configs measured, paired on the
 same worlds: v1 12.5% (lane-on) → B1 31.1% (lane-off) → router-v1 34.2%
