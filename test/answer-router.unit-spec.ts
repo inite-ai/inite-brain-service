@@ -66,6 +66,25 @@ describe('detectLane (enumeration lexicon + T1/T2 disambiguation)', () => {
   });
 });
 
+describe('detectLane (preference and summary lexicons)', () => {
+  it.each([
+    'Can you recommend some interesting cultural events this week?',
+    'Can you suggest a hotel for my upcoming trip to Miami?',
+    'Any recommendations for evening activities?',
+    'What should I read next?',
+  ])('routes to preference: %s', (q) => {
+    expect(detectLane(q)).toBe('preference');
+  });
+  it.each([
+    'Can you give me a comprehensive summary of how I handled security?',
+    'How has my weather app project progressed over time?',
+    'Give me an overview of my portfolio website work.',
+    'Summarize my budget tracker journey.',
+  ])('routes to summary: %s', (q) => {
+    expect(detectLane(q)).toBe('summary');
+  });
+});
+
 describe('formatElapsed (calendar arithmetic in code)', () => {
   const asOf = '2023-02-27T00:00:00.000Z';
   it('renders days/weeks/calendar months', () => {
@@ -302,5 +321,54 @@ describe('buildFactIndex chronological ordering (T2)', () => {
     const { factLines } = buildFactIndex(hits);
     expect(factLines[0]).toContain(':b');
     expect(factLines[1]).toContain(':a');
+  });
+});
+
+describe('buildFactIndex recency marker (T5)', () => {
+  const slotHit = (facts: Array<[string, string, string?]>) =>
+    ({
+      entityId: 'e1',
+      entityType: 'person',
+      canonicalName: 'n',
+      externalRefs: {},
+      score: 1,
+      facts: facts.map(([id, object, validFrom]) => ({
+        factId: `knowledge_fact:${id}`,
+        predicate: 'coverage',
+        object,
+        confidence: 0.7,
+        score: 1,
+        ...(validFrom ? { validFrom } : {}),
+      })),
+    }) as unknown as SearchHit;
+
+  it('tags max(validFrom) on disagreeing dated slots', () => {
+    const { factLines } = buildFactIndex(
+      [
+        slotHit([
+          ['old', '65%', '2024-03-20T00:00:00.000Z'],
+          ['new', '78%', '2024-04-18T00:00:00.000Z'],
+        ]),
+      ],
+      { markRecency: true },
+    );
+    expect(factLines.find((l) => l.includes(':new'))).toContain(
+      '[most recent for this slot]',
+    );
+    expect(factLines.find((l) => l.includes(':old'))).not.toContain(
+      'most recent',
+    );
+  });
+  it('never tags agreeing or single-dated slots', () => {
+    const { factLines } = buildFactIndex(
+      [
+        slotHit([
+          ['a', 'same value', '2024-03-20T00:00:00.000Z'],
+          ['b', 'same value', '2024-04-18T00:00:00.000Z'],
+        ]),
+      ],
+      { markRecency: true },
+    );
+    expect(factLines.join('\n')).not.toContain('most recent');
   });
 });

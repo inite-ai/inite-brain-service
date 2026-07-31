@@ -24,8 +24,14 @@ import {
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
+  PREFERENCE_LANE_INSTRUCTION,
+  SUMMARY_LANE_INSTRUCTION,
+  PREFERENCE_PROBE_QUERY,
+  detectEvidenceConflicts,
   type AnswerLane,
 } from './answer-router';
+export { detectEvidenceConflicts } from './answer-router';
+import type { SearchDto } from '../search/dto/search.dto';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { detectLanguage } from '../ai/locale/language-detector';
@@ -136,7 +142,13 @@ export function buildGeneratorUserMessage({
       (lane === 'temporal' ? TEMPORAL_LANE_INSTRUCTION : '')
     : '';
   const laneInstruction =
-    lane === 'enumeration' ? ENUMERATION_LANE_INSTRUCTION : '';
+    lane === 'enumeration'
+      ? ENUMERATION_LANE_INSTRUCTION
+      : lane === 'preference'
+        ? PREFERENCE_LANE_INSTRUCTION
+        : lane === 'summary'
+          ? SUMMARY_LANE_INSTRUCTION
+          : '';
   const conflictSection =
     conflicts && conflicts.length > 0
       ? `Conflict pairs (write-side COMPETING):\n${conflicts
@@ -153,6 +165,15 @@ export function buildGeneratorUserMessage({
 interface VerifierOutput {
   verdict: 'supported' | 'partial' | 'unsupported';
   unsupportedClaims?: string[];
+}
+
+/** Temporal lane forces the Today anchor from asOf; others follow the flag. */
+function resolveLaneDateContext(
+  lane: AnswerLane | null,
+  asOf: string | undefined,
+): string | undefined {
+  if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
+  return resolveDateContext(asOf);
 }
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
@@ -286,11 +307,23 @@ export class SynthesizeService {
     const model = dto.synthesisModel ?? this.defaultModel;
     const explain = dto.explain === true;
 
+    // Typed dispatch: lane detection is lexical and free, so it runs
+    // before retrieval — the preference lane adds a deterministic
+    // second probe that similarity search would never surface.
+    const lane: AnswerLane | null = routerEnabled()
+      ? detectLane(dto.query)
+      : null;
+
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
       'synthesize.search',
       () => this.search.search(companyId, dto, callerScopes),
       { 'synthesize.guardrails': guardrails },
+    );
+    const laneProbeHits = await this.runLaneProbe(
+      lane,
+      companyId,
+      callerScopes,
     );
     // Conformal guardrail: drop facts below the calibrated-confidence floor
     // (default SYNTHESIZE_MIN_CONFIDENCE=0.30) BEFORE the generator sees them
@@ -306,21 +339,24 @@ export class SynthesizeService {
     // Evidence union (Phase A): fold the caller's pre-retrieved hits in
     // BEFORE the guardrail so extra facts face the same floors. Base
     // results stay first; unseen extras append best-score-first, capped.
-    const evidence = applyEvidenceUnion(searchResult.results, extraHits);
+    const evidence = applyEvidenceUnion(
+      searchResult.results,
+      laneProbeHits.length > 0
+        ? [...(extraHits ?? []), ...laneProbeHits]
+        : extraHits,
+    );
 
     const answerMode = guardrails === 'answer';
-    // T1 typed dispatch: a lexically-routed temporal-distance question
-    // switches the prompt into compute-then-answer (elapsed annotations
-    // computed in code + forced date anchor). Fail-open: unrouted
-    // queries take the exact legacy path.
-    const lane: AnswerLane | null = routerEnabled()
-      ? detectLane(dto.query)
-      : null;
     const prepared = this.prepareEvidence(evidence, {
       answerMode,
       explain,
       elapsedAsOf: lane === 'temporal' ? dto.asOf : undefined,
-      chronological: lane === 'enumeration',
+      // T2 and T6 both read off a code-sorted timeline.
+      chronological: lane === 'enumeration' || lane === 'summary',
+      // T5: recency marker on the newest fact of multi-statement slots
+      // (knowledge-update misses answer STALE values) — active for any
+      // routed request, independent of lane.
+      markRecency: routerEnabled(),
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
@@ -361,10 +397,7 @@ export class SynthesizeService {
               // The temporal lane FORCES the anchor from asOf even when
               // the global flag is off — elapsed annotations are
               // meaningless without a stated "today".
-              dateContext:
-                lane === 'temporal' && dto.asOf
-                  ? dto.asOf.slice(0, 10)
-                  : resolveDateContext(dto.asOf),
+              dateContext: resolveLaneDateContext(lane, dto.asOf),
               lane,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
@@ -571,6 +604,34 @@ export class SynthesizeService {
     return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
   }
 
+  /**
+   * T4: deterministic second retrieval for the preference lane —
+   * recommendation queries rarely surface stored tastes by similarity.
+   * Degrades to [] on failure; other lanes probe nothing.
+   */
+  private async runLaneProbe(
+    lane: AnswerLane | null,
+    companyId: string,
+    callerScopes: string[],
+  ): Promise<SearchHit[]> {
+    if (lane !== 'preference') return [];
+    try {
+      const probe = await withSpan('synthesize.preference_probe', () =>
+        this.search.search(
+          companyId,
+          { query: PREFERENCE_PROBE_QUERY, limit: 8 } as SearchDto,
+          callerScopes,
+        ),
+      );
+      return probe.results;
+    } catch (e) {
+      this.logger.warn(
+        `preference probe failed (companyId=${companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   private prepareEvidence(
     evidence: SearchHit[],
     opts: {
@@ -580,11 +641,14 @@ export class SynthesizeService {
       elapsedAsOf?: string;
       /** T2 enumeration lane: chronological fact-line ordering. */
       chronological?: boolean;
+      /** T5: mark the newest fact of multi-statement slots. */
+      markRecency?: boolean;
     },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
-    const { answerMode, explain, elapsedAsOf, chronological } = opts;
+    const { answerMode, explain, elapsedAsOf, chronological, markRecency } =
+      opts;
     const guardrail = applyConformalGuardrail(evidence, {
       minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
       minFactTrust: answerMode ? 0 : this.minFactTrust,
@@ -607,6 +671,7 @@ export class SynthesizeService {
     const { factIndex, factLines } = buildFactIndex(results, {
       elapsedAsOf,
       chronological,
+      markRecency,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
@@ -823,10 +888,18 @@ export function buildFactIndex(
      * in code — never by the generator.
      */
     chronological?: boolean;
+    /**
+     * T5 update arbitration: on slots (entity+predicate) holding ≥2
+     * dated, disagreeing statements, tag the max(validFrom) one with
+     * "[most recent for this slot]" — knowledge-update misses answer
+     * STALE values; the marker makes recency selection a read-off.
+     */
+    markRecency?: boolean;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
-  const entries: Array<{ line: string; t: number }> = [];
+  const entries: Array<{ line: string; t: number; slot: string; obj: string }> =
+    [];
   for (const r of results) {
     for (const f of r.facts) {
       factIndex.set(f.factId, {
@@ -844,7 +917,22 @@ export function buildFactIndex(
       entries.push({
         line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
         t: Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t,
+        slot: `${r.entityId}::${f.predicate}`,
+        obj: f.object,
       });
+    }
+  }
+  if (opts?.markRecency) {
+    const bySlot = new Map<string, typeof entries>();
+    for (const e of entries) {
+      bySlot.set(e.slot, [...(bySlot.get(e.slot) ?? []), e]);
+    }
+    for (const group of bySlot.values()) {
+      const dated = group.filter((e) => Number.isFinite(e.t));
+      if (dated.length < 2) continue;
+      if (new Set(group.map((e) => e.obj)).size < 2) continue;
+      const newest = dated.reduce((a, b) => (b.t >= a.t ? b : a));
+      newest.line += ' [most recent for this slot]';
     }
   }
   if (opts?.chronological) {
@@ -854,63 +942,6 @@ export function buildFactIndex(
   }
   return { factIndex, factLines: entries.map((e) => e.line) };
 }
-
-/**
- * T3: detect write-side-adjudicated conflicts inside the retrieved
- * evidence. Conservative by design: a slot counts as conflicted ONLY
- * when its facts disagree on the object AND at least one carries the
- * COMPETING status the conflict predictor assigned at write time —
- * ordinary multi-value slots (works_at, likes, …) never trigger. Pure,
- * exported for tests.
- */
-export function detectEvidenceConflicts(
-  results: SearchHit[],
-): Array<{ factIds: string[]; label: string }> {
-  const bySlot = new Map<
-    string,
-    Array<{ factId: string; object: string; status?: string }>
-  >();
-  for (const r of results) {
-    for (const f of r.facts) {
-      const key = `${r.entityId}::${f.predicate}`;
-      const arr = bySlot.get(key) ?? [];
-      arr.push({
-        factId: f.factId,
-        object: f.object,
-        status: (f as { status?: string }).status,
-      });
-      bySlot.set(key, arr);
-    }
-  }
-  const conflicts: Array<{ factIds: string[]; label: string }> = [];
-  for (const [slot, facts] of bySlot) {
-    const objects = new Set(facts.map((f) => f.object));
-    if (objects.size < 2) continue;
-    const hasCompeting = facts.some(
-      (f) => (f.status ?? '').toUpperCase() === 'COMPETING',
-    );
-    // Second tier for DERIVED worlds: the window deriver batch-INSERTs
-    // propositions past the conflict predictor, so contradictions sit as
-    // plain 'active' rows. Seeded contradictions are never/always-shaped
-    // — flag a slot whose statements disagree on polarity (one side
-    // negated, the other not). Never fires on ordinary multi-value
-    // slots: two affirmative objects share polarity.
-    const negated = facts.filter((f) => NEGATION_RE.test(f.object));
-    const polaritySplit =
-      negated.length > 0 && negated.length < facts.length;
-    if (hasCompeting || polaritySplit) {
-      conflicts.push({
-        factIds: facts.map((f) => f.factId),
-        label: slot.split('::')[1] ?? slot,
-      });
-    }
-  }
-  return conflicts;
-}
-
-/** Negation markers for the polarity tier of the conflict detector. */
-const NEGATION_RE =
-  /\b(?:never|not|no longer|none|nothing|has(?:n't| not)|have(?:n't| not)|did(?:n't| not)|does(?:n't| not)|is(?:n't| not)|was(?:n't| not)|without any)\b/i;
 
 /**
  * Render a fact's validity window as a compact suffix for the prompt.

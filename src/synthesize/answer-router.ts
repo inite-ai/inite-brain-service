@@ -1,4 +1,5 @@
 import { envFlagEnabled } from '../common/env-validation';
+import type { SearchHit } from '../search/search.service';
 
 /**
  * Typed Answer Dispatch, lane T1 (docs/roadmap/typed-answer-dispatch-
@@ -19,7 +20,7 @@ import { envFlagEnabled } from '../common/env-validation';
  * true date arithmetic measurably hurts — E-series date-context leg).
  */
 
-export type AnswerLane = 'temporal' | 'enumeration';
+export type AnswerLane = 'temporal' | 'enumeration' | 'preference' | 'summary';
 
 const UNIT = '(?:day|week|month|year)s?';
 /**
@@ -51,6 +52,26 @@ const ENUMERATION_PATTERNS: RegExp[] = [
   /\border in which\b/i,
 ];
 
+/**
+ * T4 preference/recommendation questions: the failure mode is a generic
+ * suggestion that ignores stored preferences (PrefEval: verbatim
+ * preference injection beats CoT — the fix is retrieval + conditioning,
+ * not more reasoning).
+ */
+const PREFERENCE_PATTERNS: RegExp[] = [
+  /can you (?:recommend|suggest)\b/i,
+  /\b(?:recommend|suggest) (?:some|a|an|me)\b/i,
+  /what (?:should|would) i (?:read|watch|try|do|buy|visit|listen)/i,
+  /any (?:recommendations|suggestions)\b/i,
+];
+
+/** T6 progressive-summary questions: staged narrative over a topic. */
+const SUMMARY_PATTERNS: RegExp[] = [
+  /\b(?:comprehensive |detailed )?summar(?:y|ize|ise)\b/i,
+  /how (?:has|have|did) .{0,60}(?:progress|develop|evolv|unfold)/i,
+  /give me an overview of\b/i,
+];
+
 export function routerEnabled(): boolean {
   return envFlagEnabled(process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
 }
@@ -63,8 +84,22 @@ export function detectLane(query: string): AnswerLane | null {
   for (const p of ENUMERATION_PATTERNS) {
     if (p.test(q)) return 'enumeration';
   }
+  for (const p of PREFERENCE_PATTERNS) {
+    if (p.test(q)) return 'preference';
+  }
+  for (const p of SUMMARY_PATTERNS) {
+    if (p.test(q)) return 'summary';
+  }
   return null;
 }
+
+/**
+ * T4: deterministic second retrieval probe that pulls the user's stored
+ * preferences into evidence — recommendation queries rarely surface
+ * them by similarity (the query is about hotels, not about tastes).
+ */
+export const PREFERENCE_PROBE_QUERY =
+  'preferences likes dislikes favorite style enjoys prefers avoids';
 
 /**
  * Deterministic elapsed-time annotation for one dated fact vs asOf.
@@ -136,3 +171,75 @@ export const ENUMERATION_LANE_INSTRUCTION =
   'partial list is a wrong answer. THEN derive the final count, order, ' +
   'or total from your enumeration (sum durations/amounts explicitly ' +
   'when asked for totals).\n';
+
+/** T4 answer conditioning (PrefEval "reminder" pattern). */
+export const PREFERENCE_LANE_INSTRUCTION =
+  'This is a recommendation question. FIRST scan the facts for the ' +
+  "user's stated preferences, tastes, constraints or dislikes relevant " +
+  'to the request; then condition your suggestion on them explicitly, ' +
+  'naming which stored preference you applied. A generic recommendation ' +
+  'that ignores a stated preference is a wrong answer.\n';
+
+/** T6 staged-narrative frame over chronologically sorted facts. */
+export const SUMMARY_LANE_INSTRUCTION =
+  'This is a progressive-summary question. The facts are sorted ' +
+  'chronologically. Produce a staged narrative: initial state, the key ' +
+  'developments with their dates, and the current state. Scan ALL the ' +
+  'facts — a summary built from one time slice is a wrong answer.\n';
+
+/**
+ * T3: detect write-side-adjudicated conflicts inside the retrieved
+ * evidence. Conservative by design: a slot counts as conflicted ONLY
+ * when its facts disagree on the object AND at least one carries the
+ * COMPETING status the conflict predictor assigned at write time —
+ * ordinary multi-value slots (works_at, likes, …) never trigger. Pure,
+ * exported for tests.
+ */
+export function detectEvidenceConflicts(
+  results: SearchHit[],
+): Array<{ factIds: string[]; label: string }> {
+  const bySlot = new Map<
+    string,
+    Array<{ factId: string; object: string; status?: string }>
+  >();
+  for (const r of results) {
+    for (const f of r.facts) {
+      const key = `${r.entityId}::${f.predicate}`;
+      const arr = bySlot.get(key) ?? [];
+      arr.push({
+        factId: f.factId,
+        object: f.object,
+        status: (f as { status?: string }).status,
+      });
+      bySlot.set(key, arr);
+    }
+  }
+  const conflicts: Array<{ factIds: string[]; label: string }> = [];
+  for (const [slot, facts] of bySlot) {
+    const objects = new Set(facts.map((f) => f.object));
+    if (objects.size < 2) continue;
+    const hasCompeting = facts.some(
+      (f) => (f.status ?? '').toUpperCase() === 'COMPETING',
+    );
+    // Second tier for DERIVED worlds: the window deriver batch-INSERTs
+    // propositions past the conflict predictor, so contradictions sit as
+    // plain 'active' rows. Seeded contradictions are never/always-shaped
+    // — flag a slot whose statements disagree on polarity (one side
+    // negated, the other not). Never fires on ordinary multi-value
+    // slots: two affirmative objects share polarity.
+    const negated = facts.filter((f) => NEGATION_RE.test(f.object));
+    const polaritySplit =
+      negated.length > 0 && negated.length < facts.length;
+    if (hasCompeting || polaritySplit) {
+      conflicts.push({
+        factIds: facts.map((f) => f.factId),
+        label: slot.split('::')[1] ?? slot,
+      });
+    }
+  }
+  return conflicts;
+}
+
+/** Negation markers for the polarity tier of the conflict detector. */
+const NEGATION_RE =
+  /\b(?:never|not|no longer|none|nothing|has(?:n't| not)|have(?:n't| not)|did(?:n't| not)|does(?:n't| not)|is(?:n't| not)|was(?:n't| not)|without any)\b/i;
