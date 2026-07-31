@@ -146,6 +146,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── Read-side query expansion ──────────────────────────────────────
   positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
+  positiveInt(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', errors);
 
   // ── Agent-in-loop QA ───────────────────────────────────────────────
   positiveInt(env, 'AGENT_QA_MAX_ROUNDS', errors);
@@ -445,6 +446,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // T1b: temporal lane renders a pairwise date-interval table (event-
   // anchored benchmarks: no "today", answers read off the pair rows).
   'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
+  // T6/T2 wide probe: PRF second retrieval for summary/enumeration
+  // lanes — recall breadth that a render frame alone cannot provide.
+  'SYNTHESIZE_LANE_WIDE_PROBE',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

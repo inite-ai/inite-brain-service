@@ -13,6 +13,9 @@ import {
   orderingFirstMentionEnabled,
   temporalIntervalsEnabled,
   buildIntervalTable,
+  wideLaneProbeEnabled,
+  wideProbeLimit,
+  buildWideProbeQuery,
   formatElapsed,
   TEMPORAL_LANE_INSTRUCTION,
   TEMPORAL_INTERVAL_INSTRUCTION,
@@ -643,6 +646,61 @@ describe('T2b first-mention ordering', () => {
     expect(buildGeneratorUserMessage({ ...base, ordering: false })).toBe(
       buildGeneratorUserMessage(base),
     );
+  });
+});
+
+describe('T6/T2 wide probe', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+    delete process.env.SYNTHESIZE_LANE_WIDE_PROBE;
+    delete process.env.SYNTHESIZE_WIDE_PROBE_LIMIT;
+  });
+
+  it('wideLaneProbeEnabled requires router + its own flag', () => {
+    expect(wideLaneProbeEnabled()).toBe(false);
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    expect(wideLaneProbeEnabled()).toBe(false);
+    process.env.SYNTHESIZE_LANE_WIDE_PROBE = '1';
+    expect(wideLaneProbeEnabled()).toBe(true);
+  });
+
+  it('wideProbeLimit defaults to 12 and parses the env override', () => {
+    expect(wideProbeLimit()).toBe(12);
+    process.env.SYNTHESIZE_WIDE_PROBE_LIMIT = '20';
+    expect(wideProbeLimit()).toBe(20);
+    process.env.SYNTHESIZE_WIDE_PROBE_LIMIT = 'nope';
+    expect(wideProbeLimit()).toBe(12);
+  });
+
+  it('buildWideProbeQuery appends top entities and dominant aspects', () => {
+    const hit = (name: string, preds: string[]) =>
+      ({
+        entityId: `e_${name}`,
+        entityType: 'person',
+        canonicalName: name,
+        externalRefs: {},
+        score: 1,
+        facts: preds.map((p, i) => ({
+          factId: `knowledge_fact:${name}${i}`,
+          predicate: p,
+          object: 'x',
+          confidence: 0.7,
+          score: 1,
+        })),
+      }) as unknown as SearchHit;
+    const q = buildWideProbeQuery('How has my tracker progressed?', [
+      hit('mikhail__user', ['work', 'work', 'plans', 'events']),
+      hit('assistant', ['work', 'media']),
+      hit('third', ['health']),
+    ]);
+    // ≤2 entity names, ≤4 aspects by frequency (work=3 first)
+    expect(q).toBe(
+      'How has my tracker progressed? mikhail__user assistant work plans events media',
+    );
+  });
+
+  it('empty base hits degrade to the bare query', () => {
+    expect(buildWideProbeQuery('q', [])).toBe('q');
   });
 });
 

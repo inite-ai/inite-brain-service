@@ -24,6 +24,7 @@ import {
   orderingFirstMentionEnabled,
   temporalIntervalsEnabled,
   buildIntervalTable,
+  laneProbeDto,
   TEMPORAL_LANE_INSTRUCTION,
   TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
@@ -31,7 +32,6 @@ import {
   CONTRADICTION_NOTE_INSTRUCTION,
   PREFERENCE_LANE_INSTRUCTION,
   SUMMARY_LANE_INSTRUCTION,
-  PREFERENCE_PROBE_QUERY,
   detectEvidenceConflicts,
   type AnswerLane,
 } from './answer-router';
@@ -328,11 +328,13 @@ export class SynthesizeService {
       () => this.search.search(companyId, dto, callerScopes),
       { 'synthesize.guardrails': guardrails },
     );
-    const laneProbeHits = await this.runLaneProbe(
+    const laneProbeHits = await this.runLaneProbe({
       lane,
+      query: dto.query,
       companyId,
       callerScopes,
-    );
+      baseHits: searchResult.results,
+    });
     // Conformal guardrail: drop facts below the calibrated-confidence floor
     // (default SYNTHESIZE_MIN_CONFIDENCE=0.30) BEFORE the generator sees them
     // as citation targets. Facts still appear in the DecisionLog (with the
@@ -656,28 +658,35 @@ export class SynthesizeService {
   }
 
   /**
-   * T4: deterministic second retrieval for the preference lane —
-   * recommendation queries rarely surface stored tastes by similarity.
+   * Deterministic second retrievals per lane. T4 preference: the fixed
+   * tastes probe (recommendation queries rarely surface stored tastes
+   * by similarity). T6/T2 wide probe (flag-gated): PRF query built from
+   * the base hits — recall breadth for summary/enumeration questions.
    * Degrades to [] on failure; other lanes probe nothing.
    */
-  private async runLaneProbe(
-    lane: AnswerLane | null,
-    companyId: string,
-    callerScopes: string[],
-  ): Promise<SearchHit[]> {
-    if (lane !== 'preference') return [];
+  private async runLaneProbe({
+    lane,
+    query,
+    companyId,
+    callerScopes,
+    baseHits,
+  }: {
+    lane: AnswerLane | null;
+    query: string;
+    companyId: string;
+    callerScopes: string[];
+    baseHits: SearchHit[];
+  }): Promise<SearchHit[]> {
+    const probeDto = laneProbeDto(lane, query, baseHits);
+    if (!probeDto) return [];
     try {
-      const probe = await withSpan('synthesize.preference_probe', () =>
-        this.search.search(
-          companyId,
-          { query: PREFERENCE_PROBE_QUERY, limit: 8 } as SearchDto,
-          callerScopes,
-        ),
+      const probe = await withSpan('synthesize.lane_probe', () =>
+        this.search.search(companyId, probeDto as SearchDto, callerScopes),
       );
       return probe.results;
     } catch (e) {
       this.logger.warn(
-        `preference probe failed (companyId=${companyId}): ${(e as Error).message}`,
+        `lane probe failed (lane=${lane}, companyId=${companyId}): ${(e as Error).message}`,
       );
       return [];
     }

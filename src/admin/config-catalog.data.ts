@@ -993,6 +993,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'T1b event-interval program: the temporal lane renders a pairwise date-interval table (calendar difference between every two distinct evidence dates, computed in code) and frames the generator to read the asked interval off the table and name both dates. For event-anchored corpora (BEAM: golds are event-to-event intervals with NO notion of "today" — rubrics expect "N units, from DATE1 till DATE2"); pair with the harness --asof-policy none so no fabricated asOf produces decoy distance-to-today annotations. Requires the answer router; rides the temporal lane.',
       },
       {
+        key: 'SYNTHESIZE_LANE_WIDE_PROBE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'T6/T2 wide probe: summary/enumeration-routed questions run a second retrieval with a pseudo-relevance-feedback query (original query + dominant aspect predicates + top entity names from the base hits — deterministic, no LLM). Lesson of the null render-frame legs: a whole-project narrative needs recall breadth the top-K similarity slice cannot cover. Extra facts merge through the evidence union under SYNTHESIZE_EXTRA_EVIDENCE_CAP. Requires the answer router.',
+      },
+      {
+        key: 'SYNTHESIZE_WIDE_PROBE_LIMIT',
+        category: 'pipeline',
+        defaultValue: '12',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Hit limit for the T6/T2 wide-probe second retrieval (SYNTHESIZE_LANE_WIDE_PROBE).',
+      },
+      {
         key: 'SYNTHESIZE_ORDERING_FIRST_MENTION',
         category: 'pipeline',
         defaultValue: '0',

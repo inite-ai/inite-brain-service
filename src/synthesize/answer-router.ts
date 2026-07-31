@@ -154,12 +154,79 @@ export function orderingFirstMentionEnabled(): boolean {
 }
 
 /**
+ * T6/T2 wide probe (SYNTHESIZE_LANE_WIDE_PROBE): the measured lesson of
+ * the null summary/enumeration legs is that a render frame cannot fix
+ * recall breadth — the top-K similarity slice can't cover a
+ * whole-project narrative. For summary/enumeration-routed questions a
+ * second retrieval runs with a pseudo-relevance-feedback query
+ * (original query + dominant aspect predicates + top entity names from
+ * the base hits — deterministic, no LLM), pulling same-topic facts the
+ * literal question wording never surfaces. Extra facts enter through
+ * the evidence union under SYNTHESIZE_EXTRA_EVIDENCE_CAP.
+ */
+export function wideLaneProbeEnabled(): boolean {
+  return (
+    routerEnabled() &&
+    envFlagEnabled(process.env.SYNTHESIZE_LANE_WIDE_PROBE)
+  );
+}
+
+export function wideProbeLimit(): number {
+  const v = parseInt(process.env.SYNTHESIZE_WIDE_PROBE_LIMIT ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 12;
+}
+
+/** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
+export function buildWideProbeQuery(
+  query: string,
+  hits: SearchHit[],
+): string {
+  const names = hits.slice(0, 2).map((h) => h.canonicalName);
+  const counts = new Map<string, number>();
+  for (const h of hits) {
+    for (const f of h.facts) {
+      counts.set(f.predicate, (counts.get(f.predicate) ?? 0) + 1);
+    }
+  }
+  const aspects = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([p]) => p);
+  return [query, ...names, ...aspects].join(' ');
+}
+
+/**
  * T4: deterministic second retrieval probe that pulls the user's stored
  * preferences into evidence — recommendation queries rarely surface
  * them by similarity (the query is about hotels, not about tastes).
  */
 export const PREFERENCE_PROBE_QUERY =
   'preferences likes dislikes favorite style enjoys prefers avoids';
+
+/**
+ * Second-retrieval request per lane, or null when the lane probes
+ * nothing: T4's fixed tastes probe; the flag-gated T6/T2 PRF widening.
+ * Pure — the service just executes whatever this returns.
+ */
+export function laneProbeDto(
+  lane: AnswerLane | null,
+  query: string,
+  baseHits: SearchHit[],
+): { query: string; limit: number } | null {
+  if (lane === 'preference') {
+    return { query: PREFERENCE_PROBE_QUERY, limit: 8 };
+  }
+  if (
+    (lane === 'summary' || lane === 'enumeration') &&
+    wideLaneProbeEnabled()
+  ) {
+    return {
+      query: buildWideProbeQuery(query, baseHits),
+      limit: wideProbeLimit(),
+    };
+  }
+  return null;
+}
 
 /**
  * Calendar difference between two instants: whole days, whole weeks,
