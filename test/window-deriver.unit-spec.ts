@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import {
   WindowDeriverService,
   segmentSessions,
@@ -111,7 +112,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
     } as unknown as FactEmbeddingService;
-    const svc = new WindowDeriverService(surreal, config, embedding);
+    const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
     (svc as unknown as { openai: unknown }).openai = {
       chat: {
         completions: {
@@ -303,7 +304,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const embedding = {
         embedMany: async (t: string[]) => t.map(() => [1, 0]),
       } as unknown as FactEmbeddingService;
-      const svc = new WindowDeriverService(surreal, config, embedding);
+      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
       const res = await svc.gc('co_x', { keep: ['wd-v2'] });
       expect(res.deleted).toEqual({ 'wd-v1': 100 });
       expect(res.kept.sort()).toEqual(['wd-v2', 'wd-v3']);

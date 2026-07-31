@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 
 interface EpisodeQuoteRow {
   speaker?: string;
@@ -47,7 +48,10 @@ function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
 export class EpisodeLaneService {
   private readonly logger = new Logger(EpisodeLaneService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    private readonly episodes: EpisodeReadStoreService,
+  ) {}
 
   isEnabled(): boolean {
     return envFlagEnabled(process.env.SEARCH_EPISODIC_LANE_ENABLED);
@@ -65,33 +69,13 @@ export class EpisodeLaneService {
     callerScopes: string[];
   }): Promise<string[]> {
     if (!this.isEnabled()) return [];
-    const k = this.topK();
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
     try {
-      const rows = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const [r] = await db.query<
-            [
-              Array<{
-                speaker?: string;
-                text: string;
-                occurredAt: Date | string;
-              }>,
-            ]
-          >(
-            `SELECT speaker, text, occurredAt, search::score(1) AS score
-               FROM episode
-              WHERE text @1@ $q ${piiGate}
-              ORDER BY score DESC
-              LIMIT $k`,
-            { q: opts.query, k },
-          );
-          return r ?? [];
-        },
-      );
+      const rows = await this.episodes.searchText({
+        companyId: opts.companyId,
+        query: opts.query,
+        limit: this.topK(),
+        includePii: opts.callerScopes.includes('brain:read_pii'),
+      });
       return renderQuoteLines(rows);
     } catch (e) {
       this.logger.warn(
@@ -124,9 +108,6 @@ export class EpisodeLaneService {
       return [];
     }
     const cap = this.sourceExcerptsCap();
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
         const [facts] = await db.query<
@@ -148,13 +129,13 @@ export class EpisodeLaneService {
             if (episodeIds.length < cap) episodeIds.push(id);
           }
         }
-        if (episodeIds.length === 0) return [];
-        const [rows] = await db.query<[EpisodeQuoteRow[]]>(
-          `SELECT speaker, text, occurredAt FROM episode
-            WHERE id INSIDE $ids ${piiGate}`,
-          { ids: episodeIds.map((id) => new StringRecordId(id)) },
-        );
-        return renderQuoteLines(rows ?? []);
+        const rows = await this.episodes.byIds({
+          companyId: opts.companyId,
+          ids: episodeIds,
+          includePii: opts.callerScopes.includes('brain:read_pii'),
+          db,
+        });
+        return renderQuoteLines(rows);
       });
     } catch (e) {
       this.logger.warn(
@@ -196,16 +177,11 @@ export class EpisodeLaneService {
           }
         }
         if (epIds.size === 0) return {};
-        const [rows] = await db.query<
-          [Array<{ id: unknown; occurredAt: Date | string }>]
-        >(`SELECT id, occurredAt FROM episode WHERE id INSIDE $ids`, {
-          ids: [...epIds].map((id) => new StringRecordId(id)),
+        const epDate = await this.episodes.occurredAtByIds({
+          companyId: opts.companyId,
+          ids: [...epIds],
+          db,
         });
-        const epDate = new Map<string, number>();
-        for (const r of rows ?? []) {
-          const t = new Date(r.occurredAt as string).getTime();
-          if (Number.isFinite(t)) epDate.set(String(r.id), t);
-        }
         const out: Record<string, string> = {};
         for (const f of facts ?? []) {
           if (!Array.isArray(f.eps)) continue;

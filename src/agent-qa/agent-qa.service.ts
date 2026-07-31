@@ -6,6 +6,7 @@ import { SearchService } from '../search/search.service';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MultiHopService } from '../multi-hop/multi-hop.service';
+import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
@@ -185,6 +186,7 @@ export class AgentQaService {
     @Optional() private readonly surreal?: SurrealService,
     @Optional() private readonly embedder?: EmbedderService,
     @Optional() private readonly multiHop?: MultiHopService,
+    @Optional() private readonly episodes?: EpisodeReadStoreService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>(
@@ -444,33 +446,14 @@ export class AgentQaService {
   /** Literal transcript search (V2), PII-gated like the read lanes. */
   private async runGrep(input: AgentQaInput, pattern: string): Promise<string> {
     if (!pattern.trim()) return 'No pattern provided.';
-    if (!this.surreal) return 'Transcript search unavailable.';
-    const piiGate = input.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
+    if (!this.episodes) return 'Transcript search unavailable.';
     try {
-      const rows = await this.surreal.withCompany(
-        input.companyId,
-        async (db) => {
-          const [r] = await db.query<
-            [
-              Array<{
-                speaker?: string;
-                text: string;
-                occurredAt: unknown;
-              }>,
-            ]
-          >(
-            `SELECT speaker, text, occurredAt, search::score(1) AS score
-               FROM episode
-              WHERE text @1@ $q ${piiGate}
-              ORDER BY score DESC
-              LIMIT 10`,
-            { q: pattern },
-          );
-          return r ?? [];
-        },
-      );
+      const rows = await this.episodes.searchText({
+        companyId: input.companyId,
+        query: pattern,
+        limit: 10,
+        includePii: input.callerScopes.includes('brain:read_pii'),
+      });
       if (rows.length === 0) return 'No transcript turns match.';
       return rows
         .slice()

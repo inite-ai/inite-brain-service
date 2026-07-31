@@ -5,6 +5,7 @@ import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 
 /**
  * Session-window deriver, P3 v1
@@ -94,10 +95,12 @@ export class WindowDeriverService {
   private readonly openai: OpenAI;
   private readonly model: string;
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly configService: ConfigService,
     private readonly embedding: FactEmbeddingService,
+    private readonly episodes: EpisodeReadStoreService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
@@ -141,15 +144,9 @@ export class WindowDeriverService {
       skipped: [],
     };
     await this.surreal.withCompany(companyId, async (db) => {
-      const [convs] = await db.query<
-        [Array<{ conversationId?: string; n: number }>]
-      >(
-        `SELECT conversationId, count() AS n FROM episode
-          WHERE conversationId IS NOT NONE
-          GROUP BY conversationId`,
-      );
-      for (const conv of convs ?? []) {
-        const conversationId = String(conv.conversationId);
+      const convs = await this.episodes.conversationCounts(db);
+      for (const conv of convs) {
+        const conversationId = conv.conversationId;
         // Targeted re-derivation: one bad conversation should not force a
         // full-tenant (paid) re-run.
         if (opts.conversationId && conversationId !== opts.conversationId) {
@@ -224,12 +221,11 @@ export class WindowDeriverService {
     version: string;
     result: DeriveRunResult;
   }): Promise<void> {
-    const [episodes] = await db.query<[EpisodeRow[]]>(
-      `SELECT id, speaker, text, occurredAt FROM episode
-        WHERE conversationId = $conv ORDER BY occurredAt ASC LIMIT 5000`,
-      { conv: conversationId },
+    const episodes: EpisodeRow[] = await this.episodes.conversationTurns(
+      db,
+      conversationId,
     );
-    if (!episodes || episodes.length === 0) return;
+    if (episodes.length === 0) return;
 
     // Speaker display name → entity id, via the fact-densest entities
     // whose canonicalName embeds the speaker name. Unresolved subjects

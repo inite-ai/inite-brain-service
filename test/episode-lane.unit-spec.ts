@@ -1,4 +1,5 @@
 import { EpisodeLaneService } from '../src/synthesize/episode-lane.service';
+import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/synthesize.service';
 import type { SurrealService } from '../src/db/surreal.service';
 
@@ -19,7 +20,7 @@ function makeLane(rows: Array<Record<string, unknown>>): {
         },
       }),
   } as unknown as SurrealService;
-  return { svc: new EpisodeLaneService(surreal), queries };
+  return { svc: new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal)), queries };
 }
 
 describe('EpisodeLaneService (P2)', () => {
@@ -74,7 +75,7 @@ describe('EpisodeLaneService (P2)', () => {
         throw new Error('index rebuilding');
       },
     } as unknown as SurrealService;
-    const svc = new EpisodeLaneService(surreal);
+    const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.transcriptLines(base)).toEqual([]);
   });
 });
@@ -107,7 +108,7 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
           },
         }),
     } as unknown as SurrealService;
-    return { svc: new EpisodeLaneService(surreal), queries };
+    return { svc: new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal)), queries };
   }
 
   const base = {
@@ -179,7 +180,7 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
         throw new Error('db down');
       },
     } as unknown as SurrealService;
-    const svc = new EpisodeLaneService(surreal);
+    const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.sourceExcerpts(base)).toEqual([]);
     const { svc: svc2, queries } = makeProvLane([]);
     expect(await svc2.sourceExcerpts({ ...base, factIds: [] })).toEqual([]);

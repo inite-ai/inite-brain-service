@@ -8,6 +8,7 @@ import {
   SegmentComposerService,
   SEGMENT_RECORDER,
 } from '../src/admin/segment-composer.service';
+import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import type { RerankerService } from '../src/ai/reranker.service';
@@ -88,7 +89,7 @@ describe('SegmentComposerService', () => {
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
     } as unknown as FactEmbeddingService;
-    const svc = new SegmentComposerService(surreal, embedding);
+    const svc = new SegmentComposerService(surreal, embedding, new EpisodeReadStoreService(surreal));
     const res = await svc.run('co_x');
     expect(res).toMatchObject({ conversations: 1, segments: 1 });
     expect(

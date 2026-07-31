@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import {
   segmentSessions,
   type EpisodeRow,
@@ -69,6 +70,7 @@ export class SegmentComposerService {
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedding: FactEmbeddingService,
+    private readonly episodes: EpisodeReadStoreService,
   ) {}
 
   async run(companyId: string): Promise<SegmentRunResult> {
@@ -78,15 +80,9 @@ export class SegmentComposerService {
       skipped: [],
     };
     await this.surreal.withCompany(companyId, async (db) => {
-      const [convs] = await db.query<
-        [Array<{ conversationId?: string }>]
-      >(
-        `SELECT conversationId, count() AS n FROM episode
-          WHERE conversationId IS NOT NONE
-          GROUP BY conversationId`,
-      );
-      for (const conv of convs ?? []) {
-        const conversationId = String(conv.conversationId);
+      const convs = await this.episodes.conversationCounts(db);
+      for (const conv of convs) {
+        const conversationId = conv.conversationId;
         try {
           await this.composeConversation({ db, conversationId, result });
           result.conversations += 1;
@@ -112,12 +108,9 @@ export class SegmentComposerService {
     conversationId: string;
     result: SegmentRunResult;
   }): Promise<void> {
-    const [episodes] = await db.query<[SegmentEpisodeRow[]]>(
-      `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
-        WHERE conversationId = $conv ORDER BY occurredAt ASC LIMIT 5000`,
-      { conv: conversationId },
-    );
-    if (!episodes || episodes.length === 0) return;
+    const episodes: SegmentEpisodeRow[] =
+      await this.episodes.conversationTurns(db, conversationId);
+    if (episodes.length === 0) return;
 
     await db.query(
       `DELETE episode_segment WHERE conversationId = $conv`,

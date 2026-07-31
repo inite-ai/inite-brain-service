@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AgentQaService } from '../src/agent-qa/agent-qa.service';
+import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import type { SearchService } from '../src/search/search.service';
 
 /**
@@ -263,6 +264,8 @@ describe('AgentQaService', () => {
         cfg(),
         surreal as never,
         undefined,
+        undefined,
+        new EpisodeReadStoreService(surreal as never),
       );
       const grepCall = {
         choices: [
