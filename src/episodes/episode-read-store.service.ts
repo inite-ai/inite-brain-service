@@ -39,6 +39,22 @@ export interface EpisodeQuoteRow {
   occurredAt: Date | string;
 }
 
+/** Full row shape served by the public episodes API. */
+export interface EpisodePageRow {
+  id: unknown;
+  kind: string;
+  conversationId?: string;
+  messageId: string;
+  speaker?: string;
+  addressee?: string;
+  text: string;
+  piiClass?: string[];
+  occurredAt: Date | string;
+  recordedAt: Date | string;
+  lang?: string;
+  source: Record<string, unknown>;
+}
+
 /** Hard bound on a single conversation read (mirrors the historical cap). */
 const CONVERSATION_TURNS_CAP = 5000;
 
@@ -127,6 +143,62 @@ export class EpisodeReadStoreService {
         `SELECT speaker, text, occurredAt FROM episode
           WHERE id INSIDE $ids ${this.piiGate(opts.includePii)}`,
         { ids: opts.ids.map((id) => new StringRecordId(id)) },
+      );
+      return rows ?? [];
+    });
+  }
+
+  /**
+   * Keyset page for the public episodes API (surface 1): stable
+   * (occurredAt, id) order, filters composed in code, PII fence via
+   * the shared gate. `after` resumes past the last row of the previous
+   * page — offset-free, so a growing substrate never skips or repeats.
+   */
+  async page(opts: {
+    companyId: string;
+    includePii: boolean;
+    limit: number;
+    conversationId?: string;
+    speaker?: string;
+    sinceIso?: string;
+    untilIso?: string;
+    after?: { occurredAtIso: string; id: string };
+  }): Promise<EpisodePageRow[]> {
+    return this.run(opts.companyId, undefined, async (db) => {
+      const where: string[] = [];
+      const params: Record<string, unknown> = { k: opts.limit };
+      if (opts.conversationId !== undefined) {
+        where.push('conversationId = $conv');
+        params.conv = opts.conversationId;
+      }
+      if (opts.speaker !== undefined) {
+        where.push('speaker = $speaker');
+        params.speaker = opts.speaker;
+      }
+      if (opts.sinceIso !== undefined) {
+        where.push('occurredAt >= $since');
+        params.since = new Date(opts.sinceIso);
+      }
+      if (opts.untilIso !== undefined) {
+        where.push('occurredAt <= $until');
+        params.until = new Date(opts.untilIso);
+      }
+      if (opts.after) {
+        where.push(
+          '(occurredAt > $afterT OR (occurredAt = $afterT AND id > $afterId))',
+        );
+        params.afterT = new Date(opts.after.occurredAtIso);
+        params.afterId = new StringRecordId(opts.after.id);
+      }
+      if (!opts.includePii) where.push('piiClass IS NONE');
+      const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+      const [rows] = await db.query<[EpisodePageRow[]]>(
+        `SELECT id, kind, conversationId, messageId, speaker, addressee,
+                text, piiClass, occurredAt, recordedAt, lang, source
+           FROM episode ${whereSql}
+          ORDER BY occurredAt ASC, id ASC
+          LIMIT $k`,
+        params,
       );
       return rows ?? [];
     });

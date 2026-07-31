@@ -97,6 +97,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.registry.unfeature': { kind: 'write', family: 'rest', title: 'Unfeature pack' },
   'rest.registry.publisher.upsert': { kind: 'write', family: 'rest', title: 'Upsert publisher profile' },
   'rest.registry.publisher.get': { kind: 'read', family: 'rest', title: 'Get publisher page' },
+  // Raw-substrate driver v1: the L0 episode substrate as a contract.
+  'rest.episodes.list': { kind: 'read', family: 'rest', title: 'List episodes' },
+  'rest.episodes.export': { kind: 'read', family: 'rest', title: 'Export episodes (NDJSON)' },
   'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
 };
 

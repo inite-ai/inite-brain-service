@@ -453,6 +453,8 @@ const KNOWN_BOOLEAN_FLAGS = [
   // instruction-following questions are deliberately neutral, so no
   // lexical route can fire; injection must not be relevance-gated.
   'SYNTHESIZE_INSTRUCTION_LANE',
+  // Raw-substrate driver v1: public episodes read API + NDJSON export.
+  'EPISODES_API_ENABLED',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

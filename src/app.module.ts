@@ -15,6 +15,7 @@ import { AiModule } from './ai/ai.module';
 import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
 import { SynthesizeModule } from './synthesize/synthesize.module';
+import { EpisodesModule } from './episodes/episodes.module';
 import { MultiHopModule } from './multi-hop/multi-hop.module';
 import { AgentQaModule } from './agent-qa/agent-qa.module';
 import { FactsModule } from './facts/facts.module';
@@ -105,6 +106,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     RegistryModule,
     SourcesModule,
     DocumentsModule,
+    EpisodesModule,
   ],
   controllers: [HealthController],
   providers: [

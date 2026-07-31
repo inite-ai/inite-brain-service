@@ -993,6 +993,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'T1b event-interval program: the temporal lane renders a pairwise date-interval table (calendar difference between every two distinct evidence dates, computed in code) and frames the generator to read the asked interval off the table and name both dates. For event-anchored corpora (BEAM: golds are event-to-event intervals with NO notion of "today" — rubrics expect "N units, from DATE1 till DATE2"); pair with the harness --asof-policy none so no fabricated asOf produces decoy distance-to-today annotations. Requires the answer router; rides the temporal lane.',
       },
       {
+        key: 'EPISODES_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. Off (default) → routes answer 404.',
+      },
+      {
         key: 'SYNTHESIZE_INSTRUCTION_LANE',
         category: 'pipeline',
         defaultValue: '0',
