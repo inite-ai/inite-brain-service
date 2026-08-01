@@ -341,7 +341,14 @@ export class MultiHopChainService {
       predicates: hop.predicates && hop.predicates.length > 0
         ? hop.predicates
         : dto.predicates,
-      asOf: hop.asOf ?? dto.asOf,
+      // The planner is an LLM: a malformed hop.asOf ("2023-04",
+      // "three months in") became an Invalid Date param and 500'd the
+      // whole request (live LME-500 finding, q 0ddfec37). Unparseable
+      // planner dates degrade to the caller's asOf, never to an error.
+      asOf:
+        hop.asOf && !Number.isNaN(Date.parse(hop.asOf))
+          ? hop.asOf
+          : dto.asOf,
       // Anchor only when explicitly requested — for 'intersect' /
       // 'union' the search runs unconstrained and combination
       // happens after the fact.

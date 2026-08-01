@@ -283,7 +283,11 @@ export class SearchService {
       return { results: [] };
     }
     const limit = dto.limit ?? 10;
-    const asOf = dto.asOf ? new Date(dto.asOf) : null;
+    // Defense-in-depth: an Invalid Date param is rejected by the
+    // Surreal SDK at serialization time (SurrealSqonError → 500), so
+    // an unparseable asOf from ANY caller degrades to no time filter.
+    const asOfMs = dto.asOf ? Date.parse(dto.asOf) : NaN;
+    const asOf = Number.isNaN(asOfMs) ? null : new Date(asOfMs);
     const includeRetracted = dto.includeRetracted ?? false;
     const includeContested = dto.includeContested ?? true;
     const mode: SearchMode = dto.searchMode ?? 'hybrid';

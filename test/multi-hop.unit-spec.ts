@@ -155,6 +155,43 @@ describe('MultiHopService', () => {
     expect(hop2Dto.entityIds).toEqual(['e1', 'e2', 'e3']);
   });
 
+  it('malformed planner asOf degrades to the caller asOf, never an error', async () => {
+    // Live LME-500 finding (q 0ddfec37): the planner emitted a
+    // non-ISO asOf, new Date() produced Invalid Date, and the Surreal
+    // SDK refused to serialize the param — the whole request 500'd.
+    const { svc: search, calls } = makeSearch([[hit('e1')], [hit('e2')]]);
+    const plan: MultiHopPlan = {
+      isMultiHop: true,
+      hops: [
+        {
+          subQuery: 'first hop',
+          combination: 'seed',
+          predicates: null,
+          asOf: 'three months in', // unparseable → caller's asOf
+          rationale: null,
+        },
+        {
+          subQuery: 'second hop',
+          combination: 'union',
+          predicates: null,
+          asOf: '2023-04-15', // parseable → passes through
+          rationale: null,
+        },
+      ],
+    };
+    const svc = makeSvc(search, makePlanner(plan));
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { query: 'q', asOf: '2023-05-20T00:00:00.000Z' },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(true);
+    expect((calls[0] as { asOf?: string }).asOf).toBe(
+      '2023-05-20T00:00:00.000Z',
+    );
+    expect((calls[1] as { asOf?: string }).asOf).toBe('2023-04-15');
+  });
+
   it('intersect: post-hoc set intersection without anchoring', async () => {
     const { svc: search, calls } = makeSearch([
       [hit('e1'), hit('e2'), hit('e3')],
