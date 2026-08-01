@@ -30,6 +30,27 @@ intact in every future leg. LME-500 completion may still be running
 lme500-pipeline2.log) — read its temporal/KU per-type numbers FIRST:
 they are the true T1/T5 test on real question dates.
 
+## LME-500 temporal diagnosis (2026-08-01, trace-verified live)
+
+At 330/500 judged, temporal-reasoning runs 29.9% (97 judged) and the
+router split settles the T1 question on real dates:
+
+- ROUTED 54: 29.6%. Replayed a failing routed question with
+  X-Brain-Debug on its still-live tenant: an EVENT-TO-EVENT question
+  ("how many days passed since I bought X when Y happened", gold 14)
+  answered 24 — read straight off "[elapsed: 24 days before today]" on
+  the buy fact, exactly as the T1 frame instructs. LME temporal is a
+  MIX of distance-to-today and event-to-event; the distance frame
+  actively misleads the second kind. Fix = the already-built
+  SYNTHESIZE_TEMPORAL_EVENT_INTERVALS pair table; next leg should
+  route the two shapes to different frames.
+- UNROUTED 55: 25.5%. Lexicon gaps, fixed behind
+  SYNTHESIZE_ROUTER_LEXICON_V2 (d167c9c): first-person perfect "how
+  long have/had I been", "what is the order of…". Additionally the
+  leg env carries NO SYNTHESIZE_DATE_CONTEXT, so unrouted
+  relative-date questions ("last Saturday") answer with no anchor at
+  all — next LME leg env should set it.
+
 ## Ranked BEAM deficits, with diagnoses from our own legs
 
 1. **temporal_reasoning 28-48%** — two confirmed causes:
