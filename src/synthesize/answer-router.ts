@@ -41,6 +41,26 @@ const TEMPORAL_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2, default off — one variable
+ * per leg): gaps measured on the LME-500 router-ON leg, where 55 of
+ * 109 judged temporal questions missed every pattern (25.5% accuracy
+ * unrouted). First-person perfect ("how long have/had I been…") was
+ * absent — the base lexicon only knew "has/had it been".
+ */
+const TEMPORAL_PATTERNS_V2: RegExp[] = [
+  /how long (?:have|had|has) (?:i|we|you|she|he|they) been/i,
+];
+
+/** V2 enumeration additions: "What is the order of the six museums…". */
+const ENUMERATION_PATTERNS_V2: RegExp[] = [
+  /what (?:is|was) the order of\b/i,
+];
+
+export function lexiconV2Enabled(): boolean {
+  return envFlagEnabled(process.env.SYNTHESIZE_ROUTER_LEXICON_V2);
+}
+
+/**
  * Enumeration/ordering questions: exhaustive-list discipline (the
  * measured failure mode is PARTIAL enumeration — "4 of 5 model kits").
  */
@@ -98,31 +118,32 @@ export function routeLane(query: string): AnswerLane | null {
   return routerEnabled() ? detectLane(query, disabledLanes()) : null;
 }
 
+/** Detection order IS precedence: temporal wins over enumeration, etc. */
+const LANE_LEXICONS: Array<{
+  lane: AnswerLane;
+  base: RegExp[];
+  v2?: RegExp[];
+}> = [
+  { lane: 'temporal', base: TEMPORAL_PATTERNS, v2: TEMPORAL_PATTERNS_V2 },
+  {
+    lane: 'enumeration',
+    base: ENUMERATION_PATTERNS,
+    v2: ENUMERATION_PATTERNS_V2,
+  },
+  { lane: 'preference', base: PREFERENCE_PATTERNS },
+  { lane: 'summary', base: SUMMARY_PATTERNS },
+];
+
 export function detectLane(
   query: string,
   skip?: ReadonlySet<DispatchLane>,
 ): AnswerLane | null {
   const q = query ?? '';
-  const off = (lane: AnswerLane) => skip?.has(lane) === true;
-  if (!off('temporal')) {
-    for (const p of TEMPORAL_PATTERNS) {
-      if (p.test(q)) return 'temporal';
-    }
-  }
-  if (!off('enumeration')) {
-    for (const p of ENUMERATION_PATTERNS) {
-      if (p.test(q)) return 'enumeration';
-    }
-  }
-  if (!off('preference')) {
-    for (const p of PREFERENCE_PATTERNS) {
-      if (p.test(q)) return 'preference';
-    }
-  }
-  if (!off('summary')) {
-    for (const p of SUMMARY_PATTERNS) {
-      if (p.test(q)) return 'summary';
-    }
+  const v2 = lexiconV2Enabled();
+  for (const { lane, base, v2: extra } of LANE_LEXICONS) {
+    if (skip?.has(lane) === true) continue;
+    const patterns = v2 && extra ? [...base, ...extra] : base;
+    if (patterns.some((p) => p.test(q))) return lane;
   }
   return null;
 }

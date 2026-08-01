@@ -455,6 +455,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SYNTHESIZE_INSTRUCTION_LANE',
   // Raw-substrate driver v1: public episodes read API + NDJSON export.
   'EPISODES_API_ENABLED',
+  // Router lexicon v2: first-person perfect temporal + "order of" shapes
+  // (gaps measured on the LME-500 router-ON leg).
+  'SYNTHESIZE_ROUTER_LEXICON_V2',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

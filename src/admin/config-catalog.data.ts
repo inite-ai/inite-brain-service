@@ -984,6 +984,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
       },
       {
+        key: 'SYNTHESIZE_ROUTER_LEXICON_V2',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Router lexicon v2: adds first-person perfect temporal shapes ("how long have/had I been…") and "what is/was the order of…" enumeration shapes. Gaps measured on the LME-500 router-ON leg: 55/109 judged temporal questions missed every base pattern (25.5% unrouted accuracy). Separate flag so lexicon widening is its own ablation leg.',
+      },
+      {
         key: 'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
         category: 'pipeline',
         defaultValue: '0',

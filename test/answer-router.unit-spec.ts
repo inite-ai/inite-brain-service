@@ -80,6 +80,30 @@ describe('detectLane (enumeration lexicon + T1/T2 disambiguation)', () => {
   });
 });
 
+describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_ROUTER_LEXICON_V2;
+  });
+  const temporalV2 = [
+    'How long had I been watching stand-up comedy specials regularly when I attended the open mic night?',
+    'How long have I been taking sculpting classes?',
+  ];
+  const enumerationV2 = [
+    'What is the order of the six museums I visited from earliest to latest?',
+    'What was the order of the concerts I attended in the past two months?',
+  ];
+  it('off → the measured LME gaps stay unrouted (base behavior pinned)', () => {
+    for (const q of [...temporalV2, ...enumerationV2]) {
+      expect(detectLane(q)).toBeNull();
+    }
+  });
+  it('on → first-person perfect routes temporal, "order of" routes enumeration', () => {
+    process.env.SYNTHESIZE_ROUTER_LEXICON_V2 = '1';
+    for (const q of temporalV2) expect(detectLane(q)).toBe('temporal');
+    for (const q of enumerationV2) expect(detectLane(q)).toBe('enumeration');
+  });
+});
+
 describe('detectLane (preference and summary lexicons)', () => {
   it.each([
     'Can you recommend some interesting cultural events this week?',
