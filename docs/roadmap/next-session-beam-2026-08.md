@@ -30,6 +30,36 @@ intact in every future leg. LME-500 completion may still be running
 lme500-pipeline2.log) — read its temporal/KU per-type numbers FIRST:
 they are the true T1/T5 test on real question dates.
 
+## LME-500 FINAL (2026-08-02, router-ON leg, 500/500, errors=0)
+
+judgeAccuracy **50.2%** (n=470 answerable), abstention declined 23.3%
+(n=30, 'answer' guardrails force answering by design), avg prompt
+4,714 tokens (~4% of full context). Report: var/lme-500-final.json;
+checkpoint var/lme500.ckpt.jsonl. Config: SYNTHESIZE_ANSWER_ROUTER=1,
+segment-lane OFF, NO date-context — not comparable to the LME-50
+lane-off 80.0 (different subset AND config).
+
+| type | n | acc |
+| --- | --- | --- |
+| single-session-user | 64 | 82.8% |
+| knowledge-update | 72 | **63.9%** — T5 recency marker holds on real dates |
+| single-session-assistant | 56 | 55.4% |
+| multi-session | 121 | 51.2% |
+| single-session-preference | 30 | 43.3% |
+| temporal-reasoning | 127 | **24.4%** — full diagnosis below, fixes built |
+
+Leg by-catch: multi-hop planner asOf 500-bug (e4fb0d7, fixed; q417
+answered correctly after), pipeline wedge mode (Surreal OOM mid-pass
+hangs the runner past self-heal — watchdog pattern in memory), macOS
+purged /tmp during a 28h machine sleep (dataset lives at HF
+xiaowu0162/longmemeval, file `longmemeval_s`, no extension).
+
+Next LME leg (one variable each): (1) SYNTHESIZE_DATE_CONTEXT=1 in
+env; (2) SYNTHESIZE_ROUTER_LEXICON_V2=1; (3)
+SYNTHESIZE_TEMPORAL_EVENT_INTERVALS=1. Temporal decomposition says
+those three address 19.2%-unrouted-no-anchor, lexicon misses, and
+event-to-event misdirection respectively.
+
 ## LME-500 temporal diagnosis (2026-08-01, trace-verified live)
 
 At 330/500 judged, temporal-reasoning runs 29.9% (97 judged) and the
