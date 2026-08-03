@@ -30,4 +30,4 @@ DEFINE FIELD IF NOT EXISTS builder ON projection TYPE string;
 DEFINE FIELD IF NOT EXISTS watermark ON projection TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS startedAt ON projection TYPE datetime;
 DEFINE FIELD IF NOT EXISTS finishedAt ON projection TYPE option<datetime>;
-DEFINE FIELD IF NOT EXISTS stats ON projection FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS stats ON projection TYPE option<object> FLEXIBLE;
