@@ -99,8 +99,7 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
 
   constructor(private readonly config: ConfigService) {
     this.enabled =
-      this.config.get<string>('EXTRACTOR_LOCAL_NER_ENABLED', 'false') ===
-      'true';
+      envFlagEnabled(this.config.get<string>('EXTRACTOR_LOCAL_NER_ENABLED'));
     this.modelId = this.config.get<string>(
       'EXTRACTOR_LOCAL_NER_MODEL',
       DEFAULT_MODEL,

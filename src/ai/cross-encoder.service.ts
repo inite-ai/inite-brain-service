@@ -66,8 +66,9 @@ export class CrossEncoderService
     @Optional() private readonly local?: LocalCrossEncoderProvider,
   ) {
     this.enabled =
-      this.configService.get<string>('SEARCH_CROSS_ENCODER_ENABLED', '0') ===
-      '1';
+      envFlagEnabled(
+        this.configService.get<string>('SEARCH_CROSS_ENCODER_ENABLED'),
+      );
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
     // Local fallback is opt-in and only matters when the primary (Cohere) path
     // isn't configured — a self-hoster with no rerank vendor.

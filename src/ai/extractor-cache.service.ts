@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LRUCache } from '../common/lru-cache';
@@ -46,7 +47,7 @@ export class ExtractorCacheService {
       10,
     );
     this.enabled =
-      this.config.get<string>('EXTRACTOR_CACHE_ENABLED', 'true') !== 'false';
+      envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
     this.cache = new LRUCache<string, ExtractionResult>(size);
   }
 

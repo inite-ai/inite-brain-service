@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { envFlagEnabled } from '../common/env-validation';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { createOpenAiClient } from './openai-client';
@@ -94,8 +95,9 @@ export class PredicateRouterService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.enabled =
-      this.configService.get<string>('SEARCH_PREDICATE_ROUTER_ENABLED', '0') ===
-      '1';
+      envFlagEnabled(
+        this.configService.get<string>('SEARCH_PREDICATE_ROUTER_ENABLED'),
+      );
     this.openai =
       createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(

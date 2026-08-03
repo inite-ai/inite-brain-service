@@ -28,7 +28,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_SC_PASSES',
         category: 'extractor',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: false,
         description:
           'Self-consistency N-pass count for semantic-entropy gating. 1 = single pass; raise (e.g. 3) for high-stakes corpora.',
@@ -37,7 +37,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_LOCAL_NER_ENABLED',
         category: 'extractor',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description: 'Local @xenova/transformers NER pass before the LLM.',
       },
@@ -84,7 +84,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_CACHE_ENABLED',
         category: 'extractor',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -138,21 +138,21 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'DREAMS_DEDUP_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
         key: 'DREAMS_RESOLVE_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
         key: 'DREAMS_RUN_SUMMARIZE',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -219,7 +219,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'AUDIT_CHANGEFEED_ENABLED',
         category: 'audit',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Master switch for the every-minute changefeed → audit_event consumer.',
@@ -236,7 +236,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'CHAT_ROUTE_CACHE_ENABLED',
         category: 'router',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -313,7 +313,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_PPR_AUTO_THRESHOLD',
         category: 'search',
-        defaultValue: '3',
+        defaultValue: '0',
         runtimeMutable: false,
         isBooleanFlag: false,
       },
@@ -321,14 +321,14 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'SEARCH_RERANKER_ENABLED',
         category: 'search',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
         key: 'SEARCH_CROSS_ENCODER_ENABLED',
         category: 'search',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -341,8 +341,8 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_PREDICATE_ROUTER_ENABLED',
         category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
+        defaultValue: '0',
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -382,7 +382,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'CALIBRATION_USE_GOLD_SET',
         category: 'calibration',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       // ── Cost ────────────────────────────────────────────
@@ -711,7 +711,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'SEARCH_QUERY_EXPANSION_ENABLED',
         category: 'search',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'LLM rewrites the query into N variants before search. Fails open to the raw query on error.',
@@ -771,7 +771,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'SEARCH_CHATTER_PENALTY',
         category: 'search',
         defaultValue: '1.0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: false,
         description:
           'Sub-1.0 ranking multiplier on low-value "said" chatter facts so substantive facts of the same entity are not buried. 1.0 = off; a demotion needs a value in (0,1), e.g. 0.35.',
@@ -1206,7 +1206,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'SEARCH_HYPE_ENABLED',
         category: 'search',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Hypothetical-embedding (HyDE-style) alt-vector leg. Read side degrades cleanly when altEmbedding is absent.',
@@ -1215,7 +1215,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'SEARCH_CROSS_ENCODER_LOCAL',
         category: 'search',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Run the local cross-encoder reranker (no Cohere key). Note: opting in enables the stage even with SEARCH_CROSS_ENCODER_ENABLED=0.',
@@ -1225,7 +1225,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'DREAMS_CORROBORATE_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Fuzzy cross-source corroboration (cosine-close facts confirm each other). Bounded by DREAMS_CORROBORATE_MAX_PAIRS per run.',
@@ -1243,7 +1243,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'DREAMS_COMMUNITIES_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description: 'Build + persist entity-community summaries during dreams.',
       },
@@ -1261,7 +1261,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'COMPACTION_PROMOTION_ENABLED',
         category: 'compaction',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Promote old corroborated append_only fact groups into a durable summary. Bounded by COMPACTION_PROMOTION_MAX_GROUPS per run.',
