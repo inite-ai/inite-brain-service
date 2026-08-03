@@ -3,6 +3,8 @@ import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.serv
 import {
   WindowDeriverService,
   segmentSessions,
+  buildDeriverSystem,
+  DERIVER_ASSISTANT_SECTION,
   WINDOW_DERIVER_VERSION,
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
@@ -332,5 +334,22 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     expect(res.skipped).toEqual([
       { conversationId: 'conv-1', reason: 'llm down' },
     ]);
+  });
+});
+
+describe('buildDeriverSystem (E3a assistant-content lockstep)', () => {
+  it('flag off: byte-identical base contract, no assistance aspect', () => {
+    const base = buildDeriverSystem();
+    expect(base).toBe(buildDeriverSystem({ assistantContent: false }));
+    expect(base).not.toContain('ASSISTANT-SIDE CONTRIBUTIONS');
+    expect(base).not.toContain('"assistance"');
+  });
+
+  it('flag on: appends the section verbatim after the base contract', () => {
+    const on = buildDeriverSystem({ assistantContent: true });
+    expect(on.startsWith(buildDeriverSystem())).toBe(true);
+    expect(on).toContain(DERIVER_ASSISTANT_SECTION);
+    expect(on).toContain('aspect "assistance"');
+    expect(on).toContain('the CONTRIBUTING participant');
   });
 });

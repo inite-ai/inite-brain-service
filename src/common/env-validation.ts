@@ -468,6 +468,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // alongside the verbatim span; the server admits it only when every word
   // appears in the grounded span. Default off pending a paid confirm leg.
   'EXTRACTION_OBJECT_NORMALIZE',
+  // E3a: the session deriver also emits propositions for assistant-side
+  // contributions (recommendations/answers/instructions given) under the
+  // "assistance" aspect. Default off; confirm on a FRESH derivedVersion.
+  'DERIVER_ASSISTANT_CONTENT',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
+import { envFlagEnabled } from '../common/env-validation';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
@@ -41,6 +42,32 @@ For every durable piece of information, emit:
 - "turns": the turn numbers this proposition is grounded in.
 
 Rules: be exhaustive — a missed fact is worse than a redundant one; state ONLY what the session supports, never invent; skip pure smalltalk and pleasantries. Emit up to 40 propositions. Output strictly the JSON schema.`;
+
+/**
+ * E3a assistant-content section (DERIVER_ASSISTANT_CONTENT). The base
+ * contract is user-fact-shaped ("the person the proposition is ABOUT"),
+ * so substantive content the assistant CONTRIBUTED — recommendations,
+ * answers, instructions — structurally never becomes a proposition.
+ * That is the measured SSA failure ("facts do not specify…" while the
+ * verbatim turn sits in L0) at the substrate level; the read-side
+ * verbatim lane routes around it, this closes it at the source.
+ * Flag-gated, default off: deriver prompt changes need a paid confirm
+ * leg on a FRESH derivedVersion (worlds derived under different prompts
+ * must not share a version).
+ */
+export const DERIVER_ASSISTANT_SECTION = `
+
+ASSISTANT-SIDE CONTRIBUTIONS
+Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
+
+/** System prompt assembly; the section only exists when the flag asks. */
+export function buildDeriverSystem(opts?: {
+  assistantContent?: boolean;
+}): string {
+  return (
+    DERIVER_SYSTEM + (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '')
+  );
+}
 
 export interface DeriveRunResult {
   conversations: number;
@@ -375,7 +402,14 @@ export class WindowDeriverService {
       temperature: 0.1,
       max_completion_tokens: 4000,
       messages: [
-        { role: 'system', content: DERIVER_SYSTEM },
+        {
+          role: 'system',
+          content: buildDeriverSystem({
+            assistantContent: envFlagEnabled(
+              process.env.DERIVER_ASSISTANT_CONTENT,
+            ),
+          }),
+        },
         {
           role: 'user',
           content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,

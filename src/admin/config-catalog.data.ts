@@ -1101,6 +1101,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
       },
       {
+        key: 'DERIVER_ASSISTANT_CONTENT',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'E3a (engine wave 2026-08): the session-window deriver also emits propositions for content a participant CONTRIBUTED — recommendations, answers, instructions given — under the "assistance" aspect, subject = the contributing participant. The base contract is user-fact-shaped, so assistant-side content structurally never became a proposition (the measured SSA failure at the substrate level; the read-side verbatim lane routes around it, this closes the source). Default off; confirm on a FRESH derivedVersion — worlds derived under different prompts must not share a version. Requires re-derive.',
+      },
+      {
         key: 'EXTRACTION_OBJECT_NORMALIZE',
         category: 'extractor',
         defaultValue: '0',
