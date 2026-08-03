@@ -17,7 +17,7 @@ import {
   renderPredicateCard,
 } from './extractor-internals/prompts';
 import { objectNormalizationEnabled } from './extractor-internals/grounding';
-import { envFlagEnabled } from '../common/env-validation';
+import { resolveExtractionProfile } from './extraction-profile';
 
 /**
  * ExtractorLlmService — the OpenAI I/O slice of the extractor: the chat
@@ -77,7 +77,7 @@ export class ExtractorLlmService {
     // byte-identical to before.
     const dialogue =
       this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
-      envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE);
+      resolveExtractionProfile().vocabulary === 'open';
     const base = dialogue
       ? buildDialogueSystemPrompt(snapshot.active)
       : this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
@@ -98,7 +98,7 @@ export class ExtractorLlmService {
   private objectNormalizationActive(): boolean {
     return (
       this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
-      objectNormalizationEnabled()
+      objectNormalizationEnabled(resolveExtractionProfile())
     );
   }
 

@@ -74,6 +74,8 @@ export class FactResolverService {
       entropy?: number;
       /** Per-user scope (migration 0055); undefined = tenant-global. */
       userId?: string;
+      /** Derived-world namespace (0074/0079); undefined = live world. */
+      derivedVersion?: string;
       recordOutcomeMetric?: boolean;
     },
   ): Promise<{ result: any; semantics: string }> {
@@ -198,6 +200,7 @@ export class FactResolverService {
       script,
       entropy: p.entropy,
       userId: p.userId,
+      derivedVersion: p.derivedVersion,
     };
   }
 
@@ -252,6 +255,7 @@ export class FactResolverService {
       if (c.script !== undefined) f.script = c.script;
       if (c.entropy !== undefined) f.entropy = c.entropy;
       if (c.userId !== undefined) f.user_id = c.userId;
+      if (c.derivedVersion !== undefined) f.derived_version = c.derivedVersion;
       return f;
     });
     const cfg = {
@@ -268,6 +272,55 @@ export class FactResolverService {
       { facts, cfg },
     );
     return (rows as any[]) ?? [];
+  }
+
+  /**
+   * Derived-world batch write (S4, one write primitive): every producer
+   * routes through fn::resolve_fact — including the window deriver,
+   * which used to raw-INSERT past the resolver. Propositions are
+   * append_only (history matters, no unique active slot) and carry
+   * their derivedVersion, so resolution is namespace-local (0079) and
+   * the batch stays ONE round-trip per session via fn::resolve_facts.
+   */
+  async resolveDerivedBatch(
+    // Structural: the deriver hands a narrow query-only view of the
+    // scoped connection; resolveAppendOnlyBatch only calls .query().
+    db: {
+      query<T>(sql: string, params?: Record<string, unknown>): Promise<T>;
+    },
+    rows: Array<{
+      entityId: string;
+      predicate: string;
+      object: string;
+      embedding: number[];
+      confidence: number;
+      validFrom: Date;
+      source: unknown;
+      sourceTrust: number;
+      lang?: string;
+      script?: string;
+      derivedVersion: string;
+    }>,
+  ): Promise<any[]> {
+    if (rows.length === 0) return [];
+    return this.resolveAppendOnlyBatch(
+      db as unknown as Surreal,
+      rows.map((r) => ({
+        companyId: '',
+        entityId: r.entityId,
+        predicate: r.predicate,
+        object: r.object,
+        embedding: r.embedding,
+        confidence: r.confidence,
+        validFrom: r.validFrom,
+        source: r.source,
+        sourceTrust: r.sourceTrust,
+        semantics: 'append_only',
+        lang: r.lang,
+        script: r.script,
+        derivedVersion: r.derivedVersion,
+      })),
+    );
   }
 
   /**
@@ -299,6 +352,7 @@ export class FactResolverService {
       script?: string;
       entropy?: number;
       userId?: string;
+      derivedVersion?: string;
     },
   ): Promise<any> {
     // Serialize resolves on the same (company, entity, predicate). Under
@@ -319,7 +373,7 @@ export class FactResolverService {
             $source_trust, $semantics, $similarity_threshold,
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
-            $lang, $script, $entropy, $user_id
+            $lang, $script, $entropy, $user_id, $derived_version
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -344,6 +398,7 @@ export class FactResolverService {
             script: p.script,
             entropy: p.entropy,
             user_id: p.userId,
+            derived_version: p.derivedVersion,
           },
         );
         return r;

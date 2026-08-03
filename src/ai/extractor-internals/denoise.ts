@@ -1,4 +1,3 @@
-import { envFlagEnabled } from '../../common/env-validation';
 import type { ExtractedFact } from './types';
 
 /**
@@ -19,7 +18,10 @@ import type { ExtractedFact } from './types';
  * blunt — a small minority of `said` facts do carry content, but the filler
  * dominates and the flag is off by default + eval-gated before enable.
  */
-export function denoiseFacts(facts: ExtractedFact[]): ExtractedFact[] {
-  if (!envFlagEnabled(process.env.EXTRACTOR_DROP_SAID)) return facts;
+export function denoiseFacts(
+  facts: ExtractedFact[],
+  dropSaid: boolean,
+): ExtractedFact[] {
+  if (!dropSaid) return facts;
   return facts.filter((f) => f.predicate !== 'said');
 }

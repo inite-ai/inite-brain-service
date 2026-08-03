@@ -3,6 +3,7 @@ import type {
   ExtractedFact,
   RawExtractedFact,
 } from './types';
+import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
  * Whitespace-collapsed, lower-cased view of a string used for
@@ -12,21 +13,17 @@ import type {
  * but it still has to choose tokens that actually appeared.
  */
 /**
- * EXTRACTION_OBJECT_NORMALIZE master switch. The dialogue profile
- * (EXTRACTOR_DIALOGUE_PROFILE) already emits normalized values through
- * its own contract, so it wins: object normalization only applies on
- * the span-grounded general profile. Default off — extraction prompt
- * changes have produced measured regressions before (agent-qa 47.4→42.1
- * rollback); this one gets a paid confirm leg before any default flip.
+ * Object-normalization master switch. The open (dialogue) vocabulary
+ * already emits normalized values through its own contract, so it wins:
+ * object normalization only applies on the span-grounded closed
+ * profile. Default off — extraction prompt changes have produced
+ * measured regressions before (agent-qa 47.4→42.1 rollback); this one
+ * gets a paid confirm leg before any default flip.
  */
-export function objectNormalizationEnabled(env = process.env): boolean {
-  const on = (env.EXTRACTION_OBJECT_NORMALIZE ?? '').trim().toLowerCase();
-  const dialogue = (env.EXTRACTOR_DIALOGUE_PROFILE ?? '')
-    .trim()
-    .toLowerCase();
-  return (
-    (on === '1' || on === 'true') && !(dialogue === '1' || dialogue === 'true')
-  );
+export function objectNormalizationEnabled(
+  profile: ExtractionPipelineProfile,
+): boolean {
+  return profile.vocabulary === 'closed' && profile.normalizeObjects;
 }
 
 export function normalizeForGrounding(s: string): string {

@@ -21,7 +21,7 @@ import {
 } from './extractor-internals/grounding';
 import { validateEdges } from './extractor-internals/edge-validator';
 import { denoiseFacts } from './extractor-internals/denoise';
-import { envFlagEnabled } from '../common/env-validation';
+import { resolveExtractionProfile } from './extraction-profile';
 import {
   buildConversationContext,
   buildFacetSystemPrompt,
@@ -128,20 +128,8 @@ export class ExtractorRunnerService {
     // EXTRACTOR_DIALOGUE_PROFILE. With routing on and the profile off we
     // paid 2-3x the LLM calls and then dropped every fact they produced.
     // The doc comment claimed "dialogue profile only"; now the code does.
-    const routingEnabled =
-      envFlagEnabled(process.env.EXTRACTOR_ROUTING_ENABLED) &&
-      envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE);
-    if (
-      envFlagEnabled(process.env.EXTRACTOR_ROUTING_ENABLED) &&
-      !envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE)
-    ) {
-      this.logger.warn(
-        'EXTRACTOR_ROUTING_ENABLED is set without EXTRACTOR_DIALOGUE_PROFILE — ' +
-          'facet passes are inert (their normalized values fail the verbatim ' +
-          'grounding gate), so routing stays off.',
-      );
-    }
-    const facets = routingEnabled ? detectFacets(trimmed) : [];
+    const profile = resolveExtractionProfile();
+    const facets = profile.facetRouting ? detectFacets(trimmed) : [];
     if (facets.length > 0) {
       return this.runFacetExtract({
         companyId,
@@ -323,8 +311,8 @@ export class ExtractorRunnerService {
       ungroundedObjects,
     } = applyGroundingGate(trimmed, rawFacts, {
       clauses,
-      allowUngrounded: envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE),
-      normalizeObjects: objectNormalizationEnabled(),
+      allowUngrounded: resolveExtractionProfile().vocabulary === 'open',
+      normalizeObjects: objectNormalizationEnabled(resolveExtractionProfile()),
     });
 
     if (ungroundedObjects.length > 0) {
@@ -402,7 +390,7 @@ export class ExtractorRunnerService {
     // Denoise (flag-gated, default off → identity): drop generic `said`
     // small-talk the LLM over-emits, which otherwise dilutes retrieval and
     // crowds real facts out of the synthesis window.
-    const denoised = denoiseFacts(facts);
+    const denoised = denoiseFacts(facts, resolveExtractionProfile().dropSaid);
     if (denoised.length < facts.length) {
       traceArtifact('extractor.denoise', {
         dropped: facts.length - denoised.length,

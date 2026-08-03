@@ -63,12 +63,6 @@ describe('S5.2 — no process.env below the profile boundary', () => {
     'src/search/internals/response-builder.ts',
     'src/search/internals/legs.ts',
     'src/search/internals/edge-expansion.ts',
-    'src/ai/extractor-llm.service.ts',
-    'src/ai/extractor-runner.service.ts',
-    'src/ai/extractor-local.service.ts',
-    'src/ai/extractor-refine.service.ts',
-    'src/ai/extractor-internals/denoise.ts',
-    'src/ai/extractor-internals/grounding.ts',
     'src/admin/window-deriver.service.ts',
   ]);
   const BOUNDARY_PREFIXES = [

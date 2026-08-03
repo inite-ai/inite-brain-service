@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled } from '../common/env-validation';
+import { resolveExtractionProfile } from './extraction-profile';
 import {
   PredicateRegistryService,
   PredicateSnapshot,
@@ -37,10 +37,9 @@ export class ExtractorRefineService {
     // than snap it back to a generic catch-all. Both refinement passes
     // (local-override 0.45, canonicalize 0.85) collapse specificity, so skip
     // them entirely. Off → unchanged.
-    if (envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE)) return;
-    const localThreshold = parseFloat(
-      process.env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45',
-    );
+    const profile = resolveExtractionProfile();
+    if (profile.vocabulary === 'open') return;
+    const localThreshold = profile.refinePredicateThreshold;
     const localOverrides = await applyLocalPredicateOverrides({
       facts,
       snapshot,

@@ -6,6 +6,7 @@ import {
   isObjectGroundedInSpan,
   objectNormalizationEnabled,
 } from '../src/ai/extractor-internals/grounding';
+import { resolveExtractionProfile } from '../src/ai/extraction-profile';
 import type { RawExtractedFact } from '../src/ai/extractor-internals/types';
 
 const norm = normalizeForGrounding;
@@ -188,16 +189,22 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
     expect(ungroundedObjects).toHaveLength(0);
   });
 
-  it('objectNormalizationEnabled: flag on, but dialogue profile wins', () => {
-    expect(objectNormalizationEnabled({})).toBe(false);
+  it('objectNormalizationEnabled: flag on, but the open vocabulary wins', () => {
     expect(
-      objectNormalizationEnabled({ EXTRACTION_OBJECT_NORMALIZE: '1' }),
+      objectNormalizationEnabled(resolveExtractionProfile({})),
+    ).toBe(false);
+    expect(
+      objectNormalizationEnabled(
+        resolveExtractionProfile({ EXTRACTION_OBJECT_NORMALIZE: '1' }),
+      ),
     ).toBe(true);
     expect(
-      objectNormalizationEnabled({
-        EXTRACTION_OBJECT_NORMALIZE: '1',
-        EXTRACTOR_DIALOGUE_PROFILE: '1',
-      }),
+      objectNormalizationEnabled(
+        resolveExtractionProfile({
+          EXTRACTION_OBJECT_NORMALIZE: '1',
+          EXTRACTOR_DIALOGUE_PROFILE: '1',
+        }),
+      ),
     ).toBe(false);
   });
 });

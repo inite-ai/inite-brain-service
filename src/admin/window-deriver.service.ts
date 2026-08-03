@@ -3,9 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
-import { envFlagEnabled } from '../common/env-validation';
+import { resolveExtractionProfile } from '../ai/extraction-profile';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { FactResolverService } from '../ingest/fact-resolver.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
@@ -132,6 +133,7 @@ export class WindowDeriverService {
     private readonly configService: ConfigService,
     private readonly embedding: FactEmbeddingService,
     private readonly episodes: EpisodeReadStoreService,
+    private readonly factResolver: FactResolverService,
     @Optional() private readonly registry?: ProjectionRegistryService,
     @Optional() private readonly readPin?: ReadPinService,
   ) {
@@ -416,9 +418,11 @@ export class WindowDeriverService {
       const vectors = await this.embedding.embedMany(
         resolved.map(({ p }) => p.proposition),
       );
-      // One multi-row INSERT per session instead of a CREATE per
-      // proposition — a 40-proposition session used to cost 40 round
-      // trips (Surreal-usage audit §9).
+      // ONE write primitive for every producer (S4/0079): the batch
+      // routes through fn::resolve_facts with the derivedVersion
+      // namespace — still one round-trip per session, but the resolver
+      // stamps the trust snapshot, locale and status instead of a raw
+      // INSERT hand-copying its contract.
       const rows = resolved.map(({ p, entityId: subjectEntity }, i) => {
         const aspect = p.aspect
           .toLowerCase()
@@ -440,47 +444,35 @@ export class WindowDeriverService {
           occurred.toISOString().slice(0, 10) === p.occurred_on
             ? occurred
             : sessionDate;
-        // Audit W3 #1: derived rows used to carry NO lang/script and NO
-        // trustSnapshot, so (a) the locale filter and the cross-lingual
-        // backoff leg were blind to every derived world, and (b) the
-        // ranker's trust factor collapsed to a constant exactly in the
-        // world our benchmarks read. Both are plain fields — stamping
-        // them costs nothing and restores the read path's contract.
         const det = detectLanguage(p.proposition);
         const lang = det.language !== 'und' ? det.language : undefined;
         const script = det.language !== 'und' ? det.script : undefined;
+        const source = {
+          vertical: 'derived',
+          recorder: version,
+          conversationId,
+          episodeIds: p.turns
+            .filter((t) => t >= 0 && t < session.length)
+            .map((t) => String(session[t].id)),
+        };
         return {
-          entityId: new StringRecordId(subjectEntity),
+          entityId: subjectEntity,
           predicate: aspect || 'other',
           object: p.proposition,
           confidence: 0.85,
-          ...(lang ? { lang } : {}),
-          ...(script ? { script } : {}),
-          // Object shape per migration 0044 ({declaredTrust, learnedTrust,
-          // authority}); the ranker reads learned ?? declared. Derived
-          // rows carry the declared tier of their source vertical — a
-          // real value instead of the 0.5 "no signal" default.
-          trustSnapshot: {
-            declaredTrust: sourceTrustFor({
-              vertical: 'derived',
-              recorder: version,
-            }),
-          },
+          lang,
+          script,
           validFrom,
-          source: {
+          source,
+          sourceTrust: sourceTrustFor({
             vertical: 'derived',
             recorder: version,
-            conversationId,
-            episodeIds: p.turns
-              .filter((t) => t >= 0 && t < session.length)
-              .map((t) => String(session[t].id)),
-          },
-          status: 'active',
+          }),
           embedding: vectors[i],
           derivedVersion: version,
         };
       });
-      await db.query(`INSERT INTO knowledge_fact $rows`, { rows });
+      await this.factResolver.resolveDerivedBatch(db, rows);
       result.propositions += rows.length;
     }
   }
@@ -498,9 +490,8 @@ export class WindowDeriverService {
         {
           role: 'system',
           content: buildDeriverSystem({
-            assistantContent: envFlagEnabled(
-              process.env.DERIVER_ASSISTANT_CONTENT,
-            ),
+            assistantContent:
+              resolveExtractionProfile().deriveAssistantContent,
           }),
         },
         {

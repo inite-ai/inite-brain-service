@@ -84,6 +84,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
   function makeSvc(llm: unknown): {
     svc: WindowDeriverService;
     queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+    derived: Array<Record<string, unknown>>;
   } {
     const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
     const db = {
@@ -114,7 +115,23 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
     } as unknown as FactEmbeddingService;
-    const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
+    const derived: Array<Record<string, unknown>> = [];
+    const factResolver = {
+      resolveDerivedBatch: async (
+        _db: unknown,
+        rows: Array<Record<string, unknown>>,
+      ) => {
+        derived.push(...rows);
+        return rows.map(() => ({ outcome: 'INSERTED' }));
+      },
+    } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService;
+    const svc = new WindowDeriverService(
+      surreal,
+      config,
+      embedding,
+      new EpisodeReadStoreService(surreal),
+      factResolver,
+    );
     (svc as unknown as { openai: unknown }).openai = {
       chat: {
         completions: {
@@ -124,11 +141,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       },
     };
-    return { svc, queries };
+    return { svc, queries, derived };
   }
 
   it('writes versioned propositions with resolved subject and provenance', async () => {
-    const { svc, queries } = makeSvc({
+    const { svc, queries, derived } = makeSvc({
       propositions: [
         {
           subject: 'Caroline',
@@ -157,10 +174,9 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     });
     const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
     expect(del?.params?.version).toBe(WINDOW_DERIVER_VERSION);
-    const insert = queries.find((q) =>
-      q.sql.includes('INSERT INTO knowledge_fact'),
-    );
-    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    // S4/0079: the write goes through the ONE write primitive
+    // (fn::resolve_facts via FactResolverService), not a raw INSERT.
+    const rows = derived;
     expect(rows).toHaveLength(2);
     expect(rows[0].predicate).toBe('pets');
     expect(rows[0].derivedVersion).toBe(WINDOW_DERIVER_VERSION);
@@ -169,17 +185,14 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
     expect(source.episodeIds).toEqual(['episode:e1']);
     // Audit W3 #1: derived rows must carry the fields the read path
-    // assumes — otherwise the locale filter skips the whole world and
-    // the ranker's trust factor is a constant exactly where we measure.
+    // assumes; the resolver stamps the trust snapshot from sourceTrust.
     expect(rows[0].lang).toBe('en');
     expect(rows[0].script).toBeDefined();
-    expect(
-      (rows[0].trustSnapshot as { declaredTrust?: number }).declaredTrust,
-    ).toBeGreaterThan(0);
+    expect(rows[0].sourceTrust as number).toBeGreaterThan(0);
   });
 
   it('uses occurred_on as validFrom when parseable', async () => {
-    const { svc, queries } = makeSvc({
+    const { svc, derived } = makeSvc({
       propositions: [
         {
           subject: 'Caroline',
@@ -191,15 +204,12 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       ],
     });
     await svc.run('co_x');
-    const insert = queries.find((q) =>
-      q.sql.includes('INSERT INTO knowledge_fact'),
-    );
-    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    const rows = derived;
     expect(rows[0].validFrom).toEqual(new Date('2022-06-15T00:00:00.000Z'));
   });
 
   it('impossible calendar occurred_on falls back to the session date', async () => {
-    const { svc, queries } = makeSvc({
+    const { svc, derived } = makeSvc({
       propositions: [
         {
           subject: 'Caroline',
@@ -215,15 +225,12 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // must fall back instead of poisoning the CREATE (used to skip the
     // whole conversation on conv-48).
     expect(res.propositions).toBe(1);
-    const insert = queries.find((q) =>
-      q.sql.includes('INSERT INTO knowledge_fact'),
-    );
-    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    const rows = derived;
     expect(rows[0].validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
   });
 
   it('conversationId filter derives only the requested conversation', async () => {
-    const { svc, queries } = makeSvc({
+    const { svc, queries, derived } = makeSvc({
       propositions: [
         {
           subject: 'Caroline',
@@ -317,7 +324,9 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const embedding = {
         embedMany: async (t: string[]) => t.map(() => [1, 0]),
       } as unknown as FactEmbeddingService;
-      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
+      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal), {
+        resolveDerivedBatch: async () => [],
+      } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService);
       const res = await svc.gc('co_x', { keep: ['wd-v2'] });
       expect(res.deleted).toEqual({ 'wd-v1': 100 });
       expect(res.kept.sort()).toEqual(['wd-v2', 'wd-v3']);
@@ -349,7 +358,9 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const embedding = {
         embedMany: async (t: string[]) => t.map(() => [1, 0]),
       } as unknown as FactEmbeddingService;
-      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
+      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal), {
+        resolveDerivedBatch: async () => [],
+      } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService);
       await expect(svc.gc('co_x')).rejects.toThrow(/gc refused/);
     });
 
@@ -397,6 +408,9 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         config,
         embedding,
         new EpisodeReadStoreService(surreal),
+        {
+          resolveDerivedBatch: async () => [],
+        } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService,
         registry,
       );
       const res = await svc.gc('co_x');
