@@ -122,9 +122,26 @@ export class ExtractorRunnerService {
     // is a local heuristic: paying an LLM call to decide whether to pay more
     // LLM calls is the wrong shape. Off / no facet detected → single pass,
     // byte-identical.
-    const facets = envFlagEnabled(process.env.EXTRACTOR_ROUTING_ENABLED)
-      ? detectFacets(trimmed)
-      : [];
+    // Audit W3 #6: routing is a DIALOGUE-PROFILE feature — the facet
+    // prompt always emits the dialogue header (normalized, non-verbatim
+    // values), while the grounding gate only tolerates those under
+    // EXTRACTOR_DIALOGUE_PROFILE. With routing on and the profile off we
+    // paid 2-3x the LLM calls and then dropped every fact they produced.
+    // The doc comment claimed "dialogue profile only"; now the code does.
+    const routingEnabled =
+      envFlagEnabled(process.env.EXTRACTOR_ROUTING_ENABLED) &&
+      envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE);
+    if (
+      envFlagEnabled(process.env.EXTRACTOR_ROUTING_ENABLED) &&
+      !envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE)
+    ) {
+      this.logger.warn(
+        'EXTRACTOR_ROUTING_ENABLED is set without EXTRACTOR_DIALOGUE_PROFILE — ' +
+          'facet passes are inert (their normalized values fail the verbatim ' +
+          'grounding gate), so routing stays off.',
+      );
+    }
+    const facets = routingEnabled ? detectFacets(trimmed) : [];
     if (facets.length > 0) {
       return this.runFacetExtract({
         companyId,

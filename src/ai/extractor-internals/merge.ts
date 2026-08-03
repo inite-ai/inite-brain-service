@@ -52,8 +52,14 @@ export function mergeExtractions(
   // "only 1 of 3 passes found it" says nothing about confidence.
   const sc = opts.selfConsistency
     ? selfConsistencyByFact(
-        passes.map((r) =>
-          r.facts.map((f) => ({ predicate: f.predicate, object: f.object })),
+        passes.map((r, p) =>
+          r.facts.map((f) => ({
+            predicate: f.predicate,
+            object: f.object,
+            // Merged index, so the same person across passes is one
+            // cluster and two people are never one (audit W3 #5).
+            entity: remaps[p].get(f.entityIndex),
+          })),
         ),
       )
     : null;
@@ -64,7 +70,11 @@ export function mergeExtractions(
     for (const f of pass.facts) {
       const entityIndex = remaps[p].get(f.entityIndex);
       if (entityIndex === undefined) continue;
-      const k = clusterKey({ predicate: f.predicate, object: f.object });
+      const k = clusterKey({
+        predicate: f.predicate,
+        object: f.object,
+        entity: entityIndex,
+      });
       if (seenClusters.has(k)) continue;
       seenClusters.add(k);
       const stats = sc?.get(k);

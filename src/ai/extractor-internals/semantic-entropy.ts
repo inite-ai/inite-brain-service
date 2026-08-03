@@ -24,6 +24,15 @@ export interface PassFact {
   predicate: string;
   /** The object span — caller-supplied; will be normalised here. */
   object: string;
+  /**
+   * Merged-entity identity the fact is ABOUT (audit W3 #5). Without it,
+   * two people sharing a value ("Anna lives in Berlin", "Boris lives in
+   * Berlin") collapse into one cluster: the merge dropped one of the
+   * facts outright and the self-consistency stats counted the other
+   * person's pass as agreement. Optional so single-entity callers and
+   * older fixtures keep working.
+   */
+  entity?: string | number;
 }
 
 /**
@@ -107,7 +116,8 @@ export function selfConsistencyByFact(
  * cluster in the result map.
  */
 export function clusterKey(f: PassFact): string {
-  return `${f.predicate}::${normaliseObject(f.object)}`;
+  const subject = f.entity === undefined ? '' : String(f.entity);
+  return `${subject}::${f.predicate}::${normaliseObject(f.object)}`;
 }
 
 /**
