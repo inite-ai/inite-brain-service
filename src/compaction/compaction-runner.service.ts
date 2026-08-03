@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
+import { ReadPinService } from '../episodes/read-pin.service';
 import {
   ConcatSummaryGenerator,
   FactToSummarize,
@@ -36,10 +37,12 @@ export class CompactionRunnerService {
   private readonly summariesEnabled: boolean;
   private readonly summaryGenerator: SummaryGenerator;
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     config: ConfigService,
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
+    @Optional() private readonly readPin?: ReadPinService,
   ) {
     this.hotRetentionDays = parseInt(
       config.get<string>('COMPACTION_HOT_RETENTION_DAYS', '90'),
@@ -98,6 +101,20 @@ export class CompactionRunnerService {
       Date.now() - this.hotRetentionDays * 24 * 60 * 60 * 1000,
     );
 
+    // Audit W2 #10: compaction used to be version-BLIND. Under a pinned
+    // derived world it flipped that world's facts to status='compacted'
+    // (invisible) while writing the replacement summary into the legacy
+    // namespace the pinned reader never queries — silent memory loss.
+    // A world is self-contained: compact inside the live one, stamp the
+    // summary with the same version.
+    const derivedVersion =
+      (await this.readPin?.resolve(companyId)) ??
+      ReadPinService.bootstrapDefault();
+    const versionClause = derivedVersion
+      ? 'AND derivedVersion = $derivedVersion'
+      : 'AND derivedVersion IS NONE';
+    const versionParams = derivedVersion ? { derivedVersion } : {};
+
     return this.surreal.withCompany(companyId, async (db) => {
       // Step 1: pull candidate facts with their bodies, so the summarizer
       // has something to work with. We bound by 1000/run to avoid one
@@ -108,11 +125,12 @@ export class CompactionRunnerService {
            FROM knowledge_fact
            WHERE status != 'compacted'
              AND embedding != NONE
+             ${versionClause}
              AND ((validUntil != NONE AND validUntil < $cutoff)
                   OR (retractedAt != NONE AND retractedAt < $cutoff))
            ORDER BY validFrom ASC
            LIMIT 1000`,
-        { cutoff },
+        { cutoff, ...versionParams },
       );
       const candidates = (factRows ?? []) as CandidateFactRow[];
       if (candidates.length === 0) {
@@ -122,7 +140,11 @@ export class CompactionRunnerService {
       // Step 2: optional summary rollup
       let summariesCreated = 0;
       if (this.summariesEnabled) {
-        summariesCreated = await this.createSummaries(db, candidates);
+        summariesCreated = await this.createSummaries(
+          db,
+          candidates,
+          derivedVersion,
+        );
       }
 
       // Step 3: mark + drop embeddings on the originals. Record-id params,
@@ -155,9 +177,9 @@ export class CompactionRunnerService {
    * summaries created.
    */
   private async createSummaries(
-
     db: any,
     candidates: CandidateFactRow[],
+    derivedVersion: string | null,
   ): Promise<number> {
     const groups = new Map<string, CandidateFactRow[]>();
     for (const c of candidates) {
@@ -206,6 +228,9 @@ export class CompactionRunnerService {
         source: { kind: 'compaction-summary' },
         derivedFrom: sorted.map((g) => g.id),
         status: 'active',
+        // The summary belongs to the same world as the facts it replaces
+        // (audit W2 #10) — otherwise the pinned reader loses both.
+        ...(derivedVersion ? { derivedVersion } : {}),
         ...(sorted[0].userId ? { userId: sorted[0].userId } : {}),
       });
       created++;
