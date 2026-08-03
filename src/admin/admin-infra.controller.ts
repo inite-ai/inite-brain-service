@@ -1,5 +1,8 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { getRequestContext } from '../common/request-context';
+import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
 import { AdminInfraService } from './admin-infra.service';
 import { HealthComponentsService } from './health-components.service';
 import { LiveSnapshotService } from './live-snapshot.service';
@@ -7,6 +10,7 @@ import type { HealthComponentsResponse } from '../contracts/admin/health-compone
 import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
 import type { ThrottlerResponse } from '../contracts/admin/throttler.schema';
 import type { NowResponse } from '../contracts/admin/now.schema';
+import type { RetrievalProfileResponse } from '../contracts/admin/retrieval-profile.schema';
 
 /**
  * Infra cockpit — deeper than /health. Per-component status grid,
@@ -66,5 +70,25 @@ export class AdminInfraController {
   @RequireScopes('brain:admin')
   now(): NowResponse {
     return this.liveSnapshot.now();
+  }
+
+  /**
+   * The RetrievalProfile the calling tenant resolves to (boot default
+   * overlaid with RETRIEVAL_PROFILE_OVERRIDES; X-Brain-Tenant override
+   * respected — the guard resolved it into the request context). The
+   * eval harness stamps this into report headers; operators use it to
+   * see what a tenant's overrides actually amount to.
+   */
+  @Get('retrieval-profile')
+  @RequireScopes('brain:admin')
+  retrievalProfile(@Req() req: AuthenticatedRequest): RetrievalProfileResponse {
+    const companyId = req.brainAuth.companyId;
+    const profile =
+      getRequestContext()?.retrievalProfile ??
+      resolveRetrievalProfileFor(companyId);
+    return {
+      companyId,
+      profile: { ...profile, lanes: [...profile.lanes].sort() },
+    } satisfies RetrievalProfileResponse;
   }
 }

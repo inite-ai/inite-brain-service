@@ -21,6 +21,11 @@ import {
   TURN_CHAR_CAP,
 } from '../test/eval/harness/driver';
 import { EvalScore, EvalWorld } from '../test/eval/harness/types';
+import {
+  gitDescriptor,
+  collectRunProvenance,
+  formatProvenance,
+} from '../test/eval/harness/provenance';
 import { appendCheckpoint } from '../test/eval/checkpoint';
 
 describe('parseFlags', () => {
@@ -323,5 +328,94 @@ describe('estimateHaystackTokens', () => {
       },
     ];
     expect(estimateHaystackTokens(worlds)).toBe(100);
+  });
+});
+
+describe('run provenance', () => {
+  const fakeGit =
+    (out: Record<string, string>) =>
+    (args: string[]): string => {
+      const key = args.join(' ');
+      if (key in out) return out[key];
+      throw new Error(`no fake for git ${key}`);
+    };
+
+  it('gitDescriptor reports sha/branch/dirty from git output', () => {
+    const d = gitDescriptor(
+      fakeGit({
+        'rev-parse HEAD': 'abc123def\n',
+        'rev-parse --abbrev-ref HEAD': 'feat/x\n',
+        'status --porcelain': ' M src/a.ts\n',
+      }),
+    );
+    expect(d).toEqual({
+      gitSha: 'abc123def',
+      gitBranch: 'feat/x',
+      gitDirty: true,
+    });
+  });
+
+  it('gitDescriptor degrades to unknown outside a repo', () => {
+    const d = gitDescriptor(() => {
+      throw new Error('not a git repository');
+    });
+    expect(d).toEqual({
+      gitSha: 'unknown',
+      gitBranch: 'unknown',
+      gitDirty: false,
+    });
+  });
+
+  it('collectRunProvenance stamps the profile the brain reports', async () => {
+    const clean = fakeGit({
+      'rev-parse HEAD': 'abc123def\n',
+      'rev-parse --abbrev-ref HEAD': 'main\n',
+      'status --porcelain': '\n',
+    });
+    const calls: string[] = [];
+    const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
+      calls.push(String(url));
+      expect(init?.headers?.Authorization).toBe('Bearer k');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          companyId: 't',
+          profile: { dateAnchoring: 'none', lanes: ['recency'] },
+        }),
+      };
+    }) as unknown as typeof fetch;
+    const p = await collectRunProvenance({
+      brainUrl: 'http://brain:1',
+      apiKey: 'k',
+      fetchImpl,
+      gitExec: clean,
+    });
+    expect(calls).toEqual(['http://brain:1/v1/admin/retrieval-profile']);
+    expect(p.gitDirty).toBe(false);
+    expect(p.retrievalProfile).toEqual({
+      dateAnchoring: 'none',
+      lanes: ['recency'],
+    });
+    expect(formatProvenance(p)).toContain('code=abc123d branch=main');
+    expect(formatProvenance(p)).toContain('dateAnchoring=none');
+  });
+
+  it('collectRunProvenance never fails the run: HTTP error → null profile', async () => {
+    const clean = fakeGit({
+      'rev-parse HEAD': 'abc123def\n',
+      'rev-parse --abbrev-ref HEAD': 'main\n',
+      'status --porcelain': '\n',
+    });
+    const p = await collectRunProvenance({
+      brainUrl: 'http://brain:1',
+      apiKey: 'k',
+      fetchImpl: (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch,
+      gitExec: clean,
+    });
+    expect(p.retrievalProfile).toBeNull();
+    expect(p.retrievalProfileError).toBe('HTTP 404');
+    expect(p.gitSha).toBe('abc123def'); // git part still recorded
+    expect(formatProvenance(p)).toContain('profile unavailable');
   });
 });

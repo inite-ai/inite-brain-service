@@ -36,6 +36,10 @@ import {
   formatSummaryLine,
 } from '../test/eval/harness/report';
 import { EvalWorld } from '../test/eval/harness/types';
+import {
+  collectRunProvenance,
+  formatProvenance,
+} from '../test/eval/harness/provenance';
 import { createOpenAiJudge } from '../test/eval/locomo/judge';
 import { createNuggetJudge } from '../test/eval/beam/nugget-judge';
 
@@ -153,6 +157,11 @@ async function main() {
       toWorld(c, args.abilities, { personaHint: args.personaHint }),
     )
     .filter((w) => w.questions.length > 0);
+  const provenance = await collectRunProvenance({
+    brainUrl: args.brainUrl,
+    apiKey: args.apiKey,
+  });
+  console.error(`[beam] ${formatProvenance(provenance)}`);
   console.error(
     `[beam] ${worlds.length}/${all.length} conversations, ` +
       `${worlds.reduce((a, w) => a + w.questions.length, 0)} questions, ` +
@@ -211,6 +220,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     dataset: args.dataset,
     split: picked[0]?.split,
+    provenance,
     derivedVersion: args.derivedVersion,
     ...axis,
     byAbility: axis.byGroup.map(({ group, ...rest }) => ({

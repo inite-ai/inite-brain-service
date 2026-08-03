@@ -32,6 +32,10 @@ import {
   formatSummaryLine,
 } from '../test/eval/harness/report';
 import { EvalWorld } from '../test/eval/harness/types';
+import {
+  collectRunProvenance,
+  formatProvenance,
+} from '../test/eval/harness/provenance';
 import { createOpenAiJudge } from '../test/eval/locomo/judge';
 
 interface Args extends Record<string, unknown> {
@@ -119,6 +123,11 @@ async function main() {
     picked = picked.filter((q) => args.types!.includes(q.questionType));
   }
   const worlds = picked.map((q) => toWorld(q, args.personaHint));
+  const provenance = await collectRunProvenance({
+    brainUrl: args.brainUrl,
+    apiKey: args.apiKey,
+  });
+  console.error(`[lme] ${formatProvenance(provenance)}`);
   console.error(
     `[lme] ${worlds.length}/${all.length} questions, ` +
       `~${Math.round(estimateHaystackTokens(worlds) / 1000)}k haystack tokens, ` +
@@ -144,6 +153,7 @@ async function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     dataset: 'longmemeval_s',
+    provenance,
     derivedVersion: args.derivedVersion,
     ...axis,
     byType: axis.byGroup.map(({ group, ...rest }) => ({ type: group, ...rest })),

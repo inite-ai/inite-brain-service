@@ -150,6 +150,12 @@ export interface RunReport {
    * artifact must carry, else a degraded run looks clean.
    */
   ingest?: { ingested: number; dropped: number; degraded: boolean };
+  /**
+   * Which code produced this number: git SHA/branch/dirty of the driving
+   * checkout + the brain's resolved RetrievalProfile. Stamped by the CLI
+   * runner (absent on reports predating it).
+   */
+  provenance?: import('../harness/provenance').RunProvenance;
 }
 
 export async function runLocomo(

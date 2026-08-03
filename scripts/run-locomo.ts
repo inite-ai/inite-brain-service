@@ -49,6 +49,10 @@ import { createClaudeMcpAgent } from '../test/eval/locomo/claude-agent';
 import { categoryLabel } from '../test/eval/locomo/types';
 import { HttpBrainClient } from '../test/eval/http-brain-client';
 import { parseFlags } from '../test/eval/harness/flags';
+import {
+  collectRunProvenance,
+  formatProvenance,
+} from '../test/eval/harness/provenance';
 
 type AgentKind = 'http' | 'claude-mcp' | 'agentic';
 
@@ -170,6 +174,11 @@ async function main() {
         console.error(`[locomo:judge] ${done}/${total}`);
       }
     });
+    // The re-grade recomputes aggregates from the SAME predictions — the
+    // original run's provenance (and ingest completeness) still describe
+    // them; a fresh summarize() would silently drop both.
+    report.provenance = prior.provenance;
+    report.ingest = prior.ingest;
     await fs.writeFile(args.judgeReport, JSON.stringify(report, null, 2));
     printReport(report, args.judgeReport);
     return;
@@ -178,6 +187,13 @@ async function main() {
   console.error(
     `[locomo] dataset=${args.dataset} brain=${args.brainUrl} out=${args.out}`,
   );
+  // Collected up front: this is the code/profile the whole run sees, and
+  // the leg log carries it even if the run dies before the report lands.
+  const provenance = await collectRunProvenance({
+    brainUrl: args.brainUrl,
+    apiKey: args.apiKey,
+  });
+  console.error(`[locomo] ${formatProvenance(provenance)}`);
   const conversations = await loadLocomoDataset(args.dataset);
   const offset = args.sampleOffset ?? 0;
   const sliced = args.samples
@@ -264,6 +280,7 @@ async function main() {
   });
   if (agentClose) await agentClose();
 
+  report.provenance = provenance;
   // Record ingest completeness in the artifact so a headline measured on a
   // partial brain is never mistaken for a clean run (stderr scrolls away).
   if (!args.skipIngest) {
