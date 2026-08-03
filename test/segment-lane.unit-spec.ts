@@ -107,13 +107,8 @@ describe('SegmentComposerService', () => {
 });
 
 describe('SegmentLaneService', () => {
-  const saved = process.env.SEARCH_SEGMENT_LANE_ENABLED;
-  afterEach(() => {
-    if (saved === undefined) delete process.env.SEARCH_SEGMENT_LANE_ENABLED;
-    else process.env.SEARCH_SEGMENT_LANE_ENABLED = saved;
-    delete process.env.SEARCH_SEGMENT_LANE_RERANK;
-  });
-
+  // Activation lives in SynthesizeService (profile.verbatimEvidence ===
+  // 'always'); the service takes topK/rerank explicitly.
   function makeLane(perQuery: Array<Array<Record<string, unknown>>>): {
     svc: SegmentLaneService;
     queries: Array<{ sql: string; params: Record<string, unknown> }>;
@@ -141,17 +136,11 @@ describe('SegmentLaneService', () => {
     companyId: 'co_x',
     query: 'what did the kids paint?',
     callerScopes: ['brain:read', 'brain:read_pii'],
+    topK: 5,
+    rerank: false,
   };
 
-  it('flag off → [] with zero DB calls', async () => {
-    delete process.env.SEARCH_SEGMENT_LANE_ENABLED;
-    const { svc, queries } = makeLane([]);
-    expect(await svc.transcriptLines(base)).toEqual([]);
-    expect(queries).toHaveLength(0);
-  });
-
   it('fuses dense+BM25 and renders chronologically', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
     const { svc, queries } = makeLane([
       [
         { id: 's1', text: '[2023-06-01] A: later', occurredAt: '2023-06-01T10:00:00Z' },
@@ -172,17 +161,13 @@ describe('SegmentLaneService', () => {
   });
 
   it('gates PII for callers without brain:read_pii', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
     const { svc, queries } = makeLane([[], []]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
     expect(queries[0].sql).toContain('piiClass IS NONE');
     expect(queries[1].sql).toContain('piiClass IS NONE');
   });
 
-  it('reranks the fused pool when enabled and trims to topK', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
-    process.env.SEARCH_SEGMENT_LANE_RERANK = '1';
-    process.env.SEARCH_SEGMENT_LANE_TOPK = '1';
+  it('reranks the fused pool when asked and trims to topK', async () => {
     const rows = [
       { id: 's1', text: 'first', occurredAt: '2023-05-01T10:00:00Z' },
       { id: 's2', text: 'second', occurredAt: '2023-05-02T10:00:00Z' },
@@ -193,13 +178,11 @@ describe('SegmentLaneService', () => {
       rerank: async () => [1, 0],
     } as unknown as RerankerService;
     (svc as unknown as { reranker: RerankerService }).reranker = reranker;
-    const lines = await svc.transcriptLines(base);
+    const lines = await svc.transcriptLines({ ...base, topK: 1, rerank: true });
     expect(lines).toEqual(['second']);
-    delete process.env.SEARCH_SEGMENT_LANE_TOPK;
   });
 
   it('degrades to [] on DB failure', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
     const surreal = {
       withCompany: async () => {
         throw new Error('db down');

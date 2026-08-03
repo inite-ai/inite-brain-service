@@ -15,6 +15,7 @@ import { getRequestContext } from '../common/request-context';
 import { resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
+import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
 
 /**
  * Tenant override (BRAIN_TENANT_OVERRIDE_ENABLED, default off): an
@@ -144,8 +145,18 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
+    const companyId = resolveTenantOverride(record, request);
+    // Retrieval profile — resolved ONCE per request, next to brainAuth
+    // (S3 of the platform directive). Everything below the boundary
+    // takes this object; nothing re-reads the genre env keys.
+    const retrievalProfile = resolveRetrievalProfileFor(companyId);
+    {
+      const store = getRequestContext();
+      if (store) store.retrievalProfile = retrievalProfile;
+    }
+
     (request as AuthenticatedRequest).brainAuth = {
-      companyId: resolveTenantOverride(record, request),
+      companyId,
       scopes: record.scopes,
       keyHash: record.keyHash,
       ...(record.userId ? { userId: record.userId } : {}),

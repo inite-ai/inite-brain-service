@@ -1,4 +1,5 @@
 import { SearchDto, SearchMode } from './dto/search.dto';
+import type { RetrievalProfile } from './retrieval-profile';
 
 /**
  * Per-request retrieval-pipeline context, shared by the search
@@ -21,4 +22,6 @@ export interface PipelineContext {
    * projection registry (audit W2 #9). null → legacy namespace.
    */
   derivedVersion: string | null;
+  /** Per-tenant retrieval profile, resolved once by the guard. */
+  profile: RetrievalProfile;
 }

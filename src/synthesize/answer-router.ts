@@ -1,38 +1,28 @@
-import { envFlagEnabled } from '../common/env-validation';
 import type { SearchHit } from '../search/search.service';
+import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 
 /**
- * Typed Answer Dispatch, lane T1 (docs/roadmap/typed-answer-dispatch-
- * 2026-07.md): a LEXICAL question router — no LLM, no embedding — that
- * recognizes temporal-DISTANCE questions ("how many weeks ago…", "how
- * long since…") and switches the synthesizer into a compute-then-answer
- * frame: every dated fact line gets a precomputed elapsed-time
- * annotation relative to the query's asOf date, so the generator reads
- * the number off instead of doing calendar arithmetic (the measured
- * failure mode: right date retrieved, wrong "N weeks ago" emitted).
+ * Typed Answer Dispatch (docs/roadmap/typed-answer-dispatch-2026-07.md):
+ * a LEXICAL question router — no LLM, no embedding — over a first-class
+ * Lane registry. Each lane owns its detection lexicon, its optional
+ * deterministic second-retrieval probe, and its generator frame; the
+ * router, the probe runner and the prompt builder all iterate the SAME
+ * registry, so adding a lane is one entry in one file.
+ *
+ * Which lanes are live is per-tenant configuration: the resolved
+ * RetrievalProfile carries `lanes: ReadonlySet<LaneId>` (S3 of the
+ * platform directive). Nothing here reads process.env.
  *
  * Lexical-first is deliberate: TF-IDF-class routers match oracle
  * routing on LongMemEval (AgentIR, arXiv 2605.25092), and misroutes
- * fail open — an unrouted temporal question just gets today's generic
- * path. Gated by SYNTHESIZE_ANSWER_ROUTER_ENABLED (default off); the
- * flag lives in the corpus-genre profile, NOT in the LoCoMo config
- * (LoCoMo temporal golds follow the session-date convention, where
- * true date arithmetic measurably hurts — E-series date-context leg).
+ * fail open — an unrouted question just gets the generic path.
  */
 
+/** The four query-detectable lanes (the router's output space). */
 export type AnswerLane = 'temporal' | 'enumeration' | 'preference' | 'summary';
 
-/**
- * Every lane of the typed dispatcher — the four detectable AnswerLanes
- * plus the three evidence-conditional lanes (contradiction, recency,
- * instruction) that fire on evidence shape rather than query shape.
- * Becomes the LaneId of the first-class Lane registry (S3).
- */
-export type DispatchLane =
-  | AnswerLane
-  | 'contradiction'
-  | 'recency'
-  | 'instruction';
+/** Alias kept for older imports; the canonical id lives in the profile. */
+export type DispatchLane = LaneId;
 
 const UNIT = '(?:day|week|month|year)s?';
 /**
@@ -114,59 +104,88 @@ const SUMMARY_PATTERNS: RegExp[] = [
   /give me an overview of\b/i,
 ];
 
-export function routerEnabled(): boolean {
-  return envFlagEnabled(process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
-}
-
-/** Router on → the lane is live. Per-lane ablation is a git branch,
- *  not a runtime token list (owner directive 2026-08-03). */
-export function laneEnabled(_lane: DispatchLane): boolean {
-  return routerEnabled();
-}
-
-/** Flag-gated entry: null (legacy path) unless the router is enabled. */
-export function routeLane(query: string): AnswerLane | null {
-  return routerEnabled() ? detectLane(query) : null;
-}
-
-/** Detection order IS precedence: temporal wins over enumeration, etc. */
-const LANE_LEXICONS: Array<{ lane: AnswerLane; patterns: RegExp[] }> = [
-  { lane: 'temporal', patterns: TEMPORAL_PATTERNS },
-  { lane: 'enumeration', patterns: ENUMERATION_PATTERNS },
-  { lane: 'preference', patterns: PREFERENCE_PATTERNS },
-  { lane: 'summary', patterns: SUMMARY_PATTERNS },
-];
-
-export function detectLane(query: string): AnswerLane | null {
-  const q = query ?? '';
-  for (const { lane, patterns } of LANE_LEXICONS) {
-    if (patterns.some((p) => p.test(q))) return lane;
-  }
-  return null;
-}
+/** Generator instruction appended for the temporal lane. */
+export const TEMPORAL_LANE_INSTRUCTION =
+  'This is a temporal-distance question. Dated facts carry precomputed ' +
+  '[elapsed: …] annotations relative to Today — answer with the ' +
+  'precomputed value in the unit the question asks for; do NOT recompute ' +
+  'or estimate the interval yourself.\n';
 
 /**
- * T6/T2 wide probe (SYNTHESIZE_LANE_WIDE_PROBE): the measured lesson of
- * the null summary/enumeration legs is that a render frame cannot fix
- * recall breadth — the top-K similarity slice can't cover a
- * whole-project narrative. For summary/enumeration-routed questions a
- * second retrieval runs with a pseudo-relevance-feedback query
- * (original query + dominant aspect predicates + top entity names from
- * the base hits — deterministic, no LLM), pulling same-topic facts the
- * literal question wording never surfaces. Extra facts enter through
- * the evidence union under SYNTHESIZE_EXTRA_EVIDENCE_CAP.
+ * Generator instruction for the enumeration lane. The measured failure
+ * mode is PARTIAL enumeration (a list answer that stops at the first
+ * matching items), so the frame forces list-first-then-aggregate.
  */
-export function wideLaneProbeEnabled(): boolean {
-  return (
-    routerEnabled() &&
-    envFlagEnabled(process.env.SYNTHESIZE_LANE_WIDE_PROBE)
-  );
-}
+export const ENUMERATION_LANE_INSTRUCTION =
+  'This is an enumeration/counting/ordering question. The facts are ' +
+  'sorted chronologically. FIRST enumerate every matching item with its ' +
+  'date — scan the whole list, never stop at the first matches; a ' +
+  'partial list is a wrong answer. THEN derive the final count, order, ' +
+  'or total from your enumeration (sum durations/amounts explicitly ' +
+  'when asked for totals).\n';
 
-export function wideProbeLimit(): number {
-  const v = parseInt(process.env.SYNTHESIZE_WIDE_PROBE_LIMIT ?? '', 10);
-  return Number.isFinite(v) && v > 0 ? v : 12;
-}
+/** T4 answer conditioning (PrefEval "reminder" pattern). */
+export const PREFERENCE_LANE_INSTRUCTION =
+  'This is a recommendation question. FIRST scan the facts for the ' +
+  "user's stated preferences, tastes, constraints or dislikes relevant " +
+  'to the request; then condition your suggestion on them explicitly, ' +
+  'naming which stored preference you applied. A generic recommendation ' +
+  'that ignores a stated preference is a wrong answer.\n';
+
+/** T6 staged-narrative frame over chronologically sorted facts. */
+export const SUMMARY_LANE_INSTRUCTION =
+  'This is a progressive-summary question. The facts are sorted ' +
+  'chronologically. Produce a staged narrative: initial state, the key ' +
+  'developments with their dates, and the current state. Scan ALL the ' +
+  'facts — a summary built from one time slice is a wrong answer.\n';
+
+/**
+ * T3 contradiction note. Unlike T1/T2 this lane is EVIDENCE-conditional,
+ * not query-conditional: contradiction questions look innocent ("Have I
+ * ever …?"), so the trigger is competing facts in the retrieved
+ * evidence — the write side already adjudicated them as COMPETING. The
+ * measured failure mode (BEAM contradiction_resolution 0%, LIGHT ≤0.042
+ * everywhere) is confidently answering ONE side; the expected behavior
+ * is to surface both with dates and ask which is correct.
+ */
+export const CONTRADICTION_NOTE_INSTRUCTION =
+  'CONFLICT NOTICE: the facts below include statements the memory ' +
+  'system flagged as COMPETING (mutually contradictory), listed as ' +
+  'conflict pairs above the fact list. If the question touches a ' +
+  'conflict pair, do NOT silently pick a side: state both versions ' +
+  'with their dates, note that they contradict each other, and ask ' +
+  'which one is correct. This overrides the always-commit rule for ' +
+  'those facts only.\n';
+
+/** T7 section header: compliance is part of correctness. */
+export const STANDING_INSTRUCTIONS_INSTRUCTION =
+  'Standing user instructions found in memory (they govern HOW you ' +
+  'answer — format, style, required elements): APPLY every instruction ' +
+  'whose trigger matches this question; an answer that ignores an ' +
+  'applicable instruction is a wrong answer. Ignore the ones whose ' +
+  'trigger does not match.\n';
+
+/**
+ * T4: deterministic second retrieval probe that pulls the user's stored
+ * preferences into evidence — recommendation queries rarely surface
+ * them by similarity (the query is about hotels, not about tastes).
+ */
+export const PREFERENCE_PROBE_QUERY =
+  'preferences likes dislikes favorite style enjoys prefers avoids';
+
+/**
+ * T7 instruction lane: standing user instructions ("always format code
+ * with syntax highlighting when I ask about implementation") are
+ * captured by the substrate as preference facts. BEAM's IF questions
+ * are deliberately neutral, so no lexical route can fire — the lane is
+ * UNCONDITIONAL, like T3: a fixed probe pulls instruction-shaped facts
+ * and they render as a separate standing-instructions section. LIGHT's
+ * relevance-gated scratchpad filters exactly these out (its IF never
+ * exceeds 0.5); unconditional injection is the structural fix.
+ */
+export const INSTRUCTION_PROBE_QUERY =
+  'always include format style make sure when I ask prefers ' +
+  'instructions how to answer respond';
 
 /** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
 export function buildWideProbeQuery(
@@ -188,36 +207,130 @@ export function buildWideProbeQuery(
 }
 
 /**
- * T4: deterministic second retrieval probe that pulls the user's stored
- * preferences into evidence — recommendation queries rarely surface
- * them by similarity (the query is about hotels, not about tastes).
+ * One lane of the typed dispatcher, first-class (audit #27: adding a
+ * lane used to be 14 edits across 5 files with two parallel lane type
+ * systems). `detect` is absent for evidence-conditional lanes
+ * (contradiction fires on COMPETING evidence, recency on slot shape,
+ * instruction unconditionally); `probe` is the lane's deterministic
+ * second retrieval; `instruction` is the generator frame the prompt
+ * builder renders when the lane routed the answer.
  */
-export const PREFERENCE_PROBE_QUERY =
-  'preferences likes dislikes favorite style enjoys prefers avoids';
-
-/**
- * T7 instruction lane (SYNTHESIZE_INSTRUCTION_LANE): standing user
- * instructions ("always format code with syntax highlighting when I ask
- * about implementation") are captured by the substrate as preference
- * facts (probed live 2026-07-31: the fact exists and even surfaces on a
- * neutral question — at position 33/40, with nothing telling the
- * generator to APPLY it to the answer's form). BEAM's IF questions are
- * deliberately neutral, so no lexical route can fire — the lane is
- * UNCONDITIONAL, like T3: a fixed probe pulls instruction-shaped facts
- * and they render as a separate standing-instructions section. LIGHT's
- * relevance-gated scratchpad filters exactly these out (its IF never
- * exceeds 0.5); unconditional injection is the structural fix.
- */
-export function instructionLaneEnabled(): boolean {
-  return (
-    laneEnabled('instruction') &&
-    envFlagEnabled(process.env.SYNTHESIZE_INSTRUCTION_LANE)
-  );
+export interface Lane {
+  id: LaneId;
+  detect?: (query: string) => boolean;
+  probe?: (
+    query: string,
+    baseHits: SearchHit[],
+    profile: RetrievalProfile,
+  ) => { query: string; limit: number } | null;
+  instruction?: string;
 }
 
-export const INSTRUCTION_PROBE_QUERY =
-  'always include format style make sure when I ask prefers ' +
-  'instructions how to answer respond';
+const matchesAny = (patterns: RegExp[]) => (q: string) =>
+  patterns.some((p) => p.test(q ?? ''));
+
+/**
+ * THE lane registry. Registry order IS detection precedence: temporal
+ * wins over enumeration, etc. Every LaneId has exactly one entry (gate:
+ * lane-registry completeness).
+ */
+export const LANE_REGISTRY: readonly Lane[] = [
+  {
+    id: 'temporal',
+    detect: matchesAny(TEMPORAL_PATTERNS),
+    instruction: TEMPORAL_LANE_INSTRUCTION,
+  },
+  {
+    id: 'enumeration',
+    detect: matchesAny(ENUMERATION_PATTERNS),
+    instruction: ENUMERATION_LANE_INSTRUCTION,
+    // T6/T2 wide probe: the measured lesson of the null summary/
+    // enumeration legs is that a render frame cannot fix recall breadth.
+    // A PRF second retrieval (query + dominant aspects + top entity
+    // names — deterministic, no LLM) pulls same-topic facts the literal
+    // wording never surfaces; extras enter through the evidence union
+    // under the profile's extraEvidenceCap.
+    probe: (query, baseHits, profile) =>
+      profile.wideProbe
+        ? {
+            query: buildWideProbeQuery(query, baseHits),
+            limit: profile.wideProbeLimit,
+          }
+        : null,
+  },
+  {
+    id: 'preference',
+    detect: matchesAny(PREFERENCE_PATTERNS),
+    instruction: PREFERENCE_LANE_INSTRUCTION,
+    probe: () => ({ query: PREFERENCE_PROBE_QUERY, limit: 8 }),
+  },
+  {
+    id: 'summary',
+    detect: matchesAny(SUMMARY_PATTERNS),
+    instruction: SUMMARY_LANE_INSTRUCTION,
+    probe: (query, baseHits, profile) =>
+      profile.wideProbe
+        ? {
+            query: buildWideProbeQuery(query, baseHits),
+            limit: profile.wideProbeLimit,
+          }
+        : null,
+  },
+  // Evidence-conditional lanes — no query detection by design.
+  { id: 'contradiction', instruction: CONTRADICTION_NOTE_INSTRUCTION },
+  { id: 'recency' },
+  { id: 'instruction', instruction: STANDING_INSTRUCTIONS_INSTRUCTION },
+];
+
+const LANE_BY_ID = new Map(LANE_REGISTRY.map((l) => [l.id, l]));
+
+/** Registry lookup for the prompt builder; undefined for unrouted. */
+export function laneInstructionFor(lane: LaneId | null | undefined):
+  | string
+  | undefined {
+  return lane ? LANE_BY_ID.get(lane)?.instruction : undefined;
+}
+
+/**
+ * Route the query over the registry's detectable lanes, restricted to
+ * the profile's active set. Registry order is precedence; null = no
+ * typed dispatch (generic path).
+ */
+export function routeLane(
+  profile: RetrievalProfile,
+  query: string,
+): AnswerLane | null {
+  for (const lane of LANE_REGISTRY) {
+    if (!lane.detect || !profile.lanes.has(lane.id)) continue;
+    if (lane.detect(query ?? '')) return lane.id as AnswerLane;
+  }
+  return null;
+}
+
+/** Detection over every registry lexicon, ignoring the profile — for
+ *  tests and offline tooling that ask "what WOULD this route to". */
+export function detectLane(query: string): AnswerLane | null {
+  for (const lane of LANE_REGISTRY) {
+    if (lane.detect?.(query ?? '')) return lane.id as AnswerLane;
+  }
+  return null;
+}
+
+/**
+ * Second-retrieval request for the routed lane, or null when the lane
+ * probes nothing under this profile. Pure — the service just executes
+ * whatever this returns.
+ */
+export function laneProbeDto(
+  profile: RetrievalProfile,
+  lane: AnswerLane | null,
+  probe: { query: string; baseHits: SearchHit[] },
+): { query: string; limit: number } | null {
+  if (!lane || !profile.lanes.has(lane)) return null;
+  return (
+    LANE_BY_ID.get(lane)?.probe?.(probe.query, probe.baseHits, profile) ?? null
+  );
+}
 
 /**
  * Instruction-shaped fact filter. Two tiers against false positives
@@ -254,43 +367,10 @@ export function extractStandingInstructions(
   return out;
 }
 
-/** T7 section header: compliance is part of correctness. */
-export const STANDING_INSTRUCTIONS_INSTRUCTION =
-  'Standing user instructions found in memory (they govern HOW you ' +
-  'answer — format, style, required elements): APPLY every instruction ' +
-  'whose trigger matches this question; an answer that ignores an ' +
-  'applicable instruction is a wrong answer. Ignore the ones whose ' +
-  'trigger does not match.\n';
-
-/**
- * Second-retrieval request per lane, or null when the lane probes
- * nothing: T4's fixed tastes probe; the flag-gated T6/T2 PRF widening.
- * Pure — the service just executes whatever this returns.
- */
-export function laneProbeDto(
-  lane: AnswerLane | null,
-  query: string,
-  baseHits: SearchHit[],
-): { query: string; limit: number } | null {
-  if (lane === 'preference') {
-    return { query: PREFERENCE_PROBE_QUERY, limit: 8 };
-  }
-  if (
-    (lane === 'summary' || lane === 'enumeration') &&
-    wideLaneProbeEnabled()
-  ) {
-    return {
-      query: buildWideProbeQuery(query, baseHits),
-      limit: wideProbeLimit(),
-    };
-  }
-  return null;
-}
-
 /**
  * Calendar difference between two instants: whole days, whole weeks,
  * whole calendar months (2022-10-22 → 2023-02-27 is 4 months, not
- * 4.27). Shared by the T1 elapsed annotation and the T1b pair table.
+ * 4.27). The core of the T1 elapsed annotation.
  */
 function calendarDiff(fromMs: number, toMs: number): {
   days: number;
@@ -338,71 +418,20 @@ export function formatElapsed(
   return ` [elapsed: ${renderDiffParts(diff)} before today]`;
 }
 
-/** Generator instruction appended for the temporal lane. */
-export const TEMPORAL_LANE_INSTRUCTION =
-  'This is a temporal-distance question. Dated facts carry precomputed ' +
-  '[elapsed: …] annotations relative to Today — answer with the ' +
-  'precomputed value in the unit the question asks for; do NOT recompute ' +
-  'or estimate the interval yourself.\n';
-
-/**
- * T3 contradiction note. Unlike T1/T2 this lane is EVIDENCE-conditional,
- * not query-conditional: contradiction questions look innocent ("Have I
- * ever …?"), so the trigger is competing facts in the retrieved
- * evidence — the write side already adjudicated them as COMPETING. The
- * measured failure mode (BEAM contradiction_resolution 0%, LIGHT ≤0.042
- * everywhere) is confidently answering ONE side; the expected behavior
- * is to surface both with dates and ask which is correct.
- */
-export const CONTRADICTION_NOTE_INSTRUCTION =
-  'CONFLICT NOTICE: the facts below include statements the memory ' +
-  'system flagged as COMPETING (mutually contradictory), listed as ' +
-  'conflict pairs above the fact list. If the question touches a ' +
-  'conflict pair, do NOT silently pick a side: state both versions ' +
-  'with their dates, note that they contradict each other, and ask ' +
-  'which one is correct. This overrides the always-commit rule for ' +
-  'those facts only.\n';
-
-/**
- * Generator instruction for the enumeration lane. The measured failure
- * mode is PARTIAL enumeration (a list answer that stops at the first
- * matching items), so the frame forces list-first-then-aggregate.
- */
-export const ENUMERATION_LANE_INSTRUCTION =
-  'This is an enumeration/counting/ordering question. The facts are ' +
-  'sorted chronologically. FIRST enumerate every matching item with its ' +
-  'date — scan the whole list, never stop at the first matches; a ' +
-  'partial list is a wrong answer. THEN derive the final count, order, ' +
-  'or total from your enumeration (sum durations/amounts explicitly ' +
-  'when asked for totals).\n';
-
-/** T4 answer conditioning (PrefEval "reminder" pattern). */
-export const PREFERENCE_LANE_INSTRUCTION =
-  'This is a recommendation question. FIRST scan the facts for the ' +
-  "user's stated preferences, tastes, constraints or dislikes relevant " +
-  'to the request; then condition your suggestion on them explicitly, ' +
-  'naming which stored preference you applied. A generic recommendation ' +
-  'that ignores a stated preference is a wrong answer.\n';
-
-/** T6 staged-narrative frame over chronologically sorted facts. */
-export const SUMMARY_LANE_INSTRUCTION =
-  'This is a progressive-summary question. The facts are sorted ' +
-  'chronologically. Produce a staged narrative: initial state, the key ' +
-  'developments with their dates, and the current state. Scan ALL the ' +
-  'facts — a summary built from one time slice is a wrong answer.\n';
-
 /**
  * T3: detect write-side-adjudicated conflicts inside the retrieved
  * evidence. Conservative by design: a slot counts as conflicted ONLY
  * when its facts disagree on the object AND at least one carries the
  * COMPETING status the conflict predictor assigned at write time —
  * ordinary multi-value slots (works_at, likes, …) never trigger. Pure,
- * exported for tests.
+ * exported for tests. `lanes` is the profile's active set — the
+ * contradiction lane must be live for the notice to render.
  */
 export function detectEvidenceConflicts(
   results: SearchHit[],
+  lanes: ReadonlySet<LaneId>,
 ): Array<{ factIds: string[]; label: string }> {
-  if (!laneEnabled('contradiction')) return [];
+  if (!lanes.has('contradiction')) return [];
   const bySlot = new Map<
     string,
     Array<{ factId: string; object: string; status?: string }>

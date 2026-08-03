@@ -1,21 +1,23 @@
 import type { SearchHit } from '../search/search.types';
+import type { DateAnchoring } from '../search/retrieval-profile';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagNotDisabled } from '../common/env-validation';
 
 /**
- * SYNTHESIZE_DATE_CONTEXT resolver: the ISO date the generator should
- * treat as "today" (dto.asOf, else now), or undefined when disabled.
- * DEFAULT ON since the 2026-08 engine wave — the trace-verified LME
- * temporal failure was relative-date questions with NO anchor at all,
- * and rendering absolute dates is most of the field's TR win
- * (SmartSearch 82.7 TR from plain timestamps + reranking). Genre note:
- * LoCoMo golds follow the session-date convention where real date
- * arithmetic measurably hurt (E-series leg) — that eval profile must
- * pin SYNTHESIZE_DATE_CONTEXT=0. Lives here to keep the synthesize()
- * complexity budget flat.
+ * Date-anchoring resolver: the ISO date the generator should treat as
+ * "today", or undefined when the profile disables anchoring. 'absolute'
+ * is the engine default — the trace-verified LME temporal failure was
+ * relative-date questions with NO anchor at all, and rendering absolute
+ * dates is most of the field's TR win (SmartSearch 82.7 TR from plain
+ * timestamps + reranking). Genre note: LoCoMo golds follow the
+ * session-date convention where real date arithmetic measurably hurt
+ * (E-series leg) — that tenant profile sets dateAnchoring 'none'.
  */
-export function resolveDateContext(asOf: string | undefined): string | undefined {
-  if (!envFlagNotDisabled(process.env.SYNTHESIZE_DATE_CONTEXT)) return undefined;
+export function resolveDateContext(
+  anchoring: DateAnchoring,
+  asOf: string | undefined,
+): string | undefined {
+  if (anchoring === 'none') return undefined;
+  if (anchoring === 'session_date') return asOf?.slice(0, 10);
   return (asOf ?? new Date().toISOString()).slice(0, 10);
 }
 
@@ -32,17 +34,15 @@ export function resolveDateContext(asOf: string | undefined): string | undefined
  * hard cap so the prompt stays bounded.
  */
 /**
- * Flag-side wrapper: resolves the cap knob and reports the merge size.
- * Returns null when there is nothing to merge so the caller's hot path
- * stays branch-light (complexity budget).
+ * Cap-applying wrapper: reports the merge size. The cap is the
+ * profile's extraEvidenceCap, passed by the caller.
  */
 export function applyEvidenceUnion(
   base: SearchHit[],
   extraHits: SearchHit[] | undefined,
+  cap: number,
 ): SearchHit[] {
   if (!extraHits || extraHits.length === 0) return base;
-  const rawCap = parseInt(process.env.SYNTHESIZE_EXTRA_EVIDENCE_CAP ?? '', 10);
-  const cap = Number.isFinite(rawCap) && rawCap > 0 ? rawCap : 40;
   const results = mergeExtraHits(base, extraHits, cap);
   const count = (hits: SearchHit[]): number =>
     hits.reduce((a, h) => a + h.facts.length, 0);

@@ -744,7 +744,44 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Global fact budget for fact-centric selection — total facts kept across all entities (also used as the per-entity render cap under the flag).',
+          'Global fact budget for fact-centric selection — total facts kept across all entities (also the per-entity render cap). Default-profile input (RetrievalProfile.factBudget); per-tenant override via RETRIEVAL_PROFILE_OVERRIDES.',
+      },
+      // ── Retrieval profile (per-tenant genre configuration) ────────
+      {
+        key: 'RETRIEVAL_GENRE',
+        category: 'pipeline',
+        defaultValue: 'assistant_chat',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Default-profile genre tag: dialogue | assistant_chat | documents. The genre dimensions the engine actually branches on are RETRIEVAL_VERBATIM_EVIDENCE and RETRIEVAL_DATE_ANCHORING; this names the corpus so per-tenant overrides read as intent.',
+      },
+      {
+        key: 'RETRIEVAL_VERBATIM_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'How verbatim L0 evidence reaches synthesis: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional; diary-genre profile). Unset → derived from the legacy lane flags.',
+      },
+      {
+        key: 'RETRIEVAL_DATE_ANCHORING',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "How the generator's \"today\" anchors: none (session-date-convention golds) | session_date (only when the caller sends asOf) | absolute (asOf, else wall clock — the engine default). Unset → derived from SYNTHESIZE_DATE_CONTEXT.",
+      },
+      {
+        key: 'RETRIEVAL_PROFILE_OVERRIDES',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

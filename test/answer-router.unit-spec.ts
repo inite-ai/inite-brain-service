@@ -8,18 +8,30 @@
 import {
   detectLane,
   routeLane,
-  laneEnabled,
-  wideLaneProbeEnabled,
-  wideProbeLimit,
+  laneProbeDto,
   buildWideProbeQuery,
-  instructionLaneEnabled,
   extractStandingInstructions,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   formatElapsed,
   detectVerbatimShape,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
+  LANE_REGISTRY,
 } from '../src/synthesize/answer-router';
+import {
+  resolveRetrievalProfile,
+  ALL_LANES,
+  type RetrievalProfile,
+} from '../src/search/retrieval-profile';
+
+/** Profile with every lane live (router-on shape) + overridable knobs. */
+function profileWith(over: Partial<RetrievalProfile> = {}): RetrievalProfile {
+  return {
+    ...resolveRetrievalProfile({} as NodeJS.ProcessEnv),
+    lanes: new Set(ALL_LANES),
+    ...over,
+  };
+}
 import {
   buildGeneratorUserMessage,
   buildFactIndex,
@@ -234,18 +246,11 @@ describe('buildFactIndex elapsed annotations', () => {
 });
 
 describe('detectEvidenceConflicts (T3)', () => {
-  // The detector is flag-gated internally (returns [] when the router
-  // is off — that IS the fail-open contract); enable it for these tests.
-  beforeAll(() => {
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-  });
-  afterAll(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-  });
-  it('returns [] with the router flag off (fail-open)', () => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    expect(detectEvidenceConflicts([])).toEqual([]);
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+  // The detector is lane-gated: without the contradiction lane in the
+  // profile's set it returns [] — that IS the fail-open contract.
+  const LANES = new Set(ALL_LANES);
+  it('returns [] when the contradiction lane is not live (fail-open)', () => {
+    expect(detectEvidenceConflicts([], new Set())).toEqual([]);
   });
   const hitWith = (facts: Array<Record<string, unknown>>) =>
     ({
@@ -268,7 +273,7 @@ describe('detectEvidenceConflicts (T3)', () => {
         { predicate: 'has_api_key', object: 'yes, for OpenWeather', status: 'active' },
         { predicate: 'has_api_key', object: 'no, never obtained one', status: 'COMPETING' },
       ]),
-    ]);
+    ], LANES);
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0].label).toBe('has_api_key');
     expect(conflicts[0].factIds).toEqual([
@@ -283,7 +288,7 @@ describe('detectEvidenceConflicts (T3)', () => {
           { predicate: 'works_at', object: 'Baseline Robotics', status: 'active' },
           { predicate: 'works_at', object: 'Hyphae Labs', status: 'active' },
         ]),
-      ]),
+      ], LANES),
     ).toEqual([]);
   });
   it('flags polarity splits in derived worlds (no COMPETING status)', () => {
@@ -294,7 +299,7 @@ describe('detectEvidenceConflicts (T3)', () => {
         { predicate: 'work', object: 'has never written any Flask routes', status: 'active' },
         { predicate: 'work', object: 'implemented a basic homepage route with Flask', status: 'active' },
       ]),
-    ]);
+    ], LANES);
     expect(conflicts).toHaveLength(1);
   });
   it('two affirmative objects share polarity — no conflict', () => {
@@ -304,7 +309,7 @@ describe('detectEvidenceConflicts (T3)', () => {
           { predicate: 'activities', object: 'went hiking in Utah', status: 'active' },
           { predicate: 'activities', object: 'tried pottery classes', status: 'active' },
         ]),
-      ]),
+      ], LANES),
     ).toEqual([]);
   });
   it('ignores COMPETING duplicates that agree on the object', () => {
@@ -314,7 +319,7 @@ describe('detectEvidenceConflicts (T3)', () => {
           { predicate: 'pet', object: 'cat Brioche', status: 'COMPETING' },
           { predicate: 'pet', object: 'cat Brioche', status: 'active' },
         ]),
-      ]),
+      ], LANES),
     ).toEqual([]);
   });
 
@@ -382,27 +387,44 @@ describe('buildFactIndex chronological ordering (T2)', () => {
   });
 });
 
-describe('T6/T2 wide probe', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_LANE_WIDE_PROBE;
-    delete process.env.SYNTHESIZE_WIDE_PROBE_LIMIT;
+describe('T6/T2 wide probe (profile-driven)', () => {
+  it('probes nothing when the profile has wideProbe off', () => {
+    expect(
+      laneProbeDto(profileWith({ wideProbe: false }), 'summary', {
+        query: 'q',
+        baseHits: [],
+      }),
+    ).toBeNull();
   });
 
-  it('wideLaneProbeEnabled requires router + its own flag', () => {
-    expect(wideLaneProbeEnabled()).toBe(false);
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-    expect(wideLaneProbeEnabled()).toBe(false);
-    process.env.SYNTHESIZE_LANE_WIDE_PROBE = '1';
-    expect(wideLaneProbeEnabled()).toBe(true);
+  it('probes the PRF query with the profile limit when on', () => {
+    const dto = laneProbeDto(
+      profileWith({ wideProbe: true, wideProbeLimit: 20 }),
+      'summary',
+      { query: 'How has my tracker progressed?', baseHits: [] },
+    );
+    expect(dto).toEqual({
+      query: 'How has my tracker progressed?',
+      limit: 20,
+    });
   });
 
-  it('wideProbeLimit defaults to 12 and parses the env override', () => {
-    expect(wideProbeLimit()).toBe(12);
-    process.env.SYNTHESIZE_WIDE_PROBE_LIMIT = '20';
-    expect(wideProbeLimit()).toBe(20);
-    process.env.SYNTHESIZE_WIDE_PROBE_LIMIT = 'nope';
-    expect(wideProbeLimit()).toBe(12);
+  it('preference lane probes the fixed tastes query regardless', () => {
+    const dto = laneProbeDto(profileWith(), 'preference', {
+      query: 'q',
+      baseHits: [],
+    });
+    expect(dto?.limit).toBe(8);
+    expect(dto?.query).toContain('preferences');
+  });
+
+  it('a lane outside the profile set probes nothing', () => {
+    expect(
+      laneProbeDto(profileWith({ lanes: new Set(['temporal']) }), 'preference', {
+        query: 'q',
+        baseHits: [],
+      }),
+    ).toBeNull();
   });
 
   it('buildWideProbeQuery appends top entities and dominant aspects', () => {
@@ -437,17 +459,39 @@ describe('T6/T2 wide probe', () => {
   });
 });
 
-describe('T7 instruction lane', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_INSTRUCTION_LANE;
+describe('routeLane respects the profile lane set', () => {
+  it('routes only lanes present in the set', () => {
+    const q = 'How many weeks ago did I attend the sale?';
+    expect(routeLane(profileWith(), q)).toBe('temporal');
+    expect(routeLane(profileWith({ lanes: new Set() }), q)).toBeNull();
+    expect(
+      routeLane(profileWith({ lanes: new Set(['enumeration']) }), q),
+    ).toBeNull();
   });
+});
 
-  it('instructionLaneEnabled requires router + flag', () => {
-    expect(instructionLaneEnabled()).toBe(false);
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-    process.env.SYNTHESIZE_INSTRUCTION_LANE = '1';
-    expect(instructionLaneEnabled()).toBe(true);
+describe('lane registry completeness', () => {
+  it('every LaneId has exactly one registry entry', () => {
+    const ids = LANE_REGISTRY.map((l) => l.id);
+    expect([...ids].sort()).toEqual([...ALL_LANES].sort());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('T7 instruction lane', () => {
+  it('joins the default profile lane set only via the boot env keys', () => {
+    const off = resolveRetrievalProfile({} as NodeJS.ProcessEnv);
+    expect(off.lanes.size).toBe(0);
+    const routerOnly = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+    } as NodeJS.ProcessEnv);
+    expect(routerOnly.lanes.has('temporal')).toBe(true);
+    expect(routerOnly.lanes.has('instruction')).toBe(false);
+    const withInstruction = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      SYNTHESIZE_INSTRUCTION_LANE: '1',
+    } as NodeJS.ProcessEnv);
+    expect(withInstruction.lanes.has('instruction')).toBe(true);
   });
 
   const hitWith = (facts: Array<[string, string]>) =>

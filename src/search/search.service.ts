@@ -44,6 +44,7 @@ import { SearchRerankService } from './search-rerank.service';
 import { PipelineContext } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { getActiveRetrievalProfile } from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
 export type { SearchHit } from './search.types';
@@ -312,6 +313,7 @@ export class SearchService {
       (await this.readPin?.resolve(companyId)) ??
       ReadPinService.bootstrapDefault();
 
+    const profile = getActiveRetrievalProfile();
     const out = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
@@ -327,6 +329,7 @@ export class SearchService {
           mode,
           candidateK,
           derivedVersion,
+          profile,
         }),
     );
     // Usage reinforcement, write side (opt-in): stamp the facts this
@@ -483,7 +486,7 @@ export class SearchService {
     // top-`limit` entity gate made a gold fact unreachable whenever its
     // entity missed the entity ranking. Draws from ALL buckets
     // (pre-slice); the global score cut replaces per-entity backfill.
-    const factCentricBudget = positiveIntEnv('SEARCH_FACT_CENTRIC_BUDGET', 48);
+    const factCentricBudget = ctx.profile.factBudget;
     topEntities = selectFactCentric([...byEntity.values()], factCentricBudget, {
       // Keep the reranked order for the buckets the reranker judged
       // (audit W4 #15 — its output used to be computed and thrown

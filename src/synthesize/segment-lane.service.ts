@@ -2,7 +2,6 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { RerankerService } from '../ai/reranker.service';
-import { envFlagEnabled } from '../common/env-validation';
 
 interface SegmentRow {
   id: unknown;
@@ -28,7 +27,9 @@ interface SegmentRow {
  * ≫ summary), dense+BM25 fusion instead of BM25-only, and rerank.
  *
  * Same contracts as the sibling lanes: PII gate for callers without
- * brain:read_pii, degrade to [] on any failure.
+ * brain:read_pii, degrade to [] on any failure. Activation and the
+ * per-prompt caps come from the resolved RetrievalProfile via the
+ * caller — this service reads no env.
  */
 @Injectable()
 export class SegmentLaneService {
@@ -40,19 +41,18 @@ export class SegmentLaneService {
     @Optional() private readonly reranker?: RerankerService,
   ) {}
 
-  isEnabled(): boolean {
-    return envFlagEnabled(process.env.SEARCH_SEGMENT_LANE_ENABLED);
-  }
-
   async transcriptLines(opts: {
     companyId: string;
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /** Segments per prompt (profile.segmentTopK). */
+    topK: number;
+    /** Listwise-rerank the fused pool (profile.segmentRerank). */
+    rerank: boolean;
   }): Promise<string[]> {
-    if (!this.isEnabled()) return [];
-    const topK = this.topK();
+    const topK = opts.topK;
     const fetchK = Math.max(topK * 3, 12);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
       ? ''
@@ -90,7 +90,10 @@ export class SegmentLaneService {
         },
       );
       if (fused.length === 0) return [];
-      const kept = await this.maybeRerank(opts.query, fused, topK);
+      const kept = await this.maybeRerank(opts.query, fused, {
+        topK,
+        rerank: opts.rerank,
+      });
       return kept
         .slice()
         .sort(
@@ -107,17 +110,14 @@ export class SegmentLaneService {
     }
   }
 
-  /** Listwise-rerank the fused pool when the reranker is on; else head. */
+  /** Listwise-rerank the fused pool when the profile asks; else head. */
   private async maybeRerank(
     query: string,
     fused: SegmentRow[],
-    topK: number,
+    opts: { topK: number; rerank: boolean },
   ): Promise<SegmentRow[]> {
-    if (
-      !envFlagEnabled(process.env.SEARCH_SEGMENT_LANE_RERANK) ||
-      !this.reranker?.isEnabled() ||
-      fused.length <= topK
-    ) {
+    const { topK, rerank } = opts;
+    if (!rerank || !this.reranker?.isEnabled() || fused.length <= topK) {
       return fused.slice(0, topK);
     }
     try {
@@ -133,11 +133,6 @@ export class SegmentLaneService {
       this.logger.warn(`segment rerank failed: ${(e as Error).message}`);
       return fused.slice(0, topK);
     }
-  }
-
-  private topK(): number {
-    const v = parseInt(process.env.SEARCH_SEGMENT_LANE_TOPK ?? '', 10);
-    return Number.isFinite(v) && v > 0 ? v : 5;
   }
 }
 

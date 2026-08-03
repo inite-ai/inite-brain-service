@@ -19,9 +19,7 @@ import { applyConformalGuardrail } from './conformal-guardrail';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import {
   routeLane,
-  laneEnabled,
   laneProbeDto,
-  instructionLaneEnabled,
   INSTRUCTION_PROBE_QUERY,
   extractStandingInstructions,
   detectEvidenceConflicts,
@@ -29,6 +27,10 @@ import {
   type AnswerLane,
 } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
+import {
+  getActiveRetrievalProfile,
+  type RetrievalProfile,
+} from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 export { buildFactIndex } from './fact-index';
 import type { Citation } from './fact-index';
@@ -49,6 +51,11 @@ export interface SynthesizeOptions {
   dto: SynthesizeDto;
   callerScopes: string[];
   onProgress?: ProgressReporter;
+  /**
+   * The per-tenant retrieval profile resolved by the guard. Optional so
+   * background callers fall back to the request-context / boot default.
+   */
+  profile?: RetrievalProfile;
   /**
    * Pre-retrieved evidence merged into the re-search results before the
    * generator sees them (multi-hop passes its hop hits here). Base
@@ -103,13 +110,20 @@ interface GeneratorOutput {
 }
 
 /**
- * Verbatim-recall shape (engine default, 2026-08 wave): questions about
- * ASSISTANT-side content pull episode quotes even with the global lane
- * flags off — extraction is user-fact-shaped and the measured SSA
+ * Verbatim-evidence activation per the profile's mode: 'always' runs
+ * the L0 quote lanes on every question; 'shape_conditioned' (the
+ * engine default) only when the question asks for ASSISTANT-side
+ * content — extraction is user-fact-shaped and the measured SSA
  * failure is "facts do not specify…" while the verbatim turn sits
- * unused in L0. Module-level to keep synthesize() complexity flat.
+ * unused in L0; 'off' never. Module-level to keep synthesize()
+ * complexity flat.
  */
-function wantsVerbatimEvidence(query: string): boolean {
+function wantsVerbatimEvidence(
+  profile: RetrievalProfile,
+  query: string,
+): boolean {
+  if (profile.verbatimEvidence === 'off') return false;
+  if (profile.verbatimEvidence === 'always') return true;
   return detectVerbatimShape(query);
 }
 
@@ -133,13 +147,15 @@ function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
   return { answer, citedFactIds: [] };
 }
 
-/** Temporal lane forces the Today anchor from asOf; others follow the flag. */
+/** Temporal lane forces the Today anchor from asOf; others follow the
+ *  profile's dateAnchoring. */
 function resolveLaneDateContext(
+  profile: RetrievalProfile,
   lane: AnswerLane | null,
   asOf: string | undefined,
 ): string | undefined {
   if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
-  return resolveDateContext(asOf);
+  return resolveDateContext(profile.dateAnchoring, asOf);
 }
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
@@ -243,6 +259,7 @@ export class SynthesizeService {
     callerScopes,
     onProgress = NOOP_REPORTER,
     extraHits,
+    profile = getActiveRetrievalProfile(),
   }: SynthesizeOptions): Promise<SynthesizeResult> {
     // Defence-in-depth clamp. SynthesizeDto.@MaxLength('query', 8000)
     // covers HTTP callers, but multi-hop and admin-demo drive
@@ -263,7 +280,7 @@ export class SynthesizeService {
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
     // second probe that similarity search would never surface.
-    const lane: AnswerLane | null = routeLane(dto.query);
+    const lane: AnswerLane | null = routeLane(profile, dto.query);
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
@@ -272,6 +289,7 @@ export class SynthesizeService {
       { 'synthesize.guardrails': guardrails },
     );
     const laneProbeHits = await this.runLaneProbe({
+      profile,
       lane,
       query: dto.query,
       companyId,
@@ -297,10 +315,12 @@ export class SynthesizeService {
       laneProbeHits.length > 0
         ? [...(extraHits ?? []), ...laneProbeHits]
         : extraHits,
+      profile.extraEvidenceCap,
     );
 
     const answerMode = guardrails === 'answer';
     const instructions = await this.collectStandingInstructions({
+      profile,
       companyId,
       callerScopes,
       evidence,
@@ -314,26 +334,25 @@ export class SynthesizeService {
       // T5: recency marker on the newest fact of multi-statement slots
       // (knowledge-update misses answer STALE values) — active for any
       // routed request, independent of lane.
-      markRecency: laneEnabled('recency'),
+      markRecency: profile.lanes.has('recency'),
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
 
     const transcriptLines = await this.collectTranscriptLines({
+      profile,
       companyId,
       query: dto.query,
       callerScopes,
       factIds: [...factIndex.keys()],
       // Same fail-closed user scope the fact read path applies (0055).
       userId: dto.userId,
-      forceVerbatim: wantsVerbatimEvidence(dto.query),
     });
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
     // a Russian answer by default without the caller having to opt in).
-    const answerLang =
-      dto.answerLang ?? detectAnswerLang(dto.query);
+    const answerLang = resolveAnswerLang(dto);
 
     onProgress({
       stage: 'generate',
@@ -356,15 +375,15 @@ export class SynthesizeService {
               // for the generator so relative/when questions resolve
               // against the facts' date stamps instead of guessing.
               // The temporal lane FORCES the anchor from asOf even when
-              // the global flag is off — elapsed annotations are
+              // the profile disables anchoring — elapsed annotations are
               // meaningless without a stated "today".
-              dateContext: resolveLaneDateContext(lane, dto.asOf),
+              dateContext: resolveLaneDateContext(profile, lane, dto.asOf),
               lane,
               // T7: standing instructions in their own section.
               instructions,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
-              conflicts: detectEvidenceConflicts(results),
+              conflicts: detectEvidenceConflicts(results, profile.lanes),
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -542,43 +561,53 @@ export class SynthesizeService {
    * riding along with selected facts.
    */
   private async collectTranscriptLines({
+    profile,
     companyId,
     query,
     callerScopes,
     factIds,
     userId,
-    forceVerbatim,
   }: {
+    profile: RetrievalProfile;
     companyId: string;
     query: string;
     callerScopes: string[];
     factIds: string[];
     userId?: string;
-    forceVerbatim?: boolean;
   }): Promise<string[]> {
-    const laneLines =
-      (await this.episodeLane?.transcriptLines({
-        companyId,
-        query,
-        callerScopes,
-        userId,
-        force: forceVerbatim,
-      })) ?? [];
-    const sourceLines =
-      (await this.episodeLane?.sourceExcerpts({
-        companyId,
-        factIds,
-        callerScopes,
-        userId,
-        force: forceVerbatim,
-      })) ?? [];
+    const active = wantsVerbatimEvidence(profile, query);
+    const laneLines = active
+      ? ((await this.episodeLane?.transcriptLines({
+          companyId,
+          query,
+          callerScopes,
+          userId,
+          limit: profile.quotesPerPrompt,
+        })) ?? [])
+      : [];
+    const sourceLines = active
+      ? ((await this.episodeLane?.sourceExcerpts({
+          companyId,
+          factIds,
+          callerScopes,
+          userId,
+          cap: profile.sourceExcerptsCap,
+        })) ?? [])
+      : [];
+    // Segments compete for the prompt on their own retrieval merit —
+    // an 'always' verbatim profile runs them; the shape-conditioned
+    // default does not (they measurably distract on assistant chats).
     const segmentLines =
-      (await this.segmentLane?.transcriptLines({
-        companyId,
-        query,
-        callerScopes,
-        userId,
-      })) ?? [];
+      profile.verbatimEvidence === 'always'
+        ? ((await this.segmentLane?.transcriptLines({
+            companyId,
+            query,
+            callerScopes,
+            userId,
+            topK: profile.segmentTopK,
+            rerank: profile.segmentRerank,
+          })) ?? [])
+        : [];
     return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
   }
 
@@ -590,15 +619,17 @@ export class SynthesizeService {
    * off or nothing qualifies; probe failures degrade to evidence-only.
    */
   private async collectStandingInstructions({
+    profile,
     companyId,
     callerScopes,
     evidence,
   }: {
+    profile: RetrievalProfile;
     companyId: string;
     callerScopes: string[];
     evidence: SearchHit[];
   }): Promise<string[] | undefined> {
-    if (!instructionLaneEnabled()) return undefined;
+    if (!profile.lanes.has('instruction')) return undefined;
     let probeHits: SearchHit[] = [];
     try {
       const probe = await withSpan('synthesize.instruction_probe', () =>
@@ -626,19 +657,21 @@ export class SynthesizeService {
    * Degrades to [] on failure; other lanes probe nothing.
    */
   private async runLaneProbe({
+    profile,
     lane,
     query,
     companyId,
     callerScopes,
     baseHits,
   }: {
+    profile: RetrievalProfile;
     lane: AnswerLane | null;
     query: string;
     companyId: string;
     callerScopes: string[];
     baseHits: SearchHit[];
   }): Promise<SearchHit[]> {
-    const probeDto = laneProbeDto(lane, query, baseHits);
+    const probeDto = laneProbeDto(profile, lane, { query, baseHits });
     if (!probeDto) return [];
     try {
       const probe = await withSpan('synthesize.lane_probe', () =>
@@ -931,14 +964,15 @@ function attachDecisionLog(
 }
 
 /**
- * Detect the answer language from the user query. Wraps the pure
- * detector and returns `null` when the detector is undecided so the
+ * Detect the answer language: explicit DTO value wins, else the pure
+ * detector on the query; `null` when the detector is undecided so the
  * caller can omit the language instruction from the prompt entirely
  * (the generator's own multilingual default is correct enough for
  * the `und` case).
  */
-function detectAnswerLang(query: string): string | null {
-  const r = detectLanguage(query);
+function resolveAnswerLang(dto: SynthesizeDto): string | null {
+  if (dto.answerLang) return dto.answerLang;
+  const r = detectLanguage(dto.query);
   return r.language === 'und' ? null : r.language;
 }
 

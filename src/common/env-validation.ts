@@ -193,6 +193,9 @@ validateAbacEnv(env, errors);
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
 
+  // ── Retrieval profile (per-tenant genre configuration) ─────────────
+  validateRetrievalProfileEnv(env, errors);
+
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
 
@@ -365,6 +368,56 @@ function validateWorkerConcurrencyEnv(
   for (const name of Object.keys(env)) {
     if (name.startsWith('WORKER_LOOP_MAX_CONCURRENT_')) {
       positiveInt(env, name, errors);
+    }
+  }
+}
+
+/**
+ * Retrieval-profile enum keys + the per-tenant overrides JSON. A typo'd
+ * enum would silently fall back to the derived default — the exact
+ * misconfiguration shape a genre profile exists to prevent — so reject
+ * at boot. Overrides only need to parse as an object-of-objects; the
+ * per-field validation is lenient inside resolveRetrievalProfileFor.
+ */
+function validateRetrievalProfileEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  const enums: Array<[string, string[]]> = [
+    ['RETRIEVAL_GENRE', ['dialogue', 'assistant_chat', 'documents']],
+    [
+      'RETRIEVAL_VERBATIM_EVIDENCE',
+      ['off', 'shape_conditioned', 'always'],
+    ],
+    ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
+  ];
+  for (const [name, allowed] of enums) {
+    const v = env[name];
+    if (v !== undefined && v.trim() !== '' && !allowed.includes(v.trim())) {
+      errors.push(`${name} must be one of ${allowed.join('/')} (got "${v}")`);
+    }
+  }
+  const raw = env.RETRIEVAL_PROFILE_OVERRIDES;
+  if (raw !== undefined && raw.trim() !== '') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (
+        parsed === null ||
+        typeof parsed !== 'object' ||
+        Array.isArray(parsed) ||
+        Object.values(parsed).some(
+          (o) => o === null || typeof o !== 'object' || Array.isArray(o),
+        )
+      ) {
+        errors.push(
+          'RETRIEVAL_PROFILE_OVERRIDES must be a JSON object mapping ' +
+            'companyId → partial retrieval profile',
+        );
+      }
+    } catch (e) {
+      errors.push(
+        `RETRIEVAL_PROFILE_OVERRIDES is not valid JSON: ${(e as Error).message}`,
+      );
     }
   }
 }

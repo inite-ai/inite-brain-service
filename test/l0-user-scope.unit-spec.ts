@@ -105,11 +105,6 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
 });
 
 describe('L0 user-scope fence (0055) — segment lane', () => {
-  const savedFlag = process.env.SEARCH_SEGMENT_LANE_ENABLED;
-  afterEach(() => {
-    if (savedFlag === undefined) delete process.env.SEARCH_SEGMENT_LANE_ENABLED;
-    else process.env.SEARCH_SEGMENT_LANE_ENABLED = savedFlag;
-  });
 
   function makeLane(): {
     svc: SegmentLaneService;
@@ -123,25 +118,29 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
   }
 
   it('both legs carry the fence; unscoped is global-only', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
+
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
       query: 'q',
       callerScopes: ['brain:read'],
+      topK: 5,
+      rerank: false,
     });
     expect(queries).toHaveLength(2);
     for (const q of queries) expect(q.sql).toContain(GLOBAL_ONLY);
   });
 
   it('scoped read passes the param to both legs', async () => {
-    process.env.SEARCH_SEGMENT_LANE_ENABLED = '1';
+
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
       query: 'q',
       callerScopes: ['brain:read'],
       userId: 'u1',
+      topK: 5,
+      rerank: false,
     });
     for (const q of queries) {
       expect(q.sql).toContain(SCOPED);

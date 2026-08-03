@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
-import { envFlagEnabled } from '../common/env-validation';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 
 interface EpisodeQuoteRow {
@@ -31,7 +30,7 @@ function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
 }
 
 /**
- * Episodic retrieval lane (SEARCH_EPISODIC_LANE_ENABLED — P2 of
+ * Episodic retrieval lane (P2 of
  * docs/roadmap/memory-substrate-redesign-2026-07.md).
  *
  * BM25 top-k over the L0 episode substrate, rendered as dated transcript
@@ -39,6 +38,10 @@ function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
  * lossless fallback lane: facts the extractor missed or fragmented are
  * still findable in the verbatim turn. v1 is BM25-only — episode
  * embeddings are derived state and not yet backfilled.
+ *
+ * Activation is the caller's job: SynthesizeService gates all three
+ * verbatim lanes on the resolved profile's verbatimEvidence mode and
+ * passes the per-lane cap explicitly — this service reads no env.
  *
  * Scope gate: callers without brain:read_pii only see episodes whose
  * piiClass is empty — the episode lane must not become a read surface
@@ -53,19 +56,11 @@ export class EpisodeLaneService {
     private readonly episodes: EpisodeReadStoreService,
   ) {}
 
-  isEnabled(): boolean {
-    return envFlagEnabled(process.env.SEARCH_EPISODIC_LANE_ENABLED);
-  }
-
   /**
    * Fetch top-k episodes for the query and render them as one prompt
    * section: chronologically ordered, speaker-attributed, dated. Returns
-   * [] when disabled, on any failure, or when nothing matches — the lane
-   * degrades to absent, never breaks synthesis. `force` bypasses the
-   * global flag for router-conditioned callers (verbatim-recall shape):
-   * the genre law says quotes help exactly when the question asks for
-   * conversational content, so the shape — not a deployment-wide flag —
-   * is the right gate.
+   * [] on any failure or when nothing matches — the lane degrades to
+   * absent, never breaks synthesis.
    */
   async transcriptLines(opts: {
     companyId: string;
@@ -73,14 +68,14 @@ export class EpisodeLaneService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
-    force?: boolean;
+    /** Quotes per prompt (profile.quotesPerPrompt). */
+    limit: number;
   }): Promise<string[]> {
-    if (!opts.force && !this.isEnabled()) return [];
     try {
       const rows = await this.episodes.searchText({
         companyId: opts.companyId,
         query: opts.query,
-        limit: this.topK(),
+        limit: opts.limit,
         includePii: opts.callerScopes.includes('brain:read_pii'),
         userId: opts.userId,
       });
@@ -91,10 +86,6 @@ export class EpisodeLaneService {
       );
       return [];
     }
-  }
-
-  isSourceExcerptsEnabled(): boolean {
-    return envFlagEnabled(process.env.SYNTHESIZE_SOURCE_EXCERPTS);
   }
 
   /**
@@ -113,15 +104,11 @@ export class EpisodeLaneService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
-    force?: boolean;
+    /** Excerpts per prompt (profile.sourceExcerptsCap). */
+    cap: number;
   }): Promise<string[]> {
-    if (
-      (!opts.force && !this.isSourceExcerptsEnabled()) ||
-      opts.factIds.length === 0
-    ) {
-      return [];
-    }
-    const cap = this.sourceExcerptsCap();
+    if (opts.factIds.length === 0) return [];
+    const cap = opts.cap;
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
         const [facts] = await db.query<
@@ -158,17 +145,5 @@ export class EpisodeLaneService {
       );
       return [];
     }
-  }
-
-  /** Episode quotes per prompt from the provenance lane. */
-  private sourceExcerptsCap(): number {
-    const v = parseInt(process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP ?? '', 10);
-    return Number.isFinite(v) && v > 0 ? v : 16;
-  }
-
-  /** Quotes per prompt; verbatim turns are token-heavy, keep the cap low. */
-  private topK(): number {
-    const v = parseInt(process.env.SEARCH_EPISODIC_LANE_TOPK ?? '', 10);
-    return Number.isFinite(v) && v > 0 ? v : 8;
   }
 }

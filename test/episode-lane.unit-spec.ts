@@ -24,27 +24,16 @@ function makeLane(rows: Array<Record<string, unknown>>): {
 }
 
 describe('EpisodeLaneService (P2)', () => {
-  const saved = process.env.SEARCH_EPISODIC_LANE_ENABLED;
-  afterEach(() => {
-    if (saved === undefined) delete process.env.SEARCH_EPISODIC_LANE_ENABLED;
-    else process.env.SEARCH_EPISODIC_LANE_ENABLED = saved;
-  });
-
+  // Activation lives in SynthesizeService (profile.verbatimEvidence);
+  // this service always runs when called and takes the cap explicitly.
   const base = {
     companyId: 'co_x',
     query: 'What did Melanie paint?',
     callerScopes: ['brain:read', 'brain:read_pii'],
+    limit: 8,
   };
 
-  it('returns [] with zero DB calls when the flag is off', async () => {
-    delete process.env.SEARCH_EPISODIC_LANE_ENABLED;
-    const { svc, queries } = makeLane([]);
-    expect(await svc.transcriptLines(base)).toEqual([]);
-    expect(queries).toHaveLength(0);
-  });
-
   it('renders dated speaker lines in chronological order', async () => {
-    process.env.SEARCH_EPISODIC_LANE_ENABLED = '1';
     const { svc, queries } = makeLane([
       // BM25 score order: newest first — the lane must re-sort by time.
       { speaker: 'Melanie', text: 'I painted a sunset', occurredAt: '2023-06-01T10:00:00Z' },
@@ -60,7 +49,6 @@ describe('EpisodeLaneService (P2)', () => {
   });
 
   it('gates piiClass rows away from callers without brain:read_pii', async () => {
-    process.env.SEARCH_EPISODIC_LANE_ENABLED = '1';
     const { svc, queries } = makeLane([]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
     expect(queries[0].sql).toContain('AND piiClass IS NONE');
@@ -69,7 +57,6 @@ describe('EpisodeLaneService (P2)', () => {
   });
 
   it('degrades to [] on query failure', async () => {
-    process.env.SEARCH_EPISODIC_LANE_ENABLED = '1';
     const surreal = {
       withCompany: async () => {
         throw new Error('index rebuilding');
@@ -78,29 +65,9 @@ describe('EpisodeLaneService (P2)', () => {
     const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.transcriptLines(base)).toEqual([]);
   });
-
-  it('force bypasses the global flag (router-conditioned verbatim shape)', async () => {
-    delete process.env.SEARCH_EPISODIC_LANE_ENABLED;
-    const { svc, queries } = makeLane([
-      { speaker: 'Assistant', text: 'Use a token bucket', occurredAt: '2023-06-01T10:00:00Z' },
-    ]);
-    const lines = await svc.transcriptLines({ ...base, force: true });
-    expect(lines).toEqual(['[2023-06-01] Assistant: Use a token bucket']);
-    expect(queries).toHaveLength(1);
-  });
 });
 
 describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
-  const saved = process.env.SYNTHESIZE_SOURCE_EXCERPTS;
-  const savedCap = process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP;
-  afterEach(() => {
-    if (saved === undefined) delete process.env.SYNTHESIZE_SOURCE_EXCERPTS;
-    else process.env.SYNTHESIZE_SOURCE_EXCERPTS = saved;
-    if (savedCap === undefined)
-      delete process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP;
-    else process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP = savedCap;
-  });
-
   function makeProvLane(perQuery: Array<Array<Record<string, unknown>>>): {
     svc: EpisodeLaneService;
     queries: Array<{ sql: string; params: Record<string, unknown> }>;
@@ -125,29 +92,16 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
     companyId: 'co_x',
     factIds: ['knowledge_fact:f1', 'knowledge_fact:f2'],
     callerScopes: ['brain:read', 'brain:read_pii'],
+    cap: 16,
   };
 
-  it('flag off → [] with zero DB calls', async () => {
-    delete process.env.SYNTHESIZE_SOURCE_EXCERPTS;
+  it('empty factIds → [] with zero DB calls', async () => {
     const { svc, queries } = makeProvLane([]);
-    expect(await svc.sourceExcerpts(base)).toEqual([]);
+    expect(await svc.sourceExcerpts({ ...base, factIds: [] })).toEqual([]);
     expect(queries).toHaveLength(0);
   });
 
-  it('force bypasses the flag but not the empty-factIds guard', async () => {
-    delete process.env.SYNTHESIZE_SOURCE_EXCERPTS;
-    const { svc, queries } = makeProvLane([[], []]);
-    expect(await svc.sourceExcerpts({ ...base, force: true })).toEqual([]);
-    expect(queries.length).toBeGreaterThan(0);
-    const { svc: svc2, queries: q2 } = makeProvLane([]);
-    expect(
-      await svc2.sourceExcerpts({ ...base, factIds: [], force: true }),
-    ).toEqual([]);
-    expect(q2).toHaveLength(0);
-  });
-
   it('follows provenance, dedupes episodes, renders chronologically', async () => {
-    process.env.SYNTHESIZE_SOURCE_EXCERPTS = '1';
     const { svc, queries } = makeProvLane([
       [
         { eps: ['episode:e2', 'episode:e1'] },
@@ -178,14 +132,13 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
   });
 
   it('caps episodes first-seen and gates PII without brain:read_pii', async () => {
-    process.env.SYNTHESIZE_SOURCE_EXCERPTS = '1';
-    process.env.SYNTHESIZE_SOURCE_EXCERPTS_CAP = '1';
     const { svc, queries } = makeProvLane([
       [{ eps: ['episode:e1', 'episode:e2'] }],
       [{ speaker: 'A', text: 't', occurredAt: '2023-05-01T00:00:00Z' }],
     ]);
     const lines = await svc.sourceExcerpts({
       ...base,
+      cap: 1,
       callerScopes: ['brain:read'],
     });
     expect(lines).toHaveLength(1);
@@ -196,7 +149,6 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
   });
 
   it('degrades to [] on DB failure and with empty factIds', async () => {
-    process.env.SYNTHESIZE_SOURCE_EXCERPTS = '1';
     const surreal = {
       withCompany: async () => {
         throw new Error('db down');
