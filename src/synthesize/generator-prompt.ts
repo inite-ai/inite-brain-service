@@ -1,10 +1,8 @@
 import {
   TEMPORAL_LANE_INSTRUCTION,
-  ENUMERATION_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
-  PREFERENCE_LANE_INSTRUCTION,
-  SUMMARY_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
+  laneInstructionFor,
   type AnswerLane,
 } from './answer-router';
 
@@ -46,14 +44,10 @@ export function buildGeneratorUserMessage({
     ? `Today: ${dateContext}. Facts carry date stamps like (as of YYYY-MM-DD). Resolve relative time expressions ("last week", "next month") against the stamp of the fact that states them, and answer "when" questions with a specific date or period, using simple date arithmetic when needed.\n` +
       (lane === 'temporal' ? TEMPORAL_LANE_INSTRUCTION : '')
     : '';
+  // Lane frame from the registry — the temporal frame renders inside
+  // the date block above instead (it needs the anchored "Today").
   const laneInstruction =
-    lane === 'enumeration'
-      ? ENUMERATION_LANE_INSTRUCTION
-      : lane === 'preference'
-        ? PREFERENCE_LANE_INSTRUCTION
-        : lane === 'summary'
-          ? SUMMARY_LANE_INSTRUCTION
-          : '';
+    lane && lane !== 'temporal' ? (laneInstructionFor(lane) ?? '') : '';
   const instructionSection =
     instructions && instructions.length > 0
       ? `${STANDING_INSTRUCTIONS_INSTRUCTION}Standing instructions:\n${instructions
