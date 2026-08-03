@@ -10,8 +10,7 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
  * registry, so adding a lane is one entry in one file.
  *
  * Which lanes are live is per-tenant configuration: the resolved
- * RetrievalProfile carries `lanes: ReadonlySet<LaneId>` (S3 of the
- * platform directive). Nothing here reads process.env.
+ * platform directive); this module is env-free.
  *
  * Lexical-first is deliberate: TF-IDF-class routers match oracle
  * routing on LongMemEval (AgentIR, arXiv 2605.25092), and misroutes
@@ -125,7 +124,7 @@ export const ENUMERATION_LANE_INSTRUCTION =
   'when asked for totals).\n';
 
 /** T4 answer conditioning (PrefEval "reminder" pattern). */
-export const PREFERENCE_LANE_INSTRUCTION =
+const PREFERENCE_LANE_INSTRUCTION =
   'This is a recommendation question. FIRST scan the facts for the ' +
   "user's stated preferences, tastes, constraints or dislikes relevant " +
   'to the request; then condition your suggestion on them explicitly, ' +
@@ -133,7 +132,7 @@ export const PREFERENCE_LANE_INSTRUCTION =
   'that ignores a stated preference is a wrong answer.\n';
 
 /** T6 staged-narrative frame over chronologically sorted facts. */
-export const SUMMARY_LANE_INSTRUCTION =
+const SUMMARY_LANE_INSTRUCTION =
   'This is a progressive-summary question. The facts are sorted ' +
   'chronologically. Produce a staged narrative: initial state, the key ' +
   'developments with their dates, and the current state. Scan ALL the ' +
@@ -170,7 +169,7 @@ export const STANDING_INSTRUCTIONS_INSTRUCTION =
  * preferences into evidence — recommendation queries rarely surface
  * them by similarity (the query is about hotels, not about tastes).
  */
-export const PREFERENCE_PROBE_QUERY =
+const PREFERENCE_PROBE_QUERY =
   'preferences likes dislikes favorite style enjoys prefers avoids';
 
 /**

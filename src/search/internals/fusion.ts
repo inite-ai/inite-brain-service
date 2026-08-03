@@ -30,10 +30,10 @@ function addStage<T extends { stages?: RetrievalStage[] }>(
 // no measurable improvement (median 0.82 vs 0.84 baseline). Most
 // queries are dominated by a single leg; boosting both-leg agreement
 // occasionally promotes consensus on noise. Reverted.
-export const HYBRID_VECTOR_WEIGHT = 0.5;
+const HYBRID_VECTOR_WEIGHT = 0.5;
 
 /** Cosine in [-1, 1] → [0, 1] with negative-correlation clamped to 0. */
-export function normalizeVec(s: number): number {
+function normalizeVec(s: number): number {
   return s <= 0 ? 0 : s > 1 ? 1 : s;
 }
 
@@ -43,7 +43,7 @@ export function normalizeVec(s: number): number {
  * pass it through x/(1+x) to keep the lexical-only mode's final
  * score on the same scale as vector cosine.
  */
-export function normalizeLex(s: number): number {
+function normalizeLex(s: number): number {
   return s <= 0 ? 0 : s / (1 + s);
 }
 

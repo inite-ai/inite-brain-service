@@ -10,6 +10,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { WorkerPollerService } from './worker-poller.service';
 import type { JobType } from './job-run.service';
 import type { PollControl, RegisteredHandler } from './worker-loop.types';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 export type { JobContext, JobHandler } from './worker-loop.types';
 
@@ -31,8 +32,9 @@ export class WorkerLoopService
 {
   private readonly logger = new Logger(WorkerLoopService.name);
   private readonly handlers = new Map<JobType, RegisteredHandler>();
-  private readonly enabled =
-    (process.env.WORKER_LOOP_ENABLED ?? '1') !== '0';
+  private readonly enabled = envFlagNotDisabled(
+    process.env.WORKER_LOOP_ENABLED,
+  );
   private readonly leaseRenewIntervalMs = parseInt(
     process.env.WORKER_LOOP_LEASE_RENEW_MS ?? '30000',
     10,

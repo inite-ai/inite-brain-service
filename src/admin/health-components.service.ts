@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { IntentClassifierService } from './intent-classifier.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
@@ -95,9 +96,9 @@ export class HealthComponentsService {
     components.push({
       name: 'calibration',
       status:
-        (process.env.CALIBRATION_USE_GOLD_SET ?? '1') === '0'
-          ? 'disabled'
-          : 'ok',
+        envFlagNotDisabled(process.env.CALIBRATION_USE_GOLD_SET)
+          ? 'ok'
+          : 'disabled',
       message: 'see /admin/calibration for ECE + version history',
     });
 

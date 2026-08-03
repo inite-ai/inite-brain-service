@@ -47,7 +47,7 @@ export interface VerifyRequest {
 }
 
 /** Compose the auditor's evidence sections; empty ones are omitted. */
-export function buildVerifierUserMessage({
+function buildVerifierUserMessage({
   query,
   answer,
   factLines,

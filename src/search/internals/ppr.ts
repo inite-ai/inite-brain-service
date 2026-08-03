@@ -48,7 +48,7 @@ export function buildPprAdjacency(
 }
 
 /** PPR step 3 — bestScore-weighted seed, Σ = 1. Null on zero mass. */
-export function buildPprSeed(
+function buildPprSeed(
   byEntity: Map<string, { bestScore: number }>,
 ): Map<string, number> | null {
   const seedRaw = new Map<string, number>();
@@ -73,7 +73,7 @@ export interface RunPprIterationsOptions {
   seed: Map<string, number>;
 }
 
-export function runPprIterations({
+function runPprIterations({
   ids,
   adj,
   outWeight,
@@ -107,7 +107,7 @@ export function runPprIterations({
 }
 
 /** PPR step 5 — multiply rankScore by (1 + β·r_norm). */
-export function applyPprBoost(
+function applyPprBoost(
   byEntity: Map<string, EntityBucket>,
   r: Map<string, number>,
 ): void {

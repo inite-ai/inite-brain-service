@@ -11,7 +11,7 @@
  * the eval — a 4s reranker budget covers SC=3 parallel calls at
  * ~700ms each plus headroom.
  */
-export const DEFAULT_STAGE_BUDGET_MS = {
+const DEFAULT_STAGE_BUDGET_MS = {
   rerank: 4000,
   crossEncoder: 2000,
 } as const;

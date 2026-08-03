@@ -87,7 +87,7 @@ export interface ExpansionConfig {
   alpha: number;
 }
 
-export function resolveExpansionConfig(env = process.env): ExpansionConfig {
+function resolveExpansionConfig(env = process.env): ExpansionConfig {
   const topSeeds = Math.max(
     1,
     parseInt(env.SEARCH_EDGE_EXPANSION_TOP_SEEDS ?? '3', 10) || 3,
