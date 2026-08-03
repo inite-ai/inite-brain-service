@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
-import { envFlagEnabled } from '../common/env-validation';
+import {
+  envFlagEnabled,
+  envFlagNotDisabled,
+} from '../common/env-validation';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 
 /**
@@ -70,9 +73,15 @@ export class CrossEncoderService
         this.configService.get<string>('SEARCH_CROSS_ENCODER_ENABLED'),
       );
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
-    // Local fallback is opt-in and only matters when the primary (Cohere) path
-    // isn't configured — a self-hoster with no rerank vendor.
-    this.localEnabled = envFlagEnabled(
+    // Local cross-encoder: DEFAULT ON since the 2026-08 engine wave
+    // (audit W4 #16). It needs no vendor key, runs in its own worker
+    // thread with a deadline, and cross-encoder reranking is the single
+    // biggest measured lever in the field — SmartSearch reaches 88.4 on
+    // LongMemEval with verbatim passages + a local reranker and no graph
+    // (docs/roadmap/lme-sota-research-2026-08.md §1/§4). It still only
+    // engages when the Cohere path is not configured, so a vendor
+    // deployment is unchanged; SEARCH_CROSS_ENCODER_LOCAL=0 disables.
+    this.localEnabled = envFlagNotDisabled(
       this.configService.get<string>('SEARCH_CROSS_ENCODER_LOCAL'),
     );
     this.model = this.configService.get<string>(

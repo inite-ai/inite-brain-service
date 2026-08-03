@@ -512,13 +512,17 @@ export class SearchService {
     );
     const factCentricBudget = positiveIntEnv('SEARCH_FACT_CENTRIC_BUDGET', 48);
     if (factCentric) {
-      topEntities = selectFactCentric(
-        [...byEntity.values()],
-        factCentricBudget,
-      );
+      topEntities = selectFactCentric([...byEntity.values()], factCentricBudget, {
+        // Keep the reranked order for the buckets the reranker judged
+        // (audit W4 #15 — its output used to be computed and thrown
+        // away), and honour the caller's limit.
+        priority: topEntities.map((b) => b.entityId),
+        limit: ctx.limit,
+      });
       traceArtifact('search.fact_centric', {
         entities: topEntities.length,
         facts: topEntities.reduce((a, b) => a + b.facts.length, 0),
+        limit: ctx.limit,
       });
     }
 

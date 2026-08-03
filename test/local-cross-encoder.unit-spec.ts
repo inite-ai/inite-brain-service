@@ -38,8 +38,19 @@ describe('CrossEncoderService — local fallback', () => {
     expect(s.isEnabled()).toBe(true);
   });
 
-  it('isEnabled() is false with no Cohere and the local flag off', () => {
+  it('isEnabled() is TRUE with no Cohere and a wired provider (default ON)', () => {
+    // Audit W4 #16: the local encoder is the 2026-08 engine default —
+    // no vendor key, own worker thread, and reranking is the field's
+    // biggest measured lever.
     const s = new CrossEncoderService(cfg({}), stubLocal([]));
+    expect(s.isEnabled()).toBe(true);
+  });
+
+  it('isEnabled() is false when the local flag is explicitly disabled', () => {
+    const s = new CrossEncoderService(
+      cfg({ SEARCH_CROSS_ENCODER_LOCAL: '0' }),
+      stubLocal([]),
+    );
     expect(s.isEnabled()).toBe(false);
   });
 

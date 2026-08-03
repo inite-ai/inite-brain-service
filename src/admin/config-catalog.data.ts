@@ -1214,11 +1214,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_CROSS_ENCODER_LOCAL',
         category: 'search',
-        defaultValue: '0',
+        defaultValue: '1',
         runtimeMutable: false,
         isBooleanFlag: true,
         description:
-          'Run the local cross-encoder reranker (no Cohere key). Note: opting in enables the stage even with SEARCH_CROSS_ENCODER_ENABLED=0.',
+          'Local ONNX cross-encoder (Xenova/bge-reranker-base) in a worker thread, used when no Cohere key is configured. DEFAULT ON since the 2026-08 engine wave: it needs no vendor key and cross-encoder reranking is the biggest measured lever in the field (SmartSearch 88.4 on LongMemEval with a local reranker and no graph). Set 0 to disable.',
       },
       // ── Dreams: corroboration + communities ──────────────────
       {
