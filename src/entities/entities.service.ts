@@ -63,6 +63,14 @@ export interface ForgetResult {
    * forgotten entity's post-images — purged as part of the erasure.
    */
   auditEventsDeleted: number;
+  /**
+   * L0 grounding turns erased with the entity (audit W1): without this the
+   * verbatim episodes stayed readable through the episodic/segment lanes
+   * and a re-derive resurrected the deleted facts.
+   */
+  episodesDeleted: number;
+  /** Rebuildable segment projection rows quoting those turns. */
+  segmentsDeleted: number;
   forgottenAt: string;
 }
 

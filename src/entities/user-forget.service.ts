@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 
 /**
@@ -117,7 +118,24 @@ export class UserForgetService {
       // tenant's own deletion path — the substrate redesign's forget≠
       // retention semantics (suppression list, derivation cascade) arrive
       // with the derivation registry (P3).
-      await db.query(`DELETE episode WHERE userId = $u`, { u: userId });
+      const [epRows] = await db.query<[Array<{ id: unknown }>]>(
+        `DELETE episode WHERE userId = $u RETURN BEFORE`,
+        { u: userId },
+      );
+      // Segments quote those turns (audit W1, finding #13): a segment
+      // carries userId only when the whole window is one user's, so
+      // deleting by userId alone left mixed-user segments holding the
+      // erased text plus dangling episodeIds. Delete by reference.
+      const deletedEpisodeRefs = ((epRows as Array<{ id: unknown }>) ?? []).map(
+        (r) => new StringRecordId(String(r.id)),
+      );
+      if (deletedEpisodeRefs.length > 0) {
+        await db.query(
+          `DELETE episode_segment WHERE episodeIds CONTAINSANY $eps`,
+          { eps: deletedEpisodeRefs },
+        );
+      }
+      await db.query(`DELETE episode_segment WHERE userId = $u`, { u: userId });
 
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed

@@ -334,6 +334,8 @@ export class SynthesizeService {
       query: dto.query,
       callerScopes,
       factIds: [...factIndex.keys()],
+      // Same fail-closed user scope the fact read path applies (0055).
+      userId: dto.userId,
       forceVerbatim: wantsVerbatimEvidence(dto.query),
     });
 
@@ -553,12 +555,14 @@ export class SynthesizeService {
     query,
     callerScopes,
     factIds,
+    userId,
     forceVerbatim,
   }: {
     companyId: string;
     query: string;
     callerScopes: string[];
     factIds: string[];
+    userId?: string;
     forceVerbatim?: boolean;
   }): Promise<string[]> {
     const laneLines =
@@ -566,6 +570,7 @@ export class SynthesizeService {
         companyId,
         query,
         callerScopes,
+        userId,
         force: forceVerbatim,
       })) ?? [];
     const sourceLines =
@@ -573,6 +578,7 @@ export class SynthesizeService {
         companyId,
         factIds,
         callerScopes,
+        userId,
         force: forceVerbatim,
       })) ?? [];
     const segmentLines =
@@ -580,6 +586,7 @@ export class SynthesizeService {
         companyId,
         query,
         callerScopes,
+        userId,
       })) ?? [];
     return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
   }

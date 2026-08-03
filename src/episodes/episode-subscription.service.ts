@@ -1,10 +1,11 @@
 import { createHmac, randomBytes } from 'node:crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Surreal } from 'surrealdb';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EpisodeReadStoreService } from './episode-read-store.service';
 
@@ -61,13 +62,20 @@ const MAX_FAILURES = 100;
 @Injectable()
 export class EpisodeSubscriptionService {
   private readonly logger = new Logger(EpisodeSubscriptionService.name);
-  /** url → epoch-ms until which deliveries are skipped (circuit breaker). */
+  /**
+   * subscription id → epoch-ms until which deliveries are skipped.
+   * Keyed per SUBSCRIPTION, not per URL (audit W1): two tenants may
+   * register the same endpoint, and one tenant's dead receiver must not
+   * mute the other's pushes.
+   */
   private readonly failedUntil = new Map<string, number>();
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly episodes: EpisodeReadStoreService,
     private readonly apiKeys: ApiKeyService,
+    @Optional() private readonly lease?: LeaderLeaseService,
   ) {}
 
   static enabled(): boolean {
@@ -125,6 +133,14 @@ export class EpisodeSubscriptionService {
   @Cron('* * * * *')
   async dispatchTick(): Promise<void> {
     if (!EpisodeSubscriptionService.enabled()) return;
+    // One dispatcher per deployment (audit W1): without this every pod
+    // scans every tenant each minute and double-pushes the same batch.
+    // ttl=180s = 3x the cron cadence, same headroom as the changefeed
+    // consumer. Absent lease service (single-process deploys) → run.
+    if (this.lease) {
+      const got = await this.lease.tryAcquire('episode_subscriptions', 180);
+      if (!got) return;
+    }
     for (const companyId of this.apiKeys.knownCompanyIds()) {
       try {
         await this.dispatchCompany(companyId);
@@ -155,7 +171,8 @@ export class EpisodeSubscriptionService {
       return rows ?? [];
     });
     for (const sub of subs) {
-      const until = this.failedUntil.get(sub.url) ?? 0;
+      const subKey = String(sub.id);
+      const until = this.failedUntil.get(subKey) ?? 0;
       if (Date.now() < until) continue;
       const sinceIso = new Date(sub.watermark as string).toISOString();
       const rows = await this.episodes.metaSince({
@@ -180,7 +197,12 @@ export class EpisodeSubscriptionService {
         watermark,
         ts: new Date().toISOString(),
       };
-      const ok = await this.deliver(sub.url, sub.secret, event);
+      const ok = await this.deliver({
+        subKey,
+        url: sub.url,
+        secret: sub.secret,
+        event,
+      });
       await this.settle({
         companyId,
         sub,
@@ -191,11 +213,17 @@ export class EpisodeSubscriptionService {
     }
   }
 
-  private async deliver(
-    url: string,
-    secret: string,
-    event: EpisodesAvailableEvent,
-  ): Promise<boolean> {
+  private async deliver({
+    subKey,
+    url,
+    secret,
+    event,
+  }: {
+    subKey: string;
+    url: string;
+    secret: string;
+    event: EpisodesAvailableEvent;
+  }): Promise<boolean> {
     const body = JSON.stringify(event);
     const signature = createHmac('sha256', secret).update(body).digest('hex');
     try {
@@ -209,14 +237,14 @@ export class EpisodeSubscriptionService {
         signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
       });
       if (res.ok) {
-        this.failedUntil.delete(url);
+        this.failedUntil.delete(subKey);
         return true;
       }
       this.logger.warn(`episode push to ${url} → HTTP ${res.status}`);
     } catch (e) {
       this.logger.warn(`episode push to ${url} failed: ${(e as Error).message}`);
     }
-    this.failedUntil.set(url, Date.now() + BREAKER_MS);
+    this.failedUntil.set(subKey, Date.now() + BREAKER_MS);
     return false;
   }
 

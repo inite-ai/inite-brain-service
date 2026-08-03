@@ -67,6 +67,25 @@ export class EpisodeReadStoreService {
     return includePii ? '' : 'AND piiClass IS NONE';
   }
 
+  /**
+   * The one user-scope fence for episode reads (audit W1, finding #14).
+   * Mirrors the fact read path (search/internals/where-builder.ts) and is
+   * FAIL-CLOSED for exactly the same reason: no userId on the request →
+   * tenant-global turns only; with one → global + that user's, never
+   * anyone else's. Migration 0055's scope was previously bypassed by
+   * every L0 surface, so personal verbatim leaked to any brain:read key.
+   */
+  private userGate(userId: string | undefined): string {
+    return userId
+      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
+      : 'AND userId IS NONE';
+  }
+
+  /** Param bag companion to userGate (empty when unscoped). */
+  private userParams(userId: string | undefined): Record<string, unknown> {
+    return userId ? { scopeUserId: userId } : {};
+  }
+
   private async run<T>(
     companyId: string,
     db: EpisodeDb | undefined,
@@ -113,6 +132,8 @@ export class EpisodeReadStoreService {
     query: string;
     limit: number;
     includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
     db?: EpisodeDb;
   }): Promise<Array<EpisodeQuoteRow & { score?: number }>> {
     return this.run(opts.companyId, opts.db, async (db) => {
@@ -121,10 +142,10 @@ export class EpisodeReadStoreService {
       >(
         `SELECT speaker, text, occurredAt, search::score(1) AS score
            FROM episode
-          WHERE text @1@ $q ${this.piiGate(opts.includePii)}
+          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}
           ORDER BY score DESC
           LIMIT $k`,
-        { q: opts.query, k: opts.limit },
+        { q: opts.query, k: opts.limit, ...this.userParams(opts.userId) },
       );
       return rows ?? [];
     });
@@ -135,14 +156,19 @@ export class EpisodeReadStoreService {
     companyId: string;
     ids: string[];
     includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
     db?: EpisodeDb;
   }): Promise<EpisodeQuoteRow[]> {
     if (opts.ids.length === 0) return [];
     return this.run(opts.companyId, opts.db, async (db) => {
       const [rows] = await db.query<[EpisodeQuoteRow[]]>(
         `SELECT speaker, text, occurredAt FROM episode
-          WHERE id INSIDE $ids ${this.piiGate(opts.includePii)}`,
-        { ids: opts.ids.map((id) => new StringRecordId(id)) },
+          WHERE id INSIDE $ids ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`,
+        {
+          ids: opts.ids.map((id) => new StringRecordId(id)),
+          ...this.userParams(opts.userId),
+        },
       );
       return rows ?? [];
     });
@@ -208,6 +234,8 @@ export class EpisodeReadStoreService {
     speaker?: string;
     sinceIso?: string;
     untilIso?: string;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
     after?: { occurredAtIso: string; id: string };
   }): Promise<EpisodePageRow[]> {
     return this.run(opts.companyId, undefined, async (db) => {
@@ -237,6 +265,13 @@ export class EpisodeReadStoreService {
         params.afterId = new StringRecordId(opts.after.id);
       }
       if (!opts.includePii) where.push('piiClass IS NONE');
+      // Fail-closed user scope (0055) — see userGate.
+      if (opts.userId) {
+        where.push('(userId IS NONE OR userId = $scopeUserId)');
+        params.scopeUserId = opts.userId;
+      } else {
+        where.push('userId IS NONE');
+      }
       const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
       const [rows] = await db.query<[EpisodePageRow[]]>(
         `SELECT id, kind, conversationId, messageId, speaker, addressee,

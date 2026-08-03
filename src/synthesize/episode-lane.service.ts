@@ -71,6 +71,8 @@ export class EpisodeLaneService {
     companyId: string;
     query: string;
     callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
     force?: boolean;
   }): Promise<string[]> {
     if (!opts.force && !this.isEnabled()) return [];
@@ -80,6 +82,7 @@ export class EpisodeLaneService {
         query: opts.query,
         limit: this.topK(),
         includePii: opts.callerScopes.includes('brain:read_pii'),
+        userId: opts.userId,
       });
       return renderQuoteLines(rows);
     } catch (e) {
@@ -108,6 +111,8 @@ export class EpisodeLaneService {
     companyId: string;
     factIds: string[];
     callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
     force?: boolean;
   }): Promise<string[]> {
     if (
@@ -142,6 +147,7 @@ export class EpisodeLaneService {
           companyId: opts.companyId,
           ids: episodeIds,
           includePii: opts.callerScopes.includes('brain:read_pii'),
+          userId: opts.userId,
           db,
         });
         return renderQuoteLines(rows);

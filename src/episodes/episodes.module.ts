@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { JobsModule } from '../jobs/jobs.module';
 import { EpisodeReadStoreService } from './episode-read-store.service';
 import { EpisodeSubscriptionService } from './episode-subscription.service';
 import { EpisodesController } from './episodes.controller';
@@ -13,7 +14,9 @@ import { ProjectionRegistryService } from './projection-registry.service';
  * next to the deriver it drives.
  */
 @Module({
-  imports: [AuthModule],
+  // JobsModule supplies the optional LeaderLeaseService the subscription
+  // dispatcher uses to stay single-writer across pods.
+  imports: [AuthModule, JobsModule],
   controllers: [EpisodesController],
   providers: [
     EpisodeReadStoreService,

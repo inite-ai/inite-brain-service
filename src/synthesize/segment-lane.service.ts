@@ -48,6 +48,8 @@ export class SegmentLaneService {
     companyId: string;
     query: string;
     callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
   }): Promise<string[]> {
     if (!this.isEnabled()) return [];
     const topK = this.topK();
@@ -55,6 +57,13 @@ export class SegmentLaneService {
     const piiGate = opts.callerScopes.includes('brain:read_pii')
       ? ''
       : 'AND piiClass IS NONE';
+    // Fail-closed user scope (0055, audit W1 #14): segments inherit the
+    // window's userId only when it is unanimous, so an unscoped read must
+    // stay tenant-global rather than serve another user's window.
+    const userGate = opts.userId
+      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
+      : 'AND userId IS NONE';
+    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
     try {
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(
@@ -64,18 +73,18 @@ export class SegmentLaneService {
             `SELECT id, text, occurredAt,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM episode_segment
-              WHERE embedding != NONE ${piiGate}
+              WHERE embedding != NONE ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { q: queryVector, k: fetchK },
+            { q: queryVector, k: fetchK, ...userParams },
           );
           const [bm25] = await db.query<[SegmentRow[]]>(
             `SELECT id, text, occurredAt, search::score(1) AS score
                FROM episode_segment
-              WHERE text @1@ $q ${piiGate}
+              WHERE text @1@ $q ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { q: opts.query, k: fetchK },
+            { q: opts.query, k: fetchK, ...userParams },
           );
           return rrfFuse([dense ?? [], bm25 ?? []]);
         },

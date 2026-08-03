@@ -49,6 +49,13 @@ interface EpisodeListQuery {
   speaker?: string;
   since?: string;
   until?: string;
+  /**
+   * End-user scope key (migration 0055). Fail-closed like the fact read
+   * path: omitted → tenant-global turns only; with one → global + that
+   * user's. Without this the raw substrate served every user's personal
+   * verbatim to any brain:read key (audit W1, finding #14).
+   */
+  userId?: string;
   limit?: string;
   cursor?: string;
 }
@@ -141,6 +148,7 @@ export class EpisodesController {
       speaker: q.speaker,
       sinceIso: parseIsoOrThrow('since', q.since),
       untilIso: parseIsoOrThrow('until', q.until),
+      userId: q.userId,
       after: q.cursor !== undefined ? decodeCursor(q.cursor) : undefined,
     });
     return {
@@ -174,6 +182,7 @@ export class EpisodesController {
       speaker: q.speaker,
       sinceIso: parseIsoOrThrow('since', q.since),
       untilIso: parseIsoOrThrow('until', q.until),
+      userId: q.userId,
     };
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="episodes.ndjson"');
