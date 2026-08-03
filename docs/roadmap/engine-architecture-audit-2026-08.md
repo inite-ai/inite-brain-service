@@ -180,6 +180,41 @@ why they cost so much to obtain.
 - registry `begin` has no lease/owner — crashed pod leaves permanent
   `building`; complete() can mark a 90%-skipped world live.
 
+## Status (updated 2026-08-03, same session)
+
+Fixed and committed this session — W0, W1, W2, W3 (part), W4 (part),
+W5, W6:
+
+| Wave | Commit | What landed |
+|---|---|---|
+| W0 | 8229ebe | gc keep-set from the registry + refuse-on-empty |
+| W1 | d05f8e3 | erasure reaches L0 (+segments), userId fence on all three L0 surfaces, subscription lease + per-sub breaker, migration 0078 indexes |
+| W2 | c7e6cdb, dcad42c | ReadPinService (registry IS the pin, per tenant; env write deleted), fork guard + gc per tenant, compaction fenced to the live world |
+| W3 | b6bea02, eff089a | cross-entity dedup bug (live), facet routing gated on its profile, derived rows carry lang/script/trustSnapshot |
+| W4 | 918df75 | fact-centric layered over the rerank + honours limit, local cross-encoder default-ON |
+| W5 | 47e4dc3 | verifier gets the whole evidence bundle, ordering-frame citation mode, truncation salvage, answer-mode keeps the trust floor |
+| W6 | cdb213f | one boolean idiom, 19 false runtimeMutable claims corrected, catalogue truth gates, NUL-byte purge |
+
+Debunked while fixing: finding #6 (EPISODE_SUBSTRATE_ENABLED "read
+nowhere") was a grep artifact — one stray NUL byte made the file
+binary. The flag gates L0 capture; the byte is gone and a gate prevents
+recurrence.
+
+Still open (carried in the task list):
+- W3: derived writes through fn::resolve_fact (needs a derivedVersion
+  slot in the stored function's positional signature = its own
+  migration); coined-predicate canonicalization into an alias column;
+  append_only default for open predicates.
+- W4: temporal overlap boost (retrieval still filters, never scores);
+  verbatim as a fusion leg inside SearchHit; entity-expansion rewrite;
+  releasing the scoped connection across LLM awaits; parallelizing the
+  synthesize lane collection.
+- W2: version column + fork guard for segments/aggregates;
+  staging-version + swap instead of delete-then-insert; dreams
+  version-awareness.
+- W5: Lane as a first-class object (one registry, one type system);
+  the remaining date-instruction contradictions.
+
 ## Fix waves (ranked by blast radius)
 
 - **W0 — same-day futility guards (DONE where marked):**
