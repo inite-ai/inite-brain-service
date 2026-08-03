@@ -106,6 +106,17 @@ describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
   });
 });
 
+describe('ordering frame v2 (post-B1: specificity survives the list shape)', () => {
+  it('bans the label-compression wording that zeroed the B1 leg', () => {
+    // v1 said "short topic labels … cluster into broader topics" and the
+    // generator obeyed — contentless category labels, F1 collapse.
+    expect(ORDERING_LANE_INSTRUCTION).not.toContain('short topic labels');
+    expect(ORDERING_LANE_INSTRUCTION).not.toContain('broader topics');
+    expect(ORDERING_LANE_INSTRUCTION).toContain('SPECIFIC');
+    expect(ORDERING_LANE_INSTRUCTION).toContain('never compress');
+  });
+});
+
 describe('verbatim-recall shape (SYNTHESIZE_VERBATIM_EXCERPTS, default ON)', () => {
   afterEach(() => {
     delete process.env.SYNTHESIZE_VERBATIM_EXCERPTS;

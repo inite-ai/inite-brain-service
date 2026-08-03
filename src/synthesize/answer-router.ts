@@ -514,19 +514,30 @@ export const PREFERENCE_LANE_INSTRUCTION =
  * T2b frame: the facts are sorted and annotated by FIRST MENTION (when
  * the topic was brought up in conversation), which is the asked-for
  * order — event dates inside the propositions are decoys whenever
- * events were narrated out of order. The bare newline-separated list
- * shape matches how ordering answers are consumed (BEAM splits the
- * response on newlines; extra prose becomes spurious list items).
+ * events were narrated out of order. The newline-separated shape
+ * matches how ordering answers are consumed (BEAM splits the response
+ * on newlines; extra prose becomes spurious list items).
+ *
+ * v2 after the 2026-08-03 B1 leg: the v1 frame said "short topic
+ * labels … cluster into broader topics" and the generator obeyed —
+ * answers degenerated into contentless category labels ("error
+ * handling", "API integration") that align with NO rubric item
+ * (tau_norm 0.378→0.174, F1 0.142→0.065, binary 7.5→0.0). Specificity
+ * must survive the list shape: one line per item, concrete payload
+ * kept, generic labels banned.
  */
 export const ORDERING_LANE_INSTRUCTION =
   'This is a mention-order question: it asks the order in which topics ' +
   'were BROUGHT UP in conversation, not the order events happened. The ' +
   'facts are sorted by their [first mentioned: …] annotations — derive ' +
   'the order from those annotations only; ignore event dates inside the ' +
-  'fact text. Answer with ONLY a newline-separated list of short topic ' +
-  'labels in first-mention order, nothing else — no preamble, no ' +
-  'commentary. If the question asks for exactly N items, give exactly ' +
-  'N: cluster related facts into broader topics until N remain.\n';
+  'fact text. Answer as a newline-separated list in first-mention ' +
+  'order, one item per line, no preamble and no numbering. Each line ' +
+  'must name the SPECIFIC thing discussed — keep the concrete names, ' +
+  'numbers, tools and identifiers from the facts; never compress items ' +
+  'into generic category labels ("error handling", "optimization"). If ' +
+  'the question asks for exactly N items, merge only the most closely ' +
+  'related items until N remain, keeping every merged line specific.\n';
 
 /** T6 staged-narrative frame over chronologically sorted facts. */
 export const SUMMARY_LANE_INSTRUCTION =
