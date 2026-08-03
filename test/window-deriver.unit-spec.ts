@@ -168,6 +168,14 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     const source = rows[0].source as Record<string, unknown>;
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
     expect(source.episodeIds).toEqual(['episode:e1']);
+    // Audit W3 #1: derived rows must carry the fields the read path
+    // assumes — otherwise the locale filter skips the whole world and
+    // the ranker's trust factor is a constant exactly where we measure.
+    expect(rows[0].lang).toBe('en');
+    expect(rows[0].script).toBeDefined();
+    expect(
+      (rows[0].trustSnapshot as { declaredTrust?: number }).declaredTrust,
+    ).toBeGreaterThan(0);
   });
 
   it('uses occurred_on as validFrom when parseable', async () => {

@@ -6,6 +6,8 @@ import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { envFlagEnabled } from '../common/env-validation';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { detectLanguage } from '../ai/locale/language-detector';
+import { sourceTrustFor } from '../ingest/ingest-utils';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
 import { ReadPinService } from '../episodes/read-pin.service';
@@ -438,11 +440,32 @@ export class WindowDeriverService {
           occurred.toISOString().slice(0, 10) === p.occurred_on
             ? occurred
             : sessionDate;
+        // Audit W3 #1: derived rows used to carry NO lang/script and NO
+        // trustSnapshot, so (a) the locale filter and the cross-lingual
+        // backoff leg were blind to every derived world, and (b) the
+        // ranker's trust factor collapsed to a constant exactly in the
+        // world our benchmarks read. Both are plain fields — stamping
+        // them costs nothing and restores the read path's contract.
+        const det = detectLanguage(p.proposition);
+        const lang = det.language !== 'und' ? det.language : undefined;
+        const script = det.language !== 'und' ? det.script : undefined;
         return {
           entityId: new StringRecordId(subjectEntity),
           predicate: aspect || 'other',
           object: p.proposition,
           confidence: 0.85,
+          ...(lang ? { lang } : {}),
+          ...(script ? { script } : {}),
+          // Object shape per migration 0044 ({declaredTrust, learnedTrust,
+          // authority}); the ranker reads learned ?? declared. Derived
+          // rows carry the declared tier of their source vertical — a
+          // real value instead of the 0.5 "no signal" default.
+          trustSnapshot: {
+            declaredTrust: sourceTrustFor({
+              vertical: 'derived',
+              recorder: version,
+            }),
+          },
           validFrom,
           source: {
             vertical: 'derived',
