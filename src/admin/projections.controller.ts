@@ -17,6 +17,7 @@ import {
   ProjectionRegistryService,
   type ProjectionRow,
 } from '../episodes/projection-registry.service';
+import { ReadPinService } from '../episodes/read-pin.service';
 import {
   WindowDeriverService,
   WINDOW_DERIVER_VERSION,
@@ -42,6 +43,7 @@ export class ProjectionsController {
   constructor(
     private readonly registry: ProjectionRegistryService,
     private readonly deriver: WindowDeriverService,
+    private readonly readPin: ReadPinService,
   ) {}
 
   private gate(): void {
@@ -55,13 +57,17 @@ export class ProjectionsController {
   @PolicyAction('rest.projections.list')
   async list(@Req() req: AuthenticatedRequest): Promise<{
     projections: ProjectionRow[];
-    /** The process-local live read pin (RETRIEVAL_DERIVED_VERSION). */
+    /**
+     * The live derived world for THIS tenant: the registry's `live` row,
+     * or the env bootstrap default when no row exists yet (audit W2 #9 —
+     * this used to report the pod's env, contradicting the registry).
+     */
     readPin: string | null;
   }> {
     this.gate();
     return {
       projections: await this.registry.list(req.brainAuth.companyId),
-      readPin: process.env.RETRIEVAL_DERIVED_VERSION?.trim() || null,
+      readPin: await this.readPin.resolve(req.brainAuth.companyId),
     };
   }
 

@@ -7,6 +7,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { MultiHopService } from '../multi-hop/multi-hop.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
+import { ReadPinService } from '../episodes/read-pin.service';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
@@ -187,6 +188,7 @@ export class AgentQaService {
     @Optional() private readonly embedder?: EmbedderService,
     @Optional() private readonly multiHop?: MultiHopService,
     @Optional() private readonly episodes?: EpisodeReadStoreService,
+    @Optional() private readonly readPin?: ReadPinService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>(
@@ -403,7 +405,11 @@ export class AgentQaService {
     if (!this.surreal || !this.embedder) return 'Timeline unavailable.';
     try {
       const vec = await this.embedder.embed(topic);
-      const version = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+      // Per-tenant derived world (audit W2 #9): registry first, env
+      // bootstrap when this tenant has no registry row yet.
+      const version =
+        (await this.readPin?.resolve(input.companyId)) ??
+        ReadPinService.bootstrapDefault();
       const versionClause = version
         ? 'AND derivedVersion = $dv'
         : 'AND derivedVersion IS NONE';

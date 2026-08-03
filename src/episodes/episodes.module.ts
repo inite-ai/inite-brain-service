@@ -5,6 +5,7 @@ import { EpisodeReadStoreService } from './episode-read-store.service';
 import { EpisodeSubscriptionService } from './episode-subscription.service';
 import { EpisodesController } from './episodes.controller';
 import { ProjectionRegistryService } from './projection-registry.service';
+import { ReadPinService } from './read-pin.service';
 
 /**
  * Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md).
@@ -22,7 +23,12 @@ import { ProjectionRegistryService } from './projection-registry.service';
     EpisodeReadStoreService,
     ProjectionRegistryService,
     EpisodeSubscriptionService,
+    ReadPinService,
   ],
-  exports: [EpisodeReadStoreService, ProjectionRegistryService],
+  exports: [
+    EpisodeReadStoreService,
+    ProjectionRegistryService,
+    ReadPinService,
+  ],
 })
 export class EpisodesModule {}

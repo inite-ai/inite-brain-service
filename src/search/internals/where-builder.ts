@@ -26,6 +26,14 @@ export interface BuildBaseWhereOptions {
   asOf: Date | null;
   includeRetracted: boolean;
   includeContested: boolean;
+  /**
+   * Derived world this read serves, resolved per TENANT by
+   * ReadPinService (audit W2 #9). null → the legacy namespace.
+   * Undefined means "the caller did not resolve one" and falls back to
+   * the env bootstrap default, so pure-function callers and tests keep
+   * working; production callers always pass it.
+   */
+  derivedVersion?: string | null;
   opts?: BaseWhereOptions;
 }
 
@@ -34,6 +42,7 @@ export function buildBaseWhere({
   asOf,
   includeRetracted,
   includeContested,
+  derivedVersion,
   opts = {},
 }: BuildBaseWhereOptions): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
@@ -58,10 +67,16 @@ export function buildBaseWhere({
   // its facts with derivedVersion and the read path pins exactly ONE
   // world. Unset pin → legacy namespace only (field IS NONE), so a
   // derived batch never leaks into default reads and vice versa.
-  const derivedVersion = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
-  if (derivedVersion) {
+  // The pin is per-TENANT and comes from the projection registry
+  // (audit W2 #9); `undefined` here means an unresolved caller, which
+  // falls back to the process bootstrap default.
+  const pin =
+    derivedVersion === undefined
+      ? process.env.RETRIEVAL_DERIVED_VERSION?.trim() || null
+      : derivedVersion;
+  if (pin) {
     clauses.push(`AND derivedVersion = $derivedVersion`);
-    params.derivedVersion = derivedVersion;
+    params.derivedVersion = pin;
   } else {
     clauses.push(`AND derivedVersion IS NONE`);
   }

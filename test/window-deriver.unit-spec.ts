@@ -272,7 +272,10 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const res = await svc.run('co_x', { version: 'wd-v3', activate: true });
       expect(res.activated).toBe(true);
       expect(res.previousVersion).toBe('wd-v2');
-      expect(process.env.RETRIEVAL_DERIVED_VERSION).toBe('wd-v3');
+      // Audit W2 #9: activation is a REGISTRY write, never a process.env
+      // mutation — a per-tenant flip must not repoint other tenants on
+      // this pod, and other pods must see it too.
+      expect(process.env.RETRIEVAL_DERIVED_VERSION).toBe('wd-v2');
     });
 
     it('gc reaps residual versions but never the pin, keeps, or legacy', async () => {

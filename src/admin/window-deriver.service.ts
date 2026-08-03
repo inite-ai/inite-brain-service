@@ -8,6 +8,7 @@ import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
+import { ReadPinService } from '../episodes/read-pin.service';
 
 /**
  * Session-window deriver, P3 v1
@@ -130,6 +131,7 @@ export class WindowDeriverService {
     private readonly embedding: FactEmbeddingService,
     private readonly episodes: EpisodeReadStoreService,
     @Optional() private readonly registry?: ProjectionRegistryService,
+    @Optional() private readonly readPin?: ReadPinService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
@@ -157,7 +159,13 @@ export class WindowDeriverService {
     } = {},
   ): Promise<DeriveRunResult> {
     const version = opts.version ?? WINDOW_DERIVER_VERSION;
-    const activePin = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+    // The guard compares against THIS TENANT's live world (registry),
+    // not the pod's env — a pod whose env still said wd-v2 used to pass
+    // the guard and delete-by-version the world another pod served.
+    const activePin =
+      (await this.readPin?.resolve(companyId)) ??
+      process.env.RETRIEVAL_DERIVED_VERSION?.trim() ??
+      undefined;
     if (version === activePin && !opts.force) {
       throw new Error(
         `version '${version}' is the live read pin — derive into a new ` +
@@ -206,14 +214,18 @@ export class WindowDeriverService {
       throw e;
     }
     // Atomic world flip: readers switch from the old fork to the new one
-    // between requests, never mid-build. Process-local (env pin) — the
-    // per-tenant DB pointer is the prod follow-up.
+    // between requests, never mid-build. The flip is a REGISTRY write
+    // (complete({live:true}) below marks this version live and demotes
+    // the previous one) — audit W2 #9 removed the process.env mutation
+    // that made a per-tenant activation repoint every tenant on the pod
+    // and stay invisible to every other pod.
     if (opts.activate && result.conversations > 0) {
-      result.previousVersion = process.env.RETRIEVAL_DERIVED_VERSION ?? null;
-      process.env.RETRIEVAL_DERIVED_VERSION = version;
+      result.previousVersion =
+        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
       result.activated = true;
       this.logger.log(
-        `derived world '${version}' activated (was: ${result.previousVersion ?? 'legacy'})`,
+        `derived world '${version}' activated for ${companyId} ` +
+          `(was: ${result.previousVersion ?? 'legacy'})`,
       );
     }
     await this.registry?.complete({
@@ -228,6 +240,8 @@ export class WindowDeriverService {
         skipped: result.skipped.length,
       },
     });
+    // Readers cache the pin briefly; an activation must land at once.
+    if (result.activated) this.readPin?.invalidate(companyId);
     return result;
   }
 
@@ -240,7 +254,9 @@ export class WindowDeriverService {
     companyId: string,
     opts: { keep?: string[] } = {},
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
-    const activePin = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+    const activePin =
+      (await this.readPin?.resolve(companyId)) ??
+      process.env.RETRIEVAL_DERIVED_VERSION?.trim();
     // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
     // part of the keep-set — the env pin is process-local and may be unset
     // on this pod while another pod serves a live world. live/building/

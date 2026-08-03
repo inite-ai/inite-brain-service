@@ -46,6 +46,7 @@ import {
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
 import { PipelineContext } from './pipeline-context';
+import { ReadPinService } from '../episodes/read-pin.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
@@ -92,6 +93,9 @@ export class SearchService {
     private readonly rerank: SearchRerankService,
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
     @Optional() private readonly workerPool?: JobWorkerPool,
+    // Sixth: the per-tenant derived-world pin (audit W2). Optional so
+    // positionally-constructed unit tests fall back to the env default.
+    @Optional() private readonly readPin?: ReadPinService,
   ) {}
 
   /**
@@ -306,6 +310,13 @@ export class SearchService {
       await this.retrieval.prewarmQueryEmbedding(dto.query);
     }
 
+    // Which derived world this tenant reads — registry first, env
+    // bootstrap as the fallback (audit W2 #9). Resolved BEFORE the
+    // scoped connection so the registry lookup never holds a pool slot.
+    const derivedVersion =
+      (await this.readPin?.resolve(companyId)) ??
+      ReadPinService.bootstrapDefault();
+
     const out = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
@@ -320,6 +331,7 @@ export class SearchService {
           includeContested,
           mode,
           candidateK,
+          derivedVersion,
         }),
     );
     // Usage reinforcement, write side (opt-in): stamp the facts this
@@ -353,6 +365,7 @@ export class SearchService {
       asOf: ctx.asOf,
       includeRetracted: ctx.includeRetracted,
       includeContested: ctx.includeContested,
+      derivedVersion: ctx.derivedVersion,
       opts: { langFilter },
     });
     traceArtifact('search.query', {
@@ -384,6 +397,7 @@ export class SearchService {
         asOf: ctx.asOf,
         includeRetracted: ctx.includeRetracted,
         includeContested: ctx.includeContested,
+        derivedVersion: ctx.derivedVersion,
       });
       const fallback = await this.retrieval.runRetrievalStage(
         db,

@@ -3,6 +3,7 @@ import { ProjectionsController } from '../src/admin/projections.controller';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { WindowDeriverService } from '../src/admin/window-deriver.service';
+import type { ReadPinService } from '../src/episodes/read-pin.service';
 import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 
 function makeRegistry(rowsPerQuery: unknown[][] = [[]]): {
@@ -115,7 +116,11 @@ describe('ProjectionsController gating', () => {
         skipped: [],
       }),
     } as unknown as WindowDeriverService;
-    return new ProjectionsController(registry, deriver);
+    const readPin = {
+      resolve: async () => 'wd-v2',
+      invalidate: () => undefined,
+    } as unknown as ReadPinService;
+    return new ProjectionsController(registry, deriver, readPin);
   }
 
   it('flag off → 404 on both routes', async () => {
@@ -132,6 +137,8 @@ describe('ProjectionsController gating', () => {
     const c = makeController();
     const out = await c.list(req);
     expect(out.projections).toEqual([]);
+    // The pin comes from the per-tenant resolver, not the pod's env.
+    expect(out.readPin).toBe('wd-v2');
     await expect(c.rebuild(req, 'segments', {})).rejects.toThrow(
       BadRequestException,
     );
