@@ -869,11 +869,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SYNTHESIZE_DATE_CONTEXT',
         category: 'pipeline',
-        defaultValue: '0',
+        defaultValue: '1',
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          'Prepend an anchored "Today: <date>" (dto.asOf, else now) plus a date-arithmetic instruction to the answer generator, so relative time expressions resolve against fact date stamps instead of being guessed.',
+          'Prepend an anchored "Today: <date>" (dto.asOf, else now) plus a date-arithmetic instruction to the answer generator, so relative time expressions resolve against fact date stamps instead of being guessed. DEFAULT ON (2026-08 engine wave — the trace-verified temporal failure was relative-date questions with no anchor); set 0 for genres where the golds follow a session-date convention (LoCoMo eval profile).',
       },
       {
         key: 'EPISODE_SUBSTRATE_ENABLED',
@@ -919,6 +919,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
+      },
+      {
+        key: 'SYNTHESIZE_VERBATIM_EXCERPTS',
+        category: 'pipeline',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Verbatim-recall engine default (2026-08 wave): questions about assistant-side content ("what did you suggest…") pull role-tagged episode quotes — both the BM25 episodic lane and the provenance excerpts — even when the global lane flags are off. The measured SSA failure is "facts do not specify…" while the verbatim turn sits in L0; extraction is user-fact-shaped by design. Set 0 to disable for genres where quotes measurably distract.',
       },
       {
         key: 'SEARCH_SEGMENT_LANE_ENABLED',
@@ -986,11 +995,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SYNTHESIZE_ROUTER_LEXICON_V2',
         category: 'pipeline',
-        defaultValue: '0',
+        defaultValue: '1',
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          'Router lexicon v2: adds first-person perfect temporal shapes ("how long have/had I been…") and "what is/was the order of…" enumeration shapes. Gaps measured on the LME-500 router-ON leg: 55/109 judged temporal questions missed every base pattern (25.5% unrouted accuracy). Separate flag so lexicon widening is its own ablation leg.',
+          'Router lexicon v2: adds first-person perfect temporal shapes ("how long have/had I been…") and "what is/was the order of…" enumeration shapes. Gaps measured on the LME-500 router-ON leg: 55/109 judged temporal questions missed every base pattern (25.5% unrouted accuracy). DEFAULT ON (2026-08 engine wave); set 0 to restore the v1 lexicon as an ablation leg.',
       },
       {
         key: 'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',

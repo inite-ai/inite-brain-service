@@ -61,14 +61,19 @@ export class EpisodeLaneService {
    * Fetch top-k episodes for the query and render them as one prompt
    * section: chronologically ordered, speaker-attributed, dated. Returns
    * [] when disabled, on any failure, or when nothing matches — the lane
-   * degrades to absent, never breaks synthesis.
+   * degrades to absent, never breaks synthesis. `force` bypasses the
+   * global flag for router-conditioned callers (verbatim-recall shape):
+   * the genre law says quotes help exactly when the question asks for
+   * conversational content, so the shape — not a deployment-wide flag —
+   * is the right gate.
    */
   async transcriptLines(opts: {
     companyId: string;
     query: string;
     callerScopes: string[];
+    force?: boolean;
   }): Promise<string[]> {
-    if (!this.isEnabled()) return [];
+    if (!opts.force && !this.isEnabled()) return [];
     try {
       const rows = await this.episodes.searchText({
         companyId: opts.companyId,
@@ -103,8 +108,12 @@ export class EpisodeLaneService {
     companyId: string;
     factIds: string[];
     callerScopes: string[];
+    force?: boolean;
   }): Promise<string[]> {
-    if (!this.isSourceExcerptsEnabled() || opts.factIds.length === 0) {
+    if (
+      (!opts.force && !this.isSourceExcerptsEnabled()) ||
+      opts.factIds.length === 0
+    ) {
       return [];
     }
     const cap = this.sourceExcerptsCap();

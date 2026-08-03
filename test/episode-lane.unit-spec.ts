@@ -78,6 +78,16 @@ describe('EpisodeLaneService (P2)', () => {
     const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.transcriptLines(base)).toEqual([]);
   });
+
+  it('force bypasses the global flag (router-conditioned verbatim shape)', async () => {
+    delete process.env.SEARCH_EPISODIC_LANE_ENABLED;
+    const { svc, queries } = makeLane([
+      { speaker: 'Assistant', text: 'Use a token bucket', occurredAt: '2023-06-01T10:00:00Z' },
+    ]);
+    const lines = await svc.transcriptLines({ ...base, force: true });
+    expect(lines).toEqual(['[2023-06-01] Assistant: Use a token bucket']);
+    expect(queries).toHaveLength(1);
+  });
 });
 
 describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
@@ -122,6 +132,18 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
     const { svc, queries } = makeProvLane([]);
     expect(await svc.sourceExcerpts(base)).toEqual([]);
     expect(queries).toHaveLength(0);
+  });
+
+  it('force bypasses the flag but not the empty-factIds guard', async () => {
+    delete process.env.SYNTHESIZE_SOURCE_EXCERPTS;
+    const { svc, queries } = makeProvLane([[], []]);
+    expect(await svc.sourceExcerpts({ ...base, force: true })).toEqual([]);
+    expect(queries.length).toBeGreaterThan(0);
+    const { svc: svc2, queries: q2 } = makeProvLane([]);
+    expect(
+      await svc2.sourceExcerpts({ ...base, factIds: [], force: true }),
+    ).toEqual([]);
+    expect(q2).toHaveLength(0);
   });
 
   it('follows provenance, dedupes episodes, renders chronologically', async () => {

@@ -1,14 +1,21 @@
 import type { SearchHit } from '../search/search.types';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 /**
  * SYNTHESIZE_DATE_CONTEXT resolver: the ISO date the generator should
- * treat as "today" (dto.asOf, else now), or undefined when the flag is
- * off. Lives here to keep the synthesize() complexity budget flat.
+ * treat as "today" (dto.asOf, else now), or undefined when disabled.
+ * DEFAULT ON since the 2026-08 engine wave — the trace-verified LME
+ * temporal failure was relative-date questions with NO anchor at all,
+ * and rendering absolute dates is most of the field's TR win
+ * (SmartSearch 82.7 TR from plain timestamps + reranking). Genre note:
+ * LoCoMo golds follow the session-date convention where real date
+ * arithmetic measurably hurt (E-series leg) — that eval profile must
+ * pin SYNTHESIZE_DATE_CONTEXT=0. Lives here to keep the synthesize()
+ * complexity budget flat.
  */
 export function resolveDateContext(asOf: string | undefined): string | undefined {
-  if (!envFlagEnabled(process.env.SYNTHESIZE_DATE_CONTEXT)) return undefined;
+  if (!envFlagNotDisabled(process.env.SYNTHESIZE_DATE_CONTEXT)) return undefined;
   return (asOf ?? new Date().toISOString()).slice(0, 10);
 }
 

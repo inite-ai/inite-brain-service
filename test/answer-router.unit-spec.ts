@@ -20,6 +20,8 @@ import {
   extractStandingInstructions,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   formatElapsed,
+  detectVerbatimShape,
+  verbatimExcerptsEnabled,
   TEMPORAL_LANE_INSTRUCTION,
   TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
@@ -92,15 +94,49 @@ describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
     'What is the order of the six museums I visited from earliest to latest?',
     'What was the order of the concerts I attended in the past two months?',
   ];
-  it('off → the measured LME gaps stay unrouted (base behavior pinned)', () => {
+  it('default ON (2026-08 engine wave) → first-person perfect routes temporal, "order of" routes enumeration', () => {
+    for (const q of temporalV2) expect(detectLane(q)).toBe('temporal');
+    for (const q of enumerationV2) expect(detectLane(q)).toBe('enumeration');
+  });
+  it('0 → restores the v1 lexicon (ablation leg): the LME gaps go unrouted again', () => {
+    process.env.SYNTHESIZE_ROUTER_LEXICON_V2 = '0';
     for (const q of [...temporalV2, ...enumerationV2]) {
       expect(detectLane(q)).toBeNull();
     }
   });
-  it('on → first-person perfect routes temporal, "order of" routes enumeration', () => {
-    process.env.SYNTHESIZE_ROUTER_LEXICON_V2 = '1';
-    for (const q of temporalV2) expect(detectLane(q)).toBe('temporal');
-    for (const q of enumerationV2) expect(detectLane(q)).toBe('enumeration');
+});
+
+describe('verbatim-recall shape (SYNTHESIZE_VERBATIM_EXCERPTS, default ON)', () => {
+  afterEach(() => {
+    delete process.env.SYNTHESIZE_VERBATIM_EXCERPTS;
+  });
+  it.each([
+    'What did you suggest I use for rate limiting?',
+    'What was your recommendation for the database schema?',
+    'What were the steps you walked me through for the deploy?',
+    'Can you repeat word for word what the error message meant?',
+    'What did the assistant say about my visa options?',
+    'You told me a trick for CSS centering — what was it?',
+  ])('detects assistant-content recall: %s', (q) => {
+    expect(detectVerbatimShape(q)).toBe(true);
+  });
+  it.each([
+    'How long have I been taking sculpting classes?',
+    'Can you recommend some interesting cultural events this week?',
+    'How many model kits did I buy?',
+    'Summarize my budget tracker journey.',
+    'What is my favorite restaurant?',
+  ])('stays quiet on non-verbatim questions: %s', (q) => {
+    expect(detectVerbatimShape(q)).toBe(false);
+  });
+  it('enabled by default, 0/false disables, 1 re-enables', () => {
+    expect(verbatimExcerptsEnabled()).toBe(true);
+    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = '0';
+    expect(verbatimExcerptsEnabled()).toBe(false);
+    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = 'false';
+    expect(verbatimExcerptsEnabled()).toBe(false);
+    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = '1';
+    expect(verbatimExcerptsEnabled()).toBe(true);
   });
 });
 

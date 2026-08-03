@@ -456,8 +456,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Raw-substrate driver v1: public episodes read API + NDJSON export.
   'EPISODES_API_ENABLED',
   // Router lexicon v2: first-person perfect temporal + "order of" shapes
-  // (gaps measured on the LME-500 router-ON leg).
+  // (gaps measured on the LME-500 router-ON leg). DEFAULT ON since the
+  // engine wave 2026-08; 0/false disables.
   'SYNTHESIZE_ROUTER_LEXICON_V2',
+  // Verbatim-recall evidence: assistant-content questions pull role-tagged
+  // episode quotes (BM25 + provenance excerpts) regardless of the global
+  // lane flags. DEFAULT ON; 0/false disables. Grounded in the LME SSA
+  // diagnosis ("facts do not specify…" with the verbatim turn in L0).
+  'SYNTHESIZE_VERBATIM_EXCERPTS',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',
@@ -558,6 +564,17 @@ const KNOWN_BOOLEAN_FLAGS = [
 export function envFlagEnabled(value: string | undefined): boolean {
   const v = (value ?? '').trim().toLowerCase();
   return v === '1' || v === 'true';
+}
+
+/**
+ * Default-ON flags: enabled unless explicitly set to 0/false. Use for
+ * engine defaults promoted from measured legs (precedent:
+ * SEARCH_EDGE_EXPANSION_ENABLED); the kill-switch stays for genre
+ * profiles and ablation legs.
+ */
+export function envFlagNotDisabled(value: string | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase();
+  return v !== '0' && v !== 'false';
 }
 
 function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {

@@ -29,6 +29,8 @@ import {
   INSTRUCTION_PROBE_QUERY,
   extractStandingInstructions,
   detectEvidenceConflicts,
+  detectVerbatimShape,
+  verbatimExcerptsEnabled,
   type AnswerLane,
 } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
@@ -107,6 +109,17 @@ interface GeneratorOutput {
 interface VerifierOutput {
   verdict: 'supported' | 'partial' | 'unsupported';
   unsupportedClaims?: string[];
+}
+
+/**
+ * Verbatim-recall shape (engine default, 2026-08 wave): questions about
+ * ASSISTANT-side content pull episode quotes even with the global lane
+ * flags off — extraction is user-fact-shaped and the measured SSA
+ * failure is "facts do not specify…" while the verbatim turn sits
+ * unused in L0. Module-level to keep synthesize() complexity flat.
+ */
+function wantsVerbatimEvidence(query: string): boolean {
+  return verbatimExcerptsEnabled() && detectVerbatimShape(query);
 }
 
 /** Temporal lane forces the Today anchor from asOf; others follow the flag. */
@@ -321,6 +334,7 @@ export class SynthesizeService {
       query: dto.query,
       callerScopes,
       factIds: [...factIndex.keys()],
+      forceVerbatim: wantsVerbatimEvidence(dto.query),
     });
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
@@ -539,23 +553,27 @@ export class SynthesizeService {
     query,
     callerScopes,
     factIds,
+    forceVerbatim,
   }: {
     companyId: string;
     query: string;
     callerScopes: string[];
     factIds: string[];
+    forceVerbatim?: boolean;
   }): Promise<string[]> {
     const laneLines =
       (await this.episodeLane?.transcriptLines({
         companyId,
         query,
         callerScopes,
+        force: forceVerbatim,
       })) ?? [];
     const sourceLines =
       (await this.episodeLane?.sourceExcerpts({
         companyId,
         factIds,
         callerScopes,
+        force: forceVerbatim,
       })) ?? [];
     const segmentLines =
       (await this.segmentLane?.transcriptLines({
