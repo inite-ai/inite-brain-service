@@ -209,12 +209,40 @@ Stay single-process until at least one of these holds:
   every API pod `PROCESS_ROLE=api` and run exactly one (or a few —
   leases arbitrate) `PROCESS_ROLE=worker` pod.
 
+## Retrieval profile (per-tenant configuration)
+
+The genre-dependent retrieval dimensions are NOT feature flags — they
+are per-tenant configuration, resolved once per request into a
+`RetrievalProfile` object (the platform directive 2026-08-03 replaced
+the old per-lane flag forks with this surface). Env sets the boot
+default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant.
+
+| Key | Default | What it does |
+|---|---|---|
+| `RETRIEVAL_GENRE` | `assistant_chat` | Names the corpus shape (`dialogue` \| `assistant_chat` \| `documents`) so per-tenant overrides read as intent. The dimensions the engine actually branches on are the two below. |
+| `RETRIEVAL_VERBATIM_EVIDENCE` | `shape_conditioned` | How verbatim L0 evidence reaches synthesis: `off` (facts only), `shape_conditioned` (episode quotes + provenance excerpts only when the question asks for conversational content — the engine default), `always` (all verbatim lanes unconditionally; the diary-genre profile). |
+| `RETRIEVAL_DATE_ANCHORING` | `absolute` | How the generator's "today" anchors: `none` (session-date-convention golds, e.g. the LoCoMo eval profile), `session_date` (only when the caller sends `asOf`), `absolute` (asOf, else wall clock). |
+| `RETRIEVAL_PROFILE_OVERRIDES` | — | JSON object mapping companyId → partial profile (`lanes` as an array of lane ids). Malformed per-tenant entries are ignored; the JSON shape is boot-validated. |
+
+Introspection: `GET /v1/admin/retrieval-profile` (brain:admin) returns
+the profile the calling tenant actually resolves to — use it to verify
+an override took. The eval harness stamps the same object into every
+report header.
+
+Removed in the same refactor (delete from deployment env — they are
+inert but lie): `SEARCH_RERANKER_ENABLED`, `SEARCH_HYPE_ENABLED`,
+`SEARCH_QUERY_EXPANSION_N`. The LLM reranker is now a CAPABILITY: it
+runs wherever an OpenAI key is configured, bounded by the stage budget
+and `SEARCH_RERANK_SKIP_MARGIN`. After deploying this fold, expect the
+`brain_search_rerank_total{outcome=invoked}` rate to rise; watch it and
+OpenAI spend for a day, and tune the skip margin rather than looking
+for the deleted kill switch.
+
 ## Retrieval feature flags
 
-The search pipeline ships every feature OFF by default and asks
-operators to opt in once they've measured impact on their tenant
-shape. Each flag is a single boolean / numeric env var; flipping it is
-a service restart, not a schema change.
+Infra-shaped knobs (budgets, windows, iteration counts) stay
+individual env vars: flipping one is a service restart, not a schema
+change.
 
 | Flag | Default | What it does | When to enable |
 |---|---|---|---|
