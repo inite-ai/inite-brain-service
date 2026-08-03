@@ -316,6 +316,82 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(dels).toHaveLength(1);
       expect(dels[0].params?.version).toBe('wd-v1');
     });
+
+    it('gc REFUSES with no pin, no registry evidence, and no explicit keep', async () => {
+      delete process.env.RETRIEVAL_DERIVED_VERSION;
+      const db = {
+        query: async (sql: string) =>
+          sql.includes('GROUP BY derivedVersion')
+            ? [[{ derivedVersion: 'wd-v1', n: 100 }]]
+            : [[]],
+      };
+      const surreal = {
+        withCompany: async (
+          _c: string,
+          fn: (d: unknown) => Promise<unknown>,
+        ) => fn(db),
+      } as unknown as SurrealService;
+      const config = {
+        get: (k: string, d?: string) => d,
+        getOrThrow: () => 'sk',
+      } as unknown as ConfigService;
+      const embedding = {
+        embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      } as unknown as FactEmbeddingService;
+      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal));
+      await expect(svc.gc('co_x')).rejects.toThrow(/gc refused/);
+    });
+
+    it('gc keep-set includes registry live/building/built worlds even with no pin', async () => {
+      delete process.env.RETRIEVAL_DERIVED_VERSION;
+      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
+        [];
+      const db = {
+        query: async (sql: string, params?: Record<string, unknown>) => {
+          queries.push({ sql, params });
+          if (sql.includes('GROUP BY derivedVersion'))
+            return [
+              [
+                { derivedVersion: 'wd-old', n: 10 },
+                { derivedVersion: 'wd-live', n: 20 },
+                { derivedVersion: 'wd-next', n: 5 },
+              ],
+            ];
+          return [[]];
+        },
+      };
+      const surreal = {
+        withCompany: async (
+          _c: string,
+          fn: (d: unknown) => Promise<unknown>,
+        ) => fn(db),
+      } as unknown as SurrealService;
+      const config = {
+        get: (k: string, d?: string) => d,
+        getOrThrow: () => 'sk',
+      } as unknown as ConfigService;
+      const embedding = {
+        embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      } as unknown as FactEmbeddingService;
+      const registry = {
+        list: async () => [
+          { name: 'facts', version: 'wd-live', status: 'live' },
+          { name: 'facts', version: 'wd-next', status: 'building' },
+          { name: 'facts', version: 'wd-old', status: 'residual' },
+        ],
+        dropVersions: async () => undefined,
+      } as unknown as import('../src/episodes/projection-registry.service').ProjectionRegistryService;
+      const svc = new WindowDeriverService(
+        surreal,
+        config,
+        embedding,
+        new EpisodeReadStoreService(surreal),
+        registry,
+      );
+      const res = await svc.gc('co_x');
+      expect(res.deleted).toEqual({ 'wd-old': 10 });
+      expect(res.kept.sort()).toEqual(['wd-live', 'wd-next']);
+    });
   });
 
   it('records conversation failures without failing the run', async () => {

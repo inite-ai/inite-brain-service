@@ -241,7 +241,28 @@ export class WindowDeriverService {
     opts: { keep?: string[] } = {},
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
     const activePin = process.env.RETRIEVAL_DERIVED_VERSION?.trim();
-    const keep = new Set([activePin, ...(opts.keep ?? [])].filter(Boolean));
+    // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
+    // part of the keep-set — the env pin is process-local and may be unset
+    // on this pod while another pod serves a live world. live/building/
+    // built rows all survive; an EMPTY keep-set aborts instead of deleting
+    // every derived world in the tenant.
+    const registryKeep = ((await this.registry?.list(companyId)) ?? [])
+      .filter(
+        (r) =>
+          r.name === 'facts' &&
+          (r.status === 'live' || r.status === 'building' || r.status === 'built'),
+      )
+      .map((r) => r.version);
+    const keep = new Set(
+      [activePin, ...registryKeep, ...(opts.keep ?? [])].filter(Boolean),
+    );
+    if (keep.size === 0) {
+      throw new Error(
+        'gc refused: no live read pin and no registry evidence of a ' +
+          'surviving world — deleting every derived version is never the ' +
+          'intent. Pass keep: [...] explicitly to override.',
+      );
+    }
     const deleted: Record<string, number> = {};
     await this.surreal.withCompany(companyId, async (db) => {
       const [versions] = await db.query<
