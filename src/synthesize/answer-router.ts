@@ -537,7 +537,15 @@ export const ORDERING_LANE_INSTRUCTION =
   'numbers, tools and identifiers from the facts; never compress items ' +
   'into generic category labels ("error handling", "optimization"). If ' +
   'the question asks for exactly N items, merge only the most closely ' +
-  'related items until N remain, keeping every merged line specific.\n';
+  'related items until N remain, keeping every merged line specific.\n' +
+  // Citation mode (audit W5 #23): the general contract demands an inline
+  // [knowledge_fact:…] after every claim, but this frame's consumer
+  // splits the response on newlines — inline ids would become scored
+  // list items. Citations move OUT of the lines and into citedFactIds,
+  // which stays fully populated, so provenance survives the shape.
+  'Do NOT put citation markers inside the list lines: leave the lines ' +
+  'clean and put every factId you used into the citedFactIds array ' +
+  'instead.\n';
 
 /** T6 staged-narrative frame over chronologically sorted facts. */
 export const SUMMARY_LANE_INSTRUCTION =

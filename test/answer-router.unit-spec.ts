@@ -909,3 +909,13 @@ describe('buildFactIndex recency marker (T5)', () => {
     expect(factLines.join('\n')).not.toContain('most recent');
   });
 });
+
+describe('W5 — verification and citations cover the whole prompt', () => {
+  it('the ordering frame moves citations out of the list lines', () => {
+    // Audit #23: the general contract demands an inline [knowledge_fact:…]
+    // after every claim, but this frame's consumer splits on newlines —
+    // inline ids became scored list items.
+    expect(ORDERING_LANE_INSTRUCTION).toContain('Do NOT put citation markers');
+    expect(ORDERING_LANE_INSTRUCTION).toContain('citedFactIds');
+  });
+});

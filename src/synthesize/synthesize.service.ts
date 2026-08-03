@@ -38,6 +38,7 @@ import { buildFactIndex } from './fact-index';
 export { buildFactIndex } from './fact-index';
 import type { Citation } from './fact-index';
 import { buildGeneratorUserMessage } from './generator-prompt';
+import { runVerifier, type VerifierOutput } from './verifier';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
 import { EpisodeLaneService } from './episode-lane.service';
@@ -106,11 +107,6 @@ interface GeneratorOutput {
   usage?: TokenUsage;
 }
 
-interface VerifierOutput {
-  verdict: 'supported' | 'partial' | 'unsupported';
-  unsupportedClaims?: string[];
-}
-
 /**
  * Verbatim-recall shape (engine default, 2026-08 wave): questions about
  * ASSISTANT-side content pull episode quotes even with the global lane
@@ -120,6 +116,26 @@ interface VerifierOutput {
  */
 function wantsVerbatimEvidence(query: string): boolean {
   return verbatimExcerptsEnabled() && detectVerbatimShape(query);
+}
+
+/**
+ * Recover the answer text from a JSON body the provider cut off at the
+ * token cap (finish_reason='length'). Strict JSON mode emits the schema
+ * fields in order, so the partial body still contains `"answer": "…`
+ * with the closing quote missing. Returns null when nothing usable is
+ * there — the caller then throws as before.
+ */
+function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
+  const m = /"answer"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(content);
+  if (!m) return null;
+  let answer: string;
+  try {
+    answer = JSON.parse(`"${m[1]}"`) as string;
+  } catch {
+    return null;
+  }
+  if (!answer.trim()) return null;
+  return { answer, citedFactIds: [] };
 }
 
 /** Temporal lane forces the Today anchor from asOf; others follow the flag. */
@@ -154,19 +170,6 @@ Given a user query and a set of retrieved facts (each prefixed with its factId i
 3. ALWAYS commit to an answer. If the facts do not fully resolve the question, give the single most likely short answer they point to — do NOT refuse, do NOT output "I don't have grounded evidence", do NOT hedge with "the facts don't say". Answer in as few words as the question allows.
 
 Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
-
-const VERIFIER_SYSTEM = `You are a fact-grounding auditor for a knowledge-graph answer system.
-
-Given a synthesized answer and the set of source facts that were available at generation time, judge whether every CLAIM in the answer is directly supported by at least one fact.
-
-Definitions:
-- "supported": every distinct claim is directly stated by at least one source fact.
-- "partial": some claims are supported, but at least one claim is paraphrased / inferred without a directly supporting fact.
-- "unsupported": one or more central claims are not in the facts at all (hallucination).
-
-Be strict on "supported" — a paraphrase that adds detail beyond the facts is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
-
-Output strictly the JSON shape requested by the schema.`;
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -463,6 +466,18 @@ export class SynthesizeService {
               query: dto.query,
               answer: generated.answer,
               factLines,
+              // Audit W5 #22: the verifier used to see ONLY factLines,
+              // so an answer correctly built from transcript quotes or
+              // the computed interval table had claims present in no
+              // fact line — strict mode dropped correct answers, and
+              // lenient/answer shipped quoted L0 content with zero
+              // faithfulness scoring. It now audits against the same
+              // evidence the generator was given.
+              transcriptLines,
+              intervalTable:
+                lane === 'temporal' && temporalIntervalsEnabled()
+                  ? buildIntervalTable(results)
+                  : undefined,
               model,
             }),
           ),
@@ -718,8 +733,14 @@ export class SynthesizeService {
       mentionDates,
     } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
+      // 'answer' mode disables the CONFIDENCE floor by design: the whole
+      // point is to commit to a best-effort answer instead of abstaining
+      // when evidence is thin. It must NOT disable the SOURCE-TRUST floor
+      // (audit W5 #26) — that filter is about who claimed the fact, not
+      // about how sure we are, and answering from a distrusted source is
+      // never what 'answer' mode was asking for.
       minCalibratedConfidence: answerMode ? 0 : this.minCalibratedConfidence,
-      minFactTrust: answerMode ? 0 : this.minFactTrust,
+      minFactTrust: this.minFactTrust,
     });
     const results = guardrail.kept;
     if (guardrail.droppedCount > 0) {
@@ -850,7 +871,30 @@ export class SynthesizeService {
     );
     const content = res.choices[0]?.message?.content;
     if (!content) throw new Error('empty generator response');
-    const parsed = JSON.parse(content) as GeneratorOutput;
+    // Audit W5 #24: the exhaustive-list lanes ("a partial list is a wrong
+    // answer") run against a 512-token cap. A truncated strict-JSON body
+    // used to throw here and degrade to `generator_error` — i.e. the
+    // lanes that must enumerate silently ABSTAINED instead of returning
+    // what they had. Say so explicitly in the trace, and salvage the
+    // answer text when the JSON envelope is the only casualty.
+    const finishReason = res.choices[0]?.finish_reason;
+    let parsed: GeneratorOutput;
+    try {
+      parsed = JSON.parse(content) as GeneratorOutput;
+    } catch (err) {
+      if (finishReason !== 'length') throw err;
+      const salvaged = salvageTruncatedAnswer(content);
+      if (!salvaged) throw err;
+      this.logger.warn(
+        'generator output hit the token cap; salvaged the partial answer',
+      );
+      this.metrics?.countSynthesize('generator_truncated');
+      traceArtifact('synthesize.generator_truncated', {
+        finishReason,
+        salvagedChars: salvaged.answer.length,
+      });
+      parsed = salvaged;
+    }
     if (typeof parsed.answer !== 'string') {
       throw new Error('generator returned non-string answer');
     }
@@ -867,76 +911,19 @@ export class SynthesizeService {
     return parsed;
   }
 
-  private async callVerifier({
-    query,
-    answer,
-    factLines,
-    model,
-  }: {
+  private async callVerifier(args: {
     query: string;
     answer: string;
     factLines: string[];
+    transcriptLines?: string[];
+    intervalTable?: string[];
     model: string;
   }): Promise<VerifierOutput> {
-    const user = `Query: ${query}\n\nAnswer:\n${answer}\n\nSource facts:\n${factLines.join('\n')}`;
-    traceArtifact('synthesize.verifier_prompt', {
-      system: VERIFIER_SYSTEM,
-      user,
-      model,
+    return runVerifier({
+      openai: this.openai,
+      metrics: this.metrics,
+      ...args,
     });
-    const res = await withGenAiCall(
-      {
-        kind: 'chat',
-        spanName: 'gen_ai.chat.synthesize_verifier',
-        system: 'openai',
-        model,
-      },
-      this.metrics,
-      () => this.openai.chat.completions.create(
-      {
-      model,
-      messages: [
-        { role: 'system', content: VERIFIER_SYSTEM },
-        { role: 'user', content: user },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'verifier_verdict',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              verdict: {
-                type: 'string',
-                enum: ['supported', 'partial', 'unsupported'],
-              },
-              unsupportedClaims: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-            },
-            required: ['verdict', 'unsupportedClaims'],
-          },
-        },
-      },
-      max_completion_tokens: 256,
-      temperature: 0,
-    }, { signal: getAbortSignal() }),
-    );
-    const content = res.choices[0]?.message?.content;
-    if (!content) throw new Error('empty verifier response');
-    const parsed = JSON.parse(content) as VerifierOutput;
-    if (
-      parsed.verdict !== 'supported' &&
-      parsed.verdict !== 'partial' &&
-      parsed.verdict !== 'unsupported'
-    ) {
-      throw new Error('verifier returned invalid verdict');
-    }
-    traceArtifact('synthesize.verifier_output', parsed);
-    return parsed;
   }
 }
 
