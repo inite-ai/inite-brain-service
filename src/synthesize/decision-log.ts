@@ -13,7 +13,7 @@
  * Phase 1 scope:
  *  - per-fact scoring breakdown (fusedScore × decay × confidence)
  *  - retrieval-stage provenance (vector | lexical | graph_seed | graph_neighbour
- *    | edge_expansion | ppr | backfill)
+ *    | edge_expansion | ppr)
  *  - cited vs not-cited classification with deterministic rejection
  *    reason (no LLM judge — see PROV-AGENT 2025 / Attributing Response
  *    to Context arXiv:2505.16415: post-hoc LLM judgements are unfaithful)
@@ -30,7 +30,6 @@ import type { ScoreBreakdown } from '../search/internals/types';
 export type DecisionRejectReason =
   | 'low_score'
   | 'not_relevant_to_query'
-  | 'backfill_context_only'
   | 'duplicate_predicate';
 
 export interface DecisionLogEntry {
@@ -53,14 +52,13 @@ export interface DecisionLogEntry {
  *
  *   - `picked = citedFactIds.has(factId)`
  *   - `rejectReason` is derived from scoreBreakdown semantics:
- *       * finalScore === 0 && stages = ['backfill'] → backfill_context_only
  *       * finalScore < lowScoreThreshold              → low_score
  *       * else                                        → not_relevant_to_query
  *
  * The threshold is config-injected so future calibration changes don't
  * silently shift rejection labels. Default 0.1 — chosen so that hits
- * surfaced by HyPE + scaled by decay/confidence don't get tagged
- * "low_score" purely because of long-tail recency.
+ * scaled by decay/confidence don't get tagged "low_score" purely
+ * because of long-tail recency.
  */
 export interface BuildDecisionLogOptions {
   /** finalScore below this threshold → reject reason = 'low_score'. */
@@ -94,20 +92,16 @@ export function buildDecisionLog(
           stages: [],
         } as ScoreBreakdown);
       const picked = citedFactIds.has(f.factId);
-      const isBackfill =
-        breakdown.finalScore === 0 && breakdown.stages.includes('backfill');
       const duplicatePredicate = predicateSet.has(f.predicate);
       predicateSet.add(f.predicate);
 
       const rejectReason: DecisionRejectReason | undefined = picked
         ? undefined
-        : isBackfill
-          ? 'backfill_context_only'
-          : duplicatePredicate
-            ? 'duplicate_predicate'
-            : breakdown.finalScore < lowScoreThreshold
-              ? 'low_score'
-              : 'not_relevant_to_query';
+        : duplicatePredicate
+          ? 'duplicate_predicate'
+          : breakdown.finalScore < lowScoreThreshold
+            ? 'low_score'
+            : 'not_relevant_to_query';
 
       entries.push({
         factId: f.factId,

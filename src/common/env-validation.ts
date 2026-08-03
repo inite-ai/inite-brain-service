@@ -122,12 +122,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
-  // ── Retrieval fact-shaping (chatter demotion + per-entity window) ──
+  // ── Retrieval fact-shaping (chatter demotion) ──────────────────────
   // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the
   // "is a number" contract here (≥1 is accepted and means "no penalty").
   nonNegativeFloat(env, 'SEARCH_CHATTER_PENALTY', errors);
-  positiveInt(env, 'SEARCH_FACTS_PER_ENTITY', errors);
-  positiveInt(env, 'SEARCH_BACKFILL_PER_PREDICATE', errors);
 
   // ── Phase A read-path (typed-memory roadmap 2026-07) ───────────────
   positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
@@ -397,11 +395,8 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
 const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
-  // Phase A read-path (typed-memory roadmap): facts compete globally for
-  // the window instead of entities; multi-hop hands its hop evidence to
-  // synthesis; the generator gets an anchored "today" for date arithmetic.
-  'SEARCH_FACT_CENTRIC_ENABLED',
-  'MULTI_HOP_SYNTH_EVIDENCE_UNION',
+  // Phase A read-path (typed-memory roadmap): the generator gets an
+  // anchored "today" for date arithmetic.
   'SYNTHESIZE_DATE_CONTEXT',
   // T1 typed dispatch: lexical answer-lane router (temporal-distance lane
   // computes elapsed intervals in code and forces the date anchor).
@@ -420,15 +415,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
   // poll over recordedAt, metadata-only payloads, HMAC-signed).
   'EPISODE_SUBSCRIPTIONS_ENABLED',
-  // Router lexicon v2: first-person perfect temporal + "order of" shapes
-  // (gaps measured on the LME-500 router-ON leg). DEFAULT ON since the
-  // engine wave 2026-08; 0/false disables.
-  'SYNTHESIZE_ROUTER_LEXICON_V2',
-  // Verbatim-recall evidence: assistant-content questions pull role-tagged
-  // episode quotes (BM25 + provenance excerpts) regardless of the global
-  // lane flags. DEFAULT ON; 0/false disables. Grounded in the LME SSA
-  // diagnosis ("facts do not specify…" with the verbatim turn in L0).
-  'SYNTHESIZE_VERBATIM_EXCERPTS',
   // E3b object normalization: the extractor proposes a minimal clean value
   // alongside the verbatim span; the server admits it only when every word
   // appears in the grounded span. Default off pending a paid confirm leg.
@@ -459,7 +445,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   'INGEST_EPISODE_ONLY',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
-  'SEARCH_RERANKER_ENABLED',
   // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false disables the offload.
   'SEARCH_TOKEN_COUNT_OFFLOAD',
@@ -540,9 +525,8 @@ export function envFlagEnabled(value: string | undefined): boolean {
 
 /**
  * Default-ON flags: enabled unless explicitly set to 0/false. Use for
- * engine defaults promoted from measured legs (precedent:
- * SEARCH_EDGE_EXPANSION_ENABLED); the kill-switch stays for genre
- * profiles and ablation legs.
+ * per-tenant kill-switches on genre-dependent behavior; measured-winner
+ * defaults fold into the code instead of keeping a flag.
  */
 export function envFlagNotDisabled(value: string | undefined): boolean {
   const v = (value ?? '').trim().toLowerCase();

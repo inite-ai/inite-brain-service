@@ -1,7 +1,4 @@
-import {
-  envFlagEnabled,
-  envFlagNotDisabled,
-} from '../common/env-validation';
+import { envFlagEnabled } from '../common/env-validation';
 import type { SearchHit } from '../search/search.service';
 
 /**
@@ -43,35 +40,19 @@ const UNIT = '(?:day|week|month|year)s?';
  * passed / between). A bare "how many days did I spend camping" is an
  * enumeration-SUM (add up durations across sessions) and belongs to the
  * enumeration lane — the two lexicons are disjoint by construction.
+ *
+ * First-person perfect ("how long have/had I been…") entered the
+ * lexicon after the LME-500 router-ON leg, where 55 of 109 judged
+ * temporal questions missed every pattern (25.5% accuracy unrouted) —
+ * the older lexicon only knew "has/had it been".
  */
 const TEMPORAL_PATTERNS: RegExp[] = [
   // "how long ago / how long since / how long has it been"
   /how long (?:ago|since|until|has it been|had it been|did it take)/i,
   // "weeks ago", "months have passed", "days elapsed", "years apart"
   new RegExp(`${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`, 'i'),
-];
-
-/**
- * Lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2, default off — one variable
- * per leg): gaps measured on the LME-500 router-ON leg, where 55 of
- * 109 judged temporal questions missed every pattern (25.5% accuracy
- * unrouted). First-person perfect ("how long have/had I been…") was
- * absent — the base lexicon only knew "has/had it been".
- */
-const TEMPORAL_PATTERNS_V2: RegExp[] = [
   /how long (?:have|had|has) (?:i|we|you|she|he|they) been/i,
 ];
-
-/** V2 enumeration additions: "What is the order of the six museums…". */
-const ENUMERATION_PATTERNS_V2: RegExp[] = [
-  /what (?:is|was) the order of\b/i,
-];
-
-export function lexiconV2Enabled(): boolean {
-  // Engine default since 2026-08 (gaps measured live on LME-500);
-  // 0/false restores the v1 lexicon for ablation legs.
-  return envFlagNotDisabled(process.env.SYNTHESIZE_ROUTER_LEXICON_V2);
-}
 
 /**
  * Verbatim-recall shape: the question asks for ASSISTANT-side content
@@ -98,17 +79,9 @@ export function detectVerbatimShape(query: string): boolean {
 }
 
 /**
- * Engine default (2026-08 wave): verbatim-shaped questions get episode
- * quotes even when the global lane flags are off. 0/false disables —
- * genre profiles where quotes measurably distract can kill it.
- */
-export function verbatimExcerptsEnabled(): boolean {
-  return envFlagNotDisabled(process.env.SYNTHESIZE_VERBATIM_EXCERPTS);
-}
-
-/**
  * Enumeration/ordering questions: exhaustive-list discipline (the
  * measured failure mode is PARTIAL enumeration — "4 of 5 model kits").
+ * "What is/was the order of…" joined after the LME-500 gap analysis.
  */
 const ENUMERATION_PATTERNS: RegExp[] = [
   /how many (?!\S+ (?:ago|since))/i, // counting things (temporal wins first)
@@ -118,6 +91,7 @@ const ENUMERATION_PATTERNS: RegExp[] = [
   /in (?:what|which) order\b/i,
   /\bwalk me through the order\b/i,
   /\border in which\b/i,
+  /what (?:is|was) the order of\b/i,
 ];
 
 /**
@@ -156,26 +130,16 @@ export function routeLane(query: string): AnswerLane | null {
 }
 
 /** Detection order IS precedence: temporal wins over enumeration, etc. */
-const LANE_LEXICONS: Array<{
-  lane: AnswerLane;
-  base: RegExp[];
-  v2?: RegExp[];
-}> = [
-  { lane: 'temporal', base: TEMPORAL_PATTERNS, v2: TEMPORAL_PATTERNS_V2 },
-  {
-    lane: 'enumeration',
-    base: ENUMERATION_PATTERNS,
-    v2: ENUMERATION_PATTERNS_V2,
-  },
-  { lane: 'preference', base: PREFERENCE_PATTERNS },
-  { lane: 'summary', base: SUMMARY_PATTERNS },
+const LANE_LEXICONS: Array<{ lane: AnswerLane; patterns: RegExp[] }> = [
+  { lane: 'temporal', patterns: TEMPORAL_PATTERNS },
+  { lane: 'enumeration', patterns: ENUMERATION_PATTERNS },
+  { lane: 'preference', patterns: PREFERENCE_PATTERNS },
+  { lane: 'summary', patterns: SUMMARY_PATTERNS },
 ];
 
 export function detectLane(query: string): AnswerLane | null {
   const q = query ?? '';
-  const v2 = lexiconV2Enabled();
-  for (const { lane, base, v2: extra } of LANE_LEXICONS) {
-    const patterns = v2 && extra ? [...base, ...extra] : base;
+  for (const { lane, patterns } of LANE_LEXICONS) {
     if (patterns.some((p) => p.test(q))) return lane;
   }
   return null;

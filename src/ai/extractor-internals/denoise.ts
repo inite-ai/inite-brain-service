@@ -11,7 +11,7 @@ import type { ExtractedFact } from './types';
  * questions ("Congrats Caroline!", "What motivates you?", "That cup is so
  * cute.") — pure filler that dilutes BM25/vector retrieval and crowds real
  * attribute facts out of the per-entity synthesis window (worse the wider
- * SEARCH_FACTS_PER_ENTITY is set). Dropping them at ingest is the single
+ * budget allows). Dropping them at ingest is the single
  * highest-leverage extraction denoise: cleaner retrieval + a synthesis
  * window that holds real facts.
  *

@@ -318,20 +318,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
       },
       {
-        key: 'SEARCH_RERANKER_ENABLED',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-      },
-      {
-        key: 'SEARCH_CROSS_ENCODER_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-      },
-      {
         key: 'SEARCH_RERANK_SKIP_MARGIN',
         category: 'search',
         defaultValue: '0',
@@ -718,15 +704,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Count recency decay from lastReadAt, not only recordedAt (needs recording on for data).',
       },
       {
-        key: 'SEARCH_EDGE_EXPANSION_ENABLED',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Graph-walk from top seeds to pull in 1-hop neighbours (default ON). Knobs: SEARCH_EDGE_EXPANSION_TOP_SEEDS/_MAX_NEIGHBOURS/_ALPHA.',
-      },
-      {
         key: 'SEARCH_EDGE_EXPANSION_TOP_SEEDS',
         category: 'search',
         defaultValue: '3',
@@ -761,33 +738,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Sub-1.0 ranking multiplier on low-value "said" chatter facts so substantive facts of the same entity are not buried. 1.0 = off; a demotion needs a value in (0,1), e.g. 0.35.',
       },
       {
-        key: 'SEARCH_FACTS_PER_ENTITY',
-        category: 'search',
-        defaultValue: '5',
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Max facts rendered per entity into a search hit / the synthesis prompt. Raise (e.g. 10) so a substantive fact on a fact-dense entity is not clipped by the window.',
-      },
-      {
-        key: 'SEARCH_BACKFILL_PER_PREDICATE',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Max backfill facts per predicate per entity. 1 = the historical one-fact-per-novel-predicate rule; 2 lets a crisp same-predicate fact surface when another already matched.',
-      },
-      {
-        key: 'SEARCH_FACT_CENTRIC_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Fact-centric selection (Phase A, typed-memory roadmap): facts compete globally by score for the response window instead of entities, drawing from ALL scored buckets — removes the top-limit entity gate that hid a gold fact whose entity missed the entity ranking. Skips backfill; entity count follows the fact budget.',
-      },
-      {
         key: 'SEARCH_FACT_CENTRIC_BUDGET',
         category: 'search',
         defaultValue: '48',
@@ -795,15 +745,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Global fact budget for fact-centric selection — total facts kept across all entities (also used as the per-entity render cap under the flag).',
-      },
-      {
-        key: 'MULTI_HOP_SYNTH_EVIDENCE_UNION',
-        category: 'multihop',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Hand every hop’s retrieved hits to synthesis as extra evidence. Without it the synthesizer re-searches anchored to the final entity set only, so evidence from entities the chain filtered out can never be cited. Extras append best-score-first under SYNTHESIZE_EXTRA_EVIDENCE_CAP.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
@@ -869,15 +810,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
       },
       {
-        key: 'SYNTHESIZE_VERBATIM_EXCERPTS',
-        category: 'pipeline',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Verbatim-recall engine default (2026-08 wave): questions about assistant-side content ("what did you suggest…") pull role-tagged episode quotes — both the BM25 episodic lane and the provenance excerpts — even when the global lane flags are off. The measured SSA failure is "facts do not specify…" while the verbatim turn sits in L0; extraction is user-fact-shaped by design. Set 0 to disable for genres where quotes measurably distract.',
-      },
-      {
         key: 'SEARCH_SEGMENT_LANE_ENABLED',
         category: 'pipeline',
         defaultValue: '0',
@@ -902,7 +834,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          'Precision-trim the fused segment pool with the listwise reranker (requires SEARCH_RERANKER_ENABLED) before the top-k cut.',
+          'Precision-trim the fused segment pool with the listwise reranker before the top-k cut.',
       },
       {
         key: 'AGENT_QA_TOOLS_V2',
@@ -939,15 +871,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
-      },
-      {
-        key: 'SYNTHESIZE_ROUTER_LEXICON_V2',
-        category: 'pipeline',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Router lexicon v2: adds first-person perfect temporal shapes ("how long have/had I been…") and "what is/was the order of…" enumeration shapes. Gaps measured on the LME-500 router-ON leg: 55/109 judged temporal questions missed every base pattern (25.5% unrouted accuracy). DEFAULT ON (2026-08 engine wave); set 0 to restore the v1 lexicon as an ablation leg.',
       },
       {
         key: 'EPISODES_API_ENABLED',
@@ -1122,15 +1045,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           "BM25 match snippets: project search::highlight('<em>','</em>',1) from the lexical leg (the FULLTEXT indexes already carry HIGHLIGHTS but it was never queried) and surface a `highlight` field on lexically-matched facts. Off = no highlight field (byte-identical payload). Read at boot.",
-      },
-      {
-        key: 'SEARCH_CROSS_ENCODER_LOCAL',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-        description:
-          'Local ONNX cross-encoder (Xenova/bge-reranker-base) in a worker thread, used when no Cohere key is configured. DEFAULT ON since the 2026-08 engine wave: it needs no vendor key and cross-encoder reranking is the biggest measured lever in the field (SmartSearch 88.4 on LongMemEval with a local reranker and no graph). Set 0 to disable.',
       },
       // ── Dreams: corroboration + communities ──────────────────
       {

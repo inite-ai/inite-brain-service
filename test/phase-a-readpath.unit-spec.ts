@@ -166,19 +166,8 @@ describe('selectFactCentric', () => {
   });
 });
 
-describe('multi-hop hands hop evidence to synthesize under the flag', () => {
-  const saved: Record<string, string | undefined> = {};
-  beforeEach(() => {
-    saved.flag = process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION;
-  });
-  afterEach(() => {
-    if (saved.flag === undefined) delete process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION;
-    else process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION = saved.flag;
-  });
-
-  function run(flag: boolean): Promise<SynthesizeOptions> {
-    if (flag) process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION = '1';
-    else delete process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION;
+describe('multi-hop hands hop evidence to synthesize (evidence union)', () => {
+  function run(): Promise<SynthesizeOptions> {
     const hopHits = [hit('e1', [['f1', 0.9]]), hit('e2', [['f2', 0.8]])];
     const search = {
       search: async () => ({ results: hopHits }),
@@ -217,14 +206,9 @@ describe('multi-hop hands hop evidence to synthesize under the flag', () => {
       });
   }
 
-  it('passes hop hits as extraHits when the flag is on', async () => {
-    const opts = await run(true);
+  it('always passes hop hits as extraHits (union is how multi-hop hands off)', async () => {
+    const opts = await run();
     expect(opts.extraHits).toBeDefined();
     expect(opts.extraHits!.map((h) => h.entityId)).toEqual(['e1', 'e2']);
-  });
-
-  it('passes no extraHits when the flag is off', async () => {
-    const opts = await run(false);
-    expect(opts.extraHits).toBeUndefined();
   });
 });

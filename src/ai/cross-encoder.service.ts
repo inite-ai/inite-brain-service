@@ -7,10 +7,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
-import {
-  envFlagEnabled,
-  envFlagNotDisabled,
-} from '../common/env-validation';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 
 /**
@@ -55,35 +51,24 @@ export class CrossEncoderService
   implements OnApplicationBootstrap, OnApplicationShutdown
 {
   private readonly logger = new Logger(CrossEncoderService.name);
-  private readonly enabled: boolean;
   private readonly apiKey: string | undefined;
   private readonly model: string;
   private readonly endpoint: string;
   private readonly timeoutMs: number;
   private readonly limiter: Semaphore;
-  private readonly localEnabled: boolean;
   private readonly localDeadlineMs: number;
 
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly local?: LocalCrossEncoderProvider,
   ) {
-    this.enabled =
-      envFlagEnabled(
-        this.configService.get<string>('SEARCH_CROSS_ENCODER_ENABLED'),
-      );
+    // Capability, not a flag: the Cohere path engages when a vendor key
+    // is present; otherwise the local worker (no vendor key, deadline-
+    // bounded, its own thread) serves — cross-encoder reranking is the
+    // single biggest measured lever in the field (SmartSearch reaches
+    // 88.4 on LongMemEval with verbatim passages + a local reranker and
+    // no graph — docs/roadmap/lme-sota-research-2026-08.md §1/§4).
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
-    // Local cross-encoder: DEFAULT ON since the 2026-08 engine wave
-    // (audit W4 #16). It needs no vendor key, runs in its own worker
-    // thread with a deadline, and cross-encoder reranking is the single
-    // biggest measured lever in the field — SmartSearch reaches 88.4 on
-    // LongMemEval with verbatim passages + a local reranker and no graph
-    // (docs/roadmap/lme-sota-research-2026-08.md §1/§4). It still only
-    // engages when the Cohere path is not configured, so a vendor
-    // deployment is unchanged; SEARCH_CROSS_ENCODER_LOCAL=0 disables.
-    this.localEnabled = envFlagNotDisabled(
-      this.configService.get<string>('SEARCH_CROSS_ENCODER_LOCAL'),
-    );
     this.model = this.configService.get<string>(
       'SEARCH_CROSS_ENCODER_MODEL',
       'rerank-v3.5',
@@ -116,13 +101,13 @@ export class CrossEncoderService
 
   /** Cohere (primary) path is configured. */
   private cohereConfigured(): boolean {
-    return this.enabled && !!this.apiKey;
+    return !!this.apiKey;
   }
 
   /** True when the LOCAL cross-encoder is the active path (no Cohere key).
    *  The caller uses a tighter candidate window for local inference. */
   isLocalOnly(): boolean {
-    return !this.cohereConfigured() && this.localEnabled && !!this.local;
+    return !this.cohereConfigured() && !!this.local;
   }
 
   /** Best-effort boot warmup so the ~279MB model download isn't paid in the
@@ -144,10 +129,10 @@ export class CrossEncoderService
   }
 
   /** Whether the rerank stage should run at all — the caller gates on this.
-   *  True when EITHER the Cohere path is configured OR the local fallback is
-   *  opted in and wired. */
+   *  True when EITHER the Cohere path is configured OR the local provider
+   *  is wired. */
   isEnabled(): boolean {
-    return this.cohereConfigured() || (this.localEnabled && !!this.local);
+    return this.cohereConfigured() || !!this.local;
   }
 
   /**
@@ -163,11 +148,11 @@ export class CrossEncoderService
     if (candidates.length <= 1 || !query.trim()) {
       return identity;
     }
-    // Primary path is Cohere. When that isn't configured, fall back to the
-    // local cross-encoder if opted in — a self-hoster with no rerank vendor
+    // Primary path is Cohere. When that isn't configured, fall back to
+    // the local cross-encoder — a self-hoster with no rerank vendor
     // still gets a joint-encoder pass.
     if (!this.cohereConfigured()) {
-      if (this.localEnabled && this.local) {
+      if (this.local) {
         return this.rerankLocal(query, candidates, identity);
       }
       return identity;

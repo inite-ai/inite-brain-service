@@ -24,8 +24,7 @@ export interface SpawnOptions {
   extraKeyScopes?: string[][];
   /**
    * Extra env vars merged on top of the defaults — opt-in flags
-   * for retrieval features (SEARCH_RERANKER_ENABLED,
-   * DREAMS_*_ENABLED, etc.) so individual specs can exercise paths
+   * (DREAMS_*_ENABLED, etc.) so individual specs can exercise paths
    * that are off by default in the standard quality eval.
    */
   env?: Record<string, string>;

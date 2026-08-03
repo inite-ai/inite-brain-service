@@ -247,16 +247,12 @@ export class MultiHopChainService {
       return;
     }
     onProgress({ stage: 'synthesize', message: 'grounding answer' });
-    // Evidence union (MULTI_HOP_SYNTH_EVIDENCE_UNION, Phase A): hand the
-    // hops' already-retrieved hits to synthesis so evidence from entities
-    // the chain filtered out of `finalEntityIds` can still be cited. The
-    // anchored re-search stays the primary, question-ordered context;
-    // synthesis appends unseen extra facts best-score-first under its cap.
-    const extraHits = envFlagEnabled(
-      process.env.MULTI_HOP_SYNTH_EVIDENCE_UNION,
-    )
-      ? result.hops.flatMap((o) => o.hits)
-      : undefined;
+    // Evidence union (Phase A): hand the hops' already-retrieved hits to
+    // synthesis so evidence from entities the chain filtered out of
+    // `finalEntityIds` can still be cited. The anchored re-search stays
+    // the primary, question-ordered context; synthesis appends unseen
+    // extra facts best-score-first under its cap.
+    const extraHits = result.hops.flatMap((o) => o.hits);
     const synth = await withSpan(
       'multi_hop.synthesize',
       () =>

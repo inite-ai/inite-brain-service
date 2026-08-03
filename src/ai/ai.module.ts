@@ -44,8 +44,8 @@ import { EntityJudgeService } from './entity-judge.service';
     {
       // Local cross-encoder fallback (no-Cohere-key rerank). Construction is
       // cheap — the ONNX model lazy-loads on first use — so it's always
-      // provided; CrossEncoderService only invokes it when
-      // SEARCH_CROSS_ENCODER_LOCAL=1 and Cohere isn't configured.
+      // provided; CrossEncoderService invokes it when Cohere isn't
+      // configured.
       provide: LocalCrossEncoderProvider,
       useFactory: (config: ConfigService) =>
         new LocalCrossEncoderProvider({

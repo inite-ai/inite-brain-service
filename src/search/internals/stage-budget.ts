@@ -9,13 +9,11 @@
  * a code change; the constants below are the defaults the deploy
  * workflow encodes. Numbers are derived from p50 stage latency on
  * the eval — a 4s reranker budget covers SC=3 parallel calls at
- * ~700ms each plus headroom; 2s backfill budget covers the inline
- * subquery on a few-thousand-fact tenant.
+ * ~700ms each plus headroom.
  */
 export const DEFAULT_STAGE_BUDGET_MS = {
   rerank: 4000,
   crossEncoder: 2000,
-  backfill: 2000,
 } as const;
 
 export type StageBudgets = Record<keyof typeof DEFAULT_STAGE_BUDGET_MS, number>;
@@ -32,10 +30,6 @@ export function resolveStageBudgets(env = process.env): StageBudgets {
     crossEncoder: fromEnv(
       'SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS',
       DEFAULT_STAGE_BUDGET_MS.crossEncoder,
-    ),
-    backfill: fromEnv(
-      'SEARCH_STAGE_BUDGET_BACKFILL_MS',
-      DEFAULT_STAGE_BUDGET_MS.backfill,
     ),
   };
 }

@@ -4,137 +4,45 @@ import { countJsonTokens } from '../../common/token-counter';
 import { envFlagEnabled } from '../../common/env-validation';
 import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
-import type { EntityBucket, FactRow } from './types';
+import type { EntityBucket } from './types';
 
 /**
- * Assemble final SearchHit rows from a reranked top-K bucket list plus
- * the backfilled per-entity fact map. Two-stage fact rendering:
- *   1. Matched facts first, sorted by score (existing behaviour).
- *   2. Backfill — pick at most ONE fact per NEW predicate not already
- *      represented in matched. Recency breaks per-predicate ties.
- *      Predicate-diverse instead of pure recency because the
- *      per-predicate eval surfaced that recency-only order buries
- *      dob/address under repeated occupation/genre facts on
- *      wikidata-shape entities.
- *
- * Per-entity cap defaults to 5 but is tunable via `factsPerEntity`
- * (SEARCH_FACTS_PER_ENTITY): an entity that consolidates hundreds of facts
- * (a chatty speaker) needs a wider window so a substantive fact ranked 6th+
- * still reaches synthesis. The diversity step keeps the cap useful: a query
- * for "Anton Chekhov born 1860" gets {name, dob, address, occupation, genre}
- * instead of {name, occupation×4}. `backfillPerPredicate` relaxes the strict
- * one-fact-per-predicate rule (a crisp `preference` fact was dropped when a
- * different `preference` already matched), and backfill is ordered by lexical
- * relevance to the query so a query-relevant fact beats a merely-recent one.
+ * Assemble final SearchHit rows from the fact-centric top-K bucket
+ * list. Matched facts render sorted by score; `factsPerEntity` caps the
+ * per-entity window (under fact-centric selection the global budget
+ * already bounded the total, so the cap is a formality that keeps the
+ * hit shape stable).
  */
 export interface AssembleHitsOptions {
   topEntities: EntityBucket[];
-  backfillByEntity: Map<string, FactRow[]>;
   entityTypes: string[] | undefined;
   requireProvenance?: boolean;
   /** Per-entity fact cap. Default 5. */
   factsPerEntity?: number;
-  /** Max backfill facts per predicate. Default 1 (the historical rule). */
-  backfillPerPredicate?: number;
-  /** Raw query text — backfill is ordered by token overlap against it. */
-  query?: string;
-}
-
-/** Content tokens of the query, ≥3 chars, lowercased — for backfill ordering. */
-function queryTokens(query: string | undefined): Set<string> {
-  if (!query) return new Set();
-  return new Set(
-    query
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((t) => t.length >= 3),
-  );
-}
-
-/** Count of a fact object's tokens that appear in the query token set. */
-function relevanceOverlap(object: string, terms: Set<string>): number {
-  if (terms.size === 0) return 0;
-  let n = 0;
-  for (const t of object.toLowerCase().split(/[^a-z0-9]+/)) {
-    if (t.length >= 3 && terms.has(t)) n++;
-  }
-  return n;
 }
 
 export function assembleHits({
   topEntities,
-  backfillByEntity,
   entityTypes,
   requireProvenance = false,
   factsPerEntity = 5,
-  backfillPerPredicate = 1,
-  query,
 }: AssembleHitsOptions): SearchHit[] {
-  const qTerms = queryTokens(query);
   // requireProvenance — DTO compliance primitive: keep only facts whose
   // ingest path preserved a non-empty `source` trail (vertical/eventId/
   // messageId). `source` is on FactRow here but not projected onto the
   // wire-format SearchHit fact, so the filter has to run at assembly time.
   const hasProvenance = (src: unknown): boolean =>
     !!src && typeof src === 'object' && Object.keys(src as object).length > 0;
-  // Relevance-ordered backfill is opt-in with the widened window: it only
-  // engages when backfillPerPredicate > 1 (the benchmark knob). At the
-  // default (1) backfill stays PURE RECENCY — byte-identical to the
-  // historical behaviour — so enabling nothing changes nothing. (The
-  // reorder is query-driven and would otherwise fire on every call, which
-  // is not default-safe.)
-  const relevanceOrder = backfillPerPredicate > 1 && qTerms.size > 0;
-  const renderBackfill = (row: FactRow) => ({
-    factId: String(row.id),
-    predicate: row.predicate,
-    object: row.object,
-    confidence: row.confidence,
-    validFrom: row.validFrom,
-    validUntil: row.validUntil ?? undefined,
-    status: row.status,
-    sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
-    score: 0,
-    breakdown: {
-      fusedScore: 0,
-      confidence: row.confidence,
-      decay: 1,
-      finalScore: 0,
-      stages: ['backfill' as const],
-    },
-  });
-
-  // Per-entity render-order intermediates, computed once so the occlusion
-  // pre-pass and the render below see the exact same candidate order.
-  const prepared = topEntities
+  return topEntities
     .filter((e) => {
       if (!entityTypes) return true;
       const ent = e.facts[0]?.row.entity;
       return ent ? entityTypes.includes(ent.type) : false;
     })
     .map((e) => {
-      const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
       const matchedSorted = e.facts
         .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
         .sort((a, b) => b.score - a.score);
-      const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
-        .filter((r) => !matchedFactIds.has(String(r.id)))
-        .filter((r) => !requireProvenance || hasProvenance(r.source))
-        .sort((a, b) => {
-          if (relevanceOrder) {
-            const rel =
-              relevanceOverlap(b.object, qTerms) -
-              relevanceOverlap(a.object, qTerms);
-            if (rel !== 0) return rel;
-          }
-          return (
-            new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
-          );
-        });
-      return { e, matchedSorted, backfillRows };
-    });
-
-  return prepared
-    .map(({ e, matchedSorted, backfillRows }) => {
       const ent = e.facts[0]?.row.entity ?? {
         id: e.entityId,
         type: 'other',
@@ -165,28 +73,12 @@ export function assembleHits({
         score,
         breakdown,
       }));
-      // Count predicates already used by matched facts — backfill tops each
-      // predicate up to `backfillPerPredicate` total across matched+backfill.
-      const predicateCount = new Map<string, number>();
-      for (const f of matchedRender) {
-        predicateCount.set(
-          f.predicate,
-          (predicateCount.get(f.predicate) ?? 0) + 1,
-        );
-      }
-      const backfillRender: typeof matchedRender = [];
-      for (const row of backfillRows) {
-        const used = predicateCount.get(row.predicate) ?? 0;
-        if (used >= backfillPerPredicate) continue;
-        predicateCount.set(row.predicate, used + 1);
-        backfillRender.push(renderBackfill(row));
-      }
       return {
         entityId: e.entityId,
         entityType: ent.type,
         canonicalName: ent.canonicalName,
         externalRefs: mergedRefs,
-        facts: [...matchedRender, ...backfillRender].slice(0, factsPerEntity),
+        facts: matchedRender.slice(0, factsPerEntity),
         score: e.bestScore,
       };
     })

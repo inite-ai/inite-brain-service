@@ -6,7 +6,6 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
-import { envFlagEnabled } from '../common/env-validation';
 
 export interface RerankCandidate {
   /** A short label identifying the candidate (e.g. canonical name). */
@@ -30,8 +29,8 @@ export interface RerankCandidate {
  * tokens (latency stays roughly constant — the calls fire in
  * parallel through the limiter).
  *
- * Disabled by default. Enable with SEARCH_RERANKER_ENABLED=1 + an
- * OpenAI key. On any failure (timeout, malformed output, partial
+ * A capability, not a flag: reranking runs whenever the OpenAI client
+ * is configured. On any failure (timeout, malformed output, partial
  * permutation) we return the original order so retrieval never
  * breaks because of the optional reranker.
  */
@@ -40,7 +39,6 @@ export class RerankerService {
   private readonly logger = new Logger(RerankerService.name);
   private readonly openai: OpenAI;
   private readonly model: string;
-  private readonly enabled: boolean;
   private readonly limiter: Semaphore;
   private readonly scN: number;
 
@@ -48,8 +46,6 @@ export class RerankerService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('SEARCH_RERANKER_ENABLED'));
     this.openai =
       createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
@@ -73,7 +69,7 @@ export class RerankerService {
   }
 
   isEnabled(): boolean {
-    return this.enabled && !!this.openai;
+    return !!this.openai;
   }
 
   /**

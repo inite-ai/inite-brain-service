@@ -8,7 +8,7 @@ import { join } from 'node:path';
  * (`AutoModelForSequenceClassification`, default `Xenova/bge-reranker-base`).
  *
  * The no-Cohere-key fallback for the rerank stage: when `COHERE_API_KEY` is
- * absent but `SEARCH_CROSS_ENCODER_LOCAL=1`, this scores each (query, document)
+ * absent, this scores each (query, document)
  * pair with a joint encoder — real query×document attention, not pooled
  * embeddings.
  *

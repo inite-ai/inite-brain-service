@@ -26,7 +26,6 @@ import {
   extractStandingInstructions,
   detectEvidenceConflicts,
   detectVerbatimShape,
-  verbatimExcerptsEnabled,
   type AnswerLane,
 } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
@@ -52,8 +51,8 @@ export interface SynthesizeOptions {
   onProgress?: ProgressReporter;
   /**
    * Pre-retrieved evidence merged into the re-search results before the
-   * generator sees them (multi-hop passes its hop hits here under
-   * MULTI_HOP_SYNTH_EVIDENCE_UNION). Base results keep their order;
+   * generator sees them (multi-hop passes its hop hits here). Base
+   * results keep their order;
    * unseen extra facts append best-score-first, capped by
    * SYNTHESIZE_EXTRA_EVIDENCE_CAP.
    */
@@ -111,7 +110,7 @@ interface GeneratorOutput {
  * unused in L0. Module-level to keep synthesize() complexity flat.
  */
 function wantsVerbatimEvidence(query: string): boolean {
-  return verbatimExcerptsEnabled() && detectVerbatimShape(query);
+  return detectVerbatimShape(query);
 }
 
 /**

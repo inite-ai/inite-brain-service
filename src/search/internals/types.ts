@@ -15,8 +15,7 @@ export type RetrievalStage =
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'
-  | 'ppr'
-  | 'backfill';
+  | 'ppr';
 
 /** One graph edge to a neighbour entity, as projected by both the edge-
  *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg. */

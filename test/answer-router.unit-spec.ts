@@ -17,7 +17,6 @@ import {
   STANDING_INSTRUCTIONS_INSTRUCTION,
   formatElapsed,
   detectVerbatimShape,
-  verbatimExcerptsEnabled,
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
 } from '../src/synthesize/answer-router';
@@ -75,10 +74,7 @@ describe('detectLane (enumeration lexicon + T1/T2 disambiguation)', () => {
   });
 });
 
-describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ROUTER_LEXICON_V2;
-  });
+describe('LME-500 gap lexicon (first-person perfect + "order of")', () => {
   const temporalV2 = [
     'How long had I been watching stand-up comedy specials regularly when I attended the open mic night?',
     'How long have I been taking sculpting classes?',
@@ -87,22 +83,13 @@ describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
     'What is the order of the six museums I visited from earliest to latest?',
     'What was the order of the concerts I attended in the past two months?',
   ];
-  it('default ON (2026-08 engine wave) → first-person perfect routes temporal, "order of" routes enumeration', () => {
+  it('first-person perfect routes temporal, "order of" routes enumeration', () => {
     for (const q of temporalV2) expect(detectLane(q)).toBe('temporal');
     for (const q of enumerationV2) expect(detectLane(q)).toBe('enumeration');
   });
-  it('0 → restores the v1 lexicon (ablation leg): the LME gaps go unrouted again', () => {
-    process.env.SYNTHESIZE_ROUTER_LEXICON_V2 = '0';
-    for (const q of [...temporalV2, ...enumerationV2]) {
-      expect(detectLane(q)).toBeNull();
-    }
-  });
 });
 
-describe('verbatim-recall shape (SYNTHESIZE_VERBATIM_EXCERPTS, default ON)', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_VERBATIM_EXCERPTS;
-  });
+describe('verbatim-recall shape (engine default)', () => {
   it.each([
     'What did you suggest I use for rate limiting?',
     'What was your recommendation for the database schema?',
@@ -121,15 +108,6 @@ describe('verbatim-recall shape (SYNTHESIZE_VERBATIM_EXCERPTS, default ON)', () 
     'What is my favorite restaurant?',
   ])('stays quiet on non-verbatim questions: %s', (q) => {
     expect(detectVerbatimShape(q)).toBe(false);
-  });
-  it('enabled by default, 0/false disables, 1 re-enables', () => {
-    expect(verbatimExcerptsEnabled()).toBe(true);
-    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = '0';
-    expect(verbatimExcerptsEnabled()).toBe(false);
-    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = 'false';
-    expect(verbatimExcerptsEnabled()).toBe(false);
-    process.env.SYNTHESIZE_VERBATIM_EXCERPTS = '1';
-    expect(verbatimExcerptsEnabled()).toBe(true);
   });
 });
 

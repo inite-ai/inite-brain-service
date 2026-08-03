@@ -1,21 +1,20 @@
 import type { EntityBucket } from './types';
 
 /**
- * Fact-centric selection (SEARCH_FACT_CENTRIC_ENABLED) — Phase A of the
+ * Fact-centric selection — Phase A of the
  * typed-memory roadmap (docs/roadmap/locomo-sota-architecture-2026-07.md).
  *
- * The default pipeline ranks ENTITIES and slices to `limit`, so a
- * high-scoring fact on entity #11 is unreachable no matter how relevant
- * it is — the measured dominant failure on single-hop QA (the gold fact
- * exists but its entity missed the gate). Under the flag, facts compete
- * globally instead: flatten every scored row across ALL buckets, keep
+ * The old pipeline ranked ENTITIES and sliced to `limit`, so a
+ * high-scoring fact on entity #11 was unreachable no matter how relevant
+ * it was — the measured dominant failure on single-hop QA (the gold fact
+ * exists but its entity missed the gate). Facts compete globally
+ * instead: flatten every scored row across ALL buckets, keep
  * the top `budget` by fact score, and rebuild pruned buckets ordered by
  * their best selected fact (Map insertion order — the flatten is sorted
  * best-first, so an entity's first appearance IS its best fact).
  *
- * The hit shape is unchanged; only selection changes. Backfill is
- * skipped by the caller under this flag — the global score cut replaces
- * the per-entity recency padding.
+ * The hit shape is unchanged; only selection changes. The global score
+ * cut replaces the old per-entity recency backfill.
  *
  * Audit W4 #15: this used to OVERWRITE the reranked window wholesale —
  * the cross-encoder + LLM rerank ran, was paid for, and its order was

@@ -90,7 +90,6 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([withSrc, noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: true,
     });
@@ -107,7 +106,6 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: true,
     });
@@ -121,7 +119,6 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: false,
     });
@@ -186,81 +183,16 @@ describe('assembleHits fact-window shaping', () => {
     );
     const def = assembleHits({
       topEntities: [bucket(many)],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
     });
     expect(def[0].facts).toHaveLength(5);
 
     const wide = assembleHits({
       topEntities: [bucket(many)],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       factsPerEntity: 10,
     });
     expect(wide[0].facts).toHaveLength(10);
   });
 
-  it('backfillPerPredicate=2 lets a second same-predicate fact surface', () => {
-    const matched = scored(fact({ predicate: 'preference', object: 'sunsets' }), 1);
-    const backfillSamePred: FactRow = fact({
-      predicate: 'preference',
-      object: 'transgender woman',
-    });
-    // Default (1): the same-predicate backfill fact is skipped.
-    const def = assembleHits({
-      topEntities: [bucket([matched])],
-      backfillByEntity: new Map([['knowledge_entity:e1', [backfillSamePred]]]),
-      entityTypes: undefined,
-    });
-    expect(def[0].facts.map((f) => f.object)).toEqual(['sunsets']);
-    // Relaxed (2): it surfaces.
-    const relaxed = assembleHits({
-      topEntities: [bucket([matched])],
-      backfillByEntity: new Map([['knowledge_entity:e1', [backfillSamePred]]]),
-      entityTypes: undefined,
-      backfillPerPredicate: 2,
-    });
-    expect(relaxed[0].facts.map((f) => f.object)).toContain('transgender woman');
-  });
-
-  it('orders backfill by query relevance when the widened window is on', () => {
-    const older = '2020-01-01T00:00:00.000Z';
-    const newer = '2025-01-01T00:00:00.000Z';
-    // Recent but irrelevant vs older but query-relevant.
-    const irrelevant = fact({ predicate: 'a', object: 'weather chatter', recordedAt: newer });
-    const relevant = fact({ predicate: 'b', object: 'transgender identity', recordedAt: older });
-    const hits = assembleHits({
-      topEntities: [bucket([scored(fact({ predicate: 'name', object: 'Caroline' }), 1)])],
-      backfillByEntity: new Map([
-        ['knowledge_entity:e1', [irrelevant, relevant]],
-      ]),
-      entityTypes: undefined,
-      factsPerEntity: 2, // name + exactly one backfill slot
-      backfillPerPredicate: 2, // opt into relevance-ordered backfill
-      query: 'what is her identity',
-    });
-    const objs = hits[0].facts.map((f) => f.object);
-    expect(objs).toContain('transgender identity'); // relevance beat recency
-    expect(objs).not.toContain('weather chatter');
-  });
-
-  it('default (backfillPerPredicate=1) keeps pure recency — byte-identical', () => {
-    const older = '2020-01-01T00:00:00.000Z';
-    const newer = '2025-01-01T00:00:00.000Z';
-    const irrelevant = fact({ predicate: 'a', object: 'weather chatter', recordedAt: newer });
-    const relevant = fact({ predicate: 'b', object: 'transgender identity', recordedAt: older });
-    const hits = assembleHits({
-      topEntities: [bucket([scored(fact({ predicate: 'name', object: 'Caroline' }), 1)])],
-      backfillByEntity: new Map([
-        ['knowledge_entity:e1', [irrelevant, relevant]],
-      ]),
-      entityTypes: undefined,
-      factsPerEntity: 2,
-      query: 'what is her identity',
-      // no backfillPerPredicate → default 1 → relevance-order disabled.
-    });
-    const objs = hits[0].facts.map((f) => f.object);
-    expect(objs).toContain('weather chatter'); // newest wins, query ignored
-    expect(objs).not.toContain('transgender identity');
-  });
 });

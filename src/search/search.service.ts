@@ -10,13 +10,11 @@ import { traceArtifact } from '../common/debug-trace';
 
 import type { SearchHit } from './search.types';
 import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
-import {
-  resolveStageBudgets,
-  withStageBudget,
-  type StageBudgets,
-} from './internals/stage-budget';
 import { buildBaseWhere } from './internals/where-builder';
-import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
+import {
+  hydrateSurvivors,
+  reattributeMerged,
+} from './internals/identity-merge';
 import {
   makeRowPolicyFilter,
   type PredicatePolicyLookup,
@@ -28,7 +26,6 @@ import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internal
 import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
-import { backfillEntityFacts } from './internals/backfill';
 import { selectFactCentric } from './internals/fact-centric';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
@@ -67,9 +64,9 @@ function positiveIntEnv(name: string, dflt: number): number {
  *   1. Translate the public `SearchDto` into a per-request context.
  *   2. Open the scoped DB connection and sequence the stages (retrieval
  *      → fusion → identity merge → scoring → bucketing → edge expansion
- *      → PPR → rerank → backfill → assemble).
+ *      → PPR → rerank → fact-centric selection → assemble).
  *   3. Own the db-threading stages that need no AI service (identity
- *      merge, edge expansion, PPR, backfill, graph retrieval).
+ *      merge, edge expansion, PPR, graph retrieval).
  *
  * Anything heavier than that belongs in a stage module or stage service.
  */
@@ -78,7 +75,6 @@ function positiveIntEnv(name: string, dflt: number): number {
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
-  private readonly budgets: StageBudgets = resolveStageBudgets();
 
   // Fourth dep is the tenant predicate registry — the row fence must see
   // operator-authored requiresScope predicates, not only the code seed.
@@ -409,7 +405,7 @@ export class SearchService {
 
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One
     // filter instance covers the whole pipeline (fusion + edge
-    // expansion + backfill) so the decision summary aggregates once.
+    // expansion) so the decision summary aggregates once.
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: ctx.callerScopes,
       surface: 'search',
@@ -435,7 +431,7 @@ export class SearchService {
 
     // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
     // from the most recent retrieval instead of only recordedAt. Soft-
-    // fails inside; rows injected later (edge expansion / backfill) stay
+    // fails inside; rows injected later (edge expansion) stay
     // unenriched — supplementary context, not primary relevance.
     if (envFlagEnabled(process.env.SEARCH_USAGE_DECAY_ENABLED)) {
       await enrichWithUsage(db, this.logger, filtered);
@@ -482,65 +478,30 @@ export class SearchService {
     }
     topEntities = topEntities.slice(0, ctx.limit);
 
-    // Fact-centric selection (SEARCH_FACT_CENTRIC_ENABLED, Phase A of the
-    // typed-memory roadmap): facts compete globally for the window instead
-    // of entities — the top-`limit` entity gate made a gold fact
-    // unreachable whenever its entity missed the entity ranking. Draws
-    // from ALL buckets (pre-slice) and replaces per-entity backfill with
-    // a global score cut.
-    const factCentric = envFlagEnabled(
-      process.env.SEARCH_FACT_CENTRIC_ENABLED,
-    );
+    // 8. Fact-centric selection (Phase A of the typed-memory roadmap):
+    // facts compete globally for the window instead of entities — the
+    // top-`limit` entity gate made a gold fact unreachable whenever its
+    // entity missed the entity ranking. Draws from ALL buckets
+    // (pre-slice); the global score cut replaces per-entity backfill.
     const factCentricBudget = positiveIntEnv('SEARCH_FACT_CENTRIC_BUDGET', 48);
-    if (factCentric) {
-      topEntities = selectFactCentric([...byEntity.values()], factCentricBudget, {
-        // Keep the reranked order for the buckets the reranker judged
-        // (audit W4 #15 — its output used to be computed and thrown
-        // away), and honour the caller's limit.
-        priority: topEntities.map((b) => b.entityId),
-        limit: ctx.limit,
-      });
-      traceArtifact('search.fact_centric', {
-        entities: topEntities.length,
-        facts: topEntities.reduce((a, b) => a + b.facts.length, 0),
-        limit: ctx.limit,
-      });
-    }
+    topEntities = selectFactCentric([...byEntity.values()], factCentricBudget, {
+      // Keep the reranked order for the buckets the reranker judged
+      // (audit W4 #15 — its output used to be computed and thrown
+      // away), and honour the caller's limit.
+      priority: topEntities.map((b) => b.entityId),
+      limit: ctx.limit,
+    });
+    traceArtifact('search.fact_centric', {
+      entities: topEntities.length,
+      facts: topEntities.reduce((a, b) => a + b.facts.length, 0),
+      limit: ctx.limit,
+    });
 
-    // 8. Backfill missing facts for top-K, then assemble. Skipped under
-    // fact-centric selection — the global cut replaces recency padding.
-    const backfillByEntity = factCentric
-      ? new Map<string, FactRow[]>()
-      : await withStageBudget({
-          stage: 'backfill',
-          budgetMs: this.budgets.backfill,
-          fn: () =>
-            backfillEntityFacts({
-              db,
-              logger: this.logger,
-              entityIds: topEntities.map((e) => e.entityId),
-              baseWhere,
-              dto: ctx.dto,
-              callerScopes: ctx.callerScopes,
-              passesPolicy: (row) => rowFilterFn(row),
-            }),
-          fallback: new Map<string, FactRow[]>(),
-          logger: this.logger,
-        });
-    const factsPerEntity = factCentric
-      ? factCentricBudget
-      : positiveIntEnv('SEARCH_FACTS_PER_ENTITY', 5);
     const hits = assembleHits({
       topEntities,
-      backfillByEntity,
       entityTypes: ctx.dto.entityTypes,
       requireProvenance: ctx.dto.requireProvenance === true,
-      // Fact-window shaping (default-preserving): wider per-entity window +
-      // relaxed backfill diversity so a substantive fact on a fact-dense
-      // entity isn't buried under the 5-slot cap. Backfill is query-ordered.
-      factsPerEntity,
-      backfillPerPredicate: positiveIntEnv('SEARCH_BACKFILL_PER_PREDICATE', 1),
-      query: ctx.dto.query,
+      factsPerEntity: factCentricBudget,
     });
     rowPolicy.finish();
     return {
@@ -566,7 +527,6 @@ export class SearchService {
       { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
     >;
   }): Promise<void> {
-    if (process.env.SEARCH_EDGE_EXPANSION_ENABLED === '0') return;
     if (byEntity.size < 1) return;
     await withSpan(
       'search.edge_expansion',
