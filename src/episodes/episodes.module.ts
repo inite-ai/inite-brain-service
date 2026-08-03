@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { EpisodeReadStoreService } from './episode-read-store.service';
+import { EpisodeSubscriptionService } from './episode-subscription.service';
 import { EpisodesController } from './episodes.controller';
 import { ProjectionRegistryService } from './projection-registry.service';
 
@@ -11,8 +13,13 @@ import { ProjectionRegistryService } from './projection-registry.service';
  * next to the deriver it drives.
  */
 @Module({
+  imports: [AuthModule],
   controllers: [EpisodesController],
-  providers: [EpisodeReadStoreService, ProjectionRegistryService],
+  providers: [
+    EpisodeReadStoreService,
+    ProjectionRegistryService,
+    EpisodeSubscriptionService,
+  ],
   exports: [EpisodeReadStoreService, ProjectionRegistryService],
 })
 export class EpisodesModule {}

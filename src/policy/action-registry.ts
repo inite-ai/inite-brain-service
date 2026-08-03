@@ -102,6 +102,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.episodes.export': { kind: 'read', family: 'rest', title: 'Export episodes (NDJSON)' },
   'rest.projections.list': { kind: 'read', family: 'rest', title: 'List derived projections' },
   'rest.projections.rebuild': { kind: 'admin', family: 'rest', title: 'Rebuild a derived projection' },
+  'rest.episodes.subscribe': { kind: 'admin', family: 'rest', title: 'Register an episode webhook' },
+  'rest.episodes.subscriptions': { kind: 'read', family: 'rest', title: 'List episode webhooks' },
+  'rest.episodes.unsubscribe': { kind: 'admin', family: 'rest', title: 'Delete an episode webhook' },
   'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
 };
 

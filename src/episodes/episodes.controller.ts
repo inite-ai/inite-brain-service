@@ -1,8 +1,12 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
   BadRequestException,
+  Param,
+  Post,
   Query,
   Req,
   Res,
@@ -17,6 +21,10 @@ import {
   EpisodeReadStoreService,
   type EpisodePageRow,
 } from './episode-read-store.service';
+import {
+  EpisodeSubscriptionService,
+  type EpisodeSubscriptionRow,
+} from './episode-subscription.service';
 
 /**
  * Public episodes API (raw-substrate driver v1, surface 1 —
@@ -101,7 +109,10 @@ function parseIsoOrThrow(name: string, v?: string): string | undefined {
 @Controller('v1/episodes')
 @UseGuards(ApiKeyGuard)
 export class EpisodesController {
-  constructor(private readonly episodes: EpisodeReadStoreService) {}
+  constructor(
+    private readonly episodes: EpisodeReadStoreService,
+    private readonly subscriptions: EpisodeSubscriptionService,
+  ) {}
 
   private assertEnabled(): void {
     if (!envFlagEnabled(process.env.EPISODES_API_ENABLED)) {
@@ -177,5 +188,65 @@ export class EpisodesController {
       after = { occurredAtIso: toIso(last.occurredAt), id: String(last.id) };
     }
     res.end();
+  }
+
+  // ── Surface 4: new-episode webhook subscriptions ───────────────────
+  // Own flag (EPISODE_SUBSCRIPTIONS_ENABLED): pushing outbound traffic
+  // is a bigger operational decision than serving reads.
+
+  private assertSubscriptionsEnabled(): void {
+    if (!EpisodeSubscriptionService.enabled()) {
+      throw new NotFoundException();
+    }
+  }
+
+  @Post('subscriptions')
+  @RequireScopes('brain:admin')
+  @PolicyAction('rest.episodes.subscribe')
+  async subscribe(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { url?: string } = {},
+  ): Promise<{ id: string; secret: string; watermark: string }> {
+    this.assertSubscriptionsEnabled();
+    const url = body.url?.trim() ?? '';
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException('url must be a valid absolute URL');
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new BadRequestException('url must be http(s)');
+    }
+    // The secret in this response is shown exactly once — store it.
+    return this.subscriptions.create(req.brainAuth.companyId, url);
+  }
+
+  @Get('subscriptions')
+  @RequireScopes('brain:read')
+  @PolicyAction('rest.episodes.subscriptions')
+  async listSubscriptions(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ subscriptions: EpisodeSubscriptionRow[] }> {
+    this.assertSubscriptionsEnabled();
+    return {
+      subscriptions: await this.subscriptions.list(req.brainAuth.companyId),
+    };
+  }
+
+  @Delete('subscriptions/:id')
+  @RequireScopes('brain:admin')
+  @PolicyAction('rest.episodes.unsubscribe')
+  async unsubscribe(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<{ deleted: boolean }> {
+    this.assertSubscriptionsEnabled();
+    if (!/^episode_subscription:[a-zA-Z0-9⟨⟩_-]+$/.test(id)) {
+      throw new BadRequestException('id must be an episode_subscription record id');
+    }
+    return {
+      deleted: await this.subscriptions.remove(req.brainAuth.companyId, id),
+    };
   }
 }

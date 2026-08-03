@@ -149,6 +149,52 @@ export class EpisodeReadStoreService {
   }
 
   /**
+   * Metadata rows newer than a watermark, for the subscription
+   * dispatcher (surface 4). NO text and NO pii filtering — the payload
+   * carries only ids/attribution/timestamps, so every row is safe to
+   * announce and subscribers never silently miss PII-classed episodes.
+   * Ordered by recordedAt (ingest time, monotone) — occurredAt can be
+   * backdated and would leak rows past the watermark.
+   */
+  async metaSince(opts: {
+    companyId: string;
+    sinceIso: string;
+    limit: number;
+  }): Promise<
+    Array<{
+      id: unknown;
+      conversationId?: string;
+      messageId: string;
+      speaker?: string;
+      occurredAt: Date | string;
+      recordedAt: Date | string;
+    }>
+  > {
+    return this.run(opts.companyId, undefined, async (db) => {
+      const [rows] = await db.query<
+        [
+          Array<{
+            id: unknown;
+            conversationId?: string;
+            messageId: string;
+            speaker?: string;
+            occurredAt: Date | string;
+            recordedAt: Date | string;
+          }>,
+        ]
+      >(
+        `SELECT id, conversationId, messageId, speaker, occurredAt, recordedAt
+           FROM episode
+          WHERE recordedAt > <datetime> $since
+          ORDER BY recordedAt ASC
+          LIMIT $k`,
+        { since: opts.sinceIso, k: opts.limit },
+      );
+      return rows ?? [];
+    });
+  }
+
+  /**
    * Keyset page for the public episodes API (surface 1): stable
    * (occurredAt, id) order, filters composed in code, PII fence via
    * the shared gate. `after` resumes past the last row of the previous

@@ -457,6 +457,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'EPISODES_API_ENABLED',
   // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
   'PROJECTIONS_API_ENABLED',
+  // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
+  // poll over recordedAt, metadata-only payloads, HMAC-signed).
+  'EPISODE_SUBSCRIPTIONS_ENABLED',
   // Router lexicon v2: first-person perfect temporal + "order of" shapes
   // (gaps measured on the LME-500 router-ON leg). DEFAULT ON since the
   // engine wave 2026-08; 0/false disables.
