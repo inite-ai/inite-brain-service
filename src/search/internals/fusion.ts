@@ -66,7 +66,7 @@ export function fuse(
     for (const r of vectorRows) {
       merged.set(
         String(r.id),
-        addStage({ ...r, fusedScore: normalizeVec(r.simScore ?? 0) }, 'hype'),
+        addStage({ ...r, fusedScore: normalizeVec(r.simScore ?? 0) }, 'vector'),
       );
     }
     return [...merged.values()];
@@ -90,7 +90,7 @@ export function fuse(
   for (const r of vectorRows) {
     merged.set(
       String(r.id),
-      addStage({ ...r, fusedScore: w * normalizeVec(r.simScore ?? 0) }, 'hype'),
+      addStage({ ...r, fusedScore: w * normalizeVec(r.simScore ?? 0) }, 'vector'),
     );
   }
   for (const r of lexicalRows) {

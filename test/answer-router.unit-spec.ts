@@ -9,10 +9,6 @@ import {
   detectLane,
   routeLane,
   laneEnabled,
-  detectOrderingShape,
-  orderingFirstMentionEnabled,
-  temporalIntervalsEnabled,
-  buildIntervalTable,
   wideLaneProbeEnabled,
   wideProbeLimit,
   buildWideProbeQuery,
@@ -23,11 +19,8 @@ import {
   detectVerbatimShape,
   verbatimExcerptsEnabled,
   TEMPORAL_LANE_INSTRUCTION,
-  TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
-  ORDERING_LANE_INSTRUCTION,
 } from '../src/synthesize/answer-router';
-import { parseDisabledLanes } from '../src/synthesize/lanes-disabled';
 import {
   buildGeneratorUserMessage,
   buildFactIndex,
@@ -106,17 +99,6 @@ describe('lexicon v2 (SYNTHESIZE_ROUTER_LEXICON_V2)', () => {
   });
 });
 
-describe('ordering frame v2 (post-B1: specificity survives the list shape)', () => {
-  it('bans the label-compression wording that zeroed the B1 leg', () => {
-    // v1 said "short topic labels … cluster into broader topics" and the
-    // generator obeyed — contentless category labels, F1 collapse.
-    expect(ORDERING_LANE_INSTRUCTION).not.toContain('short topic labels');
-    expect(ORDERING_LANE_INSTRUCTION).not.toContain('broader topics');
-    expect(ORDERING_LANE_INSTRUCTION).toContain('SPECIFIC');
-    expect(ORDERING_LANE_INSTRUCTION).toContain('never compress');
-  });
-});
-
 describe('verbatim-recall shape (SYNTHESIZE_VERBATIM_EXCERPTS, default ON)', () => {
   afterEach(() => {
     delete process.env.SYNTHESIZE_VERBATIM_EXCERPTS;
@@ -167,95 +149,6 @@ describe('detectLane (preference and summary lexicons)', () => {
     'Summarize my budget tracker journey.',
   ])('routes to summary: %s', (q) => {
     expect(detectLane(q)).toBe('summary');
-  });
-});
-
-describe('SYNTHESIZE_LANES_DISABLED (per-lane ablation)', () => {
-  beforeEach(() => {
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-  });
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_LANES_DISABLED;
-  });
-
-  it('parses tokens, aliases and rejects unknowns', () => {
-    expect(parseDisabledLanes('t3,t5')).toEqual({
-      lanes: new Set(['contradiction', 'recency']),
-      unknown: [],
-    });
-    expect(parseDisabledLanes(' Temporal , SUMMARY ')).toEqual({
-      lanes: new Set(['temporal', 'summary']),
-      unknown: [],
-    });
-    expect(parseDisabledLanes('t1,t9,recensy')).toEqual({
-      lanes: new Set(['temporal']),
-      unknown: ['t9', 'recensy'],
-    });
-    expect(parseDisabledLanes(undefined)).toEqual({
-      lanes: new Set(),
-      unknown: [],
-    });
-  });
-
-  it('a disabled lane behaves as if never built (falls to legacy path)', () => {
-    process.env.SYNTHESIZE_LANES_DISABLED = 't1';
-    expect(routeLane('How many weeks ago did I attend the sale?')).toBeNull();
-    // other lanes stay live in the same process env
-    expect(routeLane('What are all the books I mentioned?')).toBe(
-      'enumeration',
-    );
-  });
-
-  it('disabling one lane lets the query fall through to later lexicons', () => {
-    // "list the order" matches enumeration; with t2 off the same query
-    // must not resurface via another lane (lexicons are disjoint).
-    process.env.SYNTHESIZE_LANES_DISABLED = 't2';
-    expect(
-      routeLane('Can you list the order in which I brought up aspects?'),
-    ).toBeNull();
-  });
-
-  it('laneEnabled composes router flag AND per-lane ablation', () => {
-    expect(laneEnabled('recency')).toBe(true);
-    process.env.SYNTHESIZE_LANES_DISABLED = 't5';
-    expect(laneEnabled('recency')).toBe(false);
-    expect(laneEnabled('contradiction')).toBe(true);
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    expect(laneEnabled('contradiction')).toBe(false);
-  });
-
-  it('t3 disable silences detectEvidenceConflicts with the router on', () => {
-    const hits = [
-      {
-        entityId: 'e1',
-        entityType: 'person',
-        canonicalName: 'n',
-        externalRefs: {},
-        score: 1,
-        facts: [
-          {
-            factId: 'knowledge_fact:f0',
-            predicate: 'has_api_key',
-            object: 'yes, for OpenWeather',
-            status: 'active',
-            confidence: 0.7,
-            score: 1,
-          },
-          {
-            factId: 'knowledge_fact:f1',
-            predicate: 'has_api_key',
-            object: 'no, never obtained one',
-            status: 'COMPETING',
-            confidence: 0.7,
-            score: 1,
-          },
-        ],
-      },
-    ] as unknown as SearchHit[];
-    expect(detectEvidenceConflicts(hits)).toHaveLength(1);
-    process.env.SYNTHESIZE_LANES_DISABLED = 't3';
-    expect(detectEvidenceConflicts(hits)).toEqual([]);
   });
 });
 
@@ -511,218 +404,6 @@ describe('buildFactIndex chronological ordering (T2)', () => {
   });
 });
 
-describe('T1b event-interval table', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS;
-    delete process.env.SYNTHESIZE_LANES_DISABLED;
-  });
-
-  it('temporalIntervalsEnabled requires router + t1 + its own flag', () => {
-    expect(temporalIntervalsEnabled()).toBe(false);
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-    expect(temporalIntervalsEnabled()).toBe(false);
-    process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS = '1';
-    expect(temporalIntervalsEnabled()).toBe(true);
-    process.env.SYNTHESIZE_LANES_DISABLED = 't1';
-    expect(temporalIntervalsEnabled()).toBe(false);
-  });
-
-  const hitWithDates = (dates: Array<string | undefined>) =>
-    ({
-      entityId: 'e1',
-      entityType: 'person',
-      canonicalName: 'n',
-      externalRefs: {},
-      score: 1,
-      facts: dates.map((d, i) => ({
-        factId: `knowledge_fact:f${i}`,
-        predicate: 'events',
-        object: `event ${i}`,
-        confidence: 0.7,
-        score: 1,
-        ...(d ? { validFrom: d } : {}),
-      })),
-    }) as unknown as SearchHit;
-
-  it('renders every pair of distinct dates with calendar arithmetic', () => {
-    const lines = buildIntervalTable([
-      hitWithDates([
-        '2024-01-15T00:00:00.000Z',
-        '2024-03-15T00:00:00.000Z',
-        '2024-01-15T09:30:00.000Z', // same DAY → not a new date
-        undefined, // undated → ignored
-      ]),
-    ]);
-    // 2 distinct dates → 1 pair; Jan 15 → Mar 15 2024 = 60 days
-    expect(lines).toEqual([
-      '2024-01-15 → 2024-03-15: 60 days ≈ 8 weeks ≈ 2 months',
-    ]);
-  });
-
-  it('sorts dates ascending regardless of evidence order', () => {
-    const lines = buildIntervalTable([
-      hitWithDates([
-        '2024-03-01T00:00:00.000Z',
-        '2024-01-01T00:00:00.000Z',
-        '2024-02-01T00:00:00.000Z',
-      ]),
-    ]);
-    expect(lines).toHaveLength(3); // C(3,2)
-    expect(lines[0]).toBe('2024-01-01 → 2024-02-01: 31 days ≈ 4 weeks ≈ 1 month');
-    expect(lines[2]).toBe('2024-02-01 → 2024-03-01: 29 days ≈ 4 weeks ≈ 1 month');
-  });
-
-  it('caps at 10 distinct dates by first-seen evidence order', () => {
-    const dates = Array.from(
-      { length: 14 },
-      (_, i) => `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`,
-    );
-    const lines = buildIntervalTable([hitWithDates(dates)]);
-    expect(lines).toHaveLength(45); // C(10,2)
-  });
-
-  it('skips epoch-sentinel and unparseable dates; empty → []', () => {
-    expect(
-      buildIntervalTable([
-        hitWithDates([new Date(0).toISOString(), 'not-a-date', undefined]),
-      ]),
-    ).toEqual([]);
-  });
-
-  it('interval section renders in the prompt; absent → byte-identical', () => {
-    const base = {
-      query: 'How many weeks between finishing X and the deadline?',
-      factLines: ['[knowledge_fact:f0] n — events: e (as of 2024-01-15)'],
-      answerLang: null as string | null,
-      lane: 'temporal' as const,
-    };
-    const msg = buildGeneratorUserMessage({
-      ...base,
-      intervalTable: ['2024-01-15 → 2024-03-15: 60 days ≈ 8 weeks ≈ 2 months'],
-    });
-    expect(msg).toContain(TEMPORAL_INTERVAL_INSTRUCTION.trim());
-    expect(msg).toContain('Date-interval table (computed):');
-    expect(msg).toContain('2024-01-15 → 2024-03-15: 60 days');
-    for (const table of [undefined, [] as string[]]) {
-      expect(buildGeneratorUserMessage({ ...base, intervalTable: table })).toBe(
-        buildGeneratorUserMessage(base),
-      );
-    }
-  });
-});
-
-describe('T2b first-mention ordering', () => {
-  afterEach(() => {
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_ORDERING_FIRST_MENTION;
-  });
-
-  it('detectOrderingShape matches the ordering subset only', () => {
-    for (const q of [
-      'Can you list the order in which I brought up different aspects, in order?',
-      'In what order did I raise the topics?',
-      'Walk me through the order in which I raised topics.',
-      'Name the order of my project phases.',
-    ]) {
-      expect(detectOrderingShape(q)).toBe(true);
-    }
-    for (const q of [
-      'How many plants did I acquire?',
-      'What are all the books I mentioned?',
-      'How many weeks ago did I attend the sale?',
-    ]) {
-      expect(detectOrderingShape(q)).toBe(false);
-    }
-  });
-
-  it('orderingFirstMentionEnabled requires router + t2 + its own flag', () => {
-    expect(orderingFirstMentionEnabled()).toBe(false);
-    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-    expect(orderingFirstMentionEnabled()).toBe(false);
-    process.env.SYNTHESIZE_ORDERING_FIRST_MENTION = '1';
-    expect(orderingFirstMentionEnabled()).toBe(true);
-    process.env.SYNTHESIZE_LANES_DISABLED = 't2';
-    expect(orderingFirstMentionEnabled()).toBe(false);
-    delete process.env.SYNTHESIZE_LANES_DISABLED;
-  });
-
-  const mk = (id: string, validFrom?: string) =>
-    ({
-      entityId: 'e1',
-      entityType: 'person',
-      canonicalName: 'n',
-      externalRefs: {},
-      score: 1,
-      facts: [
-        {
-          factId: `knowledge_fact:${id}`,
-          predicate: 'work',
-          object: id,
-          confidence: 0.7,
-          score: 1,
-          ...(validFrom ? { validFrom } : {}),
-        },
-      ],
-    }) as unknown as SearchHit;
-
-  it('mention dates outrank validFrom as sort key and annotate lines', () => {
-    // Event dates (validFrom) say core-func came SECOND; mention dates
-    // say it was brought up FIRST — mention order must win.
-    const hits = [
-      mk('error_handling', '2024-01-10T00:00:00.000Z'),
-      mk('core_functionality', '2024-02-01T00:00:00.000Z'),
-    ];
-    const { factLines } = buildFactIndex(hits, {
-      chronological: true,
-      mentionDates: {
-        'knowledge_fact:error_handling': '2024-03-05T00:00:00.000Z',
-        'knowledge_fact:core_functionality': '2024-03-01T00:00:00.000Z',
-      },
-    });
-    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
-    expect(order).toEqual(['core_functionality', 'error_handling']);
-    expect(factLines[0]).toContain('[first mentioned: 2024-03-01]');
-  });
-
-  it('facts without a mention date fall back to validFrom, unannotated', () => {
-    const hits = [
-      mk('unmapped', '2024-01-05T00:00:00.000Z'),
-      mk('mapped', '2024-04-01T00:00:00.000Z'),
-    ];
-    const { factLines } = buildFactIndex(hits, {
-      chronological: true,
-      mentionDates: { 'knowledge_fact:mapped': '2024-02-01T00:00:00.000Z' },
-    });
-    const order = factLines.map((l) => /knowledge_fact:(\w+)/.exec(l)![1]);
-    expect(order).toEqual(['unmapped', 'mapped']);
-    expect(factLines[0]).not.toContain('first mentioned');
-  });
-
-  it('without mentionDates output is byte-identical to legacy', () => {
-    const hits = [mk('a', '2024-01-05T00:00:00.000Z')];
-    expect(buildFactIndex(hits, {}).factLines).toEqual(
-      buildFactIndex(hits, { mentionDates: undefined }).factLines,
-    );
-  });
-
-  it('ordering frame replaces the enumeration instruction', () => {
-    const base = {
-      query: 'Can you list the order in which I brought up aspects?',
-      factLines: ['[knowledge_fact:x] n — work: a (as of 2024-01-05)'],
-      answerLang: null as string | null,
-      lane: 'enumeration' as const,
-    };
-    const msg = buildGeneratorUserMessage({ ...base, ordering: true });
-    expect(msg).toContain(ORDERING_LANE_INSTRUCTION.trim());
-    expect(msg).not.toContain(ENUMERATION_LANE_INSTRUCTION.trim());
-    // ordering flag off → plain enumeration frame, byte-identical
-    expect(buildGeneratorUserMessage({ ...base, ordering: false })).toBe(
-      buildGeneratorUserMessage(base),
-    );
-  });
-});
-
 describe('T6/T2 wide probe', () => {
   afterEach(() => {
     delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
@@ -782,16 +463,13 @@ describe('T7 instruction lane', () => {
   afterEach(() => {
     delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
     delete process.env.SYNTHESIZE_INSTRUCTION_LANE;
-    delete process.env.SYNTHESIZE_LANES_DISABLED;
   });
 
-  it('instructionLaneEnabled requires router + flag, ablatable via t7', () => {
+  it('instructionLaneEnabled requires router + flag', () => {
     expect(instructionLaneEnabled()).toBe(false);
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
     process.env.SYNTHESIZE_INSTRUCTION_LANE = '1';
     expect(instructionLaneEnabled()).toBe(true);
-    process.env.SYNTHESIZE_LANES_DISABLED = 't7';
-    expect(instructionLaneEnabled()).toBe(false);
   });
 
   const hitWith = (facts: Array<[string, string]>) =>
@@ -910,12 +588,3 @@ describe('buildFactIndex recency marker (T5)', () => {
   });
 });
 
-describe('W5 — verification and citations cover the whole prompt', () => {
-  it('the ordering frame moves citations out of the list lines', () => {
-    // Audit #23: the general contract demands an inline [knowledge_fact:…]
-    // after every claim, but this frame's consumer splits on newlines —
-    // inline ids became scored list items.
-    expect(ORDERING_LANE_INSTRUCTION).toContain('Do NOT put citation markers');
-    expect(ORDERING_LANE_INSTRUCTION).toContain('citedFactIds');
-  });
-});

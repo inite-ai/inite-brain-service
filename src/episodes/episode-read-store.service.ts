@@ -284,29 +284,4 @@ export class EpisodeReadStoreService {
       return rows ?? [];
     });
   }
-
-  /**
-   * occurredAt (epoch ms) per episode id — dates only, no text, so no
-   * PII gate. Unparseable timestamps are dropped.
-   */
-  async occurredAtByIds(opts: {
-    companyId: string;
-    ids: string[];
-    db?: EpisodeDb;
-  }): Promise<Map<string, number>> {
-    if (opts.ids.length === 0) return new Map();
-    return this.run(opts.companyId, opts.db, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ id: unknown; occurredAt: Date | string }>]
-      >(`SELECT id, occurredAt FROM episode WHERE id INSIDE $ids`, {
-        ids: opts.ids.map((id) => new StringRecordId(id)),
-      });
-      const out = new Map<string, number>();
-      for (const r of rows ?? []) {
-        const t = new Date(r.occurredAt as string).getTime();
-        if (Number.isFinite(t)) out.set(String(r.id), t);
-      }
-      return out;
-    });
-  }
 }

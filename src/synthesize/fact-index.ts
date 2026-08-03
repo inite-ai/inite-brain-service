@@ -24,20 +24,6 @@ export interface FactIndexResult {
 }
 
 /**
- * T2b: "[first mentioned: …]" suffix plus the sort key for one fact,
- * from the earliest grounding-episode date; null when unknown so the
- * caller falls back to validFrom.
- */
-function mentionAnnotation(
-  mentionIso: string | undefined,
-): { suffix: string; t: number } | null {
-  if (!mentionIso) return null;
-  const t = Date.parse(mentionIso);
-  if (Number.isNaN(t)) return null;
-  return { suffix: ` [first mentioned: ${mentionIso.slice(0, 10)}]`, t };
-}
-
-/**
  * Build the (factId → Citation) lookup the generator/verifier consult,
  * plus a human-readable line-per-fact list rendered into the prompts.
  * No-IO, no DI — pure.
@@ -65,13 +51,6 @@ export function buildFactIndex(
      * STALE values; the marker makes recency selection a read-off.
      */
     markRecency?: boolean;
-    /**
-     * T2b mention-order: factId → earliest grounding-episode ISO date.
-     * Annotates each covered fact with "[first mentioned: …]" and makes
-     * that date the chronological sort key (validFrom is the EVENT date
-     * on derived facts — the wrong signal for "order brought up").
-     */
-    mentionDates?: Record<string, string>;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -90,13 +69,11 @@ export function buildFactIndex(
       const elapsed = opts?.elapsedAsOf
         ? formatElapsed(f.validFrom, opts.elapsedAsOf)
         : '';
-      const mention = mentionAnnotation(opts?.mentionDates?.[f.factId]);
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
-        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}${mention?.suffix ?? ''}`,
-        // Mention date outranks validFrom as the sort key when known.
-        t: mention ? mention.t : validT,
+        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
+        t: validT,
         slot: `${r.entityId}::${f.predicate}`,
         obj: f.object,
       });

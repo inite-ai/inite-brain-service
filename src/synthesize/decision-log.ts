@@ -11,8 +11,8 @@
  * before returning the response.
  *
  * Phase 1 scope:
- *  - per-fact scoring breakdown (fusedScore × decay × confidence × predBoost)
- *  - retrieval-stage provenance (hype | lexical | graph_seed | graph_neighbour
+ *  - per-fact scoring breakdown (fusedScore × decay × confidence)
+ *  - retrieval-stage provenance (vector | lexical | graph_seed | graph_neighbour
  *    | edge_expansion | ppr | backfill)
  *  - cited vs not-cited classification with deterministic rejection
  *    reason (no LLM judge — see PROV-AGENT 2025 / Attributing Response
@@ -90,7 +90,6 @@ export function buildDecisionLog(
           fusedScore: f.score,
           confidence: f.confidence,
           decay: 1,
-          predBoost: 1,
           finalScore: f.score,
           stages: [],
         } as ScoreBreakdown);

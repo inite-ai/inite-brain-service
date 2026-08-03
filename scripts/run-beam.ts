@@ -59,15 +59,6 @@ interface Args extends Record<string, unknown> {
   /** Resolve first-person questions to the speaker entity (B2 leg). */
   personaHint: boolean;
   /**
-   * 'synthetic' (default): fabricate asOf = last session +7d, the
-   * historical convention. 'none': send NO asOf — BEAM golds are
-   * event-to-event intervals with no notion of a question date (repo
-   * research 2026-07-31), so the fabricated anchor makes T1's
-   * distance-to-today annotations decoys; pair with
-   * SYNTHESIZE_TEMPORAL_EVENT_INTERVALS on the brain.
-   */
-  asofPolicy: string;
-  /**
    * BEAM official per-nugget grading alongside the strict binary judge:
    * partial-credit rubric items (event_ordering: aligned tau_norm) —
    * numbers comparable to the paper's tables. See beam/nugget-judge.ts
@@ -91,18 +82,16 @@ const FLAGS = {
   '--skip-ingest': { key: 'skipIngest', type: 'bool' },
   '--resume': { key: 'resume', type: 'string' },
   '--persona-hint': { key: 'personaHint', type: 'bool' },
-  '--asof-policy': { key: 'asofPolicy', type: 'string' },
   '--nugget-judge': { key: 'nuggetJudge', type: 'bool' },
 } as const;
 
 function toWorld(
   conv: BeamConversation,
   abilities: string[] | undefined,
-  opts: { personaHint: boolean; asofPolicy: string },
+  opts: { personaHint: boolean },
 ): EvalWorld {
-  const { personaHint, asofPolicy } = opts;
-  const askedAtIso =
-    asofPolicy === 'none' ? undefined : beamQuestionDateIso(conv);
+  const { personaHint } = opts;
+  const askedAtIso = beamQuestionDateIso(conv);
   const questions = conv.questions
     .filter((q) => !abilities?.length || abilities.includes(q.ability))
     .map((q) => ({
@@ -147,15 +136,9 @@ async function main() {
     judgeModel: process.env.LOCOMO_JUDGE_MODEL ?? 'gpt-4.1-mini',
     skipIngest: false,
     personaHint: false,
-    asofPolicy: 'synthetic',
     nuggetJudge: false,
   });
   if (!args.dataset) throw new Error('missing --dataset beam_100k.json');
-  if (!['synthetic', 'none'].includes(args.asofPolicy)) {
-    throw new Error(
-      `--asof-policy must be synthetic|none (got "${args.asofPolicy}")`,
-    );
-  }
   if ((args.judge || args.nuggetJudge) && !process.env.OPENAI_API_KEY)
     throw new Error('--judge/--nugget-judge requires OPENAI_API_KEY');
 
@@ -167,10 +150,7 @@ async function main() {
   );
   const worlds = picked
     .map((c) =>
-      toWorld(c, args.abilities, {
-        personaHint: args.personaHint,
-        asofPolicy: args.asofPolicy,
-      }),
+      toWorld(c, args.abilities, { personaHint: args.personaHint }),
     )
     .filter((w) => w.questions.length > 0);
   console.error(

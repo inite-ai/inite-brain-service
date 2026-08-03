@@ -43,8 +43,6 @@ export interface VerifyRequest {
   factLines: string[];
   /** Verbatim source turns the generator was allowed to answer from. */
   transcriptLines?: string[];
-  /** Precomputed date-interval rows (T1b) the answer may read off. */
-  intervalTable?: string[];
   model: string;
 }
 
@@ -54,25 +52,17 @@ export function buildVerifierUserMessage({
   answer,
   factLines,
   transcriptLines,
-  intervalTable,
 }: {
   query: string;
   answer: string;
   factLines: string[];
   transcriptLines?: string[];
-  intervalTable?: string[];
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {
     sections.push(
       `Source conversation turns (verbatim, equally valid support):\n` +
         transcriptLines.join('\n'),
-    );
-  }
-  if (intervalTable && intervalTable.length > 0) {
-    sections.push(
-      `Computed date intervals (derived from the dated facts above; ` +
-        `treat as supported):\n${intervalTable.join('\n')}`,
     );
   }
   return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;

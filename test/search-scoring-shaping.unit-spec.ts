@@ -36,9 +36,8 @@ function scored(f: FactRow, score: number): ScoredRow {
       fusedScore: score,
       confidence: f.confidence,
       decay: 1,
-      predBoost: 1,
       finalScore: score,
-      stages: ['hype'],
+      stages: ['vector'],
     },
   };
 }
@@ -145,7 +144,6 @@ describe('scoreRows chatter penalty', () => {
   it('demotes a said fact below a substantive fact at equal fusedScore', () => {
     const [said, pref] = scoreRows({
       rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
-      predicateDist: null,
       now: NOW,
       chatterPenalty: 0.35,
     });
@@ -158,7 +156,6 @@ describe('scoreRows chatter penalty', () => {
   it('penalty 1.0 (default/off) → byte-identical scores, no breakdown field', () => {
     const [said, pref] = scoreRows({
       rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
-      predicateDist: null,
       now: NOW,
     });
     expect(said.score).toBeCloseTo(pref.score, 10);
@@ -168,7 +165,6 @@ describe('scoreRows chatter penalty', () => {
   it('an out-of-range penalty (≥1) is treated as off', () => {
     const [said] = scoreRows({
       rows: [fused('said', 'x')],
-      predicateDist: null,
       now: NOW,
       chatterPenalty: 1.5,
     });

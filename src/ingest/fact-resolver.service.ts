@@ -201,21 +201,13 @@ export class FactResolverService {
     };
   }
 
-  /** HyPE alt-embedding follow-up + outcome metric — shared post-call tail. */
+  /** Outcome metric — shared post-call tail. */
   private async postResolve(
     db: Surreal,
     p: Parameters<FactResolverService['resolve']>[1],
     result: any,
   ): Promise<void> {
-    const factId = result?.factId ? String(result.factId) : null;
     const outcome = result?.outcome;
-    await this.factEmbedding.writeAltEmbeddingIfHype({
-      db,
-      factId,
-      outcome,
-      predicate: p.predicate,
-      object: p.object,
-    });
     if (p.recordOutcomeMetric && outcome) {
       this.metrics?.countIngestFact(String(outcome));
     }

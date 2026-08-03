@@ -30,7 +30,6 @@ import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { backfillEntityFacts } from './internals/backfill';
 import { selectFactCentric } from './internals/fact-centric';
-import { resolveOcclusion } from './internals/occlusion';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
 import {
@@ -376,17 +375,6 @@ export class SearchService {
       langFilter,
     });
 
-    // Router LLM (optional, budgeted) depends ONLY on the query text —
-    // kick it off alongside retrieval instead of awaiting it serially
-    // after merge/meta-union (a cache-miss added its full round-trip to
-    // the critical path). Awaited at stage 3 where its output is first
-    // consumed; .catch keeps a router failure from becoming an
-    // unhandled rejection while retrieval is still in flight (the
-    // router stage degrades to null on its own errors anyway).
-    const routerPromise = this.retrieval
-      .runRouterStage(ctx.dto.query)
-      .catch(() => null);
-
     // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
     const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
     if (langFilter && fused.length < ctx.candidateK / 2) {
@@ -453,14 +441,8 @@ export class SearchService {
       await enrichWithUsage(db, this.logger, filtered);
     }
 
-    // 3. Predicate / type router — launched in parallel with retrieval
-    // above; first consumed here.
-    const routerOut = await routerPromise;
-    const predicateDist = routerOut?.predicates ?? null;
-    const typeDist = routerOut?.types ?? null;
-
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
-    const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
+    const byEntity = this.retrieval.scoreAndBucket(filtered);
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
     // combined vector+graph leg ran, the vector-matched facts already carry
@@ -484,7 +466,6 @@ export class SearchService {
       db,
       byEntity,
       ctx,
-      typeDist,
     });
     // The rerank stage only ranks a bounded window (≤20 buckets). When the
     // caller asked for more (limit up to the DTO's @Max(100)), the reranked
@@ -546,23 +527,9 @@ export class SearchService {
           fallback: new Map<string, FactRow[]>(),
           logger: this.logger,
         });
-    // Occlusion ranking (SEARCH_OCCLUSION_ENABLED, default off): resolve
-    // knobs + fetch candidate embeddings in one bounded round-trip. Every
-    // candidate id here already passed the row policy (rowFilterFn /
-    // backfill passesPolicy), so the by-id fetch widens nothing.
     const factsPerEntity = factCentric
       ? factCentricBudget
       : positiveIntEnv('SEARCH_FACTS_PER_ENTITY', 5);
-    const occlusion = await resolveOcclusion({
-      db,
-      logger: this.logger,
-      topEntities,
-      backfillByEntity,
-      factsPerEntity,
-    });
-    if (occlusion) {
-      occlusion.onStats = (stats) => traceArtifact('search.occlusion', stats);
-    }
     const hits = assembleHits({
       topEntities,
       backfillByEntity,
@@ -574,7 +541,6 @@ export class SearchService {
       factsPerEntity,
       backfillPerPredicate: positiveIntEnv('SEARCH_BACKFILL_PER_PREDICATE', 1),
       query: ctx.dto.query,
-      occlusion,
     });
     rowPolicy.finish();
     return {

@@ -145,17 +145,3 @@ export function evidenceValidationError(evidence: unknown): string | null {
   return null;
 }
 
-/**
- * Gate for the HyPE post-INSERT alt-embedding UPDATE. We only generate +
- * write the hypothetical-question embedding when a fact was actually
- * INSERTED (not superseded/competed/rejected), HyPE is enabled, and we
- * have a concrete factId to UPDATE — otherwise we'd burn an LLM call on a
- * row that won't keep the embedding.
- */
-export function shouldWriteHypeAltEmbedding(
-  outcome: unknown,
-  hypeEnabled: boolean,
-  factId: string | null,
-): boolean {
-  return factId !== null && hypeEnabled && outcome === 'INSERTED';
-}

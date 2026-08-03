@@ -10,12 +10,6 @@ import { envFlagEnabled } from '../../common/env-validation';
  * needed. We deliberately don't add `FETCH entityId` — that would
  * overwrite the `entityId` field in-place with the entity object,
  * breaking `String(row.entityId)` for the grouping pass.
- *
- * HyPE: `altEmbedding` is the embedding of a hypothetical question
- * the fact answers (migration 0008). We take max(cos_main, cos_alt)
- * to close the question→statement gap without paying an LLM rewrite
- * on the read path. NONE alt (legacy facts or HyPE disabled)
- * contributes -1 so it never wins the max.
  */
 /**
  * Combined vector+graph: fold the fact's entity neighbourhood into the KNN
@@ -72,10 +66,7 @@ export async function runVectorLeg({
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${COMBINED_GRAPH_PROJECTION}
-        math::max([
-          vector::similarity::cosine(embedding, $q),
-          IF altEmbedding != NONE THEN vector::similarity::cosine(altEmbedding, $q) ELSE -1 END
-        ]) AS simScore
+        vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
       WHERE embedding != NONE
         ${baseWhere.sql}
@@ -91,13 +82,11 @@ export async function runVectorLeg({
 }
 
 /**
- * HNSW KNN variant of the vector leg. Two KNN queries — the main
- * `embedding` index and the HyPE `altEmbedding` index — merged by max
- * cosine, mirroring the full scan's `math::max(cos, altCos)`. The KNN
- * operator picks candidates BEFORE the WHERE filters apply, so both
- * queries over-fetch (`SEARCH_HNSW_OVERFETCH × k`, capped 1000) to keep
- * filtered recall up; `SEARCH_HNSW_EF` is the HNSW search width. Throws
- * when the tenant has no index — the caller falls back to the scan.
+ * HNSW KNN variant of the vector leg. The KNN operator picks candidates
+ * BEFORE the WHERE filters apply, so the query over-fetches
+ * (`SEARCH_HNSW_OVERFETCH × k`, capped 1000) to keep filtered recall
+ * up; `SEARCH_HNSW_EF` is the HNSW search width. Throws when the tenant
+ * has no index — the caller falls back to the scan.
  */
 async function runVectorLegKnn({
   db,
@@ -119,79 +108,22 @@ async function runVectorLegKnn({
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
-  const [mainRows, altRows] = await Promise.all([
-    db
-      .query<[FactRow[]]>(
-        `SELECT ${projection},
-                vector::similarity::cosine(embedding, $q) AS simScore
-           FROM knowledge_fact
-           WHERE embedding <|${kOver},${ef}|> $q
-             ${baseWhere.sql}
-           ORDER BY simScore DESC
-           LIMIT $k`,
-        { ...baseWhere.params, q: queryEmbedding, k },
-      )
-      .then(([rows]) => (rows as FactRow[]) ?? []),
-    db
-      .query<[FactRow[]]>(
-        `SELECT ${projection},
-                vector::similarity::cosine(altEmbedding, $q) AS simScore
-           FROM knowledge_fact
-           WHERE altEmbedding <|${kOver},${ef}|> $q
-             ${baseWhere.sql}
-           ORDER BY simScore DESC
-           LIMIT $k`,
-        { ...baseWhere.params, q: queryEmbedding, k },
-      )
-      .then(([rows]) => (rows as FactRow[]) ?? []),
-  ]);
-  // Max-cosine merge across the two indexes — same semantics as the full
-  // scan's math::max; no stage tag, both are the plain vector leg.
-  const byId = new Map<string, FactRow>();
-  for (const r of mainRows) byId.set(String(r.id), r);
-  for (const r of altRows) {
-    const key = String(r.id);
-    const prior = byId.get(key);
-    if (!prior) byId.set(key, r);
-    else if ((r.simScore ?? -1) > (prior.simScore ?? -1)) {
-      prior.simScore = r.simScore;
-    }
-  }
-  return [...byId.values()]
-    .sort((a, b) => (b.simScore ?? -1) - (a.simScore ?? -1))
-    .slice(0, k);
+  const [rows] = await db.query<[FactRow[]]>(
+    `SELECT ${projection},
+            vector::similarity::cosine(embedding, $q) AS simScore
+       FROM knowledge_fact
+       WHERE embedding <|${kOver},${ef}|> $q
+         ${baseWhere.sql}
+       ORDER BY simScore DESC
+       LIMIT $k`,
+    { ...baseWhere.params, q: queryEmbedding, k },
+  );
+  return (rows as FactRow[]) ?? [];
 }
 
 function positiveIntEnv(name: string, fallback: number): number {
   const v = parseInt(process.env[name] ?? '', 10);
   return Number.isFinite(v) && v > 0 ? v : fallback;
-}
-
-/**
- * Merge alternative-query vector hits into the primary vector leg's
- * rows: a fact both legs found keeps one row with the max simScore; a
- * fact only a reformulation found joins the pool pre-tagged
- * 'query_expansion' so DecisionLog can attribute it (fusion appends its
- * own 'hype' tag after — insertion order keeps expansion dominant).
- */
-export function mergeVectorRows(
-  primary: FactRow[],
-  altRows: FactRow[],
-): FactRow[] {
-  const byId = new Map<string, FactRow>();
-  for (const r of primary) byId.set(String(r.id), r);
-  for (const r of altRows) {
-    const key = String(r.id);
-    const prior = byId.get(key);
-    if (prior) {
-      if ((r.simScore ?? -1) > (prior.simScore ?? -1)) {
-        prior.simScore = r.simScore;
-      }
-    } else {
-      byId.set(key, { ...r, stages: ['query_expansion'] });
-    }
-  }
-  return [...byId.values()];
 }
 
 /**

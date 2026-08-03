@@ -10,9 +10,8 @@
  * to the provenance activity that found it (HippoRAG/PROV-style).
  */
 export type RetrievalStage =
-  | 'hype'
+  | 'vector'
   | 'lexical'
-  | 'query_expansion'
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'
@@ -96,7 +95,7 @@ export interface FactRow {
   lastReadAt?: string;
   /**
    * Set of stages that surfaced this row. Multi-stage hits are common
-   * (e.g. hype + graph_seed) — the set lets DecisionLog show every
+   * (e.g. vector + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.
    */
   stages?: RetrievalStage[];
@@ -108,7 +107,7 @@ export type FusedRow = FactRow & { fusedScore: number };
  * Per-fact score breakdown — every multiplicative component is kept
  * separate so the DecisionLog can show why this fact beat the others.
  *
- *  Phase 1 fields: fusedScore, confidence, decay, predBoost, finalScore,
+ *  Phase 1 fields: fusedScore, confidence, decay, finalScore,
  *                  stages.
  *  Phase 3 additions: calibratedConfidence (isotonic-mapped raw),
  *                  extractionEntropy (semantic entropy across N
@@ -128,7 +127,6 @@ export interface ScoreBreakdown {
   /** Phase 3.C: conformal p-value for the synthesize-side guardrail. */
   conformalPValue?: number;
   decay: number;
-  predBoost: number;
   /**
    * Sub-1.0 chatter demotion applied to `said` facts (SEARCH_CHATTER_PENALTY).
    * Omitted when 1.0 (no penalty) so unpenalised rows are byte-identical.

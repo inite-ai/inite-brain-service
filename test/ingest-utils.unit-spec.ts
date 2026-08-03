@@ -3,7 +3,6 @@ import {
   externalRefKey,
   redactPii,
   sourceTrustFor,
-  shouldWriteHypeAltEmbedding,
   evidenceValidationError,
 } from '../src/ingest/ingest-utils';
 import { SOURCE_TRUST } from '../src/ingest/conflict-resolver';
@@ -89,32 +88,6 @@ describe('sourceTrustFor', () => {
     expect(
       sourceTrustFor({ vertical: 'x', eventId: 'billing.x', messageId: 'm1' }),
     ).toBe(SOURCE_TRUST.billing_event);
-  });
-});
-
-describe('shouldWriteHypeAltEmbedding', () => {
-  it('is true only for an INSERTED outcome with HyPE enabled and a factId', () => {
-    expect(shouldWriteHypeAltEmbedding('INSERTED', true, 'fact:1')).toBe(true);
-  });
-
-  it('is false when HyPE is disabled', () => {
-    expect(shouldWriteHypeAltEmbedding('INSERTED', false, 'fact:1')).toBe(false);
-  });
-
-  it('is false when there is no factId', () => {
-    expect(shouldWriteHypeAltEmbedding('INSERTED', true, null)).toBe(false);
-  });
-
-  it('is false for non-INSERTED outcomes (no embedding burned on supersede/compete/reject)', () => {
-    for (const outcome of [
-      'SUPERSEDED',
-      'COMPETING',
-      'REJECTED',
-      undefined,
-      null,
-    ]) {
-      expect(shouldWriteHypeAltEmbedding(outcome, true, 'fact:1')).toBe(false);
-    }
   });
 });
 

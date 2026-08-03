@@ -2,10 +2,6 @@ import {
   envFlagEnabled,
   envFlagNotDisabled,
 } from '../common/env-validation';
-import {
-  parseDisabledLanes,
-  type DispatchLane,
-} from './lanes-disabled';
 import type { SearchHit } from '../search/search.service';
 
 /**
@@ -28,6 +24,18 @@ import type { SearchHit } from '../search/search.service';
  */
 
 export type AnswerLane = 'temporal' | 'enumeration' | 'preference' | 'summary';
+
+/**
+ * Every lane of the typed dispatcher — the four detectable AnswerLanes
+ * plus the three evidence-conditional lanes (contradiction, recency,
+ * instruction) that fire on evidence shape rather than query shape.
+ * Becomes the LaneId of the first-class Lane registry (S3).
+ */
+export type DispatchLane =
+  | AnswerLane
+  | 'contradiction'
+  | 'recency'
+  | 'instruction';
 
 const UNIT = '(?:day|week|month|year)s?';
 /**
@@ -136,24 +144,15 @@ export function routerEnabled(): boolean {
   return envFlagEnabled(process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
 }
 
-/**
- * Per-lane ablation set (SYNTHESIZE_LANES_DISABLED=t3,t5 …): a disabled
- * lane behaves as if it was never built — its patterns are skipped
- * during detection, so the query falls through to later lexicons or the
- * legacy path. Unknown tokens are rejected at boot (env-validation).
- */
-export function disabledLanes(): ReadonlySet<DispatchLane> {
-  return parseDisabledLanes(process.env.SYNTHESIZE_LANES_DISABLED).lanes;
-}
-
-/** Router on AND the specific lane not ablated. */
-export function laneEnabled(lane: DispatchLane): boolean {
-  return routerEnabled() && !disabledLanes().has(lane);
+/** Router on → the lane is live. Per-lane ablation is a git branch,
+ *  not a runtime token list (owner directive 2026-08-03). */
+export function laneEnabled(_lane: DispatchLane): boolean {
+  return routerEnabled();
 }
 
 /** Flag-gated entry: null (legacy path) unless the router is enabled. */
 export function routeLane(query: string): AnswerLane | null {
-  return routerEnabled() ? detectLane(query, disabledLanes()) : null;
+  return routerEnabled() ? detectLane(query) : null;
 }
 
 /** Detection order IS precedence: temporal wins over enumeration, etc. */
@@ -172,44 +171,14 @@ const LANE_LEXICONS: Array<{
   { lane: 'summary', base: SUMMARY_PATTERNS },
 ];
 
-export function detectLane(
-  query: string,
-  skip?: ReadonlySet<DispatchLane>,
-): AnswerLane | null {
+export function detectLane(query: string): AnswerLane | null {
   const q = query ?? '';
   const v2 = lexiconV2Enabled();
   for (const { lane, base, v2: extra } of LANE_LEXICONS) {
-    if (skip?.has(lane) === true) continue;
     const patterns = v2 && extra ? [...base, ...extra] : base;
     if (patterns.some((p) => p.test(q))) return lane;
   }
   return null;
-}
-
-/**
- * T2b first-mention ordering: the subset of enumeration questions that
- * ask for the ORDER topics were brought up (BEAM event_ordering: golds
- * are ordered lists of topic introductions, scored by Kendall tau over
- * an LLM-aligned list; the response is split on newlines). Gated by
- * SYNTHESIZE_ORDERING_FIRST_MENTION on top of the enumeration lane.
- */
-const ORDERING_PATTERNS: RegExp[] = [
-  /in (?:what|which) order\b/i,
-  /\border in which\b/i,
-  /\bwalk me through the order\b/i,
-  /\b(?:list|name) the order\b/i,
-];
-
-export function detectOrderingShape(query: string): boolean {
-  const q = query ?? '';
-  return ORDERING_PATTERNS.some((p) => p.test(q));
-}
-
-export function orderingFirstMentionEnabled(): boolean {
-  return (
-    laneEnabled('enumeration') &&
-    envFlagEnabled(process.env.SYNTHESIZE_ORDERING_FIRST_MENTION)
-  );
 }
 
 /**
@@ -405,65 +374,6 @@ export function formatElapsed(
   return ` [elapsed: ${renderDiffParts(diff)} before today]`;
 }
 
-export function temporalIntervalsEnabled(): boolean {
-  return (
-    laneEnabled('temporal') &&
-    envFlagEnabled(process.env.SYNTHESIZE_TEMPORAL_EVENT_INTERVALS)
-  );
-}
-
-/** Distinct evidence dates entering the pair table (first-seen wins). */
-const INTERVAL_TABLE_MAX_DATES = 10;
-
-/**
- * T1b event-interval table (SYNTHESIZE_TEMPORAL_EVENT_INTERVALS): the
- * pairwise calendar difference between every two distinct dates in the
- * evidence, computed in code. Event-anchored benchmarks (BEAM) ask the
- * time BETWEEN two events and their golds carry no notion of "today" —
- * distance-to-today annotations are decoys there; the expected answer
- * shape is "N units, from DATE1 till DATE2", which reads straight off
- * a pair row. Dates cap at first-seen (evidence ≈ relevance) order.
- */
-export function buildIntervalTable(results: SearchHit[]): string[] {
-  const days: string[] = [];
-  const seen = new Set<string>();
-  for (const r of results) {
-    for (const f of r.facts) {
-      const iso = (f as { validFrom?: string }).validFrom;
-      if (!iso) continue;
-      const t = Date.parse(iso);
-      if (Number.isNaN(t) || t === 0) continue;
-      const day = new Date(t).toISOString().slice(0, 10);
-      if (seen.has(day)) continue;
-      seen.add(day);
-      if (days.length < INTERVAL_TABLE_MAX_DATES) days.push(day);
-    }
-  }
-  days.sort();
-  const lines: string[] = [];
-  for (let i = 0; i < days.length; i += 1) {
-    for (let j = i + 1; j < days.length; j += 1) {
-      const from = Date.parse(`${days[i]}T00:00:00.000Z`);
-      const to = Date.parse(`${days[j]}T00:00:00.000Z`);
-      lines.push(
-        `${days[i]} → ${days[j]}: ${renderDiffParts(calendarDiff(from, to))}`,
-      );
-    }
-  }
-  return lines;
-}
-
-/** T1b frame: intervals are read off the table, never recomputed. */
-export const TEMPORAL_INTERVAL_INSTRUCTION =
-  'This is a temporal-interval question about the time between two ' +
-  'events. The date-interval table below lists the precomputed ' +
-  'calendar difference between every pair of dates present in the ' +
-  'facts. Identify the two events the question refers to, find their ' +
-  'dates in the facts, and READ the interval off the table — do NOT ' +
-  'compute calendar arithmetic yourself. Answer with the interval in ' +
-  'the unit the question asks for and name both dates (from DATE1 ' +
-  'till DATE2).\n';
-
 /** Generator instruction appended for the temporal lane. */
 export const TEMPORAL_LANE_INSTRUCTION =
   'This is a temporal-distance question. Dated facts carry precomputed ' +
@@ -509,43 +419,6 @@ export const PREFERENCE_LANE_INSTRUCTION =
   'to the request; then condition your suggestion on them explicitly, ' +
   'naming which stored preference you applied. A generic recommendation ' +
   'that ignores a stated preference is a wrong answer.\n';
-
-/**
- * T2b frame: the facts are sorted and annotated by FIRST MENTION (when
- * the topic was brought up in conversation), which is the asked-for
- * order — event dates inside the propositions are decoys whenever
- * events were narrated out of order. The newline-separated shape
- * matches how ordering answers are consumed (BEAM splits the response
- * on newlines; extra prose becomes spurious list items).
- *
- * v2 after the 2026-08-03 B1 leg: the v1 frame said "short topic
- * labels … cluster into broader topics" and the generator obeyed —
- * answers degenerated into contentless category labels ("error
- * handling", "API integration") that align with NO rubric item
- * (tau_norm 0.378→0.174, F1 0.142→0.065, binary 7.5→0.0). Specificity
- * must survive the list shape: one line per item, concrete payload
- * kept, generic labels banned.
- */
-export const ORDERING_LANE_INSTRUCTION =
-  'This is a mention-order question: it asks the order in which topics ' +
-  'were BROUGHT UP in conversation, not the order events happened. The ' +
-  'facts are sorted by their [first mentioned: …] annotations — derive ' +
-  'the order from those annotations only; ignore event dates inside the ' +
-  'fact text. Answer as a newline-separated list in first-mention ' +
-  'order, one item per line, no preamble and no numbering. Each line ' +
-  'must name the SPECIFIC thing discussed — keep the concrete names, ' +
-  'numbers, tools and identifiers from the facts; never compress items ' +
-  'into generic category labels ("error handling", "optimization"). If ' +
-  'the question asks for exactly N items, merge only the most closely ' +
-  'related items until N remain, keeping every merged line specific.\n' +
-  // Citation mode (audit W5 #23): the general contract demands an inline
-  // [knowledge_fact:…] after every claim, but this frame's consumer
-  // splits the response on newlines — inline ids would become scored
-  // list items. Citations move OUT of the lines and into citedFactIds,
-  // which stays fully populated, so provenance survives the shape.
-  'Do NOT put citation markers inside the list lines: leave the lines ' +
-  'clean and put every factId you used into the citedFactIds array ' +
-  'instead.\n';
 
 /** T6 staged-narrative frame over chronologically sorted facts. */
 export const SUMMARY_LANE_INSTRUCTION =

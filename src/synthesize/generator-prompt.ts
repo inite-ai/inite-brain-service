@@ -1,8 +1,6 @@
 import {
   TEMPORAL_LANE_INSTRUCTION,
-  TEMPORAL_INTERVAL_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
-  ORDERING_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
   PREFERENCE_LANE_INSTRUCTION,
   SUMMARY_LANE_INSTRUCTION,
@@ -25,8 +23,6 @@ export function buildGeneratorUserMessage({
   answerLang,
   dateContext,
   lane,
-  ordering,
-  intervalTable,
   instructions,
   conflicts,
 }: {
@@ -38,10 +34,6 @@ export function buildGeneratorUserMessage({
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
   lane?: AnswerLane | null;
-  /** T2b: mention-order frame replaces the enumeration instruction. */
-  ordering?: boolean;
-  /** T1b: precomputed pairwise date-interval lines (event-anchored). */
-  intervalTable?: string[];
   /** T7: standing user instructions rendered as their own section. */
   instructions?: string[];
   /** T3: write-side COMPETING conflict pairs present in the evidence. */
@@ -56,18 +48,12 @@ export function buildGeneratorUserMessage({
     : '';
   const laneInstruction =
     lane === 'enumeration'
-      ? ordering
-        ? ORDERING_LANE_INSTRUCTION
-        : ENUMERATION_LANE_INSTRUCTION
+      ? ENUMERATION_LANE_INSTRUCTION
       : lane === 'preference'
         ? PREFERENCE_LANE_INSTRUCTION
         : lane === 'summary'
           ? SUMMARY_LANE_INSTRUCTION
           : '';
-  const intervalSection =
-    intervalTable && intervalTable.length > 0
-      ? `${TEMPORAL_INTERVAL_INSTRUCTION}Date-interval table (computed):\n${intervalTable.join('\n')}\n`
-      : '';
   const instructionSection =
     instructions && instructions.length > 0
       ? `${STANDING_INSTRUCTIONS_INSTRUCTION}Standing instructions:\n${instructions
@@ -84,5 +70,5 @@ export function buildGeneratorUserMessage({
     transcriptLines && transcriptLines.length > 0
       ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${laneInstruction}${intervalSection}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
 }

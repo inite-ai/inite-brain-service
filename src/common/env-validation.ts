@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { isProcessRole, normalizeProcessRole } from './process-role';
-import { parseDisabledLanes } from '../synthesize/lanes-disabled';
 
 const log = new Logger('EnvValidation');
 
@@ -130,13 +129,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SEARCH_FACTS_PER_ENTITY', errors);
   positiveInt(env, 'SEARCH_BACKFILL_PER_PREDICATE', errors);
 
-  // ── Occlusion ranking (front-to-back fact selection, flag-gated) ───
-  // Threshold is read with a (0,1] clamp; nonNegativeFloat only guards
-  // the "is a number" contract. DATE_GUARD_DAYS: 0 = guard disabled.
-  nonNegativeFloat(env, 'SEARCH_OCCLUSION_THRESHOLD', errors);
-  positiveInt(env, 'SEARCH_OCCLUSION_WINDOW', errors);
-  nonNegativeInt(env, 'SEARCH_OCCLUSION_DATE_GUARD_DAYS', errors);
-
   // ── Phase A read-path (typed-memory roadmap 2026-07) ───────────────
   positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
   positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
@@ -144,8 +136,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', errors);
   positiveInt(env, 'SEARCH_SEGMENT_LANE_TOPK', errors);
 
-  // ── Read-side query expansion ──────────────────────────────────────
-  positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
   positiveInt(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', errors);
 
   // ── Agent-in-loop QA ───────────────────────────────────────────────
@@ -204,9 +194,6 @@ validateAbacEnv(env, errors);
 
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
-
-  // ── Typed-dispatch per-lane ablation ───────────────────────────────
-  validateLanesDisabled(env, errors);
 
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
@@ -275,23 +262,6 @@ function validateProductionGuards(
       'THROTTLE_DISABLED=1 is a test-only flag and must not be set in ' +
         'production — it disables all rate limiting, including the ' +
         'expensive OpenAI-budget caps.',
-    );
-  }
-}
-
-/**
- * SYNTHESIZE_LANES_DISABLED drives one-variable-per-leg eval ablations;
- * an unnoticed typo ("t7", "recensy") would silently ablate NOTHING and
- * the leg would measure the full dispatcher — reject unknown tokens.
- */
-function validateLanesDisabled(env: NodeJS.ProcessEnv, errors: string[]): void {
-  if (env.SYNTHESIZE_LANES_DISABLED === undefined) return;
-  const { unknown } = parseDisabledLanes(env.SYNTHESIZE_LANES_DISABLED);
-  if (unknown.length > 0) {
-    errors.push(
-      `SYNTHESIZE_LANES_DISABLED contains unknown lane tokens: ` +
-        `${unknown.join(', ')} (known: t1..t7 or temporal, enumeration, ` +
-        `contradiction, preference, recency, summary, instruction)`,
     );
   }
 }
@@ -427,10 +397,6 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
 const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
-  // Occlusion ranking: a kept higher-ranked fact suppresses ≥-threshold
-  // cosine near-duplicates globally across hits; freed per-entity slots
-  // refill with the next non-duplicate facts (read-path, no writes).
-  'SEARCH_OCCLUSION_ENABLED',
   // Phase A read-path (typed-memory roadmap): facts compete globally for
   // the window instead of entities; multi-hop hands its hop evidence to
   // synthesis; the generator gets an anchored "today" for date arithmetic.
@@ -440,12 +406,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   // T1 typed dispatch: lexical answer-lane router (temporal-distance lane
   // computes elapsed intervals in code and forces the date anchor).
   'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
-  // T2b: mention-order questions sort/annotate evidence by earliest
-  // grounding-episode date and force a bare ordered-list answer shape.
-  'SYNTHESIZE_ORDERING_FIRST_MENTION',
-  // T1b: temporal lane renders a pairwise date-interval table (event-
-  // anchored benchmarks: no "today", answers read off the pair rows).
-  'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
   // T6/T2 wide probe: PRF second retrieval for summary/enumeration
   // lanes — recall breadth that a render frame alone cannot provide.
   'SYNTHESIZE_LANE_WIDE_PROBE',
@@ -500,7 +460,6 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   'SEARCH_RERANKER_ENABLED',
-  'SEARCH_HYPE_ENABLED',
   // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false disables the offload.
   'SEARCH_TOKEN_COUNT_OFFLOAD',

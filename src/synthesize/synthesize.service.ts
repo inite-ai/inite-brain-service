@@ -20,10 +20,6 @@ import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import {
   routeLane,
   laneEnabled,
-  detectOrderingShape,
-  orderingFirstMentionEnabled,
-  temporalIntervalsEnabled,
-  buildIntervalTable,
   laneProbeDto,
   instructionLaneEnabled,
   INSTRUCTION_PROBE_QUERY,
@@ -305,12 +301,6 @@ export class SynthesizeService {
     );
 
     const answerMode = guardrails === 'answer';
-    const { ordering, mentionDates } = await this.resolveMentionOrder({
-      lane,
-      query: dto.query,
-      companyId,
-      evidence,
-    });
     const instructions = await this.collectStandingInstructions({
       companyId,
       callerScopes,
@@ -324,10 +314,8 @@ export class SynthesizeService {
       chronological: lane === 'enumeration' || lane === 'summary',
       // T5: recency marker on the newest fact of multi-statement slots
       // (knowledge-update misses answer STALE values) — active for any
-      // routed request, independent of lane (ablatable via
-      // SYNTHESIZE_LANES_DISABLED=t5).
+      // routed request, independent of lane.
       markRecency: laneEnabled('recency'),
-      mentionDates,
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
@@ -373,13 +361,6 @@ export class SynthesizeService {
               // meaningless without a stated "today".
               dateContext: resolveLaneDateContext(lane, dto.asOf),
               lane,
-              ordering,
-              // T1b: event-anchored interval questions read pairwise
-              // date differences off a precomputed table.
-              intervalTable:
-                lane === 'temporal' && temporalIntervalsEnabled()
-                  ? buildIntervalTable(results)
-                  : undefined,
               // T7: standing instructions in their own section.
               instructions,
               // T3: evidence-conditional — fires on write-side COMPETING
@@ -474,10 +455,6 @@ export class SynthesizeService {
               // faithfulness scoring. It now audits against the same
               // evidence the generator was given.
               transcriptLines,
-              intervalTable:
-                lane === 'temporal' && temporalIntervalsEnabled()
-                  ? buildIntervalTable(results)
-                  : undefined,
               model,
             }),
           ),
@@ -607,36 +584,6 @@ export class SynthesizeService {
   }
 
   /**
-   * T2b: mention-order questions sort/annotate by FIRST MENTION
-   * (earliest grounding episode) — validFrom carries the EVENT date on
-   * derived facts, the wrong signal for "order brought up". Off (flag,
-   * non-ordering shape, or unrouted) → { ordering: false }, zero IO.
-   */
-  private async resolveMentionOrder({
-    lane,
-    query,
-    companyId,
-    evidence,
-  }: {
-    lane: AnswerLane | null;
-    query: string;
-    companyId: string;
-    evidence: SearchHit[];
-  }): Promise<{ ordering: boolean; mentionDates?: Record<string, string> }> {
-    const ordering =
-      lane === 'enumeration' &&
-      detectOrderingShape(query) &&
-      orderingFirstMentionEnabled();
-    if (!ordering) return { ordering: false };
-    const mentionDates =
-      (await this.episodeLane?.mentionDates({
-        companyId,
-        factIds: evidence.flatMap((h) => h.facts.map((f) => f.factId)),
-      })) ?? {};
-    return { ordering: true, mentionDates };
-  }
-
-  /**
    * T7: standing user instructions for the prompt's dedicated section.
    * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
    * route can fire): a fixed probe pulls instruction-shaped facts,
@@ -718,20 +665,12 @@ export class SynthesizeService {
       chronological?: boolean;
       /** T5: mark the newest fact of multi-statement slots. */
       markRecency?: boolean;
-      /** T2b: factId → earliest grounding-episode ISO date. */
-      mentionDates?: Record<string, string>;
     },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
-    const {
-      answerMode,
-      explain,
-      elapsedAsOf,
-      chronological,
-      markRecency,
-      mentionDates,
-    } = opts;
+    const { answerMode, explain, elapsedAsOf, chronological, markRecency } =
+      opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
       // point is to commit to a best-effort answer instead of abstaining
@@ -761,7 +700,6 @@ export class SynthesizeService {
       elapsedAsOf,
       chronological,
       markRecency,
-      mentionDates,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
@@ -787,8 +725,6 @@ export class SynthesizeService {
     neverAbstain = false,
     dateContext,
     lane,
-    ordering,
-    intervalTable,
     instructions,
     conflicts,
   }: {
@@ -803,10 +739,6 @@ export class SynthesizeService {
     dateContext?: string;
     /** T1 typed dispatch lane, when the router matched. */
     lane?: AnswerLane | null;
-    /** T2b: mention-order frame for ordering-shaped enumeration. */
-    ordering?: boolean;
-    /** T1b: precomputed pairwise date-interval lines. */
-    intervalTable?: string[];
     /** T7: standing user instructions for their own section. */
     instructions?: string[];
     /** T3: COMPETING conflict pairs detected in the evidence. */
@@ -822,8 +754,6 @@ export class SynthesizeService {
       answerLang,
       dateContext,
       lane,
-      ordering,
-      intervalTable,
       instructions,
       conflicts,
     });
@@ -916,7 +846,6 @@ export class SynthesizeService {
     answer: string;
     factLines: string[];
     transcriptLines?: string[];
-    intervalTable?: string[];
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

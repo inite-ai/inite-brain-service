@@ -161,22 +161,6 @@ describe('validateEnv — ABAC boolean flags', () => {
   });
 });
 
-describe('validateEnv — SYNTHESIZE_LANES_DISABLED', () => {
-  it('accepts known lane tokens, aliases, and unset', () => {
-    for (const v of [undefined, 't3,t5', 'temporal', ' T1 , summary ', '']) {
-      const env = baseProdEnv();
-      if (v !== undefined) env.SYNTHESIZE_LANES_DISABLED = v;
-      expect(() => validateEnv(env)).not.toThrow();
-    }
-  });
-
-  it('rejects unknown tokens (a typo would silently ablate nothing)', () => {
-    const env = baseProdEnv();
-    env.SYNTHESIZE_LANES_DISABLED = 't3,t9';
-    expect(() => validateEnv(env)).toThrow(/SYNTHESIZE_LANES_DISABLED.*t9/s);
-  });
-});
-
 describe('validateEnv — PROCESS_ROLE', () => {
   // Full mapping coverage lives in test/process-role.unit-spec.ts;
   // this block keeps the validation walk itself covered alongside

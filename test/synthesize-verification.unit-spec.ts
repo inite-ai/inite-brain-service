@@ -84,7 +84,7 @@ const HITS = [
 ] as never;
 
 describe('verifier sees the whole evidence bundle (W5 #22)', () => {
-  it('transcript quotes and the interval table reach the auditor prompt', async () => {
+  it('transcript quotes reach the auditor prompt', async () => {
     const captured: Captured[] = [];
     const svc = makeService({
       generatorContent: JSON.stringify({
@@ -102,14 +102,12 @@ describe('verifier sees the whole evidence bundle (W5 #22)', () => {
       answer: 'You suggested a token bucket',
       factLines: ['[knowledge_fact:f1] activities: …'],
       transcriptLines: ['[2026-01-01] Assistant: use a token bucket'],
-      intervalTable: ['2026-01-01 → 2026-02-01 = 31 days'],
       model: 'gpt-4o-mini',
     });
     const verifier = captured.find((c) => c.system.includes('auditor'));
     expect(verifier).toBeDefined();
     expect(verifier?.user).toContain('Source conversation turns');
     expect(verifier?.user).toContain('use a token bucket');
-    expect(verifier?.user).toContain('Computed date intervals');
     expect(verifier?.system).toContain('ALL sections count as support');
   });
 

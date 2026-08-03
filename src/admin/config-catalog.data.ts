@@ -339,13 +339,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
       },
       {
-        key: 'SEARCH_PREDICATE_ROUTER_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-      },
-      {
         key: 'SEARCH_TOKEN_COUNT_OFFLOAD',
         category: 'search',
         defaultValue: '1',
@@ -708,15 +701,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
       },
       {
-        key: 'SEARCH_QUERY_EXPANSION_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-        description:
-          'LLM rewrites the query into N variants before search. Fails open to the raw query on error.',
-      },
-      {
         key: 'SEARCH_USAGE_RECORDING_ENABLED',
         category: 'search',
         defaultValue: '0',
@@ -793,42 +777,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Max backfill facts per predicate per entity. 1 = the historical one-fact-per-novel-predicate rule; 2 lets a crisp same-predicate fact surface when another already matched.',
-      },
-      {
-        key: 'SEARCH_OCCLUSION_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Occlusion ranking: fill hit fact-windows front-to-back by score, where a kept fact suppresses later candidates whose embedding cosine is at or above SEARCH_OCCLUSION_THRESHOLD (globally across hits); each freed per-entity slot refills with the next non-duplicate fact, converting redundancy into coverage at the same context size. Read-path only; costs one bounded embedding fetch per search.',
-      },
-      {
-        key: 'SEARCH_OCCLUSION_THRESHOLD',
-        category: 'search',
-        defaultValue: '0.9',
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Cosine at or above which a kept fact occludes a candidate, clamp (0,1]. Basis-dependent: retune when the fact-embedding text changes (INGEST_CONTEXTUAL_FACT_EMBEDDING).',
-      },
-      {
-        key: 'SEARCH_OCCLUSION_WINDOW',
-        category: 'search',
-        defaultValue: '24',
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Candidate rows per entity (matched and backfill each) considered by occlusion — bounds the embedding fetch and the refill depth.',
-      },
-      {
-        key: 'SEARCH_OCCLUSION_DATE_GUARD_DAYS',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Temporal ablation guard: occlusion only fires between facts whose validFrom differ by at most N days, so recurring dated events keep their distinct evidence lines. 0 = guard off (any distance occludes).',
       },
       {
         key: 'SEARCH_FACT_CENTRIC_ENABLED',
@@ -1002,15 +950,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Router lexicon v2: adds first-person perfect temporal shapes ("how long have/had I been…") and "what is/was the order of…" enumeration shapes. Gaps measured on the LME-500 router-ON leg: 55/109 judged temporal questions missed every base pattern (25.5% unrouted accuracy). DEFAULT ON (2026-08 engine wave); set 0 to restore the v1 lexicon as an ablation leg.',
       },
       {
-        key: 'SYNTHESIZE_TEMPORAL_EVENT_INTERVALS',
-        category: 'pipeline',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'T1b event-interval program: the temporal lane renders a pairwise date-interval table (calendar difference between every two distinct evidence dates, computed in code) and frames the generator to read the asked interval off the table and name both dates. For event-anchored corpora (BEAM: golds are event-to-event intervals with NO notion of "today" — rubrics expect "N units, from DATE1 till DATE2"); pair with the harness --asof-policy none so no fabricated asOf produces decoy distance-to-today annotations. Requires the answer router; rides the temporal lane.',
-      },
-      {
         key: 'EPISODES_API_ENABLED',
         category: 'pipeline',
         defaultValue: '0',
@@ -1044,7 +983,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          "T7 instruction lane: standing user instructions ('always format code with syntax highlighting when I ask about implementation') captured as preference facts are pulled by an UNCONDITIONAL fixed probe and rendered as a dedicated standing-instructions section with an apply-on-match frame. Unconditional because instruction-following questions are deliberately neutral — no lexical route can fire, and relevance-gating filters exactly these out (LIGHT's measured ceiling). Requires the answer router; ablate with SYNTHESIZE_LANES_DISABLED=t7.",
+          "T7 instruction lane: standing user instructions ('always format code with syntax highlighting when I ask about implementation') captured as preference facts are pulled by an UNCONDITIONAL fixed probe and rendered as a dedicated standing-instructions section with an apply-on-match frame. Unconditional because instruction-following questions are deliberately neutral — no lexical route can fire, and relevance-gating filters exactly these out (LIGHT's measured ceiling). Requires the answer router.",
       },
       {
         key: 'SYNTHESIZE_LANE_WIDE_PROBE',
@@ -1063,24 +1002,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Hit limit for the T6/T2 wide-probe second retrieval (SYNTHESIZE_LANE_WIDE_PROBE).',
-      },
-      {
-        key: 'SYNTHESIZE_ORDERING_FIRST_MENTION',
-        category: 'pipeline',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'T2b first-mention enumerator: ordering-shaped enumeration questions ("in what order did I bring up…") sort and annotate evidence by the EARLIEST GROUNDING-EPISODE date ([first mentioned: …]) instead of validFrom — on derived facts validFrom carries the event date, the wrong signal for mention order — and the generator is framed to answer with a bare newline-separated topic list of the requested length (BEAM event_ordering scores Kendall tau over the newline-split response). Requires the answer router; rides the enumeration lane.',
-      },
-      {
-        key: 'SYNTHESIZE_LANES_DISABLED',
-        category: 'pipeline',
-        defaultValue: null,
-        runtimeMutable: true,
-        isBooleanFlag: false,
-        description:
-          'Per-lane ablation for the typed answer dispatcher: comma-separated lane tokens (t1..t7 or temporal, enumeration, contradiction, preference, recency, summary, instruction) that behave as if never built while the rest of the router stays live. Built for one-variable-per-leg eval ablations (e.g. t3 vs t5 blame in a knowledge-update residual) — SYNTHESIZE_ANSWER_ROUTER_ENABLED alone is all-or-nothing. Unknown tokens refuse boot. Unset = all lanes live.',
       },
       {
         key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
@@ -1201,15 +1122,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           "BM25 match snippets: project search::highlight('<em>','</em>',1) from the lexical leg (the FULLTEXT indexes already carry HIGHLIGHTS but it was never queried) and surface a `highlight` field on lexically-matched facts. Off = no highlight field (byte-identical payload). Read at boot.",
-      },
-      {
-        key: 'SEARCH_HYPE_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: false,
-        isBooleanFlag: true,
-        description:
-          'Hypothetical-embedding (HyDE-style) alt-vector leg. Read side degrades cleanly when altEmbedding is absent.',
       },
       {
         key: 'SEARCH_CROSS_ENCODER_LOCAL',

@@ -129,9 +129,8 @@ describe('selectFactCentric', () => {
         fusedScore: score,
         confidence: 0.9,
         decay: 1,
-        predBoost: 1,
         finalScore: score,
-        stages: ['hype'],
+        stages: ['vector'],
       },
     }));
     return { entityId, rankScore: Math.max(...scores), bestScore: Math.max(...scores), facts };

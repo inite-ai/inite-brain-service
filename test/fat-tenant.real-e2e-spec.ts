@@ -10,7 +10,7 @@
  * even without LLM extraction (the search path still hits real
  * OpenAI for embeddings on each query). Run explicitly:
  *
- *     SEARCH_RERANKER_ENABLED=1 SEARCH_PREDICATE_ROUTER_ENABLED=1 \
+ *     SEARCH_RERANKER_ENABLED=1 \
  *       pnpm exec jest --config ./test/jest-e2e-real.json \
  *         --runInBand --testPathPattern=fat-tenant
  *

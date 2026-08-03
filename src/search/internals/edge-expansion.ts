@@ -327,7 +327,6 @@ export async function expandViaEdges({
                 fusedScore: 0,
                 confidence: row.confidence,
                 decay: 1,
-                predBoost: 1,
                 finalScore: 0,
                 stages: fused.stages,
               },
