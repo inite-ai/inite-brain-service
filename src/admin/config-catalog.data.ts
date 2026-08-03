@@ -1020,6 +1020,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. Off (default) → routes answer 404.',
       },
       {
+        key: 'PROJECTIONS_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Raw-substrate driver v1, surface 3: derived surfaces as first-class records (migration 0076) — GET /v1/projections lists every derived world with status/watermark/builder/stats plus the live read pin; POST /v1/projections/:name/rebuild (brain:admin) is the public verb over the maintenance batch engine (v1 rebuilds "facts" via the session-window deriver). The registry observes builder lifecycles (building/built/live/residual/failed); gc deletes rows for reaped worlds. Off (default) → routes answer 404.',
+      },
+      {
         key: 'SYNTHESIZE_INSTRUCTION_LANE',
         category: 'pipeline',
         defaultValue: '0',

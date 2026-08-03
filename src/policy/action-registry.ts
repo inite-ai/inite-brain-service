@@ -100,6 +100,8 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // Raw-substrate driver v1: the L0 episode substrate as a contract.
   'rest.episodes.list': { kind: 'read', family: 'rest', title: 'List episodes' },
   'rest.episodes.export': { kind: 'read', family: 'rest', title: 'Export episodes (NDJSON)' },
+  'rest.projections.list': { kind: 'read', family: 'rest', title: 'List derived projections' },
+  'rest.projections.rebuild': { kind: 'admin', family: 'rest', title: 'Rebuild a derived projection' },
   'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
 };
 

@@ -455,6 +455,8 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SYNTHESIZE_INSTRUCTION_LANE',
   // Raw-substrate driver v1: public episodes read API + NDJSON export.
   'EPISODES_API_ENABLED',
+  // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
+  'PROJECTIONS_API_ENABLED',
   // Router lexicon v2: first-person perfect temporal + "order of" shapes
   // (gaps measured on the LME-500 router-ON leg). DEFAULT ON since the
   // engine wave 2026-08; 0/false disables.

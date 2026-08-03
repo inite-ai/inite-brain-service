@@ -37,6 +37,7 @@ import { AdminHnswController } from './admin-hnsw.controller';
 import { AdminAggregatesController } from './admin-aggregates.controller';
 import { AggregateComposerService } from './aggregate-composer.service';
 import { AdminDeriveController } from './admin-derive.controller';
+import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
 import { AdminSegmentsController } from './admin-segments.controller';
 import { SegmentComposerService } from './segment-composer.service';
@@ -105,6 +106,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminAggregatesController,
     AdminDeriveController,
     AdminSegmentsController,
+    ProjectionsController,
   ],
   providers: [
     AdminService,

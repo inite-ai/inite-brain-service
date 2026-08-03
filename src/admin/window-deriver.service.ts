@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StringRecordId } from 'surrealdb';
@@ -7,6 +7,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
+import { ProjectionRegistryService } from '../episodes/projection-registry.service';
 
 /**
  * Session-window deriver, P3 v1
@@ -128,6 +129,7 @@ export class WindowDeriverService {
     private readonly configService: ConfigService,
     private readonly embedding: FactEmbeddingService,
     private readonly episodes: EpisodeReadStoreService,
+    @Optional() private readonly registry?: ProjectionRegistryService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
@@ -170,26 +172,39 @@ export class WindowDeriverService {
       unresolvedSubjects: 0,
       skipped: [],
     };
-    await this.surreal.withCompany(companyId, async (db) => {
-      const convs = await this.episodes.conversationCounts(db);
-      for (const conv of convs) {
-        const conversationId = conv.conversationId;
-        // Targeted re-derivation: one bad conversation should not force a
-        // full-tenant (paid) re-run.
-        if (opts.conversationId && conversationId !== opts.conversationId) {
-          continue;
-        }
-        try {
-          await this.deriveConversation({ db, conversationId, version, result });
-          result.conversations += 1;
-        } catch (e) {
-          result.skipped.push({ conversationId, reason: (e as Error).message });
-          this.logger.warn(
-            `derive failed for ${conversationId}: ${(e as Error).message}`,
-          );
-        }
-      }
+    // Registry (driver surface 3): observes the lifecycle, never fails it —
+    // every registry write degrades to a warning inside the service.
+    await this.registry?.begin({
+      companyId,
+      name: 'facts',
+      version,
+      builder: 'window-deriver',
     });
+    try {
+      await this.surreal.withCompany(companyId, async (db) => {
+        const convs = await this.episodes.conversationCounts(db);
+        for (const conv of convs) {
+          const conversationId = conv.conversationId;
+          // Targeted re-derivation: one bad conversation should not force a
+          // full-tenant (paid) re-run.
+          if (opts.conversationId && conversationId !== opts.conversationId) {
+            continue;
+          }
+          try {
+            await this.deriveConversation({ db, conversationId, version, result });
+            result.conversations += 1;
+          } catch (e) {
+            result.skipped.push({ conversationId, reason: (e as Error).message });
+            this.logger.warn(
+              `derive failed for ${conversationId}: ${(e as Error).message}`,
+            );
+          }
+        }
+      });
+    } catch (e) {
+      await this.registry?.fail({ companyId, name: 'facts', version });
+      throw e;
+    }
     // Atomic world flip: readers switch from the old fork to the new one
     // between requests, never mid-build. Process-local (env pin) — the
     // per-tenant DB pointer is the prod follow-up.
@@ -201,6 +216,18 @@ export class WindowDeriverService {
         `derived world '${version}' activated (was: ${result.previousVersion ?? 'legacy'})`,
       );
     }
+    await this.registry?.complete({
+      companyId,
+      name: 'facts',
+      version,
+      live: result.activated === true || version === activePin,
+      stats: {
+        conversations: result.conversations,
+        sessions: result.sessions,
+        propositions: result.propositions,
+        skipped: result.skipped.length,
+      },
+    });
     return result;
   }
 
@@ -233,6 +260,12 @@ export class WindowDeriverService {
         );
         deleted[name] = v.n;
       }
+    });
+    // A registry row promises a queryable world — reaped versions lose theirs.
+    await this.registry?.dropVersions({
+      companyId,
+      name: 'facts',
+      versions: Object.keys(deleted),
     });
     return { deleted, kept: [...keep] as string[] };
   }
