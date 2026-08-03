@@ -16,6 +16,7 @@ import {
   renderExtractionProfiles,
   renderPredicateCard,
 } from './extractor-internals/prompts';
+import { objectNormalizationEnabled } from './extractor-internals/grounding';
 import { envFlagEnabled } from '../common/env-validation';
 
 /**
@@ -80,10 +81,25 @@ export class ExtractorLlmService {
     const base = dialogue
       ? buildDialogueSystemPrompt(snapshot.active)
       : this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
-        ? buildSystemPrompt(snapshot.active)
+        ? buildSystemPrompt(snapshot.active, {
+            objectNormalization: this.objectNormalizationActive(),
+          })
         : this.systemPromptHeader +
           snapshot.active.map(renderPredicateCard).join('\n');
     return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
+  }
+
+  /**
+   * EXTRACTION_OBJECT_NORMALIZE is only meaningful on the span-grounded
+   * general profile: the dialogue profile normalizes through its own
+   * contract, and a pinned custom header (EXTRACTION_SYSTEM_PROMPT)
+   * would not explain the extra schema field to the model.
+   */
+  private objectNormalizationActive(): boolean {
+    return (
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
+      objectNormalizationEnabled()
+    );
   }
 
   /**
@@ -132,7 +148,11 @@ export class ExtractorLlmService {
                 json_schema: {
                   name: 'extraction',
                   strict: true,
-                  schema: buildExtractionSchema(),
+                  // Schema and prompt section move in lockstep — the
+                  // object field only exists when the prompt explains it.
+                  schema: buildExtractionSchema({
+                    objectNormalization: this.objectNormalizationActive(),
+                  }),
                 },
               },
               max_completion_tokens: 1500,

@@ -14,6 +14,7 @@ import type {
 import {
   applyGroundingGate,
   groundEntities,
+  objectNormalizationEnabled,
   parseClauses,
   parseEntities,
   parseRawFacts,
@@ -299,15 +300,22 @@ export class ExtractorRunnerService {
     const rawFacts = parseRawFacts(rawJson, parsedEntities.length);
     // Dialogue profile (Phase 4): values are normalized, not verbatim spans, so
     // the substring-drop gate would delete every normalized fact. Keep them.
-    const { facts: valueGroundedFacts, dropped } = applyGroundingGate(
-      trimmed,
-      rawFacts,
-      {
-        clauses,
-        allowUngrounded: envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE),
-      },
-    );
+    const {
+      facts: valueGroundedFacts,
+      dropped,
+      ungroundedObjects,
+    } = applyGroundingGate(trimmed, rawFacts, {
+      clauses,
+      allowUngrounded: envFlagEnabled(process.env.EXTRACTOR_DIALOGUE_PROFILE),
+      normalizeObjects: objectNormalizationEnabled(),
+    });
 
+    if (ungroundedObjects.length > 0) {
+      traceArtifact('extractor.ungrounded_object_proposals', {
+        count: ungroundedObjects.length,
+        ungroundedObjects,
+      });
+    }
     if (dropped.length > 0) {
       this.logger.warn(
         `extractor dropped ${dropped.length} fact(s) that failed span-grounding: ${dropped

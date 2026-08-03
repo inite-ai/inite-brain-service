@@ -464,6 +464,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // lane flags. DEFAULT ON; 0/false disables. Grounded in the LME SSA
   // diagnosis ("facts do not specify…" with the verbatim turn in L0).
   'SYNTHESIZE_VERBATIM_EXCERPTS',
+  // E3b object normalization: the extractor proposes a minimal clean value
+  // alongside the verbatim span; the server admits it only when every word
+  // appears in the grounded span. Default off pending a paid confirm leg.
+  'EXTRACTION_OBJECT_NORMALIZE',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

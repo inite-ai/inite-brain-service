@@ -1,7 +1,9 @@
 import {
   buildSystemPrompt,
   buildDialogueSystemPrompt,
+  buildExtractionSchema,
   EXTRACTION_PROMPT_HEADER_DIALOGUE,
+  OBJECT_NORMALIZATION_SECTION,
 } from '../src/ai/extractor-internals/prompts';
 import type { PredicateDefinition } from '../src/ai/predicate-registry.service';
 
@@ -54,5 +56,28 @@ describe('Phase 4 v2 dialogue extraction prompt', () => {
     // and explicitly names the catch-alls it must avoid
     expect(open).toMatch(/interacted_with/);
     expect(open).toMatch(/preference/);
+  });
+});
+
+describe('object normalization prompt/schema lockstep (E3b)', () => {
+  it('flag off: schema and prompt are byte-identical to the base contract', () => {
+    expect(JSON.stringify(buildExtractionSchema())).toBe(
+      JSON.stringify(buildExtractionSchema({ objectNormalization: false })),
+    );
+    expect(buildSystemPrompt([])).not.toContain('NORMALIZED OBJECT');
+    const factsSchema = (buildExtractionSchema() as any).properties.facts
+      .items;
+    expect(factsSchema.properties.object).toBeUndefined();
+    expect(factsSchema.required).not.toContain('object');
+  });
+
+  it('flag on: prompt gains the section and the schema requires nullable object', () => {
+    const prompt = buildSystemPrompt([], { objectNormalization: true });
+    expect(prompt).toContain(OBJECT_NORMALIZATION_SECTION);
+    const factsSchema = (
+      buildExtractionSchema({ objectNormalization: true }) as any
+    ).properties.facts.items;
+    expect(factsSchema.properties.object.type).toEqual(['string', 'null']);
+    expect(factsSchema.required).toContain('object');
   });
 });

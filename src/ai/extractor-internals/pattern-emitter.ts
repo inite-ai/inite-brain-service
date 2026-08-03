@@ -52,7 +52,9 @@ export async function persistExtractionPatterns({
         facts.find(
           (ff) =>
             ff.entityIndex === f.entityIndex &&
-            ff.object === f.valueSpan &&
+            // Object normalization may rewrite ff.object; the span is
+            // the stable join key back to the raw fact.
+            (ff.valueSpan ?? ff.object) === f.valueSpan &&
             ff.clause === clauseText,
         )?.predicate ?? f.predicate,
       valueSpan: f.valueSpan,

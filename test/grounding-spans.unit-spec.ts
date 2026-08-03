@@ -3,6 +3,8 @@ import {
   groundEntities,
   normalizeForGrounding,
   applyGroundingGate,
+  isObjectGroundedInSpan,
+  objectNormalizationEnabled,
 } from '../src/ai/extractor-internals/grounding';
 import type { RawExtractedFact } from '../src/ai/extractor-internals/types';
 
@@ -123,5 +125,79 @@ describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () =>
     const { facts, dropped } = applyGroundingGate('anything', empty, { clauses: [], allowUngrounded: true });
     expect(facts).toHaveLength(0);
     expect(dropped[0].reason).toBe('empty');
+  });
+});
+
+describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
+  const input = 'Yes! I camped in the mountains with my kids last month';
+  const camping: RawExtractedFact = {
+    entityIndex: 0,
+    clauseIndex: undefined,
+    predicate: 'activity',
+    valueSpan: 'camped in the mountains with my kids',
+    confidence: 0.9,
+  };
+
+  it('isObjectGroundedInSpan: subset of span words passes, new words fail', () => {
+    expect(
+      isObjectGroundedInSpan('camped in the mountains with my kids', 'the mountains'),
+    ).toBe(true);
+    expect(
+      isObjectGroundedInSpan('camped in the mountains with my kids', 'mountains'),
+    ).toBe(true);
+    expect(
+      isObjectGroundedInSpan('camped in the mountains with my kids', 'hiking trip'),
+    ).toBe(false);
+    expect(isObjectGroundedInSpan('anything', '')).toBe(false);
+  });
+
+  it('admits a grounded normalized object and keeps the span for audit', () => {
+    const { facts, ungroundedObjects } = applyGroundingGate(
+      input,
+      [{ ...camping, object: 'the mountains' }],
+      { clauses: [], normalizeObjects: true },
+    );
+    expect(facts[0].object).toBe('the mountains');
+    expect(facts[0].valueSpan).toBe('camped in the mountains with my kids');
+    expect(ungroundedObjects).toHaveLength(0);
+  });
+
+  it('falls back to the span when the proposal adds new words, with a diagnostic', () => {
+    const { facts, ungroundedObjects } = applyGroundingGate(
+      input,
+      [{ ...camping, object: 'family hiking trip' }],
+      { clauses: [], normalizeObjects: true },
+    );
+    expect(facts[0].object).toBe('camped in the mountains with my kids');
+    expect(ungroundedObjects).toEqual([
+      {
+        predicate: 'activity',
+        claimedObject: 'family hiking trip',
+        valueSpan: 'camped in the mountains with my kids',
+      },
+    ]);
+  });
+
+  it('ignores proposals when normalizeObjects is off (byte-identical objects)', () => {
+    const { facts, ungroundedObjects } = applyGroundingGate(
+      input,
+      [{ ...camping, object: 'the mountains' }],
+      { clauses: [] },
+    );
+    expect(facts[0].object).toBe('camped in the mountains with my kids');
+    expect(ungroundedObjects).toHaveLength(0);
+  });
+
+  it('objectNormalizationEnabled: flag on, but dialogue profile wins', () => {
+    expect(objectNormalizationEnabled({})).toBe(false);
+    expect(
+      objectNormalizationEnabled({ EXTRACTION_OBJECT_NORMALIZE: '1' }),
+    ).toBe(true);
+    expect(
+      objectNormalizationEnabled({
+        EXTRACTION_OBJECT_NORMALIZE: '1',
+        EXTRACTOR_DIALOGUE_PROFILE: '1',
+      }),
+    ).toBe(false);
   });
 });

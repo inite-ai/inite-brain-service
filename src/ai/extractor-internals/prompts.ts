@@ -269,9 +269,37 @@ export function buildConversationContext(ctx: ConversationContext): string {
   );
 }
 
-export function buildSystemPrompt(predicates: PredicateDefinition[]): string {
+/**
+ * Object-normalization section (EXTRACTION_OBJECT_NORMALIZE). Appended
+ * after the predicate vocabulary; the schema gains a required nullable
+ * `object` field in lockstep (buildExtractionSchema). Fixes the measured
+ * aggregation failure: raw verbal spans as stored objects ("camped in
+ * the mountains with my kids") scatter the same value across phrasings,
+ * so "list all X" questions cannot converge. The span stays the
+ * grounding anchor; the object is the retrieval value.
+ */
+export const OBJECT_NORMALIZATION_SECTION = `
+NORMALIZED OBJECT (in addition to valueSpan)
+For each fact, also emit "object": the MINIMAL clean phrase naming the
+value — strip surrounding verbs, possessives, temporal modifiers, and
+subordinate clauses from the valueSpan.
+  • Every word of object MUST already appear inside valueSpan. Do not
+    introduce new words, synonyms, or canonical labels — the server
+    validates word containment and falls back to the raw span otherwise.
+  • Keep specificity: "aerial yoga" stays "aerial yoga", never "yoga".
+  • valueSpan "camped in the mountains with my kids" → object "the mountains".
+  • valueSpan "really loves the new espresso machine" → object "espresso machine".
+  • When the span already IS the minimal value, set object to null.
+`;
+
+export function buildSystemPrompt(
+  predicates: PredicateDefinition[],
+  opts?: { objectNormalization?: boolean },
+): string {
   return (
-    EXTRACTION_PROMPT_HEADER + predicates.map(renderPredicateCard).join('\n')
+    EXTRACTION_PROMPT_HEADER +
+    predicates.map(renderPredicateCard).join('\n') +
+    (opts?.objectNormalization ? OBJECT_NORMALIZATION_SECTION : '')
   );
 }
 
@@ -311,8 +339,25 @@ export function renderExtractionProfiles(
   );
 }
 
-/** Strict JSON schema mirror of the prompt's output contract. */
-export function buildExtractionSchema(): Record<string, unknown> {
+/**
+ * Strict JSON schema mirror of the prompt's output contract.
+ * `objectNormalization` adds the required-nullable `object` field in
+ * lockstep with OBJECT_NORMALIZATION_SECTION; off → byte-identical
+ * schema (strict mode forces every property into `required`, so the
+ * field cannot simply be optional).
+ */
+export function buildExtractionSchema(opts?: {
+  objectNormalization?: boolean;
+}): Record<string, unknown> {
+  const objectProperty = opts?.objectNormalization
+    ? {
+        object: {
+          type: ['string', 'null'],
+          description:
+            'MINIMAL clean phrase naming the value, made ONLY of words already inside valueSpan (server-validated); null when the span already is the minimal value.',
+        },
+      }
+    : {};
   return {
     type: 'object',
     additionalProperties: false,
@@ -354,6 +399,7 @@ export function buildExtractionSchema(): Record<string, unknown> {
               description:
                 'VERBATIM substring of the input naming the object value. Server validates substring containment; ungrounded facts are dropped.',
             },
+            ...objectProperty,
             confidence: { type: 'number', minimum: 0, maximum: 1 },
           },
           required: [
@@ -361,6 +407,7 @@ export function buildExtractionSchema(): Record<string, unknown> {
             'clauseIndex',
             'predicate',
             'valueSpan',
+            ...(opts?.objectNormalization ? ['object'] : []),
             'confidence',
           ],
         },

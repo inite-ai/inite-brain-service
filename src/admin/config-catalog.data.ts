@@ -1100,6 +1100,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         description:
           "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
       },
+      {
+        key: 'EXTRACTION_OBJECT_NORMALIZE',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Object normalization (E3b, engine wave 2026-08): the span-grounded extractor also proposes "object" — the minimal clean phrase naming the value ("camped in the mountains with my kids" → "the mountains"); the server admits it only when every word already appears in the grounded span, else falls back to the raw span. Fixes the measured aggregation failure (values scattered across verbal phrasings cannot converge for "list all X"). valueSpan is kept on the fact for audit. Inactive under EXTRACTOR_DIALOGUE_PROFILE (that profile normalizes via its own contract). Default off pending a paid confirm leg — extraction prompt changes have regressed before. Requires re-ingest.',
+      },
       // ── Dialogue memory mode ────────────────────────────────────────
       // All default-off and all requiring a re-ingest: they change what gets
       // WRITTEN, so toggling them only affects facts extracted afterwards.
