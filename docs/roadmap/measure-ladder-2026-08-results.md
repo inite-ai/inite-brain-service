@@ -86,8 +86,25 @@ most of the TR win).
   EPISODE_SUBSCRIPTIONS_ENABLED). All 4 surfaces of
   raw-substrate-driver-2026-08.md now exist.
 
-Confirm leg `ewave-0803` (BEAM re-QA, all new defaults, no extra
-flags) vs B0: results appended below when the run lands.
+### Confirm leg `ewave-0803` (all new engine defaults) vs B0
+
+Report var/beam-100k-ewave-0803.json, n=400, errored=0.
+
+- **No net harm on BEAM**: judged-only 35.3 → 35.6 (p=1.0), overall
+  35.7 → 37.0 (+1.3pp, p=0.57). BEAM is not the wave's target genre
+  (SSA/temporal live on LME) — the confirm's job was "defaults don't
+  break the flagship axis", and overall they don't.
+- Positive drift (each n.s.): instruction_following 35.0 → 42.5,
+  knowledge_update 37.5 → 45.0, multi_session 32.5 → 40.0,
+  preference 72.5 → 80.0, abstention-match 40 → 50.
+- **WATCH: contradiction 55.0 → 45.0** (6 flips against / 2 for,
+  p=0.29 — inside noise, but the gate metric). Forensics: NONE of the
+  six flipped questions match the verbatim shape (all "Have I…"), and
+  none route through lexicon-v2 — the remaining suspect is the global
+  DATE_CONTEXT header. Disambiguation leg `ewave-nodc-0803`
+  (same defaults, SYNTHESIZE_DATE_CONTEXT=0) queued; if CR recovers,
+  the engine fix is scoping the date instruction to date-bearing
+  question shapes instead of global injection.
 
 ## Session ops notes
 
