@@ -1,5 +1,16 @@
 # Next session: kill the forks, make the engine modular
 
+> **STATUS 2026-08-03: EXECUTED.** All five stages landed on
+> `feat/locomo-llm-judge` (31eec33..4431605), 1782 unit tests green.
+> S1 seven dead forks deleted with their code paths; S2 six winners
+> folded (fact-centric is the path, backfill deleted, rerank is a
+> capability); S3 RetrievalProfile resolved once in ApiKeyGuard +
+> first-class Lane registry (synthesize is env-free); S4
+> ExtractionPipelineProfile + migration 0079 (derivedVersion slot in
+> fn::resolve_fact — the deriver writes through the one primitive);
+> S5 all six gates live (flag budget golden 36 keys, env boundary
+> allowlist, boolean idiom, layering, dead exports, lane registry).
+
 Owner directive (2026-08-03): **stop shipping eval forks behind flags.**
 A flag that exists so one measurement could see a different code path is
 not a feature — it is a second engine we now maintain, test, and reason
