@@ -100,11 +100,31 @@ Report var/beam-100k-ewave-0803.json, n=400, errored=0.
 - **WATCH: contradiction 55.0 → 45.0** (6 flips against / 2 for,
   p=0.29 — inside noise, but the gate metric). Forensics: NONE of the
   six flipped questions match the verbatim shape (all "Have I…"), and
-  none route through lexicon-v2 — the remaining suspect is the global
-  DATE_CONTEXT header. Disambiguation leg `ewave-nodc-0803`
-  (same defaults, SYNTHESIZE_DATE_CONTEXT=0) queued; if CR recovers,
-  the engine fix is scoping the date instruction to date-bearing
-  question shapes instead of global injection.
+  none route through lexicon-v2 — the remaining suspect was the global
+  DATE_CONTEXT header.
+
+### Disambiguation `ewave-nodc-0803` (ewave defaults, DATE_CONTEXT=0)
+
+**DATE_CONTEXT acquitted.** CR across the three same-day runs:
+B0 55.0 → ewave 45.0 → ewave-nodc 50.0; isolating the flag recovered
+only 2 net flips (4 vs 2, p=0.69), and nodc still sits 5pp under B0
+(p=0.5). With n=40 the per-run SE is ~7.9pp — all three readings live
+in one noise corridor. Verdict: no evidence of DATE_CONTEXT harm;
+engine defaults stay. The gate metric needs bigger n (or the B5-style
+nugget run) before any future leg is allowed to claim CR movement
+under ±8pp.
+
+Ops note: the nodc first launch caught migration 0076 with
+FLEXIBLE-before-TYPE (3.x parser rejects the whole script; every
+tenant request 500s). Fixed in 268bb81, verified 9/9 statements
+against the live stand; the leg-script smoke now aborts on 5xx too.
+
+### Next: LME confirm legs (the wave's target genre)
+
+`lme-temporal-ewave` (indices 233-365, world rebuild + QA on the new
+defaults, real asOf) launched — pairs against the temporal rows of
+var/lme-500-final.json (24.4% baseline). SSA 444-499 confirm follows;
+E3a/E3b extraction confirms need a FRESH derivedVersion by design.
 
 ## Session ops notes
 
