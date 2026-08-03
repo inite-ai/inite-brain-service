@@ -83,6 +83,23 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/communities/for-entity/:entityId` | Communities an entity belongs to. |
 | `GET /v1/stats/overview` | Tenant-level counts (entities / facts / edges) for dashboards. |
 
+## Raw-substrate driver (episodes + projections)
+
+The L0 substrate as a public contract
+([design](roadmap/raw-substrate-driver-2026-08.md)): any consumer can
+build its own projection without speaking SurrealQL to our database.
+All routes 404 until their flag is on.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/episodes` | Verbatim pre-extraction turns, keyset-paged over `(occurredAt, id)` (`?cursor=` resumes); filters `conversationId`/`speaker`/`since`/`until`, `limit` ≤ 200. Without `brain:read_pii` only piiClass-clean rows are visible. Flag `EPISODES_API_ENABLED`. |
+| `GET /v1/episodes/export` | Same filtered stream as NDJSON, one episode per line, paged internally. Flag `EPISODES_API_ENABLED`. |
+| `POST /v1/episodes/subscriptions` | Register an http(s) endpoint for signed `episodes_available` pushes (`brain:admin`). The HMAC secret is returned **exactly once**. Pushes are metadata-only (ids/attribution/timestamps — never text), at-least-once, watermarked over `recordedAt`; signature `X-Brain-Signature: sha256=<hex hmac>` over the raw body. Flag `EPISODE_SUBSCRIPTIONS_ENABLED`. |
+| `GET /v1/episodes/subscriptions` | Registered endpoints (secrets never included). |
+| `DELETE /v1/episodes/subscriptions/:id` | Remove an endpoint (`brain:admin`). |
+| `GET /v1/projections` | Derived surfaces as first-class records (migration 0076): status `building/built/live/residual/failed`, watermark, builder, stats, plus the live read pin (`RETRIEVAL_DERIVED_VERSION`). Flag `PROJECTIONS_API_ENABLED`. |
+| `POST /v1/projections/:name/rebuild` | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `activate` / `force`. Flag `PROJECTIONS_API_ENABLED`. |
+
 ## Mutation (audited)
 
 | Endpoint | Notes |

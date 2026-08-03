@@ -272,6 +272,50 @@
         ],
         "type": "object"
       },
+      "CreateEpisodeSubscriptionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "CreateEpisodeSubscriptionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "secret",
+          "watermark"
+        ],
+        "type": "object"
+      },
+      "DeleteEpisodeSubscriptionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "type": "object"
+      },
       "DisplayPrice": {
         "additionalProperties": false,
         "properties": {
@@ -531,6 +575,191 @@
           "version",
           "description",
           "predicates"
+        ],
+        "type": "object"
+      },
+      "EpisodeSubscriptionRow": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "failureCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "active",
+          "watermark",
+          "failureCount",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "EpisodeSubscriptionsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "subscriptions": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeSubscriptionRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "subscriptions"
+        ],
+        "type": "object"
+      },
+      "EpisodeWire": {
+        "additionalProperties": false,
+        "properties": {
+          "addressee": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lang": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "piiClass": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "recordedAt": {
+            "type": "string"
+          },
+          "source": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "speaker": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "messageId",
+          "text",
+          "occurredAt",
+          "recordedAt",
+          "source"
+        ],
+        "type": "object"
+      },
+      "EpisodesAvailableEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery": {
+            "const": "at-least-once",
+            "type": "string"
+          },
+          "episodes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "conversationId": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "messageId": {
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "type": "string"
+                },
+                "recordedAt": {
+                  "type": "string"
+                },
+                "speaker": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "messageId",
+                "occurredAt",
+                "recordedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "event": {
+            "const": "episodes_available",
+            "type": "string"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "delivery",
+          "episodes",
+          "watermark",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "EpisodesListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeWire"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "episodes"
         ],
         "type": "object"
       },
@@ -1248,6 +1477,84 @@
         ],
         "type": "object"
       },
+      "ProjectionRow": {
+        "additionalProperties": false,
+        "properties": {
+          "builder": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stats": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "building",
+              "built",
+              "live",
+              "residual",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "status",
+          "builder",
+          "startedAt"
+        ],
+        "type": "object"
+      },
+      "ProjectionsListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "projections": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectionRow"
+            },
+            "type": "array"
+          },
+          "readPin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "projections",
+          "readPin"
+        ],
+        "type": "object"
+      },
       "PublicDeclaredSource": {
         "additionalProperties": false,
         "properties": {
@@ -1524,6 +1831,89 @@
           "publisher",
           "profile",
           "packs"
+        ],
+        "type": "object"
+      },
+      "RebuildProjectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "activate": {
+            "type": "boolean"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RebuildProjectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activated": {
+            "type": "boolean"
+          },
+          "conversations": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "previousVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "propositions": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sessions": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "conversationId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "conversationId",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unresolvedSubjects": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "conversations",
+          "sessions",
+          "propositions",
+          "unresolvedSubjects",
+          "skipped"
         ],
         "type": "object"
       },
@@ -3069,6 +3459,286 @@
         ]
       }
     },
+    "/v1/episodes": {
+      "get": {
+        "description": "Verbatim pre-extraction dialogue turns in stable (occurredAt, id) order — the raw layer any consumer can build its own projection from. Callers without `brain:read_pii` see only episodes whose piiClass is empty. 404 until EPISODES_API_ENABLED=1. Source: src/episodes/episodes.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listEpisodes",
+        "parameters": [
+          {
+            "description": "Only turns of this conversation.",
+            "in": "query",
+            "name": "conversationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only turns by this speaker.",
+            "in": "query",
+            "name": "speaker",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO lower bound on occurredAt (inclusive).",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO upper bound on occurredAt (exclusive).",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size (max 200, default 50).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque keyset cursor from the previous page (`nextCursor`).",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodesListResponse"
+                }
+              }
+            },
+            "description": "One page of episodes."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read the L0 episode substrate (keyset-paged)",
+        "tags": [
+          "Episodes"
+        ]
+      }
+    },
+    "/v1/episodes/export": {
+      "get": {
+        "description": "The same filtered stream as GET /v1/episodes, one episode per line, paged internally — bounded memory however large the tenant. 404 until EPISODES_API_ENABLED=1.\n\nRequired scope: `brain:read`.",
+        "operationId": "exportEpisodes",
+        "parameters": [
+          {
+            "description": "Only turns of this conversation.",
+            "in": "query",
+            "name": "conversationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only turns by this speaker.",
+            "in": "query",
+            "name": "speaker",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO lower bound on occurredAt (inclusive).",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO upper bound on occurredAt (exclusive).",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeWire"
+                }
+              }
+            },
+            "description": "NDJSON stream; each line is an Episode."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Stream the substrate as NDJSON (replay/export)",
+        "tags": [
+          "Episodes"
+        ]
+      }
+    },
+    "/v1/episodes/subscriptions": {
+      "get": {
+        "description": "Secrets are never included. 404 until EPISODE_SUBSCRIPTIONS_ENABLED=1.\n\nRequired scope: `brain:read`.",
+        "operationId": "listEpisodeSubscriptions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeSubscriptionsListResponse"
+                }
+              }
+            },
+            "description": "Registered endpoints."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List registered webhook endpoints",
+        "tags": [
+          "Episodes"
+        ]
+      },
+      "post": {
+        "description": "Registers an http(s) endpoint for `episodes_available` pushes (see the EpisodesAvailableEvent schema and the top-level webhooks section). The HMAC signing secret is returned exactly once. Pushes carry METADATA ONLY — bodies are pulled through GET /v1/episodes under the subscriber’s own scopes. Delivery is at-least-once. 404 until EPISODE_SUBSCRIPTIONS_ENABLED=1.\n\nRequired scope: `brain:admin`.",
+        "operationId": "createEpisodeSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEpisodeSubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateEpisodeSubscriptionResponse"
+                }
+              }
+            },
+            "description": "Registered; store the secret now."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Register a new-episode webhook endpoint",
+        "tags": [
+          "Episodes"
+        ]
+      }
+    },
+    "/v1/episodes/subscriptions/{id}": {
+      "delete": {
+        "description": "404 until EPISODE_SUBSCRIPTIONS_ENABLED=1.\n\nRequired scope: `brain:admin`.",
+        "operationId": "deleteEpisodeSubscription",
+        "parameters": [
+          {
+            "description": "The episode_subscription record id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteEpisodeSubscriptionResponse"
+                }
+              }
+            },
+            "description": "Whether a subscription was deleted."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Delete a webhook endpoint",
+        "tags": [
+          "Episodes"
+        ]
+      }
+    },
     "/v1/indexer/work": {
       "get": {
         "description": "Pending indexer runs routed to this tenant’s installed external packs. Protocol: docs/indexer-protocol.md. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/indexer-work.controller.ts.\n\nRequired scope: `indexer:write`.",
@@ -3383,6 +4053,92 @@
         "summary": "Ingest a normalized document",
         "tags": [
           "Documents"
+        ]
+      }
+    },
+    "/v1/projections": {
+      "get": {
+        "description": "Every derived world (facts@version, …) with its lifecycle status (building/built/live/residual/failed), watermark, builder identity and stats, plus the process-local read pin (RETRIEVAL_DERIVED_VERSION). A registry row promises a queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: src/admin/projections.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listProjections",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionsListResponse"
+                }
+              }
+            },
+            "description": "Derived worlds + read pin."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "List derived surfaces and the live read pin",
+        "tags": [
+          "Projections"
+        ]
+      }
+    },
+    "/v1/projections/{name}/rebuild": {
+      "post": {
+        "description": "The public verb over the maintenance batch engine. v1 rebuilds `facts` (the session-window deriver): derives into the given version (a paid, operator-invoked batch), optionally flips the live read pin (`activate`). Rewriting the pinned world needs `force`. 404 until PROJECTIONS_API_ENABLED=1.\n\nRequired scope: `brain:admin`.",
+        "operationId": "rebuildProjection",
+        "parameters": [
+          {
+            "description": "The projection name (v1: `facts`).",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildProjectionRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildProjectionResponse"
+                }
+              }
+            },
+            "description": "The batch result."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Rebuild a derived surface (public verb)",
+        "tags": [
+          "Projections"
         ]
       }
     },
@@ -3762,6 +4518,41 @@
     {
       "description": "Read-only trust inputs (scope `brain:read`): declared source identity ⋈ learned reputation. Public projection — operator annotations (owner/note) stay on the admin surface.",
       "name": "Sources"
+    },
+    {
+      "description": "The raw-substrate driver: verbatim pre-extraction dialogue turns (L0) as a contract — keyset reads, NDJSON export, and signed new-episode webhooks — so any consumer can build its own projection without touching our database. Flags: EPISODES_API_ENABLED / EPISODE_SUBSCRIPTIONS_ENABLED (off → 404).",
+      "name": "Episodes"
+    },
+    {
+      "description": "Derived surfaces as first-class records: lifecycle status, watermark, builder identity, and rebuild as the public verb. Flag: PROJECTIONS_API_ENABLED (off → 404).",
+      "name": "Projections"
     }
-  ]
+  ],
+  "webhooks": {
+    "episodesAvailable": {
+      "post": {
+        "description": "Brain POSTs this to every registered subscription endpoint when fresh episodes land. Metadata only — never episode text. Signed `X-Brain-Signature: sha256=<hex hmac>` over the raw JSON body with the per-subscription secret. Delivery is at-least-once (dedupe on episode ids); the watermark advances only after a 2xx.",
+        "operationId": "episodesAvailableWebhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpisodesAvailableEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledged; the watermark advances."
+          }
+        },
+        "summary": "New-episode push (outbound webhook)",
+        "tags": [
+          "Episodes"
+        ]
+      }
+    }
+  }
 }
