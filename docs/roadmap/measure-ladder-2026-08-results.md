@@ -126,6 +126,15 @@ defaults, real asOf) launched — pairs against the temporal rows of
 var/lme-500-final.json (24.4% baseline). SSA 444-499 confirm follows;
 E3a/E3b extraction confirms need a FRESH derivedVersion by design.
 
+**Result (2026-08-03, run to completion): temporal 30.7%** (n=133,
+judged 127, errored 0, derivedVersion wd-v2, avg prompt 5.3k tokens) vs
+the 24.4% LME-500 baseline — **+6.3pp on the wave's target type** with
+the same real-asOf protocol. Abstention on the 6 unjudged rows 66.7%.
+The engine-wave defaults (E1 verbatim shape + E2 dates/lexicon) confirm
+as a live improvement on the genre they were built for, consistent with
+the BEAM confirm story (temporal there was flat; the win is
+genre-local, as the segment-lane law predicts).
+
 ## Session ops notes
 
 - Leg driver: $CLAUDE_JOB_DIR/tmp/run-beam-leg.sh — forced brain restart
