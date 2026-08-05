@@ -24,7 +24,7 @@ import {
   extractStandingInstructions,
   detectEvidenceConflicts,
   detectVerbatimShape,
-  type AnswerLane,
+  type LaneId,
 } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
 import {
@@ -154,7 +154,7 @@ function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
  *  profile's dateAnchoring. */
 function resolveLaneDateContext(
   profile: RetrievalProfile,
-  lane: AnswerLane | null,
+  lane: LaneId | null,
   asOf: string | undefined,
 ): string | undefined {
   if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
@@ -283,7 +283,7 @@ export class SynthesizeService {
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
     // second probe that similarity search would never surface.
-    const lane: AnswerLane | null = routeLane(profile, dto.query);
+    const lane: LaneId | null = routeLane(profile, dto.query);
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
@@ -694,7 +694,7 @@ export class SynthesizeService {
     baseHits,
   }: {
     profile: RetrievalProfile;
-    lane: AnswerLane | null;
+    lane: LaneId | null;
     query: string;
     companyId: string;
     callerScopes: string[];
@@ -799,7 +799,7 @@ export class SynthesizeService {
     /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
     dateContext?: string;
     /** T1 typed dispatch lane, when the router matched. */
-    lane?: AnswerLane | null;
+    lane?: LaneId | null;
     /** T7: standing user instructions for their own section. */
     instructions?: string[];
     /** T3: COMPETING conflict pairs detected in the evidence. */
