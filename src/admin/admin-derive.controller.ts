@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   Controller,
@@ -14,6 +15,27 @@ import {
   DeriveRunResult,
   WINDOW_DERIVER_VERSION,
 } from './window-deriver.service';
+
+/**
+ * A derive where every attempted conversation failed produced nothing:
+ * answering 201 would hand the caller a hollow world (the V2 incident —
+ * an OpenAI 429 became 18 poisoned eval rows). 502 says "upstream broke,
+ * nothing was derived, retry when it recovers". Partial failures still
+ * return the result — callers must check `status`/`failed`.
+ */
+export function throwIfDeriveFailed(result: DeriveRunResult): DeriveRunResult {
+  if (result.status === 'failed') {
+    throw new BadGatewayException({
+      message:
+        `derive failed: 0 of ${result.failed} conversation(s) derived — ` +
+        `first reason: ${result.skipped[0]?.reason}`,
+      status: result.status,
+      failed: result.failed,
+      skipped: result.skipped.slice(0, 10),
+    });
+  }
+  return result;
+}
 
 /**
  * Explicit trigger for the session-window batch deriver (P3 v1). One LLM
@@ -65,12 +87,14 @@ export class AdminDeriveController {
       throw new BadRequestException('conversation id too long');
     }
     try {
-      return await this.deriver.run(tenant, {
-        version,
-        conversationId,
-        activate: body.activate === true,
-        force: body.force === true,
-      });
+      return throwIfDeriveFailed(
+        await this.deriver.run(tenant, {
+          version,
+          conversationId,
+          activate: body.activate === true,
+          force: body.force === true,
+        }),
+      );
     } catch (e) {
       // The live-pin guard is a caller mistake, not a server fault.
       if ((e as Error).message.includes('live read pin')) {

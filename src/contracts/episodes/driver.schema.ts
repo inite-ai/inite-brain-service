@@ -86,6 +86,13 @@ export const RebuildProjectionResponseSchema = z.object({
   skipped: z.array(
     z.object({ conversationId: z.string(), reason: z.string() }),
   ),
+  /**
+   * 'ok' — clean run; 'degraded' — some conversations failed (reasons in
+   * skipped). A run where every attempted conversation failed never
+   * reaches the caller as a 2xx — the endpoint answers 502 instead.
+   */
+  status: z.enum(['ok', 'degraded', 'failed']),
+  failed: z.number().int(),
   activated: z.boolean().optional(),
   previousVersion: z.string().nullable().optional(),
 });

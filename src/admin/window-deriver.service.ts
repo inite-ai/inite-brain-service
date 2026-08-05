@@ -73,12 +73,23 @@ export function buildDeriverSystem(opts?: {
   );
 }
 
+export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
+
 export interface DeriveRunResult {
   conversations: number;
   sessions: number;
   propositions: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
+  /**
+   * 'ok' — every targeted conversation derived; 'degraded' — some failed
+   * (skipped carries the reasons); 'failed' — at least one conversation
+   * was attempted and none succeeded. A silent success on a failed derive
+   * is how a poisoned eval row is born — callers must check this field.
+   */
+  status: DeriveRunStatus;
+  /** Mirror of skipped.length, for callers that only read counters. */
+  failed: number;
   /** Set when opts.activate flipped the live read pin to this version. */
   activated?: boolean;
   previousVersion?: string | null;
@@ -182,6 +193,8 @@ export class WindowDeriverService {
       propositions: 0,
       unresolvedSubjects: 0,
       skipped: [],
+      status: 'ok',
+      failed: 0,
     };
     // Registry (driver surface 3): observes the lifecycle, never fails it —
     // every registry write degrades to a warning inside the service.
@@ -216,19 +229,46 @@ export class WindowDeriverService {
       await this.registry?.fail({ companyId, name: 'facts', version });
       throw e;
     }
+    result.failed = result.skipped.length;
+    result.status =
+      result.failed === 0
+        ? 'ok'
+        : result.conversations > 0
+          ? 'degraded'
+          : 'failed';
+    // A run where every attempted conversation failed produced NOTHING —
+    // marking it built/live would let gc protect a hollow world and let
+    // eval drivers QA an empty substrate as if it were legitimate.
+    if (result.status === 'failed') {
+      await this.registry?.fail({ companyId, name: 'facts', version });
+      this.logger.error(
+        `derive '${version}' failed for ${companyId}: all ` +
+          `${result.failed} conversation(s) failed — first reason: ` +
+          `${result.skipped[0]?.reason}`,
+      );
+      return result;
+    }
     // Atomic world flip: readers switch from the old fork to the new one
     // between requests, never mid-build. The flip is a REGISTRY write
     // (complete({live:true}) below marks this version live and demotes
     // the previous one) — audit W2 #9 removed the process.env mutation
     // that made a per-tenant activation repoint every tenant on the pod
     // and stay invisible to every other pod.
-    if (opts.activate && result.conversations > 0) {
+    // Activation additionally requires a CLEAN run: flipping every reader
+    // onto a world with known holes is never what the operator meant.
+    if (opts.activate && result.conversations > 0 && result.failed === 0) {
       result.previousVersion =
         (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
       result.activated = true;
       this.logger.log(
         `derived world '${version}' activated for ${companyId} ` +
           `(was: ${result.previousVersion ?? 'legacy'})`,
+      );
+    } else if (opts.activate && result.failed > 0) {
+      this.logger.warn(
+        `activation of '${version}' refused for ${companyId}: ` +
+          `${result.failed} of ${result.conversations + result.failed} ` +
+          `conversation(s) failed — re-derive the failures, then activate`,
       );
     }
     await this.registry?.complete({
