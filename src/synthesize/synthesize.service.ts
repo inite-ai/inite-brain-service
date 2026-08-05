@@ -115,8 +115,11 @@ interface GeneratorOutput {
  * engine default) only when the question asks for ASSISTANT-side
  * content — extraction is user-fact-shaped and the measured SSA
  * failure is "facts do not specify…" while the verbatim turn sits
- * unused in L0; 'off' never. Module-level to keep synthesize()
- * complexity flat.
+ * unused in L0; 'off' never. 'fused' behaves like shape_conditioned
+ * for the two episode quote lanes — segments arrive as first-class
+ * SearchHits from the retrieval-side fusion leg (audit W4 #18), so the
+ * appendix segment lane below deliberately does NOT run. Module-level
+ * to keep synthesize() complexity flat.
  */
 function wantsVerbatimEvidence(
   profile: RetrievalProfile,
@@ -596,7 +599,9 @@ export class SynthesizeService {
       : [];
     // Segments compete for the prompt on their own retrieval merit —
     // an 'always' verbatim profile runs them; the shape-conditioned
-    // default does not (they measurably distract on assistant chats).
+    // default does not (they measurably distract on assistant chats);
+    // 'fused' retrieves them as scored SearchHits inside search, so
+    // appending them here would duplicate the evidence.
     const segmentLines =
       profile.verbatimEvidence === 'always'
         ? ((await this.segmentLane?.transcriptLines({

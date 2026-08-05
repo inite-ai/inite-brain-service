@@ -23,15 +23,28 @@ export type RetrievalGenre = 'dialogue' | 'assistant_chat' | 'documents';
 
 /**
  * How verbatim L0 evidence (episode quotes / provenance excerpts /
- * segments) reaches the synthesis prompt:
+ * segments) reaches answers:
  *  - 'off'               — never; facts only.
  *  - 'shape_conditioned' — episode quotes + provenance excerpts only
  *                          when the question asks for conversational
  *                          content (verbatim shape). The engine default.
  *  - 'always'            — all three verbatim lanes run unconditionally
- *                          (diary-genre profile; the old lane flags ON).
+ *                          as a prompt appendix (diary-genre profile;
+ *                          the old lane flags ON).
+ *  - 'fused'             — audit W4 #18: segments become first-class
+ *                          SearchHits — retrieved inside the search
+ *                          pipeline (dense+BM25 through the same convex
+ *                          fusion), scored, reranked, and CITABLE next
+ *                          to facts, instead of an unscored prompt
+ *                          appendix. The two episode quote lanes stay
+ *                          shape-conditioned; the appendix segment lane
+ *                          is off (segments arrive as hits).
  */
-export type VerbatimEvidenceMode = 'off' | 'shape_conditioned' | 'always';
+export type VerbatimEvidenceMode =
+  | 'off'
+  | 'shape_conditioned'
+  | 'always'
+  | 'fused';
 
 /**
  * How the generator's "today" is anchored:
@@ -156,6 +169,7 @@ export function resolveRetrievalProfile(
         'off',
         'shape_conditioned',
         'always',
+        'fused',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
@@ -214,7 +228,7 @@ export function resolveRetrievalProfileFor(
   }
   if (
     typeof o.verbatimEvidence === 'string' &&
-    ['off', 'shape_conditioned', 'always'].includes(o.verbatimEvidence)
+    ['off', 'shape_conditioned', 'always', 'fused'].includes(o.verbatimEvidence)
   ) {
     merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
   }

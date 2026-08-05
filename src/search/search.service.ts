@@ -462,6 +462,17 @@ export class SearchService {
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
     await this.runPprStage(db, byEntity);
 
+    // 6b. Verbatim fusion leg (audit W4 #18): under the 'fused' profile,
+    // segments arrive as their own scored buckets and compete with fact
+    // buckets in the rerank + fact-centric stages — citable next to
+    // facts instead of an unscored prompt appendix.
+    if (ctx.profile.verbatimEvidence === 'fused') {
+      const segBuckets = await this.retrieval.runSegmentLegStage(db, ctx);
+      for (const [k, v] of segBuckets) {
+        if (!byEntity.has(k)) byEntity.set(k, v);
+      }
+    }
+
     // 7. Cross-encoder + LLM rerank.
     let topEntities = await this.rerank.runRerankStage({
       db,

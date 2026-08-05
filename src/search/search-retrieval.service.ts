@@ -8,6 +8,7 @@ import type { EntityBucket, FactRow } from './internals/types';
 import { runVectorLeg, runLexicalLeg } from './internals/legs';
 import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
+import { runSegmentLegs } from './internals/segment-leg';
 import { PipelineContext } from './pipeline-context';
 
 /**
@@ -122,6 +123,62 @@ export class SearchRetrievalService {
           ),
     ]);
     return fuse(vectorRows, lexicalRows, ctx.mode);
+  }
+
+  /**
+   * Verbatim fusion leg (audit W4 #18, profile verbatimEvidence =
+   * 'fused'): episode segments retrieved as first-class candidates —
+   * dense + BM25 through the SAME convex fuse() as the fact legs, then
+   * the same scoring — returned as their own entity buckets for the
+   * rerank / fact-centric stages to arbitrate against facts. Failures
+   * degrade to an empty map: verbatim is additive evidence, never a
+   * reason to fail the search.
+   */
+  async runSegmentLegStage(
+    db: Surreal,
+    ctx: PipelineContext,
+  ): Promise<Map<string, EntityBucket>> {
+    try {
+      return await withSpan('search.segment_leg', async (span) => {
+        const queryVector =
+          ctx.mode !== 'lexical'
+            ? await this.embedder.embed(ctx.dto.query)
+            : null;
+        const { vectorRows, lexicalRows } = await runSegmentLegs({
+          db,
+          queryText: ctx.dto.query,
+          queryVector,
+          fetchK: Math.max(ctx.profile.segmentTopK * 3, 12),
+          callerScopes: ctx.callerScopes,
+          userId: ctx.dto.userId,
+          mode: ctx.mode,
+        });
+        const fused = fuse(vectorRows, lexicalRows, ctx.mode);
+        for (const r of fused) {
+          if (!r.stages?.includes('segment')) {
+            r.stages = [...(r.stages ?? []), 'segment'];
+          }
+        }
+        span.setAttribute('candidates', fused.length);
+        traceArtifact(
+          'search.segment_hits',
+          fused.slice(0, 10).map((r) => ({
+            segmentId: String(r.id),
+            fusedScore: r.fusedScore,
+            object: r.object.slice(0, 120),
+          })),
+        );
+        return this.scoreAndBucket(fused, {
+          temporalAnchor:
+            ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+        });
+      });
+    } catch (e) {
+      this.logger.warn(
+        `segment fusion leg failed (companyId=${ctx.companyId}): ${(e as Error).message}`,
+      );
+      return new Map();
+    }
   }
 
   /**
