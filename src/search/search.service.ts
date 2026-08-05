@@ -47,8 +47,10 @@ import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
 import { PipelineContext } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
-import { envFlagEnabled } from '../common/env-validation';
-import { getActiveRetrievalProfile } from './retrieval-profile';
+import {
+  getActiveRetrievalProfile,
+  resolveSearchTuning,
+} from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
 export type { SearchHit } from './search.types';
@@ -323,6 +325,7 @@ export class SearchService {
       ReadPinService.bootstrapDefault();
 
     const profile = getActiveRetrievalProfile();
+    const tuning = resolveSearchTuning();
     const ctx: PipelineContext = {
       dto,
       callerScopes,
@@ -335,6 +338,7 @@ export class SearchService {
       candidateK,
       derivedVersion,
       profile,
+      tuning,
     };
     // Audit W4 #20: only the DB-touching stages run inside the scoped
     // connection; the cross-encoder pass and the external LLM rerank —
@@ -351,7 +355,7 @@ export class SearchService {
     // search actually surfaced. Fire-and-forget on the root pool — the
     // response never waits on it, and multi-hop / synthesize get it for
     // free since they route through this method.
-    if (envFlagEnabled(process.env.SEARCH_USAGE_RECORDING_ENABLED)) {
+    if (tuning.usageRecording) {
       recordFactUsage({
         surreal: this.surreal,
         logger: this.logger,
@@ -483,7 +487,7 @@ export class SearchService {
     // from the most recent retrieval instead of only recordedAt. Soft-
     // fails inside; rows injected later (edge expansion) stay
     // unenriched — supplementary context, not primary relevance.
-    if (envFlagEnabled(process.env.SEARCH_USAGE_DECAY_ENABLED)) {
+    if (ctx.tuning.usageDecay) {
       await enrichWithUsage(db, this.logger, filtered);
     }
 
@@ -494,6 +498,7 @@ export class SearchService {
     const byEntity = this.retrieval.scoreAndBucket(filtered, {
       temporalAnchor:
         ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+      tuning: ctx.tuning,
     });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
@@ -511,7 +516,7 @@ export class SearchService {
     });
 
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
-    await this.runPprStage(db, byEntity);
+    await this.runPprStage(db, byEntity, ctx);
 
     // 6b. Verbatim fusion leg (audit W4 #18): under the 'fused' profile,
     // segments arrive as their own scored buckets and compete with fact
@@ -592,7 +597,12 @@ export class SearchService {
     });
     rowPolicy.finish();
     return {
-      results: await applyOutputShaping(hits, ctx.dto, this.workerPool),
+      results: await applyOutputShaping(
+        hits,
+        ctx.dto,
+        this.workerPool,
+        ctx.tuning,
+      ),
     };
   }
 
@@ -623,6 +633,7 @@ export class SearchService {
           logger: this.logger,
           byEntity,
           baseWhere,
+          config: ctx.tuning.edgeExpansion,
           dto: ctx.dto,
           callerScopes: ctx.callerScopes,
           passesPolicy: (row) => rowFilterFn(row),
@@ -643,12 +654,10 @@ export class SearchService {
   private async runPprStage(
     db: Surreal,
     byEntity: Map<string, EntityBucket>,
+    ctx: PipelineContext,
   ): Promise<void> {
-    const pprForced = envFlagEnabled(process.env.SEARCH_PPR_ENABLED);
-    const pprAutoThreshold = parseInt(
-      process.env.SEARCH_PPR_AUTO_THRESHOLD ?? '0',
-      10,
-    );
+    const pprForced = ctx.tuning.pprEnabled;
+    const pprAutoThreshold = ctx.tuning.pprAutoThreshold;
     const pprAuto = pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
     if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
     await withSpan(

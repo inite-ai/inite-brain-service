@@ -18,7 +18,12 @@ const DEFAULT_STAGE_BUDGET_MS = {
 
 export type StageBudgets = Record<keyof typeof DEFAULT_STAGE_BUDGET_MS, number>;
 
-export function resolveStageBudgets(env = process.env): StageBudgets {
+/**
+ * Env resolution takes a caller-supplied env — the S5.2 boundary allows
+ * raw environment reads only in the retrieval-profile bootstrap
+ * (resolveSearchTuning), which owns the call.
+ */
+export function resolveStageBudgets(env: NodeJS.ProcessEnv): StageBudgets {
   const fromEnv = (key: string, fallback: number): number => {
     const raw = env[key];
     if (!raw) return fallback;

@@ -178,7 +178,7 @@ export class WindowDeriverService {
     // the guard and delete-by-version the world another pod served.
     const activePin =
       (await this.readPin?.resolve(companyId)) ??
-      process.env.RETRIEVAL_DERIVED_VERSION?.trim() ??
+      ReadPinService.bootstrapDefault() ??
       undefined;
     if (version === activePin && !opts.force) {
       throw new Error(
@@ -269,7 +269,7 @@ export class WindowDeriverService {
    * Atomic world flip: readers switch from the old fork to the new one
    * between requests, never mid-build. The flip is a REGISTRY write
    * (run()'s complete({live:true}) marks this version live and demotes
-   * the previous one) — audit W2 #9 removed the process.env mutation
+   * the previous one) — audit W2 #9 removed the env-var mutation
    * that made a per-tenant activation repoint every tenant on the pod
    * and stay invisible to every other pod. Activation additionally
    * requires a CLEAN run: flipping every reader onto a world with known
@@ -327,7 +327,8 @@ export class WindowDeriverService {
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
     const activePin =
       (await this.readPin?.resolve(companyId)) ??
-      process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+      ReadPinService.bootstrapDefault() ??
+      undefined;
     // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
     // part of the keep-set — the env pin is process-local and may be unset
     // on this pod while another pod serves a live world. live/building/

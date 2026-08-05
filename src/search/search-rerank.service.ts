@@ -5,14 +5,19 @@ import { CrossEncoderService } from '../ai/cross-encoder.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import type { EntityBucket } from './internals/types';
-import {
-  resolveStageBudgets,
-  withStageBudget,
-  type StageBudgets,
-} from './internals/stage-budget';
+import { withStageBudget, type StageBudgets } from './internals/stage-budget';
+import { resolveSearchTuning } from './retrieval-profile';
 import { fetchNeighbours, type Neighbour } from './internals/neighbours';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { PipelineContext } from './pipeline-context';
+
+/**
+ * Stage budgets from the request's tuning snapshot; partial-cast test
+ * contexts fall back to a fresh bootstrap resolution.
+ */
+function budgetsOf(ctx: PipelineContext): StageBudgets {
+  return ctx.tuning?.stageBudgets ?? resolveSearchTuning().stageBudgets;
+}
 
 /**
  * SearchRerankService — the rerank-side stages of the search pipeline:
@@ -29,7 +34,6 @@ import { PipelineContext } from './pipeline-context';
 @Injectable()
 export class SearchRerankService {
   private readonly logger = new Logger(SearchRerankService.name);
-  private readonly budgets: StageBudgets = resolveStageBudgets();
 
   constructor(
     private readonly reranker: RerankerService,
@@ -52,8 +56,8 @@ export class SearchRerankService {
     // tighter window (SEARCH_CROSS_ENCODER_LOCAL_WINDOW, default 20). Cohere
     // batches server-side and keeps the wider SEARCH_CROSS_ENCODER_WINDOW.
     const configuredWindow = this.crossEncoder.isLocalOnly()
-      ? parseInt(process.env.SEARCH_CROSS_ENCODER_LOCAL_WINDOW ?? '20', 10) || 20
-      : parseInt(process.env.SEARCH_CROSS_ENCODER_WINDOW ?? '50', 10) || 50;
+      ? (ctx.tuning?.crossEncoderLocalWindow ?? 20)
+      : (ctx.tuning?.crossEncoderWindow ?? 50);
     const crossEncoderWindow = this.crossEncoder.isEnabled()
       ? Math.min(configuredWindow, byEntity.size)
       : rerankWindow;
@@ -113,6 +117,7 @@ export class SearchRerankService {
         wideCandidates,
         ctx.dto.query,
         RERANK_WINDOW,
+        budgetsOf(ctx),
       );
     } else if (!this.crossEncoder.isEnabled()) {
       this.metrics?.countCrossEncoder('skipped_disabled');
@@ -120,9 +125,7 @@ export class SearchRerankService {
       this.metrics?.countCrossEncoder('skipped_singleton');
     }
 
-    const rerankSkipMargin = parseFloat(
-      process.env.SEARCH_RERANK_SKIP_MARGIN ?? '0',
-    );
+    const rerankSkipMargin = ctx.tuning?.rerankSkipMargin ?? 0;
     // shouldSkipRerankByMargin compares fused rankScore of top-1 vs top-2.
     // After runCrossEncoder, candidatesForRerank is ordered by cross-encoder
     // relevance, NOT by rankScore — so candidatesForRerank[0/1] are no longer
@@ -153,10 +156,12 @@ export class SearchRerankService {
     });
   }
 
+  // eslint-disable-next-line max-params
   private async runCrossEncoder(
     wideCandidates: EntityBucket[],
     query: string,
     rerankWindow: number,
+    budgets: StageBudgets,
   ): Promise<EntityBucket[]> {
     // Build inputs once — same shape feeds both cross-encoder and LLM
     // rerank stages. The LLM stage adds neighbours later (per-candidate
@@ -185,7 +190,7 @@ export class SearchRerankService {
       () =>
         withStageBudget({
           stage: 'crossEncoder',
-          budgetMs: this.budgets.crossEncoder,
+          budgetMs: budgets.crossEncoder,
           fn: () => this.crossEncoder.rerank(query, xInputs),
           fallback: identityPerm,
           logger: this.logger,
@@ -248,7 +253,7 @@ export class SearchRerankService {
       () =>
         withStageBudget({
           stage: 'rerank',
-          budgetMs: this.budgets.rerank,
+          budgetMs: budgetsOf(ctx).rerank,
           fn: () => this.reranker.rerank(ctx.dto.query, rerankInputs),
           fallback: identityPerm,
           logger: this.logger,

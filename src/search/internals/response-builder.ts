@@ -1,10 +1,16 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { countJsonTokens } from '../../common/token-counter';
-import { envFlagEnabled } from '../../common/env-validation';
 import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
+import type { SearchTuning } from '../retrieval-profile';
 import type { EntityBucket } from './types';
+
+/** The shaping slice of SearchTuning; defaults mirror the env defaults. */
+export type ShapingTuning = Pick<
+  SearchTuning,
+  'tokenCountOffload' | 'tokenOffloadMinHits'
+>;
 
 /**
  * Assemble final SearchHit rows from the fact-centric top-K bucket
@@ -120,12 +126,6 @@ export function tokenCountWorkerModulePath(): string {
   return cachedWorkerModulePath;
 }
 
-function offloadMinHits(): number {
-  const raw = process.env.SEARCH_TOKEN_OFFLOAD_MIN_HITS;
-  const n = raw === undefined ? Number.NaN : parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 1 ? n : OFFLOAD_MIN_HITS_DEFAULT;
-}
-
 /**
  * Per-hit token counts (+1 per hit for the array comma). Serialisation
  * happens on the main thread either way; for large hit lists the
@@ -138,17 +138,12 @@ function offloadMinHits(): number {
 async function countHitTokens(
   results: SearchHit[],
   pool?: TokenCountPool,
+  tuning?: ShapingTuning,
 ): Promise<number[]> {
   const syncCounts = () => results.map((hit) => countJsonTokens(hit) + 1);
-  const offloadEnabled = envFlagEnabled(
-    process.env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1',
-  );
-  if (
-    !pool ||
-    !offloadEnabled ||
-    results.length < offloadMinHits() ||
-    !pool.enabled()
-  ) {
+  const offloadEnabled = tuning?.tokenCountOffload ?? true;
+  const minHits = tuning?.tokenOffloadMinHits ?? OFFLOAD_MIN_HITS_DEFAULT;
+  if (!pool || !offloadEnabled || results.length < minHits || !pool.enabled()) {
     return syncCounts();
   }
   const texts = results.map((hit) => JSON.stringify(hit));
@@ -187,10 +182,12 @@ async function countHitTokens(
  * per-hit counting may batch out to the worker pool (see
  * countHitTokens); semantics are identical on both paths.
  */
+// eslint-disable-next-line max-params
 export async function applyOutputShaping(
   hits: SearchHit[],
   dto: SearchDto,
   pool?: TokenCountPool,
+  tuning?: ShapingTuning,
 ): Promise<SearchHit[]> {
   let results = hits;
   if (dto.confidenceFloor !== undefined) {
@@ -232,7 +229,7 @@ export async function applyOutputShaping(
     // the budget stays a hard ceiling. The per-hit encodes batch out
     // to the worker pool for large lists (sync fallback inside).
     const envelopeTokens = countJsonTokens({ results: [] });
-    const perHit = await countHitTokens(results, pool);
+    const perHit = await countHitTokens(results, pool, tuning);
     let used = envelopeTokens;
     let keep = 0;
     for (const hitTokens of perHit) {

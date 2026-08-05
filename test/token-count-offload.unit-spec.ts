@@ -14,6 +14,7 @@
 import { ConfigService } from '@nestjs/config';
 import { join } from 'node:path';
 import { JobWorkerPool } from '../src/jobs/job-worker-pool.service';
+import { resolveSearchTuning } from '../src/search/retrieval-profile';
 import {
   applyOutputShaping,
   tokenCountWorkerModulePath,
@@ -180,7 +181,14 @@ describe('applyOutputShaping offload vs sync parity', () => {
     process.env.SEARCH_TOKEN_OFFLOAD_MIN_HITS = '5';
     const few = hits.slice(0, 5);
     const { pool, runMock } = stubPool();
-    await applyOutputShaping(few, { query: 'q', tokenBudget: 100_000 } as SearchDto, pool);
+    // Env knobs now flow through the retrieval-profile bootstrap
+    // (S5.2) — resolve the tuning snapshot the pipeline would pass.
+    await applyOutputShaping(
+      few,
+      { query: 'q', tokenBudget: 100_000 } as SearchDto,
+      pool,
+      resolveSearchTuning(),
+    );
     expect(runMock).toHaveBeenCalledTimes(1);
   });
 
@@ -188,7 +196,7 @@ describe('applyOutputShaping offload vs sync parity', () => {
     process.env.SEARCH_TOKEN_COUNT_OFFLOAD = '0';
     const syncOut = await applyOutputShaping(hits, dto);
     const { pool, runMock } = stubPool();
-    const out = await applyOutputShaping(hits, dto, pool);
+    const out = await applyOutputShaping(hits, dto, pool, resolveSearchTuning());
     expect(out).toEqual(syncOut);
     expect(runMock).not.toHaveBeenCalled();
   });

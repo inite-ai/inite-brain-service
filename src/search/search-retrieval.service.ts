@@ -10,6 +10,7 @@ import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
 import { runSegmentLegs } from './internals/segment-leg';
 import { PipelineContext } from './pipeline-context';
+import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
 
 /**
  * SearchRetrievalService — the retrieval-side stages of the search
@@ -23,20 +24,6 @@ import { PipelineContext } from './pipeline-context';
 @Injectable()
 export class SearchRetrievalService {
   private readonly logger = new Logger(SearchRetrievalService.name);
-  // Source-reputation Phase 5 — all default 0 so ranking stays
-  // byte-identical until an operator opts in. Validated at boot
-  // (env-validation); the local guard covers post-boot env drift.
-  private readonly trustBeta = nonNegativeFloatEnv('SEARCH_TRUST_BETA');
-  private readonly corroborationGamma = nonNegativeFloatEnv(
-    'SEARCH_CORROBORATION_GAMMA',
-  );
-  private readonly authorityDelta = nonNegativeFloatEnv(
-    'SEARCH_AUTHORITY_DELTA',
-  );
-  // Chatter demotion — a sub-1.0 multiplier on `said` facts. Unlike the
-  // trust knobs, the OFF value is 1.0 (not 0), so a dedicated reader with a
-  // (0,1] clamp; unset/invalid/≥1 → 1.0 → byte-identical ranking.
-  private readonly chatterPenalty = unitPenaltyEnv('SEARCH_CHATTER_PENALTY');
 
   constructor(
     private readonly embedder: EmbedderService,
@@ -78,6 +65,7 @@ export class SearchRetrievalService {
                 k: ctx.candidateK,
                 baseWhere,
                 logger: this.logger,
+                tuning: ctx.tuning,
               });
               span.setAttribute('candidates', rows.length);
               traceArtifact(
@@ -105,6 +93,7 @@ export class SearchRetrievalService {
                 query: ctx.dto.query,
                 k: ctx.candidateK,
                 baseWhere,
+                tuning: ctx.tuning,
               });
               span.setAttribute('candidates', rows.length);
               traceArtifact(
@@ -171,6 +160,7 @@ export class SearchRetrievalService {
         return this.scoreAndBucket(fused, {
           temporalAnchor:
             ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+          tuning: ctx.tuning,
         });
       });
     } catch (e) {
@@ -194,37 +184,29 @@ export class SearchRetrievalService {
        * temporalMode = 'overlap_boost'). Null/omitted → factor 1.0.
        */
       temporalAnchor?: Date | null;
+      /**
+       * Deployment tuning (trust/corroboration/authority/chatter
+       * knobs). Omitted → resolved fresh from the bootstrap, so a live
+       * env flip lands on the next call (no constructor capture —
+       * audit W6 #28).
+       */
+      tuning?: SearchTuning;
     },
   ): Map<string, EntityBucket> {
+    const tuning = opts?.tuning ?? resolveSearchTuning();
     const scored = scoreRows({
       rows,
       now: Date.now(),
       calibrator: {
         calibrate: (raw: number) => this.calibration.calibrate(raw),
       },
-      trustBeta: this.trustBeta,
-      corroborationGamma: this.corroborationGamma,
-      authorityDelta: this.authorityDelta,
-      chatterPenalty: this.chatterPenalty,
+      trustBeta: tuning.trustBeta,
+      corroborationGamma: tuning.corroborationGamma,
+      authorityDelta: tuning.authorityDelta,
+      chatterPenalty: tuning.chatterPenalty,
       temporalAnchor: opts?.temporalAnchor ?? null,
     });
     return bucketByEntity(scored);
   }
 }
 
-/** Optional non-negative float env knob; unset/invalid → 0 (feature off). */
-function nonNegativeFloatEnv(name: string): number {
-  const v = Number(process.env[name] ?? 0);
-  return Number.isFinite(v) && v > 0 ? v : 0;
-}
-
-/**
- * Penalty multiplier env knob; OFF is 1.0. Returns the value only when it's
- * a real demotion in (0,1); unset / invalid / ≥1 → 1.0 (no penalty).
- */
-function unitPenaltyEnv(name: string): number {
-  const raw = process.env[name];
-  if (raw === undefined) return 1;
-  const v = Number(raw);
-  return Number.isFinite(v) && v > 0 && v < 1 ? v : 1;
-}

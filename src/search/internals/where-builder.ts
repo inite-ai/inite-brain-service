@@ -1,5 +1,6 @@
 import { StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
+import { ReadPinService } from '../../episodes/read-pin.service';
 
 /**
  * Compose the WHERE-clause fragment that every leg query shares.
@@ -80,7 +81,7 @@ export function buildBaseWhere({
   // falls back to the process bootstrap default.
   const pin =
     derivedVersion === undefined
-      ? process.env.RETRIEVAL_DERIVED_VERSION?.trim() || null
+      ? ReadPinService.bootstrapDefault()
       : derivedVersion;
   if (pin) {
     clauses.push(`AND derivedVersion = $derivedVersion`);
