@@ -26,6 +26,7 @@ export const RetrievalProfileWireSchema = z.object({
   extraEvidenceCap: z.number().int(),
   wideProbe: z.boolean(),
   wideProbeLimit: z.number().int(),
+  entityExpansion: z.boolean(),
   lanes: z.array(z.string()),
 });
 

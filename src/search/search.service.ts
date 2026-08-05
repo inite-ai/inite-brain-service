@@ -24,6 +24,7 @@ import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
 import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
 import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
+import { buildEntityExpansionQuery } from './internals/query-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { selectFactCentric } from './internals/fact-centric';
@@ -400,6 +401,36 @@ export class SearchService {
         merged: fused.length - firstPassCount,
         langFilter,
       });
+    }
+
+    // 1c. Entity-expansion second retrieval (audit W4 #19, profile
+    // entityExpansion): the first pass DISCOVERED entities the query
+    // never named; a second legs+fusion pass anchored on the top
+    // discovered names pulls the facts a single-shot query misses.
+    // Runs BEFORE scoring so expansion rows go through identity-merge,
+    // ABAC, scoring, and rerank exactly like first-pass rows.
+    if (ctx.profile.entityExpansion && fused.length > 0) {
+      const expansionQuery = buildEntityExpansionQuery(ctx.dto.query, fused);
+      if (expansionQuery) {
+        const extra = await this.retrieval.runRetrievalStage(
+          db,
+          { ...ctx, dto: { ...ctx.dto, query: expansionQuery } },
+          baseWhere,
+        );
+        const seen = new Set(fused.map((r) => String(r.id)));
+        let added = 0;
+        for (const r of extra) {
+          if (!seen.has(String(r.id))) {
+            fused.push(r);
+            seen.add(String(r.id));
+            added += 1;
+          }
+        }
+        traceArtifact('search.entity_expansion', {
+          expansionQuery,
+          added,
+        });
+      }
     }
 
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One

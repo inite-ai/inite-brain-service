@@ -110,6 +110,14 @@ export interface RetrievalProfile {
   /** PRF second retrieval for summary/enumeration-routed questions. */
   wideProbe: boolean;
   wideProbeLimit: number;
+  /**
+   * Entity-expansion second retrieval inside the search pipeline
+   * (audit W4 #19): the top entities the first pass discovered — and
+   * the query never named — anchor a second legs+fusion pass before
+   * scoring. SmartSearch's multi-session lever; off by default until
+   * measured per genre.
+   */
+  entityExpansion: boolean;
   /** Active dispatch lanes; empty set = no typed dispatch. */
   lanes: ReadonlySet<LaneId>;
 }
@@ -191,6 +199,7 @@ export function resolveRetrievalProfile(
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
+    entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     lanes,
   };
 }
@@ -257,7 +266,11 @@ export function resolveRetrievalProfileFor(
       merged[key] = Math.floor(v);
     }
   }
-  for (const key of ['segmentRerank', 'wideProbe'] as const) {
+  for (const key of [
+    'segmentRerank',
+    'wideProbe',
+    'entityExpansion',
+  ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }
   if (Array.isArray(o.lanes)) {

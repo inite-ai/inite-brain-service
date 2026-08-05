@@ -775,6 +775,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "How the generator's \"today\" anchors: none (session-date-convention golds) | session_date (only when the caller sends asOf) | absolute (asOf, else wall clock — the engine default). Unset → derived from SYNTHESIZE_DATE_CONTEXT.",
       },
       {
+        key: 'RETRIEVAL_ENTITY_EXPANSION',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Entity-expansion second retrieval (profile field entityExpansion): after the first legs+fusion pass, the top discovered entity names the query never mentioned anchor one more legs+fusion pass before scoring — the SmartSearch multi-session lever. Costs one extra embedding + two leg queries per search. Default off; enable per genre after measuring.',
+      },
+      {
         key: 'RETRIEVAL_TEMPORAL_MODE',
         category: 'pipeline',
         defaultValue: 'filter',
