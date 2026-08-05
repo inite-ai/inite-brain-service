@@ -92,16 +92,18 @@ describe('SegmentComposerService', () => {
     const svc = new SegmentComposerService(surreal, embedding, new EpisodeReadStoreService(surreal));
     const res = await svc.run('co_x');
     expect(res).toMatchObject({ conversations: 1, segments: 1 });
-    expect(
-      queries.some((q) => q.sql.includes('DELETE episode_segment')),
-    ).toBe(true);
-    const insert = queries.find((q) =>
+    const swap = queries.find((q) =>
       q.sql.includes('INSERT INTO episode_segment'),
     );
-    const rows = insert?.params?.rows as Array<Record<string, unknown>>;
+    // Atomic swap (audit W2 #10): delete + insert share ONE transaction —
+    // the lane sees the previous window set or the new one, never neither.
+    expect(swap?.sql).toContain('BEGIN TRANSACTION');
+    expect(swap?.sql).toContain('DELETE episode_segment');
+    const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
     expect(rows[0].recorder).toBe(SEGMENT_RECORDER);
     expect(rows[0].piiClass).toEqual(['phone']);
+    expect(typeof rows[0].generation).toBe('string');
     expect(String(rows[0].text)).toContain('[2023-05-01] A: q1');
   });
 });

@@ -79,12 +79,16 @@ describe('AggregateComposerService (Lane C v1)', () => {
     const deletes = queries.filter((q) => q.sql.includes('DELETE knowledge_fact'));
     expect(deletes).toHaveLength(1);
     expect(deletes[0].params?.recorder).toBe(AGGREGATE_RECORDER);
-    const creates = queries.filter((q) => q.sql.includes('CREATE knowledge_fact'));
-    expect(creates).toHaveLength(2);
-    expect(creates[0].params?.predicate).toBe('aggregate_pets_');
-    expect(creates[1].params?.predicate).toBe('aggregate_activities');
-    expect((creates[0].params?.derivedFrom as unknown[]).length).toBe(2);
-    expect(creates[0].params?.embedding).toEqual([1, 0]);
+    // Atomic swap (audit W2): delete + insert share ONE transaction —
+    // a reader never sees the entity stripped of its aggregates.
+    expect(deletes[0].sql).toContain('BEGIN TRANSACTION');
+    expect(deletes[0].sql).toContain('INSERT INTO knowledge_fact');
+    const rows = deletes[0].params?.rows as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    expect(rows[0].predicate).toBe('aggregate_pets_');
+    expect(rows[1].predicate).toBe('aggregate_activities');
+    expect((rows[0].derivedFrom as unknown[]).length).toBe(2);
+    expect(rows[0].embedding).toEqual([1, 0]);
   });
 
   it('filters aggregates with <2 members or out-of-range indexes', async () => {
@@ -100,7 +104,9 @@ describe('AggregateComposerService (Lane C v1)', () => {
     });
     const res = await svc.run('co_x');
     expect(res.aggregatesWritten).toBe(0);
-    expect(queries.some((q) => q.sql.includes('CREATE knowledge_fact'))).toBe(false);
+    expect(
+      queries.some((q) => q.sql.includes('INSERT INTO knowledge_fact')),
+    ).toBe(false);
   });
 
   it('skips entities with too few facts without calling the LLM', async () => {
@@ -133,8 +139,11 @@ describe('AggregateComposerService (Lane C v1)', () => {
     const tops = queries.find((q) => q.sql.includes('GROUP BY entityId'));
     expect(tops?.sql).toContain('derivedVersion = $version');
     expect(tops?.params?.version).toBe('wd-v2');
-    const create = queries.find((q) => q.sql.includes('CREATE knowledge_fact'));
-    expect(create?.params?.version).toBe('wd-v2');
+    const swap = queries.find((q) =>
+      q.sql.includes('INSERT INTO knowledge_fact'),
+    );
+    const rows = swap?.params?.rows as Array<Record<string, unknown>>;
+    expect(rows[0].derivedVersion).toBe('wd-v2');
     const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
     expect(del?.sql).toContain('derivedVersion = $version');
   });
