@@ -36,10 +36,9 @@ describe('scoreRows — fact_trust factors', () => {
         corroboration: { count: 3 },
       }),
     ];
-    const base = scoreRows({ rows, predicateDist: null, now: NOW });
+    const base = scoreRows({ rows, now: NOW });
     const flagged = scoreRows({
       rows,
-      predicateDist: null,
       now: NOW,
       trustBeta: 0,
       corroborationGamma: 0,
@@ -56,7 +55,6 @@ describe('scoreRows — fact_trust factors', () => {
   it('a snapshot-less fact sits on the neutral 0.5 at ANY beta', () => {
     const [scored] = scoreRows({
       rows: [row()],
-      predicateDist: null,
       now: NOW,
       trustBeta: 2,
     });
@@ -70,7 +68,6 @@ describe('scoreRows — fact_trust factors', () => {
         row({ trustSnapshot: { learnedTrust: 0.9, declaredTrust: 0.5 } }),
         row({ trustSnapshot: { declaredTrust: 0.7 } }),
       ],
-      predicateDist: null,
       now: NOW,
       trustBeta: 1,
     });
@@ -86,7 +83,6 @@ describe('scoreRows — fact_trust factors', () => {
         row({ corroboration: { count: 3 } }),
         row({ corroboration: { count: 10 } }),
       ],
-      predicateDist: null,
       now: NOW,
       corroborationGamma: 0.1,
     });
@@ -100,7 +96,6 @@ describe('scoreRows — fact_trust factors', () => {
         row({ trustSnapshot: { authority: 0.8 } }),
         row(), // no snapshot → authority 0
       ],
-      predicateDist: null,
       now: NOW,
       authorityDelta: 0.5,
     });
@@ -123,7 +118,6 @@ describe('scoreRows — fact_trust factors', () => {
           },
         }),
       ],
-      predicateDist: null,
       now: NOW,
     });
     expect(scored.breakdown.factTrust).toMatchObject({
@@ -156,7 +150,6 @@ describe('applyConformalGuardrail — minFactTrust floor', () => {
             confidence: 0.9,
             calibratedConfidence: 0.9,
             decay: 1,
-            predBoost: 1,
             ...(trust !== undefined
               ? {
                   factTrust: {

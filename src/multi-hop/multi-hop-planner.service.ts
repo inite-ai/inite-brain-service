@@ -98,7 +98,8 @@ Plan output rules:
   Use 'intersect' when both hops are independent broad queries and you want their overlap.
   Use 'union' rarely (e.g. "platinum OR gold customers who complained" — but this is usually one hop with predicate filter).
 - subQuery: a focused phrase, NOT the original full question. The downstream search engine has hybrid retrieval; give it a clean signal.
-- predicates: include when the sub-query clearly targets one or two predicates. Skip when ambiguous.
+- predicates: a HARD filter — the hop sees ONLY facts whose predicate is in this list. Set it ONLY when the sub-query targets a specific closed attribute ("platinum tier" → tier, "email address" → email, "complained about X" → complained_about). Leave it null for anything open-ended.
+  NEVER set predicates for identity / biographical / "who is X" / "what is X's <trait>" / "tell me about X" / summary questions — those draw on many predicates (preference, intent, status, interacted_with, said, …), and narrowing to one (especially 'name') throws the real answer away. 'name' is for looking an entity up BY its name string, never for "identity"/"who"/"about" questions. When in doubt, leave predicates null.
 - asOf: include when a temporal phrase ("in April", "before the upgrade", "last quarter") refers to the validity timeline. Use ISO-8601. Resolve relative dates against today (you'll be told today's date).
 - isMultiHop=false when one hop is enough; the executor will short-circuit to single-shot search.
 

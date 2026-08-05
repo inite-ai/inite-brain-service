@@ -62,6 +62,13 @@ export interface RequestContext {
    * source.meta.actor — provenance without signature threading.
    */
   authActorId?: string;
+  /**
+   * Per-tenant retrieval profile, resolved once by ApiKeyGuard next to
+   * brainAuth. Entry points hand it down by argument; the ALS slot
+   * exists so old no-argument call sites resolve the same object
+   * instead of re-reading env. Undefined outside a guarded request.
+   */
+  retrievalProfile?: import('../search/retrieval-profile').RetrievalProfile;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

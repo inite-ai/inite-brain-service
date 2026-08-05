@@ -1,0 +1,22 @@
+-- 0070: prefix (edge-ngram) fulltext index for entity-name typeahead.
+--
+-- The `prefix` analyzer (edgengram(2,15), migration 0002) was defined but
+-- no index ever used it. This adds a FULLTEXT index so
+-- GET /v1/entities/autocomplete can do word-start typeahead ranked by BM25
+-- (search::score), instead of a LIMIT-scan + JS substring filter.
+--
+-- Index target is canonicalNameLc (the materialised lowercase form), NOT
+-- canonicalName, on purpose:
+--   * canonicalName already carries a content-analyzer fulltext index
+--     (entity_name_search_idx, 0002) that the graph-retrieve `@1@` matcher
+--     binds to; a SECOND fulltext index on the same field would make that
+--     binding ambiguous and could silently change its analyzer/recall.
+--   * canonicalNameLc's existing plain index (entity_canonical_lc_idx) is a
+--     different index TYPE, so equality lookups still route through it —
+--     verified via EXPLAIN on SurrealDB 3.1.5 (IndexScan
+--     entity_canonical_lc_idx). The `@@` operator only ever selects the
+--     fulltext index.
+-- The analyzer lowercases + edge-ngrams, and canonicalNameLc is already
+-- lowercase, so matching is case-insensitive; the query side lowercases too.
+DEFINE INDEX IF NOT EXISTS entity_name_prefix_idx ON knowledge_entity
+  FIELDS canonicalNameLc FULLTEXT ANALYZER prefix BM25 HIGHLIGHTS;

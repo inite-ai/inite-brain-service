@@ -4,6 +4,7 @@ import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
+import { envFlagEnabled } from '../common/env-validation';
 
 export interface MentionSource {
   vertical: string;
@@ -51,8 +52,19 @@ export class MentionExtractionService {
       return { skip: 'empty' };
     }
 
+    // Coreference context: tell the extractor who is speaking (and whom
+    // they address), so first-person "I decided …" attaches to the speaker
+    // rather than a junk "I" node. Derived by ROLE from knownEntities;
+    // absent → the extractor runs speaker-agnostic exactly as before.
+    const speaker = dto.knownEntities?.find((k) => k.role === 'speaker');
+    const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
+    const context =
+      speaker?.name || addressee?.name
+        ? { speakerName: speaker?.name, addresseeName: addressee?.name }
+        : undefined;
+
     const extraction = await traceSpan('ingest.nlu.extract', () =>
-      this.extractor.extract(text, companyId),
+      this.extractor.extract(text, companyId, context),
     );
     traceArtifact('ingest.nlu.extracted', extraction);
 
@@ -72,8 +84,23 @@ export class MentionExtractionService {
       recorder: dto.contextRef.recorder ?? this.extractor.modelId(),
     };
 
-    const factTexts = extraction.facts.map(
-      (f: { predicate: string; object: string }) => `${f.predicate}: ${f.object}`,
+    // Contextual fact embedding (Anthropic Contextual Retrieval, fact-level):
+    // a bare "predicate: object" ("preference: hiking") is stripped of the
+    // context a conversational query matches on — who said it and when. When
+    // INGEST_CONTEXTUAL_FACT_EMBEDDING is on, prepend a compact context stamp
+    // (speaker + session date) so the stored embedding is closer to
+    // context-referencing queries ("what is Caroline's identity"). Off →
+    // bare text → byte-identical embeddings. Only the embedding basis
+    // changes; the fact's stored object/predicate/haystack are untouched.
+    const ctxStamp =
+      envFlagEnabled(process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING) &&
+      (speaker?.name || dto.emittedAt)
+        ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
+        : '';
+    const factTexts = extraction.facts.map((f: { predicate: string; object: string }) =>
+      ctxStamp
+        ? `${ctxStamp} — ${f.predicate}: ${f.object}`
+        : `${f.predicate}: ${f.object}`,
     );
     let factEmbeddings: number[][];
     try {
@@ -88,6 +115,11 @@ export class MentionExtractionService {
       factEmbeddings = [];
     }
 
-    return { skip: null, extraction, source, factEmbeddings };
+    return {
+      skip: null,
+      extraction,
+      source,
+      factEmbeddings,
+    };
   }
 }

@@ -71,6 +71,7 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `POST /v1/search` | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
 | `POST /v1/synthesize` | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag). |
 | `POST /v1/search/multi-hop` | Planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval. See [Architecture § Multi-hop](architecture.md#multi-hop-search). |
+| `GET /v1/entities/autocomplete?q=` | Entity-name typeahead over the edge-ngram `prefix` fulltext index (word-start match, BM25-ranked via `search::score`). `?limit=` 1–25 (default 10); a query under 2 chars returns empty. Live, tenant-global entities only (merged-away redirects and personal-scoped entities excluded). |
 | `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). `?asOf=` slices world-time; `?recordedAt=` slices transaction-time (what the graph believed at T — a later retract/supersede is ignored). |
 | `GET /v1/entities/:id/timeline` | Bitemporal sweep — `fact.recorded` / `fact.retracted` events on the transaction-time axis. `?since=`/`?until=` page the window; `?recordedAt=` cuts to events known by T. |
 | `GET /v1/entities/:id/connections` | Typed edges + direct neighbours. |
@@ -81,6 +82,23 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/communities/search` | Vector search over community summaries. |
 | `GET /v1/communities/for-entity/:entityId` | Communities an entity belongs to. |
 | `GET /v1/stats/overview` | Tenant-level counts (entities / facts / edges) for dashboards. |
+
+## Raw-substrate driver (episodes + projections)
+
+The L0 substrate as a public contract
+([design](roadmap/raw-substrate-driver-2026-08.md)): any consumer can
+build its own projection without speaking SurrealQL to our database.
+All routes 404 until their flag is on.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/episodes` | Verbatim pre-extraction turns, keyset-paged over `(occurredAt, id)` (`?cursor=` resumes); filters `conversationId`/`speaker`/`since`/`until`, `limit` ≤ 200. Without `brain:read_pii` only piiClass-clean rows are visible. Flag `EPISODES_API_ENABLED`. |
+| `GET /v1/episodes/export` | Same filtered stream as NDJSON, one episode per line, paged internally. Flag `EPISODES_API_ENABLED`. |
+| `POST /v1/episodes/subscriptions` | Register an http(s) endpoint for signed `episodes_available` pushes (`brain:admin`). The HMAC secret is returned **exactly once**. Pushes are metadata-only (ids/attribution/timestamps — never text), at-least-once, watermarked over `recordedAt`; signature `X-Brain-Signature: sha256=<hex hmac>` over the raw body. Flag `EPISODE_SUBSCRIPTIONS_ENABLED`. |
+| `GET /v1/episodes/subscriptions` | Registered endpoints (secrets never included). |
+| `DELETE /v1/episodes/subscriptions/:id` | Remove an endpoint (`brain:admin`). |
+| `GET /v1/projections` | Derived surfaces as first-class records (migration 0076): status `building/built/live/residual/failed`, watermark, builder, stats, plus the live read pin (`RETRIEVAL_DERIVED_VERSION`). Flag `PROJECTIONS_API_ENABLED`. |
+| `POST /v1/projections/:name/rebuild` | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `activate` / `force`. Flag `PROJECTIONS_API_ENABLED`. |
 
 ## Mutation (audited)
 

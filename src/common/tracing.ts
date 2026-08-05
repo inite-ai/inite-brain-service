@@ -1,3 +1,4 @@
+import { envFlagEnabled } from './env-validation';
 /**
  * OpenTelemetry bootstrap.
  *
@@ -43,7 +44,7 @@ function getCorrelationIdSafe(): string | undefined {
 let sdk: NodeSDK | null = null;
 
 export function initTracing(): void {
-  if (process.env.OTEL_ENABLED !== '1') return;
+  if (!envFlagEnabled(process.env.OTEL_ENABLED)) return;
   if (sdk) return;
 
   const serviceName =

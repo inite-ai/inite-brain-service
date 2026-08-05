@@ -20,6 +20,22 @@ describe('real_estate pack — extractionProfile consumption (e2e)', () => {
   let llm: ExtractorLlmService;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // The static-contract assertions below target the classic verbatim
+  // header, which EXTRACTOR_DIALOGUE_PROFILE deliberately replaces —
+  // a stand's .env.local (loaded by ConfigModule) would otherwise flip
+  // this suite while CI stays green. Pin the classic header here; the
+  // dialogue variant appends profiles through the same code path.
+  let savedDialogueProfile: string | undefined;
+  beforeAll(() => {
+    savedDialogueProfile = process.env.EXTRACTOR_DIALOGUE_PROFILE;
+    delete process.env.EXTRACTOR_DIALOGUE_PROFILE;
+  });
+  afterAll(() => {
+    if (savedDialogueProfile !== undefined) {
+      process.env.EXTRACTOR_DIALOGUE_PROFILE = savedDialogueProfile;
+    }
+  });
+
   beforeAll(async () => {
     f = await createApp({
       companyId: 'co_real_estate_profile_e2e',

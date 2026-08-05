@@ -16,6 +16,7 @@ export type JobType =
   | 'index_document'
   | 'commit_document'
   | 'candidate_sweeper'
+  | 'recompose'
   | 'reindex_documents'
   | 'pack_seed_ingest'
   | 'scenarios_batch'

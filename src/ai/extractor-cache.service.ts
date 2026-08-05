@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LRUCache } from '../common/lru-cache';
@@ -46,7 +47,7 @@ export class ExtractorCacheService {
       10,
     );
     this.enabled =
-      this.config.get<string>('EXTRACTOR_CACHE_ENABLED', 'true') !== 'false';
+      envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
     this.cache = new LRUCache<string, ExtractionResult>(size);
   }
 
@@ -55,17 +56,26 @@ export class ExtractorCacheService {
     companyId: string;
     predicateVocabHash: string;
     scPasses?: number;
+    speaker?: string;
+    addressee?: string;
   }): string {
     // scPasses is part of the key: a single-pass cached result lacks the
     // semantic-entropy fields a >1-pass run produces, so serving it after
     // EXTRACTOR_SC_PASSES is raised would return a stale-shaped extraction.
     // Default to 1 so callers that don't pass it (and pre-existing keys)
     // map to the historical single-pass bucket.
+    //
+    // Speaker/addressee partition the key too: coreference resolution makes
+    // the extraction speaker-dependent, so the same text spoken by two
+    // people must not share a cache entry. The segment is present but empty
+    // when no participants are known; this cache is an in-memory LRU (not
+    // persisted), so the added segment only means a cold cache on deploy.
     const parts = [
       'v2',
       input.companyId,
       input.predicateVocabHash,
       `sc=${input.scPasses ?? 1}`,
+      `spk=${input.speaker ?? ''}\x1eadr=${input.addressee ?? ''}`,
       nfc(input.text),
     ].join('\x1f');
     return createHash('sha256').update(parts).digest('hex');

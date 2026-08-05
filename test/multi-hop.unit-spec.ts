@@ -155,6 +155,43 @@ describe('MultiHopService', () => {
     expect(hop2Dto.entityIds).toEqual(['e1', 'e2', 'e3']);
   });
 
+  it('malformed planner asOf degrades to the caller asOf, never an error', async () => {
+    // Live LME-500 finding (q 0ddfec37): the planner emitted a
+    // non-ISO asOf, new Date() produced Invalid Date, and the Surreal
+    // SDK refused to serialize the param — the whole request 500'd.
+    const { svc: search, calls } = makeSearch([[hit('e1')], [hit('e2')]]);
+    const plan: MultiHopPlan = {
+      isMultiHop: true,
+      hops: [
+        {
+          subQuery: 'first hop',
+          combination: 'seed',
+          predicates: null,
+          asOf: 'three months in', // unparseable → caller's asOf
+          rationale: null,
+        },
+        {
+          subQuery: 'second hop',
+          combination: 'union',
+          predicates: null,
+          asOf: '2023-04-15', // parseable → passes through
+          rationale: null,
+        },
+      ],
+    };
+    const svc = makeSvc(search, makePlanner(plan));
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { query: 'q', asOf: '2023-05-20T00:00:00.000Z' },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(true);
+    expect((calls[0] as { asOf?: string }).asOf).toBe(
+      '2023-05-20T00:00:00.000Z',
+    );
+    expect((calls[1] as { asOf?: string }).asOf).toBe('2023-04-15');
+  });
+
   it('intersect: post-hoc set intersection without anchoring', async () => {
     const { svc: search, calls } = makeSearch([
       [hit('e1'), hit('e2'), hit('e3')],
@@ -412,6 +449,54 @@ describe('MultiHopService', () => {
     });
     expect(out.synthesis?.answer).toBe('final');
     expect(out.finalEntityIds).toEqual(['e2']);
+  });
+
+  it('runs synthesizer on a SINGLE-hop plan too (regression: was skipped)', async () => {
+    // A planner-classified single-hop query is still a synthesize:true
+    // request. The short-circuit used to return before synthesizing, so
+    // callers got no answer for the majority of factoid questions.
+    const { svc: search } = makeSearch([[hit('e1'), hit('e2')]]);
+    let seenEntityIds: string[] | undefined;
+    const synth = {
+      synthesize: async ({ dto }: { dto: { entityIds?: string[] } }) => {
+        seenEntityIds = dto.entityIds;
+        return { answer: 'grounded single-hop answer', citations: [], results: [] };
+      },
+    } as unknown as SynthesizeService;
+    const svc = makeSvc(
+      search,
+      makePlanner({
+        isMultiHop: false,
+        hops: [
+          { subQuery: 'refined', combination: 'seed', predicates: ['name'], asOf: null, rationale: null },
+        ],
+      }),
+      synth,
+    );
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(false);
+    expect(out.synthesis?.answer).toBe('grounded single-hop answer');
+    // Synthesis re-searches within the surfaced entity set.
+    expect(seenEntityIds).toEqual(['e1', 'e2']);
+  });
+
+  it('runs synthesizer on the planner-outage fallback too', async () => {
+    const { svc: search } = makeSearch([[hit('e1')]]);
+    const synth = {
+      synthesize: async () => ({ answer: 'fallback answer', citations: [], results: [] }),
+    } as unknown as SynthesizeService;
+    const svc = makeSvc(search, makePlanner(null), synth);
+    const out = await svc.run({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesize: true },
+      callerScopes: scopes,
+    });
+    expect(out.isMultiHop).toBe(false);
+    expect(out.synthesis?.answer).toBe('fallback answer');
   });
 
   it('skips synthesize when finalHits is empty', async () => {

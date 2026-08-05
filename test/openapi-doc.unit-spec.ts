@@ -47,6 +47,14 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/indexer/work/{runId}/fail', 'post'],
   ['/v1/sources', 'get'],
   ['/v1/sources/{sourceKey}', 'get'],
+  // raw-substrate driver v1 (episodes read + subscriptions + projections)
+  ['/v1/episodes', 'get'],
+  ['/v1/episodes/export', 'get'],
+  ['/v1/episodes/subscriptions', 'post'],
+  ['/v1/episodes/subscriptions', 'get'],
+  ['/v1/episodes/subscriptions/{id}', 'delete'],
+  ['/v1/projections', 'get'],
+  ['/v1/projections/{name}/rebuild', 'post'],
 ];
 
 describe('docs/openapi.json', () => {

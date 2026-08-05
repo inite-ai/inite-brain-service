@@ -6,7 +6,6 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
-import { envFlagEnabled } from '../common/env-validation';
 
 export interface RerankCandidate {
   /** A short label identifying the candidate (e.g. canonical name). */
@@ -30,8 +29,8 @@ export interface RerankCandidate {
  * tokens (latency stays roughly constant — the calls fire in
  * parallel through the limiter).
  *
- * Disabled by default. Enable with SEARCH_RERANKER_ENABLED=1 + an
- * OpenAI key. On any failure (timeout, malformed output, partial
+ * A capability, not a flag: reranking runs whenever the OpenAI client
+ * is configured. On any failure (timeout, malformed output, partial
  * permutation) we return the original order so retrieval never
  * breaks because of the optional reranker.
  */
@@ -40,7 +39,6 @@ export class RerankerService {
   private readonly logger = new Logger(RerankerService.name);
   private readonly openai: OpenAI;
   private readonly model: string;
-  private readonly enabled: boolean;
   private readonly limiter: Semaphore;
   private readonly scN: number;
 
@@ -48,8 +46,6 @@ export class RerankerService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('SEARCH_RERANKER_ENABLED'));
     this.openai =
       createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
@@ -73,7 +69,7 @@ export class RerankerService {
   }
 
   isEnabled(): boolean {
-    return this.enabled && !!this.openai;
+    return !!this.openai;
   }
 
   /**
@@ -84,18 +80,11 @@ export class RerankerService {
    * different shuffled candidate order, aggregates via Borda count.
    * Falls back to identity on any catastrophic failure.
    *
-   * `hints` is an optional sidecar string surfaced in the user
-   * prompt before the query — typically a type-prior summary or a
-   * predicate-class hint from the upstream router. Lets the
-   * reranker exploit query-level context that doesn't fit on a
-   * per-candidate body.
-   *
    * Skip when ≤1 candidate or query is empty.
    */
   async rerank(
     query: string,
     candidates: RerankCandidate[],
-    hints?: string,
   ): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     if (!this.isEnabled() || candidates.length <= 1 || !query.trim()) {
@@ -104,7 +93,7 @@ export class RerankerService {
 
     if (this.scN === 1) {
       // Single-call path. Identity ordering — no shuffle.
-      return this.singleRerank({ query, candidates, presentationOrder: identity, hints });
+      return this.singleRerank({ query, candidates, presentationOrder: identity });
     }
 
     // Permutation self-consistency: run scN calls in parallel with
@@ -117,7 +106,7 @@ export class RerankerService {
     );
     const settled = await Promise.allSettled(
       orderings.map((ord) =>
-        this.singleRerank({ query, candidates, presentationOrder: ord, hints }),
+        this.singleRerank({ query, candidates, presentationOrder: ord }),
       ),
     );
     const rankings: number[][] = [];
@@ -143,12 +132,10 @@ export class RerankerService {
     query,
     candidates,
     presentationOrder,
-    hints,
   }: {
     query: string;
     candidates: RerankCandidate[];
     presentationOrder: number[];
-    hints?: string;
   }): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     const items = presentationOrder
@@ -162,8 +149,7 @@ export class RerankerService {
 Use the literal text of the facts; don't invent missing context. Prefer candidates whose facts directly answer the query (object terms, predicate semantics, IS-A reasoning). When the query mentions an event / project / place, prefer the actor (person/customer/staff) who participated, not the event/project entity itself, unless the query explicitly asks for the entity. When two candidates are similarly relevant, favour the one with more directly-supporting evidence.
 
 Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every candidate index from the input exactly once, in the new order.`;
-    const hintBlock = hints && hints.trim() ? `\n\nHints:\n${hints.trim()}\n` : '';
-    const userPrompt = `Query: ${query}${hintBlock}\n\nCandidates:\n${items}`;
+    const userPrompt = `Query: ${query}\n\nCandidates:\n${items}`;
 
     try {
       const res = await this.limiter.run(() =>

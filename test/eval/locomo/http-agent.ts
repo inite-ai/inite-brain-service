@@ -25,8 +25,9 @@ import type { IngestSink } from './ingest';
 import type { QaAgent } from './runner';
 
 export interface HttpAgentOptions {
-  /** synthesize mode — strict closes to null on partial; lenient returns the answer. */
-  synthesisGuardrails?: 'strict' | 'lenient' | 'off';
+  /** synthesize mode — strict closes to null on partial; lenient returns the
+   *  answer; 'answer' never abstains (best-effort short answer). */
+  synthesisGuardrails?: 'strict' | 'lenient' | 'off' | 'answer';
   /** Cap on planner hops. The default 3 matches the paper's multi-hop split. */
   maxHops?: number;
   /** When true, drives /v1/search/multi-hop; else single-shot /v1/synthesize. */
@@ -54,7 +55,11 @@ export function createHttpQaAgent(
           synthesisGuardrails: guardrails,
           asOf,
         });
-        return res.synthesis?.answer ?? '';
+        return {
+          answer: res.synthesis?.answer ?? '',
+          promptTokens: res.synthesis?.tokenUsage?.promptTokens,
+          completionTokens: res.synthesis?.tokenUsage?.completionTokens,
+        };
       }
       const synth = await client.synthesize({
         query: question,
@@ -62,7 +67,27 @@ export function createHttpQaAgent(
         synthesisGuardrails: guardrails,
         asOf,
       });
-      return synth.answer ?? '';
+      return {
+        answer: synth.answer ?? '',
+        promptTokens: synth.tokenUsage?.promptTokens,
+        completionTokens: synth.tokenUsage?.completionTokens,
+      };
+    },
+  };
+}
+
+/**
+ * Agent-in-loop QaAgent — drives `/v1/answer`, where the server runs a ReAct
+ * loop (LLM issues memory-search tool calls, reformulates, chains, then
+ * answers). The literature's biggest lever on LoCoMo; reuses all of brain's
+ * retrieval machinery as the tool.
+ */
+export function createHttpAgenticAgent(client: HttpBrainClient): QaAgent {
+  return {
+    async answer({ companyId: _companyId, question, asOf }) {
+      void _companyId;
+      const res = await client.answer({ query: question, asOf });
+      return res.answer ?? '';
     },
   };
 }
@@ -109,12 +134,29 @@ export function createHttpIngestSink(
         },
       });
     },
-    async ingestMention({ speakerEntityId, text, validFrom, sourceMessageId }) {
+    async ingestMention({
+      speakerEntityId,
+      speakerName,
+      addressee,
+      text,
+      validFrom,
+      sourceMessageId,
+    }) {
       // conversationId = `locomo:<sampleId>` — the first two segments
       // of sourceMessageId. We can't strip the trailing segment because
       // dia_ids carry their own ':' (e.g. "D1:5"); splitting and
       // taking the prefix is the deterministic path.
       const conversationId = sourceMessageId.split(':').slice(0, 2).join(':');
+      // Pass speaker (+ addressee) with roles + display names so the
+      // extractor resolves first-person "I …" to the speaker and "you …"
+      // to the addressee, and persist anchors those to the right entity —
+      // instead of scattering self-facts onto junk "I"/"you" nodes.
+      const knownEntities = [
+        { vertical, id: speakerEntityId, role: 'speaker', name: speakerName },
+        ...(addressee
+          ? [{ vertical, id: addressee.entityId, role: 'addressee', name: addressee.name }]
+          : []),
+      ];
       await client.ingest.mention({
         text,
         emittedAt: validFrom,
@@ -124,9 +166,7 @@ export function createHttpIngestSink(
           messageId: sourceMessageId,
           recorder: 'locomo:loader',
         },
-        knownEntities: [
-          { vertical, id: speakerEntityId, role: 'speaker' },
-        ],
+        knownEntities,
       });
     },
   };

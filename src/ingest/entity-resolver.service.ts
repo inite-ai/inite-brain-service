@@ -47,6 +47,9 @@ export class EntityResolverService {
   private readonly enabled: boolean;
   private readonly cosineFloor: number;
   private readonly candidateK: number;
+  private readonly hnswEnabled: boolean;
+  private readonly hnswEf: number;
+  private readonly hnswOverfetch: number;
 
   constructor(
     private readonly config: ConfigService,
@@ -61,6 +64,24 @@ export class EntityResolverService {
     this.candidateK = parseInt(
       this.config.get<string>('INGEST_INLINE_RESOLUTION_CANDIDATES', '5'),
       10,
+    );
+    // HNSW approximate KNN for the name-candidate scan (default off). The
+    // KNN operator picks the nearest embeddings BEFORE the WHERE narrows to
+    // name facts, so we over-fetch (candidateK × overfetch, capped 1000) to
+    // keep filtered recall up. A name query embeds like other name facts,
+    // so the nearest neighbours are predominantly name facts — but that's
+    // an empirical property, so this is gated and eval-verified before
+    // enable (a missed candidate here creates a DUPLICATE entity).
+    this.hnswEnabled = envFlagEnabled(
+      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW'),
+    );
+    this.hnswEf = positiveIntCfg(
+      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_EF'),
+      100,
+    );
+    this.hnswOverfetch = positiveIntCfg(
+      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH'),
+      8,
     );
   }
 
@@ -117,6 +138,11 @@ export class EntityResolverService {
    * Cosine k-NN over existing `name` fact embeddings; returns the closest
    * candidate of the SAME type at or above the floor, else null. Mirrors
    * the dreams dedup candidate scan, scoped to one query.
+   *
+   * When INGEST_INLINE_RESOLUTION_HNSW is on, candidates come from the
+   * native HNSW index (`<|k,ef|>`); any failure — most commonly "no index
+   * on this tenant yet" — falls back to the exact full scan, so the flag
+   * can be flipped globally while tenants are indexed one by one.
    */
   private async findBestNameCandidate(
     db: Surreal,
@@ -124,6 +150,32 @@ export class EntityResolverService {
     type: string,
   ): Promise<{ entityId: string; cosine: number } | null> {
     const q = await this.embedder.embed(`name: ${name}`);
+    let rows: Array<{ entityId: unknown; etype: string; sim: number }> | null = null;
+    if (this.hnswEnabled) {
+      try {
+        rows = await this.queryNameCandidatesKnn(db, q);
+      } catch (err) {
+        this.logger.warn(
+          `[ingest.inline_resolution] hnsw name-candidate scan fell back ` +
+            `to full scan: ${(err as Error).message}`,
+        );
+        rows = null;
+      }
+    }
+    if (rows === null) rows = await this.queryNameCandidatesFullScan(db, q);
+    for (const r of rows) {
+      if (r.sim < this.cosineFloor) break; // rows are sorted DESC
+      if (r.etype !== type) continue;
+      return { entityId: String(r.entityId), cosine: r.sim };
+    }
+    return null;
+  }
+
+  /** Exact full-scan cosine over every active `name` fact. */
+  private async queryNameCandidatesFullScan(
+    db: Surreal,
+    q: number[],
+  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
     const [rows] = await db.query<
       [Array<{ entityId: unknown; etype: string; sim: number }>]
     >(
@@ -140,11 +192,45 @@ export class EntityResolverService {
          LIMIT $k`,
       { q, k: this.candidateK },
     );
-    for (const r of (rows as Array<{ entityId: unknown; etype: string; sim: number }>) ?? []) {
-      if (r.sim < this.cosineFloor) break; // rows are sorted DESC
-      if (r.etype !== type) continue;
-      return { entityId: String(r.entityId), cosine: r.sim };
-    }
-    return null;
+    return (rows as Array<{ entityId: unknown; etype: string; sim: number }>) ?? [];
   }
+
+  /**
+   * Approximate KNN variant over the per-tenant `fact_embedding_hnsw` index.
+   * The `<|kOver,ef|>` operator picks candidates before the WHERE filters,
+   * so we over-fetch (kOver = candidateK × overfetch, capped 1000) and let
+   * the same predicate/status/type fences narrow the result, then LIMIT to
+   * candidateK. Throws when the tenant has no HNSW index — the caller falls
+   * back to the exact scan.
+   */
+  private async queryNameCandidatesKnn(
+    db: Surreal,
+    q: number[],
+  ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
+    const kOver = Math.min(this.candidateK * this.hnswOverfetch, 1000);
+    // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
+    const [rows] = await db.query<
+      [Array<{ entityId: unknown; etype: string; sim: number }>]
+    >(
+      `SELECT entityId, entityId.type AS etype,
+              vector::similarity::cosine(embedding, $q) AS sim
+         FROM knowledge_fact
+         WHERE embedding <|${kOver},${this.hnswEf}|> $q
+           AND predicate = 'name'
+           AND status = 'active'
+           AND retractedAt IS NONE
+           AND userId IS NONE
+           AND entityId.mergedInto IS NONE
+         ORDER BY sim DESC
+         LIMIT $k`,
+      { q, k: this.candidateK },
+    );
+    return (rows as Array<{ entityId: unknown; etype: string; sim: number }>) ?? [];
+  }
+}
+
+/** Parse a positive-int config value, falling back on absent/invalid input. */
+function positiveIntCfg(raw: string | undefined, fallback: number): number {
+  const v = parseInt(raw ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
 }

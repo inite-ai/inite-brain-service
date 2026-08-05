@@ -9,18 +9,11 @@
  * a code change; the constants below are the defaults the deploy
  * workflow encodes. Numbers are derived from p50 stage latency on
  * the eval — a 4s reranker budget covers SC=3 parallel calls at
- * ~700ms each plus headroom; 2s router budget covers a cached miss
- * with one round trip; 2s backfill budget covers the inline subquery
- * on a few-thousand-fact tenant.
+ * ~700ms each plus headroom.
  */
-export const DEFAULT_STAGE_BUDGET_MS = {
-  router: 2000,
+const DEFAULT_STAGE_BUDGET_MS = {
   rerank: 4000,
   crossEncoder: 2000,
-  backfill: 2000,
-  // One cached-miss LLM round trip; on timeout the original-query legs
-  // serve the request alone.
-  queryExpansion: 1500,
 } as const;
 
 export type StageBudgets = Record<keyof typeof DEFAULT_STAGE_BUDGET_MS, number>;
@@ -33,19 +26,10 @@ export function resolveStageBudgets(env = process.env): StageBudgets {
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
   return {
-    router: fromEnv('SEARCH_STAGE_BUDGET_ROUTER_MS', DEFAULT_STAGE_BUDGET_MS.router),
     rerank: fromEnv('SEARCH_STAGE_BUDGET_RERANK_MS', DEFAULT_STAGE_BUDGET_MS.rerank),
     crossEncoder: fromEnv(
       'SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS',
       DEFAULT_STAGE_BUDGET_MS.crossEncoder,
-    ),
-    backfill: fromEnv(
-      'SEARCH_STAGE_BUDGET_BACKFILL_MS',
-      DEFAULT_STAGE_BUDGET_MS.backfill,
-    ),
-    queryExpansion: fromEnv(
-      'SEARCH_STAGE_BUDGET_QUERY_EXPANSION_MS',
-      DEFAULT_STAGE_BUDGET_MS.queryExpansion,
     ),
   };
 }

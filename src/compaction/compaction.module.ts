@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CompactionService } from './compaction.service';
 import { CompactionRunnerService } from './compaction-runner.service';
+import { RecomposeService } from './recompose.service';
 import { CompactionQueueService } from './compaction-queue.service';
 import { PromotionRunnerService } from './promotion-runner.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
@@ -11,6 +12,7 @@ import {
 } from './summary-generator';
 import { LlmSummaryGenerator } from '../dreams/llm-summary.generator';
 import { MetricsModule } from '../metrics/metrics.module';
+import { EpisodesModule } from '../episodes/episodes.module';
 import { envFlagEnabled } from '../common/env-validation';
 
 /**
@@ -24,12 +26,15 @@ import { envFlagEnabled } from '../common/env-validation';
  * existing concat output, never a hard error inside compaction.
  */
 @Module({
-  imports: [MetricsModule],
+  // EpisodesModule supplies ReadPinService so compaction stays inside the
+  // tenant's live derived world instead of silently splitting it (W2).
+  imports: [MetricsModule, EpisodesModule],
   providers: [
     CompactionService,
     CompactionRunnerService,
     CompactionQueueService,
     PromotionRunnerService,
+    RecomposeService,
     {
       provide: SUMMARY_GENERATOR,
       inject: [ConfigService],

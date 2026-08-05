@@ -74,6 +74,8 @@ export class FactResolverService {
       entropy?: number;
       /** Per-user scope (migration 0055); undefined = tenant-global. */
       userId?: string;
+      /** Derived-world namespace (0074/0079); undefined = live world. */
+      derivedVersion?: string;
       recordOutcomeMetric?: boolean;
     },
   ): Promise<{ result: any; semantics: string }> {
@@ -88,23 +90,100 @@ export class FactResolverService {
         `ingest: predicate registry getSnapshot failed for ${p.companyId}: ${(e as Error).message}; using seed policy`,
       );
     }
-    const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
-    const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
+    const call = await this.buildResolveCall(p);
+    const result = await this.resolveFactCall(db, call);
+    await this.postResolve(db, p, result);
+    return { result, semantics: call.semantics };
+  }
 
-    // Locale rides into fn::resolve_fact as a param (migration 0039), a folded
-    // INSERTED-only write rather than a follow-up UPDATE. detectLanguage is
-    // pure TS; 'und' → leave the fields unset (NONE).
+  /**
+   * Batched resolve for the mention path: N facts in as few round-trips as
+   * possible. `append_only` facts (the bulk — preference/intent/interacted_with)
+   * are pure INSERTs with no supersede and no active-row uniqueness, so they
+   * carry NO cross-mention race and are collapsed into ONE multi-statement
+   * `fn::resolve_fact` query with no lock. `single_active`/`bitemporal` facts
+   * keep the per-fact + KeyedMutex path unchanged (their supersede logic needs
+   * the cross-request serialization the batch can't provide). Results are
+   * returned in input order. On a batch failure the append_only set falls back
+   * to the per-fact path, so the outcome is identical either way.
+   *
+   * Gated by INGEST_BATCH_FACTS at the caller; when off, callers use `resolve()`
+   * per fact and this is never reached.
+   */
+  async resolveMany(
+    db: Surreal,
+    inputs: Parameters<FactResolverService['resolve']>[1][],
+  ): Promise<Array<{ result: any; semantics: string }>> {
+    if (inputs.length === 0) return [];
+    try {
+      await this.predicateRegistry.getSnapshot(inputs[0].companyId);
+    } catch (e) {
+      this.logger.warn(
+        `ingest: predicate registry getSnapshot failed for ${inputs[0].companyId}: ${(e as Error).message}; using seed policy`,
+      );
+    }
+
+    const prepared = await Promise.all(
+      inputs.map((p) => this.buildResolveCall(p)),
+    );
+    const results: any[] = new Array(inputs.length);
+    const appendIdx: number[] = [];
+    const restIdx: number[] = [];
+    prepared.forEach((c, i) =>
+      (c.semantics === 'append_only' ? appendIdx : restIdx).push(i),
+    );
+
+    if (appendIdx.length > 0) {
+      try {
+        const batch = await this.resolveAppendOnlyBatch(
+          db,
+          appendIdx.map((i) => prepared[i]),
+        );
+        appendIdx.forEach((i, k) => (results[i] = batch[k]));
+      } catch (e) {
+        this.logger.warn(
+          `ingest: batched fact resolve fell back to per-fact: ${(e as Error).message}`,
+        );
+        for (const i of appendIdx) {
+          results[i] = await this.resolveFactCall(db, prepared[i]);
+        }
+      }
+    }
+    // single_active / bitemporal keep the serialized per-fact path.
+    for (const i of restIdx) {
+      results[i] = await this.resolveFactCall(db, prepared[i]);
+    }
+
+    // Post-call side effects (HyPE + metric) per fact, in order.
+    const out: Array<{ result: any; semantics: string }> = [];
+    for (let i = 0; i < inputs.length; i++) {
+      await this.postResolve(db, inputs[i], results[i]);
+      out.push({ result: results[i], semantics: prepared[i].semantics });
+    }
+    return out;
+  }
+
+  /**
+   * Shared pre-call preparation (policy, source trust, locale, embedding) that
+   * turns a public resolve input into the positional `resolveFactCall` params.
+   * One place so the per-fact and batched paths can never bind the wrong slot.
+   */
+  private async buildResolveCall(
+    p: Parameters<FactResolverService['resolve']>[1],
+  ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
+    const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
+    const sourceTrust = sourceTrustFor(
+      p.source as Parameters<typeof sourceTrustFor>[0],
+    );
     const detLang = detectLanguage(p.object);
     const lang = detLang.language !== 'und' ? detLang.language : undefined;
     const script = detLang.language !== 'und' ? detLang.script : undefined;
-
     const embedding =
       p.precomputedEmbedding ??
       (await this.factEmbedding.embed(
         p.embeddingText ?? `${p.predicate}: ${p.object}`,
       ));
-
-    const result = await this.resolveFactCall(db, {
+    return {
       companyId: p.companyId,
       entityId: p.entityId,
       predicate: p.predicate,
@@ -121,27 +200,127 @@ export class FactResolverService {
       script,
       entropy: p.entropy,
       userId: p.userId,
-    });
+      derivedVersion: p.derivedVersion,
+    };
+  }
 
-    const factId = result?.factId ? String(result.factId) : null;
+  /** Outcome metric — shared post-call tail. */
+  private async postResolve(
+    db: Surreal,
+    p: Parameters<FactResolverService['resolve']>[1],
+    result: any,
+  ): Promise<void> {
     const outcome = result?.outcome;
-
-    // HyPE stays a post-call UPDATE: it's an LLM call, gated on isEnabled()
-    // AND INSERTED, so pre-computing it would burn the model on
-    // non-INSERTED outcomes.
-    await this.factEmbedding.writeAltEmbeddingIfHype({
-      db,
-      factId,
-      outcome,
-      predicate: p.predicate,
-      object: p.object,
-    });
-
     if (p.recordOutcomeMetric && outcome) {
       this.metrics?.countIngestFact(String(outcome));
     }
+  }
 
-    return { result, semantics: policy.semantics };
+  /**
+   * Resolve a set of append_only facts in ONE round-trip via the stored
+   * `fn::resolve_facts` (migration 0071), which maps `fn::resolve_fact` over the
+   * array server-side and returns the results in order. Safe without the resolve
+   * lock: append_only never supersedes and never asserts a unique active row, so
+   * batched inserts are all correct.
+   *
+   * The 22-arg positional binding lives in the migration, NOT here — the TS side
+   * passes a TYPED object array + one shared config, so a fn::resolve_fact
+   * signature change can't silently drift a hand-built parameter string.
+   * Optional fields are omitted when undefined so `$f.x` resolves to NONE
+   * (matching the per-fact path), never NULL.
+   */
+  private async resolveAppendOnlyBatch(
+    db: Surreal,
+    prepared: Parameters<FactResolverService['resolveFactCall']>[1][],
+  ): Promise<any[]> {
+    const facts = prepared.map((c) => {
+      const f: Record<string, unknown> = {
+        eid: idTailOf(c.entityId),
+        predicate: c.predicate,
+        object: c.object,
+        embedding: c.embedding,
+        confidence: c.confidence,
+        valid_from: c.validFrom,
+        source: c.source,
+        source_trust: c.sourceTrust,
+        semantics: c.semantics,
+      };
+      // Omit-when-undefined: an absent object key reads as NONE server-side
+      // (fn::resolve_fact's contract), whereas an explicit null would store
+      // NULL — e.g. a NULL validUntil would break the `validUntil IS NONE`
+      // active-fact read filter.
+      if (c.objectMeta !== undefined) f.object_meta = c.objectMeta;
+      if (c.validUntil !== undefined) f.valid_until = c.validUntil;
+      if (c.lang !== undefined) f.lang = c.lang;
+      if (c.script !== undefined) f.script = c.script;
+      if (c.entropy !== undefined) f.entropy = c.entropy;
+      if (c.userId !== undefined) f.user_id = c.userId;
+      if (c.derivedVersion !== undefined) f.derived_version = c.derivedVersion;
+      return f;
+    });
+    const cfg = {
+      similarity_threshold: this.conflict.similarityThreshold,
+      w_confidence: this.conflict.weights.confidence,
+      w_source_trust: this.conflict.weights.sourceTrust,
+      w_recency: this.conflict.weights.recency,
+      w_authority: this.conflict.weights.authority,
+      reject_threshold: this.conflict.rejectThreshold,
+      margin_for_supersede: this.conflict.marginForSupersede,
+    };
+    const [rows] = await db.query<[any[]]>(
+      `RETURN fn::resolve_facts($facts, $cfg)`,
+      { facts, cfg },
+    );
+    return (rows as any[]) ?? [];
+  }
+
+  /**
+   * Derived-world batch write (S4, one write primitive): every producer
+   * routes through fn::resolve_fact — including the window deriver,
+   * which used to raw-INSERT past the resolver. Propositions are
+   * append_only (history matters, no unique active slot) and carry
+   * their derivedVersion, so resolution is namespace-local (0079) and
+   * the batch stays ONE round-trip per session via fn::resolve_facts.
+   */
+  async resolveDerivedBatch(
+    // Structural: the deriver hands a narrow query-only view of the
+    // scoped connection; resolveAppendOnlyBatch only calls .query().
+    db: {
+      query<T>(sql: string, params?: Record<string, unknown>): Promise<T>;
+    },
+    rows: Array<{
+      entityId: string;
+      predicate: string;
+      object: string;
+      embedding: number[];
+      confidence: number;
+      validFrom: Date;
+      source: unknown;
+      sourceTrust: number;
+      lang?: string;
+      script?: string;
+      derivedVersion: string;
+    }>,
+  ): Promise<any[]> {
+    if (rows.length === 0) return [];
+    return this.resolveAppendOnlyBatch(
+      db as unknown as Surreal,
+      rows.map((r) => ({
+        companyId: '',
+        entityId: r.entityId,
+        predicate: r.predicate,
+        object: r.object,
+        embedding: r.embedding,
+        confidence: r.confidence,
+        validFrom: r.validFrom,
+        source: r.source,
+        sourceTrust: r.sourceTrust,
+        semantics: 'append_only',
+        lang: r.lang,
+        script: r.script,
+        derivedVersion: r.derivedVersion,
+      })),
+    );
   }
 
   /**
@@ -173,6 +352,7 @@ export class FactResolverService {
       script?: string;
       entropy?: number;
       userId?: string;
+      derivedVersion?: string;
     },
   ): Promise<any> {
     // Serialize resolves on the same (company, entity, predicate). Under
@@ -193,7 +373,7 @@ export class FactResolverService {
             $source_trust, $semantics, $similarity_threshold,
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
-            $lang, $script, $entropy, $user_id
+            $lang, $script, $entropy, $user_id, $derived_version
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -218,6 +398,7 @@ export class FactResolverService {
             script: p.script,
             entropy: p.entropy,
             user_id: p.userId,
+            derived_version: p.derivedVersion,
           },
         );
         return r;

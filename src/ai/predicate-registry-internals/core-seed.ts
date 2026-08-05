@@ -21,9 +21,13 @@ export const CORE_PREDICATES: PredicateDefinition[] = [
     predicateId: 'said',
     displayLabel: 'said',
     description: `TYPE   subject is anyone; value is an attributed utterance
-ADMIT  text directly attributes an utterance to the subject AND no more
-       specific predicate (intent / complained_about / preference) admits
-       the clause. Fallback predicate — prefer specifics.
+ADMIT  text directly attributes an utterance to the subject that carries
+       real, retainable content AND no more specific predicate (intent /
+       complained_about / preference) admits the clause. Fallback predicate —
+       prefer specifics.
+NOT FOR contentless small talk — greetings, acknowledgements/backchannels
+       ("That's great!"), thanks, or questions that assert nothing. Those
+       produce ZERO facts, not a said fact.
 VALUE  the utterance span (may be a quoted string)`,
     datatype: 'string',
     semantics: 'append_only',

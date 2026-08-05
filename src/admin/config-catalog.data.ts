@@ -28,7 +28,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_SC_PASSES',
         category: 'extractor',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: false,
         description:
           'Self-consistency N-pass count for semantic-entropy gating. 1 = single pass; raise (e.g. 3) for high-stakes corpora.',
@@ -37,7 +37,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_LOCAL_NER_ENABLED',
         category: 'extractor',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description: 'Local @xenova/transformers NER pass before the LLM.',
       },
@@ -84,7 +84,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'EXTRACTOR_CACHE_ENABLED',
         category: 'extractor',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -138,21 +138,21 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'DREAMS_DEDUP_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
         key: 'DREAMS_RESOLVE_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
         key: 'DREAMS_RUN_SUMMARIZE',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -219,7 +219,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'AUDIT_CHANGEFEED_ENABLED',
         category: 'audit',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Master switch for the every-minute changefeed → audit_event consumer.',
@@ -236,7 +236,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'CHAT_ROUTE_CACHE_ENABLED',
         category: 'router',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       {
@@ -313,23 +313,9 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_PPR_AUTO_THRESHOLD',
         category: 'search',
-        defaultValue: '3',
+        defaultValue: '0',
         runtimeMutable: false,
         isBooleanFlag: false,
-      },
-      {
-        key: 'SEARCH_RERANKER_ENABLED',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-      },
-      {
-        key: 'SEARCH_CROSS_ENCODER_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
       },
       {
         key: 'SEARCH_RERANK_SKIP_MARGIN',
@@ -337,13 +323,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         defaultValue: '0',
         runtimeMutable: false,
         isBooleanFlag: false,
-      },
-      {
-        key: 'SEARCH_PREDICATE_ROUTER_ENABLED',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
       },
       {
         key: 'SEARCH_TOKEN_COUNT_OFFLOAD',
@@ -382,7 +361,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'CALIBRATION_USE_GOLD_SET',
         category: 'calibration',
         defaultValue: '1',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
       },
       // ── Cost ────────────────────────────────────────────
@@ -708,15 +687,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Switch the KNN vector leg on. Tenants without a built index fall back to the full scan; build via POST /v1/admin/maintenance/hnsw.',
       },
       {
-        key: 'SEARCH_QUERY_EXPANSION_ENABLED',
-        category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'LLM rewrites the query into N variants before search. Fails open to the raw query on error.',
-      },
-      {
         key: 'SEARCH_USAGE_RECORDING_ENABLED',
         category: 'search',
         defaultValue: '0',
@@ -732,15 +702,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'Count recency decay from lastReadAt, not only recordedAt (needs recording on for data).',
-      },
-      {
-        key: 'SEARCH_EDGE_EXPANSION_ENABLED',
-        category: 'search',
-        defaultValue: '1',
-        runtimeMutable: true,
-        isBooleanFlag: true,
-        description:
-          'Graph-walk from top seeds to pull in 1-hop neighbours (default ON). Knobs: SEARCH_EDGE_EXPANSION_TOP_SEEDS/_MAX_NEIGHBOURS/_ALPHA.',
       },
       {
         key: 'SEARCH_EDGE_EXPANSION_TOP_SEEDS',
@@ -768,29 +729,366 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Inherited-score multiplier for an expanded neighbour (≤0.4 so a neighbour can never outrank its seed).',
       },
       {
-        key: 'SEARCH_HYPE_ENABLED',
+        key: 'SEARCH_CHATTER_PENALTY',
         category: 'search',
-        defaultValue: '0',
-        runtimeMutable: true,
-        isBooleanFlag: true,
+        defaultValue: '1.0',
+        runtimeMutable: false,
+        isBooleanFlag: false,
         description:
-          'Hypothetical-embedding (HyDE-style) alt-vector leg. Read side degrades cleanly when altEmbedding is absent.',
+          'Sub-1.0 ranking multiplier on low-value "said" chatter facts so substantive facts of the same entity are not buried. 1.0 = off; a demotion needs a value in (0,1), e.g. 0.35.',
       },
       {
-        key: 'SEARCH_CROSS_ENCODER_LOCAL',
+        key: 'SEARCH_FACT_CENTRIC_BUDGET',
         category: 'search',
+        defaultValue: '48',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Global fact budget for fact-centric selection — total facts kept across all entities (also the per-entity render cap). Default-profile input (RetrievalProfile.factBudget); per-tenant override via RETRIEVAL_PROFILE_OVERRIDES.',
+      },
+      // ── Retrieval profile (per-tenant genre configuration) ────────
+      {
+        key: 'RETRIEVAL_GENRE',
+        category: 'pipeline',
+        defaultValue: 'assistant_chat',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Default-profile genre tag: dialogue | assistant_chat | documents. The genre dimensions the engine actually branches on are RETRIEVAL_VERBATIM_EVIDENCE and RETRIEVAL_DATE_ANCHORING; this names the corpus so per-tenant overrides read as intent.',
+      },
+      {
+        key: 'RETRIEVAL_VERBATIM_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'How verbatim L0 evidence reaches synthesis: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional; diary-genre profile). Unset → derived from the legacy lane flags.',
+      },
+      {
+        key: 'RETRIEVAL_DATE_ANCHORING',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "How the generator's \"today\" anchors: none (session-date-convention golds) | session_date (only when the caller sends asOf) | absolute (asOf, else wall clock — the engine default). Unset → derived from SYNTHESIZE_DATE_CONTEXT.",
+      },
+      {
+        key: 'RETRIEVAL_PROFILE_OVERRIDES',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+      },
+      {
+        key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
+        category: 'pipeline',
+        defaultValue: '40',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max pre-retrieved extra facts (multi-hop evidence union) appended to the generator prompt after the re-search results.',
+      },
+      {
+        key: 'SYNTHESIZE_DATE_CONTEXT',
+        category: 'pipeline',
+        defaultValue: '1',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Prepend an anchored "Today: <date>" (dto.asOf, else now) plus a date-arithmetic instruction to the answer generator, so relative time expressions resolve against fact date stamps instead of being guessed. DEFAULT ON (2026-08 engine wave — the trace-verified temporal failure was relative-date questions with no anchor); set 0 for genres where the golds follow a session-date convention (LoCoMo eval profile).',
+      },
+      {
+        key: 'EPISODE_SUBSTRATE_ENABLED',
+        category: 'pipeline',
         defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: true,
         description:
-          'Run the local cross-encoder reranker (no Cohere key). Note: opting in enables the stage even with SEARCH_CROSS_ENCODER_ENABLED=0.',
+          'L0 episode substrate (memory-substrate-redesign P1): store every ingested dialogue turn verbatim (P0-redacted, piiClass-tagged) BEFORE extraction — lossless, idempotent (INSERT IGNORE on conversationId+messageId), LLM- and embedder-free. Extraction failures stop losing turns; future derivers re-derive from here.',
+      },
+      {
+        key: 'SEARCH_EPISODIC_LANE_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Episodic retrieval lane (memory-substrate P2): BM25 top-k over the L0 episode substrate rendered as dated, chronological transcript quotes in their own generator-prompt section — the lossless fallback when extraction missed or fragmented a fact. Callers without brain:read_pii only see piiClass-clean episodes.',
+      },
+      {
+        key: 'SEARCH_EPISODIC_LANE_TOPK',
+        category: 'pipeline',
+        defaultValue: '8',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Transcript quotes per synthesis prompt from the episodic lane — verbatim turns are token-heavy, keep the cap low.',
+      },
+      {
+        key: 'SYNTHESIZE_SOURCE_EXCERPTS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Provenance lane (road-to-90 A1): quote the verbatim source turns of the selected evidence facts (knowledge_fact.source.episodeIds → episode) in the synthesis prompt — restores the concrete detail a derivation summarized away. Same PII gate and degradation contract as the episodic lane.',
+      },
+      {
+        key: 'SYNTHESIZE_SOURCE_EXCERPTS_CAP',
+        category: 'pipeline',
+        defaultValue: '16',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
+      },
+      {
+        key: 'SEARCH_SEGMENT_LANE_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'L0 segment lane (memory-rebuild R1): retrieve verbatim multi-turn segments (episode_segment, built by POST /v1/admin/maintenance/segments) via dense+BM25 RRF as retrieval units in their own right, rendered as transcript excerpts in the synthesis prompt. PII-gated like the episodic lane.',
+      },
+      {
+        key: 'SEARCH_SEGMENT_LANE_TOPK',
+        category: 'pipeline',
+        defaultValue: '5',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Segments per synthesis prompt from the segment lane — segments are multi-turn and token-heavy, keep the cap low.',
+      },
+      {
+        key: 'SEARCH_SEGMENT_LANE_RERANK',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Precision-trim the fused segment pool with the listwise reranker before the top-k cut.',
+      },
+      {
+        key: 'AGENT_QA_TOOLS_V2',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Agent-QA V2 tool set (memory-rebuild R3): masked search_memory (facts already shown are never repeated — each call must surface new evidence), timeline (chronological topic scan for enumeration/counting), grep_episodes (literal transcript search), plus date-arithmetic loop prompt. Off = the original single-tool loop, byte-identical.',
+      },
+      {
+        key: 'AGENT_QA_ROUTE_MODE',
+        category: 'pipeline',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Agent-QA routing (memory-rebuild R3b): 'escalate' answers one-shot (multi-hop search + synthesis) first and runs the ReAct loop ONLY when the one-shot answer is null, hedging, or citation-free — the loop replacing one-shot wholesale measured −4.6pp. Unset = pure loop.",
+      },
+      {
+        key: 'RETRIEVAL_DERIVED_VERSION',
+        category: 'search',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Derived-namespace pin (substrate P3): read only facts stamped with this derivedVersion (e.g. wd-v2, written by POST /v1/admin/maintenance/derive). Unset = legacy namespace only (facts without a version). Switching the value switches the whole retrieval world atomically.',
+      },
+      {
+        key: 'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Typed Answer Dispatch T1 (docs/roadmap/typed-answer-dispatch-2026-07.md): lexical router recognizes temporal-distance questions and switches synthesis into compute-then-answer — each dated fact gets a precomputed [elapsed: N days ≈ W weeks ≈ M months] annotation vs asOf and the date anchor is forced. Fail-open: unrouted queries take the legacy path byte-identically. Genre-profile flag: OFF for LoCoMo-convention corpora (session-date golds), ON for true-date-arithmetic corpora (LongMemEval/BEAM).',
+      },
+      {
+        key: 'EPISODES_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. Off (default) → routes answer 404.',
+      },
+      {
+        key: 'PROJECTIONS_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Raw-substrate driver v1, surface 3: derived surfaces as first-class records (migration 0076) — GET /v1/projections lists every derived world with status/watermark/builder/stats plus the live read pin; POST /v1/projections/:name/rebuild (brain:admin) is the public verb over the maintenance batch engine (v1 rebuilds "facts" via the session-window deriver). The registry observes builder lifecycles (building/built/live/residual/failed); gc deletes rows for reaped worlds. Off (default) → routes answer 404.',
+      },
+      {
+        key: 'EPISODE_SUBSCRIPTIONS_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Raw-substrate driver v1, surface 4 (migration 0077): new-episode webhook push for external projection builders. POST/GET/DELETE /v1/episodes/subscriptions registers HTTPS endpoints (per-subscription HMAC secret returned once); a per-minute dispatcher polls each tenant watermark over recordedAt (deliberately NOT changefeed-driven — 0073 keeps the episode table feed-free for GDPR) and POSTs metadata-only batches (ids/attribution/timestamps, never text) signed X-Brain-Signature: sha256=<hmac>. At-least-once delivery, CAS watermark advance, circuit breaker, auto-deactivate at 100 consecutive failures. Enable on ONE role (worker) in prod. Off (default) → routes 404, dispatcher inert.',
+      },
+      {
+        key: 'SYNTHESIZE_INSTRUCTION_LANE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "T7 instruction lane: standing user instructions ('always format code with syntax highlighting when I ask about implementation') captured as preference facts are pulled by an UNCONDITIONAL fixed probe and rendered as a dedicated standing-instructions section with an apply-on-match frame. Unconditional because instruction-following questions are deliberately neutral — no lexical route can fire, and relevance-gating filters exactly these out (LIGHT's measured ceiling). Requires the answer router.",
+      },
+      {
+        key: 'SYNTHESIZE_LANE_WIDE_PROBE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'T6/T2 wide probe: summary/enumeration-routed questions run a second retrieval with a pseudo-relevance-feedback query (original query + dominant aspect predicates + top entity names from the base hits — deterministic, no LLM). Lesson of the null render-frame legs: a whole-project narrative needs recall breadth the top-K similarity slice cannot cover. Extra facts merge through the evidence union under SYNTHESIZE_EXTRA_EVIDENCE_CAP. Requires the answer router.',
+      },
+      {
+        key: 'SYNTHESIZE_WIDE_PROBE_LIMIT',
+        category: 'pipeline',
+        defaultValue: '12',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Hit limit for the T6/T2 wide-probe second retrieval (SYNTHESIZE_LANE_WIDE_PROBE).',
+      },
+      {
+        key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Allow an admin-scoped key to address another tenant via the X-Brain-Tenant header (slug-validated). Built for eval harnesses needing per-question tenant isolation (LongMemEval/BEAM: one haystack per tenant) without minting hundreds of keys. Never enable in multi-tenant prod without a policy review.',
+      },
+      {
+        key: 'INGEST_EPISODE_ONLY',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Mention ingest captures the raw episode and returns before LLM extraction — the derived world is then built in batch by POST /v1/admin/maintenance/derive. LLM-free ingest for eval harnesses and bulk backfills; requires EPISODE_SUBSTRATE_ENABLED.',
+      },
+      {
+        key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
+        category: 'embedder',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Contextual fact embedding: embed mention-extracted facts with a speaker+date context stamp so the vector matches context-referencing queries (Anthropic Contextual Retrieval, fact-level). Changes the embedding basis — requires re-ingest.',
+      },
+      {
+        key: 'INGEST_EVENT_TIME_EXTRACTION',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "Event-time extraction: when a mention clause carries a relative temporal expression (\"yesterday\", \"last year\", \"3 weeks ago\", RU \"вчера\"/\"три недели назад\"), resolve the occurrence date against the message time and use it for the fact's validFrom instead of the message time. Multilingual via chrono-node, dispatched by the clause's detected language (en/ru/fr/de/es/pt/…), English fallback; no LLM call. Unresolvable clauses fall back to message time. Requires re-ingest.",
+      },
+      {
+        key: 'DERIVER_ASSISTANT_CONTENT',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'E3a (engine wave 2026-08): the session-window deriver also emits propositions for content a participant CONTRIBUTED — recommendations, answers, instructions given — under the "assistance" aspect, subject = the contributing participant. The base contract is user-fact-shaped, so assistant-side content structurally never became a proposition (the measured SSA failure at the substrate level; the read-side verbatim lane routes around it, this closes the source). Default off; confirm on a FRESH derivedVersion — worlds derived under different prompts must not share a version. Requires re-derive.',
+      },
+      {
+        key: 'EXTRACTION_OBJECT_NORMALIZE',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Object normalization (E3b, engine wave 2026-08): the span-grounded extractor also proposes "object" — the minimal clean phrase naming the value ("camped in the mountains with my kids" → "the mountains"); the server admits it only when every word already appears in the grounded span, else falls back to the raw span. Fixes the measured aggregation failure (values scattered across verbal phrasings cannot converge for "list all X"). valueSpan is kept on the fact for audit. Inactive under EXTRACTOR_DIALOGUE_PROFILE (that profile normalizes via its own contract). Default off pending a paid confirm leg — extraction prompt changes have regressed before. Requires re-ingest.',
+      },
+      // ── Dialogue memory mode ────────────────────────────────────────
+      // All default-off and all requiring a re-ingest: they change what gets
+      // WRITTEN, so toggling them only affects facts extracted afterwards.
+      {
+        key: 'EXTRACTOR_DIALOGUE_PROFILE',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Dialogue extraction profile: drop the closed CRM predicate vocabulary from the extraction call and let the model coin a SPECIFIC predicate per clause, keeping normalized (non-verbatim) values, attributing facts to the actor rather than the speaker, and enumerating lists. A closed label set as output contract is what drives the catch-all collapse ("conservative bias"); the vocabulary belongs downstream in canonicalization, not in the extractor. Measured +2.8pp on LoCoMo dev-5. Also bypasses the span-grounding drop (values are normalized by design) and skips the specificity-collapsing refinement passes. Requires re-ingest.',
+      },
+      {
+        key: 'EXTRACTOR_ROUTING_ENABLED',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Facet routing (dialogue profile only): a turn containing a list (3+ items) or a proper name also gets a SPECIALIST extraction pass whose only contract is that one thing, unioned with the general pass. Strictly additive recall — the general pass still runs and the union deduplicates. The router is a local heuristic, not an LLM call. Costs one extra extraction call per detected facet. Requires re-ingest.',
+      },
+      {
+        key: 'LIVE_SUBSCRIPTIONS_ENABLED',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Realtime fact subscriptions (SSE at /v1/live/facts). A dedicated per-tenant connection OUTSIDE both pools holds a LIVE SELECT on knowledge_fact, with the 30-day changefeed as the gap-replay bridge on reconnect and the per-row ABAC/scope gate applied to every pushed event using the SUBSCRIBER\'s scopes. Single-pod prototype: multi-pod fan-out needs per-tenant leader election, not yet built. Off → no socket is opened and the endpoint answers 503.',
+      },
+      {
+        key: 'INGEST_BATCH_EDGES',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Batched edge persistence: collapse the per-edge RELATE round-trips of a mention into TWO queries (one multi-statement existence check, then one multi-statement RELATE for only the missing edges); re-ingest with all edges present is a single round-trip. Same observable outcome as the per-edge loop (idempotent RELATE on UNIQUE(in,out,kind)); a concurrent-writer race falls back to the per-edge primitive. Read at boot.',
+      },
+      {
+        key: 'INGEST_INLINE_RESOLUTION_HNSW',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "Route the inline entity-resolution name-candidate scan through the native HNSW index (<|k,ef|>) instead of a per-ingest full cosine scan of every 'name' fact. Over-fetches (candidateK × INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH, default 8, capped 1000) since KNN pre-filters before the name/type WHERE. Tenants without a built index fall back to the full scan (build via POST /v1/admin/maintenance/hnsw). CORRECTNESS-SENSITIVE — a missed approximate candidate creates a DUPLICATE entity; run the dedup recall eval and verify parity vs full scan before enabling. Only active when INGEST_INLINE_RESOLUTION_ENABLED is also on. Read at boot.",
+      },
+      {
+        key: 'SEARCH_COMBINED_VECTOR_GRAPH',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "Combined vector+graph retrieval: fold each fact's entity neighbourhood (->knowledge_edge->) into the vector KNN query as a co-equal projection, so candidate generation is ONE SurrealQL round-trip instead of a vector query plus a separate edge-expansion lookup (SurrealDB's native hybrid-retrieval strength). Edge-expansion reuses the prefetched neighbours and only queries uncovered seeds. Off = byte-identical (empty projection + legacy lookup). Read at boot.",
+      },
+      {
+        key: 'SEARCH_HIGHLIGHT_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "BM25 match snippets: project search::highlight('<em>','</em>',1) from the lexical leg (the FULLTEXT indexes already carry HIGHLIGHTS but it was never queried) and surface a `highlight` field on lexically-matched facts. Off = no highlight field (byte-identical payload). Read at boot.",
       },
       // ── Dreams: corroboration + communities ──────────────────
       {
         key: 'DREAMS_CORROBORATE_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Fuzzy cross-source corroboration (cosine-close facts confirm each other). Bounded by DREAMS_CORROBORATE_MAX_PAIRS per run.',
@@ -808,7 +1106,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'DREAMS_COMMUNITIES_ENABLED',
         category: 'dreams',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description: 'Build + persist entity-community summaries during dreams.',
       },
@@ -826,7 +1124,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         key: 'COMPACTION_PROMOTION_ENABLED',
         category: 'compaction',
         defaultValue: '0',
-        runtimeMutable: true,
+        runtimeMutable: false,
         isBooleanFlag: true,
         description:
           'Promote old corroborated append_only fact groups into a durable summary. Bounded by COMPACTION_PROMOTION_MAX_GROUPS per run.',

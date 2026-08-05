@@ -179,7 +179,6 @@ function renderHit({
           fusedScore: factScore,
           confidence: f.confidence,
           decay: 1,
-          predBoost: 1,
           finalScore: factScore * f.confidence,
           stages: [stage],
         },

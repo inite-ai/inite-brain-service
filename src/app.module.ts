@@ -8,13 +8,16 @@ import { HealthController } from './common/health.controller';
 import { HealthService } from './common/health.service';
 import { TenantThrottlerGuard } from './common/tenant-throttler.guard';
 import { SurrealModule } from './db/surreal.module';
+import { LiveModule } from './live/live.module';
 import { AuthModule } from './auth/auth.module';
 import { PolicyModule } from './policy/policy.module';
 import { AiModule } from './ai/ai.module';
 import { IngestModule } from './ingest/ingest.module';
 import { SearchModule } from './search/search.module';
 import { SynthesizeModule } from './synthesize/synthesize.module';
+import { EpisodesModule } from './episodes/episodes.module';
 import { MultiHopModule } from './multi-hop/multi-hop.module';
+import { AgentQaModule } from './agent-qa/agent-qa.module';
 import { FactsModule } from './facts/facts.module';
 import { EntitiesModule } from './entities/entities.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
@@ -78,6 +81,7 @@ import { FeedbackModule } from './feedback/feedback.module';
 
     CommonModule,
     SurrealModule,
+    LiveModule,
     AuthModule,
     PolicyModule,
     AiModule,
@@ -85,6 +89,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     SearchModule,
     SynthesizeModule,
     MultiHopModule,
+    AgentQaModule,
     FactsModule,
     EntitiesModule,
     ArtifactsModule,
@@ -101,6 +106,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     RegistryModule,
     SourcesModule,
     DocumentsModule,
+    EpisodesModule,
   ],
   controllers: [HealthController],
   providers: [

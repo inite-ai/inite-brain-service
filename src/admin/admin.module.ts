@@ -7,6 +7,7 @@ import { SearchModule } from '../search/search.module';
 import { FactsModule } from '../facts/facts.module';
 import { EntitiesModule } from '../entities/entities.module';
 import { AuditModule } from '../audit/audit.module';
+import { EpisodesModule } from '../episodes/episodes.module';
 import { CompactionModule } from '../compaction/compaction.module';
 import { AdminController } from './admin.controller';
 import { AdminDemoController } from './admin-demo.controller';
@@ -33,6 +34,13 @@ import { AdminPolicyDecisionsController } from './admin-policy-decisions.control
 import { AdminKeysController } from './admin-keys.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
+import { AdminAggregatesController } from './admin-aggregates.controller';
+import { AggregateComposerService } from './aggregate-composer.service';
+import { AdminDeriveController } from './admin-derive.controller';
+import { ProjectionsController } from './projections.controller';
+import { WindowDeriverService } from './window-deriver.service';
+import { AdminSegmentsController } from './admin-segments.controller';
+import { SegmentComposerService } from './segment-composer.service';
 import { HnswMaintenanceService } from './hnsw-maintenance.service';
 import { CodeMemoryModule } from '../code-memory/code-memory.module';
 import { RegistryModule } from '../registry/registry.module';
@@ -63,6 +71,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     FactsModule,
     EntitiesModule,
     AuditModule,
+    EpisodesModule,
     // AdminJobsController injects CompactionService for the
     // /admin/maintenance/compaction trigger. CompactionModule isn't
     // @Global, so without this import Nest fails to resolve the
@@ -94,10 +103,17 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminKeysController,
     AdminCodeMemoryController,
     AdminHnswController,
+    AdminAggregatesController,
+    AdminDeriveController,
+    AdminSegmentsController,
+    ProjectionsController,
   ],
   providers: [
     AdminService,
     HnswMaintenanceService,
+    AggregateComposerService,
+    WindowDeriverService,
+    SegmentComposerService,
     AdminInfraService,
     HealthComponentsService,
     LiveSnapshotService,

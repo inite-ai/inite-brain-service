@@ -37,12 +37,10 @@ export class SearchRerankService {
     db,
     byEntity,
     ctx,
-    typeDist,
   }: {
     db: Surreal;
     byEntity: Map<string, EntityBucket>;
     ctx: PipelineContext;
-    typeDist: { weights: Record<string, number> } | null;
   }): Promise<EntityBucket[]> {
     const RERANK_WINDOW = Math.min(ctx.limit * 2, 20);
     // The local cross-encoder scores pairs sequentially on a worker thread —
@@ -100,7 +98,7 @@ export class SearchRerankService {
       return candidatesForRerank;
     }
 
-    return this.runLlmRerank({ db, candidatesForRerank, ctx, typeDist });
+    return this.runLlmRerank({ db, candidatesForRerank, ctx });
   }
 
   private async runCrossEncoder(
@@ -153,12 +151,10 @@ export class SearchRerankService {
     db,
     candidatesForRerank,
     ctx,
-    typeDist,
   }: {
     db: Surreal;
     candidatesForRerank: EntityBucket[];
     ctx: PipelineContext;
-    typeDist: { weights: Record<string, number> } | null;
   }): Promise<EntityBucket[]> {
     // SubgraphRAG-style 1-hop neighbourhood injection. Surfaces graph
     // context as "Connected to: …" lines in the candidate body — lets
@@ -198,17 +194,6 @@ export class SearchRerankService {
       };
     });
 
-    const hints = typeDist
-      ? `Likely target entity types: ${
-          Object.entries(typeDist.weights)
-            .filter(([, w]) => w >= 0.15)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([t, w]) => `${t}=${w.toFixed(2)}`)
-            .join(', ') || 'unspecified'
-        }.`
-      : undefined;
-
     const identityPerm = rerankInputs.map((_, i) => i);
     // Distinguish a budget-timeout fallback (returns identityPerm) from the
     // reranker genuinely returning an unchanged order — mirroring the
@@ -222,7 +207,7 @@ export class SearchRerankService {
         withStageBudget({
           stage: 'rerank',
           budgetMs: this.budgets.rerank,
-          fn: () => this.reranker.rerank(ctx.dto.query, rerankInputs, hints),
+          fn: () => this.reranker.rerank(ctx.dto.query, rerankInputs),
           fallback: identityPerm,
           logger: this.logger,
           onFallback: () => {

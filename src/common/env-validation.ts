@@ -122,8 +122,24 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
-  // ── Read-side query expansion ──────────────────────────────────────
-  positiveInt(env, 'SEARCH_QUERY_EXPANSION_N', errors);
+  // ── Retrieval fact-shaping (chatter demotion) ──────────────────────
+  // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the
+  // "is a number" contract here (≥1 is accepted and means "no penalty").
+  nonNegativeFloat(env, 'SEARCH_CHATTER_PENALTY', errors);
+
+  // ── Phase A read-path (typed-memory roadmap 2026-07) ───────────────
+  positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
+  positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
+  positiveInt(env, 'SEARCH_EPISODIC_LANE_TOPK', errors);
+  positiveInt(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', errors);
+  positiveInt(env, 'SEARCH_SEGMENT_LANE_TOPK', errors);
+
+  positiveInt(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', errors);
+
+  // ── Agent-in-loop QA ───────────────────────────────────────────────
+  positiveInt(env, 'AGENT_QA_MAX_ROUNDS', errors);
+  positiveInt(env, 'AGENT_QA_SEARCH_LIMIT', errors);
+  positiveInt(env, 'AGENT_QA_MAX_FACTS_PER_ROUND', errors);
 
   // ── Episodic→semantic promotion (compaction leg) ───────────────────
   positiveInt(env, 'COMPACTION_PROMOTION_AGE_DAYS', errors);
@@ -133,6 +149,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── HNSW vector leg ────────────────────────────────────────────────
   positiveInt(env, 'SEARCH_HNSW_EF', errors);
   positiveInt(env, 'SEARCH_HNSW_OVERFETCH', errors);
+
+  // ── HNSW on the inline entity-resolution name-candidate scan ───────
+  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
+  positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH', errors);
 
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
@@ -172,6 +192,9 @@ validateAbacEnv(env, errors);
 
   // ── Worker-loop concurrency (per-jobType poller) ────────────────────
   validateWorkerConcurrencyEnv(env, errors);
+
+  // ── Retrieval profile (per-tenant genre configuration) ─────────────
+  validateRetrievalProfileEnv(env, errors);
 
   // ── All remaining boolean feature flags ────────────────────────────
   validateBooleanFlags(env, warnings);
@@ -349,6 +372,56 @@ function validateWorkerConcurrencyEnv(
   }
 }
 
+/**
+ * Retrieval-profile enum keys + the per-tenant overrides JSON. A typo'd
+ * enum would silently fall back to the derived default — the exact
+ * misconfiguration shape a genre profile exists to prevent — so reject
+ * at boot. Overrides only need to parse as an object-of-objects; the
+ * per-field validation is lenient inside resolveRetrievalProfileFor.
+ */
+function validateRetrievalProfileEnv(
+  env: NodeJS.ProcessEnv,
+  errors: string[],
+): void {
+  const enums: Array<[string, string[]]> = [
+    ['RETRIEVAL_GENRE', ['dialogue', 'assistant_chat', 'documents']],
+    [
+      'RETRIEVAL_VERBATIM_EVIDENCE',
+      ['off', 'shape_conditioned', 'always'],
+    ],
+    ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
+  ];
+  for (const [name, allowed] of enums) {
+    const v = env[name];
+    if (v !== undefined && v.trim() !== '' && !allowed.includes(v.trim())) {
+      errors.push(`${name} must be one of ${allowed.join('/')} (got "${v}")`);
+    }
+  }
+  const raw = env.RETRIEVAL_PROFILE_OVERRIDES;
+  if (raw !== undefined && raw.trim() !== '') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (
+        parsed === null ||
+        typeof parsed !== 'object' ||
+        Array.isArray(parsed) ||
+        Object.values(parsed).some(
+          (o) => o === null || typeof o !== 'object' || Array.isArray(o),
+        )
+      ) {
+        errors.push(
+          'RETRIEVAL_PROFILE_OVERRIDES must be a JSON object mapping ' +
+            'companyId → partial retrieval profile',
+        );
+      }
+    } catch (e) {
+      errors.push(
+        `RETRIEVAL_PROFILE_OVERRIDES is not valid JSON: ${(e as Error).message}`,
+      );
+    }
+  }
+}
+
 function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
   const maxBody = env.MAX_BODY_SIZE;
   if (maxBody !== undefined && !/^\d+(\.\d+)?(b|kb|mb)?$/i.test(maxBody.trim())) {
@@ -375,10 +448,56 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
 const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
+  // Phase A read-path (typed-memory roadmap): the generator gets an
+  // anchored "today" for date arithmetic.
+  'SYNTHESIZE_DATE_CONTEXT',
+  // T1 typed dispatch: lexical answer-lane router (temporal-distance lane
+  // computes elapsed intervals in code and forces the date anchor).
+  'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
+  // T6/T2 wide probe: PRF second retrieval for summary/enumeration
+  // lanes — recall breadth that a render frame alone cannot provide.
+  'SYNTHESIZE_LANE_WIDE_PROBE',
+  // T7: unconditional standing-instructions section (probe + render) —
+  // instruction-following questions are deliberately neutral, so no
+  // lexical route can fire; injection must not be relevance-gated.
+  'SYNTHESIZE_INSTRUCTION_LANE',
+  // Raw-substrate driver v1: public episodes read API + NDJSON export.
+  'EPISODES_API_ENABLED',
+  // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
+  'PROJECTIONS_API_ENABLED',
+  // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
+  // poll over recordedAt, metadata-only payloads, HMAC-signed).
+  'EPISODE_SUBSCRIPTIONS_ENABLED',
+  // E3b object normalization: the extractor proposes a minimal clean value
+  // alongside the verbatim span; the server admits it only when every word
+  // appears in the grounded span. Default off pending a paid confirm leg.
+  'EXTRACTION_OBJECT_NORMALIZE',
+  // E3a: the session deriver also emits propositions for assistant-side
+  // contributions (recommendations/answers/instructions given) under the
+  // "assistance" aspect. Default off; confirm on a FRESH derivedVersion.
+  'DERIVER_ASSISTANT_CONTENT',
+  // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
+  // turns before extraction — lossless, idempotent, LLM-free.
+  'EPISODE_SUBSTRATE_ENABLED',
+  // P2: episodic retrieval lane — BM25 quotes from L0 as a typed prompt
+  // section in synthesis (lossless fallback for extraction misses).
+  'SEARCH_EPISODIC_LANE_ENABLED',
+  // A1: provenance lane — verbatim source turns of the selected evidence
+  // facts (via source.episodeIds) quoted in the synthesis prompt.
+  'SYNTHESIZE_SOURCE_EXCERPTS',
+  // R1: segment lane — verbatim multi-turn L0 segments retrieved
+  // dense+BM25 as units in their own right; optional listwise rerank.
+  'SEARCH_SEGMENT_LANE_ENABLED',
+  'SEARCH_SEGMENT_LANE_RERANK',
+  // R3: agent-qa V2 tool set — masked search + timeline enumerator +
+  // literal transcript grep in the ReAct loop.
+  'AGENT_QA_TOOLS_V2',
+  // Eval-harness primitives: per-call tenant override for admin keys
+  // (X-Brain-Tenant) and LLM-free episode-only ingestion.
+  'BRAIN_TENANT_OVERRIDE_ENABLED',
+  'INGEST_EPISODE_ONLY',
   'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
-  'SEARCH_RERANKER_ENABLED',
-  'SEARCH_HYPE_ENABLED',
   // Default-ON: read as `SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'` before
   // envFlagEnabled, so only an explicit 0/false disables the offload.
   'SEARCH_TOKEN_COUNT_OFFLOAD',
@@ -396,6 +515,30 @@ const KNOWN_BOOLEAN_FLAGS = [
   'COMPACTION_PROMOTION_ENABLED',
   'COMPACTION_SUMMARIES',
   'INGEST_INLINE_RESOLUTION_ENABLED',
+  'INGEST_INLINE_RESOLUTION_HNSW',
+  'EXTRACTOR_DROP_SAID',
+  // Dialogue memory mode — Phase 4. On → open/normalized extraction profile:
+  // normalized values (not verbatim spans, grounding-drop bypassed), specific
+  // coined predicates kept (refinement collapse skipped), actor attribution.
+  // Targets the measured recall loss (catch-all predicates + raw-fragment
+  // objects). Off (default) → byte-identical closed-vocab extraction.
+  'EXTRACTOR_DIALOGUE_PROFILE',
+  // Facet routing (dialogue profile). On → a turn containing a list or a proper
+  // name also gets a SPECIALIST extraction pass whose only job is that one
+  // thing, unioned with the general pass. Strictly additive recall; costs one
+  // extra LLM call per detected facet. Off (default) → single pass.
+  'EXTRACTOR_ROUTING_ENABLED',
+  'INGEST_CONTEXTUAL_FACT_EMBEDDING',
+  'INGEST_EVENT_TIME_EXTRACTION',
+  'INGEST_BATCH_EDGES',
+  'INGEST_BATCH_FACTS',
+  // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
+  // per-tenant connection outside both pools holds a LIVE SELECT, with the
+  // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate
+  // applied to every pushed event. Off (default) → no socket, controller 503s.
+  'LIVE_SUBSCRIPTIONS_ENABLED',
+  'SEARCH_COMBINED_VECTOR_GRAPH',
+  'SEARCH_HIGHLIGHT_ENABLED',
   'AUDIT_CHANGEFEED_ENABLED',
   'DEBUG_TRACE_PERSIST',
   'BGE_M3_WORKER',
@@ -431,6 +574,16 @@ const KNOWN_BOOLEAN_FLAGS = [
 export function envFlagEnabled(value: string | undefined): boolean {
   const v = (value ?? '').trim().toLowerCase();
   return v === '1' || v === 'true';
+}
+
+/**
+ * Default-ON flags: enabled unless explicitly set to 0/false. Use for
+ * per-tenant kill-switches on genre-dependent behavior; measured-winner
+ * defaults fold into the code instead of keeping a flag.
+ */
+export function envFlagNotDisabled(value: string | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase();
+  return v !== '0' && v !== 'false';
 }
 
 function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {

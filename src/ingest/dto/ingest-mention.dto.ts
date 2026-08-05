@@ -23,7 +23,21 @@ export interface MentionContextRef {
 export interface KnownEntity {
   vertical: string;
   id: string;
+  /**
+   * Participant role in this turn. `speaker` = who is talking (first-person
+   * "I/me/my" resolves here); `addressee` = who they address (second-person
+   * "you/your" resolves here). Absent = a plain entity anchor with no
+   * coreference role.
+   */
   role?: string;
+  /**
+   * Display name of the participant, when known. Lets the ingest path
+   * resolve a third-person self-mention ("Caroline said …" spoken BY
+   * Caroline) to the same entity as the first-person path, and lets the
+   * extractor be told who is speaking. Optional — absent falls back to
+   * pronoun-only coreference.
+   */
+  name?: string;
 }
 
 export class IngestMentionDto {

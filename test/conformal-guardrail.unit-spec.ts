@@ -8,9 +8,8 @@ function makeBreakdown(calibrated: number): ScoreBreakdown {
     confidence: 0.9,
     calibratedConfidence: calibrated,
     decay: 1,
-    predBoost: 1,
     finalScore: 0.45,
-    stages: ['hype'],
+    stages: ['vector'],
   };
 }
 

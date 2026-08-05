@@ -3,6 +3,7 @@ import type {
   ExtractedFact,
   RawExtractedFact,
 } from './types';
+import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
  * Whitespace-collapsed, lower-cased view of a string used for
@@ -11,6 +12,20 @@ import type {
  * doesn't have to match the exact whitespace / casing of the source —
  * but it still has to choose tokens that actually appeared.
  */
+/**
+ * Object-normalization master switch. The open (dialogue) vocabulary
+ * already emits normalized values through its own contract, so it wins:
+ * object normalization only applies on the span-grounded closed
+ * profile. Default off — extraction prompt changes have produced
+ * measured regressions before (agent-qa 47.4→42.1 rollback); this one
+ * gets a paid confirm leg before any default flip.
+ */
+export function objectNormalizationEnabled(
+  profile: ExtractionPipelineProfile,
+): boolean {
+  return profile.vocabulary === 'closed' && profile.normalizeObjects;
+}
+
 export function normalizeForGrounding(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -68,11 +83,24 @@ export function isGroundedSpan(
 export function groundEntities(
   trimmedInput: string,
   entities: ExtractedEntity[],
+  /**
+   * Names that are grounded by construction even when absent from the raw
+   * text — the known conversation participants (speaker/addressee). A turn
+   * spoken by Caroline that says only "I decided to transition" legitimately
+   * has the resolved name "Caroline" nowhere in its verbatim span; without
+   * this allowlist the coreference-resolved entity would be dropped and its
+   * facts lost.
+   */
+  allowedNames: string[] = [],
 ): boolean[] {
   const normalizedInput = normalizeForGrounding(trimmedInput);
-  return entities.map((e) =>
-    isGroundedSpan(normalizedInput, normalizeForGrounding(e.name)),
+  const allowed = new Set(
+    allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean),
   );
+  return entities.map((e) => {
+    const normName = normalizeForGrounding(e.name);
+    return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
+  });
 }
 
 const ALLOWED_ENTITY_TYPES = new Set([
@@ -144,7 +172,30 @@ export function parseRawFacts(
         typeof f.confidence === 'number'
           ? Math.max(0, Math.min(1, f.confidence))
           : 0.5,
+      ...(typeof f.object === 'string' && f.object.trim()
+        ? { object: f.object.trim() }
+        : {}),
     }));
+}
+
+/**
+ * Normalized-object gate (EXTRACTION_OBJECT_NORMALIZE): the proposed
+ * clean value may only DROP words from the grounded span, never add
+ * them — every token of the object must appear among the span's tokens
+ * (after the same normalization the span gate uses). This keeps
+ * anti-hallucination structural: "camped in the mountains with my kids"
+ * admits "the mountains" and rejects "hiking trip".
+ */
+export function isObjectGroundedInSpan(
+  valueSpan: string,
+  object: string,
+): boolean {
+  const spanTokens = new Set(
+    normalizeForGrounding(valueSpan).split(/\s+/).filter(Boolean),
+  );
+  const objTokens = normalizeForGrounding(object).split(/\s+/).filter(Boolean);
+  if (objTokens.length === 0) return false;
+  return objTokens.every((t) => spanTokens.has(t));
 }
 
 /**
@@ -160,7 +211,25 @@ export function parseRawFacts(
 export function applyGroundingGate(
   trimmedInput: string,
   rawFacts: RawExtractedFact[],
-  clauses: string[],
+  opts: {
+    /** Clause spans the facts index into, for clause attribution. */
+    clauses: string[];
+    /**
+     * Dialogue profile (Phase 4): the extractor emits NORMALIZED values that
+     * are intentionally not verbatim substrings ("single" for "not seeing
+     * anyone"). When true, a value that fails the substring check is KEPT
+     * rather than dropped — normalization IS the point. Empty values are still
+     * dropped (no value to store). Default false → verbatim gate unchanged.
+     */
+    allowUngrounded?: boolean;
+    /**
+     * EXTRACTION_OBJECT_NORMALIZE: accept the LLM's proposed normalized
+     * object when every word of it appears in the grounded span; fall
+     * back to the span otherwise. Off → objects are the raw spans,
+     * byte-identical to before.
+     */
+    normalizeObjects?: boolean;
+  },
 ): {
   facts: ExtractedFact[];
   dropped: Array<{
@@ -168,13 +237,25 @@ export function applyGroundingGate(
     claimedValueSpan: string;
     reason: 'not_grounded' | 'empty';
   }>;
+  /** Rejected normalization proposals (word outside the span) for trace. */
+  ungroundedObjects: Array<{
+    predicate: string;
+    claimedObject: string;
+    valueSpan: string;
+  }>;
 } {
+  const { clauses, allowUngrounded = false, normalizeObjects = false } = opts;
   const normalizedInput = normalizeForGrounding(trimmedInput);
   const facts: ExtractedFact[] = [];
   const dropped: Array<{
     predicate: string;
     claimedValueSpan: string;
     reason: 'not_grounded' | 'empty';
+  }> = [];
+  const ungroundedObjects: Array<{
+    predicate: string;
+    claimedObject: string;
+    valueSpan: string;
   }> = [];
 
   for (const rf of rawFacts) {
@@ -187,7 +268,7 @@ export function applyGroundingGate(
       continue;
     }
     const normalizedSpan = normalizeForGrounding(rf.valueSpan);
-    if (!isGroundedSpan(normalizedInput, normalizedSpan)) {
+    if (!allowUngrounded && !isGroundedSpan(normalizedInput, normalizedSpan)) {
       dropped.push({
         predicate: rf.predicate,
         claimedValueSpan: rf.valueSpan,
@@ -199,14 +280,27 @@ export function applyGroundingGate(
       rf.clauseIndex !== undefined && rf.clauseIndex < clauses.length
         ? clauses[rf.clauseIndex]
         : undefined;
+    let object = rf.valueSpan;
+    if (normalizeObjects && rf.object && rf.object !== rf.valueSpan) {
+      if (isObjectGroundedInSpan(rf.valueSpan, rf.object)) {
+        object = rf.object;
+      } else {
+        ungroundedObjects.push({
+          predicate: rf.predicate,
+          claimedObject: rf.object,
+          valueSpan: rf.valueSpan,
+        });
+      }
+    }
     facts.push({
       entityIndex: rf.entityIndex,
       predicate: rf.predicate,
-      object: rf.valueSpan,
+      object,
       confidence: rf.confidence,
       clause: clauseText,
+      valueSpan: rf.valueSpan,
     });
   }
 
-  return { facts, dropped };
+  return { facts, dropped, ungroundedObjects };
 }

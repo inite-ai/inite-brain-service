@@ -19,6 +19,27 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 export class EntitiesController {
   constructor(private readonly entities: EntitiesService) {}
 
+  // Declared BEFORE `@Get(':id')` so the static path isn't captured by the
+  // `:id` param route (Express matches in registration order).
+  @Get('autocomplete')
+  @RequireScopes('brain:read')
+  @PolicyAction('autocomplete_entities')
+  async autocomplete(
+    @Req() req: AuthenticatedRequest,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit !== undefined ? Number(limit) : NaN;
+    return this.entities.autocomplete({
+      companyId: req.brainAuth.companyId,
+      q: q ?? '',
+      // NaN (non-numeric ?limit=) → undefined → service default; ?? doesn't
+      // catch NaN, so normalise here.
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      scopes: req.brainAuth.scopes,
+    });
+  }
+
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id')
   @RequireScopes('brain:read')

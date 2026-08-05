@@ -53,13 +53,20 @@ export class MultiHopChainService {
       this.metrics?.countMultiHop('planner_error');
       const single = await this.search.search(companyId, dto, callerScopes);
       const ids = single.results.map((r) => r.entityId);
-      return {
+      const result: MultiHopResult = {
         isMultiHop: false,
         hops: [],
         finalEntityIds: ids,
         finalHits: single.results,
         supportingFactIds: collectFactIds(single.results),
       };
+      await this.maybeSynthesize(result, {
+        companyId,
+        dto,
+        callerScopes,
+        onProgress,
+      });
+      return result;
     }
 
     if (!plan.isMultiHop || plan.hops.length === 1) {
@@ -79,7 +86,7 @@ export class MultiHopChainService {
       });
       this.metrics?.countMultiHop('single_hop');
       const factIds = collectFactIds(hopRes.hits);
-      return {
+      const result: MultiHopResult = {
         isMultiHop: false,
         hops: [
           {
@@ -94,6 +101,18 @@ export class MultiHopChainService {
         finalHits: hopRes.hits,
         supportingFactIds: factIds,
       };
+      // A single-hop plan is still a `synthesize: true` request — run the
+      // grounded answer here too. Omitting it (the prior behaviour) meant
+      // every planner-classified single-hop query returned no synthesis
+      // field at all, so callers reading `result.synthesis` got nothing
+      // for the majority of factoid questions.
+      await this.maybeSynthesize(result, {
+        companyId,
+        dto,
+        callerScopes,
+        onProgress,
+      });
+      return result;
     }
 
     // Multi-hop chain. Track per-hop outcomes + running entity set.
@@ -191,32 +210,71 @@ export class MultiHopChainService {
       supportingFactIds: aggregatedSupport,
     };
 
-    if (dto.synthesize && this.synthesizer && finalHits.length > 0) {
-      onProgress({ stage: 'synthesize', message: 'grounding answer' });
-      const synth = await withSpan(
-        'multi_hop.synthesize',
-        () =>
-          this.synthesizer!.synthesize({
-            companyId,
-            dto: {
-              ...dto,
-              entityIds: runningIds,
-              synthesize: undefined,
-            } as never,
-            callerScopes,
-            onProgress,
-          }),
-        { 'multi_hop.final_set': finalHits.length },
-      );
-      result.synthesis = {
-        answer: synth.answer,
-        reason: synth.reason,
-        citations: synth.citations,
-      };
-    }
+    await this.maybeSynthesize(result, {
+      companyId,
+      dto,
+      callerScopes,
+      onProgress,
+    });
 
     onProgress({ stage: 'done' });
     return result;
+  }
+
+  /**
+   * Run the grounded synthesizer over a result's final entity set and
+   * attach `result.synthesis`, when the caller asked for it. Shared by
+   * ALL exit paths (single-hop short-circuit, planner-outage fallback,
+   * and the full chain) so `synthesize: true` is honoured uniformly —
+   * the single-hop path used to skip this, returning an empty answer for
+   * every factoid query the planner classified as one hop.
+   *
+   * The synthesizer re-searches within `finalEntityIds` and does NOT
+   * inherit the planner's per-hop predicate filter, so an over-narrow
+   * plan (e.g. predicates=['name'] for "what is X's identity") still
+   * grounds the answer on the full fact set of the surfaced entities.
+   */
+  private async maybeSynthesize(
+    result: MultiHopResult,
+    {
+      companyId,
+      dto,
+      callerScopes,
+      onProgress = NOOP_REPORTER,
+    }: Omit<MultiHopExecuteOptions, 'plan'>,
+  ): Promise<void> {
+    if (!dto.synthesize || !this.synthesizer || result.finalHits.length === 0) {
+      return;
+    }
+    onProgress({ stage: 'synthesize', message: 'grounding answer' });
+    // Evidence union (Phase A): hand the hops' already-retrieved hits to
+    // synthesis so evidence from entities the chain filtered out of
+    // `finalEntityIds` can still be cited. The anchored re-search stays
+    // the primary, question-ordered context; synthesis appends unseen
+    // extra facts best-score-first under its cap.
+    const extraHits = result.hops.flatMap((o) => o.hits);
+    const synth = await withSpan(
+      'multi_hop.synthesize',
+      () =>
+        this.synthesizer!.synthesize({
+          companyId,
+          dto: {
+            ...dto,
+            entityIds: result.finalEntityIds,
+            synthesize: undefined,
+          } as never,
+          callerScopes,
+          onProgress,
+          extraHits,
+        }),
+      { 'multi_hop.final_set': result.finalHits.length },
+    );
+    result.synthesis = {
+      answer: synth.answer,
+      reason: synth.reason,
+      citations: synth.citations,
+      ...(synth.tokenUsage ? { tokenUsage: synth.tokenUsage } : {}),
+    };
   }
 
   /**
@@ -279,7 +337,14 @@ export class MultiHopChainService {
       predicates: hop.predicates && hop.predicates.length > 0
         ? hop.predicates
         : dto.predicates,
-      asOf: hop.asOf ?? dto.asOf,
+      // The planner is an LLM: a malformed hop.asOf ("2023-04",
+      // "three months in") became an Invalid Date param and 500'd the
+      // whole request (live LME-500 finding, q 0ddfec37). Unparseable
+      // planner dates degrade to the caller's asOf, never to an error.
+      asOf:
+        hop.asOf && !Number.isNaN(Date.parse(hop.asOf))
+          ? hop.asOf
+          : dto.asOf,
       // Anchor only when explicitly requested — for 'intersect' /
       // 'union' the search runs unconstrained and combination
       // happens after the fact.

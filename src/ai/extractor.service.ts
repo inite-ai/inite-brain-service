@@ -10,6 +10,9 @@ import type { PackExtractionProfile } from './predicate-registry-internals/types
 import { ExtractorCacheService } from './extractor-cache.service';
 import { ExtractorRunnerService } from './extractor-runner.service';
 import type { ExtractionResult } from './extractor-internals/types';
+import type { ConversationContext } from './extractor-internals/prompts';
+
+export type { ConversationContext } from './extractor-internals/prompts';
 
 export type {
   ExtractedEntity,
@@ -60,7 +63,11 @@ export class ExtractorService {
     }
   }
 
-  async extract(text: string, companyId: string): Promise<ExtractionResult> {
+  async extract(
+    text: string,
+    companyId: string,
+    context?: ConversationContext,
+  ): Promise<ExtractionResult> {
     // Defence in depth — DTOs already cap at 16K, but MCP and the
     // admin-demo inline body shapes don't pass through class-validator.
     const { value: trimmed, truncated } = clampLlmInputText(text, 'mentionText');
@@ -78,6 +85,11 @@ export class ExtractorService {
       companyId,
       predicateVocabHash: snapshot.versionHash,
       scPasses: this.runner.scPasses,
+      // Speaker context changes the extraction (coreference resolution), so
+      // it must partition the cache — otherwise the same utterance spoken by
+      // two people would collide on one memoised result.
+      speaker: context?.speakerName,
+      addressee: context?.addresseeName,
     });
     const cached = this.extractionCache.get(cacheKey);
     if (cached) {
@@ -94,7 +106,7 @@ export class ExtractorService {
       registryVersionHash: snapshot.versionHash,
     });
 
-    const result = await this.runner.run({ trimmed, companyId, snapshot });
+    const result = await this.runner.run({ trimmed, companyId, snapshot, context });
     if (!result) {
       // Transient LLM failure (null JSON / all SC passes failed). Return
       // empty WITHOUT caching — the no-TTL LRU would otherwise pin this

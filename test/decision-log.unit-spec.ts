@@ -30,9 +30,8 @@ function makeHit(
         fusedScore: f.score,
         confidence: f.confidence,
         decay: 1,
-        predBoost: 1,
         finalScore: f.finalScore ?? f.score,
-        stages: f.stages ?? ['hype'],
+        stages: f.stages ?? ['vector'],
       },
     })),
     score: Math.max(...facts.map((f) => f.score)),
@@ -56,24 +55,6 @@ describe('buildDecisionLog', () => {
     expect(log[0].rejectReason).toBeUndefined();
     expect(log[1]).toMatchObject({ factId: 'f2', picked: false });
     expect(log[1].rejectReason).toBe('not_relevant_to_query');
-  });
-
-  it('tags backfill rows with backfill_context_only', () => {
-    const hits = [
-      makeHit('person:1', [
-        {
-          factId: 'fbf',
-          predicate: 'genre',
-          object: 'rock',
-          confidence: 0.7,
-          score: 0,
-          finalScore: 0,
-          stages: ['backfill'],
-        },
-      ]),
-    ];
-    const log = buildDecisionLog(hits, new Set());
-    expect(log[0].rejectReason).toBe('backfill_context_only');
   });
 
   it('flags low-score rejections below the threshold', () => {
