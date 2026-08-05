@@ -24,7 +24,7 @@ import {
   extractStandingInstructions,
   detectEvidenceConflicts,
   detectVerbatimShape,
-  type AnswerLane,
+  type LaneId,
 } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
 import {
@@ -154,7 +154,7 @@ function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
  *  profile's dateAnchoring. */
 function resolveLaneDateContext(
   profile: RetrievalProfile,
-  lane: AnswerLane | null,
+  lane: LaneId | null,
   asOf: string | undefined,
 ): string | undefined {
   if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
@@ -283,7 +283,7 @@ export class SynthesizeService {
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
     // second probe that similarity search would never surface.
-    const lane: AnswerLane | null = routeLane(profile, dto.query);
+    const lane: LaneId | null = routeLane(profile, dto.query);
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
@@ -322,7 +322,14 @@ export class SynthesizeService {
     );
 
     const answerMode = guardrails === 'answer';
-    const instructions = await this.collectStandingInstructions({
+    // Audit W4 carried (lane-collection parallelism): the standing-
+    // instruction probe is a full second search and used to be a
+    // sequential await in front of everything else. It only needs
+    // `evidence`, so it starts here and is joined with the transcript
+    // lanes below — one round-trip window instead of two. The method
+    // degrades internally (probe failures → evidence-only), so the
+    // started promise never rejects.
+    const instructionsPromise = this.collectStandingInstructions({
       profile,
       companyId,
       callerScopes,
@@ -339,18 +346,26 @@ export class SynthesizeService {
       // routed request, independent of lane.
       markRecency: profile.lanes.has('recency'),
     });
-    if ('empty' in prepared) return prepared.empty;
+    if ('empty' in prepared) {
+      // The in-flight probe is abandoned deliberately — the empty path
+      // returns without a prompt for the instructions to land in.
+      void instructionsPromise.catch(() => undefined);
+      return prepared.empty;
+    }
     const { results, factIndex, factLines } = prepared;
 
-    const transcriptLines = await this.collectTranscriptLines({
-      profile,
-      companyId,
-      query: dto.query,
-      callerScopes,
-      factIds: [...factIndex.keys()],
-      // Same fail-closed user scope the fact read path applies (0055).
-      userId: dto.userId,
-    });
+    const [instructions, transcriptLines] = await Promise.all([
+      instructionsPromise,
+      this.collectTranscriptLines({
+        profile,
+        companyId,
+        query: dto.query,
+        callerScopes,
+        factIds: [...factIndex.keys()],
+        // Same fail-closed user scope the fact read path applies (0055).
+        userId: dto.userId,
+      }),
+    ]);
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -579,40 +594,49 @@ export class SynthesizeService {
     userId?: string;
   }): Promise<string[]> {
     const active = wantsVerbatimEvidence(profile, query);
-    const laneLines = active
-      ? ((await this.episodeLane?.transcriptLines({
-          companyId,
-          query,
-          callerScopes,
-          userId,
-          limit: profile.quotesPerPrompt,
-        })) ?? [])
-      : [];
-    const sourceLines = active
-      ? ((await this.episodeLane?.sourceExcerpts({
-          companyId,
-          factIds,
-          callerScopes,
-          userId,
-          cap: profile.sourceExcerptsCap,
-        })) ?? [])
-      : [];
+    // The three lanes are independent reads — run them concurrently
+    // (audit W4 carried: they used to be three sequential awaits).
     // Segments compete for the prompt on their own retrieval merit —
     // an 'always' verbatim profile runs them; the shape-conditioned
     // default does not (they measurably distract on assistant chats);
     // 'fused' retrieves them as scored SearchHits inside search, so
     // appending them here would duplicate the evidence.
-    const segmentLines =
+    const [laneLines, sourceLines, segmentLines] = await Promise.all([
+      active
+        ? this.episodeLane
+            ?.transcriptLines({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              limit: profile.quotesPerPrompt,
+            })
+            .then((v) => v ?? [])
+        : [],
+      active
+        ? this.episodeLane
+            ?.sourceExcerpts({
+              companyId,
+              factIds,
+              callerScopes,
+              userId,
+              cap: profile.sourceExcerptsCap,
+            })
+            .then((v) => v ?? [])
+        : [],
       profile.verbatimEvidence === 'always'
-        ? ((await this.segmentLane?.transcriptLines({
-            companyId,
-            query,
-            callerScopes,
-            userId,
-            topK: profile.segmentTopK,
-            rerank: profile.segmentRerank,
-          })) ?? [])
-        : [];
+        ? this.segmentLane
+            ?.transcriptLines({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              topK: profile.segmentTopK,
+              rerank: profile.segmentRerank,
+            })
+            .then((v) => v ?? [])
+        : [],
+    ]).then((lanes) => lanes.map((l) => l ?? []));
     return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
   }
 
@@ -670,7 +694,7 @@ export class SynthesizeService {
     baseHits,
   }: {
     profile: RetrievalProfile;
-    lane: AnswerLane | null;
+    lane: LaneId | null;
     query: string;
     companyId: string;
     callerScopes: string[];
@@ -775,7 +799,7 @@ export class SynthesizeService {
     /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
     dateContext?: string;
     /** T1 typed dispatch lane, when the router matched. */
-    lane?: AnswerLane | null;
+    lane?: LaneId | null;
     /** T7: standing user instructions for their own section. */
     instructions?: string[];
     /** T3: COMPETING conflict pairs detected in the evidence. */

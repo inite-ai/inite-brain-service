@@ -196,9 +196,9 @@ describe('S5.6 — lane registry completeness', () => {
   it('no second lane type union exists outside the profile', () => {
     // The LaneId union lives in retrieval-profile.ts; any other file
     // spelling a union containing the evidence-conditional lanes is a
-    // parallel lane type system growing back (audit #27). AnswerLane —
-    // the router's four-detectable-lane output space — is legitimate
-    // and does not contain them.
+    // parallel lane type system growing back (audit #27). The former
+    // AnswerLane union is gone (W5 carried) — the router returns LaneId
+    // narrowed at runtime by which registry entries carry `detect`.
     const UNION_RE = /'temporal'[^;]{0,200}\|\s*'(?:contradiction|recency|instruction)'/s;
     const offenders = [...SOURCES]
       .filter(([file]) => !file.endsWith('src/search/retrieval-profile.ts'))

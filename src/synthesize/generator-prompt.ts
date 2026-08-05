@@ -3,7 +3,7 @@ import {
   CONTRADICTION_NOTE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   laneInstructionFor,
-  type AnswerLane,
+  type LaneId,
 } from './answer-router';
 
 /**
@@ -31,7 +31,7 @@ export function buildGeneratorUserMessage({
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
-  lane?: AnswerLane | null;
+  lane?: LaneId | null;
   /** T7: standing user instructions rendered as their own section. */
   instructions?: string[];
   /** T3: write-side COMPETING conflict pairs present in the evidence. */

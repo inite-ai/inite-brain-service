@@ -17,11 +17,14 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
  * fail open — an unrouted question just gets the generic path.
  */
 
-/** The four query-detectable lanes (the router's output space). */
-export type AnswerLane = 'temporal' | 'enumeration' | 'preference' | 'summary';
-
-/** Alias kept for older imports; the canonical id lives in the profile. */
-export type DispatchLane = LaneId;
+/**
+ * One lane type system (audit W5 #27 carried): the canonical LaneId
+ * union lives in the profile; the router's output is a LaneId whose
+ * registry entry carries `detect` — narrowed at runtime by routing,
+ * not by a parallel type union. Re-exported so synthesize-side
+ * consumers name the type without reaching into the search layer.
+ */
+export type { LaneId } from '../search/retrieval-profile';
 
 const UNIT = '(?:day|week|month|year)s?';
 /**
@@ -52,7 +55,7 @@ const TEMPORAL_PATTERNS: RegExp[] = [
  * 98.2% after). The fix is evidence-side, not framing-side: this shape
  * pulls role-tagged episode quotes into the prompt (see
  * SynthesizeService.collectTranscriptLines), so it is deliberately NOT
- * an AnswerLane — it composes with whatever lane frames the answer.
+ * a routed lane — it composes with whatever lane frames the answer.
  */
 const VERBATIM_PATTERNS: RegExp[] = [
   /what (?:did|do|have|had) you (?:say|tell|suggest|recommend|propose|advise|share|give|send|write|explain|walk)/i,
@@ -298,19 +301,19 @@ export function laneInstructionFor(lane: LaneId | null | undefined):
 export function routeLane(
   profile: RetrievalProfile,
   query: string,
-): AnswerLane | null {
+): LaneId | null {
   for (const lane of LANE_REGISTRY) {
     if (!lane.detect || !profile.lanes.has(lane.id)) continue;
-    if (lane.detect(query ?? '')) return lane.id as AnswerLane;
+    if (lane.detect(query ?? '')) return lane.id;
   }
   return null;
 }
 
 /** Detection over every registry lexicon, ignoring the profile — for
  *  tests and offline tooling that ask "what WOULD this route to". */
-export function detectLane(query: string): AnswerLane | null {
+export function detectLane(query: string): LaneId | null {
   for (const lane of LANE_REGISTRY) {
-    if (lane.detect?.(query ?? '')) return lane.id as AnswerLane;
+    if (lane.detect?.(query ?? '')) return lane.id;
   }
   return null;
 }
@@ -322,7 +325,7 @@ export function detectLane(query: string): AnswerLane | null {
  */
 export function laneProbeDto(
   profile: RetrievalProfile,
-  lane: AnswerLane | null,
+  lane: LaneId | null,
   probe: { query: string; baseHits: SearchHit[] },
 ): { query: string; limit: number } | null {
   if (!lane || !profile.lanes.has(lane)) return null;
