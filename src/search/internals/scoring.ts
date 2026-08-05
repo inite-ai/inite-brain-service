@@ -64,9 +64,50 @@ export interface ScoreRowsOptions {
    * Only values in (0,1] make sense; ≥1 (or unset) leaves chatter unpenalized.
    */
   chatterPenalty?: number;
+  /**
+   * Temporal overlap boost (audit W4 #17, profile temporalMode =
+   * 'overlap_boost'): with an `asOf` anchor set, facts whose validity
+   * interval contains the anchor keep factor 1.0 and facts outside it
+   * decay exponentially with the gap (half-life
+   * TEMPORAL_OVERLAP_HALF_LIFE_DAYS, floor TEMPORAL_OVERLAP_FLOOR).
+   * Unset → factor exactly 1.0 → byte-identical ranking. Under the
+   * strict 'filter' mode every surviving row contains the anchor, so
+   * enabling this there is also a no-op by construction.
+   */
+  temporalAnchor?: Date | null;
 }
 
 const CORROBORATION_CAP = 3;
+
+/** Hindsight-style distance decay for out-of-interval facts. */
+const TEMPORAL_OVERLAP_HALF_LIFE_DAYS = 90;
+/** Score floor for facts arbitrarily far from the anchor — decayed, never dropped. */
+const TEMPORAL_OVERLAP_FLOOR = 0.25;
+
+/**
+ * 1.0 when the fact's validity interval contains the anchor; otherwise
+ * floor + (1 − floor) · exp(−ln2 · gapDays / halfLife). Rows without a
+ * parseable validFrom are neutral (1.0). Observable through
+ * breakdown.temporalOverlap — deliberately not exported (S5.5).
+ */
+function temporalOverlapFactor(
+  row: { validFrom?: unknown; validUntil?: unknown },
+  anchorMs: number,
+): number {
+  const vf = row.validFrom ? new Date(String(row.validFrom)).getTime() : NaN;
+  if (!Number.isFinite(vf)) return 1;
+  const vuMs = row.validUntil
+    ? new Date(String(row.validUntil)).getTime()
+    : Infinity;
+  const vu = Number.isFinite(vuMs) ? vuMs : Infinity;
+  if (vf <= anchorMs && anchorMs < vu) return 1;
+  const gapDays =
+    (vf > anchorMs ? vf - anchorMs : anchorMs - vu) / 86_400_000;
+  const decay = Math.exp(
+    (-Math.LN2 * gapDays) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS,
+  );
+  return TEMPORAL_OVERLAP_FLOOR + (1 - TEMPORAL_OVERLAP_FLOOR) * decay;
+}
 
 export function scoreRows({
   rows,
@@ -76,6 +117,7 @@ export function scoreRows({
   corroborationGamma = 0,
   authorityDelta = 0,
   chatterPenalty = 1,
+  temporalAnchor = null,
 }: ScoreRowsOptions): ScoredRow[] {
   // A penalty is only meaningful in (0,1]; anything else (unset, ≥1, invalid)
   // means "no penalty" so ranking is byte-identical to before.
@@ -140,6 +182,9 @@ export function scoreRows({
     };
 
     const chatterFactor = chatterFactorFor(row.predicate);
+    const temporalOverlap = temporalAnchor
+      ? temporalOverlapFactor(row, temporalAnchor.getTime())
+      : 1;
     const finalScore =
       row.fusedScore *
       decay *
@@ -147,7 +192,8 @@ export function scoreRows({
       chatterFactor *
       trustFactor *
       corroborationFactor *
-      authorityFactor;
+      authorityFactor *
+      temporalOverlap;
     return {
       row,
       score: finalScore,
@@ -157,6 +203,7 @@ export function scoreRows({
         calibratedConfidence,
         decay,
         ...(chatterFactor !== 1 ? { chatterPenalty: chatterFactor } : {}),
+        ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
         factTrust,
         finalScore,
         stages: row.stages ?? [],

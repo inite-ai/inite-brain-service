@@ -23,6 +23,7 @@ import {
   WINDOW_DERIVER_VERSION,
   type DeriveRunResult,
 } from './window-deriver.service';
+import { throwIfDeriveFailed } from './admin-derive.controller';
 
 /**
  * Public projections API (raw-substrate driver v1, surface 3 —
@@ -104,12 +105,14 @@ export class ProjectionsController {
       throw new BadRequestException('conversation id too long');
     }
     try {
-      return await this.deriver.run(req.brainAuth.companyId, {
-        version,
-        conversationId,
-        activate: body.activate === true,
-        force: body.force === true,
-      });
+      return throwIfDeriveFailed(
+        await this.deriver.run(req.brainAuth.companyId, {
+          version,
+          conversationId,
+          activate: body.activate === true,
+          force: body.force === true,
+        }),
+      );
     } catch (e) {
       // The live-pin guard is a caller mistake, not a server fault.
       if ((e as Error).message.includes('live read pin')) {

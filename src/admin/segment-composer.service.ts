@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { StringRecordId } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { StringRecordId, type Surreal } from 'surrealdb';
+import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import {
@@ -17,7 +17,12 @@ import {
  * episode substrate. LLM-free: segmentation is positional (SeCom-style
  * topical segmentation is the v2 upgrade if the positional baseline
  * measures well), the only paid step is one embedding batch per
- * conversation. Idempotent: delete-by-conversation, then insert.
+ * conversation. Idempotent per conversation, and atomic (audit W2 #10):
+ * the paid embedding batch runs BEFORE any delete, then the old window
+ * set is swapped for the new one in a single transaction — the segment
+ * lane never reads a conversation mid-rebuild (the old delete-then-
+ * embed-then-insert left it empty for the whole embedding call, and a
+ * crashed run left it empty until the next rebuild).
  */
 export const SEGMENT_RECORDER = 'segment-composer-v1';
 const WINDOW = 4;
@@ -79,12 +84,21 @@ export class SegmentComposerService {
       segments: 0,
       skipped: [],
     };
+    // One generation stamp per run: every row written by this rebuild
+    // carries it, so a partially-failed run is observable (conversations
+    // on the old generation = the ones whose swap never landed).
+    const generation = new Date().toISOString();
     await this.surreal.withCompany(companyId, async (db) => {
       const convs = await this.episodes.conversationCounts(db);
       for (const conv of convs) {
         const conversationId = conv.conversationId;
         try {
-          await this.composeConversation({ db, conversationId, result });
+          await this.composeConversation({
+            db,
+            conversationId,
+            result,
+            generation,
+          });
           result.conversations += 1;
         } catch (e) {
           result.skipped.push({ conversationId, reason: (e as Error).message });
@@ -101,21 +115,18 @@ export class SegmentComposerService {
     db,
     conversationId,
     result,
+    generation,
   }: {
     db: {
       query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
     };
     conversationId: string;
     result: SegmentRunResult;
+    generation: string;
   }): Promise<void> {
     const episodes: SegmentEpisodeRow[] =
       await this.episodes.conversationTurns(db, conversationId);
     if (episodes.length === 0) return;
-
-    await db.query(
-      `DELETE episode_segment WHERE conversationId = $conv`,
-      { conv: conversationId },
-    );
 
     // Session boundaries first (same 60-min gap rule as the deriver), then
     // positional windows within each session — a segment never spans the
@@ -130,6 +141,8 @@ export class SegmentComposerService {
     }
     if (windows.length === 0) return;
 
+    // Paid step BEFORE any delete: an embedding failure now leaves the
+    // old window set intact instead of an emptied conversation.
     const texts = windows.map((w) => renderSegmentText(w.turns));
     const vectors = await this.embedding.embedMany(texts);
     // One multi-row INSERT per conversation — per-segment CREATEs cost a
@@ -151,9 +164,20 @@ export class SegmentComposerService {
         userId: userIds.length === 1 ? userIds[0] : undefined,
         embedding: vectors[i],
         recorder: SEGMENT_RECORDER,
+        generation,
       };
     });
-    await db.query(`INSERT INTO episode_segment $rows`, { rows });
+    // Atomic swap: old windows out, new windows in, one transaction —
+    // readers see the previous set or the new set, never neither. The
+    // delete must precede the insert INSIDE the transaction: (conv, seq)
+    // is UNIQUE and the new generation reuses the same seq values.
+    await runTransaction(db as unknown as Surreal, (tx) =>
+      tx
+        .add(`DELETE episode_segment WHERE conversationId = $conv`)
+        .add(`INSERT INTO episode_segment $rows`)
+        .bind('conv', conversationId)
+        .bind('rows', rows),
+    );
     result.segments += rows.length;
   }
 }

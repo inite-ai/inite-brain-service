@@ -387,9 +387,10 @@ function validateRetrievalProfileEnv(
     ['RETRIEVAL_GENRE', ['dialogue', 'assistant_chat', 'documents']],
     [
       'RETRIEVAL_VERBATIM_EVIDENCE',
-      ['off', 'shape_conditioned', 'always'],
+      ['off', 'shape_conditioned', 'always', 'fused'],
     ],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
+    ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];
   for (const [name, allowed] of enums) {
     const v = env[name];

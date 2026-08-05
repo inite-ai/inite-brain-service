@@ -73,12 +73,23 @@ export function buildDeriverSystem(opts?: {
   );
 }
 
+export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
+
 export interface DeriveRunResult {
   conversations: number;
   sessions: number;
   propositions: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
+  /**
+   * 'ok' — every targeted conversation derived; 'degraded' — some failed
+   * (skipped carries the reasons); 'failed' — at least one conversation
+   * was attempted and none succeeded. A silent success on a failed derive
+   * is how a poisoned eval row is born — callers must check this field.
+   */
+  status: DeriveRunStatus;
+  /** Mirror of skipped.length, for callers that only read counters. */
+  failed: number;
   /** Set when opts.activate flipped the live read pin to this version. */
   activated?: boolean;
   previousVersion?: string | null;
@@ -167,7 +178,7 @@ export class WindowDeriverService {
     // the guard and delete-by-version the world another pod served.
     const activePin =
       (await this.readPin?.resolve(companyId)) ??
-      process.env.RETRIEVAL_DERIVED_VERSION?.trim() ??
+      ReadPinService.bootstrapDefault() ??
       undefined;
     if (version === activePin && !opts.force) {
       throw new Error(
@@ -182,6 +193,8 @@ export class WindowDeriverService {
       propositions: 0,
       unresolvedSubjects: 0,
       skipped: [],
+      status: 'ok',
+      failed: 0,
     };
     // Registry (driver surface 3): observes the lifecycle, never fails it —
     // every registry write degrades to a warning inside the service.
@@ -216,21 +229,25 @@ export class WindowDeriverService {
       await this.registry?.fail({ companyId, name: 'facts', version });
       throw e;
     }
-    // Atomic world flip: readers switch from the old fork to the new one
-    // between requests, never mid-build. The flip is a REGISTRY write
-    // (complete({live:true}) below marks this version live and demotes
-    // the previous one) — audit W2 #9 removed the process.env mutation
-    // that made a per-tenant activation repoint every tenant on the pod
-    // and stay invisible to every other pod.
-    if (opts.activate && result.conversations > 0) {
-      result.previousVersion =
-        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
-      result.activated = true;
-      this.logger.log(
-        `derived world '${version}' activated for ${companyId} ` +
-          `(was: ${result.previousVersion ?? 'legacy'})`,
+    // A run where every attempted conversation failed produced NOTHING —
+    // marking it built/live would let gc protect a hollow world and let
+    // eval drivers QA an empty substrate as if it were legitimate.
+    if (this.finalizeRunStatus(result) === 'failed') {
+      await this.registry?.fail({ companyId, name: 'facts', version });
+      this.logger.error(
+        `derive '${version}' failed for ${companyId}: all ` +
+          `${result.failed} conversation(s) failed — first reason: ` +
+          `${result.skipped[0]?.reason}`,
       );
+      return result;
     }
+    await this.maybeActivate({
+      companyId,
+      version,
+      activate: opts.activate === true,
+      activePin,
+      result,
+    });
     await this.registry?.complete({
       companyId,
       name: 'facts',
@@ -249,6 +266,57 @@ export class WindowDeriverService {
   }
 
   /**
+   * Atomic world flip: readers switch from the old fork to the new one
+   * between requests, never mid-build. The flip is a REGISTRY write
+   * (run()'s complete({live:true}) marks this version live and demotes
+   * the previous one) — audit W2 #9 removed the env-var mutation
+   * that made a per-tenant activation repoint every tenant on the pod
+   * and stay invisible to every other pod. Activation additionally
+   * requires a CLEAN run: flipping every reader onto a world with known
+   * holes is never what the operator meant.
+   */
+  private async maybeActivate(args: {
+    companyId: string;
+    version: string;
+    activate: boolean;
+    activePin: string | undefined;
+    result: DeriveRunResult;
+  }): Promise<void> {
+    const { companyId, version, activate, activePin, result } = args;
+    if (activate && result.conversations > 0 && result.failed === 0) {
+      result.previousVersion =
+        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
+      result.activated = true;
+      this.logger.log(
+        `derived world '${version}' activated for ${companyId} ` +
+          `(was: ${result.previousVersion ?? 'legacy'})`,
+      );
+    } else if (activate && result.failed > 0) {
+      this.logger.warn(
+        `activation of '${version}' refused for ${companyId}: ` +
+          `${result.failed} of ${result.conversations + result.failed} ` +
+          `conversation(s) failed — re-derive the failures, then activate`,
+      );
+    }
+  }
+
+  /**
+   * Stamp status/failed from the skipped ledger: 'ok' — clean; 'degraded'
+   * — partial; 'failed' — attempted and nothing succeeded (the V2
+   * quota-poison shape).
+   */
+  private finalizeRunStatus(result: DeriveRunResult): DeriveRunStatus {
+    result.failed = result.skipped.length;
+    result.status =
+      result.failed === 0
+        ? 'ok'
+        : result.conversations > 0
+          ? 'degraded'
+          : 'failed';
+    return result.status;
+  }
+
+  /**
    * Reap residual worlds: delete derived facts of every version that is
    * neither the live pin nor explicitly kept. The legacy namespace
    * (derivedVersion IS NONE) is never touched.
@@ -259,7 +327,8 @@ export class WindowDeriverService {
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
     const activePin =
       (await this.readPin?.resolve(companyId)) ??
-      process.env.RETRIEVAL_DERIVED_VERSION?.trim();
+      ReadPinService.bootstrapDefault() ??
+      undefined;
     // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
     // part of the keep-set — the env pin is process-local and may be unset
     // on this pod while another pod serves a live world. live/building/

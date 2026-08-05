@@ -3,6 +3,14 @@ import {
   envFlagEnabled,
   envFlagNotDisabled,
 } from '../common/env-validation';
+import {
+  resolveStageBudgets,
+  type StageBudgets,
+} from './internals/stage-budget';
+import {
+  resolveExpansionConfig,
+  type ExpansionConfig,
+} from './internals/edge-expansion';
 
 /**
  * RetrievalProfile — the per-tenant configuration object that replaced
@@ -23,15 +31,28 @@ export type RetrievalGenre = 'dialogue' | 'assistant_chat' | 'documents';
 
 /**
  * How verbatim L0 evidence (episode quotes / provenance excerpts /
- * segments) reaches the synthesis prompt:
+ * segments) reaches answers:
  *  - 'off'               — never; facts only.
  *  - 'shape_conditioned' — episode quotes + provenance excerpts only
  *                          when the question asks for conversational
  *                          content (verbatim shape). The engine default.
  *  - 'always'            — all three verbatim lanes run unconditionally
- *                          (diary-genre profile; the old lane flags ON).
+ *                          as a prompt appendix (diary-genre profile;
+ *                          the old lane flags ON).
+ *  - 'fused'             — audit W4 #18: segments become first-class
+ *                          SearchHits — retrieved inside the search
+ *                          pipeline (dense+BM25 through the same convex
+ *                          fusion), scored, reranked, and CITABLE next
+ *                          to facts, instead of an unscored prompt
+ *                          appendix. The two episode quote lanes stay
+ *                          shape-conditioned; the appendix segment lane
+ *                          is off (segments arrive as hits).
  */
-export type VerbatimEvidenceMode = 'off' | 'shape_conditioned' | 'always';
+export type VerbatimEvidenceMode =
+  | 'off'
+  | 'shape_conditioned'
+  | 'always'
+  | 'fused';
 
 /**
  * How the generator's "today" is anchored:
@@ -41,6 +62,21 @@ export type VerbatimEvidenceMode = 'off' | 'shape_conditioned' | 'always';
  *  - 'absolute'     — asOf, else wall clock. The engine default.
  */
 export type DateAnchoring = 'none' | 'session_date' | 'absolute';
+
+/**
+ * How an explicit `asOf` shapes retrieval (audit W4 #17 — temporal used
+ * to be a hard filter ONLY, so a bad asOf was a recall cliff):
+ *  - 'filter'        — bitemporal closure excludes facts not valid at
+ *                      asOf. Strict point-in-time semantics; the engine
+ *                      default.
+ *  - 'overlap_boost' — the validity closure is relaxed for asOf reads;
+ *                      instead, facts whose validity interval contains
+ *                      asOf keep full score and facts outside it decay
+ *                      exponentially with distance (Hindsight-style
+ *                      overlap + distance decay). Soft recall, fuzzier
+ *                      point-in-time compliance.
+ */
+export type TemporalMode = 'filter' | 'overlap_boost';
 
 /** One id per dispatch lane; the Lane registry must cover all of them. */
 export type LaneId =
@@ -66,6 +102,7 @@ export interface RetrievalProfile {
   genre: RetrievalGenre;
   verbatimEvidence: VerbatimEvidenceMode;
   dateAnchoring: DateAnchoring;
+  temporalMode: TemporalMode;
   /** Global fact budget for fact-centric selection. */
   factBudget: number;
   /** Episode quotes per prompt (episodic lane BM25 top-k). */
@@ -81,6 +118,14 @@ export interface RetrievalProfile {
   /** PRF second retrieval for summary/enumeration-routed questions. */
   wideProbe: boolean;
   wideProbeLimit: number;
+  /**
+   * Entity-expansion second retrieval inside the search pipeline
+   * (audit W4 #19): the top entities the first pass discovered — and
+   * the query never named — anchor a second legs+fusion pass before
+   * scoring. SmartSearch's multi-session lever; off by default until
+   * measured per genre.
+   */
+  entityExpansion: boolean;
   /** Active dispatch lanes; empty set = no typed dispatch. */
   lanes: ReadonlySet<LaneId>;
 }
@@ -140,6 +185,7 @@ export function resolveRetrievalProfile(
         'off',
         'shape_conditioned',
         'always',
+        'fused',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
@@ -148,6 +194,11 @@ export function resolveRetrievalProfile(
         'absolute',
       ] as const) ??
       (envFlagNotDisabled(env.SYNTHESIZE_DATE_CONTEXT) ? 'absolute' : 'none'),
+    temporalMode:
+      enumEnv(env, 'RETRIEVAL_TEMPORAL_MODE', [
+        'filter',
+        'overlap_boost',
+      ] as const) ?? 'filter',
     factBudget: positiveIntEnv(env, 'SEARCH_FACT_CENTRIC_BUDGET', 48),
     quotesPerPrompt: positiveIntEnv(env, 'SEARCH_EPISODIC_LANE_TOPK', 8),
     sourceExcerptsCap: positiveIntEnv(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', 16),
@@ -156,6 +207,7 @@ export function resolveRetrievalProfile(
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
+    entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     lanes,
   };
 }
@@ -193,7 +245,7 @@ export function resolveRetrievalProfileFor(
   }
   if (
     typeof o.verbatimEvidence === 'string' &&
-    ['off', 'shape_conditioned', 'always'].includes(o.verbatimEvidence)
+    ['off', 'shape_conditioned', 'always', 'fused'].includes(o.verbatimEvidence)
   ) {
     merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
   }
@@ -202,6 +254,12 @@ export function resolveRetrievalProfileFor(
     ['none', 'session_date', 'absolute'].includes(o.dateAnchoring)
   ) {
     merged.dateAnchoring = o.dateAnchoring as DateAnchoring;
+  }
+  if (
+    typeof o.temporalMode === 'string' &&
+    ['filter', 'overlap_boost'].includes(o.temporalMode)
+  ) {
+    merged.temporalMode = o.temporalMode as TemporalMode;
   }
   for (const key of [
     'factBudget',
@@ -216,7 +274,11 @@ export function resolveRetrievalProfileFor(
       merged[key] = Math.floor(v);
     }
   }
-  for (const key of ['segmentRerank', 'wideProbe'] as const) {
+  for (const key of [
+    'segmentRerank',
+    'wideProbe',
+    'entityExpansion',
+  ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }
   if (Array.isArray(o.lanes)) {
@@ -236,4 +298,102 @@ export function resolveRetrievalProfileFor(
  */
 export function getActiveRetrievalProfile(): RetrievalProfile {
   return getRequestContext()?.retrievalProfile ?? resolveRetrievalProfile();
+}
+
+/**
+ * SearchTuning — every numeric/infra knob the search pipeline reads,
+ * resolved HERE and only here (S5.2: this module is the one place under
+ * the profile boundary allowed to touch process.env). Unlike the
+ * RetrievalProfile — genre semantics, per-tenant — these are
+ * deployment-wide tuning values. Resolved per request (search() stamps
+ * one snapshot into the PipelineContext), so a live env flip lands on
+ * the next request: no constructor capture, no false runtimeMutable
+ * claims (audit W6 #28).
+ */
+export interface SearchTuning {
+  /** SEARCH_USAGE_RECORDING_ENABLED — stamp surfaced facts (0053). */
+  usageRecording: boolean;
+  /** SEARCH_USAGE_DECAY_ENABLED — decay from lastReadAt. */
+  usageDecay: boolean;
+  /** SEARCH_PPR_ENABLED / SEARCH_PPR_AUTO_THRESHOLD. */
+  pprEnabled: boolean;
+  pprAutoThreshold: number;
+  /** Source-reputation ranking knobs (Phase 5); 0 = factor 1.0. */
+  trustBeta: number;
+  corroborationGamma: number;
+  authorityDelta: number;
+  /** Chatter demotion in (0,1); 1 = off. */
+  chatterPenalty: number;
+  /** Cross-encoder windows + margin-skip. */
+  crossEncoderLocalWindow: number;
+  crossEncoderWindow: number;
+  rerankSkipMargin: number;
+  stageBudgets: StageBudgets;
+  /** Token-count worker offload (response shaping). */
+  tokenCountOffload: boolean;
+  tokenOffloadMinHits: number;
+  /** Leg construction knobs. */
+  combinedVectorGraph: boolean;
+  hnswEnabled: boolean;
+  hnswEf: number;
+  hnswOverfetch: number;
+  highlightEnabled: boolean;
+  edgeExpansion: ExpansionConfig;
+}
+
+function tuningInt(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+): number {
+  const v = parseInt(env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+/** Optional non-negative float knob; unset/invalid → 0 (feature off). */
+function nonNegativeFloat(env: NodeJS.ProcessEnv, name: string): number {
+  const v = Number(env[name] ?? 0);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+/**
+ * Penalty multiplier; OFF is 1.0. Returns the value only when it's a
+ * real demotion in (0,1); unset / invalid / ≥1 → 1.0 (no penalty).
+ */
+function unitPenalty(env: NodeJS.ProcessEnv, name: string): number {
+  const raw = env[name];
+  if (raw === undefined) return 1;
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 && v < 1 ? v : 1;
+}
+
+export function resolveSearchTuning(
+  env: NodeJS.ProcessEnv = process.env,
+): SearchTuning {
+  return {
+    usageRecording: envFlagEnabled(env.SEARCH_USAGE_RECORDING_ENABLED),
+    usageDecay: envFlagEnabled(env.SEARCH_USAGE_DECAY_ENABLED),
+    pprEnabled: envFlagEnabled(env.SEARCH_PPR_ENABLED),
+    pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
+    trustBeta: nonNegativeFloat(env, 'SEARCH_TRUST_BETA'),
+    corroborationGamma: nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA'),
+    authorityDelta: nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA'),
+    chatterPenalty: unitPenalty(env, 'SEARCH_CHATTER_PENALTY'),
+    crossEncoderLocalWindow: tuningInt(
+      env,
+      'SEARCH_CROSS_ENCODER_LOCAL_WINDOW',
+      20,
+    ),
+    crossEncoderWindow: tuningInt(env, 'SEARCH_CROSS_ENCODER_WINDOW', 50),
+    rerankSkipMargin: nonNegativeFloat(env, 'SEARCH_RERANK_SKIP_MARGIN'),
+    stageBudgets: resolveStageBudgets(env),
+    tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
+    tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),
+    combinedVectorGraph: envFlagEnabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
+    hnswEnabled: envFlagEnabled(env.SEARCH_HNSW_ENABLED),
+    hnswEf: tuningInt(env, 'SEARCH_HNSW_EF', 100),
+    hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
+    highlightEnabled: envFlagEnabled(env.SEARCH_HIGHLIGHT_ENABLED),
+    edgeExpansion: resolveExpansionConfig(env),
+  };
 }

@@ -87,7 +87,19 @@ export interface ExpansionConfig {
   alpha: number;
 }
 
-function resolveExpansionConfig(env = process.env): ExpansionConfig {
+/** Pure fallback for callers that resolve no env (unit fixtures). */
+const DEFAULT_EXPANSION_CONFIG: ExpansionConfig = {
+  topSeeds: 3,
+  maxNeighboursPerSeed: 5,
+  alpha: 0.4,
+};
+
+/**
+ * Env resolution lives with the caller-supplied env — the S5.2 boundary
+ * allows raw environment reads only in the retrieval-profile bootstrap,
+ * which calls this from resolveSearchTuning().
+ */
+export function resolveExpansionConfig(env: NodeJS.ProcessEnv): ExpansionConfig {
   const topSeeds = Math.max(
     1,
     parseInt(env.SEARCH_EDGE_EXPANSION_TOP_SEEDS ?? '3', 10) || 3,
@@ -177,7 +189,7 @@ export async function expandViaEdges({
   dto,
   callerScopes,
   passesPolicy,
-  config = resolveExpansionConfig(),
+  config = DEFAULT_EXPANSION_CONFIG,
   prefetchedNeighbours,
 }: ExpandViaEdgesOptions): Promise<number> {
   const seeds = selectEdgeExpansionSeeds(byEntity, config.topSeeds);

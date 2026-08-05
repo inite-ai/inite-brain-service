@@ -120,11 +120,29 @@ async function ingestWorld(
     }
   }
   log(`ingested ${turnTotal} turns`);
-  const derived = await client.call<{ propositions: number }>(
-    'POST',
-    '/v1/admin/maintenance/derive',
-    { version: opts.derivedVersion, force: true },
-  );
+  const derived = await client.call<{
+    propositions: number;
+    status?: 'ok' | 'degraded' | 'failed';
+    failed?: number;
+    skipped?: Array<{ conversationId: string; reason: string }>;
+  }>('POST', '/v1/admin/maintenance/derive', {
+    version: opts.derivedVersion,
+    force: true,
+  });
+  // The V2 incident: a quota 429 inside derive used to come back as a
+  // silent 201 and 18 worlds were QA'd against an empty substrate. Any
+  // non-clean derive fails the world — errored rows are not
+  // checkpointed, so a resume re-derives instead of poisoning the run.
+  if (derived.status && derived.status !== 'ok') {
+    const reasons = (derived.skipped ?? [])
+      .slice(0, 3)
+      .map((s) => s.reason)
+      .join('; ');
+    throw new Error(
+      `derive ${derived.status}: ${derived.failed ?? '?'} conversation(s) ` +
+        `failed (${reasons}) — refusing to QA a hollow world`,
+    );
+  }
   const segs = await client.call<{ segments: number }>(
     'POST',
     '/v1/admin/maintenance/segments',

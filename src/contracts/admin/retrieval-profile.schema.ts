@@ -15,8 +15,9 @@ import { z } from 'zod';
 
 export const RetrievalProfileWireSchema = z.object({
   genre: z.enum(['dialogue', 'assistant_chat', 'documents']),
-  verbatimEvidence: z.enum(['off', 'shape_conditioned', 'always']),
+  verbatimEvidence: z.enum(['off', 'shape_conditioned', 'always', 'fused']),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
+  temporalMode: z.enum(['filter', 'overlap_boost']),
   factBudget: z.number().int(),
   quotesPerPrompt: z.number().int(),
   sourceExcerptsCap: z.number().int(),
@@ -25,6 +26,7 @@ export const RetrievalProfileWireSchema = z.object({
   extraEvidenceCap: z.number().int(),
   wideProbe: z.boolean(),
   wideProbeLimit: z.number().int(),
+  entityExpansion: z.boolean(),
   lanes: z.array(z.string()),
 });
 

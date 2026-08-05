@@ -82,16 +82,26 @@ describe('SearchService empty-query short-circuit + embed prewarm', () => {
     withScopedCompany?: jest.Mock;
     prewarm?: jest.Mock;
   }) {
+    // The scoped-connection phase now returns the staged hand-off
+    // (audit W4 #20) — the rank tail runs after the pool slot is
+    // released, so the mock must hand back a minimal StagedPipeline.
     const withScopedCompany =
       overrides.withScopedCompany ??
-      jest.fn(async () => ({ results: [] as SearchHit[] }));
+      jest.fn(async () => ({
+        byEntity: new Map(),
+        rowPolicy: { finish: () => undefined },
+        neighboursByEntity: new Map(),
+      }));
     const prewarm = overrides.prewarm ?? jest.fn(async () => undefined);
     const surreal = { withScopedCompany } as never;
     const retrieval = {
       prewarmQueryEmbedding: prewarm,
       runRetrievalStage: jest.fn(async () => []),
     } as never;
-    const rerank = {} as never;
+    const rerank = {
+      runRerankStage: jest.fn(async () => []),
+      prefetchNeighbours: jest.fn(async () => new Map()),
+    } as never;
     return { svc: new SearchService(surreal, retrieval, rerank), withScopedCompany, prewarm };
   }
 
@@ -112,7 +122,11 @@ describe('SearchService empty-query short-circuit + embed prewarm', () => {
     });
     const withScopedCompany = jest.fn(async () => {
       order.push('scoped');
-      return { results: [] as SearchHit[] };
+      return {
+        byEntity: new Map(),
+        rowPolicy: { finish: () => undefined },
+        neighboursByEntity: new Map(),
+      };
     });
     const { svc } = mkService({ withScopedCompany, prewarm });
     await svc.search('co_x', { query: 'hello' } as SearchDto, ['brain:read']);

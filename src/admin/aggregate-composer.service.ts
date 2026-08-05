@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { StringRecordId } from 'surrealdb';
+import { StringRecordId, type Surreal } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 
 /**
@@ -25,7 +25,8 @@ import { FactEmbeddingService } from '../ingest/fact-embedding.service';
  * Deliberately NOT routed through fn::resolve_fact: these are synthetic
  * derived rows — the bitemporal resolver's supersede/corroborate
  * semantics are for observations, and a re-run replaces aggregates
- * wholesale (delete-by-recorder, then create).
+ * wholesale (delete-by-recorder + insert, one atomic transaction; all
+ * paid calls happen before the swap).
  */
 export const AGGREGATE_RECORDER = 'aggregate-composer-v1';
 
@@ -156,53 +157,51 @@ export class AggregateComposerService {
         a.members.every((m) => m >= 0 && m < facts.length) &&
         a.proposition.trim().length > 0,
     );
-    // Wholesale replace: aggregates are derived state, a re-run owns them.
-    await db.query(
-      `DELETE knowledge_fact
-        WHERE entityId = $eid AND source.recorder = $recorder
-          ${versionClause}`,
-      {
-        eid: new StringRecordId(entityId),
-        recorder: AGGREGATE_RECORDER,
-        version,
-      },
-    );
-    if (valid.length === 0) return 0;
-
-    const vectors = await this.embedding.embedMany(
-      valid.map((a) => a.proposition),
-    );
-    for (const [i, agg] of valid.entries()) {
+    // Every paid step (LLM above, embeddings here) runs BEFORE the delete
+    // — a failure leaves the previous aggregates intact.
+    const vectors =
+      valid.length > 0
+        ? await this.embedding.embedMany(valid.map((a) => a.proposition))
+        : [];
+    const rows = valid.map((agg, i) => {
       const slug = agg.aspect
         .toLowerCase()
         .replace(/[^a-z0-9_]+/g, '_')
         .slice(0, 40);
-      await db.query(
-        `CREATE knowledge_fact CONTENT {
-           entityId: $eid,
-           predicate: $predicate,
-           object: $object,
-           confidence: 0.9,
-           validFrom: time::now(),
-           source: { vertical: 'aggregate', recorder: $recorder },
-           status: 'active',
-           embedding: $embedding,
-           derivedFrom: $derivedFrom,
-           derivedVersion: $version
-         }`,
-        {
-          eid: new StringRecordId(entityId),
-          predicate: `aggregate_${slug}`,
-          object: agg.proposition,
-          recorder: AGGREGATE_RECORDER,
-          embedding: vectors[i],
-          derivedFrom: agg.members.map(
-            (m) => new StringRecordId(String(facts[m].id)),
-          ),
-          version,
-        },
+      return {
+        entityId: new StringRecordId(entityId),
+        predicate: `aggregate_${slug}`,
+        object: agg.proposition,
+        confidence: 0.9,
+        validFrom: new Date(),
+        source: { vertical: 'aggregate', recorder: AGGREGATE_RECORDER },
+        status: 'active',
+        embedding: vectors[i],
+        derivedFrom: agg.members.map(
+          (m) => new StringRecordId(String(facts[m].id)),
+        ),
+        ...(version ? { derivedVersion: version } : {}),
+      };
+    });
+    // Wholesale replace: aggregates are derived state, a re-run owns
+    // them. Atomic swap (audit W2 #10/#11): the delete and the insert
+    // share one transaction, so a retrieval that lands mid-rerun sees
+    // the previous aggregate set or the new one — never an entity with
+    // its enumerations missing. (Under a pinned world the composer
+    // deliberately writes INTO the pin — that is the R4 flow — which is
+    // exactly why the swap must be atomic rather than fork-guarded.)
+    await runTransaction(db as unknown as Surreal, (tx) => {
+      tx.add(
+        `DELETE knowledge_fact
+          WHERE entityId = $eid AND source.recorder = $recorder
+            ${versionClause}`,
       );
-    }
+      if (rows.length > 0) tx.add(`INSERT INTO knowledge_fact $rows`);
+      tx.bind('eid', new StringRecordId(entityId))
+        .bind('recorder', AGGREGATE_RECORDER)
+        .bind('version', version)
+        .bind('rows', rows);
+    });
     return valid.length;
   }
 

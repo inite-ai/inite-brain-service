@@ -48,23 +48,15 @@ const SOURCES = new Map(ALL_SRC.map((f) => [rel(f), readFileSync(f, 'utf8')]));
 const ENV_READ_RE = /process\.env/;
 
 describe('S5.2 — no process.env below the profile boundary', () => {
-  // The ONLY files inside the engine boundary allowed to read env.
-  // retrieval-profile.ts is the profile bootstrap; the rest are the
-  // pre-existing infra-knob readers, locked here so the set can only
-  // shrink (S4 removes the extractor entries; further search cleanups
-  // remove theirs). Adding a file — or re-adding a removed one — fails.
-  const ALLOWLIST = new Set([
-    'src/search/retrieval-profile.ts',
-    'src/search/search.service.ts',
-    'src/search/search-retrieval.service.ts',
-    'src/search/search-rerank.service.ts',
-    'src/search/internals/stage-budget.ts',
-    'src/search/internals/where-builder.ts',
-    'src/search/internals/response-builder.ts',
-    'src/search/internals/legs.ts',
-    'src/search/internals/edge-expansion.ts',
-    'src/admin/window-deriver.service.ts',
-  ]);
+  // The ONE file inside the engine boundary allowed to read env: the
+  // retrieval-profile bootstrap (RetrievalProfile for genre semantics +
+  // resolveSearchTuning for deployment knobs). Every other boundary
+  // module takes typed config as an argument. The V4 carried shrink
+  // (2026-08) folded the nine infra-knob readers here; the derived-
+  // version fallbacks route through ReadPinService.bootstrapDefault()
+  // in the episodes layer. Adding a file — or re-adding a removed one —
+  // fails.
+  const ALLOWLIST = new Set(['src/search/retrieval-profile.ts']);
   const BOUNDARY_PREFIXES = [
     'src/search/',
     'src/synthesize/',

@@ -174,16 +174,45 @@ OpenAI spend in Grafana. Expected quiet: prod already ran the reranker
 ON, so the capability fold changes nothing there; the real deltas are
 HyPE and the predicate router turning off with their deleted code.
 
-## Carried into V4
+## Carried into V4 — EXECUTED (2026-08-05, feat/engine-v4-carried)
 
-- `maintenance/derive` must propagate derive failures instead of
-  WARN+201 — a silent 201 on a failed derive is how a poisoned eval
-  row is born (bit us live this session).
-- The audit carry-list unchanged: temporal overlap boost; verbatim as
-  a fusion leg in SearchHit; entity-expansion rewrite; releasing the
-  scoped connection across LLM awaits; segment/aggregate version
-  columns + staging-swap; dreams version-awareness; shrink the S5.2
-  env allowlist to one search bootstrap module.
-- Candidate: an architecture thesis doc ("memory is a profile of
-  capabilities, not a speed") — the genre-law now has measured
-  evidence from both directions.
+All eight carried items landed as one PR-sized branch, each with unit
+coverage and the six gates green:
+
+- `maintenance/derive` propagates failures: DeriveRunResult grows
+  `status`/`failed`, total failure → registry `failed` + HTTP 502,
+  activation requires a clean run, and the eval driver refuses to QA
+  any non-ok derive (rows error instead of checkpointing).
+- Temporal overlap boost: profile key `RETRIEVAL_TEMPORAL_MODE`
+  (`filter` default | `overlap_boost` — validity closure relaxed,
+  Hindsight-style interval-overlap decay in scoring).
+- Verbatim as a fusion leg: `RETRIEVAL_VERBATIM_EVIDENCE=fused` —
+  segments retrieved inside the pipeline through the same convex
+  fusion, scored, reranked, citable as SearchHits; the appendix lane
+  stays byte-identical under `always`.
+- Entity-expansion second retrieval: profile key
+  `RETRIEVAL_ENTITY_EXPANSION` (default off) — top discovered entity
+  names anchor one more legs+fusion pass before scoring.
+- Scoped connection released across LLM awaits: the pipeline is now
+  runDbStages (inside the pool slot, ends by prefetching rerank
+  neighbourhoods) + rankAndAssemble (cross-encoder + LLM rerank +
+  assembly, connectionless).
+- Segments/aggregates: atomic staging-swap (paid calls before any
+  delete; delete+insert in one transaction), migration 0081 adds the
+  per-run `generation` stamp on episode_segment.
+- Dreams version-aware: every leg (dedup, resolve, corroborate,
+  communities) fenced to the tenant's live derived world via
+  ReadPinService + the new shared `derivedVersionFence()`.
+- S5.2 env allowlist = exactly one module: `retrieval-profile.ts`
+  (new `resolveSearchTuning()` snapshot in the PipelineContext; legs'
+  import-time SQL constants became per-call; derived-version fallbacks
+  route through `ReadPinService.bootstrapDefault()`).
+
+The architecture thesis doc shipped as
+[docs/architecture-manifest.md](../architecture-manifest.md) ("memory
+is a profile of capabilities, not a speed") — draft, pending owner
+review.
+
+None of the new profile points (overlap_boost / fused /
+entityExpansion) are default-on: defaults are byte-identical to V3
+prod, and each is a measured-leg candidate for the next eval session.

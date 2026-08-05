@@ -1,5 +1,7 @@
+import { BadGatewayException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
+import { throwIfDeriveFailed } from '../src/admin/admin-derive.controller';
 import {
   WindowDeriverService,
   segmentSessions,
@@ -81,7 +83,10 @@ describe('buildBaseWhere derived-version namespace', () => {
 });
 
 describe('WindowDeriverService (P3 v1 batch)', () => {
-  function makeSvc(llm: unknown): {
+  function makeSvc(
+    llm: unknown,
+    opts?: { conversations?: Array<{ conversationId: string; n: number }> },
+  ): {
     svc: WindowDeriverService;
     queries: Array<{ sql: string; params?: Record<string, unknown> }>;
     derived: Array<Record<string, unknown>>;
@@ -91,7 +96,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       query: async (sql: string, params?: Record<string, unknown>) => {
         queries.push({ sql, params });
         if (sql.includes('GROUP BY conversationId'))
-          return [[{ conversationId: 'conv-1', n: 3 }]];
+          return [opts?.conversations ?? [{ conversationId: 'conv-1', n: 3 }]];
         if (sql.includes('FROM episode'))
           return [
             [
@@ -419,9 +424,8 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     });
   });
 
-  it('records conversation failures without failing the run', async () => {
-    const { svc } = makeSvc({ propositions: [] });
-    (svc as unknown as { openai: unknown }).openai = {
+  describe('failure propagation (the V2 quota-poison fix)', () => {
+    const failingLlm = {
       chat: {
         completions: {
           create: async () => {
@@ -430,11 +434,129 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       },
     };
-    const res = await svc.run('co_x');
-    expect(res.conversations).toBe(0);
-    expect(res.skipped).toEqual([
-      { conversationId: 'conv-1', reason: 'llm down' },
-    ]);
+
+    it('total failure: run resolves with status=failed and the reasons', async () => {
+      const { svc } = makeSvc({ propositions: [] });
+      (svc as unknown as { openai: unknown }).openai = failingLlm;
+      const res = await svc.run('co_x');
+      expect(res.conversations).toBe(0);
+      expect(res.skipped).toEqual([
+        { conversationId: 'conv-1', reason: 'llm down' },
+      ]);
+      expect(res.status).toBe('failed');
+      expect(res.failed).toBe(1);
+    });
+
+    it('total failure marks the registry failed, never built/live', async () => {
+      const { svc } = makeSvc({ propositions: [] });
+      (svc as unknown as { openai: unknown }).openai = failingLlm;
+      const events: string[] = [];
+      (svc as unknown as { registry: unknown }).registry = {
+        begin: async () => void events.push('begin'),
+        complete: async () => void events.push('complete'),
+        fail: async () => void events.push('fail'),
+      };
+      const res = await svc.run('co_x');
+      expect(res.status).toBe('failed');
+      expect(events).toEqual(['begin', 'fail']);
+    });
+
+    it('partial failure: degraded status, activation refused', async () => {
+      const { svc } = makeSvc(
+        {
+          propositions: [
+            {
+              subject: 'Caroline',
+              aspect: 'pets',
+              proposition: 'p',
+              occurred_on: null,
+              turns: [1],
+            },
+          ],
+        },
+        {
+          conversations: [
+            { conversationId: 'conv-1', n: 3 },
+            { conversationId: 'conv-2', n: 3 },
+          ],
+        },
+      );
+      let calls = 0;
+      const healthy = (svc as unknown as { openai: unknown }).openai;
+      (svc as unknown as { openai: unknown }).openai = {
+        chat: {
+          completions: {
+            create: async (...args: unknown[]) => {
+              calls += 1;
+              if (calls === 1) throw new Error('llm down');
+              return (
+                healthy as {
+                  chat: {
+                    completions: {
+                      create: (...a: unknown[]) => Promise<unknown>;
+                    };
+                  };
+                }
+              ).chat.completions.create(...args);
+            },
+          },
+        },
+      };
+      const res = await svc.run('co_x', { activate: true });
+      expect(res.status).toBe('degraded');
+      expect(res.failed).toBe(1);
+      expect(res.conversations).toBe(1);
+      expect(res.skipped).toEqual([
+        { conversationId: 'conv-1', reason: 'llm down' },
+      ]);
+      // Flipping every reader onto a world with known holes is never
+      // what the operator meant — activation demands a clean run.
+      expect(res.activated).toBeUndefined();
+    });
+
+    it('throwIfDeriveFailed: 502 on total failure, passthrough otherwise', () => {
+      const base = {
+        conversations: 0,
+        sessions: 0,
+        propositions: 0,
+        unresolvedSubjects: 0,
+      };
+      const failed = {
+        ...base,
+        status: 'failed' as const,
+        failed: 2,
+        skipped: [
+          { conversationId: 'c1', reason: '429 insufficient_quota' },
+          { conversationId: 'c2', reason: '429 insufficient_quota' },
+        ],
+      };
+      expect(() => throwIfDeriveFailed(failed)).toThrow(BadGatewayException);
+      const degraded = {
+        ...base,
+        conversations: 1,
+        status: 'degraded' as const,
+        failed: 1,
+        skipped: [{ conversationId: 'c1', reason: 'x' }],
+      };
+      expect(throwIfDeriveFailed(degraded)).toBe(degraded);
+    });
+
+    it('clean run reports status=ok with zero failed', async () => {
+      const { svc } = makeSvc({
+        propositions: [
+          {
+            subject: 'Caroline',
+            aspect: 'pets',
+            proposition: 'p',
+            occurred_on: null,
+            turns: [1],
+          },
+        ],
+      });
+      const res = await svc.run('co_x');
+      expect(res.status).toBe('ok');
+      expect(res.failed).toBe(0);
+    });
   });
 });
 

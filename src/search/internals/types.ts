@@ -15,7 +15,8 @@ export type RetrievalStage =
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'
-  | 'ppr';
+  | 'ppr'
+  | 'segment';
 
 /** One graph edge to a neighbour entity, as projected by both the edge-
  *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg. */
@@ -131,6 +132,12 @@ export interface ScoreBreakdown {
    * Omitted when 1.0 (no penalty) so unpenalised rows are byte-identical.
    */
   chatterPenalty?: number;
+  /**
+   * Interval-overlap decay vs the asOf anchor (profile temporalMode =
+   * 'overlap_boost', audit W4 #17). Omitted when 1.0 — i.e. the fact's
+   * validity interval contains the anchor, or no anchor was set.
+   */
+  temporalOverlap?: number;
   /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the

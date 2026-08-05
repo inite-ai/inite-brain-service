@@ -19,6 +19,7 @@ import {
 } from './label-propagation';
 import { policyFor } from '../ingest/conflict-resolver';
 import { envFlagEnabled } from '../common/env-validation';
+import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
  * CommunityBuilderService — clusters the tenant's entity graph into
@@ -86,7 +87,10 @@ export class CommunityBuilderService {
    * passed `db` handle. Idempotent: a second run with no graph change
    * reuses every community via the watermark and creates/deletes nothing.
    */
-  async run(db: Surreal): Promise<CommunityBuildResult> {
+  async run(
+    db: Surreal,
+    derivedVersion: string | null = null,
+  ): Promise<CommunityBuildResult> {
     const result: CommunityBuildResult = {
       communitiesBuilt: 0,
       communitiesReused: 0,
@@ -164,7 +168,7 @@ export class CommunityBuilderService {
       }
       await withSpan(
         'communities.build_one',
-        () => this.buildCommunity(db, members, maxEdgeAt[i]),
+        () => this.buildCommunity(db, members, maxEdgeAt[i], derivedVersion),
         { 'community.size': members.length },
       );
       result.communitiesBuilt++;
@@ -354,12 +358,18 @@ export class CommunityBuilderService {
   }
 
   /** Summarise + embed + persist one community and its member edges. */
+  // eslint-disable-next-line max-params
   private async buildCommunity(
     db: Surreal,
     members: string[],
     maxEdgeAt: string | null,
+    derivedVersion: string | null,
   ): Promise<void> {
-    const { label, summaryInput } = await this.gatherMemberContext(db, members);
+    const { label, summaryInput } = await this.gatherMemberContext(
+      db,
+      members,
+      derivedVersion,
+    );
     const summary = await this.summaryGenerator.generate(summaryInput);
     const summaryEmbedding = summary
       ? await this.embedder.embed(summary)
@@ -424,7 +434,9 @@ export class CommunityBuilderService {
   private async gatherMemberContext(
     db: Surreal,
     members: string[],
+    derivedVersion: string | null,
   ): Promise<{ label: string; summaryInput: FactToSummarize[] }> {
+    const fence = derivedVersionFence(derivedVersion);
     const sample = members.slice(0, this.summaryMaxMembers);
     const ridSample = sample.map((m) => new StringRecordId(m));
 
@@ -453,9 +465,10 @@ export class CommunityBuilderService {
            AND status = 'active'
            AND retractedAt IS NONE
            AND userId IS NONE
+           ${fence.clause}
          ORDER BY confidence DESC, validFrom ASC, predicate ASC, object ASC
          LIMIT 60`,
-      { ids: ridSample },
+      { ids: ridSample, ...fence.params },
     );
     // The community summary is persisted and read tenant-wide with only
     // brain:read — it can carry no per-caller redaction. So a PII-classed

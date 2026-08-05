@@ -763,7 +763,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'How verbatim L0 evidence reaches synthesis: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional; diary-genre profile). Unset → derived from the legacy lane flags.',
+          'How verbatim L0 evidence reaches answers: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional as a prompt appendix; diary-genre profile) | fused (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix). Unset → derived from the legacy lane flags.',
       },
       {
         key: 'RETRIEVAL_DATE_ANCHORING',
@@ -775,13 +775,31 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "How the generator's \"today\" anchors: none (session-date-convention golds) | session_date (only when the caller sends asOf) | absolute (asOf, else wall clock — the engine default). Unset → derived from SYNTHESIZE_DATE_CONTEXT.",
       },
       {
+        key: 'RETRIEVAL_ENTITY_EXPANSION',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Entity-expansion second retrieval (profile field entityExpansion): after the first legs+fusion pass, the top discovered entity names the query never mentioned anchor one more legs+fusion pass before scoring — the SmartSearch multi-session lever. Costs one extra embedding + two leg queries per search. Default off; enable per genre after measuring.',
+      },
+      {
+        key: 'RETRIEVAL_TEMPORAL_MODE',
+        category: 'pipeline',
+        defaultValue: 'filter',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'How an explicit asOf shapes retrieval: filter (bitemporal closure excludes facts not valid at asOf — strict point-in-time, the default) | overlap_boost (validity closure relaxed; facts outside the interval survive with an exponential distance decay on their score — soft recall, a slightly-wrong asOf degrades instead of emptying results).',
+      },
+      {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
         category: 'pipeline',
         defaultValue: null,
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

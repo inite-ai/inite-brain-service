@@ -153,6 +153,8 @@ describe('runWorlds', () => {
   const calls: RecordedCall[] = [];
   let server: import('node:http').Server;
   let brainUrl = '';
+  // Overridden by the degraded-derive test; null = the healthy default.
+  let deriveOverride: Record<string, unknown> | null = null;
 
   beforeAll(async () => {
     const { createServer } = await import('node:http');
@@ -168,14 +170,17 @@ describe('runWorlds', () => {
           tenant: req.headers['x-brain-tenant'] as string | undefined,
           body,
         });
-        const payload = (req.url ?? '').includes('multi-hop')
+        const url = req.url ?? '';
+        const payload = url.includes('multi-hop')
           ? {
               synthesis: {
                 answer: 'no information about that',
                 tokenUsage: { promptTokens: 42 },
               },
             }
-          : { propositions: 1, segments: 1 };
+          : url.includes('/maintenance/derive') && deriveOverride
+            ? deriveOverride
+            : { propositions: 1, segments: 1, status: 'ok', failed: 0 };
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(payload));
       });
@@ -191,6 +196,33 @@ describe('runWorlds', () => {
 
   beforeEach(() => {
     calls.length = 0;
+    deriveOverride = null;
+  });
+
+  it('degraded derive fails the world instead of QAing a hollow substrate', async () => {
+    deriveOverride = {
+      propositions: 3,
+      status: 'degraded',
+      failed: 2,
+      skipped: [
+        { conversationId: 'c1', reason: '429 insufficient_quota' },
+        { conversationId: 'c2', reason: '429 insufficient_quota' },
+      ],
+    };
+    const { scores } = await runWorlds('lme', [world], {
+      brainUrl,
+      apiKey: 'k',
+      derivedVersion: 'wd-v2',
+      concurrency: 1,
+      skipIngest: false,
+      log: () => undefined,
+    });
+    // The V2 incident inverted: the poison is now a world-level error,
+    // the row is NOT checkpointed, and a resume re-derives it.
+    expect(scores).toHaveLength(1);
+    expect(String(scores[0].errored)).toContain('derive degraded');
+    expect(String(scores[0].errored)).toContain('insufficient_quota');
+    expect(calls.some((c) => c.url.includes('multi-hop'))).toBe(false);
   });
 
   it('ingests with protocol invariants and scores abstention', async () => {

@@ -1,5 +1,5 @@
 import { SearchDto, SearchMode } from './dto/search.dto';
-import type { RetrievalProfile } from './retrieval-profile';
+import type { RetrievalProfile, SearchTuning } from './retrieval-profile';
 
 /**
  * Per-request retrieval-pipeline context, shared by the search
@@ -24,4 +24,10 @@ export interface PipelineContext {
   derivedVersion: string | null;
   /** Per-tenant retrieval profile, resolved once by the guard. */
   profile: RetrievalProfile;
+  /**
+   * Deployment-wide tuning knobs, resolved once per request by the
+   * retrieval-profile bootstrap (S5.2 — the one module allowed to read
+   * the environment under the boundary).
+   */
+  tuning: SearchTuning;
 }

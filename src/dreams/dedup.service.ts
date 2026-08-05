@@ -4,6 +4,7 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
+import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
  * DreamsDedupService — find near-duplicate ENTITIES inside a tenant
@@ -91,7 +92,10 @@ export class DreamsDedupService {
    * passed `db` handle. This keeps the service stateless and
    * compatible with the controller's per-request manual trigger.
    */
-  async run(db: Surreal): Promise<DedupResult> {
+  async run(
+    db: Surreal,
+    derivedVersion: string | null = null,
+  ): Promise<DedupResult> {
     const result: DedupResult = {
       suspectsEvaluated: 0,
       llmJudgements: 0,
@@ -103,7 +107,7 @@ export class DreamsDedupService {
 
     const candidates = await withSpan(
       'dreams.dedup.find_candidates',
-      () => this.findCandidates(db),
+      () => this.findCandidates(db, derivedVersion),
       { 'dedup.cosine_threshold': this.cosineThreshold },
     );
     result.suspectsEvaluated = candidates.length;
@@ -150,7 +154,10 @@ export class DreamsDedupService {
    *     ordering so each pair is counted once).
    *   - Cap at maxPairs to bound the LLM cost.
    */
-  private async findCandidates(db: Surreal): Promise<DedupCandidate[]> {
+  private async findCandidates(
+    db: Surreal,
+    derivedVersion: string | null,
+  ): Promise<DedupCandidate[]> {
     // Seed pass: fact id + entity id ONLY. The old shape selected every
     // name embedding into process memory (1536 float64s × N entities —
     // hundreds of MB at scale) and then looped over ALL of them. The
@@ -158,6 +165,7 @@ export class DreamsDedupService {
     // its seed vector by fact id, and the seed set is capped
     // newest-first. recordedAt rides in the projection for the 3.x
     // ORDER BY idiom.
+    const fence = derivedVersionFence(derivedVersion);
     type SeedRow = { id: unknown; entityId: unknown; recordedAt: unknown };
     const [seedRows] = await db.query<[SeedRow[]]>(
       `SELECT id, entityId, recordedAt FROM knowledge_fact
@@ -167,9 +175,10 @@ export class DreamsDedupService {
          AND embedding != NONE
          AND userId IS NONE
          AND entityId.mergedInto IS NONE
+         ${fence.clause}
        ORDER BY recordedAt DESC
        LIMIT $maxSeeds`,
-      { maxSeeds: this.maxSeeds },
+      { maxSeeds: this.maxSeeds, ...fence.params },
     );
     const seeds = (seedRows as SeedRow[]) ?? [];
     if (seeds.length < 2) return [];
@@ -178,7 +187,11 @@ export class DreamsDedupService {
     const seen = new Set<string>();
     for (const seed of seeds) {
       const aId = String(seed.entityId);
-      const neighbours = await this.nearestNames(db, String(seed.id));
+      const neighbours = await this.nearestNames(
+        db,
+        String(seed.id),
+        derivedVersion,
+      );
       for (const n of neighbours) {
         const bId = String(n.entityId);
         if (bId === aId) continue;
@@ -208,13 +221,16 @@ export class DreamsDedupService {
   private async nearestNames(
     db: Surreal,
     seedFactId: string,
+    derivedVersion: string | null,
   ): Promise<Array<{ entityId: unknown; sim: number }>> {
+    const fence = derivedVersionFence(derivedVersion);
     const filters = `predicate = 'name'
           AND status = 'active'
           AND retractedAt IS NONE
           AND embedding != NONE
           AND userId IS NONE
-          AND entityId.mergedInto IS NONE`;
+          AND entityId.mergedInto IS NONE
+          ${fence.clause}`;
     type Row = { entityId: unknown; sim: number };
     if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED)) {
       const ef = parseInt(process.env.SEARCH_HNSW_EF ?? '100', 10);
@@ -229,7 +245,7 @@ export class DreamsDedupService {
               AND ${filters}
             ORDER BY sim DESC
             LIMIT 5;`,
-          { fid: seedFactId },
+          { fid: seedFactId, ...fence.params },
         );
         return (res[1] as Row[]) ?? [];
       } catch (e) {
@@ -245,7 +261,7 @@ export class DreamsDedupService {
         WHERE ${filters}
         ORDER BY sim DESC
         LIMIT 5;`,
-      { fid: seedFactId },
+      { fid: seedFactId, ...fence.params },
     );
     return (res[1] as Row[]) ?? [];
   }

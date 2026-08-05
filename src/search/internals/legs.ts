@@ -1,7 +1,25 @@
 import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
-import { envFlagEnabled } from '../../common/env-validation';
+import type { SearchTuning } from '../retrieval-profile';
+
+/** The slice of SearchTuning the legs consume (kept narrow for tests). */
+export type LegTuning = Pick<
+  SearchTuning,
+  | 'combinedVectorGraph'
+  | 'hnswEnabled'
+  | 'hnswEf'
+  | 'hnswOverfetch'
+  | 'highlightEnabled'
+>;
+
+const DEFAULT_LEG_TUNING: LegTuning = {
+  combinedVectorGraph: false,
+  hnswEnabled: false,
+  hnswEf: 100,
+  hnswOverfetch: 4,
+  highlightEnabled: false,
+};
 
 /**
  * Vector leg — cosine similarity over `embedding`. The inline
@@ -19,12 +37,11 @@ import { envFlagEnabled } from '../../common/env-validation';
  * Off (default) → empty string → the query is byte-identical to before; the
  * legacy separate edge-expansion query runs instead. Verified on 3.2.0.
  */
-const COMBINED_GRAPH_PROJECTION = envFlagEnabled(
-  process.env.SEARCH_COMBINED_VECTOR_GRAPH,
-)
-  ? `entityId->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
+const combinedGraphProjection = (on: boolean): string =>
+  on
+    ? `entityId->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
      entityId<-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours,`
-  : '';
+    : '';
 
 export interface RunVectorLegOptions {
   db: Surreal;
@@ -34,6 +51,8 @@ export interface RunVectorLegOptions {
   baseWhere: { sql: string; params: Record<string, unknown> };
   /** For the HNSW-fallback warning; the leg stays silent without it. */
   logger?: { warn: (msg: string) => void };
+  /** Resolved by the retrieval-profile bootstrap (S5.2). */
+  tuning?: LegTuning;
 }
 
 export async function runVectorLeg({
@@ -43,6 +62,7 @@ export async function runVectorLeg({
   k,
   baseWhere,
   logger,
+  tuning = DEFAULT_LEG_TUNING,
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   // HNSW path (opt-in): approximate KNN over the per-tenant indexes
@@ -50,9 +70,9 @@ export async function runVectorLeg({
   // commonly "no index on this tenant yet" — falls back to the exact
   // full scan below, so the flag can be flipped globally while tenants
   // are indexed one by one.
-  if (envFlagEnabled(process.env.SEARCH_HNSW_ENABLED)) {
+  if (tuning.hnswEnabled) {
     try {
-      return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere });
+      return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
     } catch (e) {
       logger?.warn(
         `hnsw vector leg fell back to full scan: ${(e as Error).message}`,
@@ -65,7 +85,7 @@ export async function runVectorLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
-        ${COMBINED_GRAPH_PROJECTION}
+        ${combinedGraphProjection(tuning.combinedVectorGraph)}
         vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
       WHERE embedding != NONE
@@ -93,15 +113,16 @@ async function runVectorLegKnn({
   queryEmbedding,
   k,
   baseWhere,
+  tuning,
 }: {
   db: Surreal;
   queryEmbedding: number[];
   k: number;
   baseWhere: { sql: string; params: Record<string, unknown> };
+  tuning: LegTuning;
 }): Promise<FactRow[]> {
-  const ef = positiveIntEnv('SEARCH_HNSW_EF', 100);
-  const overfetch = positiveIntEnv('SEARCH_HNSW_OVERFETCH', 4);
-  const kOver = Math.min(k * overfetch, 1000);
+  const ef = tuning.hnswEf;
+  const kOver = Math.min(k * tuning.hnswOverfetch, 1000);
   const projection = `
         id, entityId, predicate, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
@@ -119,11 +140,6 @@ async function runVectorLegKnn({
     { ...baseWhere.params, q: queryEmbedding, k },
   );
   return (rows as FactRow[]) ?? [];
-}
-
-function positiveIntEnv(name: string, fallback: number): number {
-  const v = parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
 /**
@@ -146,9 +162,8 @@ function positiveIntEnv(name: string, fallback: number): number {
  * Highlights the searchHaystack match (ref 1 — the field the lexical WHERE
  * matches on for most rows). Off (default) → empty string → byte-identical.
  */
-const HIGHLIGHT_PROJECTION = envFlagEnabled(process.env.SEARCH_HIGHLIGHT_ENABLED)
-  ? `search::highlight('<em>', '</em>', 1) AS highlight,`
-  : '';
+const highlightProjection = (on: boolean): string =>
+  on ? `search::highlight('<em>', '</em>', 1) AS highlight,` : '';
 
 export interface RunLexicalLegOptions {
   db: Surreal;
@@ -156,6 +171,8 @@ export interface RunLexicalLegOptions {
   query: string;
   k: number;
   baseWhere: { sql: string; params: Record<string, unknown> };
+  /** Resolved by the retrieval-profile bootstrap (S5.2). */
+  tuning?: LegTuning;
 }
 
 export async function runLexicalLeg({
@@ -164,6 +181,7 @@ export async function runLexicalLeg({
   query,
   k,
   baseWhere,
+  tuning = DEFAULT_LEG_TUNING,
 }: RunLexicalLegOptions): Promise<FactRow[]> {
   // Parens around the OR clause are LOAD-BEARING. SurrealQL
   // evaluates AND with higher precedence than OR (same as SQL),
@@ -180,7 +198,7 @@ export async function runLexicalLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
-        ${HIGHLIGHT_PROJECTION}
+        ${highlightProjection(tuning.highlightEnabled)}
         math::max([search::score(1), search::score(2)]) AS bm25Score
       FROM knowledge_fact
       WHERE (searchHaystack @1@ $query OR object @2@ $query)
