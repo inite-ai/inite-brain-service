@@ -216,3 +216,49 @@ review.
 None of the new profile points (overlap_boost / fused /
 entityExpansion) are default-on: defaults are byte-identical to V3
 prod, and each is a measured-leg candidate for the next eval session.
+
+## V4 confirm legs (2026-08-05, same day, read-side re-QA)
+
+All four axes ran as paired A/B chains on the SURVIVING stand
+substrates (loco-321; no re-ingest, no re-derive — read-side only):
+control arm = merged-main defaults, treatment arm = one new profile
+point. Controls double as defaults-equivalence checks against the
+pre-merge reports. Judge gpt-4.1-mini throughout; McNemar pairing.
+
+| Axis (substrate) | Control | Treatment | Verdict |
+|---|---|---|---|
+| LME temporal 233-365 (n=127 judged) | **40.2%** vs ewave-era 30.7% (+9.4pp, p=0.004) | overlap_boost **41.7%** (+1.6pp, p=0.73) | see below |
+| LME SSA 444-499 (n=56) | 48.2% | fused **41.1%** (−7.1pp, p=0.50; prompt 4.9k→11.1k tok) | fused NOT viable vs shape_conditioned as tuned |
+| LME SSU first-50 (n=50) | 82.0% vs v2smoke 80.0 (p=1.0) | entityExpansion 80.0% (p=1.0) | no harm; wrong genre (MS worlds are gone — real target unmeasured) |
+| LoCoMo dev-5 (n=762 judged) | 'always' **76.8%** vs v2eq2 76.6 (p=1.0) | fused **78.2%** (+1.4pp, p=0.27; single-hop +2.6 p=0.08; prompt 5745→5550 tok) | fused ≥ always on diary, CHEAPER |
+
+Findings:
+
+1. **The V2/V3 read-path wave was worth +9.4pp on LME temporal**
+   (30.7 → 40.2, p=0.004, 14↑/2↓). The ewave-era baseline predates the
+   W4/W5 read-path fixes (local cross-encoder default-ON, fact-centric
+   layered over the rerank order, verifier bundle); this is the first
+   paired measurement of that stack on the weakest LME type. Not a V4
+   effect — V4 defaults are equivalence-clean on all three other axes
+   (p=1.0 twice, +0.1pp once).
+2. **overlap_boost is safe and mildly positive on its target type**
+   (+1.6pp temporal, n.s., no collapse from the relaxed closure — the
+   feared soft-recall poisoning did not materialize). Needs bigger n
+   for a claim; stays default-off.
+3. **'fused' is genre-split exactly as the capability-profile thesis
+   predicts**: on assistant chats vs shape_conditioned it is additive
+   cost (2.3× prompt) with noisy-negative drift (−7.1pp n.s.); on the
+   diary profile vs 'always' it is nominally better (+1.4pp, single-hop
+   +2.6 at p=0.08) AND cheaper (−200 avg prompt tokens), because
+   segments compete for the fact budget instead of riding as an
+   unconditional appendix. Candidate: make 'fused' the diary-profile
+   default after a held-out confirm; never a shape_conditioned
+   replacement without a segment token cap.
+4. **entityExpansion remains unmeasured on its target genre** — the
+   multi-session worlds no longer exist on the stand (0/133); the
+   SSU smoke shows no harm (p=1.0). A real MS leg needs a paid
+   re-ingest.
+
+Reports: var/lme-tr-v4{control,boost}.json,
+var/lme-ssa-v4{control,fused}.json, var/lme-ssu-v4{control,exp}.json,
+var/locomo-v4{always,fused}-dev5.json (checkpoints alongside).
