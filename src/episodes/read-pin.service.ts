@@ -73,3 +73,22 @@ export class ReadPinService {
     this.cache.delete(companyId);
   }
 }
+
+/**
+ * The one WHERE-fragment every version-fenced consumer shares (audit W2
+ * #10 — compaction was the first port, dreams the second): a resolved
+ * pin scopes to that world, no pin scopes to the legacy namespace.
+ * Interpolate `clause` into the query and spread `params` into the
+ * bindings.
+ */
+export function derivedVersionFence(derivedVersion: string | null): {
+  clause: string;
+  params: Record<string, unknown>;
+} {
+  return derivedVersion
+    ? {
+        clause: 'AND derivedVersion = $derivedVersion',
+        params: { derivedVersion },
+      }
+    : { clause: 'AND derivedVersion IS NONE', params: {} };
+}

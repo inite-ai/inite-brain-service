@@ -25,6 +25,7 @@ import {
 } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 import { envFlagEnabled } from '../common/env-validation';
+import { ReadPinService } from '../episodes/read-pin.service';
 
 export interface DreamsTenantStats {
   companyId: string;
@@ -110,6 +111,9 @@ export class DreamsService implements OnModuleInit {
     @Optional() private readonly community?: CommunityBuilderService,
     // @Optional for the same positional-test reason; provided by DreamsModule.
     @Optional() private readonly corroborate?: DreamsCorroborateService,
+    // @Optional for the same positional-test reason; provided by
+    // EpisodesModule. Legs fenced to the live derived world (audit W2 #10).
+    @Optional() private readonly readPin?: ReadPinService,
   ) {
     this.enabled =
       envFlagEnabled(this.configService.get<string>('DREAMS_ENABLED'));
@@ -443,11 +447,22 @@ export class DreamsService implements OnModuleInit {
     signal?: AbortSignal;
   }): Promise<void> {
     const { db, companyId, opSet, stats, jobRow, signal } = args;
+    // Audit W2 #10: dreams used to be version-BLIND — dedup drew identity
+    // edges off residual worlds' name facts, resolve/corroborate mutated
+    // fact status in worlds the pinned reader never queries. Every leg is
+    // now fenced to this tenant's live world (or the legacy namespace).
+    const derivedVersion =
+      (await this.readPin?.resolve(companyId)) ??
+      ReadPinService.bootstrapDefault();
     if (opSet.has('dedup')) {
       this.assertNotAborted(signal);
-      stats.dedup = await withSpan('dreams.dedup', () => this.dedup.run(db), {
-        'dreams.tenant': companyId,
-      });
+      stats.dedup = await withSpan(
+        'dreams.dedup',
+        () => this.dedup.run(db, derivedVersion),
+        {
+          'dreams.tenant': companyId,
+        },
+      );
       if (jobRow) {
         await this.jobs?.updateProgress(jobRow, {
           currentTenant: companyId,
@@ -459,7 +474,7 @@ export class DreamsService implements OnModuleInit {
       this.assertNotAborted(signal);
       stats.resolve = await withSpan(
         'dreams.resolve',
-        () => this.resolver.run(db),
+        () => this.resolver.run(db, derivedVersion),
         { 'dreams.tenant': companyId },
       );
       if (jobRow) {
@@ -472,7 +487,7 @@ export class DreamsService implements OnModuleInit {
       this.assertNotAborted(signal);
       stats.corroborate = await withSpan(
         'dreams.corroborate',
-        () => this.corroborate!.run(db),
+        () => this.corroborate!.run(db, derivedVersion),
         { 'dreams.tenant': companyId },
       );
       if (jobRow) {
@@ -485,7 +500,7 @@ export class DreamsService implements OnModuleInit {
       this.assertNotAborted(signal);
       stats.communities = await withSpan(
         'dreams.communities',
-        () => this.community!.run(db),
+        () => this.community!.run(db, derivedVersion),
         { 'dreams.tenant': companyId },
       );
       if (jobRow) {

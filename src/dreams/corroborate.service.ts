@@ -9,6 +9,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { policyFor } from '../ingest/conflict-resolver';
 import { envFlagEnabled } from '../common/env-validation';
+import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
  * DreamsCorroborateService — fuzzy cross-source corroboration.
@@ -143,7 +144,10 @@ export class DreamsCorroborateService {
     return this.enabled && !!this.openai;
   }
 
-  async run(db: Surreal): Promise<CorroborateResult> {
+  async run(
+    db: Surreal,
+    derivedVersion: string | null = null,
+  ): Promise<CorroborateResult> {
     const result: CorroborateResult = {
       groupsConsidered: 0,
       groupBacklog: 0,
@@ -157,7 +161,7 @@ export class DreamsCorroborateService {
 
     const { groups, backlog } = await withSpan(
       'dreams.corroborate.find_groups',
-      () => this.findCandidateGroups(db),
+      () => this.findCandidateGroups(db, derivedVersion),
     );
     result.groupsConsidered = groups.length;
     result.groupBacklog = backlog;
@@ -181,7 +185,7 @@ export class DreamsCorroborateService {
         );
         break;
       }
-      const members = await this.fetchGroupMembers(db, group);
+      const members = await this.fetchGroupMembers(db, group, derivedVersion);
       const pairs = this.selectPairs(members);
 
       // Judge in parallel under the semaphore, apply serially. The old
@@ -272,17 +276,21 @@ export class DreamsCorroborateService {
    */
   private async findCandidateGroups(
     db: Surreal,
+    derivedVersion: string | null,
   ): Promise<{
     groups: Array<{ entityId: unknown; predicate: string }>;
     backlog: number;
   }> {
+    const fence = derivedVersionFence(derivedVersion);
     const [rows] = await db.query<
       [Array<{ entityId: unknown; predicate: string; n: number }>]
     >(
       `SELECT entityId, predicate, count() AS n FROM knowledge_fact
        WHERE status = 'active' AND retractedAt IS NONE AND embedding != NONE
          AND userId IS NONE
+         ${fence.clause}
        GROUP BY entityId, predicate`,
+      fence.params,
     );
     // Negative-result memo (0060): a group already judged at the SAME
     // member count is excluded before the window is cut. Without this,
@@ -332,7 +340,9 @@ export class DreamsCorroborateService {
   private async fetchGroupMembers(
     db: Surreal,
     group: { entityId: unknown; predicate: string },
+    derivedVersion: string | null,
   ): Promise<ActiveFactRow[]> {
+    const fence = derivedVersionFence(derivedVersion);
     const [rows] = await db.query<[ActiveFactRow[]]>(
       `SELECT id, entityId, predicate, object, validFrom, validUntil,
               recordedAt, embedding,
@@ -342,10 +352,12 @@ export class DreamsCorroborateService {
        WHERE entityId = $entity AND predicate = $predicate
          AND status = 'active' AND retractedAt IS NONE AND embedding != NONE
          AND userId IS NONE
+         ${fence.clause}
        ORDER BY recordedAt ASC`,
       {
         entity: new StringRecordId(String(group.entityId)),
         predicate: group.predicate,
+        ...fence.params,
       },
     );
     return (rows as ActiveFactRow[]) ?? [];
