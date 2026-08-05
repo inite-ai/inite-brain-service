@@ -1,8 +1,8 @@
 # Memory is a profile of capabilities, not a speed
 
-Status: draft thesis (2026-08). Evidence citations refer to the eval
-program documented in [eval-protocol.md](eval-protocol.md) and the
-roadmap results docs; numbers are paired-McNemar unless noted.
+Status: adopted (owner-approved 2026-08-05). Evidence citations refer
+to the eval program documented in [eval-protocol.md](eval-protocol.md)
+and the roadmap results docs; numbers are paired-McNemar unless noted.
 
 ## The claim
 
@@ -49,6 +49,17 @@ extraction is precisely what wins multi-hop and temporal reasoning
 over raw context. Extraction vs verbatim is not better-vs-worse; it is
 a capability trade the leaderboard scalar hides.
 ([lme-sota-research](roadmap/lme-sota-research-2026-08.md))
+
+**The thesis predicted a measurement before it ran.** The V4 session
+built one mechanism — verbatim segments as scored, citable retrieval
+candidates ('fused') — and measured it the same day on two genres.
+Diary (LoCoMo dev-5): +1.4pp over the appendix profile AND cheaper
+(5550 vs 5745 prompt tokens), single-hop +2.6pp at p=0.08. Assistant
+chats (LME SSA): −7.1pp at 2.3× the prompt. One commit, one mechanism,
+opposite signs and opposite cost profiles by genre — the split this
+document claims is structural, observed prospectively rather than
+post-hoc. ([validate-2026-08-results](roadmap/validate-2026-08-results.md),
+§ V4 confirm legs.)
 
 **Even "the same memory" has no number.** With retrieval frozen,
 swapping the reader model moves per-type accuracy by 7–31pp (Memoria:
