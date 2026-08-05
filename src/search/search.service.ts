@@ -358,6 +358,7 @@ export class SearchService {
       includeRetracted: ctx.includeRetracted,
       includeContested: ctx.includeContested,
       derivedVersion: ctx.derivedVersion,
+      temporalMode: ctx.profile.temporalMode,
       opts: { langFilter },
     });
     traceArtifact('search.query', {
@@ -379,6 +380,7 @@ export class SearchService {
         includeRetracted: ctx.includeRetracted,
         includeContested: ctx.includeContested,
         derivedVersion: ctx.derivedVersion,
+        temporalMode: ctx.profile.temporalMode,
       });
       const fallback = await this.retrieval.runRetrievalStage(
         db,
@@ -435,7 +437,13 @@ export class SearchService {
     }
 
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
-    const byEntity = this.retrieval.scoreAndBucket(filtered);
+    // Under temporalMode='overlap_boost' the asOf anchor feeds the
+    // interval-overlap decay; in 'filter' mode every surviving row
+    // already contains the anchor, so passing it is a no-op there.
+    const byEntity = this.retrieval.scoreAndBucket(filtered, {
+      temporalAnchor:
+        ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+    });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
     // combined vector+graph leg ran, the vector-matched facts already carry

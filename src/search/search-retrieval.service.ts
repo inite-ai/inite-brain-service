@@ -131,6 +131,13 @@ export class SearchRetrievalService {
    */
   scoreAndBucket(
     rows: Parameters<typeof scoreRows>[0]['rows'],
+    opts?: {
+      /**
+       * asOf anchor for the interval-overlap decay (profile
+       * temporalMode = 'overlap_boost'). Null/omitted → factor 1.0.
+       */
+      temporalAnchor?: Date | null;
+    },
   ): Map<string, EntityBucket> {
     const scored = scoreRows({
       rows,
@@ -142,6 +149,7 @@ export class SearchRetrievalService {
       corroborationGamma: this.corroborationGamma,
       authorityDelta: this.authorityDelta,
       chatterPenalty: this.chatterPenalty,
+      temporalAnchor: opts?.temporalAnchor ?? null,
     });
     return bucketByEntity(scored);
   }

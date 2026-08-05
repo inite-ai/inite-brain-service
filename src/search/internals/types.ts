@@ -132,6 +132,12 @@ export interface ScoreBreakdown {
    */
   chatterPenalty?: number;
   /**
+   * Interval-overlap decay vs the asOf anchor (profile temporalMode =
+   * 'overlap_boost', audit W4 #17). Omitted when 1.0 — i.e. the fact's
+   * validity interval contains the anchor, or no anchor was set.
+   */
+  temporalOverlap?: number;
+  /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the
    * write-time snapshot ladder (learnedTrust ?? declaredTrust ?? 0.5 —

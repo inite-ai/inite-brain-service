@@ -775,13 +775,22 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "How the generator's \"today\" anchors: none (session-date-convention golds) | session_date (only when the caller sends asOf) | absolute (asOf, else wall clock — the engine default). Unset → derived from SYNTHESIZE_DATE_CONTEXT.",
       },
       {
+        key: 'RETRIEVAL_TEMPORAL_MODE',
+        category: 'pipeline',
+        defaultValue: 'filter',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'How an explicit asOf shapes retrieval: filter (bitemporal closure excludes facts not valid at asOf — strict point-in-time, the default) | overlap_boost (validity closure relaxed; facts outside the interval survive with an exponential distance decay on their score — soft recall, a slightly-wrong asOf degrades instead of emptying results).',
+      },
+      {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
         category: 'pipeline',
         defaultValue: null,
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

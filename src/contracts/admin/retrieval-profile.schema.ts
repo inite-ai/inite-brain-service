@@ -17,6 +17,7 @@ export const RetrievalProfileWireSchema = z.object({
   genre: z.enum(['dialogue', 'assistant_chat', 'documents']),
   verbatimEvidence: z.enum(['off', 'shape_conditioned', 'always']),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
+  temporalMode: z.enum(['filter', 'overlap_boost']),
   factBudget: z.number().int(),
   quotesPerPrompt: z.number().int(),
   sourceExcerptsCap: z.number().int(),

@@ -34,6 +34,13 @@ export interface BuildBaseWhereOptions {
    * working; production callers always pass it.
    */
   derivedVersion?: string | null;
+  /**
+   * Profile temporalMode (audit W4 #17). 'overlap_boost' relaxes the
+   * asOf validity closure — near-miss facts survive to scoring, where
+   * the interval-overlap factor decays them by distance instead of a
+   * hard cut. Default 'filter' keeps strict point-in-time semantics.
+   */
+  temporalMode?: 'filter' | 'overlap_boost';
   opts?: BaseWhereOptions;
 }
 
@@ -43,6 +50,7 @@ export function buildBaseWhere({
   includeRetracted,
   includeContested,
   derivedVersion,
+  temporalMode = 'filter',
   opts = {},
 }: BuildBaseWhereOptions): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
@@ -120,7 +128,21 @@ export function buildBaseWhere({
   //   Bitemporal access ("what was true on date X") is the
   //   exception, served by the `asOf` parameter or the entity
   //   timeline endpoint.
-  if (asOf) {
+  if (asOf && temporalMode === 'overlap_boost') {
+    // Overlap-boost mode (audit W4 #17): the validity interval is NOT a
+    // gate here — facts outside it survive retrieval and the scoring
+    // stage decays them by their distance to asOf (Hindsight-style
+    // overlap + distance decay). A slightly-wrong asOf degrades scores
+    // instead of emptying the result set. Retraction and lifecycle
+    // gates still apply — soft recall never resurrects retracted or
+    // compacted rows.
+    clauses.push(
+      `AND (retractedAt IS NONE OR retractedAt > $asOf)
+         AND status != 'compacted'
+         AND status != 'corroborating'`,
+    );
+    params.asOf = asOf;
+  } else if (asOf) {
     // Explicit historical asOf — point-in-time view.
     // Filter on the VALIDITY axis (validFrom/validUntil); do NOT
     // gate on recordedAt — search shouldn't disappear a fact just

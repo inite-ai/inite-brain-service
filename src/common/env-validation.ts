@@ -390,6 +390,7 @@ function validateRetrievalProfileEnv(
       ['off', 'shape_conditioned', 'always'],
     ],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
+    ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];
   for (const [name, allowed] of enums) {
     const v = env[name];

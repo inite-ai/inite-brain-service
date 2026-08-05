@@ -42,6 +42,21 @@ export type VerbatimEvidenceMode = 'off' | 'shape_conditioned' | 'always';
  */
 export type DateAnchoring = 'none' | 'session_date' | 'absolute';
 
+/**
+ * How an explicit `asOf` shapes retrieval (audit W4 #17 — temporal used
+ * to be a hard filter ONLY, so a bad asOf was a recall cliff):
+ *  - 'filter'        — bitemporal closure excludes facts not valid at
+ *                      asOf. Strict point-in-time semantics; the engine
+ *                      default.
+ *  - 'overlap_boost' — the validity closure is relaxed for asOf reads;
+ *                      instead, facts whose validity interval contains
+ *                      asOf keep full score and facts outside it decay
+ *                      exponentially with distance (Hindsight-style
+ *                      overlap + distance decay). Soft recall, fuzzier
+ *                      point-in-time compliance.
+ */
+export type TemporalMode = 'filter' | 'overlap_boost';
+
 /** One id per dispatch lane; the Lane registry must cover all of them. */
 export type LaneId =
   | 'temporal'
@@ -66,6 +81,7 @@ export interface RetrievalProfile {
   genre: RetrievalGenre;
   verbatimEvidence: VerbatimEvidenceMode;
   dateAnchoring: DateAnchoring;
+  temporalMode: TemporalMode;
   /** Global fact budget for fact-centric selection. */
   factBudget: number;
   /** Episode quotes per prompt (episodic lane BM25 top-k). */
@@ -148,6 +164,11 @@ export function resolveRetrievalProfile(
         'absolute',
       ] as const) ??
       (envFlagNotDisabled(env.SYNTHESIZE_DATE_CONTEXT) ? 'absolute' : 'none'),
+    temporalMode:
+      enumEnv(env, 'RETRIEVAL_TEMPORAL_MODE', [
+        'filter',
+        'overlap_boost',
+      ] as const) ?? 'filter',
     factBudget: positiveIntEnv(env, 'SEARCH_FACT_CENTRIC_BUDGET', 48),
     quotesPerPrompt: positiveIntEnv(env, 'SEARCH_EPISODIC_LANE_TOPK', 8),
     sourceExcerptsCap: positiveIntEnv(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', 16),
@@ -202,6 +223,12 @@ export function resolveRetrievalProfileFor(
     ['none', 'session_date', 'absolute'].includes(o.dateAnchoring)
   ) {
     merged.dateAnchoring = o.dateAnchoring as DateAnchoring;
+  }
+  if (
+    typeof o.temporalMode === 'string' &&
+    ['filter', 'overlap_boost'].includes(o.temporalMode)
+  ) {
+    merged.temporalMode = o.temporalMode as TemporalMode;
   }
   for (const key of [
     'factBudget',
