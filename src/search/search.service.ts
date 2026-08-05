@@ -22,7 +22,10 @@ import {
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
-import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
+import {
+  expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb,
+  type Neighbour,
+} from './internals/neighbours';
 import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
 import { buildEntityExpansionQuery } from './internals/query-expansion';
 import { applyPprPrior } from './internals/ppr';
@@ -67,6 +70,17 @@ export type { GraphRetrieveHit } from './internals/graph-retrieve';
  * Anything heavier than that belongs in a stage module or stage service.
  */
 
+/**
+ * Hand-off between the DB-scoped stages and the connectionless rank
+ * tail (audit W4 #20): everything the rerank/assembly stages need,
+ * prefetched so the scoped pool slot is released before the pipeline's
+ * slowest awaits (cross-encoder pass, external LLM rerank).
+ */
+interface StagedPipeline {
+  byEntity: Map<string, import('./internals/types').EntityBucket>;
+  rowPolicy: ReturnType<typeof makeRowPolicyFilter>;
+  neighboursByEntity: Map<string, Neighbour[]>;
+}
 
 @Injectable()
 export class SearchService {
@@ -309,24 +323,30 @@ export class SearchService {
       ReadPinService.bootstrapDefault();
 
     const profile = getActiveRetrievalProfile();
-    const out = await this.surreal.withScopedCompany(
+    const ctx: PipelineContext = {
+      dto,
+      callerScopes,
+      companyId,
+      limit,
+      asOf,
+      includeRetracted,
+      includeContested,
+      mode,
+      candidateK,
+      derivedVersion,
+      profile,
+    };
+    // Audit W4 #20: only the DB-touching stages run inside the scoped
+    // connection; the cross-encoder pass and the external LLM rerank —
+    // the pipeline's slowest awaits — run AFTER the 8-slot pool
+    // connection is released (their one DB need, the 1-hop rerank
+    // neighbourhoods, is prefetched inside the scope).
+    const staged = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
-      (db) =>
-        this.runPipeline(db, {
-          dto,
-          callerScopes,
-          companyId,
-          limit,
-          asOf,
-          includeRetracted,
-          includeContested,
-          mode,
-          candidateK,
-          derivedVersion,
-          profile,
-        }),
+      (db) => this.runDbStages(db, ctx),
     );
+    const out = await this.rankAndAssemble(staged, ctx);
     // Usage reinforcement, write side (opt-in): stamp the facts this
     // search actually surfaced. Fire-and-forget on the root pool — the
     // response never waits on it, and multi-hop / synthesize get it for
@@ -344,10 +364,10 @@ export class SearchService {
     return out;
   }
 
-  private async runPipeline(
+  private async runDbStages(
     db: Surreal,
     ctx: PipelineContext,
-  ): Promise<{ results: SearchHit[] }> {
+  ): Promise<StagedPipeline> {
     // Phase 4.B locale-aware retrieval. Detect the query language
     // (or honour the explicit dto.queryLang) and apply a two-pass
     // filter → cross-lingual backoff strategy. `und` or disabled →
@@ -504,11 +524,31 @@ export class SearchService {
       }
     }
 
-    // 7. Cross-encoder + LLM rerank.
-    let topEntities = await this.rerank.runRerankStage({
+    // Last DB touch: prefetch the 1-hop neighbourhoods the LLM rerank
+    // body wants, so the rerank stage needs no connection at all.
+    const neighboursByEntity = await this.rerank.prefetchNeighbours(
       db,
       byEntity,
       ctx,
+    );
+    return { byEntity, rowPolicy, neighboursByEntity };
+  }
+
+  /**
+   * Post-connection stages (audit W4 #20): cross-encoder + LLM rerank,
+   * tail refill, fact-centric selection, assembly, output shaping. No
+   * DB handle in scope — everything here runs on prefetched state.
+   */
+  private async rankAndAssemble(
+    staged: StagedPipeline,
+    ctx: PipelineContext,
+  ): Promise<{ results: SearchHit[] }> {
+    const { byEntity, rowPolicy, neighboursByEntity } = staged;
+    // 7. Cross-encoder + LLM rerank.
+    let topEntities = await this.rerank.runRerankStage({
+      byEntity,
+      ctx,
+      neighboursByEntity,
     });
     // The rerank stage only ranks a bounded window (≤20 buckets). When the
     // caller asked for more (limit up to the DTO's @Max(100)), the reranked

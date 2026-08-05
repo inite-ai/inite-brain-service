@@ -10,7 +10,7 @@ import {
   withStageBudget,
   type StageBudgets,
 } from './internals/stage-budget';
-import { fetchNeighbours } from './internals/neighbours';
+import { fetchNeighbours, type Neighbour } from './internals/neighbours';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { PipelineContext } from './pipeline-context';
 
@@ -19,8 +19,12 @@ import { PipelineContext } from './pipeline-context';
  * cross-encoder windowing, the margin-skip heuristic, and the LLM
  * reranker with 1-hop neighbourhood injection. Owns the reranker,
  * cross-encoder, and metrics deps (all rerank metrics live here).
- * SearchService passes the bucketed candidates + scoped `db`; splitting
- * this out keeps every search class ≤3 injected deps.
+ *
+ * Audit W4 #20: the stage runs WITHOUT a DB handle — its only DB need
+ * (1-hop neighbours for the LLM rerank body) is prefetched by
+ * SearchService via prefetchNeighbours() while it still holds the
+ * scoped connection, so the 8-slot scoped pool is never parked behind a
+ * cross-encoder pass or an external LLM round-trip.
  */
 @Injectable()
 export class SearchRerankService {
@@ -33,16 +37,16 @@ export class SearchRerankService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  async runRerankStage({
-    db,
-    byEntity,
-    ctx,
-  }: {
-    db: Surreal;
-    byEntity: Map<string, EntityBucket>;
-    ctx: PipelineContext;
-  }): Promise<EntityBucket[]> {
-    const RERANK_WINDOW = Math.min(ctx.limit * 2, 20);
+  /**
+   * The cross-encoder-window candidate slice, sorted by rankScore —
+   * shared by the rerank stage and the neighbour prefetch so the
+   * prefetch covers a superset of whatever the LLM rerank will see.
+   */
+  private wideCandidates(
+    byEntity: Map<string, EntityBucket>,
+    ctx: PipelineContext,
+  ): { wideCandidates: EntityBucket[]; rerankWindow: number } {
+    const rerankWindow = Math.min(ctx.limit * 2, 20);
     // The local cross-encoder scores pairs sequentially on a worker thread —
     // a 50-wide window can't clear the stage budget, so the local path gets a
     // tighter window (SEARCH_CROSS_ENCODER_LOCAL_WINDOW, default 20). Cohere
@@ -50,13 +54,57 @@ export class SearchRerankService {
     const configuredWindow = this.crossEncoder.isLocalOnly()
       ? parseInt(process.env.SEARCH_CROSS_ENCODER_LOCAL_WINDOW ?? '20', 10) || 20
       : parseInt(process.env.SEARCH_CROSS_ENCODER_WINDOW ?? '50', 10) || 50;
-    const CROSS_ENCODER_WINDOW = this.crossEncoder.isEnabled()
+    const crossEncoderWindow = this.crossEncoder.isEnabled()
       ? Math.min(configuredWindow, byEntity.size)
-      : RERANK_WINDOW;
+      : rerankWindow;
+    return {
+      wideCandidates: [...byEntity.values()]
+        .sort((a, b) => b.rankScore - a.rankScore)
+        .slice(0, crossEncoderWindow),
+      rerankWindow,
+    };
+  }
 
-    const wideCandidates = [...byEntity.values()]
-      .sort((a, b) => b.rankScore - a.rankScore)
-      .slice(0, CROSS_ENCODER_WINDOW);
+  /**
+   * Prefetch the 1-hop neighbourhoods the LLM rerank body will want,
+   * over the cross-encoder window (a superset of the final rerank
+   * window). Called by SearchService INSIDE the scoped connection;
+   * returns an empty map when the LLM reranker cannot run at all, so a
+   * disabled reranker costs no query.
+   */
+  async prefetchNeighbours(
+    db: Surreal,
+    byEntity: Map<string, EntityBucket>,
+    ctx: PipelineContext,
+  ): Promise<Map<string, Neighbour[]>> {
+    if (!this.reranker.isEnabled() || byEntity.size <= 1) return new Map();
+    const { wideCandidates } = this.wideCandidates(byEntity, ctx);
+    return withSpan(
+      'search.fetch_neighbours',
+      () =>
+        fetchNeighbours(
+          db,
+          this.logger,
+          wideCandidates.map((e) => e.entityId),
+        ),
+      { 'neighbours.candidates': wideCandidates.length },
+    );
+  }
+
+  async runRerankStage({
+    byEntity,
+    ctx,
+    neighboursByEntity,
+  }: {
+    byEntity: Map<string, EntityBucket>;
+    ctx: PipelineContext;
+    /** Prefetched by prefetchNeighbours(); missing entries → no graph line. */
+    neighboursByEntity?: Map<string, Neighbour[]>;
+  }): Promise<EntityBucket[]> {
+    const { wideCandidates, rerankWindow: RERANK_WINDOW } = this.wideCandidates(
+      byEntity,
+      ctx,
+    );
 
     let candidatesForRerank = wideCandidates.slice(0, RERANK_WINDOW);
 
@@ -98,7 +146,11 @@ export class SearchRerankService {
       return candidatesForRerank;
     }
 
-    return this.runLlmRerank({ db, candidatesForRerank, ctx });
+    return this.runLlmRerank({
+      candidatesForRerank,
+      ctx,
+      neighboursByEntity: neighboursByEntity ?? new Map(),
+    });
   }
 
   private async runCrossEncoder(
@@ -148,29 +200,19 @@ export class SearchRerankService {
   }
 
   private async runLlmRerank({
-    db,
     candidatesForRerank,
     ctx,
+    neighboursByEntity,
   }: {
-    db: Surreal;
     candidatesForRerank: EntityBucket[];
     ctx: PipelineContext;
+    neighboursByEntity: Map<string, Neighbour[]>;
   }): Promise<EntityBucket[]> {
     // SubgraphRAG-style 1-hop neighbourhood injection. Surfaces graph
     // context as "Connected to: …" lines in the candidate body — lets
     // the reranker disambiguate shared-firstname / same-topic peers by
-    // whose neighbours match the query.
-    const neighboursByEntity = await withSpan(
-      'search.fetch_neighbours',
-      () =>
-        fetchNeighbours(
-          db,
-          this.logger,
-          candidatesForRerank.map((e) => e.entityId),
-        ),
-      { 'neighbours.candidates': candidatesForRerank.length },
-    );
-
+    // whose neighbours match the query. The map arrives prefetched
+    // (audit W4 #20) — no DB work happens on this side of the seam.
     const rerankInputs = candidatesForRerank.map((e) => {
       const ent = e.facts[0]?.row.entity ?? {
         type: 'other',

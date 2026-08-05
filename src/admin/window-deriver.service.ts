@@ -229,17 +229,10 @@ export class WindowDeriverService {
       await this.registry?.fail({ companyId, name: 'facts', version });
       throw e;
     }
-    result.failed = result.skipped.length;
-    result.status =
-      result.failed === 0
-        ? 'ok'
-        : result.conversations > 0
-          ? 'degraded'
-          : 'failed';
     // A run where every attempted conversation failed produced NOTHING —
     // marking it built/live would let gc protect a hollow world and let
     // eval drivers QA an empty substrate as if it were legitimate.
-    if (result.status === 'failed') {
+    if (this.finalizeRunStatus(result) === 'failed') {
       await this.registry?.fail({ companyId, name: 'facts', version });
       this.logger.error(
         `derive '${version}' failed for ${companyId}: all ` +
@@ -248,29 +241,13 @@ export class WindowDeriverService {
       );
       return result;
     }
-    // Atomic world flip: readers switch from the old fork to the new one
-    // between requests, never mid-build. The flip is a REGISTRY write
-    // (complete({live:true}) below marks this version live and demotes
-    // the previous one) — audit W2 #9 removed the process.env mutation
-    // that made a per-tenant activation repoint every tenant on the pod
-    // and stay invisible to every other pod.
-    // Activation additionally requires a CLEAN run: flipping every reader
-    // onto a world with known holes is never what the operator meant.
-    if (opts.activate && result.conversations > 0 && result.failed === 0) {
-      result.previousVersion =
-        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
-      result.activated = true;
-      this.logger.log(
-        `derived world '${version}' activated for ${companyId} ` +
-          `(was: ${result.previousVersion ?? 'legacy'})`,
-      );
-    } else if (opts.activate && result.failed > 0) {
-      this.logger.warn(
-        `activation of '${version}' refused for ${companyId}: ` +
-          `${result.failed} of ${result.conversations + result.failed} ` +
-          `conversation(s) failed — re-derive the failures, then activate`,
-      );
-    }
+    await this.maybeActivate({
+      companyId,
+      version,
+      activate: opts.activate === true,
+      activePin,
+      result,
+    });
     await this.registry?.complete({
       companyId,
       name: 'facts',
@@ -286,6 +263,57 @@ export class WindowDeriverService {
     // Readers cache the pin briefly; an activation must land at once.
     if (result.activated) this.readPin?.invalidate(companyId);
     return result;
+  }
+
+  /**
+   * Atomic world flip: readers switch from the old fork to the new one
+   * between requests, never mid-build. The flip is a REGISTRY write
+   * (run()'s complete({live:true}) marks this version live and demotes
+   * the previous one) — audit W2 #9 removed the process.env mutation
+   * that made a per-tenant activation repoint every tenant on the pod
+   * and stay invisible to every other pod. Activation additionally
+   * requires a CLEAN run: flipping every reader onto a world with known
+   * holes is never what the operator meant.
+   */
+  private async maybeActivate(args: {
+    companyId: string;
+    version: string;
+    activate: boolean;
+    activePin: string | undefined;
+    result: DeriveRunResult;
+  }): Promise<void> {
+    const { companyId, version, activate, activePin, result } = args;
+    if (activate && result.conversations > 0 && result.failed === 0) {
+      result.previousVersion =
+        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
+      result.activated = true;
+      this.logger.log(
+        `derived world '${version}' activated for ${companyId} ` +
+          `(was: ${result.previousVersion ?? 'legacy'})`,
+      );
+    } else if (activate && result.failed > 0) {
+      this.logger.warn(
+        `activation of '${version}' refused for ${companyId}: ` +
+          `${result.failed} of ${result.conversations + result.failed} ` +
+          `conversation(s) failed — re-derive the failures, then activate`,
+      );
+    }
+  }
+
+  /**
+   * Stamp status/failed from the skipped ledger: 'ok' — clean; 'degraded'
+   * — partial; 'failed' — attempted and nothing succeeded (the V2
+   * quota-poison shape).
+   */
+  private finalizeRunStatus(result: DeriveRunResult): DeriveRunStatus {
+    result.failed = result.skipped.length;
+    result.status =
+      result.failed === 0
+        ? 'ok'
+        : result.conversations > 0
+          ? 'degraded'
+          : 'failed';
+    return result.status;
   }
 
   /**
