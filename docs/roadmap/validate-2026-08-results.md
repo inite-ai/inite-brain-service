@@ -147,4 +147,43 @@ silent 201 on a failed derive is how a poisoned eval row is born.**
 - docs/operations.md now documents the RetrievalProfile surface +
   removed keys + the rerank-capability watch guidance (3d0d533).
 
-<!-- MERGE/DEPLOY RESULT PENDING -->
+### V3 executed (2026-08-05)
+
+Main is branch-protected, so the merge went through PR #226 (the
+branch's long-lived vehicle, retitled `refactor(platform)`). Unwedging
+the branch CI peeled three layers, one of them real:
+
+1. `pnpm-lock` out of sync with the `chrono-node ^2.10.0` manifest
+   bump (the event-time work) — install had been failing on the branch
+   since July, which is WHY the e2e suite had not run in CI.
+2. Four lint leftovers at `--max-warnings 0` (unused import/function/
+   directive/binding from the refactor).
+3. **A real prod-facing bug the e2e suite caught the moment it ran**:
+   the L0 GDPR cascade writes `episodesDeleted`/`segmentsDeleted` into
+   the `forgotten_entity` tombstone, but the SCHEMAFULL table never
+   got the fields — every forget 500'd. Fixed by migration **0080**;
+   all four red e2e suites green.
+
+Merged as 764b6c3 (122 commits, migrations 0069-0080). Auto-deploy
+built and shipped the image; the workflow's internal readiness and
+external health probes passed, and `https://brain.inite.ai/health`
+reports surrealdb ok on the new build.
+
+**Standing watch (operator, ~1 day)**: `brain_search_rerank_total` and
+OpenAI spend in Grafana. Expected quiet: prod already ran the reranker
+ON, so the capability fold changes nothing there; the real deltas are
+HyPE and the predicate router turning off with their deleted code.
+
+## Carried into V4
+
+- `maintenance/derive` must propagate derive failures instead of
+  WARN+201 — a silent 201 on a failed derive is how a poisoned eval
+  row is born (bit us live this session).
+- The audit carry-list unchanged: temporal overlap boost; verbatim as
+  a fusion leg in SearchHit; entity-expansion rewrite; releasing the
+  scoped connection across LLM awaits; segment/aggregate version
+  columns + staging-swap; dreams version-awareness; shrink the S5.2
+  env allowlist to one search bootstrap module.
+- Candidate: an architecture thesis doc ("memory is a profile of
+  capabilities, not a speed") — the genre-law now has measured
+  evidence from both directions.
