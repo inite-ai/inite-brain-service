@@ -103,25 +103,24 @@ export class OperatorActionService {
 
   private async persist(row: OperatorActionRow): Promise<void> {
     if (!this.surreal) return;
+    // `query`/`bodySummary` are option<object|string> — a JS null binds
+    // as Surreal NULL, which 3.x refuses to coerce into an option field
+    // (`Expected none | object but found NULL`; caught live by the V5
+    // MS leg: every audited maintenance call 500'd). Absent means
+    // absent: omit the fields instead of binding null.
+    const content: Record<string, unknown> = {
+      ts: row.ts,
+      actor: row.actor,
+      scopes: row.scopes,
+      method: row.method,
+      path: row.path,
+      status: row.status,
+      durationMs: row.durationMs,
+      ...(row.query != null ? { query: row.query } : {}),
+      ...(row.bodySummary != null ? { bodySummary: row.bodySummary } : {}),
+    };
     await this.surreal.withCompany(row.companyId, async (db) => {
-      await db.query(
-        `CREATE operator_action CONTENT {
-           ts: $ts, actor: $actor, scopes: $scopes,
-           method: $method, path: $path, status: $status,
-           durationMs: $durationMs, query: $query, bodySummary: $bodySummary
-         }`,
-        {
-          ts: row.ts,
-          actor: row.actor,
-          scopes: row.scopes,
-          method: row.method,
-          path: row.path,
-          status: row.status,
-          durationMs: row.durationMs,
-          query: row.query ?? null,
-          bodySummary: row.bodySummary ?? null,
-        },
-      );
+      await db.query(`CREATE operator_action CONTENT $content`, { content });
     });
   }
 }
