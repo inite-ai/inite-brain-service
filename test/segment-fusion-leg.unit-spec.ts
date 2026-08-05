@@ -151,6 +151,40 @@ describe('SearchRetrievalService.runSegmentLegStage', () => {
   });
 });
 
+describe('SearchRetrievalService.runSegmentLegStage segmentTopK cap', () => {
+  it('keeps only the top-K segment buckets by score', async () => {
+    const rows = Array.from({ length: 9 }, (_, i) => ({
+      id: `episode_segment:s${i}`,
+      conversationId: 'conv-1',
+      text: `window ${i}`,
+      occurredAt: '2023-05-01T10:00:00Z',
+      score: 0.9 - i * 0.05,
+    }));
+    const db = {
+      query: async (sql: string) =>
+        sql.includes('vector::similarity::cosine') ? [rows] : [[]],
+    } as unknown as Surreal;
+    const svc = new SearchRetrievalService(
+      { embed: async () => [1, 0] } as unknown as EmbedderService,
+      { calibrate: (x: number) => x } as unknown as CalibrationService,
+    );
+    const profile = resolveRetrievalProfileFor('co_x');
+    const ctx = {
+      dto: { query: 'cats' },
+      mode: 'vector',
+      companyId: 'co_x',
+      callerScopes: [],
+      asOf: null,
+      profile,
+    } as unknown as PipelineContext;
+    const buckets = await svc.runSegmentLegStage(db, ctx);
+    expect(profile.segmentTopK).toBe(5);
+    expect(buckets.size).toBe(5);
+    expect(buckets.has('episode_segment:s0')).toBe(true);
+    expect(buckets.has('episode_segment:s8')).toBe(false);
+  });
+});
+
 describe("profile verbatimEvidence 'fused'", () => {
   const saved = process.env.RETRIEVAL_VERBATIM_EVIDENCE;
   afterEach(() => {
