@@ -50,12 +50,6 @@ import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
 
-/** Positive-int env knob with a default; unset/invalid/≤0 → default. */
-function positiveIntEnv(name: string, dflt: number): number {
-  const v = parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(v) && v > 0 ? v : dflt;
-}
-
 /**
  * Search orchestrator. The retrieval pipeline lives in stage modules
  * under `./internals/` (pure functions) and the two stage services

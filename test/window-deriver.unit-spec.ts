@@ -230,7 +230,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
   });
 
   it('conversationId filter derives only the requested conversation', async () => {
-    const { svc, queries, derived } = makeSvc({
+    const { svc, queries } = makeSvc({
       propositions: [
         {
           subject: 'Caroline',

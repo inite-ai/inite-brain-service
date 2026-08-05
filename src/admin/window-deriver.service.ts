@@ -1,7 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { resolveExtractionProfile } from '../ai/extraction-profile';
 import { SurrealService } from '../db/surreal.service';

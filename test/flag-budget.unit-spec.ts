@@ -86,7 +86,6 @@ describe('flag budget (engine-behavior boolean flags)', () => {
     if (stale.length > 0) {
       // Deletion is the desired direction — never a failure. The note
       // keeps the golden prunable without making removal a two-step.
-      // eslint-disable-next-line no-console
       console.info(
         `flag-budget: ${stale.length} golden entr(y/ies) no longer in src ` +
           `(prune when convenient): ${stale.join(', ')}`,
