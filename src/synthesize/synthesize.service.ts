@@ -594,6 +594,7 @@ export class SynthesizeService {
     userId?: string;
   }): Promise<string[]> {
     const active = wantsVerbatimEvidence(profile, query);
+    if (getAbortSignal()?.aborted) return [];
     // The three lanes are independent reads — run them concurrently
     // (audit W4 carried: they used to be three sequential awaits).
     // Segments compete for the prompt on their own retrieval merit —
@@ -659,6 +660,11 @@ export class SynthesizeService {
     evidence: SearchHit[];
   }): Promise<string[] | undefined> {
     if (!profile.lanes.has('instruction')) return undefined;
+    // Structured cancellation: the probe is a full second search — if
+    // the request already died, don't spend it. (Per-query aborts are
+    // not supported by the DB SDK; stage-boundary checks are the
+    // honest granularity.)
+    if (getAbortSignal()?.aborted) return undefined;
     let probeHits: SearchHit[] = [];
     try {
       const probe = await withSpan('synthesize.instruction_probe', () =>
@@ -702,6 +708,7 @@ export class SynthesizeService {
   }): Promise<SearchHit[]> {
     const probeDto = laneProbeDto(profile, lane, { query, baseHits });
     if (!probeDto) return [];
+    if (getAbortSignal()?.aborted) return [];
     try {
       const probe = await withSpan('synthesize.lane_probe', () =>
         this.search.search(companyId, probeDto as SearchDto, callerScopes),

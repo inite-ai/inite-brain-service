@@ -157,11 +157,24 @@ export class SearchRetrievalService {
             object: r.object.slice(0, 120),
           })),
         );
-        return this.scoreAndBucket(fused, {
+        const buckets = this.scoreAndBucket(fused, {
           temporalAnchor:
             ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
           tuning: ctx.tuning,
         });
+        // profile.segmentTopK means "segments per prompt" — the appendix
+        // lane honoured it, the first fused cut did not (every fetchK
+        // candidate became a bucket; measured 2.3× prompt bloat on LME
+        // SSA). Keep only the top-K segment buckets by score; the fetch
+        // overshoot still feeds the fusion/scoring stages their pool.
+        if (buckets.size > ctx.profile.segmentTopK) {
+          const keep = [...buckets.values()]
+            .sort((a, b) => b.bestScore - a.bestScore)
+            .slice(0, ctx.profile.segmentTopK);
+          buckets.clear();
+          for (const b of keep) buckets.set(b.entityId, b);
+        }
+        return buckets;
       });
     } catch (e) {
       this.logger.warn(
