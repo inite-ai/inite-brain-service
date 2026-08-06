@@ -73,6 +73,30 @@ export function buildDeriverSystem(opts?: {
   );
 }
 
+/**
+ * V7 deriver-recall (DERIVER_COMPLETION_PASS): the follow-up turn of
+ * the completion pass. The base contract caps at 40 propositions and a
+ * single pass measurably under-extracts dense sessions (the LoCoMo
+ * bottleneck has been extraction recall since 2026-07); asking the
+ * SAME model to diff its own output against the transcript is the
+ * cheapest recall pass — it sees what it already said, so the union is
+ * additive, not a re-roll.
+ */
+export const DERIVER_COMPLETION_PROMPT = `Review the transcript once more against the propositions you just emitted. Emit ONLY durable propositions that are MISSING from your list: facts, events, dates, plans, preferences, media titles, list members, and (when the assistance rules above apply) contributed content that no emitted proposition captures. Do NOT repeat or rephrase anything already emitted. Same output contract (subject / aspect / proposition / occurred_on / turns). Up to 20 additional propositions; return an empty list if nothing was missed.`;
+
+/** Dedup key for the completion-pass union: subject + normalized text. */
+export function propositionKey(p: {
+  subject: string;
+  proposition: string;
+}): string {
+  const norm = p.proposition
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\.\s*$/, '')
+    .trim();
+  return `${p.subject.toLowerCase().trim()}\x00${norm}`;
+}
+
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
 export interface DeriveRunResult {
@@ -550,23 +574,99 @@ export class WindowDeriverService {
     participants: string[],
     transcript: string[],
   ): Promise<DerivedProposition[]> {
-    const res = await this.openai.chat.completions.create({
+    const profile = resolveExtractionProfile();
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      {
+        role: 'system',
+        content: buildDeriverSystem({
+          assistantContent: profile.deriveAssistantContent,
+        }),
+      },
+      {
+        role: 'user',
+        content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,
+      },
+    ];
+    const base = await this.deriverPass(messages);
+    if (!profile.deriveCompletionPass || base.length === 0) return base;
+    // Completion pass (V7 deriver-recall): additive by construction —
+    // a failure here degrades to the base pass, never fails the session.
+    let extra: DerivedProposition[] = [];
+    try {
+      extra = await this.deriverPass([
+        ...messages,
+        {
+          role: 'assistant',
+          content: JSON.stringify({ propositions: base }),
+        },
+        { role: 'user', content: DERIVER_COMPLETION_PROMPT },
+      ]);
+    } catch (e) {
+      this.logger.warn(
+        `deriver completion pass failed (${(e as Error).message}); keeping the base pass`,
+      );
+    }
+    const seen = new Set(base.map(propositionKey));
+    const merged = [...base];
+    for (const p of extra) {
+      const k = propositionKey(p);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(p);
+    }
+    if (merged.length > base.length) {
+      this.logger.log(
+        `deriver completion pass added ${merged.length - base.length} proposition(s) (base ${base.length})`,
+      );
+    }
+    return merged;
+  }
+
+  /**
+   * One structured deriver call with an explicit truncation guard: a
+   * finish_reason='length' response is a SILENT recall hole (the JSON
+   * either fails to parse — failing the session — or the model
+   * self-limits and the tail propositions never exist). Retry once at
+   * a doubled cap; a still-truncated response throws (fail-loud, the
+   * derive driver resumes).
+   */
+  private async deriverPass(
+    messages: Array<{
+      role: 'system' | 'user' | 'assistant';
+      content: string;
+    }>,
+  ): Promise<DerivedProposition[]> {
+    for (const maxTokens of [8000, 16000]) {
+      const res = await this.deriverRequest(messages, maxTokens);
+      const choice = res.choices[0];
+      if (choice?.finish_reason === 'length') {
+        this.logger.warn(
+          `deriver response truncated at ${maxTokens} tokens — retrying with a larger cap`,
+        );
+        continue;
+      }
+      const content = choice?.message?.content;
+      if (!content) throw new Error('empty deriver response');
+      const parsed = JSON.parse(content) as {
+        propositions?: DerivedProposition[];
+      };
+      return Array.isArray(parsed.propositions) ? parsed.propositions : [];
+    }
+    throw new Error('deriver response truncated at 16000 tokens');
+  }
+
+  private deriverRequest(
+    messages: Array<{
+      role: 'system' | 'user' | 'assistant';
+      content: string;
+    }>,
+    maxTokens: number,
+  ) {
+    return this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,
-      max_completion_tokens: 4000,
-      messages: [
-        {
-          role: 'system',
-          content: buildDeriverSystem({
-            assistantContent:
-              resolveExtractionProfile().deriveAssistantContent,
-          }),
-        },
-        {
-          role: 'user',
-          content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,
-        },
-      ],
+      max_completion_tokens: maxTokens,
+      messages,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -603,11 +703,5 @@ export class WindowDeriverService {
         },
       },
     });
-    const content = res.choices[0]?.message?.content;
-    if (!content) throw new Error('empty deriver response');
-    const parsed = JSON.parse(content) as {
-      propositions?: DerivedProposition[];
-    };
-    return Array.isArray(parsed.propositions) ? parsed.propositions : [];
   }
 }
