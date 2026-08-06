@@ -14,7 +14,7 @@ function fact(over: Partial<Row> = {}): Row {
   return {
     id: `knowledge_fact:${Math.random().toString(36).slice(2, 8)}`,
     entityId: 'knowledge_entity:e1',
-    predicate: 'claim_probe', // not in CORE_PREDICATES → default bitemporal
+    predicate: 'claim_probe', // not in CORE_PREDICATES → coined observation, sweeps (0082)
     object: 'gold tier customer',
     validFrom: '2026-01-01T00:00:00Z',
     validUntil: null,
@@ -43,8 +43,17 @@ function makeService(): {
   const applied: Array<Record<string, unknown>> = [];
   const db = (groups: Row[], members: Row[]) => ({
     query: jest.fn(async (sql: string, params?: Record<string, unknown>) => {
-      if (sql.includes('GROUP BY entityId, predicate')) {
-        return [groups.map((g) => ({ ...g, n: members.length }))];
+      if (sql.includes('GROUP BY entityId, canonPredicate')) {
+        // The service projects the canonical key as `canonPredicate`
+        // and maps it back to `predicate` — the harness groups carry
+        // `predicate`, so mirror the projection here.
+        return [
+          groups.map((g) => ({
+            entityId: g.entityId,
+            canonPredicate: g.predicate,
+            n: members.length,
+          })),
+        ];
       }
       if (sql.includes('fn::origin_key_of(source) AS originKey')) {
         return [members];

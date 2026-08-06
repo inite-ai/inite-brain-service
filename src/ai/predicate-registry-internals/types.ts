@@ -123,7 +123,13 @@ export const DEFAULT_FALLBACK: PredicateDefinition = {
   description:
     'Synthesised fallback when a predicate is not in the registry.',
   datatype: 'string',
-  semantics: 'bitemporal',
+  // W3 (audit 2026-08 #2): a predicate NOT in the registry is a coined,
+  // open-vocabulary observation — history matters, and `bitemporal`
+  // supersede/compete semantics were invented for closed CRM predicates.
+  // Closed-vocabulary seeds keep their per-predicate policies; only the
+  // unknown-predicate fallback (and the 'proposed' rows canonicalize
+  // creates from it) defaults to append_only.
+  semantics: 'append_only',
   decayHalfLifeDays: 60,
   piiClass: 'none',
   status: 'active',

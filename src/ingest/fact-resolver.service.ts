@@ -60,6 +60,13 @@ export class FactResolverService {
       companyId: string;
       entityId: string;
       predicate: string;
+      /**
+       * EDC-canonical id when `predicate` is a coined (open-vocabulary)
+       * form (0082). Resolution keys on `predicateAlias ?? predicate`,
+       * so coinages of one canon dedup/corroborate. Omit when the
+       * predicate is already canonical.
+       */
+      predicateAlias?: string;
       /** The string form stored in `object` and used for locale detection. */
       object: string;
       objectMeta?: object;
@@ -187,6 +194,7 @@ export class FactResolverService {
       companyId: p.companyId,
       entityId: p.entityId,
       predicate: p.predicate,
+      predicateAlias: p.predicateAlias,
       object: p.object,
       objectMeta: p.objectMeta,
       embedding,
@@ -249,6 +257,7 @@ export class FactResolverService {
       // (fn::resolve_fact's contract), whereas an explicit null would store
       // NULL — e.g. a NULL validUntil would break the `validUntil IS NONE`
       // active-fact read filter.
+      if (c.predicateAlias !== undefined) f.predicate_alias = c.predicateAlias;
       if (c.objectMeta !== undefined) f.object_meta = c.objectMeta;
       if (c.validUntil !== undefined) f.valid_until = c.validUntil;
       if (c.lang !== undefined) f.lang = c.lang;
@@ -339,6 +348,7 @@ export class FactResolverService {
       companyId: string;
       entityId: string;
       predicate: string;
+      predicateAlias?: string;
       object: string;
       objectMeta?: object;
       embedding: number[];
@@ -362,7 +372,10 @@ export class FactResolverService {
     // each leave an `active` row. NUL-joined (\x00) — no entity record tail
     // or predicate slug can contain a NUL, so the composite key can't
     // collide.
-    const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicate}`;
+    // Keyed on the CANONICAL predicate (0082) so two coinages of one
+    // canon serialize onto the same slot — their candidate sets are the
+    // same rows now that resolution keys on `predicateAlias ?? predicate`.
+    const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicateAlias ?? p.predicate}`;
     return this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
         const [r] = await db.query<[any]>(
@@ -373,11 +386,13 @@ export class FactResolverService {
             $source_trust, $semantics, $similarity_threshold,
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
-            $lang, $script, $entropy, $user_id, $derived_version
+            $lang, $script, $entropy, $user_id, $derived_version,
+            $predicate_alias
          )`,
           {
             eid: idTailOf(p.entityId),
             predicate: p.predicate,
+            predicate_alias: p.predicateAlias,
             object: p.object,
             object_meta: p.objectMeta,
             embedding: p.embedding,

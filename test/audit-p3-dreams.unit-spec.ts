@@ -85,8 +85,16 @@ function mkDb(opts: {
   const memoWrites: Array<Record<string, unknown>> = [];
   const memberFetches: string[] = [];
   const query = jest.fn(async (sql: string, params?: Record<string, unknown>) => {
-    if (sql.includes('GROUP BY entityId, predicate')) {
-      return [opts.groups];
+    if (sql.includes('GROUP BY entityId, canonPredicate')) {
+      // Service projects the canonical key as `canonPredicate` (0082)
+      // and maps it back to `predicate`; harness groups carry `predicate`.
+      return [
+        opts.groups.map((g) => ({
+          entityId: g.entityId,
+          canonPredicate: g.predicate,
+          n: g.n,
+        })),
+      ];
     }
     if (sql.includes('FROM corroborate_checked')) {
       return [opts.memo ?? []];
