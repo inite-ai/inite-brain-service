@@ -29,40 +29,50 @@ export const TEMPORAL_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Timeline shape — the verbatim router's dispatch lexicon. Broader
- * than TEMPORAL_PATTERNS by design: the temporal LANE only frames
- * distance questions ("how long ago"), while the fused-vs-
- * shape_conditioned split measured in the V6 legs (TR −7.1pp at 2.7×
- * tokens vs SSA +7.1pp) tracks the whole timeline family — "when
- * did…", "what date…", first/last-time, before/after ordering.
- * Misroutes fail open in BOTH directions: a timeline query that slips
- * through just runs the (more expensive) fused leg; a session query
- * caught here just loses segments-as-hits and keeps the
- * shape-conditioned quote lanes.
+ * Verbatim-recall shape: the question asks for ASSISTANT-side content
+ * ("what did you suggest…", "what was your answer…"). Extraction is
+ * user-fact-shaped and measurably loses assistant content — the LME SSA
+ * failure mode is "facts do not specify…" while the verbatim turn sits
+ * in L0 (same class as Mem0's 26.8% SSA before their verbatim rewrite,
+ * 98.2% after). (Moved from answer-router.ts with the 'routed' mode —
+ * the dispatch below keys on it and search may not import up from
+ * synthesize; the router re-exports it.)
  */
-const TIMELINE_PATTERNS: RegExp[] = [
-  ...TEMPORAL_PATTERNS,
-  /\bwhen (?:did|was|were|do|does|is|had|have)\b/i,
-  /\bwhat (?:date|day|month|year|time)\b/i,
-  /\bon (?:what|which) (?:date|day)\b/i,
-  /\b(?:first|last) time\b/i,
-  /\bbefore or after\b/i,
-  /\bhow (?:recently|long)\b/i,
+const VERBATIM_PATTERNS: RegExp[] = [
+  /what (?:did|do|have|had) you (?:say|tell|suggest|recommend|propose|advise|share|give|send|write|explain|walk)/i,
+  /what (?:was|were) (?:your|the) (?:answer|response|reply|suggestion|recommendation|advice|explanation|instructions?|steps?)/i,
+  /\byou (?:told|gave|suggested|recommended|proposed|advised|sent|shared|explained|walked) (?:me|us)\b/i,
+  /\b(?:verbatim|word for word|exact wording|exact words|exact phrasing)\b/i,
+  /\bquote (?:the|your|what)\b/i,
+  /what did (?:the assistant|the bot|it) (?:say|suggest|recommend|advise)/i,
 ];
+
+export function detectVerbatimShape(query: string): boolean {
+  return VERBATIM_PATTERNS.some((p) => p.test(query ?? ''));
+}
 
 /**
  * Resolve the profile's verbatimEvidence to the CONCRETE mode for this
- * query. 'routed' dispatches on timeline shape; every other mode
- * resolves to itself. All verbatim consumers — the retrieval-side
- * fused-leg gate and the synthesize-side lane gates — must branch on
- * the value this returns, never on 'routed' itself, so the two sides
- * can never disagree about which regime a request ran.
+ * query. 'routed' dispatches on VERBATIM shape — the only question
+ * class where the fused leg measured positive. The V6 three-block
+ * evidence (validate-2026-08-results, n=239 pooled): fused-capped vs
+ * shape_conditioned is SSA +7.1pp / SSU −10.0pp / TR −8.3pp (pooled
+ * −5.0pp) — segments pay exactly when the answer lives in the
+ * assistant's verbatim turns, and drown facts everywhere else. So:
+ * verbatim-shaped → fused; everything else → shape_conditioned.
+ * Misroutes fail open: a missed verbatim ask keeps the shape-
+ * conditioned quote lanes (the pre-fused behavior); a false positive
+ * just pays the fused leg's tokens on one query.
+ *
+ * Every other mode resolves to itself. All verbatim consumers — the
+ * retrieval-side fused-leg gate and the synthesize-side lane gates —
+ * must branch on the value this returns, never on 'routed' itself, so
+ * the two sides can never disagree about which regime a request ran.
  */
 export function resolveVerbatimMode(
   mode: VerbatimEvidenceMode,
   query: string,
 ): Exclude<VerbatimEvidenceMode, 'routed'> {
   if (mode !== 'routed') return mode;
-  const timeline = TIMELINE_PATTERNS.some((p) => p.test(query ?? ''));
-  return timeline ? 'shape_conditioned' : 'fused';
+  return detectVerbatimShape(query) ? 'fused' : 'shape_conditioned';
 }

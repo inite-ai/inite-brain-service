@@ -48,16 +48,17 @@ export type RetrievalGenre = 'dialogue' | 'assistant_chat' | 'documents';
  *                          shape-conditioned; the appendix segment lane
  *                          is off (segments arrive as hits).
  *  - 'routed'            — per-QUERY dispatch between the two measured
- *                          regimes (V6 legs, validate-2026-08-results):
- *                          fused won +7.1pp on session-shaped asks
- *                          (SSA) and lost −7.1pp at 2.7× tokens on
- *                          timeline-shaped ones (TR) — the genre split
- *                          lives INSIDE a tenant's traffic. Timeline-
- *                          shaped queries (answer-router lexicon) take
- *                          the shape_conditioned path; everything else
- *                          takes fused. Resolution is
- *                          resolveVerbatimMode() in answer-router.ts —
- *                          every consumer must branch on the RESOLVED
+ *                          regimes (V6 three-block pairs,
+ *                          validate-2026-08-results): fused-capped vs
+ *                          shape_conditioned ran SSA +7.1pp /
+ *                          SSU −10.0pp / TR −8.3pp (pooled −5.0pp at
+ *                          n=239) — the split lives INSIDE a tenant's
+ *                          traffic and the ONLY winning class is
+ *                          verbatim-shaped asks. Those take the fused
+ *                          path; everything else stays
+ *                          shape_conditioned. Resolution is
+ *                          resolveVerbatimMode() in verbatim-routing.ts
+ *                          — every consumer must branch on the RESOLVED
  *                          mode, never on 'routed' itself.
  */
 export type VerbatimEvidenceMode =

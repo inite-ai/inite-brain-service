@@ -523,9 +523,9 @@ export class SearchService {
     // segments arrive as their own scored buckets and compete with fact
     // buckets in the rerank + fact-centric stages — citable next to
     // facts instead of an unscored prompt appendix. 'routed' resolves
-    // per query (answer-router lexicon): timeline-shaped asks skip the
-    // leg — the V6 TR pair measured fused at −7.1pp and 2.7× tokens
-    // there — while session-shaped asks run it (SSA +7.1pp).
+    // per query: only verbatim-shaped asks run the leg — the V6
+    // three-block pairs measured fused at SSA +7.1pp vs SSU −10.0pp /
+    // TR −8.3pp (pooled −5.0pp at n=239).
     if (
       resolveVerbatimMode(ctx.profile.verbatimEvidence, ctx.dto.query) ===
       'fused'

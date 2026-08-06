@@ -39,27 +39,16 @@ import { TEMPORAL_PATTERNS } from '../search/verbatim-routing';
 
 /**
  * Verbatim-recall shape: the question asks for ASSISTANT-side content
- * ("what did you suggest…", "what was your answer…"). Extraction is
- * user-fact-shaped and measurably loses assistant content — the LME SSA
- * failure mode is "facts do not specify…" while the verbatim turn sits
- * in L0 (same class as Mem0's 26.8% SSA before their verbatim rewrite,
- * 98.2% after). The fix is evidence-side, not framing-side: this shape
- * pulls role-tagged episode quotes into the prompt (see
- * SynthesizeService.collectTranscriptLines), so it is deliberately NOT
- * a routed lane — it composes with whatever lane frames the answer.
+ * ("what did you suggest…", "what was your answer…"). The lexicon and
+ * detector moved to the search layer (verbatim-routing.ts) with the
+ * 'routed' verbatim mode — its dispatch keys on this shape and search
+ * may not import up from synthesize. The fix stays evidence-side, not
+ * framing-side: this shape pulls role-tagged episode quotes into the
+ * prompt (see SynthesizeService.collectTranscriptLines), so it is
+ * deliberately NOT a routed lane — it composes with whatever lane
+ * frames the answer. Re-exported here for the synthesize-side callers.
  */
-const VERBATIM_PATTERNS: RegExp[] = [
-  /what (?:did|do|have|had) you (?:say|tell|suggest|recommend|propose|advise|share|give|send|write|explain|walk)/i,
-  /what (?:was|were) (?:your|the) (?:answer|response|reply|suggestion|recommendation|advice|explanation|instructions?|steps?)/i,
-  /\byou (?:told|gave|suggested|recommended|proposed|advised|sent|shared|explained|walked) (?:me|us)\b/i,
-  /\b(?:verbatim|word for word|exact wording|exact words|exact phrasing)\b/i,
-  /\bquote (?:the|your|what)\b/i,
-  /what did (?:the assistant|the bot|it) (?:say|suggest|recommend|advise)/i,
-];
-
-export function detectVerbatimShape(query: string): boolean {
-  return VERBATIM_PATTERNS.some((p) => p.test(query ?? ''));
-}
+export { detectVerbatimShape } from '../search/verbatim-routing';
 
 /**
  * Enumeration/ordering questions: exhaustive-list discipline (the
