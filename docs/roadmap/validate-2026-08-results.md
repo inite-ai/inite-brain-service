@@ -262,3 +262,37 @@ Findings:
 Reports: var/lme-tr-v4{control,boost}.json,
 var/lme-ssa-v4{control,fused}.json, var/lme-ssu-v4{control,exp}.json,
 var/locomo-v4{always,fused}-dev5.json (checkpoints alongside).
+
+## V5 legs (2026-08-05/06, same session): held-out record pair + MS + capped fused
+
+Paid substrate built: LoCoMo HELD-OUT 5 (tenant locov5, diary write
+profile verified against the catalog, 2040 wd-v2 propositions) and 50
+LME multi-session worlds (episode-only ingest + derive). Two live
+bugs caught by the legs and fixed en route: operator_action audit
+writes bound JS null into option<> fields (every audited maintenance
+call 500'd on 3.x — PR #249), and the first fused cut ignored
+segmentTopK (PR #247).
+
+| Pair | Result |
+|---|---|
+| Held-out 'always' vs E16-era record | **78.6%** nominal (record-class substrate reproduced) |
+| Held-out fused-capped vs always | **78.7%** (+0.1pp, p=1.0) at **−8% prompt tokens** (5367 vs 5836) |
+| LME MS control vs entityExpansion (n=49) | 26.5% → **32.0%** (+5.5pp, 5↑/3↓, p=0.73) |
+| LME SSA shape_conditioned vs fused-CAPPED (n=56) | 48.2% → **55.4%** (+7.1pp, 13↑/9↓, p=0.52; tok 4.9k→8.6k) vs uncapped 41.1% at 11.1k |
+
+Verdicts (quality rule: non-negative pair → default candidate):
+
+1. **'fused' (capped) is the new diary-profile recommendation** —
+   equal held-out quality to 'always' at −8% tokens, segments citable,
+   one fusion doctrine. Nominal 78.7 ties the E16 held-out record.
+2. **The segmentTopK cap flipped fused's sign on assistant chats**
+   (−7.1pp uncapped → +7.1pp capped vs shape_conditioned, both n.s.):
+   too many segments drowned the facts, top-K helps. Default stays
+   shape_conditioned pending a bigger-n confirm; fused-capped is now a
+   measured-positive candidate on BOTH genres.
+3. **entityExpansion measured on its target genre at last**: +5.5pp
+   nominal on MS, no harm, negligible token cost. The 50-world MS
+   substrate persists on the stand for a full-block confirm.
+
+Reports: var/locomo-v5ho-{always,fused}.json, var/lme-ms-v5{control,exp}.json,
+var/lme-ssa-v5fusedcap.json.
