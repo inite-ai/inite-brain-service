@@ -45,6 +45,7 @@ import {
 } from './internals/graph-retrieve-db';
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
+import { resolveVerbatimMode } from './verbatim-routing';
 import { PipelineContext } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
 import {
@@ -521,8 +522,14 @@ export class SearchService {
     // 6b. Verbatim fusion leg (audit W4 #18): under the 'fused' profile,
     // segments arrive as their own scored buckets and compete with fact
     // buckets in the rerank + fact-centric stages — citable next to
-    // facts instead of an unscored prompt appendix.
-    if (ctx.profile.verbatimEvidence === 'fused') {
+    // facts instead of an unscored prompt appendix. 'routed' resolves
+    // per query (answer-router lexicon): timeline-shaped asks skip the
+    // leg — the V6 TR pair measured fused at −7.1pp and 2.7× tokens
+    // there — while session-shaped asks run it (SSA +7.1pp).
+    if (
+      resolveVerbatimMode(ctx.profile.verbatimEvidence, ctx.dto.query) ===
+      'fused'
+    ) {
       const segBuckets = await this.retrieval.runSegmentLegStage(db, ctx);
       for (const [k, v] of segBuckets) {
         if (!byEntity.has(k)) byEntity.set(k, v);

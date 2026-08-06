@@ -763,7 +763,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'How verbatim L0 evidence reaches answers: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional as a prompt appendix; diary-genre profile) | fused (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix). Unset → derived from the legacy lane flags.',
+          'How verbatim L0 evidence reaches answers: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional as a prompt appendix; diary-genre profile) | fused (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix) | routed (per-query dispatch: timeline-shaped questions take the shape_conditioned path, everything else takes fused — the V6-measured genre split inside assistant traffic). Unset → derived from the legacy lane flags.',
       },
       {
         key: 'RETRIEVAL_DATE_ANCHORING',

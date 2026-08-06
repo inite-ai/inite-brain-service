@@ -47,12 +47,25 @@ export type RetrievalGenre = 'dialogue' | 'assistant_chat' | 'documents';
  *                          appendix. The two episode quote lanes stay
  *                          shape-conditioned; the appendix segment lane
  *                          is off (segments arrive as hits).
+ *  - 'routed'            — per-QUERY dispatch between the two measured
+ *                          regimes (V6 legs, validate-2026-08-results):
+ *                          fused won +7.1pp on session-shaped asks
+ *                          (SSA) and lost −7.1pp at 2.7× tokens on
+ *                          timeline-shaped ones (TR) — the genre split
+ *                          lives INSIDE a tenant's traffic. Timeline-
+ *                          shaped queries (answer-router lexicon) take
+ *                          the shape_conditioned path; everything else
+ *                          takes fused. Resolution is
+ *                          resolveVerbatimMode() in answer-router.ts —
+ *                          every consumer must branch on the RESOLVED
+ *                          mode, never on 'routed' itself.
  */
 export type VerbatimEvidenceMode =
   | 'off'
   | 'shape_conditioned'
   | 'always'
-  | 'fused';
+  | 'fused'
+  | 'routed';
 
 /**
  * How the generator's "today" is anchored:
@@ -186,6 +199,7 @@ export function resolveRetrievalProfile(
         'shape_conditioned',
         'always',
         'fused',
+        'routed',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
@@ -245,7 +259,9 @@ export function resolveRetrievalProfileFor(
   }
   if (
     typeof o.verbatimEvidence === 'string' &&
-    ['off', 'shape_conditioned', 'always', 'fused'].includes(o.verbatimEvidence)
+    ['off', 'shape_conditioned', 'always', 'fused', 'routed'].includes(
+      o.verbatimEvidence,
+    )
   ) {
     merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
   }

@@ -26,6 +26,7 @@ import {
   detectVerbatimShape,
   type LaneId,
 } from './answer-router';
+import { resolveVerbatimMode } from '../search/verbatim-routing';
 export { detectEvidenceConflicts } from './answer-router';
 import {
   getActiveRetrievalProfile,
@@ -125,8 +126,12 @@ function wantsVerbatimEvidence(
   profile: RetrievalProfile,
   query: string,
 ): boolean {
-  if (profile.verbatimEvidence === 'off') return false;
-  if (profile.verbatimEvidence === 'always') return true;
+  // 'routed' resolves per query (never to 'always'/'off'), so both of
+  // its regimes take the shape-conditioned quote gate below — same as
+  // 'fused'. Branch on the RESOLVED mode by invariant (answer-router).
+  const mode = resolveVerbatimMode(profile.verbatimEvidence, query);
+  if (mode === 'off') return false;
+  if (mode === 'always') return true;
   return detectVerbatimShape(query);
 }
 

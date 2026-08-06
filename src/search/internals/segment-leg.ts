@@ -48,6 +48,25 @@ interface SegmentRow {
   score?: number;
 }
 
+/**
+ * Per-segment prompt budget (V6 finding, validate-2026-08-results):
+ * fused with segmentTopK=5 still ran 8.6k prompt tokens on SSA and
+ * 12.4k on TR vs ~4.6k control, because whole 4-turn windows ride into
+ * the prompt. The budget truncates the segment TEXT at a word boundary
+ * — retrieval is untouched (cosine runs on stored vectors, BM25 on the
+ * indexed column), only what enters scoring text/prompt/citation is
+ * cut. ~1200 chars ≈ 300 tokens ≈ 5 segments ≈ +1.5k over control.
+ * Tuning constant by design (brief §3: prefer a constant over a knob).
+ */
+const SEGMENT_PROMPT_CHAR_BUDGET = 1200;
+
+function budgetText(text: string): string {
+  if (text.length <= SEGMENT_PROMPT_CHAR_BUDGET) return text;
+  const cut = text.slice(0, SEGMENT_PROMPT_CHAR_BUDGET);
+  const atWord = cut.slice(0, cut.lastIndexOf(' ') + 1 || undefined);
+  return `${atWord.trimEnd()} […]`;
+}
+
 function toFactRow(r: SegmentRow, kind: 'vector' | 'lexical'): FactRow {
   const occurred = String(r.occurredAt ?? '');
   const day = occurred.slice(0, 10);
@@ -55,7 +74,7 @@ function toFactRow(r: SegmentRow, kind: 'vector' | 'lexical'): FactRow {
     id: r.id,
     entityId: r.id,
     predicate: 'verbatim',
-    object: r.text,
+    object: budgetText(r.text),
     confidence: 1,
     validFrom: occurred,
     recordedAt: new Date().toISOString(),

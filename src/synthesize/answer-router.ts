@@ -26,25 +26,16 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
  */
 export type { LaneId } from '../search/retrieval-profile';
 
-const UNIT = '(?:day|week|month|year)s?';
 /**
- * Temporal-DISTANCE questions require an interval marker (ago / since /
- * passed / between). A bare "how many days did I spend camping" is an
- * enumeration-SUM (add up durations across sessions) and belongs to the
- * enumeration lane — the two lexicons are disjoint by construction.
- *
- * First-person perfect ("how long have/had I been…") entered the
- * lexicon after the LME-500 router-ON leg, where 55 of 109 judged
- * temporal questions missed every pattern (25.5% accuracy unrouted) —
- * the older lexicon only knew "has/had it been".
+ * Temporal-distance lexicon: moved to the search layer with the
+ * 'routed' verbatim mode (verbatim-routing.ts) — the timeline dispatch
+ * lexicon builds on it and the fused-leg gate in search.service may
+ * not import UP from synthesize (engine layering gate). First-person
+ * perfect ("how long have/had I been…") entered the lexicon after the
+ * LME-500 router-ON leg, where 55 of 109 judged temporal questions
+ * missed every pattern (25.5% accuracy unrouted).
  */
-const TEMPORAL_PATTERNS: RegExp[] = [
-  // "how long ago / how long since / how long has it been"
-  /how long (?:ago|since|until|has it been|had it been|did it take)/i,
-  // "weeks ago", "months have passed", "days elapsed", "years apart"
-  new RegExp(`${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`, 'i'),
-  /how long (?:have|had|has) (?:i|we|you|she|he|they) been/i,
-];
+import { TEMPORAL_PATTERNS } from '../search/verbatim-routing';
 
 /**
  * Verbatim-recall shape: the question asks for ASSISTANT-side content
