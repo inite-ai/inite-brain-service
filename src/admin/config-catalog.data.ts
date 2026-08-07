@@ -763,7 +763,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'How verbatim L0 evidence reaches answers: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional as a prompt appendix; diary-genre profile) | fused (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix). Unset → derived from the legacy lane flags.',
+          'How verbatim L0 evidence reaches answers: off | shape_conditioned (engine default — quotes only when the question asks for conversational content) | always (all three verbatim lanes unconditional as a prompt appendix; diary-genre profile) | fused (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix) | routed (per-query dispatch: verbatim-shaped questions — the one class where fused measured positive, SSA +7.1pp vs SSU −10.0/TR −8.3 — take the fused path, everything else stays shape_conditioned). Unset → derived from the legacy lane flags.',
       },
       {
         key: 'RETRIEVAL_DATE_ANCHORING',
@@ -1025,6 +1025,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'E3a (engine wave 2026-08): the session-window deriver also emits propositions for content a participant CONTRIBUTED — recommendations, answers, instructions given — under the "assistance" aspect, subject = the contributing participant. The base contract is user-fact-shaped, so assistant-side content structurally never became a proposition (the measured SSA failure at the substrate level; the read-side verbatim lane routes around it, this closes the source). Default off; confirm on a FRESH derivedVersion — worlds derived under different prompts must not share a version. Requires re-derive.',
+      },
+      {
+        key: 'DERIVER_COMPLETION_PASS',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'V7 deriver-recall: after the base proposition pass the session-window deriver runs a second "what was missed" call — the model sees its own proposition list and returns ONLY additional durable propositions (up to 20), unioned with text-level dedup. The base contract caps at 40 propositions and a single pass under-extracts dense sessions (extraction recall has been the measured LoCoMo bottleneck since 2026-07). ~2x deriver spend on ingest. Default off; confirm on a FRESH derivedVersion — worlds derived under different pass counts must not share a version. Requires re-derive.',
       },
       {
         key: 'EXTRACTION_OBJECT_NORMALIZE',

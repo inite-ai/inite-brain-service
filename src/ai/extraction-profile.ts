@@ -34,6 +34,15 @@ export interface ExtractionPipelineProfile {
   refinePredicateThreshold: number;
   /** Deriver also emits assistant-side contributions ("assistance"). */
   deriveAssistantContent: boolean;
+  /**
+   * DERIVER_COMPLETION_PASS (V7 deriver-recall): after the base
+   * proposition pass, run a second "what was missed" call that sees the
+   * base list and returns ONLY additional propositions; union with
+   * text-level dedup. Off → the deriver is byte-identical single-pass
+   * (ewave rule: worlds derived under different prompts/pass counts
+   * must not share a version — confirm on a FRESH derivedVersion).
+   */
+  deriveCompletionPass: boolean;
 }
 
 /** Boot-default profile from env — the single reader of these keys. */
@@ -52,5 +61,6 @@ export function resolveExtractionProfile(
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
+    deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
   };
 }
