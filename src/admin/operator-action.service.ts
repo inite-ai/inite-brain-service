@@ -108,8 +108,10 @@ export class OperatorActionService {
     // (`Expected none | object but found NULL`; caught live by the V5
     // MS leg: every audited maintenance call 500'd). Absent means
     // absent: omit the fields instead of binding null.
+    // `ts` is a datetime field — 3.x refuses a bound ISO string (WARN
+    // per audited call, caught live by the W3 leg boot); bind a Date.
     const content: Record<string, unknown> = {
-      ts: row.ts,
+      ts: new Date(row.ts),
       actor: row.actor,
       scopes: row.scopes,
       method: row.method,
