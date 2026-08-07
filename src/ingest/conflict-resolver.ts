@@ -56,7 +56,11 @@ export interface PredicatePolicy {
 }
 
 export const DEFAULT_POLICY: PredicatePolicy = {
-  semantics: 'bitemporal',
+  // W3 (audit 2026-08 #2): unknown predicate = open-vocabulary coinage →
+  // append_only, mirroring DEFAULT_FALLBACK in the tenant registry
+  // (predicate-registry-internals/types.ts) so display-only consumers
+  // report the same semantics the write path applies.
+  semantics: 'append_only',
   decayHalfLifeDays: 60,
   piiClass: 'none',
 };

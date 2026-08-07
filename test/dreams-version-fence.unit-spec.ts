@@ -94,7 +94,7 @@ describe('dreams legs stay inside the tenant live world (W2)', () => {
     );
     await svc.run(db, 'wd-v3');
     const groups = queries.find((q) =>
-      q.sql.includes('GROUP BY entityId, predicate'),
+      q.sql.includes('GROUP BY entityId, canonPredicate'),
     );
     expect(groups?.sql).toContain('AND derivedVersion = $derivedVersion');
     expect(groups?.params?.derivedVersion).toBe('wd-v3');
