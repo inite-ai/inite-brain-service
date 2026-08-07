@@ -41,6 +41,7 @@ export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
+import { InsightLaneService } from './insight-lane.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import {
   NOOP_REPORTER,
@@ -136,6 +137,23 @@ function wantsVerbatimEvidence(
 }
 
 /**
+ * Insight-lane activation (V8 §1): only under insightEvidence='routed'
+ * and only for the question classes where derived insights measured as
+ * paying — summarization / progressive-narrative (the summary lane)
+ * and enumeration. Pointwise asks (no lane, or any other lane) skip
+ * the slot: the V6 lesson generalized — every evidence class pays on
+ * its own question class and drowns others; dispatch is the
+ * mechanism, not always-on.
+ */
+function wantsInsightEvidence(
+  profile: RetrievalProfile,
+  lane: LaneId | null,
+): boolean {
+  if (profile.insightEvidence !== 'routed') return false;
+  return lane === 'summary' || lane === 'enumeration';
+}
+
+/**
  * Recover the answer text from a JSON body the provider cut off at the
  * token cap (finish_reason='length'). Strict JSON mode emits the schema
  * fields in order, so the partial body still contains `"answer": "…`
@@ -223,6 +241,7 @@ export class SynthesizeService {
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly episodeLane?: EpisodeLaneService,
     @Optional() private readonly segmentLane?: SegmentLaneService,
+    @Optional() private readonly insightLane?: InsightLaneService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -359,7 +378,7 @@ export class SynthesizeService {
     }
     const { results, factIndex, factLines } = prepared;
 
-    const [instructions, transcriptLines] = await Promise.all([
+    const [instructions, transcriptLines, insightLines] = await Promise.all([
       instructionsPromise,
       this.collectTranscriptLines({
         profile,
@@ -368,6 +387,16 @@ export class SynthesizeService {
         callerScopes,
         factIds: [...factIndex.keys()],
         // Same fail-closed user scope the fact read path applies (0055).
+        userId: dto.userId,
+      }),
+      // V8 §1: derived insights for summary/enumeration-routed
+      // questions, in their own budget slot. Degrades to [].
+      this.collectInsightLines({
+        profile,
+        lane,
+        companyId,
+        query: dto.query,
+        callerScopes,
         userId: dto.userId,
       }),
     ]);
@@ -391,6 +420,7 @@ export class SynthesizeService {
               query: dto.query,
               factLines,
               transcriptLines,
+              insightLines,
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -496,6 +526,7 @@ export class SynthesizeService {
               // faithfulness scoring. It now audits against the same
               // evidence the generator was given.
               transcriptLines,
+              insightLines,
               model,
             }),
           ),
@@ -647,6 +678,35 @@ export class SynthesizeService {
   }
 
   /**
+   * V8 §1: derived insights (aggregates + summaries) for the prompt's
+   * dedicated section. Gated on wantsInsightEvidence — the routed mode
+   * and the summary/enumeration question classes only. Degrades to []
+   * on any failure inside the lane service.
+   */
+  private async collectInsightLines({
+    profile,
+    lane,
+    companyId,
+    query,
+    callerScopes,
+    userId,
+  }: {
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    companyId: string;
+    query: string;
+    callerScopes: string[];
+    userId?: string;
+  }): Promise<string[]> {
+    if (!wantsInsightEvidence(profile, lane)) return [];
+    if (!this.insightLane) return [];
+    if (getAbortSignal()?.aborted) return [];
+    return this.insightLane
+      .insightLines({ companyId, query, callerScopes, userId })
+      .then((v) => v ?? []);
+  }
+
+  /**
    * T7: standing user instructions for the prompt's dedicated section.
    * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
    * route can fire): a fixed probe pulls instruction-shaped facts,
@@ -793,6 +853,7 @@ export class SynthesizeService {
     query,
     factLines,
     transcriptLines,
+    insightLines,
     model,
     answerLang,
     neverAbstain = false,
@@ -805,6 +866,8 @@ export class SynthesizeService {
     factLines: string[];
     /** Episodic-lane quotes (P2) — rendered as a separate typed section. */
     transcriptLines?: string[];
+    /** V8 §1: derived insights — their own section, own budget slot. */
+    insightLines?: string[];
     model: string;
     answerLang: string | null;
     neverAbstain?: boolean;
@@ -824,6 +887,7 @@ export class SynthesizeService {
       query,
       factLines,
       transcriptLines,
+      insightLines,
       answerLang,
       dateContext,
       lane,
@@ -919,6 +983,7 @@ export class SynthesizeService {
     answer: string;
     factLines: string[];
     transcriptLines?: string[];
+    insightLines?: string[];
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

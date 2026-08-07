@@ -387,8 +387,9 @@ function validateRetrievalProfileEnv(
     ['RETRIEVAL_GENRE', ['dialogue', 'assistant_chat', 'documents']],
     [
       'RETRIEVAL_VERBATIM_EVIDENCE',
-      ['off', 'shape_conditioned', 'always', 'fused'],
+      ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
+    ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];

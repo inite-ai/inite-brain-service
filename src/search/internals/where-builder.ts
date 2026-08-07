@@ -42,6 +42,16 @@ export interface BuildBaseWhereOptions {
    * hard cut. Default 'filter' keeps strict point-in-time semantics.
    */
   temporalMode?: 'filter' | 'overlap_boost';
+  /**
+   * Profile insightEvidence='routed' (V8 §1): derived insight rows —
+   * aggregates (source.recorder='aggregate-composer-v1') and
+   * promotion/compaction summaries (predicate 'summary_*') — leave the
+   * fact legs and reach prompts only through the insight lane's own
+   * budget slot. The measured naive null (MS tie / BEAM −2.0pp,
+   * summarization DOWN) was exactly these rows displacing atomic facts
+   * inside the fact budget. Default false = pre-V8 byte-identical.
+   */
+  excludeInsightRows?: boolean;
   opts?: BaseWhereOptions;
 }
 
@@ -52,6 +62,7 @@ export function buildBaseWhere({
   includeContested,
   derivedVersion,
   temporalMode = 'filter',
+  excludeInsightRows = false,
   opts = {},
 }: BuildBaseWhereOptions): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
@@ -59,6 +70,20 @@ export function buildBaseWhere({
 
   if (!includeRetracted) clauses.push(`AND retractedAt IS NONE`);
   if (!includeContested) clauses.push(`AND status != 'competing'`);
+
+  // ── Insight-row arbitration (V8 §1) ────────────────────────────
+  // Both idioms are the ones their writers already use against these
+  // rows: the aggregate composer excludes its own output with
+  // `source.recorder != $recorder`, promotion excludes summaries with
+  // `!string::starts_with(predicate, 'summary_')` — rows without a
+  // recorder pass the first test (NONE != 'x').
+  if (excludeInsightRows) {
+    clauses.push(
+      `AND source.recorder != $insightRecorder
+         AND !string::starts_with(predicate, 'summary_')`,
+    );
+    params.insightRecorder = 'aggregate-composer-v1';
+  }
 
   // ── User scope (migration 0055) — FAIL-CLOSED ──────────────────
   // No userId on the request → only tenant-global memory. With one →
