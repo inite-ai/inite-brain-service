@@ -92,6 +92,16 @@ export interface PredicateSnapshot {
    *  runtime-installed). Injected into the extractor system prompt so a pack
    *  can tune extraction for its domain. Empty when no active pack ships one. */
   extractionProfiles: PackExtractionProfile[];
+  /**
+   * Every non-deprecated predicateId (active + aliased + proposed).
+   * canonicalize()'s short-circuit checks it so a REPEAT coinage of a
+   * 'proposed' predicate resolves in-cache — before 0082's alias pass
+   * the repeat path embedded the context and hit a UNIQUE violation on
+   * re-insert EVERY time (bounded nuisance under closed vocabulary, an
+   * O(n²) registry storm under open). Optional: legacy snapshot
+   * literals in tests omit it; consumers treat absent as empty.
+   */
+  knownIds?: Set<string>;
 }
 
 export type CanonicalizeDecision =
@@ -123,7 +133,13 @@ export const DEFAULT_FALLBACK: PredicateDefinition = {
   description:
     'Synthesised fallback when a predicate is not in the registry.',
   datatype: 'string',
-  semantics: 'bitemporal',
+  // W3 (audit 2026-08 #2): a predicate NOT in the registry is a coined,
+  // open-vocabulary observation — history matters, and `bitemporal`
+  // supersede/compete semantics were invented for closed CRM predicates.
+  // Closed-vocabulary seeds keep their per-predicate policies; only the
+  // unknown-predicate fallback (and the 'proposed' rows canonicalize
+  // creates from it) defaults to append_only.
+  semantics: 'append_only',
   decayHalfLifeDays: 60,
   piiClass: 'none',
   status: 'active',

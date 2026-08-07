@@ -20,6 +20,15 @@ export interface ExtractedEntity {
 export interface ExtractedFact {
   entityIndex: number;
   predicate: string;
+  /**
+   * EDC-canonical id for a coined predicate (0082, open vocabulary
+   * only). The raw coinage stays in `predicate` — specificity is the
+   * dialogue profile's whole point — while resolution, dedup and the
+   * read-side predicate consumers key on `predicateAlias ?? predicate`.
+   * Absent when the predicate is already canonical (registry hit or a
+   * novel coinage that became its own canon).
+   */
+  predicateAlias?: string;
   object: string;
   confidence: number;
   /** The clause this fact was anchored to (verbatim sub-span). */

@@ -126,7 +126,11 @@ export function scoreRows({
       ? chatterPenalty
       : 1;
   return rows.map((row) => {
-    const policy = policyFor(row.predicate);
+    // 0082: predicate-keyed lookups (policy, chatter) go through the
+    // EDC-canonical alias — a coined predicate inherits its canon's
+    // decay/chatter treatment. Alias-less rows are byte-identical.
+    const canonPredicate = row.predicateAlias ?? row.predicate;
+    const policy = policyFor(canonPredicate);
     // Usage reinforcement: when the pipeline attached a lastReadAt
     // (SEARCH_USAGE_DECAY_ENABLED → enrichWithUsage), the decay clock
     // restarts at the most recent retrieval — memory that keeps getting
@@ -181,7 +185,7 @@ export function scoreRows({
       authorityFactor,
     };
 
-    const chatterFactor = chatterFactorFor(row.predicate);
+    const chatterFactor = chatterFactorFor(canonPredicate);
     const temporalOverlap = temporalAnchor
       ? temporalOverlapFactor(row, temporalAnchor.getTime())
       : 1;
@@ -245,7 +249,12 @@ export function bucketByEntity(scored: ScoredRow[]): Map<string, EntityBucket> {
     // skipped and never contributed to the degree boost.
     let skippedBest = false;
     for (const f of sortedFacts) {
-      const key = diversityKey(f.row.predicate, f.row.object);
+      // 0082: cap on the canonical predicate — coinages of one canon
+      // share a diversity bucket instead of each getting their own.
+      const key = diversityKey(
+        f.row.predicateAlias ?? f.row.predicate,
+        f.row.object,
+      );
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
       if (f.score === bucket.bestScore && !skippedBest) {

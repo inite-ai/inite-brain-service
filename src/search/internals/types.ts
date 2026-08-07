@@ -30,6 +30,9 @@ export interface FactRow {
   id: unknown;
   entityId: unknown;
   predicate: string;
+  /** EDC-canonical id for a coined predicate (0082); predicate-keyed
+   *  consumers (policy, chatter, diversity) use `predicateAlias ?? predicate`. */
+  predicateAlias?: string;
   object: string;
   confidence: number;
   validFrom: string;

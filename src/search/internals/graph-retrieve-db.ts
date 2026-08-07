@@ -224,6 +224,7 @@ export async function fetchFactsForEntities({
     id: unknown;
     entityId: unknown;
     predicate: string;
+    predicateAlias?: string;
     object: string;
     confidence: number;
     validFrom: string;
@@ -242,7 +243,7 @@ export async function fetchFactsForEntities({
   // filter (policy/row-filter.ts) — internal only, assembleGraphHits
   // never surfaces them in the response.
   const [rows] = await db.query<[FactSelect[]]>(
-    `SELECT id, entityId, predicate, object, confidence,
+    `SELECT id, entityId, predicate, predicateAlias, object, confidence,
             validFrom, validUntil, status, recordedAt,
             source, trustSnapshot, corroboration
        FROM knowledge_fact
@@ -259,6 +260,7 @@ export async function fetchFactsForEntities({
       factId: String(r.id),
       entityId: eid,
       predicate: r.predicate,
+      ...(r.predicateAlias ? { predicateAlias: r.predicateAlias } : {}),
       object: r.object,
       confidence: r.confidence,
       validFrom: r.validFrom,

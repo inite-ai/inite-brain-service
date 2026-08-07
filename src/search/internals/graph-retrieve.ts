@@ -31,6 +31,9 @@ export interface GraphFactRow {
   factId: string;
   entityId: string;
   predicate: string;
+  /** EDC-canonical id for a coined predicate (0082); dedup keys on
+   *  `predicateAlias ?? predicate`. */
+  predicateAlias?: string;
   object: string;
   confidence: number;
   validFrom: string;
@@ -196,7 +199,8 @@ function renderHit({
 function dedupeAndSortFacts(rows: GraphFactRow[]): GraphFactRow[] {
   const byKey = new Map<string, GraphFactRow>();
   for (const f of rows) {
-    const key = `${f.predicate}::${f.object}`;
+    // 0082: coinages of one canonical predicate collapse together.
+    const key = `${f.predicateAlias ?? f.predicate}::${f.object}`;
     const prev = byKey.get(key);
     const ts = (r: GraphFactRow) => new Date(r.recordedAt ?? 0).getTime();
     if (!prev || ts(f) > ts(prev)) {

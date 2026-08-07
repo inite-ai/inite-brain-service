@@ -247,6 +247,7 @@ export class MentionPersistService {
           companyId,
           entityId: eid,
           predicate: f.predicate,
+          predicateAlias: f.predicateAlias,
           object: f.object,
           confidence: f.confidence,
           validFrom: this.factValidFrom(f, dto, eventTimeOn),
@@ -289,6 +290,7 @@ export class MentionPersistService {
       entityId: string;
       f: {
         predicate: string;
+        predicateAlias?: string;
         object: string;
         confidence: number;
         extractionEntropy?: number;
@@ -305,6 +307,7 @@ export class MentionPersistService {
       companyId: p.companyId,
       entityId: p.entityId,
       predicate: f.predicate,
+      predicateAlias: f.predicateAlias,
       object: f.object,
       confidence: f.confidence,
       validFrom: p.validFrom,
