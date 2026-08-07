@@ -16,6 +16,14 @@ describe('verbatim routing (routed mode)', () => {
       'What were the steps you walked me through for the visa?',
       'Quote what you said about the deposit.',
       'What did the assistant recommend for the rash?',
+      // V8 lexicon extension: the dominant SSA phrasing is
+      // recall-shaped ("remind me…", "you recommended" without me/us) —
+      // the original lexicon matched 2/56 of the SSA slice and the
+      // routed arm measured bit-identical to control.
+      'Can you remind me of the name of the Italian restaurant in Rome you recommended for dinner?',
+      'I remember you told me about the refining processes at the three refineries. What were they?',
+      "In our previous chat, you suggested 'compulsions' and a few other options. What were the rest?",
+      'Remind me what the 7th job in the list was.',
     ];
     const everythingElse = [
       // timeline-shaped (TR class, fused −8.3pp)
