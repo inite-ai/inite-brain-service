@@ -296,3 +296,88 @@ Verdicts (quality rule: non-negative pair → default candidate):
 
 Reports: var/locomo-v5ho-{always,fused}.json, var/lme-ms-v5{control,exp}.json,
 var/lme-ssa-v5fusedcap.json.
+
+## V6 legs (2026-08-06/07): second-genre confirms + W3 write tract + V7 points
+
+Session brief: docs/roadmap/next-session-v5-2026-08.md §2-3 remainder
+(W3 write tract, BEAM overlap_boost, full MS block, bigger-n
+fused-capped), extended in-session with the V7 profile points and an
+aggregates leg. Substrates: surviving loco-321 worlds (BEAM 20
+tenants, 290 LME worlds), paid MS remainder ingest (83 worlds), and a
+fresh-tenant LoCoMo dev-5 (locow3d) under the W3 write code. Brains
+for read-side legs = merged-main dist (a629429); W3 confirm =
+feat/w3-write-tract via ts-node. Judge gpt-4.1-mini; McNemar pairing.
+
+Infra incidents (all recovered, no poisoned rows — derive/ingest are
+fail-loud since V4): loco-321 OOM'd twice (three concurrent chains,
+then the registry storm below); OpenAI credits ran dry mid-MS
+(refilled, resumed from checkpoints); a workspace-level pnpm install
+broke the repo's hoisted node_modules (--ignore-workspace is the repo
+idiom); /tmp datasets were reaped twice (re-fetched per the crib); the
+brain's own ThrottlerException 429'd the accelerated LoCoMo ingest
+(THROTTLE_DISABLED=1 is the sanctioned eval-stand switch — hardcoded
+per-route @Throttle decorators ignore the env limits).
+
+| Pair | Result |
+|---|---|
+| BEAM full-400 control (merged main, B0 profile) vs B0-era 35.3% | **36.9%** judged (n=360) — read-path equivalence on genre #3 |
+| BEAM temporal_reasoning control vs overlap_boost (n=40) | 27.5% → **32.5%** (+5.0pp, 3↑/1↓, p=0.63); overall +1.0pp p=0.56 |
+| LME TR shape_conditioned vs fused-capped (n=133) | 40.2% → **33.1%** judged (−7.1pp, 25↓/16↑, p=0.21) at 4.6k→12.4k tok |
+| LME SSU shape_conditioned vs fused-capped (n=50) | 82.0% → **72.0%** (−10.0pp, 9↓/4↑, p=0.27) at 10.3k tok |
+| LME 3-block pooled fused-capped (n=239) | 51.9% → **46.9%** (−5.0pp, 46↓/34↑, p=0.22) |
+| LME MS full-block control vs entityExpansion (n=133) | 52.9% → **52.9%** judged (5↑/5↓, p=1.0) |
+| LoCoMo dev-5 W3-write vs var/locomo-v4always-dev5 (n=762) | 76.8% → **77.0%** (+0.3pp, 58↑/56↓, p=0.93); substrate 1837 props, segments 1286 (bit-identical to the E9 count) |
+| LME MS control vs +aspect aggregates in wd-v2 (n=133) | 52.9% → **52.9%** judged (1↑/1↓, p=1.0) |
+| BEAM control vs +aspect aggregates (n=400) | 37.8% → **35.7%** overall (−2.0pp, 17↓/9↑, p=0.17); summarization 20.0→12.5 (3↓/0↑) |
+
+Findings:
+
+1. **overlap_boost has its second genre**: BEAM temporal_reasoning
+   +5.0pp (n.s.) mirrors LME temporal +1.6pp (n.s.) — mildly positive
+   on the target ability in BOTH genres, no collapse anywhere.
+   Watch-item: BEAM summarization −7.5pp (3↓/0↑, p=0.25) under the
+   relaxed closure. Stays default-off; a measured-safe profile point
+   for temporal-heavy workloads.
+2. **fused-capped is NOT a shape_conditioned replacement**: pooled
+   −5.0pp at n=239. The split is by QUESTION CLASS, not tenant:
+   SSA +7.1 / SSU −10.0 / TR −8.3 — segments pay exactly when the
+   answer lives in assistant verbatim turns and drown facts everywhere
+   else. This produced the 'routed' profile point (PR #252):
+   verbatim-shaped → fused, else shape_conditioned. (The first routed
+   cut keyed on timeline shape; the SSU leg falsified it same-day.)
+   The diary-profile fused-capped recommendation (V5) is unaffected.
+3. **entityExpansion is a null result at full n**: the V5 +5.5pp on
+   n=49 did not replicate (exact tie at n=133). No harm, no gain;
+   default-off, no longer a candidate.
+4. **W3 write tract confirmed and merged** (PR #251): the fresh-tenant
+   pair is equivalence-clean (+0.3pp, p=0.93) with the substrate
+   reproducing the lineage counts — the alias column, append_only
+   default for coined predicates, and append_only corroboration are
+   the default write behavior now. En route the leg caught a live
+   O(n²) registry storm (canonicalize invalidated the snapshot per
+   novel coinage; repeat proposed coinages re-embedded + re-inserted
+   every time) — fixed in the same PR with a regression spec; the leg
+   also surfaced the pre-existing operator_action `ts` datetime
+   coercion WARN on 3.x (unfixed, carried).
+5. **Naive aggregates-in-the-derived-world is a measured null**
+   (Hindsight's "observations" thesis, unqualified version): composing
+   aspect aggregates into wd-v2 on MS (tie) and BEAM (−2.0pp drift,
+   summarization down) shows retrievable summaries DILUTE the fact
+   budget without a dedicated arbitration slot. The qualified version
+   — an insight lane with its own budget, mirroring the fused segment
+   leg — is V8 material. Substrate note: the MS and BEAM wd-v2 worlds
+   now permanently carry aggregate rows
+   (source.recorder='aggregate-composer-v1'); future pairs on these
+   stands inherit them.
+
+V7 profile points merged same-session (PR #252, all default-off,
+defaults byte-identical): RETRIEVAL_VERBATIM_EVIDENCE=routed
+(verbatim-shape dispatch), the 1200-char per-segment prompt budget,
+the deriver finish_reason truncation guard, and
+DERIVER_COMPLETION_PASS (ewave: needs a fresh-derivedVersion confirm
+before any default claim; the routed SSA arm is the other open leg).
+
+Reports: var/beam-100k-v6{ctl,boost,agg}.json,
+var/lme-tr-v6fusedcap.json, var/lme-ssu-v6fusedcap.json,
+var/lme-msfull-{control,exp,agg}.json, var/locomo-w3d-dev5.json
+(checkpoints alongside).
