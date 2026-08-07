@@ -92,6 +92,16 @@ export interface PredicateSnapshot {
    *  runtime-installed). Injected into the extractor system prompt so a pack
    *  can tune extraction for its domain. Empty when no active pack ships one. */
   extractionProfiles: PackExtractionProfile[];
+  /**
+   * Every non-deprecated predicateId (active + aliased + proposed).
+   * canonicalize()'s short-circuit checks it so a REPEAT coinage of a
+   * 'proposed' predicate resolves in-cache — before 0082's alias pass
+   * the repeat path embedded the context and hit a UNIQUE violation on
+   * re-insert EVERY time (bounded nuisance under closed vocabulary, an
+   * O(n²) registry storm under open). Optional: legacy snapshot
+   * literals in tests omit it; consumers treat absent as empty.
+   */
+  knownIds?: Set<string>;
 }
 
 export type CanonicalizeDecision =
