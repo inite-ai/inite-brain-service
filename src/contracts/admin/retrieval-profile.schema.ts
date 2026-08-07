@@ -23,6 +23,7 @@ export const RetrievalProfileWireSchema = z.object({
     'routed',
   ]),
   insightEvidence: z.enum(['off', 'routed']),
+  timelineEvidence: z.enum(['off', 'routed']),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
   temporalMode: z.enum(['filter', 'overlap_boost']),
   factBudget: z.number().int(),

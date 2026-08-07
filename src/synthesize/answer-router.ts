@@ -55,15 +55,40 @@ export { detectVerbatimShape } from '../search/verbatim-routing';
  * measured failure mode is PARTIAL enumeration — "4 of 5 model kits").
  * "What is/was the order of…" joined after the LME-500 gap analysis.
  */
-const ENUMERATION_PATTERNS: RegExp[] = [
-  /how many (?!\S+ (?:ago|since))/i, // counting things (temporal wins first)
-  /how much (?:total|money|have i spent|did i spend)/i,
-  /\b(?:list|name) (?:all|every|the order)/i,
-  /what (?:are|were) all\b/i,
+/**
+ * The order-lexicon: mention-order / sequence questions (the BEAM
+ * event_ordering shape — "list the order in which I brought up…" — plus
+ * pairwise comparatives). Kept separate from the counting patterns so
+ * the V8 timeline-evidence gate can key on ORDERING specifically:
+ * mention order lives in the episodic record (occurredAt), not in fact
+ * validFrom stamps — event-time extraction collapses a session's
+ * mentions onto one date, so order within it is unrecoverable from
+ * facts alone (the measured event_ordering failure: chronological fact
+ * enumeration with every item stamped the same day). Matches 40/40 of
+ * the BEAM event_ordering row, 0 of SSA/SSU/MS and LoCoMo dev-5.
+ */
+const ORDERING_PATTERNS: RegExp[] = [
+  /\b(?:list|name) the order\b/i,
   /in (?:what|which) order\b/i,
   /\bwalk me through the order\b/i,
   /\border in which\b/i,
   /what (?:is|was) the order of\b/i,
+  /\blist in order\b/i,
+  /\bbefore or after\b/i,
+  /\bwhich (?:came|happened|occurred) (?:first|last|earlier|later)\b/i,
+];
+
+/** Ordering/sequence shape — the timeline-evidence dispatch key. */
+export function detectOrderingShape(query: string): boolean {
+  return ORDERING_PATTERNS.some((p) => p.test(query ?? ''));
+}
+
+const ENUMERATION_PATTERNS: RegExp[] = [
+  /how many (?!\S+ (?:ago|since))/i, // counting things (temporal wins first)
+  /how much (?:total|money|have i spent|did i spend)/i,
+  /\b(?:list|name) (?:all|every)\b/i,
+  /what (?:are|were) all\b/i,
+  ...ORDERING_PATTERNS,
 ];
 
 /**

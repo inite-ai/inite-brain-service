@@ -802,13 +802,22 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "How derived insight rows — aspect aggregates (source.recorder='aggregate-composer-v1') and promotion/compaction summaries (predicate summary_*) — reach answers: off (they ride the fact legs as ordinary rows — pre-V8 behavior; the naive always-on composition measured MS tie / BEAM −2.0pp with summarization down, because aggregates displace atomic facts inside the fact budget) | routed (fact legs exclude insight rows; summarization/progressive-narrative/enumeration questions retrieve them as their own dense+BM25 convex-fused pool under a separate prompt slot — INSIGHT_TOP_K, not factBudget; pointwise asks skip the slot).",
       },
       {
+        key: 'RETRIEVAL_TIMELINE_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: 'off',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits).",
+      },
+      {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
         category: 'pipeline',
         defaultValue: null,
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

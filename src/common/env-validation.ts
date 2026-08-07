@@ -390,6 +390,7 @@ function validateRetrievalProfileEnv(
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed']],
+    ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];

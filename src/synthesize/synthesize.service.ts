@@ -24,6 +24,7 @@ import {
   extractStandingInstructions,
   detectEvidenceConflicts,
   detectVerbatimShape,
+  detectOrderingShape,
   type LaneId,
 } from './answer-router';
 import { resolveVerbatimMode } from '../search/verbatim-routing';
@@ -151,6 +152,24 @@ function wantsInsightEvidence(
 ): boolean {
   if (profile.insightEvidence !== 'routed') return false;
   return lane === 'summary' || lane === 'enumeration';
+}
+
+/**
+ * Timeline-evidence activation (V8 §2): ordering/sequence-shaped
+ * questions get the chronological segment appendix — the occurredAt-
+ * ordered mention record. Facts cannot answer mention-order questions
+ * (event-time extraction collapses a session's mentions onto one
+ * validFrom date). Skipped when this query's resolved verbatim mode is
+ * 'fused' — segments already arrive as scored hits and the appendix
+ * would duplicate them.
+ */
+function wantsTimelineEvidence(
+  profile: RetrievalProfile,
+  query: string,
+): boolean {
+  if (profile.timelineEvidence !== 'routed') return false;
+  if (!detectOrderingShape(query)) return false;
+  return resolveVerbatimMode(profile.verbatimEvidence, query) !== 'fused';
 }
 
 /**
@@ -421,6 +440,7 @@ export class SynthesizeService {
               factLines,
               transcriptLines,
               insightLines,
+              timelineEvidence: wantsTimelineEvidence(profile, dto.query),
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -661,7 +681,8 @@ export class SynthesizeService {
             })
             .then((v) => v ?? [])
         : [],
-      profile.verbatimEvidence === 'always'
+      profile.verbatimEvidence === 'always' ||
+      wantsTimelineEvidence(profile, query)
         ? this.segmentLane
             ?.transcriptLines({
               companyId,
@@ -854,6 +875,7 @@ export class SynthesizeService {
     factLines,
     transcriptLines,
     insightLines,
+    timelineEvidence,
     model,
     answerLang,
     neverAbstain = false,
@@ -868,6 +890,8 @@ export class SynthesizeService {
     transcriptLines?: string[];
     /** V8 §1: derived insights — their own section, own budget slot. */
     insightLines?: string[];
+    /** V8 §2: transcript excerpts are the mention record (ordering ask). */
+    timelineEvidence?: boolean;
     model: string;
     answerLang: string | null;
     neverAbstain?: boolean;
@@ -888,6 +912,7 @@ export class SynthesizeService {
       factLines,
       transcriptLines,
       insightLines,
+      timelineEvidence,
       answerLang,
       dateContext,
       lane,

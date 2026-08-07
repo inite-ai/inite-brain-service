@@ -95,6 +95,7 @@ export function formatProvenance(p: RunProvenance): string {
     ? `dateAnchoring=${p.retrievalProfile.dateAnchoring} ` +
       `verbatim=${p.retrievalProfile.verbatimEvidence} ` +
       `insight=${p.retrievalProfile.insightEvidence ?? 'off'} ` +
+      `timeline=${p.retrievalProfile.timelineEvidence ?? 'off'} ` +
       `lanes=[${(p.retrievalProfile.lanes as string[] | undefined)?.join(',') ?? ''}]`
     : `profile unavailable (${p.retrievalProfileError ?? 'unknown'})`;
   return `code=${sha}${p.gitDirty ? '+dirty' : ''} branch=${p.gitBranch} ${prof}`;
