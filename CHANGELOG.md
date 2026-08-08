@@ -4,6 +4,141 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.0](https://github.com/inite-ai/inite-brain-service/compare/v0.8.1...v1.0.0) (2026-08-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **extraction:** S4 — one extraction pipeline profile + one write primitive
+* **engine:** S3 — RetrievalProfile object + first-class Lane registry
+* **engine:** S2 — fold the default-on winners into the single path
+* **engine:** S1 — delete measurement-killed forks, code paths included
+
+### Features
+
+* **admin:** aspect aggregate composer over per-entity facts (Lane C) ([88b08ad](https://github.com/inite-ai/inite-brain-service/commit/88b08adafd0d60a8f25aaf75cebc7f8dd3311722))
+* **admin:** version-aware aspect aggregates for pinned derived worlds (R4) ([328acfc](https://github.com/inite-ai/inite-brain-service/commit/328acfc2792255a1e1ac88c43a792b07e1d41d1c))
+* **agent-qa:** agent-in-loop QA — ReAct loop over memory search (/v1/answer) ([fafc96e](https://github.com/inite-ai/inite-brain-service/commit/fafc96eed84f5786c588cb643d1a0a96df31ad97))
+* **agent-qa:** escalation routing — one-shot first, loop only on weak answers (R3b) ([da076de](https://github.com/inite-ai/inite-brain-service/commit/da076de0703adf0b26132b0e2ba42ff2c58f79d1))
+* **agent-qa:** sharper answer contract — aggregation, single-hop directness ([d5bfb10](https://github.com/inite-ai/inite-brain-service/commit/d5bfb10f4c7ebecd7fe5b347c621ff6653b53ac3))
+* **agent-qa:** V2 tool set — masked search, timeline enumerator, transcript grep (R3) ([f7b531d](https://github.com/inite-ai/inite-brain-service/commit/f7b531d162105d094b360d8b43c08f20acc0b70d))
+* **derive:** completion pass + truncation guard (deriver recall) ([21a1696](https://github.com/inite-ai/inite-brain-service/commit/21a1696471bdad4d0283e1da16d95e623f60861f))
+* **deriver:** E3a assistant-content propositions (DERIVER_ASSISTANT_CONTENT) ([90976be](https://github.com/inite-ai/inite-brain-service/commit/90976be78da4abe72444661717b97ff020d4b318))
+* **driver:** surface 3 — projection registry + public rebuild verb (PROJECTIONS_API_ENABLED) ([d919f71](https://github.com/inite-ai/inite-brain-service/commit/d919f71954f3ac0018994e1d2479c70ed3885984))
+* **driver:** surface 4 — new-episode webhook push (EPISODE_SUBSCRIPTIONS_ENABLED) ([5da6bb7](https://github.com/inite-ai/inite-brain-service/commit/5da6bb7484325fd83652dfea94e484f89b2d886e))
+* **engine:** V4 carried fixes — derive failure propagation, W2/W4 read-path work, S5.2 shrink ([77badab](https://github.com/inite-ai/inite-brain-service/commit/77badab3f51df042d687aed1dbf6b8e5966337e0))
+* **engine:** verbatim-recall evidence + date/lexicon engine defaults (2026-08 wave) ([9b1064b](https://github.com/inite-ai/inite-brain-service/commit/9b1064bfcc9cca9f4a4d20ef3ccaebc4956f437f))
+* **entities:** entity-name autocomplete over the edge-ngram prefix index ([68ac370](https://github.com/inite-ai/inite-brain-service/commit/68ac3703b4b65c4811c96ac33f407984a3a4cc64))
+* **episodes:** public episodes API + NDJSON export (EPISODES_API_ENABLED) ([2148631](https://github.com/inite-ai/inite-brain-service/commit/21486313e64a337123234aad0fa22ec189655c64))
+* **eval:** --persona-hint flag for first-person world axes (measured null on BEAM) ([1be8c7f](https://github.com/inite-ai/inite-brain-service/commit/1be8c7f286dd3455f586c899769dd7a2ed3a259f))
+* **eval:** --sample-offset selects held-out LoCoMo conversation blocks ([a3f8ad2](https://github.com/inite-ai/inite-brain-service/commit/a3f8ad263037982f10f918bac792c8e7863d3d38))
+* **eval:** BEAM official nugget judge (--nugget-judge) with protocol-bug fixes ([0d0eb80](https://github.com/inite-ai/inite-brain-service/commit/0d0eb80a8aa981bf2b7ea40fe1b126ebdd288e1a))
+* **eval:** BEAM scale-decay axis + resumable full-run harnesses ([7bb6b36](https://github.com/inite-ai/inite-brain-service/commit/7bb6b3645b6cf66d8a631a451c544362de684932))
+* **eval:** LongMemEval-S harness — the capacity axis + token accounting ([6b57005](https://github.com/inite-ai/inite-brain-service/commit/6b5700593503f6315aa802f66b60a7e6b340f13b))
+* **eval:** offline tau_norm re-scorer + ladder results doc (B0 base, B1 loser) ([23525bf](https://github.com/inite-ai/inite-brain-service/commit/23525bfa595093aefeb7140f4e417d6ac23bc5c7))
+* **eval:** paired McNemar + report summary tools for BEAM legs ([c4db865](https://github.com/inite-ai/inite-brain-service/commit/c4db865efd04f503f421da37f197dedb11c791c8))
+* **eval:** V1 — self-describing report headers (git SHA + resolved profile) ([31a9f48](https://github.com/inite-ai/inite-brain-service/commit/31a9f481bba9468440eb2582ba0fa8a6101e6a8e))
+* **extractor:** E3b object normalization — clean value alongside the grounded span ([1bfa08f](https://github.com/inite-ai/inite-brain-service/commit/1bfa08f4c0d6ec762a80be8bca61881e4597da89))
+* **facts:** fn::cascade_retract — atomic derivedFrom cascade as a stored fn ([8a0790b](https://github.com/inite-ai/inite-brain-service/commit/8a0790bc2c40e4085fd9b72586ebb56cb8e0f55b))
+* **gates:** S5.1 flag-budget gate — engine-behavior flags locked to a golden file ([31eec33](https://github.com/inite-ai/inite-brain-service/commit/31eec335ddc02b1450f06f4e4942b5634e0db61d))
+* **gates:** S5.2-6 — env boundary, boolean idiom, layering, dead exports, lane registry ([8d8e7bf](https://github.com/inite-ai/inite-brain-service/commit/8d8e7bfd12e52405cc7a9d3fb4ad536372618458))
+* **ingest:** contextual fact embedding (flag-gated, needs re-ingest) ([8e98e7a](https://github.com/inite-ai/inite-brain-service/commit/8e98e7abc4fc82dd2fc8e08e95aa462308a367cd))
+* **ingest:** dialogue-mode extraction + batched fact resolution ([d8ca7fe](https://github.com/inite-ai/inite-brain-service/commit/d8ca7fe2ae2680effd35703983d49ba5d412d1e2))
+* **ingest:** event-time extraction — validFrom from the clause, not the message ([206fa33](https://github.com/inite-ai/inite-brain-service/commit/206fa3337f1ec6ced46f633c511351fc775e92fb))
+* **ingest:** speaker coreference — attribute first-person facts to speaker ([3ead6b7](https://github.com/inite-ai/inite-brain-service/commit/3ead6b75d8a1e36452db798b4d0feda15f46bdca))
+* **locomo:** LLM-as-judge scoring mode ([391d733](https://github.com/inite-ai/inite-brain-service/commit/391d733130899bc564b9a9db349cc070214129d8))
+* **locomo:** official-protocol scoring (cat1-4 headline, cat5 abstention) ([289ff4b](https://github.com/inite-ai/inite-brain-service/commit/289ff4b6d3417488692e81c352e9d02b6e4bb683))
+* **memory:** derived worlds as forks — live-pin guard, atomic flip, residual GC ([9ef07a2](https://github.com/inite-ai/inite-brain-service/commit/9ef07a2444b8b7f13a785346db61b1a7932ee27b))
+* **memory:** dialogue-mode new files — recompose, LIVE subs, facet routing, changefeed-row ([81b0adf](https://github.com/inite-ai/inite-brain-service/commit/81b0adf42fb8227bfa974a4392096ca467ba302a))
+* **memory:** session-window deriver + versioned derivation namespaces (P3 v1) ([acb5c0b](https://github.com/inite-ai/inite-brain-service/commit/acb5c0b1426d82bc3f8f5c72655d362826340b3a))
+* **search:** BM25 match snippets via search::highlight (flag-gated) ([01c9966](https://github.com/inite-ai/inite-brain-service/commit/01c99664e7adb569c76435533f9a70ba77a69714))
+* **search:** chatter demotion + fact-window shaping (flag-gated, default-safe) ([d94a42e](https://github.com/inite-ai/inite-brain-service/commit/d94a42e1a670e90312509f732cd1201172f073e3))
+* **search:** combined vector+graph candidate-gen in one SurrealQL query ([ad5c4c6](https://github.com/inite-ai/inite-brain-service/commit/ad5c4c6570988c1132d35e559187e0ace11fdf43))
+* **search:** entity-expansion second retrieval (profile entityExpansion) ([95ad3ae](https://github.com/inite-ai/inite-brain-service/commit/95ad3aeffe1ef364f3274987d88924751a8246f4))
+* **search:** L0 segment lane — verbatim segments as first-class retrieval units (R1) ([ceffb77](https://github.com/inite-ai/inite-brain-service/commit/ceffb77ff7021fbf5feec74242f0c58fe59eb63b))
+* **search:** read-path Phase A — fact-centric ranking, occlusion, evidence-union ([323a57a](https://github.com/inite-ai/inite-brain-service/commit/323a57a2177a27e03ed3f150b28db2dba9e2b9e9))
+* **search:** temporal overlap boost via profile temporalMode ([5017c6b](https://github.com/inite-ai/inite-brain-service/commit/5017c6b80b065d830364b93996598f6e64359184))
+* **search:** verbatim routing by question shape + segment prompt budget ([f8db9f3](https://github.com/inite-ai/inite-brain-service/commit/f8db9f34889071ec4ce97f02111609b64474739f))
+* **search:** verbatim segments as a scored fusion leg (profile 'fused') ([813f6fa](https://github.com/inite-ai/inite-brain-service/commit/813f6fa51a09429d1554542d217d508a1664f0cc))
+* **synthesize:** never-abstain 'answer' guardrail mode for QA settings ([266cd1d](https://github.com/inite-ai/inite-brain-service/commit/266cd1db36b4562477a403a3789beb2556239c3e))
+* **synthesize:** provenance lane — quote source turns of evidence facts (A1) ([7fab2f1](https://github.com/inite-ai/inite-brain-service/commit/7fab2f1d3fb2444cd8f28189cce4afcecc118d84))
+* **synthesize:** router lexicon v2 — gaps measured live on the LME-500 leg ([d167c9c](https://github.com/inite-ai/inite-brain-service/commit/d167c9cdc41b702321fbb21ffae0c5397a83437b))
+* **synthesize:** SYNTHESIZE_LANES_DISABLED — per-lane ablation for the typed dispatcher ([a2b9dfb](https://github.com/inite-ai/inite-brain-service/commit/a2b9dfbf213a4936f829dd1cd40dde25eec8849f))
+* **synthesize:** T1 typed dispatch — temporal-distance lane, arithmetic in code ([cafc790](https://github.com/inite-ai/inite-brain-service/commit/cafc7907242ec01cb2deffd951a827bc016b2854))
+* **synthesize:** T1b event-interval table + harness asOf policy ([6ece933](https://github.com/inite-ai/inite-brain-service/commit/6ece93339637a0d28a7c164dbcc162da5f19bd75))
+* **synthesize:** T2 enumeration + T3 contradiction lanes of typed dispatch ([0b41153](https://github.com/inite-ai/inite-brain-service/commit/0b411538ccd4f77623448cfe8b60c5242e938156))
+* **synthesize:** T2b first-mention enumerator for mention-order questions ([fbacaf9](https://github.com/inite-ai/inite-brain-service/commit/fbacaf92985616c1c6844787f991a35bb4a89dbe))
+* **synthesize:** T4 preference, T5 recency arbitration, T6 summary lanes — dispatcher complete ([a06f629](https://github.com/inite-ai/inite-brain-service/commit/a06f6294ecb9254ba728aafca16e08d87ff92b0d))
+* **synthesize:** T6/T2 wide probe — PRF second retrieval for recall breadth ([cf11e6b](https://github.com/inite-ai/inite-brain-service/commit/cf11e6bfdc1b59f96d3faaf984a08c77fdc8c6b7))
+* **synthesize:** T7 instruction lane — unconditional standing-instructions section ([dd7923b](https://github.com/inite-ai/inite-brain-service/commit/dd7923b00491ca1780b93ea54b6ace91fdb2ebe9))
+* **synthesize:** V4 carry tail — lane parallelism, one lane type system + leg results docs ([c214c27](https://github.com/inite-ai/inite-brain-service/commit/c214c27d02e95bef4ea8332bbfe648e462b5a757))
+* V7 profile points — verbatim routing, segment budget, deriver recall ([8b58984](https://github.com/inite-ai/inite-brain-service/commit/8b58984b8950923c40f78102adccc0ef6dc2c0eb))
+* **write:** coined-predicate alias column + append_only default (W3) ([f737b4f](https://github.com/inite-ai/inite-brain-service/commit/f737b4fd385c0dfb5cdc757079ec20d3363dd9cd))
+* **write:** coined-predicate alias column + append_only default (W3) ([17a6677](https://github.com/inite-ai/inite-brain-service/commit/17a6677ca9e7db93cdfc209c00e6c565c4006a03))
+
+
+### Bug Fixes
+
+* **admin:** bind operator_action ts as a Date on SurrealDB 3.x ([#256](https://github.com/inite-ai/inite-brain-service/issues/256)) ([d0c1eb2](https://github.com/inite-ai/inite-brain-service/commit/d0c1eb25cecbf74b388ba02b55a86737ade43cf4))
+* **admin:** operator_action audit write must omit null option fields ([22149b6](https://github.com/inite-ai/inite-brain-service/commit/22149b6accb850068dd6d2d0e695e97e6ec8484f))
+* **admin:** operator_action audit write must omit null option fields ([3b9ed1a](https://github.com/inite-ai/inite-brain-service/commit/3b9ed1a375c660fb437a7c2b9783890a635e7510))
+* **audit:** config guard, never-abstain floor, default-safe backfill, temporal date ([e1af0fd](https://github.com/inite-ai/inite-brain-service/commit/e1af0fdb80e9b514e572cc09d1d792697f02a2d1))
+* **compaction:** W2 — compact inside the tenant live world, not across it ([dcad42c](https://github.com/inite-ai/inite-brain-service/commit/dcad42c9889d39f551c83ba5f5a7d00479663043))
+* **composers:** atomic staging-swap for segments and aggregates ([1ef9188](https://github.com/inite-ai/inite-brain-service/commit/1ef918849ca574f19772f60032815b5f6991533b))
+* **config:** W6 — one boolean idiom, catalogue truth gates, NUL-byte purge ([cdb213f](https://github.com/inite-ai/inite-brain-service/commit/cdb213f44aaec64ac97f6d7b6382adcbbca11b92))
+* **deps:** sync pnpm-lock with chrono-node ^2.10.0 manifest bump ([8b22fe0](https://github.com/inite-ai/inite-brain-service/commit/8b22fe0b5524311c39c6f3fe5adbe8737418f7dd))
+* **derive:** propagate derive failures instead of WARN+201 ([8b8d3ae](https://github.com/inite-ai/inite-brain-service/commit/8b8d3aea6bfba0df6b6e8b038c19bb5f91ba0ef6))
+* **deriver:** W0 — gc keep-set from the registry, refuse on empty (audit [#8](https://github.com/inite-ai/inite-brain-service/issues/8)) ([8229ebe](https://github.com/inite-ai/inite-brain-service/commit/8229ebea0eaaf617ae4bd4e0a66b6ce2609a8c7a))
+* **deriver:** W3 — derived rows carry the fields the read path assumes ([eff089a](https://github.com/inite-ai/inite-brain-service/commit/eff089a04e561e36b24283b7627a72a09f003bbf))
+* **dreams:** fence every leg to the tenant's live derived world ([209c6b0](https://github.com/inite-ai/inite-brain-service/commit/209c6b0afa06ce158f4787d4dae3061615f8e0e7))
+* **driver:** 0076 — FLEXIBLE goes after TYPE (3.x parser) ([268bb81](https://github.com/inite-ai/inite-brain-service/commit/268bb8176a122dbd4c542735c1bf0561699df7c9))
+* **eval:** ABSTAIN_RE covers the guardrail sentinel — LME abstention was 17/18, not 2/18 ([5db02fb](https://github.com/inite-ai/inite-brain-service/commit/5db02fbf3c923a22e986af173803376052b1428d))
+* **eval:** LoCoMo ingest renders image captions into mention text ([0a0b2d2](https://github.com/inite-ai/inite-brain-service/commit/0a0b2d24c8fc7113e5939828c2cd51393b9fa9c8))
+* **eval:** TenantClient on node:http — undici headers timeout killed live derive calls ([895cb16](https://github.com/inite-ai/inite-brain-service/commit/895cb167bfee72bbd75b50902db9526fa18b111c))
+* **eval:** TenantClient retries transient failures with backoff ([6ca75ae](https://github.com/inite-ai/inite-brain-service/commit/6ca75ae835a78a315a96eb5c5c307c7eabf42dce))
+* **extractor:** W3 — dedup keys on the subject, facet routing gated on its profile ([b6bea02](https://github.com/inite-ai/inite-brain-service/commit/b6bea02481d544f033b807ae5745b21d6278390f))
+* **gdpr:** 0080 — tombstone fields for the L0 forget cascade counters ([89cfa0c](https://github.com/inite-ai/inite-brain-service/commit/89cfa0c8e8eaf82a02fd6e4c5a77de9768bf7be3))
+* **locomo:** coerce non-string gold answers so token-F1 doesn't crash ([d8526a2](https://github.com/inite-ai/inite-brain-service/commit/d8526a2381c40470891f258ed1946d5b20a10384))
+* **locomo:** harness integrity — honest retry claim, drop provenance, cat5 errors ([aa98cee](https://github.com/inite-ai/inite-brain-service/commit/aa98cee139f5af33425f687f9f7b49c286a4bdda))
+* **locomo:** resilient ingest — retry transient failures, don't abort the run ([b074b6a](https://github.com/inite-ai/inite-brain-service/commit/b074b6a71fc6bbfc8528d9f11a628810c5a753e7))
+* **memory:** deriver survives impossible occurred_on dates + targeted re-derivation ([8941fa8](https://github.com/inite-ai/inite-brain-service/commit/8941fa873ed78c35d466a2b40848824895ff1dc6))
+* **multi-hop:** malformed planner asOf degrades instead of 500ing the request ([e4fb0d7](https://github.com/inite-ai/inite-brain-service/commit/e4fb0d721c1f254b497f334edf0998b641248f3f))
+* **multi-hop:** synthesize on single-hop plans (was returning empty answers) ([36d664f](https://github.com/inite-ai/inite-brain-service/commit/36d664fbd2568f6ef03f44d75d2e5e76f1b7a6e0))
+* **privacy:** W1 — erasure reaches L0, user scope fences the raw substrate ([d05f8e3](https://github.com/inite-ai/inite-brain-service/commit/d05f8e391c2b9ae5c242f7cfb78f04beb6ff46ba))
+* **registry:** kill the canonicalize snapshot storm (open-vocab O(n^2)) ([f9ccb18](https://github.com/inite-ai/inite-brain-service/commit/f9ccb1876af1d88f9d57ecc70b828198d8b3f50c))
+* **search:** fused honours segmentTopK; abort checkpoints in synthesize lanes ([5334f62](https://github.com/inite-ai/inite-brain-service/commit/5334f62ca260e0d22970699efcfc5bdc27886c68))
+* **search:** fused honours segmentTopK; abort checkpoints in synthesize lanes ([33e6b42](https://github.com/inite-ai/inite-brain-service/commit/33e6b4206126c0486abc9866c926c3af46588713))
+* **search:** make verbatimEvidence=routed reachable and make it fire on the SSA genre ([#257](https://github.com/inite-ai/inite-brain-service/issues/257)) ([0021897](https://github.com/inite-ai/inite-brain-service/commit/00218975c98d945e1bbc4b53863bfcf811564a97))
+* **search:** routed dispatch keys on verbatim shape, not timeline shape ([070d37d](https://github.com/inite-ai/inite-brain-service/commit/070d37dde14a4a3925217673c690942729dbf554))
+* **search:** W4 — fact-centric layers over the ranking, local reranker on by default ([918df75](https://github.com/inite-ai/inite-brain-service/commit/918df7577ed2575460d805db69e83121ba865ef4))
+* **synthesize:** ordering frame v2 — specificity survives the list shape ([8efa80d](https://github.com/inite-ai/inite-brain-service/commit/8efa80dfd9ec3f0c6c312121c5d9cd433f36de99))
+* **synthesize:** router surgery from the BEAM A/B — between-events and update-negations ([3676f13](https://github.com/inite-ai/inite-brain-service/commit/3676f1390ae571654ef86344f1fcc098577d4698))
+* **synthesize:** surface fact validity window so temporal questions answer ([6822531](https://github.com/inite-ai/inite-brain-service/commit/6822531288f19d291f6fa27c67a436bf1a169ae9))
+* **synthesize:** W5 — verification and citations cover the whole prompt ([47e4dc3](https://github.com/inite-ai/inite-brain-service/commit/47e4dc35deffb37d24eab7cae8c398622a4ead83))
+* **versions:** W2 — the projection registry is the read pin, per tenant ([c7e6cdb](https://github.com/inite-ai/inite-brain-service/commit/c7e6cdb4f148016e1bff010e874ae71c63532f67))
+
+
+### Performance Improvements
+
+* **admin:** batch multi-row INSERTs in deriver and segment composer ([6ee70e2](https://github.com/inite-ai/inite-brain-service/commit/6ee70e28322cd45d1a8fa027b5b3e5124fe91d27))
+* **ingest:** batch mention edge RELATE into two round-trips (INGEST_BATCH_EDGES) ([ea3c5f2](https://github.com/inite-ai/inite-brain-service/commit/ea3c5f26845e8d9f56d27d1da84da8017ec94070))
+* **ingest:** HNSW approximate KNN for inline entity-resolution name scan ([5dbbfe2](https://github.com/inite-ai/inite-brain-service/commit/5dbbfe2964ab15a251b56f69841a2d325146de0f))
+* **search:** release the scoped connection before rerank LLM awaits ([f9195eb](https://github.com/inite-ai/inite-brain-service/commit/f9195eb6a6bcb301891a2d500daaa0c13b545527))
+* **synthesize:** parallelize lane collection ([0f9b868](https://github.com/inite-ai/inite-brain-service/commit/0f9b868c081fced0be524053da07e4cc38aa7453))
+
+
+### Reverts
+
+* **agent-qa:** restore prior answer prompt — the rewrite regressed LoCoMo ([0cc6162](https://github.com/inite-ai/inite-brain-service/commit/0cc61622a458648cac53cd7de8a05d202326c766))
+
+
+### Code Refactoring
+
+* **engine:** S1 — delete measurement-killed forks, code paths included ([1c2e295](https://github.com/inite-ai/inite-brain-service/commit/1c2e2955ae06c38fc47ca66094b921100e2b503d))
+* **engine:** S2 — fold the default-on winners into the single path ([13efb1e](https://github.com/inite-ai/inite-brain-service/commit/13efb1ea8b7fa3f9ec57e29b7c3f1df580529280))
+* **engine:** S3 — RetrievalProfile object + first-class Lane registry ([95d3300](https://github.com/inite-ai/inite-brain-service/commit/95d330071d357d89d2ae36921097fd745acd31dd))
+* **extraction:** S4 — one extraction pipeline profile + one write primitive ([4431605](https://github.com/inite-ai/inite-brain-service/commit/4431605eb02dbac3735614c86c3048a2a9a3ac49))
+
 ## [0.8.1](https://github.com/inite-ai/inite-brain-service/compare/v0.8.0...v0.8.1) (2026-07-17)
 
 
