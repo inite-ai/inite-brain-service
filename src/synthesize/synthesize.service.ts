@@ -700,18 +700,9 @@ export class SynthesizeService {
 
   /**
    * V8 §1: derived insights (aggregates + summaries) for the prompt's
-   * dedicated section. Gated on wantsInsightEvidence — the routed mode
-   * and the summary/enumeration question classes only. Degrades to []
-   * on any failure inside the lane service.
+   * dedicated section. Gated on wantsInsightEvidence; degrades to [].
    */
-  private async collectInsightLines({
-    profile,
-    lane,
-    companyId,
-    query,
-    callerScopes,
-    userId,
-  }: {
+  private async collectInsightLines(opts: {
     profile: RetrievalProfile;
     lane: LaneId | null;
     companyId: string;
@@ -719,8 +710,8 @@ export class SynthesizeService {
     callerScopes: string[];
     userId?: string;
   }): Promise<string[]> {
-    if (!wantsInsightEvidence(profile, lane)) return [];
-    if (!this.insightLane) return [];
+    const { profile, lane, companyId, query, callerScopes, userId } = opts;
+    if (!wantsInsightEvidence(profile, lane) || !this.insightLane) return [];
     if (getAbortSignal()?.aborted) return [];
     return this.insightLane
       .insightLines({ companyId, query, callerScopes, userId })
