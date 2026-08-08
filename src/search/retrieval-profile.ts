@@ -308,43 +308,27 @@ export function resolveRetrievalProfileFor(
   const o = overrides?.[companyId];
   if (!o || typeof o !== 'object') return base;
   const merged: RetrievalProfile = { ...base };
-  if (
-    typeof o.genre === 'string' &&
-    ['dialogue', 'assistant_chat', 'documents'].includes(o.genre)
-  ) {
-    merged.genre = o.genre as RetrievalGenre;
-  }
-  if (
-    typeof o.verbatimEvidence === 'string' &&
-    ['off', 'shape_conditioned', 'always', 'fused', 'routed'].includes(
-      o.verbatimEvidence,
-    )
-  ) {
-    merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
-  }
-  if (
-    typeof o.insightEvidence === 'string' &&
-    ['off', 'routed'].includes(o.insightEvidence)
-  ) {
-    merged.insightEvidence = o.insightEvidence as InsightEvidenceMode;
-  }
-  if (
-    typeof o.timelineEvidence === 'string' &&
-    ['off', 'routed'].includes(o.timelineEvidence)
-  ) {
-    merged.timelineEvidence = o.timelineEvidence as TimelineEvidenceMode;
-  }
-  if (
-    typeof o.dateAnchoring === 'string' &&
-    ['none', 'session_date', 'absolute'].includes(o.dateAnchoring)
-  ) {
-    merged.dateAnchoring = o.dateAnchoring as DateAnchoring;
-  }
-  if (
-    typeof o.temporalMode === 'string' &&
-    ['filter', 'overlap_boost'].includes(o.temporalMode)
-  ) {
-    merged.temporalMode = o.temporalMode as TemporalMode;
+  // Data-driven like the numeric/boolean loops below — every enum
+  // field overlays through one loop (a per-field if-ladder pushed the
+  // function over the complexity budget when the V8 points landed).
+  const enumOverlays: ReadonlyArray<
+    [keyof RetrievalProfile, readonly string[]]
+  > = [
+    ['genre', ['dialogue', 'assistant_chat', 'documents']],
+    [
+      'verbatimEvidence',
+      ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
+    ],
+    ['insightEvidence', ['off', 'routed']],
+    ['timelineEvidence', ['off', 'routed']],
+    ['dateAnchoring', ['none', 'session_date', 'absolute']],
+    ['temporalMode', ['filter', 'overlap_boost']],
+  ];
+  for (const [key, allowed] of enumOverlays) {
+    const v = o[key];
+    if (typeof v === 'string' && allowed.includes(v)) {
+      (merged as unknown as Record<string, unknown>)[key] = v;
+    }
   }
   for (const key of [
     'factBudget',
