@@ -41,7 +41,16 @@ export const TEMPORAL_PATTERNS: RegExp[] = [
 const VERBATIM_PATTERNS: RegExp[] = [
   /what (?:did|do|have|had) you (?:say|tell|suggest|recommend|propose|advise|share|give|send|write|explain|walk)/i,
   /what (?:was|were) (?:your|the) (?:answer|response|reply|suggestion|recommendation|advice|explanation|instructions?|steps?)/i,
-  /\byou (?:told|gave|suggested|recommended|proposed|advised|sent|shared|explained|walked) (?:me|us)\b/i,
+  // "you <past-verb>" without a required me/us: the dominant SSA
+  // phrasing is recall-shaped — "the restaurant you recommended for
+  // dinner", "you suggested 'X' and a few other options". The V8 arm
+  // measured the me/us-anchored version at 2/56 recall on the SSA
+  // slice (routed == control bit-for-bit); relaxing + "remind me"
+  // reaches 46/56 with 0/316 false positives across the SSU, TR and
+  // MS question sets — the anchor "you <past-verb>" is assistant-side
+  // by word order (user-side content reads "I told you").
+  /\byou (?:told|gave|suggested|recommended|proposed|advised|sent|shared|explained|mentioned|listed|described|walked)\b/i,
+  /\bremind me\b/i,
   /\b(?:verbatim|word for word|exact wording|exact words|exact phrasing)\b/i,
   /\bquote (?:the|your|what)\b/i,
   /what did (?:the assistant|the bot|it) (?:say|suggest|recommend|advise)/i,
