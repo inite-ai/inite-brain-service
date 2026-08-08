@@ -826,7 +826,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. 'answer' guardrails are exempt: that mode is a caller-level never-abstain contract).",
+          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
       },
       {
         key: 'RETRIEVAL_ABSTENTION_MIN_SCORE',

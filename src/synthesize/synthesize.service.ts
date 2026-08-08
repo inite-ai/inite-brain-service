@@ -21,6 +21,8 @@ import {
   attachDecisionLog,
   resolveAnswerLang,
   resolveCitations,
+  resolveLaneDateContext,
+  salvageTruncatedAnswer,
   verifierErrorResult,
 } from './synthesize.helpers';
 import {
@@ -28,7 +30,7 @@ import {
   wantsTimelineEvidence,
   wantsVerbatimEvidence,
 } from './evidence-gates';
-import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
+import { applyEvidenceUnion } from './evidence-union';
 import {
   routeLane,
   laneProbeDto,
@@ -116,42 +118,11 @@ export interface TokenUsage {
   completionTokens: number;
 }
 
-interface GeneratorOutput {
+export interface GeneratorOutput {
   answer: string;
   citedFactIds: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
-}
-
-/**
- * Recover the answer text from a JSON body the provider cut off at the
- * token cap (finish_reason='length'). Strict JSON mode emits the schema
- * fields in order, so the partial body still contains `"answer": "…`
- * with the closing quote missing. Returns null when nothing usable is
- * there — the caller then throws as before.
- */
-function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
-  const m = /"answer"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(content);
-  if (!m) return null;
-  let answer: string;
-  try {
-    answer = JSON.parse(`"${m[1]}"`) as string;
-  } catch {
-    return null;
-  }
-  if (!answer.trim()) return null;
-  return { answer, citedFactIds: [] };
-}
-
-/** Temporal lane forces the Today anchor from asOf; others follow the
- *  profile's dateAnchoring. */
-function resolveLaneDateContext(
-  profile: RetrievalProfile,
-  lane: LaneId | null,
-  asOf: string | undefined,
-): string | undefined {
-  if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
-  return resolveDateContext(profile.dateAnchoring, asOf);
 }
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
@@ -513,6 +484,7 @@ export class SynthesizeService {
       results,
       guardrails,
       decisionLog,
+      abstention: profile.abstentionCalibration,
     });
   }
 
@@ -532,6 +504,7 @@ export class SynthesizeService {
     results,
     guardrails,
     decisionLog,
+    abstention,
   }: {
     verdict: VerifierOutput['verdict'];
     answer: string;
@@ -539,11 +512,30 @@ export class SynthesizeService {
     results: SynthesizeResult['results'];
     guardrails: SynthesisGuardrails;
     decisionLog?: DecisionLogEntry[];
+    abstention?: RetrievalProfile['abstentionCalibration'];
   }): SynthesizeResult {
     if (verdict === 'supported') {
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
         { answer, citations, results },
+        decisionLog,
+      );
+    }
+    // V9 §4 'verifier' abstention: answer-level coverage. Retrieval-
+    // level floors measured non-discriminative on answer-absence
+    // (topically-adjacent questions retrieve normally); the verifier's
+    // verdict IS the coverage signal — an unsupported/partial answer
+    // means the memory does not support what was asked, so a lenient
+    // caller gets the explicit decline instead of ungrounded text.
+    if (guardrails === 'lenient' && abstention === 'verifier') {
+      this.metrics?.countSynthesize('low_coverage');
+      return attachDecisionLog(
+        {
+          answer: NOT_IN_MEMORY_ANSWER,
+          reason: 'low_coverage',
+          citations: [],
+          results,
+        },
         decisionLog,
       );
     }

@@ -98,6 +98,11 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
     ).toBe('coverage');
     expect(
       resolveRetrievalProfile({
+        RETRIEVAL_ABSTENTION_CALIBRATION: 'verifier',
+      } as NodeJS.ProcessEnv).abstentionCalibration,
+    ).toBe('verifier');
+    expect(
+      resolveRetrievalProfile({
         RETRIEVAL_ABSTENTION_CALIBRATION: 'always',
       } as NodeJS.ProcessEnv).abstentionCalibration,
     ).toBe('off');

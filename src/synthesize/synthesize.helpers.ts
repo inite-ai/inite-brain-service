@@ -1,9 +1,11 @@
 import type { SearchHit } from '../search/search.service';
 import { detectLanguage } from '../ai/locale/language-detector';
+import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import type { DecisionLogEntry } from './decision-log';
+import { resolveDateContext } from './evidence-union';
 import type { Citation } from './fact-index';
-import type { SynthesizeResult } from './synthesize.service';
+import type { GeneratorOutput, SynthesizeResult } from './synthesize.service';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -11,6 +13,39 @@ import type { SynthesizeResult } from './synthesize.service';
  * the service over 800). No IO, no DI; type-only imports back into the
  * service module, so there is no runtime cycle.
  */
+
+/** Temporal lane forces the Today anchor from asOf; others follow the
+ *  profile's dateAnchoring. */
+export function resolveLaneDateContext(
+  profile: RetrievalProfile,
+  lane: LaneId | null,
+  asOf: string | undefined,
+): string | undefined {
+  if (lane === 'temporal' && asOf) return asOf.slice(0, 10);
+  return resolveDateContext(profile.dateAnchoring, asOf);
+}
+
+/**
+ * Recover the answer text from a JSON body the provider cut off at the
+ * token cap (finish_reason='length'). Strict JSON mode emits the schema
+ * fields in order, so the partial body still contains `"answer": "…`
+ * with the closing quote missing. Returns null when nothing usable is
+ * there — the caller then throws as before.
+ */
+export function salvageTruncatedAnswer(
+  content: string,
+): GeneratorOutput | null {
+  const m = /"answer"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(content);
+  if (!m) return null;
+  let answer: string;
+  try {
+    answer = JSON.parse(`"${m[1]}"`) as string;
+  } catch {
+    return null;
+  }
+  if (!answer.trim()) return null;
+  return { answer, citedFactIds: [] };
+}
 
 /**
  * Strip a record-id prefix down to its bare tail so citations resolve

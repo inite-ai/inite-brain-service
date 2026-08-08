@@ -391,7 +391,7 @@ function validateRetrievalProfileEnv(
     ],
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
-    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage']],
+    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];

@@ -130,8 +130,22 @@ export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
  *                 an explicit not-in-my-memory answer. Applies only in
  *                 strict/lenient guardrails — 'answer' mode is a
  *                 caller-level never-abstain contract and is exempt.
+ *                 NOTE (V9 calibration finding): retrieval-level floors
+ *                 cannot detect ANSWER-absence on topically-adjacent
+ *                 questions — both the composite score and raw cosine
+ *                 measured non-discriminative on BEAM abstention
+ *                 (p50 0.171 vs 0.175; 0.589 vs 0.603). Useful only
+ *                 for genuinely off-topic queries.
+ *  - 'verifier' — answer-level coverage: in lenient guardrails, when
+ *                 the verifier judges the generated answer
+ *                 unsupported/partial against the evidence bundle, the
+ *                 caller gets the explicit not-in-my-memory decline
+ *                 instead of ungrounded text. Costs nothing — the
+ *                 verifier already runs in lenient mode. 'answer' mode
+ *                 stays exempt (verifier is skipped there), so
+ *                 never-abstain QA traffic is structurally untouched.
  */
-export type AbstentionCalibrationMode = 'off' | 'coverage';
+export type AbstentionCalibrationMode = 'off' | 'coverage' | 'verifier';
 
 /**
  * How the generator's "today" is anchored:
@@ -330,6 +344,7 @@ export function resolveRetrievalProfile(
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
         'off',
         'coverage',
+        'verifier',
       ] as const) ?? 'off',
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
@@ -385,7 +400,7 @@ export function resolveRetrievalProfileFor(
     ['timelineEvidence', ['off', 'routed', 'scan']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
-    ['abstentionCalibration', ['off', 'coverage']],
+    ['abstentionCalibration', ['off', 'coverage', 'verifier']],
   ];
   for (const [key, allowed] of enumOverlays) {
     const v = o[key];
