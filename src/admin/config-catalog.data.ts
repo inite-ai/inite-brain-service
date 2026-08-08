@@ -817,7 +817,34 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits).",
+          "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits) | scan (V9 §2: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, segment record scanned per session with BM25+embedding against the TOPIC, one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K — the V8 diagnosis was coverage, not order).",
+      },
+      {
+        key: 'RETRIEVAL_ABSTENTION_CALIBRATION',
+        category: 'pipeline',
+        defaultValue: 'off',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. 'answer' guardrails are exempt: that mode is a caller-level never-abstain contract).",
+      },
+      {
+        key: 'RETRIEVAL_ABSTENTION_MIN_SCORE',
+        category: 'pipeline',
+        defaultValue: '0.35',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Coverage floor for RETRIEVAL_ABSTENTION_CALIBRATION=coverage: minimum best per-fact ranking score (the fused×decay×confidence product) the evidence must reach for the question to count as answerable. 0 disables the score floor.',
+      },
+      {
+        key: 'RETRIEVAL_ABSTENTION_MIN_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: '2',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Coverage floor for RETRIEVAL_ABSTENTION_CALIBRATION=coverage: minimum fact count across the retrieved evidence. 1 effectively disables the count floor (empty evidence already returns no_results).',
       },
       {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
@@ -826,7 +853,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, salienceScoring, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, salienceScoring, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
@@ -1069,7 +1096,16 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: false,
         isBooleanFlag: true,
         description:
-          "V8 §4 importance scoring, write side: the session-window deriver also grades each proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) in the same call and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE and passes through fn::resolve_fact verbatim). Near-zero marginal tokens. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; a prompt change confirms on a FRESH derivedVersion. Requires re-derive.",
+          "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
+      },
+      {
+        key: 'DERIVER_SLOT_SEMANTICS',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V9 §1 derived-world lifecycle: value-bearing aspects (identity, residence, work, education, health, possessions, preferences) resolve as 'bitemporal_event' (migration 0083) — the competing pool is cosine-gated (CONFLICT_SIMILARITY_THRESHOLD) AND interval-overlapping so only value-variants of one claim meet; recency is EVENT-TIME (validFrom, not the batch's shared recordedAt); a strictly later validFrom supersedes (knowledge update), an equal validFrom stays COMPETING (contradiction-lane signal), an earlier one slots in as history. Event-like aspects stay append_only. Default off (byte-identical writes); lifecycle-on worlds take a FRESH derivedVersion. Requires re-derive.",
       },
       {
         key: 'EXTRACTION_OBJECT_NORMALIZE',

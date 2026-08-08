@@ -45,6 +45,13 @@ export interface VerifyRequest {
   transcriptLines?: string[];
   /** Derived insights (V8 §1) the generator was allowed to answer from. */
   insightLines?: string[];
+  /**
+   * V8 §2 / V9 §2: the transcript excerpts were collected as the
+   * MENTION RECORD for an ordering question — label them so the auditor
+   * treats excerpt sequence as valid support for order claims (the
+   * generator was explicitly told to prefer it over fact date stamps).
+   */
+  timelineEvidence?: boolean;
   model: string;
 }
 
@@ -55,19 +62,21 @@ function buildVerifierUserMessage({
   factLines,
   transcriptLines,
   insightLines,
+  timelineEvidence,
 }: {
   query: string;
   answer: string;
   factLines: string[];
   transcriptLines?: string[];
   insightLines?: string[];
+  timelineEvidence?: boolean;
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {
-    sections.push(
-      `Source conversation turns (verbatim, equally valid support):\n` +
-        transcriptLines.join('\n'),
-    );
+    const header = timelineEvidence
+      ? `Source conversation turns (verbatim, chronological — the MENTION RECORD: the sequence of these excerpts is valid support for order-of-mention claims, and overrides fact date stamps):`
+      : `Source conversation turns (verbatim, equally valid support):`;
+    sections.push(`${header}\n` + transcriptLines.join('\n'));
   }
   if (insightLines && insightLines.length > 0) {
     sections.push(

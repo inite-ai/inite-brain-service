@@ -105,8 +105,33 @@ export type InsightEvidenceMode = 'off' | 'routed';
  *               order in what the model sees). Skipped when the query's
  *               resolved verbatim mode is 'fused' (segments already
  *               arrive as hits — appending would duplicate).
+ *  - 'scan'   — V9 §2: like 'routed', but the mention record is built
+ *               by the topic-scan lane (mention-scan.service.ts)
+ *               instead of the top-K segment appendix: the topic
+ *               phrase is extracted from the question, the segment
+ *               record is scanned per session (BM25 + embedding
+ *               against the TOPIC, not the whole question), and ONE
+ *               dated line per session-mention is emitted in
+ *               occurredAt order — coverage bounded by session count,
+ *               not top-K (the measured event_ordering failure is
+ *               COVERAGE: golds enumerate a topic across ALL sessions;
+ *               top-K similarity windows cannot).
  */
-export type TimelineEvidenceMode = 'off' | 'routed';
+export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
+
+/**
+ * Memory-coverage abstention (V9 §4):
+ *  - 'off'      — abstention is decided solely by the generator's own
+ *                 judgment (pre-V9 behavior).
+ *  - 'coverage' — before generation, the retrieved evidence must clear
+ *                 a coverage floor (best fact score ≥
+ *                 abstentionMinTopScore AND fact count ≥
+ *                 abstentionMinEvidence); below it synthesize returns
+ *                 an explicit not-in-my-memory answer. Applies only in
+ *                 strict/lenient guardrails — 'answer' mode is a
+ *                 caller-level never-abstain contract and is exempt.
+ */
+export type AbstentionCalibrationMode = 'off' | 'coverage';
 
 /**
  * How the generator's "today" is anchored:
@@ -189,6 +214,12 @@ export interface RetrievalProfile {
    * byte-identical ranking.
    */
   salienceScoring: boolean;
+  /** V9 §4 memory-coverage abstention; off = byte-identical. */
+  abstentionCalibration: AbstentionCalibrationMode;
+  /** Coverage floor: minimum best fact score (see abstention.ts). */
+  abstentionMinTopScore: number;
+  /** Coverage floor: minimum evidence fact count. */
+  abstentionMinEvidence: number;
   /** Active dispatch lanes; empty set = no typed dispatch. */
   lanes: ReadonlySet<LaneId>;
 }
@@ -200,6 +231,19 @@ function positiveIntEnv(
 ): number {
   const v = parseInt(env[name] ?? '', 10);
   return Number.isFinite(v) && v > 0 ? v : dflt;
+}
+
+/** Non-negative float knob with a default (coverage floors are 0-ok,
+ *  so unset/blank must NOT collapse to Number('')===0 — check first). */
+function nonNegativeFloatEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  dflt: number,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return dflt;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
 function enumEnv<T extends string>(
@@ -255,8 +299,11 @@ export function resolveRetrievalProfile(
       enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed'] as const) ??
       'off',
     timelineEvidence:
-      enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed'] as const) ??
-      'off',
+      enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', [
+        'off',
+        'routed',
+        'scan',
+      ] as const) ?? 'off',
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
         'none',
@@ -279,6 +326,21 @@ export function resolveRetrievalProfile(
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
     entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
+    abstentionCalibration:
+      enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
+        'off',
+        'coverage',
+      ] as const) ?? 'off',
+    abstentionMinTopScore: nonNegativeFloatEnv(
+      env,
+      'RETRIEVAL_ABSTENTION_MIN_SCORE',
+      0.35,
+    ),
+    abstentionMinEvidence: positiveIntEnv(
+      env,
+      'RETRIEVAL_ABSTENTION_MIN_EVIDENCE',
+      2,
+    ),
     lanes,
   };
 }
@@ -320,9 +382,10 @@ export function resolveRetrievalProfileFor(
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
     ['insightEvidence', ['off', 'routed']],
-    ['timelineEvidence', ['off', 'routed']],
+    ['timelineEvidence', ['off', 'routed', 'scan']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
+    ['abstentionCalibration', ['off', 'coverage']],
   ];
   for (const [key, allowed] of enumOverlays) {
     const v = o[key];
@@ -337,10 +400,20 @@ export function resolveRetrievalProfileFor(
     'segmentTopK',
     'extraEvidenceCap',
     'wideProbeLimit',
+    'abstentionMinEvidence',
   ] as const) {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
       merged[key] = Math.floor(v);
+    }
+  }
+  // Float knobs (coverage score floor lives in (0,1) — flooring would
+  // destroy it, so it overlays outside the int loop; 0 is a valid
+  // "disable this floor" value).
+  {
+    const v = o.abstentionMinTopScore;
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+      merged.abstentionMinTopScore = v;
     }
   }
   for (const key of [

@@ -6,6 +6,7 @@ import { SynthesizeService } from './synthesize.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
+import { MentionScanService } from './mention-scan.service';
 
 @Module({
   imports: [SearchModule, EpisodesModule],
@@ -15,6 +16,7 @@ import { InsightLaneService } from './insight-lane.service';
     EpisodeLaneService,
     SegmentLaneService,
     InsightLaneService,
+    MentionScanService,
   ],
   exports: [SynthesizeService],
 })

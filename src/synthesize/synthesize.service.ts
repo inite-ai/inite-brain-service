@@ -16,6 +16,18 @@ import {
 } from './dto/synthesize.dto';
 import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
+import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from './abstention';
+import {
+  attachDecisionLog,
+  resolveAnswerLang,
+  resolveCitations,
+  verifierErrorResult,
+} from './synthesize.helpers';
+import {
+  wantsInsightEvidence,
+  wantsTimelineEvidence,
+  wantsVerbatimEvidence,
+} from './evidence-gates';
 import { applyEvidenceUnion, resolveDateContext } from './evidence-union';
 import {
   routeLane,
@@ -23,11 +35,8 @@ import {
   INSTRUCTION_PROBE_QUERY,
   extractStandingInstructions,
   detectEvidenceConflicts,
-  detectVerbatimShape,
-  detectOrderingShape,
   type LaneId,
 } from './answer-router';
-import { resolveVerbatimMode } from '../search/verbatim-routing';
 export { detectEvidenceConflicts } from './answer-router';
 import {
   getActiveRetrievalProfile,
@@ -43,7 +52,7 @@ import type { SearchDto } from '../search/dto/search.dto';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
-import { detectLanguage } from '../ai/locale/language-detector';
+import { MentionScanService } from './mention-scan.service';
 import {
   NOOP_REPORTER,
   type ProgressReporter,
@@ -74,6 +83,8 @@ export type { Citation } from './fact-index';
 export type SynthesisReason =
   | 'no_results'
   | 'no_grounded_evidence'
+  /** V9 §4: the memory-coverage floor fired before generation. */
+  | 'low_coverage'
   | 'verifier_failed'
   | 'verifier_partial'
   | 'generator_error'
@@ -110,66 +121,6 @@ interface GeneratorOutput {
   citedFactIds: string[];
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
-}
-
-/**
- * Verbatim-evidence activation per the profile's mode: 'always' runs
- * the L0 quote lanes on every question; 'shape_conditioned' (the
- * engine default) only when the question asks for ASSISTANT-side
- * content — extraction is user-fact-shaped and the measured SSA
- * failure is "facts do not specify…" while the verbatim turn sits
- * unused in L0; 'off' never. 'fused' behaves like shape_conditioned
- * for the two episode quote lanes — segments arrive as first-class
- * SearchHits from the retrieval-side fusion leg (audit W4 #18), so the
- * appendix segment lane below deliberately does NOT run. Module-level
- * to keep synthesize() complexity flat.
- */
-function wantsVerbatimEvidence(
-  profile: RetrievalProfile,
-  query: string,
-): boolean {
-  // 'routed' resolves per query (never to 'always'/'off'), so both of
-  // its regimes take the shape-conditioned quote gate below — same as
-  // 'fused'. Branch on the RESOLVED mode by invariant (answer-router).
-  const mode = resolveVerbatimMode(profile.verbatimEvidence, query);
-  if (mode === 'off') return false;
-  if (mode === 'always') return true;
-  return detectVerbatimShape(query);
-}
-
-/**
- * Insight-lane activation (V8 §1): only under insightEvidence='routed'
- * and only for the question classes where derived insights measured as
- * paying — summarization / progressive-narrative (the summary lane)
- * and enumeration. Pointwise asks (no lane, or any other lane) skip
- * the slot: the V6 lesson generalized — every evidence class pays on
- * its own question class and drowns others; dispatch is the
- * mechanism, not always-on.
- */
-function wantsInsightEvidence(
-  profile: RetrievalProfile,
-  lane: LaneId | null,
-): boolean {
-  if (profile.insightEvidence !== 'routed') return false;
-  return lane === 'summary' || lane === 'enumeration';
-}
-
-/**
- * Timeline-evidence activation (V8 §2): ordering/sequence-shaped
- * questions get the chronological segment appendix — the occurredAt-
- * ordered mention record. Facts cannot answer mention-order questions
- * (event-time extraction collapses a session's mentions onto one
- * validFrom date). Skipped when this query's resolved verbatim mode is
- * 'fused' — segments already arrive as scored hits and the appendix
- * would duplicate them.
- */
-function wantsTimelineEvidence(
-  profile: RetrievalProfile,
-  query: string,
-): boolean {
-  if (profile.timelineEvidence !== 'routed') return false;
-  if (!detectOrderingShape(query)) return false;
-  return resolveVerbatimMode(profile.verbatimEvidence, query) !== 'fused';
 }
 
 /**
@@ -261,6 +212,7 @@ export class SynthesizeService {
     @Optional() private readonly episodeLane?: EpisodeLaneService,
     @Optional() private readonly segmentLane?: SegmentLaneService,
     @Optional() private readonly insightLane?: InsightLaneService,
+    @Optional() private readonly mentionScan?: MentionScanService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -397,6 +349,19 @@ export class SynthesizeService {
     }
     const { results, factIndex, factLines } = prepared;
 
+    // V9 §4 memory-coverage abstention (strict/lenient only — 'answer'
+    // is a caller-level never-abstain contract).
+    const abstained = this.coverageAbstention({
+      profile,
+      guardrails,
+      results,
+      explain,
+    });
+    if (abstained) {
+      void instructionsPromise.catch(() => undefined);
+      return abstained;
+    }
+
     const [instructions, transcriptLines, insightLines] = await Promise.all([
       instructionsPromise,
       this.collectTranscriptLines({
@@ -487,41 +452,14 @@ export class SynthesizeService {
       ? buildDecisionLog(results, citedSet)
       : undefined;
 
-    // Sentinel "I don't know" path. Generator was honest about
-    // empty grounding; no need to verify, no need to cite. Skipped in
-    // never-abstain mode — there the generator is instructed never to emit
-    // the sentinel, and if it slips through we still return it as the answer
-    // rather than tagging an abstention (the mode's whole point).
-    if (
-      guardrails !== 'answer' &&
-      generated.answer.trim() === "I don't have grounded evidence for that."
-    ) {
-      this.metrics?.countSynthesize('no_grounded_evidence');
-      return attachDecisionLog(
-        {
-          answer: generated.answer,
-          reason: 'no_grounded_evidence',
-          citations: [],
-          results,
-        },
-        decisionLog,
-      );
-    }
-
-    // Never-abstain mode returns the grounded best-effort answer directly,
-    // like 'off' but semantically "always answer" — verifier is skipped.
-    if (guardrails === 'off' || guardrails === 'answer') {
-      this.metrics?.countSynthesize('ok');
-      return attachDecisionLog(
-        {
-          answer: generated.answer,
-          citations,
-          results,
-          ...(generated.usage ? { tokenUsage: generated.usage } : {}),
-        },
-        decisionLog,
-      );
-    }
+    const unverified = this.unverifiedReturn({
+      guardrails,
+      generated,
+      citations,
+      results,
+      decisionLog,
+    });
+    if (unverified) return unverified;
 
     onProgress({ stage: 'verify', message: 'verifier checking claim grounding' });
     // Verifier — the corrective guardrail. Runs in strict and
@@ -547,6 +485,10 @@ export class SynthesizeService {
               // evidence the generator was given.
               transcriptLines,
               insightLines,
+              // W5 #22 parity for the mention record (V9 §2 closes the
+              // V8 gap): the auditor sees the same MENTION RECORD
+              // framing the generator saw.
+              timelineEvidence: wantsTimelineEvidence(profile, dto.query),
               model,
             }),
           ),
@@ -622,6 +564,101 @@ export class SynthesizeService {
   }
 
   /**
+   * The two no-verifier exits, extracted from synthesize() (complexity
+   * budget). Sentinel "I don't know" path: the generator was honest
+   * about empty grounding — no verify, no cite; skipped in
+   * never-abstain mode (there the generator is instructed never to
+   * emit the sentinel, and if it slips through we return it as the
+   * answer rather than tagging an abstention). Never-abstain/off then
+   * return the grounded best-effort answer directly — verifier
+   * skipped. Returns null when the verifier should run.
+   */
+  private unverifiedReturn({
+    guardrails,
+    generated,
+    citations,
+    results,
+    decisionLog,
+  }: {
+    guardrails: SynthesisGuardrails;
+    generated: GeneratorOutput;
+    citations: Citation[];
+    results: SearchHit[];
+    decisionLog?: DecisionLogEntry[];
+  }): SynthesizeResult | null {
+    if (
+      guardrails !== 'answer' &&
+      generated.answer.trim() === "I don't have grounded evidence for that."
+    ) {
+      this.metrics?.countSynthesize('no_grounded_evidence');
+      return attachDecisionLog(
+        {
+          answer: generated.answer,
+          reason: 'no_grounded_evidence',
+          citations: [],
+          results,
+        },
+        decisionLog,
+      );
+    }
+    if (guardrails === 'off' || guardrails === 'answer') {
+      this.metrics?.countSynthesize('ok');
+      return attachDecisionLog(
+        {
+          answer: generated.answer,
+          citations,
+          results,
+          ...(generated.usage ? { tokenUsage: generated.usage } : {}),
+        },
+        decisionLog,
+      );
+    }
+    return null;
+  }
+
+  /**
+   * V9 §4 memory-coverage abstention: in the modes where abstention is
+   * permitted, the evidence must clear the coverage floor before we
+   * spend a generator call. Below it, the honest answer is that the
+   * memory has nothing — returned explicitly, so the caller sees a
+   * decline instead of a plausible composition from near-miss
+   * evidence. Returns null when generation should proceed.
+   */
+  private coverageAbstention({
+    profile,
+    guardrails,
+    results,
+    explain,
+  }: {
+    profile: RetrievalProfile;
+    guardrails: SynthesisGuardrails;
+    results: SearchHit[];
+    explain: boolean;
+  }): SynthesizeResult | null {
+    if (profile.abstentionCalibration !== 'coverage') return null;
+    if (guardrails !== 'strict' && guardrails !== 'lenient') return null;
+    const coverage = assessMemoryCoverage(results, {
+      minTopScore: profile.abstentionMinTopScore,
+      minEvidence: profile.abstentionMinEvidence,
+    });
+    if (coverage.covered) return null;
+    this.logger.debug(
+      `coverage floor abstained (top=${coverage.topScore.toFixed(3)}, ` +
+        `facts=${coverage.factCount})`,
+    );
+    this.metrics?.countSynthesize('low_coverage');
+    return attachDecisionLog(
+      {
+        answer: NOT_IN_MEMORY_ANSWER,
+        reason: 'low_coverage',
+        citations: [],
+        results,
+      },
+      explain ? buildDecisionLog(results, new Set()) : undefined,
+    );
+  }
+
+  /**
    * Guardrail + no-results prologue of synthesize(), extracted verbatim
    * (complexity budget). Returns `{empty}` with the early-return result,
    * or the prepared evidence for the generator.
@@ -651,51 +688,72 @@ export class SynthesizeService {
   }): Promise<string[]> {
     const active = wantsVerbatimEvidence(profile, query);
     if (getAbortSignal()?.aborted) return [];
-    // The three lanes are independent reads — run them concurrently
-    // (audit W4 carried: they used to be three sequential awaits).
+    // V9 §2: under timelineEvidence='scan' the ordering dispatch is
+    // served by the mention-scan lane (coverage-first, one line per
+    // session) INSTEAD of the top-K segment appendix — the appendix
+    // still runs for the 'always' verbatim profile and for 'routed'.
+    const timelineActive = wantsTimelineEvidence(profile, query);
+    const scanActive =
+      timelineActive &&
+      profile.timelineEvidence === 'scan' &&
+      !!this.mentionScan;
+    // The lanes are independent reads — run them concurrently
+    // (audit W4 carried: they used to be sequential awaits).
     // Segments compete for the prompt on their own retrieval merit —
     // an 'always' verbatim profile runs them; the shape-conditioned
     // default does not (they measurably distract on assistant chats);
     // 'fused' retrieves them as scored SearchHits inside search, so
     // appending them here would duplicate the evidence.
-    const [laneLines, sourceLines, segmentLines] = await Promise.all([
-      active
-        ? this.episodeLane
-            ?.transcriptLines({
-              companyId,
-              query,
-              callerScopes,
-              userId,
-              limit: profile.quotesPerPrompt,
-            })
-            .then((v) => v ?? [])
-        : [],
-      active
-        ? this.episodeLane
-            ?.sourceExcerpts({
-              companyId,
-              factIds,
-              callerScopes,
-              userId,
-              cap: profile.sourceExcerptsCap,
-            })
-            .then((v) => v ?? [])
-        : [],
-      profile.verbatimEvidence === 'always' ||
-      wantsTimelineEvidence(profile, query)
-        ? this.segmentLane
-            ?.transcriptLines({
-              companyId,
-              query,
-              callerScopes,
-              userId,
-              topK: profile.segmentTopK,
-              rerank: profile.segmentRerank,
-            })
-            .then((v) => v ?? [])
-        : [],
-    ]).then((lanes) => lanes.map((l) => l ?? []));
-    return [...new Set([...segmentLines, ...sourceLines, ...laneLines])];
+    const [laneLines, sourceLines, segmentLines, scanLines] =
+      await Promise.all([
+        active
+          ? this.episodeLane
+              ?.transcriptLines({
+                companyId,
+                query,
+                callerScopes,
+                userId,
+                limit: profile.quotesPerPrompt,
+              })
+              .then((v) => v ?? [])
+          : [],
+        active
+          ? this.episodeLane
+              ?.sourceExcerpts({
+                companyId,
+                factIds,
+                callerScopes,
+                userId,
+                cap: profile.sourceExcerptsCap,
+              })
+              .then((v) => v ?? [])
+          : [],
+        profile.verbatimEvidence === 'always' || (timelineActive && !scanActive)
+          ? this.segmentLane
+              ?.transcriptLines({
+                companyId,
+                query,
+                callerScopes,
+                userId,
+                topK: profile.segmentTopK,
+                rerank: profile.segmentRerank,
+              })
+              .then((v) => v ?? [])
+          : [],
+        scanActive
+          ? this.mentionScan
+              ?.mentionLines({ companyId, query, callerScopes, userId })
+              .then((v) => v ?? [])
+          : [],
+      ]).then((lanes) => lanes.map((l) => l ?? []));
+    return [
+      ...new Set([
+        ...scanLines,
+        ...segmentLines,
+        ...sourceLines,
+        ...laneLines,
+      ]),
+    ];
   }
 
   /**
@@ -1000,6 +1058,7 @@ export class SynthesizeService {
     factLines: string[];
     transcriptLines?: string[];
     insightLines?: string[];
+    timelineEvidence?: boolean;
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({
@@ -1008,123 +1067,4 @@ export class SynthesizeService {
       ...args,
     });
   }
-}
-
-// ── Pure helpers (lifted out of `synthesize()` to keep the orchestrator
-// under the cognitive-complexity gate) ────────────────────────────────
-
-/**
- * Strip a record-id prefix down to its bare tail so citations resolve
- * across format drift. The generator is shown `[knowledge_fact:<tail>]`
- * in the fact list but the prompt's own example uses `[fact_abc]`, so the
- * model intermittently emits `fact_<tail>` / `fact:<tail>` instead of the
- * canonical `knowledge_fact:<tail>`. Tails are 20-char random slugs, so
- * matching on the tail is unambiguous.
- */
-function citationTail(id: string): string {
-  return id.replace(/^knowledge_fact[:_]/i, '').replace(/^fact[:_]/i, '');
-}
-
-/**
- * Pull `[<factId>]` citation markers out of the answer text. The generator
- * RELIABLY inlines a bracketed citation after each claim (system prompt
- * rule #2) but only INTERMITTENTLY mirrors them into the structured
- * `citedFactIds` array — so the answer text is the more trustworthy
- * citation source. Matches an optional table prefix + a ≥6-char slug to
- * avoid catching ordinary bracketed prose.
- */
-function extractInlineCitations(answer: string): string[] {
-  const ids: string[] = [];
-  const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,})\]/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(answer)) !== null) ids.push(m[1]);
-  return ids;
-}
-
-/**
- * Resolve the generator's citations against the retrieved index. Unions
- * the structured `citedFactIds` array with the `[...]` markers parsed from
- * the answer text (the model populates the array unreliably — see
- * extractInlineCitations) and matches each candidate by exact id OR by
- * bare tail (see citationTail) so prefix drift still resolves. A candidate
- * that matches no retrieved fact is a hallucinated citation — dropped.
- * Preserves emission order; deduplicates by resolved factId.
- */
-function resolveCitations(
-  citedFactIds: string[] | undefined,
-  answer: string,
-  factIndex: Map<string, Citation>,
-): Citation[] {
-  const byTail = new Map<string, Citation>();
-  for (const [id, cite] of factIndex) byTail.set(citationTail(id), cite);
-
-  const citations: Citation[] = [];
-  const seen = new Set<string>();
-  const candidates = [
-    ...(citedFactIds ?? []),
-    ...extractInlineCitations(answer ?? ''),
-  ];
-  for (const raw of candidates) {
-    const cite = factIndex.get(raw) ?? byTail.get(citationTail(raw));
-    if (cite && !seen.has(cite.factId)) {
-      seen.add(cite.factId);
-      citations.push(cite);
-    }
-  }
-  return citations;
-}
-
-/**
- * Attach an optional decisionLog to a result without ternary noise at
- * each return site. Keeps the orchestrator under the complexity gate.
- */
-function attachDecisionLog(
-  result: SynthesizeResult,
-  decisionLog: DecisionLogEntry[] | undefined,
-): SynthesizeResult {
-  return decisionLog === undefined ? result : { ...result, decisionLog };
-}
-
-/**
- * Detect the answer language: explicit DTO value wins, else the pure
- * detector on the query; `null` when the detector is undecided so the
- * caller can omit the language instruction from the prompt entirely
- * (the generator's own multilingual default is correct enough for
- * the `und` case).
- */
-function resolveAnswerLang(dto: SynthesizeDto): string | null {
-  if (dto.answerLang) return dto.answerLang;
-  const r = detectLanguage(dto.query);
-  return r.language === 'und' ? null : r.language;
-}
-
-/**
- * Verifier-error result selection: strict ⇒ fail-closed (drop answer);
- * lenient/off ⇒ surface the answer with a `verifier_error` reason.
- * Extracted from `synthesize()` to keep the orchestrator under the
- * cognitive-complexity gate.
- */
-function verifierErrorResult({
-  guardrails,
-  answer,
-  citations,
-  results,
-  decisionLog,
-}: {
-  guardrails: SynthesisGuardrails;
-  answer: string;
-  citations: Citation[];
-  results: SearchHit[];
-  decisionLog: DecisionLogEntry[] | undefined;
-}): SynthesizeResult {
-  if (guardrails === 'strict') {
-    return attachDecisionLog(
-      { answer: null, reason: 'verifier_error', citations: [], results },
-      decisionLog,
-    );
-  }
-  return attachDecisionLog(
-    { answer, reason: 'verifier_error', citations, results },
-    decisionLog,
-  );
 }
