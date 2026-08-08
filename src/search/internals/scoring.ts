@@ -75,7 +75,22 @@ export interface ScoreRowsOptions {
    * enabling this there is also a no-op by construction.
    */
   temporalAnchor?: Date | null;
+  /**
+   * V8 §4 importance scoring (profile salienceScoring, default off):
+   * folds the deriver-stamped source.salience (0-3) into ranking via
+   * SALIENCE_WEIGHTS. Rows without a stamp — legacy worlds, live
+   * ingest, segments — sit on the neutral grade 1 (weight 1.0), so
+   * they are unaffected; off → factor exactly 1.0 → byte-identical.
+   */
+  salienceScoring?: boolean;
 }
+
+/**
+ * Multiplicative weight per salience grade 0-3. A tuning constant by
+ * design (the segment-budget precedent); the neutral grade 1 MUST stay
+ * exactly 1.0 so unstamped rows are byte-identical at any setting.
+ */
+const SALIENCE_WEIGHTS = [0.8, 1.0, 1.1, 1.25] as const;
 
 const CORROBORATION_CAP = 3;
 
@@ -118,7 +133,15 @@ export function scoreRows({
   authorityDelta = 0,
   chatterPenalty = 1,
   temporalAnchor = null,
+  salienceScoring = false,
 }: ScoreRowsOptions): ScoredRow[] {
+  const salienceFactorFor = (source: unknown): number => {
+    if (!salienceScoring) return 1;
+    const s = (source as { salience?: unknown } | null)?.salience;
+    return typeof s === 'number' && Number.isInteger(s) && s >= 0 && s <= 3
+      ? SALIENCE_WEIGHTS[s]
+      : 1;
+  };
   // A penalty is only meaningful in (0,1]; anything else (unset, ≥1, invalid)
   // means "no penalty" so ranking is byte-identical to before.
   const chatterFactorFor = (predicate: string): number =>
@@ -189,6 +212,7 @@ export function scoreRows({
     const temporalOverlap = temporalAnchor
       ? temporalOverlapFactor(row, temporalAnchor.getTime())
       : 1;
+    const salienceFactor = salienceFactorFor(row.source);
     const finalScore =
       row.fusedScore *
       decay *
@@ -197,7 +221,8 @@ export function scoreRows({
       trustFactor *
       corroborationFactor *
       authorityFactor *
-      temporalOverlap;
+      temporalOverlap *
+      salienceFactor;
     return {
       row,
       score: finalScore,
@@ -208,6 +233,7 @@ export function scoreRows({
         decay,
         ...(chatterFactor !== 1 ? { chatterPenalty: chatterFactor } : {}),
         ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
+        ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
         factTrust,
         finalScore,
         stages: row.stages ?? [],

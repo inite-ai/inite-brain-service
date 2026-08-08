@@ -142,6 +142,12 @@ export interface ScoreBreakdown {
    */
   temporalOverlap?: number;
   /**
+   * V8 §4 importance factor from the deriver-stamped source.salience
+   * (profile salienceScoring). Omitted when 1.0 — scoring off, an
+   * unstamped row, or the neutral grade.
+   */
+  salience?: number;
+  /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the
    * write-time snapshot ladder (learnedTrust ?? declaredTrust ?? 0.5 —

@@ -802,6 +802,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "How derived insight rows — aspect aggregates (source.recorder='aggregate-composer-v1') and promotion/compaction summaries (predicate summary_*) — reach answers: off (they ride the fact legs as ordinary rows — pre-V8 behavior; the naive always-on composition measured MS tie / BEAM −2.0pp with summarization down, because aggregates displace atomic facts inside the fact budget) | routed (fact legs exclude insight rows; summarization/progressive-narrative/enumeration questions retrieve them as their own dense+BM25 convex-fused pool under a separate prompt slot — INSIGHT_TOP_K, not factBudget; pointwise asks skip the slot).",
       },
       {
+        key: 'RETRIEVAL_SALIENCE_SCORING',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V8 §4 importance scoring (profile field salienceScoring): fold the deriver-stamped source.salience (0-3, written under DERIVER_SALIENCE_STAMP) into ranking as a multiplicative factor — weights [0.8, 1.0, 1.1, 1.25] per grade. Rows without a stamp (legacy worlds, live ingest, segments) sit on the neutral grade 1 and are unaffected; off → byte-identical ranking. Enable only against a salience-stamped derived world.',
+      },
+      {
         key: 'RETRIEVAL_TIMELINE_EVIDENCE',
         category: 'pipeline',
         defaultValue: 'off',
@@ -817,7 +826,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, salienceScoring, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
@@ -1052,6 +1061,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'V7 deriver-recall: after the base proposition pass the session-window deriver runs a second "what was missed" call — the model sees its own proposition list and returns ONLY additional durable propositions (up to 20), unioned with text-level dedup. The base contract caps at 40 propositions and a single pass under-extracts dense sessions (extraction recall has been the measured LoCoMo bottleneck since 2026-07). ~2x deriver spend on ingest. Default off; confirm on a FRESH derivedVersion — worlds derived under different pass counts must not share a version. Requires re-derive.',
+      },
+      {
+        key: 'DERIVER_SALIENCE_STAMP',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V8 §4 importance scoring, write side: the session-window deriver also grades each proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) in the same call and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE and passes through fn::resolve_fact verbatim). Near-zero marginal tokens. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; a prompt change confirms on a FRESH derivedVersion. Requires re-derive.",
       },
       {
         key: 'EXTRACTION_OBJECT_NORMALIZE',

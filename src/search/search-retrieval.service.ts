@@ -161,6 +161,7 @@ export class SearchRetrievalService {
           temporalAnchor:
             ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
           tuning: ctx.tuning,
+          salienceScoring: ctx.profile.salienceScoring,
         });
         // profile.segmentTopK means "segments per prompt" — the appendix
         // lane honoured it, the first fused cut did not (every fetchK
@@ -204,6 +205,11 @@ export class SearchRetrievalService {
        * audit W6 #28).
        */
       tuning?: SearchTuning;
+      /**
+       * V8 §4: profile salienceScoring — folds the deriver-stamped
+       * source.salience into ranking. Omitted/false → byte-identical.
+       */
+      salienceScoring?: boolean;
     },
   ): Map<string, EntityBucket> {
     const tuning = opts?.tuning ?? resolveSearchTuning();
@@ -218,6 +224,7 @@ export class SearchRetrievalService {
       authorityDelta: tuning.authorityDelta,
       chatterPenalty: tuning.chatterPenalty,
       temporalAnchor: opts?.temporalAnchor ?? null,
+      salienceScoring: opts?.salienceScoring ?? false,
     });
     return bucketByEntity(scored);
   }

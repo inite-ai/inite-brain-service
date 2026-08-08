@@ -43,6 +43,16 @@ export interface ExtractionPipelineProfile {
    * must not share a version — confirm on a FRESH derivedVersion).
    */
   deriveCompletionPass: boolean;
+  /**
+   * DERIVER_SALIENCE_STAMP (V8 §4, importance-scoring design note):
+   * the deriver also judges a 0-3 salience per proposition (0
+   * incidental, 1 routine, 2 notable, 3 identity-central) and the
+   * write stamps it as source.salience. Read-side use is separately
+   * gated (RETRIEVAL_SALIENCE_SCORING); rows without the stamp read as
+   * neutral. Off → prompt and schema byte-identical (ewave rule: a
+   * prompt change confirms on a FRESH derivedVersion).
+   */
+  deriveSalienceStamp: boolean;
 }
 
 /** Boot-default profile from env — the single reader of these keys. */
@@ -62,5 +72,6 @@ export function resolveExtractionProfile(
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
+    deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
   };
 }

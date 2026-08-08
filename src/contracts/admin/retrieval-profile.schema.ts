@@ -35,6 +35,7 @@ export const RetrievalProfileWireSchema = z.object({
   wideProbe: z.boolean(),
   wideProbeLimit: z.number().int(),
   entityExpansion: z.boolean(),
+  salienceScoring: z.boolean(),
   lanes: z.array(z.string()),
 });
 
