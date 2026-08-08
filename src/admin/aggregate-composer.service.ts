@@ -98,6 +98,7 @@ export class AggregateComposerService {
       >(
         `SELECT entityId, count() AS n FROM knowledge_fact
           WHERE status = 'active' AND source.recorder != $recorder
+            AND !string::starts_with(predicate, 'summary_')
             ${versionClause}
           GROUP BY entityId ORDER BY n DESC LIMIT $k`,
         { k: entityCap, recorder: AGGREGATE_RECORDER, version },
@@ -133,9 +134,13 @@ export class AggregateComposerService {
     );
     const name = entity?.canonicalName ?? entityId;
     const [facts] = await db.query<[FactRowLite[]]>(
+      // Arcs (summary_arc_*) and promotion/compaction summaries are
+      // derived state — excluded by the summary_ prefix idiom so a
+      // re-run never aggregates another composer's summaries (V9 §3).
       `SELECT id, predicate, object, validFrom FROM knowledge_fact
         WHERE entityId = $eid AND status = 'active'
           AND source.recorder != $recorder
+          AND !string::starts_with(predicate, 'summary_')
           ${versionClause}
         ORDER BY validFrom ASC LIMIT 400`,
       {
