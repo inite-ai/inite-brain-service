@@ -502,6 +502,7 @@ export class SearchService {
       temporalAnchor:
         ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
       tuning: ctx.tuning,
+      salienceScoring: ctx.profile.salienceScoring,
     });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the

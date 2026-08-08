@@ -182,6 +182,13 @@ export interface RetrievalProfile {
    * measured per genre.
    */
   entityExpansion: boolean;
+  /**
+   * V8 §4 importance scoring: fold the deriver-stamped source.salience
+   * (0-3, DERIVER_SALIENCE_STAMP) into ranking as a multiplicative
+   * factor. Unstamped rows sit on the neutral grade; off →
+   * byte-identical ranking.
+   */
+  salienceScoring: boolean;
   /** Active dispatch lanes; empty set = no typed dispatch. */
   lanes: ReadonlySet<LaneId>;
 }
@@ -271,6 +278,7 @@ export function resolveRetrievalProfile(
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
     entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
+    salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
     lanes,
   };
 }
@@ -355,6 +363,7 @@ export function resolveRetrievalProfileFor(
     'segmentRerank',
     'wideProbe',
     'entityExpansion',
+    'salienceScoring',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }
