@@ -5,11 +5,17 @@ import { SynthesizeController } from './synthesize.controller';
 import { SynthesizeService } from './synthesize.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
+import { InsightLaneService } from './insight-lane.service';
 
 @Module({
   imports: [SearchModule, EpisodesModule],
   controllers: [SynthesizeController],
-  providers: [SynthesizeService, EpisodeLaneService, SegmentLaneService],
+  providers: [
+    SynthesizeService,
+    EpisodeLaneService,
+    SegmentLaneService,
+    InsightLaneService,
+  ],
   exports: [SynthesizeService],
 })
 export class SynthesizeModule {}

@@ -793,13 +793,22 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'How an explicit asOf shapes retrieval: filter (bitemporal closure excludes facts not valid at asOf — strict point-in-time, the default) | overlap_boost (validity closure relaxed; facts outside the interval survive with an exponential distance decay on their score — soft recall, a slightly-wrong asOf degrades instead of emptying results).',
       },
       {
+        key: 'RETRIEVAL_INSIGHT_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: 'off',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "How derived insight rows — aspect aggregates (source.recorder='aggregate-composer-v1') and promotion/compaction summaries (predicate summary_*) — reach answers: off (they ride the fact legs as ordinary rows — pre-V8 behavior; the naive always-on composition measured MS tie / BEAM −2.0pp with summarization down, because aggregates displace atomic facts inside the fact budget) | routed (fact legs exclude insight rows; summarization/progressive-narrative/enumeration questions retrieve them as their own dense+BM25 convex-fused pool under a separate prompt slot — INSIGHT_TOP_K, not factBudget; pointwise asks skip the slot).",
+      },
+      {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
         category: 'pipeline',
         defaultValue: null,
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, dateAnchoring, temporalMode, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

@@ -69,6 +69,28 @@ export type VerbatimEvidenceMode =
   | 'routed';
 
 /**
+ * How derived INSIGHT rows — aspect aggregates
+ * (source.recorder='aggregate-composer-v1') and promotion/compaction
+ * summaries (predicate 'summary_*') — reach answers:
+ *  - 'off'    — insight rows are ordinary knowledge_fact rows and ride
+ *               the fact legs (byte-identical to the pre-V8 engine).
+ *  - 'routed' — the qualified insight lane (V8 §1). The NAIVE version
+ *               is a measured null (validate-2026-08-results: MS tie,
+ *               BEAM −2.0pp, summarization 3↓/0↑ — aggregates compete
+ *               inside the fact budget and displace the atomic facts
+ *               the generator needed). Under 'routed' the fact legs
+ *               EXCLUDE insight rows; instead, summarization /
+ *               progressive-narrative / enumeration questions (the
+ *               summary and enumeration lanes) retrieve them as their
+ *               own pseudo-fact pool — dense+BM25 through the same
+ *               convex fusion — entering the prompt under a SEPARATE
+ *               budget slot (INSIGHT_TOP_K, not factBudget), so
+ *               insights never displace atomic facts. Pointwise asks
+ *               skip the slot entirely.
+ */
+export type InsightEvidenceMode = 'off' | 'routed';
+
+/**
  * How the generator's "today" is anchored:
  *  - 'none'         — no date context (LoCoMo-convention golds, where
  *                     real date arithmetic measurably hurts).
@@ -115,6 +137,7 @@ export const ALL_LANES: readonly LaneId[] = [
 export interface RetrievalProfile {
   genre: RetrievalGenre;
   verbatimEvidence: VerbatimEvidenceMode;
+  insightEvidence: InsightEvidenceMode;
   dateAnchoring: DateAnchoring;
   temporalMode: TemporalMode;
   /** Global fact budget for fact-centric selection. */
@@ -202,6 +225,9 @@ export function resolveRetrievalProfile(
         'fused',
         'routed',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
+    insightEvidence:
+      enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed'] as const) ??
+      'off',
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
         'none',
@@ -265,6 +291,12 @@ export function resolveRetrievalProfileFor(
     )
   ) {
     merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
+  }
+  if (
+    typeof o.insightEvidence === 'string' &&
+    ['off', 'routed'].includes(o.insightEvidence)
+  ) {
+    merged.insightEvidence = o.insightEvidence as InsightEvidenceMode;
   }
   if (
     typeof o.dateAnchoring === 'string' &&
