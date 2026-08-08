@@ -64,12 +64,27 @@ export const DERIVER_ASSISTANT_SECTION = `
 ASSISTANT-SIDE CONTRIBUTIONS
 Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
 
-/** System prompt assembly; the section only exists when the flag asks. */
+/**
+ * V8 §4 salience stamp (DERIVER_SALIENCE_STAMP): the deriver already
+ * judges "durable vs ephemeral" per proposition — asking for a 0-3
+ * importance grade in the same call is near-zero marginal tokens,
+ * where an after-the-fact LLM re-scoring pass over stored facts would
+ * be a full second read of the corpus.
+ */
+export const DERIVER_SALIENCE_SECTION = `
+
+SALIENCE
+Also grade each proposition's "salience" — how central it is to remembering this person long-term: 0 = incidental detail (smalltalk-adjacent, one-off logistics); 1 = routine fact (the default); 2 = notable (decisions, changes, plans, recurring topics); 3 = identity-central (job, family, health, home, long-term goals). Most propositions are 1; reserve 3 for the few facts a biographer would keep.`;
+
+/** System prompt assembly; each section only exists when its flag asks. */
 export function buildDeriverSystem(opts?: {
   assistantContent?: boolean;
+  salienceStamp?: boolean;
 }): string {
   return (
-    DERIVER_SYSTEM + (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '')
+    DERIVER_SYSTEM +
+    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '') +
+    (opts?.salienceStamp ? DERIVER_SALIENCE_SECTION : '')
   );
 }
 
@@ -153,6 +168,8 @@ interface DerivedProposition {
   proposition: string;
   occurred_on: string | null;
   turns: number[];
+  /** 0-3 importance grade; present only under DERIVER_SALIENCE_STAMP. */
+  salience?: number;
 }
 
 @Injectable()
@@ -539,6 +556,18 @@ export class WindowDeriverService {
         const det = detectLanguage(p.proposition);
         const lang = det.language !== 'und' ? det.language : undefined;
         const script = det.language !== 'und' ? det.script : undefined;
+        // V8 §4: salience rides in `source` (object FLEXIBLE, passed
+        // verbatim through fn::resolve_fact's CREATE) — no schema
+        // migration, no resolver-arity change; every read leg already
+        // projects `source`. Only a valid 0-3 integer is stamped;
+        // absent reads as neutral on the scoring side.
+        const salience =
+          resolveExtractionProfile().deriveSalienceStamp &&
+          Number.isInteger(p.salience) &&
+          (p.salience as number) >= 0 &&
+          (p.salience as number) <= 3
+            ? { salience: p.salience }
+            : {};
         const source = {
           vertical: 'derived',
           recorder: version,
@@ -546,6 +575,7 @@ export class WindowDeriverService {
           episodeIds: p.turns
             .filter((t) => t >= 0 && t < session.length)
             .map((t) => String(session[t].id)),
+          ...salience,
         };
         return {
           entityId: subjectEntity,
@@ -580,6 +610,7 @@ export class WindowDeriverService {
         role: 'system',
         content: buildDeriverSystem({
           assistantContent: profile.deriveAssistantContent,
+          salienceStamp: profile.deriveSalienceStamp,
         }),
       },
       {
@@ -587,20 +618,23 @@ export class WindowDeriverService {
         content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,
       },
     ];
-    const base = await this.deriverPass(messages);
+    const base = await this.deriverPass(messages, profile.deriveSalienceStamp);
     if (!profile.deriveCompletionPass || base.length === 0) return base;
     // Completion pass (V7 deriver-recall): additive by construction —
     // a failure here degrades to the base pass, never fails the session.
     let extra: DerivedProposition[] = [];
     try {
-      extra = await this.deriverPass([
-        ...messages,
-        {
-          role: 'assistant',
-          content: JSON.stringify({ propositions: base }),
-        },
-        { role: 'user', content: DERIVER_COMPLETION_PROMPT },
-      ]);
+      extra = await this.deriverPass(
+        [
+          ...messages,
+          {
+            role: 'assistant',
+            content: JSON.stringify({ propositions: base }),
+          },
+          { role: 'user', content: DERIVER_COMPLETION_PROMPT },
+        ],
+        profile.deriveSalienceStamp,
+      );
     } catch (e) {
       this.logger.warn(
         `deriver completion pass failed (${(e as Error).message}); keeping the base pass`,
@@ -635,9 +669,10 @@ export class WindowDeriverService {
       role: 'system' | 'user' | 'assistant';
       content: string;
     }>,
+    salienceStamp = false,
   ): Promise<DerivedProposition[]> {
     for (const maxTokens of [8000, 16000]) {
-      const res = await this.deriverRequest(messages, maxTokens);
+      const res = await this.deriverRequest(messages, maxTokens, salienceStamp);
       const choice = res.choices[0];
       if (choice?.finish_reason === 'length') {
         this.logger.warn(
@@ -661,7 +696,15 @@ export class WindowDeriverService {
       content: string;
     }>,
     maxTokens: number,
+    salienceStamp = false,
   ) {
+    // Strict JSON schemas require every property in `required`, so the
+    // salience field exists only when the stamp flag asks — the off
+    // path stays byte-identical (ewave rule).
+    const salienceProps = salienceStamp
+      ? { salience: { type: 'integer' as const } }
+      : {};
+    const salienceRequired = salienceStamp ? ['salience'] : [];
     return this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,
@@ -687,6 +730,7 @@ export class WindowDeriverService {
                     proposition: { type: 'string' },
                     occurred_on: { type: ['string', 'null'] },
                     turns: { type: 'array', items: { type: 'integer' } },
+                    ...salienceProps,
                   },
                   required: [
                     'subject',
@@ -694,6 +738,7 @@ export class WindowDeriverService {
                     'proposition',
                     'occurred_on',
                     'turns',
+                    ...salienceRequired,
                   ],
                 },
               },

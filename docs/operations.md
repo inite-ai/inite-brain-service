@@ -223,6 +223,7 @@ default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant.
 | `RETRIEVAL_VERBATIM_EVIDENCE` | `shape_conditioned` | How verbatim L0 evidence reaches answers: `off` (facts only), `shape_conditioned` (episode quotes + provenance excerpts only when the question asks for conversational content — the engine default), `always` (all verbatim lanes unconditionally as a prompt appendix; the diary-genre profile), `fused` (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix), `routed` (per-query dispatch: verbatim-shaped questions take the fused path, everything else stays shape_conditioned). |
 | `RETRIEVAL_INSIGHT_EVIDENCE` | `off` | How derived insight rows (aspect aggregates + `summary_*` promotion/compaction summaries) reach answers: `off` (they ride the fact legs as ordinary rows), `routed` (fact legs exclude them; summarization/enumeration-routed questions retrieve them as their own dense+BM25 fused pool under a separate prompt slot — `INSIGHT_TOP_K`, not the fact budget). |
 | `RETRIEVAL_TIMELINE_EVIDENCE` | `off` | `routed`: ordering/sequence-shaped questions (the order-lexicon) also get the chronological segment appendix — the occurredAt-ordered mention record. Event-time extraction collapses a session's mentions onto one `validFrom` date, so mention order is unrecoverable from facts alone. Skipped when the query's resolved verbatim mode is `fused`. |
+| `RETRIEVAL_SALIENCE_SCORING` | off | Fold the deriver-stamped `source.salience` (0-3, written under `DERIVER_SALIENCE_STAMP`) into ranking — weights [0.8, 1.0, 1.1, 1.25] per grade. Unstamped rows sit on the neutral grade and are unaffected. Enable only against a salience-stamped derived world. |
 | `RETRIEVAL_DATE_ANCHORING` | `absolute` | How the generator's "today" anchors: `none` (session-date-convention golds, e.g. the LoCoMo eval profile), `session_date` (only when the caller sends `asOf`), `absolute` (asOf, else wall clock). |
 | `RETRIEVAL_TEMPORAL_MODE` | `filter` | How an explicit `asOf` shapes retrieval: `filter` (strict bitemporal point-in-time closure), `overlap_boost` (the validity gate is relaxed; facts outside the interval survive with an exponential distance decay on their score — a slightly-wrong asOf degrades results instead of emptying them). |
 | `RETRIEVAL_ENTITY_EXPANSION` | off | Second retrieval pass anchored on the top entities the first pass discovered and the query never named. Costs one extra embedding + two leg queries when it fires; enable per genre after measuring. |
@@ -438,6 +439,26 @@ docker / fly / k8s don't `SIGKILL` you with no log line.
 | `pnpm test:eval:json` | Loads a directory from `BRAIN_DIRECTORY_JSON=…/file.json` and runs retrieval + lifecycle assertions; same runner, your data. | Bringing up brain on a real customer dataset; smoke-testing a CSV→JSON export against the eval harness. |
 | `pnpm test:e2e:jobs` | Real-Surreal e2e: enqueue → claim → renew → complete cycle, dedup collision, fail+requeue, zombie reap, leader_lease in `system` DB. | After touching anything in `src/jobs/` or migrations 0028-0031. |
 | `pnpm lint` | ESLint flat config. | Every commit. |
+
+## Eval stand
+
+Idioms for accelerated benchmark legs (LoCoMo / LongMemEval / BEAM)
+against a local stand — mistakes here burn paid multi-hour runs:
+
+- **`THROTTLE_DISABLED=1` is REQUIRED for accelerated ingest legs.**
+  The per-route `@Throttle` decorators do NOT read the env rate-limit
+  values — only the throttler master switch disables them. Without it
+  the brain's own throttler 429s the eval runner at ~120 req/min
+  (`ThrottlerException` — easily misread as an OpenAI 429) and a
+  multi-hour ingest dies mid-flight. Never set it in production.
+- One heavy chain (ingest or QA) per SurrealDB stand container at a
+  time — two concurrent chains have OOM'd a 4-GB stand repeatedly.
+- Fresh tenant per write-leg attempt (mint a new single-tenant API
+  key), so lazy per-tenant migrations and half-written substrates can
+  never contaminate a pair.
+- Gate chain steps on CHECKPOINT COMPLETENESS (row count in the
+  `--resume` file), not runner exit codes — the runners exit 0 with
+  errored rows.
 
 ## See also
 
