@@ -161,11 +161,18 @@ only in the stamp section):
    not yet reproduced.
 
 The same-world read A/B (scoring off vs on — the one clean pair) was
-attempted and **quota-poisoned**: OpenAI credits ran out at 14:43
-mid-arm (sal1off 464/999 empty predictions, sal1on 999/999). Both
-reports quarantined as *.quotadeath; rerun-salience-qa.sh in the job
-tmp re-runs both arms off the intact wd-sal1 world once credits are
-topped up.
+first quota-poisoned (OpenAI credits died mid-arm; both reports
+quarantined as *.quotadeath), then re-run clean after a top-up:
+
+- **ON 75.9 vs OFF 76.1** (762 judged each, discordant 33 at 17-16,
+  p=1.0); no category beyond ±1.3pp. **Read A/B verdict: NULL** — on
+  the inflated distribution the fold cannot discriminate, exactly as
+  the distribution-gate failure predicts.
+- Bonus pair: sal1off 76.1 vs w8cp 76.1 (18-20, p=0.87) — the +54…74%
+  proposition volume ALSO leaves QA flat. Together with §3a's +2.3%
+  tie this is the second independent volume-null of the session:
+  extraction volume is not the dev-5 bottleneck; the ceiling lives in
+  retrieval/synthesis.
 
 **Verdict so far**: the write side as-built fails the design note's
 own gates — needs a volume-neutral prompt (grade WITHOUT changing
@@ -194,7 +201,7 @@ skeleton.
 | §1 MS exclusion | wash (3-3) — exclusion free |
 | §2 BEAM timeline | NULL on event_ordering (1-0); coverage diagnosis |
 | §4.5 salience write | FAILS distribution + parity gates; live bug caught |
-| §4.5 salience read A/B | quota-poisoned; rerun prepared |
+| §4.5 salience read A/B | NULL (75.9 vs 76.1, 17-16); volume-null bonus (off == w8cp) |
 
 Session engineering yield beyond the numbers: 3 live defects found
 and fixed by legs (routed unreachable, lexicon genre miss,
