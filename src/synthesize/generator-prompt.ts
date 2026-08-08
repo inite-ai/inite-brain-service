@@ -18,6 +18,7 @@ export function buildGeneratorUserMessage({
   query,
   factLines,
   transcriptLines,
+  insightLines,
   answerLang,
   dateContext,
   lane,
@@ -28,6 +29,11 @@ export function buildGeneratorUserMessage({
   factLines: string[];
   /** Episodic-lane quotes (P2) — separate typed section after the facts. */
   transcriptLines?: string[];
+  /**
+   * Derived insights (V8 §1) — aggregates and summaries in their own
+   * separately-budgeted section, so they never displace fact lines.
+   */
+  insightLines?: string[];
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
@@ -64,5 +70,9 @@ export function buildGeneratorUserMessage({
     transcriptLines && transcriptLines.length > 0
       ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${langInstruction}`;
+  const insightSection =
+    insightLines && insightLines.length > 0
+      ? `\n\nDerived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):\n${insightLines.join('\n')}`
+      : '';
+  return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${langInstruction}`;
 }

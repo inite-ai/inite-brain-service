@@ -43,6 +43,8 @@ export interface VerifyRequest {
   factLines: string[];
   /** Verbatim source turns the generator was allowed to answer from. */
   transcriptLines?: string[];
+  /** Derived insights (V8 §1) the generator was allowed to answer from. */
+  insightLines?: string[];
   model: string;
 }
 
@@ -52,17 +54,24 @@ function buildVerifierUserMessage({
   answer,
   factLines,
   transcriptLines,
+  insightLines,
 }: {
   query: string;
   answer: string;
   factLines: string[];
   transcriptLines?: string[];
+  insightLines?: string[];
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {
     sections.push(
       `Source conversation turns (verbatim, equally valid support):\n` +
         transcriptLines.join('\n'),
+    );
+  }
+  if (insightLines && insightLines.length > 0) {
+    sections.push(
+      `Derived insights (equally valid support):\n` + insightLines.join('\n'),
     );
   }
   return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
