@@ -91,6 +91,24 @@ export type VerbatimEvidenceMode =
 export type InsightEvidenceMode = 'off' | 'routed';
 
 /**
+ * Timeline evidence for mention-order questions (V8 §2):
+ *  - 'off'    — pre-V8 behavior (the appendix segment lane runs only
+ *               under verbatimEvidence='always').
+ *  - 'routed' — ordering/sequence-shaped questions (the order-lexicon;
+ *               detectOrderingShape) ALSO get the chronological segment
+ *               appendix — the mention record in occurredAt order.
+ *               Rationale (the measured BEAM event_ordering failure,
+ *               2.5-5%): event-time extraction collapses a session's
+ *               mentions onto one validFrom date, so mention order is
+ *               unrecoverable from facts; the segments preserve it
+ *               (SegTreeMem's ablation: the win is preserving temporal
+ *               order in what the model sees). Skipped when the query's
+ *               resolved verbatim mode is 'fused' (segments already
+ *               arrive as hits — appending would duplicate).
+ */
+export type TimelineEvidenceMode = 'off' | 'routed';
+
+/**
  * How the generator's "today" is anchored:
  *  - 'none'         — no date context (LoCoMo-convention golds, where
  *                     real date arithmetic measurably hurts).
@@ -138,6 +156,7 @@ export interface RetrievalProfile {
   genre: RetrievalGenre;
   verbatimEvidence: VerbatimEvidenceMode;
   insightEvidence: InsightEvidenceMode;
+  timelineEvidence: TimelineEvidenceMode;
   dateAnchoring: DateAnchoring;
   temporalMode: TemporalMode;
   /** Global fact budget for fact-centric selection. */
@@ -228,6 +247,9 @@ export function resolveRetrievalProfile(
     insightEvidence:
       enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed'] as const) ??
       'off',
+    timelineEvidence:
+      enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed'] as const) ??
+      'off',
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
         'none',
@@ -278,37 +300,27 @@ export function resolveRetrievalProfileFor(
   const o = overrides?.[companyId];
   if (!o || typeof o !== 'object') return base;
   const merged: RetrievalProfile = { ...base };
-  if (
-    typeof o.genre === 'string' &&
-    ['dialogue', 'assistant_chat', 'documents'].includes(o.genre)
-  ) {
-    merged.genre = o.genre as RetrievalGenre;
-  }
-  if (
-    typeof o.verbatimEvidence === 'string' &&
-    ['off', 'shape_conditioned', 'always', 'fused', 'routed'].includes(
-      o.verbatimEvidence,
-    )
-  ) {
-    merged.verbatimEvidence = o.verbatimEvidence as VerbatimEvidenceMode;
-  }
-  if (
-    typeof o.insightEvidence === 'string' &&
-    ['off', 'routed'].includes(o.insightEvidence)
-  ) {
-    merged.insightEvidence = o.insightEvidence as InsightEvidenceMode;
-  }
-  if (
-    typeof o.dateAnchoring === 'string' &&
-    ['none', 'session_date', 'absolute'].includes(o.dateAnchoring)
-  ) {
-    merged.dateAnchoring = o.dateAnchoring as DateAnchoring;
-  }
-  if (
-    typeof o.temporalMode === 'string' &&
-    ['filter', 'overlap_boost'].includes(o.temporalMode)
-  ) {
-    merged.temporalMode = o.temporalMode as TemporalMode;
+  // Data-driven like the numeric/boolean loops below — every enum
+  // field overlays through one loop (a per-field if-ladder pushed the
+  // function over the complexity budget when the V8 points landed).
+  const enumOverlays: ReadonlyArray<
+    [keyof RetrievalProfile, readonly string[]]
+  > = [
+    ['genre', ['dialogue', 'assistant_chat', 'documents']],
+    [
+      'verbatimEvidence',
+      ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
+    ],
+    ['insightEvidence', ['off', 'routed']],
+    ['timelineEvidence', ['off', 'routed']],
+    ['dateAnchoring', ['none', 'session_date', 'absolute']],
+    ['temporalMode', ['filter', 'overlap_boost']],
+  ];
+  for (const [key, allowed] of enumOverlays) {
+    const v = o[key];
+    if (typeof v === 'string' && allowed.includes(v)) {
+      (merged as unknown as Record<string, unknown>)[key] = v;
+    }
   }
   for (const key of [
     'factBudget',

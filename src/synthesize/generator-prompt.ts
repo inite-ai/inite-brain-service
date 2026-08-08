@@ -19,6 +19,7 @@ export function buildGeneratorUserMessage({
   factLines,
   transcriptLines,
   insightLines,
+  timelineEvidence,
   answerLang,
   dateContext,
   lane,
@@ -34,6 +35,14 @@ export function buildGeneratorUserMessage({
    * separately-budgeted section, so they never displace fact lines.
    */
   insightLines?: string[];
+  /**
+   * V8 §2: the transcript excerpts were collected as TIMELINE evidence
+   * for an ordering-shaped question — flag them as the mention record
+   * so the generator derives order-of-mention from the excerpt
+   * sequence, not from fact date stamps (event-time extraction
+   * collapses a session's mentions onto one date).
+   */
+  timelineEvidence?: boolean;
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
@@ -66,9 +75,12 @@ export function buildGeneratorUserMessage({
           .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
           .join('\n')}\n${CONTRADICTION_NOTE_INSTRUCTION}`
       : '';
+  const transcriptHeader = timelineEvidence
+    ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite factIds only):'
+    : 'Transcript excerpts (verbatim, chronological — use them to answer, but cite factIds only):';
   const transcriptSection =
     transcriptLines && transcriptLines.length > 0
-      ? `\n\nTranscript excerpts (verbatim, chronological — use them to answer, but cite factIds only):\n${transcriptLines.join('\n')}`
+      ? `\n\n${transcriptHeader}\n${transcriptLines.join('\n')}`
       : '';
   const insightSection =
     insightLines && insightLines.length > 0
