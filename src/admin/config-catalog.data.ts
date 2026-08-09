@@ -1117,6 +1117,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
       },
       {
+        key: 'DERIVER_SLOT_SIMILARITY',
+        category: 'extractor',
+        defaultValue: '0.9',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "V10 §1: the bitemporal_event competing pool's own cosine gate (0084) — derive-time slot resolution only; live-ingest 'bitemporal' keeps CONFLICT_SIMILARITY_THRESHOLD. The shared 0.85 measured clustering whole TOPICS on dev-chat derive (v9lifecycle superseded-pair audit: a more specific loser replaced by a less specific same-aspect winner), so the slot gate defaults tighter (0.9). Set 0.85 to reproduce the V9 behavior exactly. Requires re-derive to take effect.",
+      },
+      {
         key: 'DERIVER_SLOT_SEMANTICS',
         category: 'extractor',
         defaultValue: '0',
