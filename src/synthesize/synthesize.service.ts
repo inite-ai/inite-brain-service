@@ -81,49 +81,20 @@ export interface SynthesizeOptions {
 }
 
 export type { Citation } from './fact-index';
-
-export type SynthesisReason =
-  | 'no_results'
-  | 'no_grounded_evidence'
-  /** V9 §4: the memory-coverage floor fired before generation. */
-  | 'low_coverage'
-  | 'verifier_failed'
-  | 'verifier_partial'
-  | 'generator_error'
-  | 'verifier_error';
-
-export interface SynthesizeResult {
-  answer: string | null;
-  reason?: SynthesisReason;
-  citations: Citation[];
-  results: SearchHit[];
-  /**
-   * Populated only when the request was made with `explain: true`. One
-   * entry per retrieved fact, with score breakdown, retrieval-stage
-   * provenance, and a picked/rejected verdict with a deterministic
-   * rejection reason. See `decision-log.ts`.
-   */
-  decisionLog?: DecisionLogEntry[];
-  /**
-   * Generator-call token cost. The context-minimization axis is only
-   * manageable if every leg reports it — evidence budgets that grow
-   * silently (facts, segments, unions) show up here first.
-   */
-  tokenUsage?: TokenUsage;
-}
-
-/** Prompt/completion cost of one LLM call, surfaced for token accounting. */
-export interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-}
-
-export interface GeneratorOutput {
-  answer: string;
-  citedFactIds: string[];
-  /** Generator-call usage, when the provider reported it. */
-  usage?: TokenUsage;
-}
+// The result/IO types live in synthesize.types.ts (so pure helpers
+// never type-import back into this service); re-exported here for the
+// existing consumers (multi-hop, MCP surfaces).
+export type {
+  GeneratorOutput,
+  SynthesisReason,
+  SynthesizeResult,
+  TokenUsage,
+} from './synthesize.types';
+import type {
+  GeneratorOutput,
+  SynthesisReason,
+  SynthesizeResult,
+} from './synthesize.types';
 
 const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
 

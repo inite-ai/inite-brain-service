@@ -34,7 +34,6 @@ import { ReadPinService } from '../episodes/read-pin.service';
  * is the P3-full follow-up.
  */
 export const WINDOW_DERIVER_VERSION = 'wd-v2';
-const SESSION_GAP_MS = 60 * 60 * 1000;
 
 const DERIVER_SYSTEM = `You extract durable MEMORY PROPOSITIONS from ONE session of a two-person dialogue. The original conversation will NOT be available at retrieval time — each proposition must stand alone years later.
 
@@ -140,33 +139,14 @@ export interface DeriveRunResult {
   previousVersion?: string | null;
 }
 
-export interface EpisodeRow {
-  id: unknown;
-  speaker?: string;
-  text: string;
-  occurredAt: string | Date;
-}
-
-/** Pure: split time-ordered episodes into sessions by inactivity gap. */
-export function segmentSessions(
-  episodes: EpisodeRow[],
-  gapMs: number = SESSION_GAP_MS,
-): EpisodeRow[][] {
-  const sessions: EpisodeRow[][] = [];
-  let current: EpisodeRow[] = [];
-  let prev: number | null = null;
-  for (const ep of episodes) {
-    const t = new Date(ep.occurredAt as string).getTime();
-    if (prev !== null && t - prev > gapMs && current.length > 0) {
-      sessions.push(current);
-      current = [];
-    }
-    current.push(ep);
-    prev = t;
-  }
-  if (current.length > 0) sessions.push(current);
-  return sessions;
-}
+// The session primitive moved to the episodes layer (V9 quality pass —
+// synthesize-side lanes need the same convention and may not import
+// from admin); re-exported so existing consumers keep their import.
+export {
+  segmentSessions,
+  type EpisodeRow,
+} from '../episodes/session-window';
+import { segmentSessions, type EpisodeRow } from '../episodes/session-window';
 
 interface DerivedProposition {
   subject: string;
@@ -608,7 +588,7 @@ export class WindowDeriverService {
         slotSemantics: resolveExtractionProfile().deriveSlotSemantics,
       });
       const skippedRows = outcomes.filter(
-        (o) => o?.outcome === 'SKIPPED',
+        (o) => o.outcome === 'SKIPPED',
       ).length;
       result.propositions += rows.length - skippedRows;
     }

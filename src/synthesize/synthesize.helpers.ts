@@ -5,7 +5,7 @@ import type { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import type { DecisionLogEntry } from './decision-log';
 import { resolveDateContext } from './evidence-union';
 import type { Citation } from './fact-index';
-import type { GeneratorOutput, SynthesizeResult } from './synthesize.service';
+import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of

@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
-import { SurrealService, runTransaction } from '../db/surreal.service';
+import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import {
+  runInsightComposer,
+  type InsightComposerSpec,
+} from './insight-composer-kernel';
 
 /**
  * Lane C composer, v1: per-entity ASPECT AGGREGATES
@@ -25,8 +29,9 @@ import { FactEmbeddingService } from '../ingest/fact-embedding.service';
  * Deliberately NOT routed through fn::resolve_fact: these are synthetic
  * derived rows — the bitemporal resolver's supersede/corroborate
  * semantics are for observations, and a re-run replaces aggregates
- * wholesale (delete-by-recorder + insert, one atomic transaction; all
- * paid calls happen before the swap).
+ * wholesale. Selection, error accounting, and the atomic swap live in
+ * the shared insight-composer kernel; this service owns only the
+ * aggregate identity — prompt, validity, row shape.
  */
 export const AGGREGATE_RECORDER = 'aggregate-composer-v1';
 
@@ -45,11 +50,10 @@ export interface AggregateRunResult {
   skipped: Array<{ entityId: string; reason: string }>;
 }
 
-interface FactRowLite {
-  id: unknown;
-  predicate: string;
-  object: string;
-  validFrom?: string | Date;
+interface AggregateProposal {
+  aspect: string;
+  proposition: string;
+  members: number[];
 }
 
 @Injectable()
@@ -70,150 +74,70 @@ export class AggregateComposerService {
     );
   }
 
-  /**
-   * Compose aggregates for the top-`entities` fact-densest entities.
-   * With `version` set (memory-rebuild R4), sources come from that
-   * derived namespace and the aggregates are stamped with the same
-   * `derivedVersion` — REQUIRED for a RETRIEVAL_DERIVED_VERSION-pinned
-   * world to see them (v1 wrote into the legacy namespace, which a
-   * pinned read never surfaces).
-   */
-  async run(
-    companyId: string,
-    opts: { entities?: number; version?: string } = {},
-  ): Promise<AggregateRunResult> {
-    const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
-    const version = opts.version?.trim() || undefined;
-    const versionClause = version
-      ? 'AND derivedVersion = $version'
-      : 'AND derivedVersion IS NONE';
-    const result: AggregateRunResult = {
-      entities: 0,
-      aggregatesWritten: 0,
-      skipped: [],
-    };
-    await this.surreal.withCompany(companyId, async (db) => {
-      const [tops] = await db.query<
-        [Array<{ entityId: unknown; n: number }>]
-      >(
-        `SELECT entityId, count() AS n FROM knowledge_fact
-          WHERE status = 'active' AND source.recorder != $recorder
-            AND !string::starts_with(predicate, 'summary_')
-            ${versionClause}
-          GROUP BY entityId ORDER BY n DESC LIMIT $k`,
-        { k: entityCap, recorder: AGGREGATE_RECORDER, version },
-      );
-      for (const top of tops ?? []) {
-        const entityId = String(top.entityId);
-        try {
-          const written = await this.composeEntity(db, entityId, version);
-          result.entities += 1;
-          result.aggregatesWritten += written;
-        } catch (e) {
-          result.skipped.push({ entityId, reason: (e as Error).message });
-          this.logger.warn(
-            `aggregate compose failed for ${entityId}: ${(e as Error).message}`,
-          );
-        }
-      }
-    });
-    return result;
-  }
-
-  private async composeEntity(
-    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
-    entityId: string,
-    version?: string,
-  ): Promise<number> {
-    const versionClause = version
-      ? 'AND derivedVersion = $version'
-      : 'AND derivedVersion IS NONE';
-    const [[entity]] = await db.query<[Array<{ canonicalName?: string }>]>(
-      `SELECT canonicalName FROM $eid`,
-      { eid: new StringRecordId(entityId) },
-    );
-    const name = entity?.canonicalName ?? entityId;
-    const [facts] = await db.query<[FactRowLite[]]>(
-      // Arcs (summary_arc_*) and promotion/compaction summaries are
-      // derived state — excluded by the summary_ prefix idiom so a
-      // re-run never aggregates another composer's summaries (V9 §3).
-      `SELECT id, predicate, object, validFrom FROM knowledge_fact
-        WHERE entityId = $eid AND status = 'active'
-          AND source.recorder != $recorder
-          AND !string::starts_with(predicate, 'summary_')
-          ${versionClause}
-        ORDER BY validFrom ASC LIMIT 400`,
-      {
-        eid: new StringRecordId(entityId),
-        recorder: AGGREGATE_RECORDER,
-        version,
-      },
-    );
-    if (!facts || facts.length < 4) return 0;
-
-    const lines = facts.map(
-      (f, i) =>
-        `${i}. ${f.predicate}: ${f.object} (${String(f.validFrom ?? '').slice(0, 10)})`,
-    );
-    const aggregates = await this.callComposer(name, lines);
-    const valid = aggregates.filter(
-      (a) =>
-        a.members.length >= 2 &&
-        a.members.every((m) => m >= 0 && m < facts.length) &&
-        a.proposition.trim().length > 0,
-    );
-    // Every paid step (LLM above, embeddings here) runs BEFORE the delete
-    // — a failure leaves the previous aggregates intact.
-    const vectors =
-      valid.length > 0
-        ? await this.embedding.embedMany(valid.map((a) => a.proposition))
-        : [];
-    const rows = valid.map((agg, i) => {
+  private readonly spec: InsightComposerSpec<AggregateProposal> = {
+    recorder: AGGREGATE_RECORDER,
+    // Arcs (summary_arc_*) and promotion/compaction summaries are
+    // derived state — excluded by the summary_ prefix idiom so a
+    // re-run never aggregates another composer's summaries (V9 §3).
+    sourceExclusionSql: `AND source.recorder != $recorder
+          AND !string::starts_with(predicate, 'summary_')`,
+    sourceExclusionParams: { recorder: AGGREGATE_RECORDER },
+    minFacts: 4,
+    propose: (name, lines) => this.callComposer(name, lines),
+    valid: (a, facts) =>
+      a.members.length >= 2 &&
+      a.members.every((m) => m >= 0 && m < facts.length) &&
+      a.proposition.trim().length > 0,
+    embeddingTextOf: (a) => a.proposition,
+    buildRow: (agg, ctx) => {
       const slug = agg.aspect
         .toLowerCase()
         .replace(/[^a-z0-9_]+/g, '_')
         .slice(0, 40);
       return {
-        entityId: new StringRecordId(entityId),
+        entityId: ctx.entityId,
         predicate: `aggregate_${slug}`,
         object: agg.proposition,
         confidence: 0.9,
         validFrom: new Date(),
         source: { vertical: 'aggregate', recorder: AGGREGATE_RECORDER },
         status: 'active',
-        embedding: vectors[i],
+        embedding: ctx.vector,
         derivedFrom: agg.members.map(
-          (m) => new StringRecordId(String(facts[m].id)),
+          (m) => new StringRecordId(String(ctx.facts[m].id)),
         ),
-        ...(version ? { derivedVersion: version } : {}),
+        ...(ctx.version ? { derivedVersion: ctx.version } : {}),
       };
-    });
-    // Wholesale replace: aggregates are derived state, a re-run owns
-    // them. Atomic swap (audit W2 #10/#11): the delete and the insert
-    // share one transaction, so a retrieval that lands mid-rerun sees
-    // the previous aggregate set or the new one — never an entity with
-    // its enumerations missing. (Under a pinned world the composer
-    // deliberately writes INTO the pin — that is the R4 flow — which is
-    // exactly why the swap must be atomic rather than fork-guarded.)
-    await runTransaction(db as unknown as Surreal, (tx) => {
-      tx.add(
-        `DELETE knowledge_fact
-          WHERE entityId = $eid AND source.recorder = $recorder
-            ${versionClause}`,
-      );
-      if (rows.length > 0) tx.add(`INSERT INTO knowledge_fact $rows`);
-      tx.bind('eid', new StringRecordId(entityId))
-        .bind('recorder', AGGREGATE_RECORDER)
-        .bind('version', version)
-        .bind('rows', rows);
-    });
-    return valid.length;
+    },
+  };
+
+  /**
+   * Compose aggregates for the top-`entities` fact-densest entities.
+   * With `version` set (memory-rebuild R4), sources come from that
+   * derived namespace and the aggregates are stamped with the same
+   * `derivedVersion` — REQUIRED for a RETRIEVAL_DERIVED_VERSION-pinned
+   * world to see them.
+   */
+  async run(
+    companyId: string,
+    opts: { entities?: number; version?: string } = {},
+  ): Promise<AggregateRunResult> {
+    const r = await runInsightComposer(
+      { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
+      this.spec,
+      { companyId, ...opts },
+    );
+    return {
+      entities: r.entities,
+      aggregatesWritten: r.written,
+      skipped: r.skipped,
+    };
   }
 
   private async callComposer(
     name: string,
     factLines: string[],
-  ): Promise<Array<{ aspect: string; proposition: string; members: number[] }>> {
+  ): Promise<AggregateProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,
@@ -256,11 +180,7 @@ export class AggregateComposerService {
     const content = res.choices[0]?.message?.content;
     if (!content) throw new Error('empty composer response');
     const parsed = JSON.parse(content) as {
-      aggregates?: Array<{
-        aspect: string;
-        proposition: string;
-        members: number[];
-      }>;
+      aggregates?: AggregateProposal[];
     };
     return Array.isArray(parsed.aggregates) ? parsed.aggregates : [];
   }

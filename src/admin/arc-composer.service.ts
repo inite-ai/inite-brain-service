@@ -1,11 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
-import { SurrealService, runTransaction } from '../db/surreal.service';
+import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { AGGREGATE_RECORDER } from './aggregate-composer.service';
+import {
+  runInsightComposer,
+  type FactRowLite,
+  type InsightComposerSpec,
+} from './insight-composer-kernel';
 
 /**
  * Observations v2 composer (V9 §3): per-entity TOPIC ARCS.
@@ -26,10 +31,10 @@ import { AGGREGATE_RECORDER } from './aggregate-composer.service';
  * changes; the fact legs already exclude them under
  * insightEvidence='routed'.
  *
- * Same write discipline as the aggregate composer: synthetic derived
- * rows, deliberately NOT routed through fn::resolve_fact; a re-run
- * replaces arcs wholesale (delete-by-recorder + insert in one atomic
- * transaction; every paid call happens before the swap).
+ * Selection, error accounting, paid-before-swap, and the atomic
+ * delete-by-recorder swap live in the shared insight-composer kernel;
+ * this service owns only the arc identity — prompt, validity, row
+ * shape.
  */
 export const ARC_RECORDER = 'arc-composer-v1';
 
@@ -53,13 +58,6 @@ export interface ArcRunResult {
   entities: number;
   arcsWritten: number;
   skipped: Array<{ entityId: string; reason: string }>;
-}
-
-interface FactRowLite {
-  id: unknown;
-  predicate: string;
-  object: string;
-  validFrom?: string | Date;
 }
 
 interface ArcProposal {
@@ -111,6 +109,45 @@ export class ArcComposerService {
     );
   }
 
+  private readonly spec: InsightComposerSpec<ArcProposal> = {
+    recorder: ARC_RECORDER,
+    // Sources are the entity's ATOMIC dated facts: the composer's own
+    // arcs and the aggregate composer's rollups are both derived state
+    // and must never feed a re-run (self-ingestion inflates arcs with
+    // their own summaries).
+    sourceExclusionSql: `AND source.recorder != $recorder
+          AND source.recorder != $aggRecorder
+          AND !string::starts_with(predicate, 'summary_')`,
+    sourceExclusionParams: {
+      recorder: ARC_RECORDER,
+      aggRecorder: AGGREGATE_RECORDER,
+    },
+    minFacts: 4,
+    propose: (name, lines) => this.callComposer(name, lines),
+    valid: validArc,
+    embeddingTextOf: (arc) => arc.narrative.slice(0, ARC_NARRATIVE_CHAR_CAP),
+    buildRow: (arc, ctx) => {
+      const slug = arc.topic
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, '_')
+        .slice(0, 28);
+      return {
+        entityId: ctx.entityId,
+        predicate: `summary_arc_${slug}`,
+        object: arc.narrative.slice(0, ARC_NARRATIVE_CHAR_CAP),
+        confidence: 0.9,
+        validFrom: arcValidFrom(arc, ctx.facts),
+        source: { vertical: 'arc', recorder: ARC_RECORDER },
+        status: 'active',
+        embedding: ctx.vector,
+        derivedFrom: arc.members.map(
+          (m) => new StringRecordId(String(ctx.facts[m].id)),
+        ),
+        ...(ctx.version ? { derivedVersion: ctx.version } : {}),
+      };
+    },
+  };
+
   /**
    * Compose topic arcs for the top-`entities` fact-densest entities of
    * the given derived namespace (same version semantics as the
@@ -120,131 +157,12 @@ export class ArcComposerService {
     companyId: string,
     opts: { entities?: number; version?: string } = {},
   ): Promise<ArcRunResult> {
-    const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
-    const version = opts.version?.trim() || undefined;
-    const versionClause = version
-      ? 'AND derivedVersion = $version'
-      : 'AND derivedVersion IS NONE';
-    const result: ArcRunResult = { entities: 0, arcsWritten: 0, skipped: [] };
-    await this.surreal.withCompany(companyId, async (db) => {
-      const [tops] = await db.query<[Array<{ entityId: unknown; n: number }>]>(
-        `SELECT entityId, count() AS n FROM knowledge_fact
-          WHERE status = 'active'
-            AND source.recorder != $recorder
-            AND source.recorder != $aggRecorder
-            AND !string::starts_with(predicate, 'summary_')
-            ${versionClause}
-          GROUP BY entityId ORDER BY n DESC LIMIT $k`,
-        {
-          k: entityCap,
-          recorder: ARC_RECORDER,
-          aggRecorder: AGGREGATE_RECORDER,
-          version,
-        },
-      );
-      for (const top of tops ?? []) {
-        const entityId = String(top.entityId);
-        try {
-          const written = await this.composeEntity(db, entityId, version);
-          result.entities += 1;
-          result.arcsWritten += written;
-        } catch (e) {
-          result.skipped.push({ entityId, reason: (e as Error).message });
-          this.logger.warn(
-            `arc compose failed for ${entityId}: ${(e as Error).message}`,
-          );
-        }
-      }
-    });
-    return result;
-  }
-
-  private async composeEntity(
-    db: {
-      query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
-    },
-    entityId: string,
-    version?: string,
-  ): Promise<number> {
-    const versionClause = version
-      ? 'AND derivedVersion = $version'
-      : 'AND derivedVersion IS NONE';
-    const [[entity]] = await db.query<[Array<{ canonicalName?: string }>]>(
-      `SELECT canonicalName FROM $eid`,
-      { eid: new StringRecordId(entityId) },
+    const r = await runInsightComposer(
+      { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
+      this.spec,
+      { companyId, ...opts },
     );
-    const name = entity?.canonicalName ?? entityId;
-    // Sources are the entity's ATOMIC dated facts: the composer's own
-    // arcs and the aggregate composer's rollups are both derived state
-    // and must never feed a re-run (self-ingestion inflates arcs with
-    // their own summaries).
-    const [facts] = await db.query<[FactRowLite[]]>(
-      `SELECT id, predicate, object, validFrom FROM knowledge_fact
-        WHERE entityId = $eid AND status = 'active'
-          AND source.recorder != $recorder
-          AND source.recorder != $aggRecorder
-          AND !string::starts_with(predicate, 'summary_')
-          ${versionClause}
-        ORDER BY validFrom ASC LIMIT 400`,
-      {
-        eid: new StringRecordId(entityId),
-        recorder: ARC_RECORDER,
-        aggRecorder: AGGREGATE_RECORDER,
-        version,
-      },
-    );
-    if (!facts || facts.length < 4) return 0;
-
-    const lines = facts.map(
-      (f, i) =>
-        `${i}. ${f.predicate}: ${f.object} (${String(f.validFrom ?? '').slice(0, 10)})`,
-    );
-    const arcs = await this.callComposer(name, lines);
-    const valid = arcs.filter((a) => validArc(a, facts));
-    // Every paid step (LLM above, embeddings here) runs BEFORE the
-    // delete — a failure leaves the previous arcs intact.
-    const vectors =
-      valid.length > 0
-        ? await this.embedding.embedMany(
-            valid.map((a) => a.narrative.slice(0, ARC_NARRATIVE_CHAR_CAP)),
-          )
-        : [];
-    const rows = valid.map((arc, i) => {
-      const slug = arc.topic
-        .toLowerCase()
-        .replace(/[^a-z0-9_]+/g, '_')
-        .slice(0, 28);
-      return {
-        entityId: new StringRecordId(entityId),
-        predicate: `summary_arc_${slug}`,
-        object: arc.narrative.slice(0, ARC_NARRATIVE_CHAR_CAP),
-        confidence: 0.9,
-        validFrom: arcValidFrom(arc, facts),
-        source: { vertical: 'arc', recorder: ARC_RECORDER },
-        status: 'active',
-        embedding: vectors[i],
-        derivedFrom: arc.members.map(
-          (m) => new StringRecordId(String(facts[m].id)),
-        ),
-        ...(version ? { derivedVersion: version } : {}),
-      };
-    });
-    // Wholesale replace — same atomic-swap discipline as the aggregate
-    // composer: a retrieval landing mid-rerun sees the previous arc set
-    // or the new one, never an entity stripped of its arcs.
-    await runTransaction(db as unknown as Surreal, (tx) => {
-      tx.add(
-        `DELETE knowledge_fact
-          WHERE entityId = $eid AND source.recorder = $recorder
-            ${versionClause}`,
-      );
-      if (rows.length > 0) tx.add(`INSERT INTO knowledge_fact $rows`);
-      tx.bind('eid', new StringRecordId(entityId))
-        .bind('recorder', ARC_RECORDER)
-        .bind('version', version)
-        .bind('rows', rows);
-    });
-    return valid.length;
+    return { entities: r.entities, arcsWritten: r.written, skipped: r.skipped };
   }
 
   private async callComposer(

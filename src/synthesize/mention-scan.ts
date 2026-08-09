@@ -14,9 +14,7 @@
  * Pure module — no DI, no IO, no env.
  */
 
-/** Mirror of the deriver's session gap (window-deriver SESSION_GAP_MS —
- *  not imported: synthesize may not depend on the admin layer). */
-const SCAN_SESSION_GAP_MS = 60 * 60 * 1000;
+import { SESSION_GAP_MS } from '../episodes/session-window';
 
 /** Hard cap on emitted mention lines (a runaway topic that matches
  *  every session must not replace the whole transcript). */
@@ -138,7 +136,7 @@ export function filterMentions(rows: ScanRow[]): ScanRow[] {
  */
 export function bestMentionPerSession(
   rows: ScanRow[],
-  gapMs: number = SCAN_SESSION_GAP_MS,
+  gapMs: number = SESSION_GAP_MS,
 ): ScanRow[] {
   const sorted = [...rows].sort((a, b) => a.occurredAt - b.occurredAt);
   const out: ScanRow[] = [];

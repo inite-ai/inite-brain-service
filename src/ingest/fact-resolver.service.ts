@@ -5,7 +5,11 @@ import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { KeyedMutex } from '../common/keyed-mutex';
-import { ConflictConfig } from './conflict-resolver';
+import {
+  ConflictConfig,
+  type DerivedSemantics,
+  type ResolveOutcome,
+} from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
 
@@ -32,7 +36,7 @@ export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
 export function derivedSemanticsFor(
   aspect: string,
   slotSemantics: boolean,
-): string {
+): DerivedSemantics {
   return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect)
     ? 'bitemporal_event'
     : 'append_only';
@@ -351,7 +355,7 @@ export class FactResolverService {
       derivedVersion: string;
     }>,
     opts: { slotSemantics?: boolean } = {},
-  ): Promise<any[]> {
+  ): Promise<ResolveOutcome[]> {
     if (rows.length === 0) return [];
     const prepared = rows.map((r) => ({
       companyId: '',
@@ -369,7 +373,10 @@ export class FactResolverService {
       derivedVersion: r.derivedVersion,
     }));
     try {
-      return await this.resolveAppendOnlyBatch(db as unknown as Surreal, prepared);
+      return (await this.resolveAppendOnlyBatch(
+        db as unknown as Surreal,
+        prepared,
+      )) as ResolveOutcome[];
     } catch (e) {
       // V9 phase 0 fence: the V8 conv-42 failure ("Cannot execute
       // UPDATE statement using value: NONE", data-dependent) killed the
@@ -380,14 +387,14 @@ export class FactResolverService {
       this.logger.warn(
         `derived batch resolve failed (${(e as Error).message}); retrying per-row`,
       );
-      const out: any[] = [];
+      const out: ResolveOutcome[] = [];
       for (const c of prepared) {
         try {
           const [r] = await this.resolveAppendOnlyBatch(
             db as unknown as Surreal,
             [c],
           );
-          out.push(r);
+          out.push(r as ResolveOutcome);
         } catch (rowErr) {
           this.logger.warn(
             `derived row skipped (entity=${c.entityId}, predicate=${c.predicate}): ${(rowErr as Error).message}`,
