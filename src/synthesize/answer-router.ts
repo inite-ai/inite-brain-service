@@ -186,30 +186,37 @@ export const CONTRADICTION_NOTE_INSTRUCTION =
   'those facts only.\n';
 
 /**
- * V10 §2b date-arbitrating conflict frame (updateStoryRendering). The
+ * V10 §2b arbitrating conflict frame (updateStoryRendering), v3. The
  * v10lifecycle autopsy: the conservative 0084 closure leaves REAL
  * value updates COMPETING, and the blanket hedge frame turned
  * knowledge_update answers into "conflicting reports … please
  * confirm" on questions whose golds want the resolved CURRENT value
  * (KU 9↓/2↑ vs control; in 3 of 4 audited downs the correct newer
- * value was IN the answer, hedged away). Dates discriminate the two
- * classes: different-day pairs are updates — commit to the latest
- * and note the earlier as previous (update-story semantics at the
- * conflict render); same-day pairs are genuine ambiguity — hedge
- * exactly as before (the class 0084 routes to the contradiction
- * lane, whose golds reward the hedge).
+ * value was IN the answer, hedged away). v2 arbitrated by DATE alone
+ * and measured the split exactly (v10hedged: KU 8↑/0↓ — pure win;
+ * CR 13↓/1↑ — crash): CR pairs are not updates but DENIALS
+ * ("never did X" vs "did X"), genuine contradictions the golds want
+ * flagged with an explicit contradictory-information call-out no
+ * matter the dates. v3 classifies the PAIR: denial conflicts hedge
+ * with the call-out; value pairs with a later date commit to the
+ * newer and note the earlier as previous (update-story semantics at
+ * the conflict render); dateless/same-day value pairs hedge.
  */
 export const CONTRADICTION_DATE_ARBITRATION_INSTRUCTION =
   'CONFLICT NOTICE: the facts below include statements the memory ' +
   'system flagged as COMPETING (mutually contradictory), listed as ' +
   'conflict pairs above the fact list. If the question touches a ' +
-  'conflict pair, arbitrate by DATE: when one side carries a later ' +
-  'date stamp, treat it as the current value — answer with it ' +
-  'directly and mention the earlier value as previous (e.g. ' +
-  '"…, previously <old value> until <date>"). Only when the sides ' +
-  'carry the same date (or no dates) do NOT pick a side: state both ' +
-  'versions, note that they contradict each other, and ask which one ' +
-  'is correct.\n';
+  'conflict pair, first classify the pair:\n' +
+  '- DENIAL conflict — one side asserts something happened/exists and ' +
+  'the other denies it ("never", "no", "not", "have not"). This is a ' +
+  'genuine contradiction regardless of dates: say explicitly "I ' +
+  'notice you\'ve mentioned contradictory information about this", ' +
+  'state both sides with their dates, and ask which one is correct.\n' +
+  '- VALUE update — both sides assert a value or state and one ' +
+  'carries a later date stamp. Treat the later as current: answer ' +
+  'with it directly and mention the earlier as previous (e.g. "…, ' +
+  'previously <old value> until <date>"). If the dates are equal or ' +
+  'missing, present both versions and ask which one is correct.\n';
 
 /** T7 section header: compliance is part of correctness. */
 export const STANDING_INSTRUCTIONS_INSTRUCTION =

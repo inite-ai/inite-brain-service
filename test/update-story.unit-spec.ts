@@ -183,12 +183,14 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
     ],
   };
 
-  it('on — commit-latest frame with the previous value noted', () => {
+  it('on — pair-classifying frame: denial hedge + value commit-latest', () => {
     const msg = buildGeneratorUserMessage({
       ...base,
       dateArbitratedConflicts: true,
     });
-    expect(msg).toContain('arbitrate by DATE');
+    expect(msg).toContain('DENIAL conflict');
+    expect(msg).toContain("contradictory information");
+    expect(msg).toContain('VALUE update');
     expect(msg).toContain('previously');
     expect(msg).not.toContain('do NOT silently pick a side');
   });
@@ -196,15 +198,15 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
   it('off — byte-identical blanket hedge frame', () => {
     const msg = buildGeneratorUserMessage(base);
     expect(msg).toContain('do NOT silently pick a side');
-    expect(msg).not.toContain('arbitrate by DATE');
+    expect(msg).not.toContain('DENIAL conflict');
   });
 
-  it('same-day ambiguity path stays in the arbitrated frame text', () => {
+  it('equal/missing-date ambiguity path stays in the frame text', () => {
     const msg = buildGeneratorUserMessage({
       ...base,
       dateArbitratedConflicts: true,
     });
-    expect(msg).toContain('same date');
+    expect(msg).toContain('dates are equal or');
     expect(msg).toContain('ask which one');
   });
 });
