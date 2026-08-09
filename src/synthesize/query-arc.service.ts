@@ -138,14 +138,24 @@ function mergeFactLegs(
   bm25: FactScanRow[],
 ): Array<{ scan: ScanRow; beat: ArcBeat }> {
   const byId = new Map<string, { scan: ScanRow; beat: ArcBeat }>();
-  const toEntry = (r: FactScanRow): { scan: ScanRow; beat: ArcBeat } => ({
-    scan: {
-      id: String(r.id),
-      text: r.object,
-      occurredAt: new Date(r.validFrom as string).getTime(),
-    },
-    beat: { object: r.object, validFrom: String(r.validFrom) },
-  });
+  const toEntry = (r: FactScanRow): { scan: ScanRow; beat: ArcBeat } => {
+    // The SDK decodes datetime columns to JS Dates (CBOR); String(Date)
+    // is "Sat Aug 09 2026 …", which breaks both the [YYYY-MM-DD] day
+    // slice and the lexicographic chronology sort in pickArcBeats —
+    // normalize to ISO before the beat ever sees it.
+    const validFromIso =
+      r.validFrom instanceof Date
+        ? r.validFrom.toISOString()
+        : String(r.validFrom);
+    return {
+      scan: {
+        id: String(r.id),
+        text: r.object,
+        occurredAt: new Date(r.validFrom as string).getTime(),
+      },
+      beat: { object: r.object, validFrom: validFromIso },
+    };
+  };
   for (const r of dense) {
     const e = toEntry(r);
     e.scan.sim = typeof r.score === 'number' ? r.score : undefined;

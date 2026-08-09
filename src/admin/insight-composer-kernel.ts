@@ -33,6 +33,17 @@ export interface FactRowLite {
   validFrom?: string | Date;
 }
 
+/**
+ * Day stamp of a fact's validFrom for prompts and validity gates. The
+ * SDK decodes datetime columns to JS Dates (CBOR), whose String() form
+ * ("Sat Aug 09 2026 …") would lose the year to a 10-char slice and
+ * break distinct-day comparisons — normalize to ISO first.
+ */
+export function factDay(value?: string | Date): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value ?? '').slice(0, 10);
+}
+
 export interface InsightComposerSpec<P> {
   /** Row owner — the delete-by-recorder swap key. */
   recorder: string;
@@ -160,8 +171,7 @@ async function composeEntity<P>(
   if (!facts || facts.length < spec.minFacts) return 0;
 
   const lines = facts.map(
-    (f, i) =>
-      `${i}. ${f.predicate}: ${f.object} (${String(f.validFrom ?? '').slice(0, 10)})`,
+    (f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`,
   );
   const proposals = await spec.propose(name, lines);
   const valid = proposals.filter((p) => spec.valid(p, facts));
