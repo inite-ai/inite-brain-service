@@ -6,6 +6,7 @@ import {
   dedupeMentionLines,
   extractOrderingTopic,
   filterMentions,
+  LEX_MATCH_FLOOR,
   MAX_MENTION_LINES,
   pickMentionLine,
   topicTerms,
@@ -149,15 +150,17 @@ function mergeLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
+    const lex =
+      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
-      prev.lex = typeof r.score === 'number' ? r.score : 1;
+      prev.lex = lex;
     } else {
       byId.set(id, {
         id,
         text: r.text,
         occurredAt: new Date(r.occurredAt as string).getTime(),
-        lex: typeof r.score === 'number' ? r.score : 1,
+        lex,
       });
     }
   }

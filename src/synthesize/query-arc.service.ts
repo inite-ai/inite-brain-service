@@ -2,7 +2,11 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ReadPinService } from '../episodes/read-pin.service';
-import { filterMentions, type ScanRow } from './mention-scan';
+import {
+  filterMentions,
+  LEX_MATCH_FLOOR,
+  type ScanRow,
+} from './mention-scan';
 import {
   extractArcTopic,
   pickArcBeats,
@@ -183,7 +187,8 @@ function mergeFactLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
-    const lex = typeof r.score === 'number' ? r.score : 1;
+    const lex =
+      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
       prev.scan.lex = lex;

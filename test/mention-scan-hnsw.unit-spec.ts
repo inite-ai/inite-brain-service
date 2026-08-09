@@ -71,6 +71,23 @@ describe('MentionScanService dense-leg modes', () => {
     expect(lines.length).toBeGreaterThan(0);
   });
 
+  it('counts a zero-score BM25 match as a lexical mention (IDF collapse)', async () => {
+    // BM25 scores 0 when every topic term appears in every doc; a row
+    // the matches operator returned is still a lexical mention, so it
+    // must survive filterMentions even when the dense sims sit under
+    // the absolute floor.
+    const svc = makeService({
+      dense: [],
+      bm25: [{ ...segment, score: 0 }],
+    });
+    const lines = await svc.mentionLines({
+      companyId: 'c1',
+      query: 'List the order of parser project',
+      callerScopes: [],
+    });
+    expect(lines).toHaveLength(1);
+  });
+
   it('degrades to [] on any failure (the sibling-lane contract)', async () => {
     const surreal = {
       withCompany: async () => {
