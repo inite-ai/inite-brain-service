@@ -140,12 +140,15 @@ async function runLane(
         ORDER BY vector::similarity::cosine(embedding, $q) DESC LIMIT $k`,
       shared,
     );
+    // vector::distance::knn() reuses the walk's distance — projecting
+    // a fresh cosine next to <|k,ef|> drops the planner off the
+    // KnnScan (measured 15× slower + an OOM-kill on 3.1.5).
     const approx = await ids(
       db,
-      `SELECT id, vector::similarity::cosine(embedding, $q) AS score
+      `SELECT id, vector::distance::knn() AS knnDist
          FROM ${lane.table}
         WHERE embedding <|${kOver},${effEf}|> $q ${lane.gates}
-        ORDER BY score DESC LIMIT $k`,
+        ORDER BY knnDist ASC LIMIT $k`,
       shared,
     );
     const exactSet = new Set(exact);

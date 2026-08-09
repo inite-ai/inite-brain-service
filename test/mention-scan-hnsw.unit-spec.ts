@@ -55,7 +55,13 @@ describe('MentionScanService dense-leg modes', () => {
 
   it('hnsw tuning emits the KNN leg with the pii/user gates intact', async () => {
     const capture: string[] = [];
-    const svc = makeService({ dense: [segment], bm25: [], capture });
+    // The hnsw leg returns the walk's distance, not a cosine score.
+    const { score: _score, ...bare } = segment;
+    const svc = makeService({
+      dense: [{ ...bare, knnDist: 0.1 }],
+      bm25: [],
+      capture,
+    });
     const lines = await svc.mentionLines({
       companyId: 'c1',
       query: 'In what order did I raise the parser project aspects?',

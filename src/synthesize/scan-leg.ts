@@ -72,16 +72,34 @@ export async function runDenseScanLeg<Row>(
   try {
     // kOver/ef are validated ints (positiveIntEnv/profile overlay) —
     // safe to interpolate; the KNN operator takes no bind params.
-    const [rows] = await db.query<[Row[]]>(
+    //
+    // The projection MUST be vector::distance::knn(), not a fresh
+    // cosine call: re-projecting vector::similarity::cosine next to
+    // the <|k,ef|> operator drops the planner off the KnnScan and
+    // costs MORE than the full scan (measured 6-8s vs 0.45s brute on
+    // a 20k×384 stand table — and one such query OOM-killed a 16GB
+    // SurrealDB 3.1.5). The distance the walk already computed comes
+    // back in ~0.3s at kOver=1600 with recall 0.995. COSINE distance
+    // = 1 − cosine similarity; converted below so callers keep the
+    // exact sim semantics of the brute leg (absolute floors).
+    const [rows] = await db.query<[Array<Row & { knnDist?: number }>]>(
       `SELECT ${req.projection},
-        vector::similarity::cosine(embedding, $q) AS score
+        vector::distance::knn() AS knnDist
    FROM ${req.table}
   WHERE embedding <|${kOver},${ef}|> $q ${req.gates}
-  ORDER BY score DESC
+  ORDER BY knnDist ASC
   LIMIT $k`,
       params,
     );
-    if (rows && rows.length > 0) return rows;
+    if (rows && rows.length > 0) {
+      return rows.map(({ knnDist, ...rest }) => {
+        const row = {
+          ...rest,
+          score: typeof knnDist === 'number' ? 1 - knnDist : undefined,
+        };
+        return row as unknown as Row;
+      });
+    }
     logger?.warn(
       `hnsw dense scan leg empty after gates (${req.table}, kOver=${kOver}) — falling back to full scan`,
     );

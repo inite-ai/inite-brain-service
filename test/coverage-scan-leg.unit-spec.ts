@@ -57,16 +57,22 @@ describe('runDenseScanLeg', () => {
   });
 
   it('hnsw mode emits the KNN operator with overfetch and the gates intact', async () => {
-    const db = fakeDb([[[{ id: 's1' }]]]);
+    const db = fakeDb([[[{ id: 's1', knnDist: 0.25 }]]]);
     const rows = await runDenseScanLeg(
       legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 4 }),
     );
-    expect(rows).toEqual([{ id: 's1' }]);
+    // COSINE distance from the walk converts to similarity (1 − dist).
+    expect(rows).toEqual([{ id: 's1', score: 0.75 }]);
     expect(db.calls).toHaveLength(1);
     // k=400 × overfetch 4 = 1600; ef clamps up to kOver.
     expect(db.calls[0]).toContain('embedding <|1600,1600|> $q');
     expect(db.calls[0]).toContain(GATES);
     expect(db.calls[0]).not.toContain('embedding != NONE');
+    // The projection must reuse the walk's distance — a fresh cosine
+    // call next to the KNN operator drops the planner off the KnnScan
+    // (measured 15× slower than brute + an OOM-kill on 3.1.5).
+    expect(db.calls[0]).toContain('vector::distance::knn()');
+    expect(db.calls[0]).not.toContain('vector::similarity::cosine');
   });
 
   it('ef above the overfetched k survives the clamp', async () => {
