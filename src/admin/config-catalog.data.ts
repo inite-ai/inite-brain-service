@@ -847,6 +847,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Coverage floor for RETRIEVAL_ABSTENTION_CALIBRATION=coverage: minimum fact count across the retrieved evidence. 1 effectively disables the count floor (empty evidence already returns no_results).',
       },
       {
+        key: 'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §5 verifier topic-coverage (profile field verifierTopicCoverage): the corrective-RAG auditor additionally (a) treats asserted CONNECTIONS between facts — causal/motivational/attributive links — as claims needing their own evidence, and (b) outputs a questionAnswered judgment: does the evidence actually answer the query, or merely share its topic. In lenient guardrails under abstentionCalibration='verifier', supported-but-not-answering declines like unsupported (the V9 residual: 13/40 abstention misses were fabrications assembled from real facts, each claim individually grounded, the causal link invented). Strict/answer guardrails keep pre-V10 semantics. Off = byte-identical verifier prompt and schema.",
+      },
+      {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
         category: 'pipeline',
         defaultValue: null,

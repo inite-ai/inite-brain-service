@@ -230,6 +230,20 @@ export interface RetrievalProfile {
   salienceScoring: boolean;
   /** V9 §4 memory-coverage abstention; off = byte-identical. */
   abstentionCalibration: AbstentionCalibrationMode;
+  /**
+   * V10 §5 verifier topic-coverage: the auditor additionally judges
+   * (a) relationship claims — an asserted causal/attributive link
+   * between individually-supported facts is itself a claim needing
+   * direct evidence — and (b) whether the evidence actually ANSWERS
+   * the query (`questionAnswered`), not merely shares its topic. In
+   * lenient guardrails under abstentionCalibration='verifier', a
+   * supported-but-not-answering verdict declines like unsupported
+   * (the V9 residual: 13/40 abstention misses were fabrications
+   * assembled from real facts, each claim individually grounded).
+   * Strict/answer guardrails are untouched. Off = byte-identical
+   * verifier prompt and schema.
+   */
+  verifierTopicCoverage: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -346,6 +360,7 @@ export function resolveRetrievalProfile(
         'coverage',
         'verifier',
       ] as const) ?? 'off',
+    verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -436,6 +451,7 @@ export function resolveRetrievalProfileFor(
     'wideProbe',
     'entityExpansion',
     'salienceScoring',
+    'verifierTopicCoverage',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

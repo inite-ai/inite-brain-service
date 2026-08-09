@@ -404,6 +404,9 @@ export class SynthesizeService {
               // framing the generator saw — the collector computed it
               // exactly once for both.
               timelineEvidence,
+              // V10 §5: topic-coverage audit (relationship-claim
+              // strictness + the questionAnswered judgment).
+              topicCoverage: profile.verifierTopicCoverage,
               model,
             }),
           ),
@@ -423,6 +426,7 @@ export class SynthesizeService {
 
     return this.finalizeVerdict({
       verdict: verdict.verdict,
+      questionAnswered: verdict.questionAnswered,
       answer: generated.answer,
       citations,
       results,
@@ -443,6 +447,7 @@ export class SynthesizeService {
    */
   private finalizeVerdict({
     verdict,
+    questionAnswered,
     answer,
     citations,
     results,
@@ -451,6 +456,7 @@ export class SynthesizeService {
     abstention,
   }: {
     verdict: VerifierOutput['verdict'];
+    questionAnswered?: boolean;
     answer: string;
     citations: Citation[];
     results: SynthesizeResult['results'];
@@ -459,6 +465,28 @@ export class SynthesizeService {
     abstention?: RetrievalProfile['abstentionCalibration'];
   }): SynthesizeResult {
     if (verdict === 'supported') {
+      // V10 §5: supported-but-not-answering — the V9 abstention
+      // residual (fabrications assembled from real facts pass the
+      // grounding audit). Only the topic-coverage audit produces the
+      // judgment (undefined otherwise), and only the lenient
+      // 'verifier' abstention mode consumes it; strict/answer
+      // guardrails keep pre-V10 supported semantics.
+      if (
+        guardrails === 'lenient' &&
+        abstention === 'verifier' &&
+        questionAnswered === false
+      ) {
+        this.metrics?.countSynthesize('low_coverage');
+        return attachDecisionLog(
+          {
+            answer: NOT_IN_MEMORY_ANSWER,
+            reason: 'low_coverage',
+            citations: [],
+            results,
+          },
+          decisionLog,
+        );
+      }
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
         { answer, citations, results },
@@ -839,6 +867,7 @@ export class SynthesizeService {
     transcriptLines?: string[];
     insightLines?: string[];
     timelineEvidence?: boolean;
+    topicCoverage?: boolean;
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({
