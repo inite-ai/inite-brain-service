@@ -7,12 +7,14 @@ import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
+import { EvidenceCollectorService } from './evidence-collector.service';
 
 @Module({
   imports: [SearchModule, EpisodesModule],
   controllers: [SynthesizeController],
   providers: [
     SynthesizeService,
+    EvidenceCollectorService,
     EpisodeLaneService,
     SegmentLaneService,
     InsightLaneService,

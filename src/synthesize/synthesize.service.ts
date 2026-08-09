@@ -25,17 +25,11 @@ import {
   salvageTruncatedAnswer,
   verifierErrorResult,
 } from './synthesize.helpers';
-import {
-  wantsInsightEvidence,
-  wantsTimelineEvidence,
-  wantsVerbatimEvidence,
-} from './evidence-gates';
+import { wantsTimelineEvidence } from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
 import {
   routeLane,
   laneProbeDto,
-  INSTRUCTION_PROBE_QUERY,
-  extractStandingInstructions,
   detectEvidenceConflicts,
   type LaneId,
 } from './answer-router';
@@ -51,10 +45,7 @@ import { buildGeneratorUserMessage } from './generator-prompt';
 import { runVerifier, type VerifierOutput } from './verifier';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
-import { EpisodeLaneService } from './episode-lane.service';
-import { SegmentLaneService } from './segment-lane.service';
-import { InsightLaneService } from './insight-lane.service';
-import { MentionScanService } from './mention-scan.service';
+import { EvidenceCollectorService } from './evidence-collector.service';
 import {
   NOOP_REPORTER,
   type ProgressReporter,
@@ -144,17 +135,17 @@ export class SynthesizeService {
   private readonly minCalibratedConfidence: number;
   private readonly minFactTrust: number;
 
-  // Fourth dep is the flag-gated L0 episodic lane (P2 of the substrate
-  // redesign); optional so positionally-constructed unit tests stay as-is.
+  // The typed prompt sections (transcript / insights / instructions)
+  // come from ONE collector behind one contract (V9 quality pass — the
+  // orchestrator was accreting a lane service per evidence class: 7
+  // ctor params before, 4 now); optional so positionally-constructed
+  // unit tests stay as-is.
   // eslint-disable-next-line max-params
   constructor(
     private readonly search: SearchService,
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
-    @Optional() private readonly episodeLane?: EpisodeLaneService,
-    @Optional() private readonly segmentLane?: SegmentLaneService,
-    @Optional() private readonly insightLane?: InsightLaneService,
-    @Optional() private readonly mentionScan?: MentionScanService,
+    @Optional() private readonly evidenceCollector?: EvidenceCollectorService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -259,19 +250,6 @@ export class SynthesizeService {
     );
 
     const answerMode = guardrails === 'answer';
-    // Audit W4 carried (lane-collection parallelism): the standing-
-    // instruction probe is a full second search and used to be a
-    // sequential await in front of everything else. It only needs
-    // `evidence`, so it starts here and is joined with the transcript
-    // lanes below — one round-trip window instead of two. The method
-    // degrades internally (probe failures → evidence-only), so the
-    // started promise never rejects.
-    const instructionsPromise = this.collectStandingInstructions({
-      profile,
-      companyId,
-      callerScopes,
-      evidence,
-    });
     const prepared = this.prepareEvidence(evidence, {
       answerMode,
       explain,
@@ -283,12 +261,7 @@ export class SynthesizeService {
       // routed request, independent of lane.
       markRecency: profile.lanes.has('recency'),
     });
-    if ('empty' in prepared) {
-      // The in-flight probe is abandoned deliberately — the empty path
-      // returns without a prompt for the instructions to land in.
-      void instructionsPromise.catch(() => undefined);
-      return prepared.empty;
-    }
+    if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
 
     // V9 §4 memory-coverage abstention (strict/lenient only — 'answer'
@@ -299,33 +272,32 @@ export class SynthesizeService {
       results,
       explain,
     });
-    if (abstained) {
-      void instructionsPromise.catch(() => undefined);
-      return abstained;
-    }
+    if (abstained) return abstained;
 
-    const [instructions, transcriptLines, insightLines] = await Promise.all([
-      instructionsPromise,
-      this.collectTranscriptLines({
-        profile,
-        companyId,
-        query: dto.query,
-        callerScopes,
-        factIds: [...factIndex.keys()],
-        // Same fail-closed user scope the fact read path applies (0055).
-        userId: dto.userId,
-      }),
-      // V8 §1: derived insights for summary/enumeration-routed
-      // questions, in their own budget slot. Degrades to [].
-      this.collectInsightLines({
-        profile,
-        lane,
-        companyId,
-        query: dto.query,
-        callerScopes,
-        userId: dto.userId,
-      }),
-    ]);
+    // Every non-fact prompt section — transcript quotes, insights,
+    // standing instructions — comes from the collector behind one
+    // contract (V9 quality pass; all lanes concurrent inside). Running
+    // it AFTER the empty/abstention exits also stops the pre-V9 waste
+    // of an abandoned in-flight instruction probe on those paths.
+    const { transcriptLines, insightLines, instructions, timelineEvidence } =
+      this.evidenceCollector
+        ? await this.evidenceCollector.collect({
+            profile,
+            lane,
+            companyId,
+            query: dto.query,
+            callerScopes,
+            // Same fail-closed user scope the fact read path applies (0055).
+            userId: dto.userId,
+            factIds: [...factIndex.keys()],
+            evidence,
+          })
+        : {
+            transcriptLines: [],
+            insightLines: [],
+            instructions: undefined,
+            timelineEvidence: wantsTimelineEvidence(profile, dto.query),
+          };
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -347,7 +319,7 @@ export class SynthesizeService {
               factLines,
               transcriptLines,
               insightLines,
-              timelineEvidence: wantsTimelineEvidence(profile, dto.query),
+              timelineEvidence,
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -429,8 +401,9 @@ export class SynthesizeService {
               insightLines,
               // W5 #22 parity for the mention record (V9 §2 closes the
               // V8 gap): the auditor sees the same MENTION RECORD
-              // framing the generator saw.
-              timelineEvidence: wantsTimelineEvidence(profile, dto.query),
+              // framing the generator saw — the collector computed it
+              // exactly once for both.
+              timelineEvidence,
               model,
             }),
           ),
@@ -626,162 +599,6 @@ export class SynthesizeService {
    * (complexity budget). Returns `{empty}` with the early-return result,
    * or the prepared evidence for the generator.
    */
-  /**
-   * Verbatim L0 quotes for the generator, one deduped section from three
-   * flag-gated lanes: episodic BM25 (P2) — question-driven turn quotes;
-   * provenance excerpts (A1) — source turns of the selected evidence
-   * facts; segment lane (R1) — multi-turn segments retrieved on their own
-   * dense+BM25 merit, so raw L0 competes for the prompt instead of only
-   * riding along with selected facts.
-   */
-  private async collectTranscriptLines({
-    profile,
-    companyId,
-    query,
-    callerScopes,
-    factIds,
-    userId,
-  }: {
-    profile: RetrievalProfile;
-    companyId: string;
-    query: string;
-    callerScopes: string[];
-    factIds: string[];
-    userId?: string;
-  }): Promise<string[]> {
-    const active = wantsVerbatimEvidence(profile, query);
-    if (getAbortSignal()?.aborted) return [];
-    // V9 §2: under timelineEvidence='scan' the ordering dispatch is
-    // served by the mention-scan lane (coverage-first, one line per
-    // session) INSTEAD of the top-K segment appendix — the appendix
-    // still runs for the 'always' verbatim profile and for 'routed'.
-    const timelineActive = wantsTimelineEvidence(profile, query);
-    const scanActive =
-      timelineActive &&
-      profile.timelineEvidence === 'scan' &&
-      !!this.mentionScan;
-    // The lanes are independent reads — run them concurrently
-    // (audit W4 carried: they used to be sequential awaits).
-    // Segments compete for the prompt on their own retrieval merit —
-    // an 'always' verbatim profile runs them; the shape-conditioned
-    // default does not (they measurably distract on assistant chats);
-    // 'fused' retrieves them as scored SearchHits inside search, so
-    // appending them here would duplicate the evidence.
-    const [laneLines, sourceLines, segmentLines, scanLines] =
-      await Promise.all([
-        active
-          ? this.episodeLane
-              ?.transcriptLines({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                limit: profile.quotesPerPrompt,
-              })
-              .then((v) => v ?? [])
-          : [],
-        active
-          ? this.episodeLane
-              ?.sourceExcerpts({
-                companyId,
-                factIds,
-                callerScopes,
-                userId,
-                cap: profile.sourceExcerptsCap,
-              })
-              .then((v) => v ?? [])
-          : [],
-        profile.verbatimEvidence === 'always' || (timelineActive && !scanActive)
-          ? this.segmentLane
-              ?.transcriptLines({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                topK: profile.segmentTopK,
-                rerank: profile.segmentRerank,
-              })
-              .then((v) => v ?? [])
-          : [],
-        scanActive
-          ? this.mentionScan
-              ?.mentionLines({ companyId, query, callerScopes, userId })
-              .then((v) => v ?? [])
-          : [],
-      ]).then((lanes) => lanes.map((l) => l ?? []));
-    return [
-      ...new Set([
-        ...scanLines,
-        ...segmentLines,
-        ...sourceLines,
-        ...laneLines,
-      ]),
-    ];
-  }
-
-  /**
-   * V8 §1: derived insights (aggregates + summaries) for the prompt's
-   * dedicated section. Gated on wantsInsightEvidence; degrades to [].
-   */
-  private async collectInsightLines(opts: {
-    profile: RetrievalProfile;
-    lane: LaneId | null;
-    companyId: string;
-    query: string;
-    callerScopes: string[];
-    userId?: string;
-  }): Promise<string[]> {
-    const { profile, lane, companyId, query, callerScopes, userId } = opts;
-    if (!wantsInsightEvidence(profile, lane) || !this.insightLane) return [];
-    if (getAbortSignal()?.aborted) return [];
-    return this.insightLane
-      .insightLines({ companyId, query, callerScopes, userId })
-      .then((v) => v ?? []);
-  }
-
-  /**
-   * T7: standing user instructions for the prompt's dedicated section.
-   * UNCONDITIONAL (IF questions are deliberately neutral — no lexical
-   * route can fire): a fixed probe pulls instruction-shaped facts,
-   * merged with any already in the evidence. undefined when the lane is
-   * off or nothing qualifies; probe failures degrade to evidence-only.
-   */
-  private async collectStandingInstructions({
-    profile,
-    companyId,
-    callerScopes,
-    evidence,
-  }: {
-    profile: RetrievalProfile;
-    companyId: string;
-    callerScopes: string[];
-    evidence: SearchHit[];
-  }): Promise<string[] | undefined> {
-    if (!profile.lanes.has('instruction')) return undefined;
-    // Structured cancellation: the probe is a full second search — if
-    // the request already died, don't spend it. (Per-query aborts are
-    // not supported by the DB SDK; stage-boundary checks are the
-    // honest granularity.)
-    if (getAbortSignal()?.aborted) return undefined;
-    let probeHits: SearchHit[] = [];
-    try {
-      const probe = await withSpan('synthesize.instruction_probe', () =>
-        this.search.search(
-          companyId,
-          { query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto,
-          callerScopes,
-        ),
-      );
-      probeHits = probe.results;
-    } catch (e) {
-      this.logger.warn(
-        `instruction probe failed (companyId=${companyId}): ${(e as Error).message}`,
-      );
-    }
-    const list = extractStandingInstructions([...evidence, ...probeHits]);
-    return list.length > 0 ? list : undefined;
-  }
-
   /**
    * Deterministic second retrievals per lane. T4 preference: the fixed
    * tastes probe (recommendation queries rarely surface stored tastes
