@@ -1,4 +1,11 @@
-import { dedupeMentionLines } from '../src/synthesize/mention-scan';
+import {
+  dedupeMentionLines,
+  extractOrderingTopic,
+  topicTerms,
+} from '../src/synthesize/mention-scan';
+import { MentionScanService } from '../src/synthesize/mention-scan.service';
+import type { SurrealService } from '../src/db/surreal.service';
+import type { EmbedderService } from '../src/ai/embedder.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import {
   ENUMERATION_LANE_INSTRUCTION,
@@ -49,6 +56,89 @@ describe('dedupeMentionLines', () => {
 
   it('empty input passes through', () => {
     expect(dedupeMentionLines([])).toEqual([]);
+  });
+});
+
+describe('extractOrderingTopic strips the exact-N ask scaffold (R1)', () => {
+  it('the BEAM exact-N constraint never reaches the topic', () => {
+    const topic = extractOrderingTopic(
+      'Can you list the order in which I brought up different aspects of ' +
+        'developing my personal budget tracker throughout our ' +
+        'conversations? Mention ONLY and ONLY three items in your answer.',
+    );
+    expect(topic.toLowerCase()).not.toContain('mention');
+    expect(topic.toLowerCase()).not.toContain('items');
+    expect(topic.toLowerCase()).not.toContain('answer');
+    expect(topic.toLowerCase()).toContain('budget tracker');
+  });
+
+  it('ask-scaffold words never count as topic terms', () => {
+    for (const w of ['mention', 'only', 'items', 'order', 'answer']) {
+      expect(topicTerms(`${w} budget tracker`)).not.toContain(w);
+    }
+  });
+});
+
+describe('segment-level mention record under dedupeAspects (R1)', () => {
+  function makeService(segments: Array<Record<string, unknown>>) {
+    const surreal = {
+      withCompany: async (
+        _c: string,
+        fn: (db: unknown) => Promise<unknown>,
+      ) => {
+        let call = 0;
+        return fn({
+          query: async () => {
+            call += 1;
+            // dense leg first, then bm25 — return everything lexical so
+            // every segment counts as a mention.
+            return [call === 1 ? [] : segments];
+          },
+        });
+      },
+    } as unknown as SurrealService;
+    const embedder = {
+      embed: async () => [0.1, 0.2],
+    } as unknown as EmbedderService;
+    return new MentionScanService(surreal, embedder);
+  }
+
+  // One long session (same hour) raising two DISTINCT aspects across
+  // two segments — the V9 per-session collapse kept only one of them.
+  const segments = [
+    {
+      id: 'episode_segment:s1',
+      text: '[2024-03-15] user: added a debounce delay to cut API calls',
+      occurredAt: '2024-03-15T10:00:00Z',
+      score: 2,
+    },
+    {
+      id: 'episode_segment:s2',
+      text: '[2024-03-15] user: worried rapid input bypasses the debounce entirely',
+      occurredAt: '2024-03-15T10:20:00Z',
+      score: 2,
+    },
+  ];
+
+  it('keeps within-session aspect sequence when dedupeAspects is on', async () => {
+    const lines = await makeService(segments).mentionLines({
+      companyId: 'c1',
+      query: 'In what order did I bring up the debounce aspects?',
+      callerScopes: [],
+      dedupeAspects: true,
+    });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('added a debounce delay');
+    expect(lines[1]).toContain('rapid input bypasses');
+  });
+
+  it('default (off) keeps the V9 one-line-per-session record', async () => {
+    const lines = await makeService(segments).mentionLines({
+      companyId: 'c1',
+      query: 'In what order did I bring up the debounce aspects?',
+      callerScopes: [],
+    });
+    expect(lines).toHaveLength(1);
   });
 });
 
