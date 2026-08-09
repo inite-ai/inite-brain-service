@@ -185,6 +185,32 @@ export const CONTRADICTION_NOTE_INSTRUCTION =
   'which one is correct. This overrides the always-commit rule for ' +
   'those facts only.\n';
 
+/**
+ * V10 §2b date-arbitrating conflict frame (updateStoryRendering). The
+ * v10lifecycle autopsy: the conservative 0084 closure leaves REAL
+ * value updates COMPETING, and the blanket hedge frame turned
+ * knowledge_update answers into "conflicting reports … please
+ * confirm" on questions whose golds want the resolved CURRENT value
+ * (KU 9↓/2↑ vs control; in 3 of 4 audited downs the correct newer
+ * value was IN the answer, hedged away). Dates discriminate the two
+ * classes: different-day pairs are updates — commit to the latest
+ * and note the earlier as previous (update-story semantics at the
+ * conflict render); same-day pairs are genuine ambiguity — hedge
+ * exactly as before (the class 0084 routes to the contradiction
+ * lane, whose golds reward the hedge).
+ */
+export const CONTRADICTION_DATE_ARBITRATION_INSTRUCTION =
+  'CONFLICT NOTICE: the facts below include statements the memory ' +
+  'system flagged as COMPETING (mutually contradictory), listed as ' +
+  'conflict pairs above the fact list. If the question touches a ' +
+  'conflict pair, arbitrate by DATE: when one side carries a later ' +
+  'date stamp, treat it as the current value — answer with it ' +
+  'directly and mention the earlier value as previous (e.g. ' +
+  '"…, previously <old value> until <date>"). Only when the sides ' +
+  'carry the same date (or no dates) do NOT pick a side: state both ' +
+  'versions, note that they contradict each other, and ask which one ' +
+  'is correct.\n';
+
 /** T7 section header: compliance is part of correctness. */
 export const STANDING_INSTRUCTIONS_INSTRUCTION =
   'Standing user instructions found in memory (they govern HOW you ' +

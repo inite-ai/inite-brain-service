@@ -1,6 +1,7 @@
 import {
   TEMPORAL_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
+  CONTRADICTION_DATE_ARBITRATION_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   laneInstructionFor,
@@ -22,6 +23,7 @@ export function buildGeneratorUserMessage({
   insightLines,
   timelineEvidence,
   orderingFrame,
+  dateArbitratedConflicts,
   arcInsights,
   answerLang,
   dateContext,
@@ -53,6 +55,14 @@ export function buildGeneratorUserMessage({
    * profile opted in (orderingFrame && timelineEvidence).
    */
   orderingFrame?: boolean;
+  /**
+   * V10 §2b: date-arbitrating conflict frame — different-day conflict
+   * pairs commit to the latest value and note the earlier as
+   * previous; same-day pairs keep the hedge. Set from
+   * profile.updateStoryRendering; off = the blanket hedge frame,
+   * byte-identical.
+   */
+  dateArbitratedConflicts?: boolean;
   /**
    * V10 §4: the insight lines are a query-time TOPIC RECORD (dated
    * atomic beats assembled for the asked topic) rather than stored
@@ -90,11 +100,14 @@ export function buildGeneratorUserMessage({
           .map((i) => `- ${i}`)
           .join('\n')}\n`
       : '';
+  const conflictNote = dateArbitratedConflicts
+    ? CONTRADICTION_DATE_ARBITRATION_INSTRUCTION
+    : CONTRADICTION_NOTE_INSTRUCTION;
   const conflictSection =
     conflicts && conflicts.length > 0
       ? `Conflict pairs (write-side COMPETING):\n${conflicts
           .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
-          .join('\n')}\n${CONTRADICTION_NOTE_INSTRUCTION}`
+          .join('\n')}\n${conflictNote}`
       : '';
   const transcriptHeader = timelineEvidence
     ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite factIds only):'

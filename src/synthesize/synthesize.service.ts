@@ -342,6 +342,9 @@ export class SynthesizeService {
               // V10 §4: the insight slot carries a query-time topic
               // record — the header must say so.
               arcInsights: profile.insightEvidence === 'query_arc',
+              // V10 §2b: date-arbitrated conflict frame rides the
+              // update-story flag (one lifecycle-read story).
+              dateArbitratedConflicts: profile.updateStoryRendering,
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -756,6 +759,7 @@ export class SynthesizeService {
     insightLines,
     timelineEvidence,
     orderingFrame,
+    dateArbitratedConflicts,
     arcInsights,
     model,
     answerLang,
@@ -775,6 +779,8 @@ export class SynthesizeService {
     timelineEvidence?: boolean;
     /** V10 §3: order-of-mention frame replaces the enumeration frame. */
     orderingFrame?: boolean;
+    /** V10 §2b: date-arbitrated conflict frame (updateStoryRendering). */
+    dateArbitratedConflicts?: boolean;
     /** V10 §4: insight lines are a query-time topic record. */
     arcInsights?: boolean;
     model: string;
@@ -799,6 +805,7 @@ export class SynthesizeService {
       insightLines,
       timelineEvidence,
       orderingFrame,
+      dateArbitratedConflicts,
       arcInsights,
       answerLang,
       dateContext,

@@ -3,6 +3,7 @@ import {
   renderUpdateStory,
 } from '../src/synthesize/update-story';
 import { UpdateStoryService } from '../src/synthesize/update-story.service';
+import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import type { SurrealService } from '../src/db/surreal.service';
 import {
   resolveRetrievalProfile,
@@ -166,6 +167,45 @@ describe('UpdateStoryService', () => {
     });
     expect(out.size).toBe(0);
     expect(capture).toEqual([]);
+  });
+});
+
+describe('date-arbitrated conflict frame (V10 §2b)', () => {
+  const base = {
+    query: 'What is the average response time of the dashboard API?',
+    factLines: [
+      '[knowledge_fact:a] Alex (person) — work: response ~300ms (as of 2024-04-05)',
+      '[knowledge_fact:b] Alex (person) — work: response ~250ms (as of 2024-04-25)',
+    ],
+    answerLang: null,
+    conflicts: [
+      { factIds: ['knowledge_fact:a', 'knowledge_fact:b'], label: 'work' },
+    ],
+  };
+
+  it('on — commit-latest frame with the previous value noted', () => {
+    const msg = buildGeneratorUserMessage({
+      ...base,
+      dateArbitratedConflicts: true,
+    });
+    expect(msg).toContain('arbitrate by DATE');
+    expect(msg).toContain('previously');
+    expect(msg).not.toContain('do NOT silently pick a side');
+  });
+
+  it('off — byte-identical blanket hedge frame', () => {
+    const msg = buildGeneratorUserMessage(base);
+    expect(msg).toContain('do NOT silently pick a side');
+    expect(msg).not.toContain('arbitrate by DATE');
+  });
+
+  it('same-day ambiguity path stays in the arbitrated frame text', () => {
+    const msg = buildGeneratorUserMessage({
+      ...base,
+      dateArbitratedConflicts: true,
+    });
+    expect(msg).toContain('same date');
+    expect(msg).toContain('ask which one');
   });
 });
 
