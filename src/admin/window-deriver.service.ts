@@ -35,87 +35,17 @@ import { ReadPinService } from '../episodes/read-pin.service';
  */
 export const WINDOW_DERIVER_VERSION = 'wd-v2';
 
-const DERIVER_SYSTEM = `You extract durable MEMORY PROPOSITIONS from ONE session of a two-person dialogue. The original conversation will NOT be available at retrieval time — each proposition must stand alone years later.
-
-For every durable piece of information, emit:
-- "subject": the full display name of the person the proposition is ABOUT (one of the participants, exactly as named);
-- "aspect": one slug from: identity, residence, family, relationships, pets, activities, work, education, health, possessions, events, plans, preferences, media, travel, other;
-- "proposition": ONE self-contained sentence. Resolve every pronoun and deictic reference ("it", "there", "she", "the kitty") to the concrete name or thing using the WHOLE session. Include absolute dates: resolve relative expressions ("last week", "next month") against the session date. Enumerate list answers completely ("X's pets are the cats Luna and Oliver and the dog Bailey"), never partially.
-- "occurred_on": the ISO date (YYYY-MM-DD) the described event happened, when determinable, else null;
-- "turns": the turn numbers this proposition is grounded in.
-
-Rules: be exhaustive — a missed fact is worse than a redundant one; state ONLY what the session supports, never invent; skip pure smalltalk and pleasantries. Emit up to 40 propositions. Output strictly the JSON schema.`;
-
-/**
- * E3a assistant-content section (DERIVER_ASSISTANT_CONTENT). The base
- * contract is user-fact-shaped ("the person the proposition is ABOUT"),
- * so substantive content the assistant CONTRIBUTED — recommendations,
- * answers, instructions — structurally never becomes a proposition.
- * That is the measured SSA failure ("facts do not specify…" while the
- * verbatim turn sits in L0) at the substrate level; the read-side
- * verbatim lane routes around it, this closes it at the source.
- * Flag-gated, default off: deriver prompt changes need a paid confirm
- * leg on a FRESH derivedVersion (worlds derived under different prompts
- * must not share a version).
- */
-export const DERIVER_ASSISTANT_SECTION = `
-
-ASSISTANT-SIDE CONTRIBUTIONS
-Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
-
-/**
- * Salience grading (DERIVER_SALIENCE_STAMP, V8 §4 → V9 §5 rebuild):
- * a SEPARATE cheap turn over the emitted proposition list. The V8
- * in-prompt section failed both its gates — it primed over-emission
- * (+54-74% propositions vs the same env without it: NOT recall-
- * neutral) and inflated the grade mass (0.4/36/52/11.7% vs the
- * ~10/60/25/5 rubric). Grading AFTER emission is volume-neutral by
- * construction, and a rubric with explicit mass targets is the
- * distribution fix. Failure degrades to unstamped rows.
- */
-export const SALIENCE_GRADING_SYSTEM = `You grade the long-term SALIENCE of memory propositions about a person — how central each is to remembering them years later.
-
-Grades and their expected share of a typical list:
-- 0 = incidental detail (smalltalk-adjacent, one-off logistics, weather) — about 10%;
-- 1 = routine fact (ordinary activities, minor preferences, passing mentions) — the default, about 60%;
-- 2 = notable (decisions, changes, plans, milestones, recurring topics) — about 25%;
-- 3 = identity-central (job, family, health, home, long-term goals — the few facts a biographer would keep) — about 5%.
-
-Grade EVERY numbered proposition. Hold the proportions unless the list is genuinely atypical — a list where most grades are 2-3 is almost always inflation, not an exceptional person. Output strictly the JSON schema.`;
-
-/** System prompt assembly; each section only exists when its flag asks. */
-export function buildDeriverSystem(opts?: {
-  assistantContent?: boolean;
-}): string {
-  return (
-    DERIVER_SYSTEM +
-    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '')
-  );
-}
-
-/**
- * V7 deriver-recall (DERIVER_COMPLETION_PASS): the follow-up turn of
- * the completion pass. The base contract caps at 40 propositions and a
- * single pass measurably under-extracts dense sessions (the LoCoMo
- * bottleneck has been extraction recall since 2026-07); asking the
- * SAME model to diff its own output against the transcript is the
- * cheapest recall pass — it sees what it already said, so the union is
- * additive, not a re-roll.
- */
-export const DERIVER_COMPLETION_PROMPT = `Review the transcript once more against the propositions you just emitted. Emit ONLY durable propositions that are MISSING from your list: facts, events, dates, plans, preferences, media titles, list members, and (when the assistance rules above apply) contributed content that no emitted proposition captures. Do NOT repeat or rephrase anything already emitted. Same output contract (subject / aspect / proposition / occurred_on / turns). Up to 20 additional propositions; return an empty list if nothing was missed.`;
-
-/** Dedup key for the completion-pass union: subject + normalized text. */
-export function propositionKey(p: {
-  subject: string;
-  proposition: string;
-}): string {
-  const norm = p.proposition
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/\.\s*$/, '')
-    .trim();
-  return `${p.subject.toLowerCase().trim()}\x00${norm}`;
-}
+// The prompts + LLM-call cluster moved to deriver-client.ts (V10.5
+// audit pass — same seam as generator-client on the synthesize side);
+// re-exported so existing consumers keep their import.
+export {
+  DERIVER_ASSISTANT_SECTION,
+  DERIVER_COMPLETION_PROMPT,
+  SALIENCE_GRADING_SYSTEM,
+  buildDeriverSystem,
+  propositionKey,
+} from './deriver-client';
+import { callDeriver, type DerivedProposition } from './deriver-client';
 
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
@@ -147,16 +77,6 @@ export {
   type EpisodeRow,
 } from '../episodes/session-window';
 import { segmentSessions, type EpisodeRow } from '../episodes/session-window';
-
-interface DerivedProposition {
-  subject: string;
-  aspect: string;
-  proposition: string;
-  occurred_on: string | null;
-  turns: number[];
-  /** 0-3 importance grade; present only under DERIVER_SALIENCE_STAMP. */
-  salience?: number;
-}
 
 @Injectable()
 export class WindowDeriverService {
@@ -617,234 +537,17 @@ export class WindowDeriverService {
     }
   }
 
+  // Thin adapter over the deriver client (V10.5 audit pass) — the
+  // service supplies its openai/model/logger, the module owns the
+  // prompts, pass/retry mechanics, completion union and grading turn.
   private async callDeriver(
     sessionDate: Date,
     participants: string[],
     transcript: string[],
   ): Promise<DerivedProposition[]> {
-    const profile = resolveExtractionProfile();
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      {
-        role: 'system',
-        content: buildDeriverSystem({
-          assistantContent: profile.deriveAssistantContent,
-        }),
-      },
-      {
-        role: 'user',
-        content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,
-      },
-    ];
-    const base = await this.deriverPass(messages);
-    const merged = await this.completionUnion(profile, messages, base);
-    // V9 §5: salience grades come from a SEPARATE turn over the final
-    // list — the extraction passes above never see the word "salience",
-    // so emission volume is untouched (the V8 in-prompt section
-    // measured +54-74% propositions). Degrades to unstamped.
-    if (profile.deriveSalienceStamp && merged.length > 0) {
-      await this.gradeSalience(merged);
-    }
-    return merged;
-  }
-
-  /** V7 completion pass, additive by construction — a failure degrades
-   *  to the base pass, never fails the session. */
-  private async completionUnion(
-    profile: ReturnType<typeof resolveExtractionProfile>,
-    messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>,
-    base: DerivedProposition[],
-  ): Promise<DerivedProposition[]> {
-    if (!profile.deriveCompletionPass || base.length === 0) return base;
-    let extra: DerivedProposition[] = [];
-    try {
-      extra = await this.deriverPass([
-        ...messages,
-        {
-          role: 'assistant',
-          content: JSON.stringify({ propositions: base }),
-        },
-        { role: 'user', content: DERIVER_COMPLETION_PROMPT },
-      ]);
-    } catch (e) {
-      this.logger.warn(
-        `deriver completion pass failed (${(e as Error).message}); keeping the base pass`,
-      );
-    }
-    const seen = new Set(base.map(propositionKey));
-    const merged = [...base];
-    for (const p of extra) {
-      const k = propositionKey(p);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      merged.push(p);
-    }
-    if (merged.length > base.length) {
-      this.logger.log(
-        `deriver completion pass added ${merged.length - base.length} proposition(s) (base ${base.length})`,
-      );
-    }
-    return merged;
-  }
-
-  /**
-   * V9 §5: the volume-neutral grading turn. Mutates `propositions` in
-   * place (stamps `salience` 0-3 by index); any failure or an
-   * index/length mismatch leaves rows unstamped — the scoring side
-   * treats missing stamps as neutral.
-   */
-  private async gradeSalience(
-    propositions: DerivedProposition[],
-  ): Promise<void> {
-    try {
-      const list = propositions
-        .map((p, i) => `${i}. [${p.subject}] ${p.proposition}`)
-        .join('\n');
-      const res = await this.openai.chat.completions.create({
-        model: this.model,
-        temperature: 0,
-        max_completion_tokens: 4000,
-        messages: [
-          { role: 'system', content: SALIENCE_GRADING_SYSTEM },
-          { role: 'user', content: `Propositions:\n${list}` },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'salience_grades',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                grades: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    properties: {
-                      index: { type: 'integer' },
-                      salience: { type: 'integer' },
-                    },
-                    required: ['index', 'salience'],
-                  },
-                },
-              },
-              required: ['grades'],
-            },
-          },
-        },
-      });
-      const content = res.choices[0]?.message?.content;
-      if (!content) throw new Error('empty grading response');
-      const parsed = JSON.parse(content) as {
-        grades?: Array<{ index: number; salience: number }>;
-      };
-      for (const g of parsed.grades ?? []) {
-        if (
-          Number.isInteger(g.index) &&
-          g.index >= 0 &&
-          g.index < propositions.length &&
-          Number.isInteger(g.salience) &&
-          g.salience >= 0 &&
-          g.salience <= 3
-        ) {
-          propositions[g.index].salience = g.salience;
-        }
-      }
-    } catch (e) {
-      this.logger.warn(
-        `salience grading turn failed (${(e as Error).message}); rows stay unstamped`,
-      );
-    }
-  }
-
-  /**
-   * One structured deriver call with an explicit truncation guard: a
-   * finish_reason='length' response is a SILENT recall hole (the JSON
-   * either fails to parse — failing the session — or the model
-   * self-limits and the tail propositions never exist). Retry once at
-   * a doubled cap; a still-truncated response throws (fail-loud, the
-   * derive driver resumes).
-   */
-  private async deriverPass(
-    messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>,
-  ): Promise<DerivedProposition[]> {
-    for (const maxTokens of [8000, 16000]) {
-      const res = await this.deriverRequest(messages, maxTokens);
-      const choice = res.choices[0];
-      if (choice?.finish_reason === 'length') {
-        this.logger.warn(
-          `deriver response truncated at ${maxTokens} tokens — retrying with a larger cap`,
-        );
-        continue;
-      }
-      const content = choice?.message?.content;
-      if (!content) throw new Error('empty deriver response');
-      const parsed = JSON.parse(content) as {
-        propositions?: DerivedProposition[];
-      };
-      return Array.isArray(parsed.propositions) ? parsed.propositions : [];
-    }
-    throw new Error('deriver response truncated at 16000 tokens');
-  }
-
-  private deriverRequest(
-    messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>,
-    maxTokens: number,
-  ) {
-    // V9 §5: the extraction schema no longer carries salience — grades
-    // come from the separate post-emission turn (gradeSalience), so
-    // the extraction call is byte-identical with the stamp flag on or
-    // off (volume-neutral by construction).
-    return this.openai.chat.completions.create({
-      model: this.model,
-      temperature: 0.1,
-      max_completion_tokens: maxTokens,
-      messages,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'session_propositions',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              propositions: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    subject: { type: 'string' },
-                    aspect: { type: 'string' },
-                    proposition: { type: 'string' },
-                    occurred_on: { type: ['string', 'null'] },
-                    turns: { type: 'array', items: { type: 'integer' } },
-                  },
-                  required: [
-                    'subject',
-                    'aspect',
-                    'proposition',
-                    'occurred_on',
-                    'turns',
-                  ],
-                },
-              },
-            },
-            required: ['propositions'],
-          },
-        },
-      },
-    });
+    return callDeriver(
+      { openai: this.openai, model: this.model, logger: this.logger },
+      { sessionDate, participants, transcript },
+    );
   }
 }

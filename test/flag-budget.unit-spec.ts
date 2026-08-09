@@ -19,9 +19,17 @@ import { CONFIG_CATALOG } from '../src/admin/config-catalog.data';
  *      (the one-boolean-idiom gate forces new boolean reads through
  *      those parsers, so this prong is closed under that gate), and
  *   2. any CONFIG_CATALOG entry with isBooleanFlag: true,
- * filtered to the engine prefixes (retrieval / synthesis / extraction /
- * substrate). Ops/infra flags (DREAMS_, ABAC_, THROTTLE_, …) are out of
- * scope — they gate deployments, not engine behavior.
+ * filtered to the engine prefixes (synthesis / extraction / substrate).
+ * Ops/infra flags (DREAMS_, ABAC_, THROTTLE_, …) are out of scope —
+ * they gate deployments, not engine behavior.
+ *
+ * RETRIEVAL_ is a DELIBERATE carve-out (owner decision 2026-08-09):
+ * those keys are typed RetrievalProfile fields — per-tenant
+ * configuration, not forks — so they sit outside ENGINE_PREFIX. The
+ * carve-out is BOUNDED by its own golden below
+ * (retrieval-profile-keys.golden.json): adding a RETRIEVAL_ key fails
+ * the second gate, so profile-field status is a reviewed decision, not
+ * a free pass around the budget.
  */
 const ENGINE_PREFIX =
   /^(SEARCH|SYNTHESIZE|MULTI_HOP|EXTRACTOR|EXTRACTION|INGEST|EPISODE|EPISODES|DERIVER|AGENT_QA)_/;
@@ -78,6 +86,36 @@ describe('flag budget (engine-behavior boolean flags)', () => {
           'test/golden/engine-behavior-flags.golden.json.',
       );
     }
+  });
+
+  it('the RETRIEVAL_ carve-out is bounded by its own golden', () => {
+    const goldenKeys = JSON.parse(
+      readFileSync(
+        join(__dirname, 'golden', 'retrieval-profile-keys.golden.json'),
+        'utf8',
+      ),
+    ) as string[];
+    expect(goldenKeys).toEqual([...new Set(goldenKeys)].sort());
+    const current = CONFIG_CATALOG.filter((e) =>
+      e.key.startsWith('RETRIEVAL_'),
+    )
+      .map((e) => e.key)
+      .sort();
+    const additions = current.filter((k) => !goldenKeys.includes(k));
+    if (additions.length > 0) {
+      throw new Error(
+        `New RETRIEVAL_ profile key(s): ${additions.join(', ')}.\n` +
+          'The RETRIEVAL_ prefix sits outside the flag budget as ' +
+          'per-tenant profile configuration — but the carve-out is ' +
+          'bounded. A new key is a deliberate decision: bump ' +
+          'test/golden/retrieval-profile-keys.golden.json with the ' +
+          'rationale in the commit message, or model the behavior ' +
+          'inside an existing profile dimension instead.',
+      );
+    }
+    // Removal is the free direction, same as the main budget.
+    const stale = goldenKeys.filter((k) => !current.includes(k));
+    expect(Array.isArray(stale)).toBe(true);
   });
 
   it('reports (but allows) golden entries whose flag is already deleted', () => {

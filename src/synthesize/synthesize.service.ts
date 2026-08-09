@@ -6,16 +6,19 @@ import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
-import { traceArtifact } from '../common/debug-trace';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import {
   SynthesisGuardrails,
   SynthesizeDto,
 } from './dto/synthesize.dto';
-import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
+import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
-import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from './abstention';
+import {
+  coverageAbstention,
+  finalizeVerdict,
+  unverifiedReturn,
+} from './verdict';
 import {
   attachDecisionLog,
   resolveAnswerLang,
@@ -42,7 +45,6 @@ import {
 import { buildFactIndex } from './fact-index';
 import { appendUpdateStories } from './update-story';
 export { buildFactIndex } from './fact-index';
-import type { Citation } from './fact-index';
 import { runGenerator } from './generator-client';
 import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
@@ -86,7 +88,6 @@ export type {
 } from './synthesize.types';
 import type {
   GeneratorOutput,
-  SynthesisReason,
   SynthesizeResult,
 } from './synthesize.types';
 
@@ -433,189 +434,27 @@ export class SynthesizeService {
     });
   }
 
-  /**
-   * Verdict → response shape. Extracted out of `synthesize()` to keep
-   * its cyclomatic complexity under the gate: the synthesize method is
-   * a long happy-path / error-path ladder; folding the verifier-decision
-   * matrix here collapses 12 branches into a 3-state switch.
-   *
-   * Strict + non-supported → answer dropped (fail-closed). Lenient
-   * surfaces the answer with a reason tag. Supported is the ok path.
-   */
-  private finalizeVerdict({
-    verdict,
-    questionAnswered,
-    answer,
-    citations,
-    results,
-    guardrails,
-    decisionLog,
-    abstention,
-  }: {
-    verdict: VerifierOutput['verdict'];
-    questionAnswered?: boolean;
-    answer: string;
-    citations: Citation[];
-    results: SynthesizeResult['results'];
-    guardrails: SynthesisGuardrails;
-    decisionLog?: DecisionLogEntry[];
-    abstention?: RetrievalProfile['abstentionCalibration'];
-  }): SynthesizeResult {
-    if (verdict === 'supported') {
-      // V10 §5: supported-but-not-answering — the V9 abstention
-      // residual (fabrications assembled from real facts pass the
-      // grounding audit). Only the topic-coverage audit produces the
-      // judgment (undefined otherwise), and only the lenient
-      // 'verifier' abstention mode consumes it; strict/answer
-      // guardrails keep pre-V10 supported semantics.
-      if (
-        guardrails === 'lenient' &&
-        abstention === 'verifier' &&
-        questionAnswered === false
-      ) {
-        this.metrics?.countSynthesize('low_coverage');
-        return attachDecisionLog(
-          {
-            answer: NOT_IN_MEMORY_ANSWER,
-            reason: 'low_coverage',
-            citations: [],
-            results,
-          },
-          decisionLog,
-        );
-      }
-      this.metrics?.countSynthesize('ok');
-      return attachDecisionLog(
-        { answer, citations, results },
-        decisionLog,
-      );
-    }
-    // V9 §4 'verifier' abstention: answer-level coverage. Retrieval-
-    // level floors measured non-discriminative on answer-absence
-    // (topically-adjacent questions retrieve normally); the verifier's
-    // verdict IS the coverage signal — an unsupported/partial answer
-    // means the memory does not support what was asked, so a lenient
-    // caller gets the explicit decline instead of ungrounded text.
-    if (guardrails === 'lenient' && abstention === 'verifier') {
-      this.metrics?.countSynthesize('low_coverage');
-      return attachDecisionLog(
-        {
-          answer: NOT_IN_MEMORY_ANSWER,
-          reason: 'low_coverage',
-          citations: [],
-          results,
-        },
-        decisionLog,
-      );
-    }
-    const reason: SynthesisReason =
-      verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
-    this.metrics?.countSynthesize(reason);
-    if (guardrails === 'lenient') {
-      return attachDecisionLog(
-        { answer, reason, citations, results },
-        decisionLog,
-      );
-    }
-    // strict — fail closed.
-    return attachDecisionLog(
-      { answer: null, reason, citations: [], results },
-      decisionLog,
-    );
+  // The verdict/exit matrix lives in verdict.ts (V10.5 audit pass —
+  // file budget headroom before the V11 features); the adapters keep
+  // the call sites and the spec bindings unchanged.
+  private finalizeVerdict(
+    args: Parameters<typeof finalizeVerdict>[1],
+  ): SynthesizeResult {
+    return finalizeVerdict({ metrics: this.metrics }, args);
   }
 
-  /**
-   * The two no-verifier exits, extracted from synthesize() (complexity
-   * budget). Sentinel "I don't know" path: the generator was honest
-   * about empty grounding — no verify, no cite; skipped in
-   * never-abstain mode (there the generator is instructed never to
-   * emit the sentinel, and if it slips through we return it as the
-   * answer rather than tagging an abstention). Never-abstain/off then
-   * return the grounded best-effort answer directly — verifier
-   * skipped. Returns null when the verifier should run.
-   */
-  private unverifiedReturn({
-    guardrails,
-    generated,
-    citations,
-    results,
-    decisionLog,
-  }: {
-    guardrails: SynthesisGuardrails;
-    generated: GeneratorOutput;
-    citations: Citation[];
-    results: SearchHit[];
-    decisionLog?: DecisionLogEntry[];
-  }): SynthesizeResult | null {
-    if (
-      guardrails !== 'answer' &&
-      generated.answer.trim() === "I don't have grounded evidence for that."
-    ) {
-      this.metrics?.countSynthesize('no_grounded_evidence');
-      return attachDecisionLog(
-        {
-          answer: generated.answer,
-          reason: 'no_grounded_evidence',
-          citations: [],
-          results,
-        },
-        decisionLog,
-      );
-    }
-    if (guardrails === 'off' || guardrails === 'answer') {
-      this.metrics?.countSynthesize('ok');
-      return attachDecisionLog(
-        {
-          answer: generated.answer,
-          citations,
-          results,
-          ...(generated.usage ? { tokenUsage: generated.usage } : {}),
-        },
-        decisionLog,
-      );
-    }
-    return null;
+  private unverifiedReturn(
+    args: Parameters<typeof unverifiedReturn>[1],
+  ): SynthesizeResult | null {
+    return unverifiedReturn({ metrics: this.metrics }, args);
   }
 
-  /**
-   * V9 §4 memory-coverage abstention: in the modes where abstention is
-   * permitted, the evidence must clear the coverage floor before we
-   * spend a generator call. Below it, the honest answer is that the
-   * memory has nothing — returned explicitly, so the caller sees a
-   * decline instead of a plausible composition from near-miss
-   * evidence. Returns null when generation should proceed.
-   */
-  private coverageAbstention({
-    profile,
-    guardrails,
-    results,
-    explain,
-  }: {
-    profile: RetrievalProfile;
-    guardrails: SynthesisGuardrails;
-    results: SearchHit[];
-    explain: boolean;
-  }): SynthesizeResult | null {
-    if (profile.abstentionCalibration !== 'coverage') return null;
-    if (guardrails !== 'strict' && guardrails !== 'lenient') return null;
-    const coverage = assessMemoryCoverage(results, {
-      minTopScore: profile.abstentionMinTopScore,
-      minEvidence: profile.abstentionMinEvidence,
-    });
-    if (coverage.covered) return null;
-    this.logger.debug(
-      `coverage floor abstained (top=${coverage.topScore.toFixed(3)}, ` +
-        `facts=${coverage.factCount})`,
-    );
-    this.metrics?.countSynthesize('low_coverage');
-    return attachDecisionLog(
-      {
-        answer: NOT_IN_MEMORY_ANSWER,
-        reason: 'low_coverage',
-        citations: [],
-        results,
-      },
-      explain ? buildDecisionLog(results, new Set()) : undefined,
+  private coverageAbstention(
+    args: Parameters<typeof coverageAbstention>[1],
+  ): SynthesizeResult | null {
+    return coverageAbstention(
+      { metrics: this.metrics, logger: this.logger },
+      args,
     );
   }
 
