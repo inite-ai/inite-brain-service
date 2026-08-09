@@ -36,19 +36,20 @@ export function wantsVerbatimEvidence(
 }
 
 /**
- * Insight-lane activation (V8 §1): only under insightEvidence='routed'
- * and only for the question classes where derived insights measured as
- * paying — summarization / progressive-narrative (the summary lane)
- * and enumeration. Pointwise asks (no lane, or any other lane) skip
- * the slot: the V6 lesson generalized — every evidence class pays on
- * its own question class and drowns others; dispatch is the
- * mechanism, not always-on.
+ * Insight-lane activation (V8 §1): only when the profile carries an
+ * insight mode — 'routed' (stored insight rows, V8) or 'query_arc'
+ * (read-time topic assembly, V10 §4) — and only for the question
+ * classes where derived insights measured as paying — summarization /
+ * progressive-narrative (the summary lane) and enumeration. Pointwise
+ * asks (no lane, or any other lane) skip the slot: the V6 lesson
+ * generalized — every evidence class pays on its own question class
+ * and drowns others; dispatch is the mechanism, not always-on.
  */
 export function wantsInsightEvidence(
   profile: RetrievalProfile,
   lane: LaneId | null,
 ): boolean {
-  if (profile.insightEvidence !== 'routed') return false;
+  if (profile.insightEvidence === 'off') return false;
   return lane === 'summary' || lane === 'enumeration';
 }
 

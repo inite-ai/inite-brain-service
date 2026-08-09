@@ -385,7 +385,7 @@ export class SearchService {
       includeContested: ctx.includeContested,
       derivedVersion: ctx.derivedVersion,
       temporalMode: ctx.profile.temporalMode,
-      excludeInsightRows: ctx.profile.insightEvidence === 'routed',
+      excludeInsightRows: ctx.profile.insightEvidence !== 'off',
       opts: { langFilter },
     });
     traceArtifact('search.query', {
@@ -408,7 +408,7 @@ export class SearchService {
         includeContested: ctx.includeContested,
         derivedVersion: ctx.derivedVersion,
         temporalMode: ctx.profile.temporalMode,
-        excludeInsightRows: ctx.profile.insightEvidence === 'routed',
+        excludeInsightRows: ctx.profile.insightEvidence !== 'off',
       });
       const fallback = await this.retrieval.runRetrievalStage(
         db,

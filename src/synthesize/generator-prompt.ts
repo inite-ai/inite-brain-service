@@ -22,6 +22,7 @@ export function buildGeneratorUserMessage({
   insightLines,
   timelineEvidence,
   orderingFrame,
+  arcInsights,
   answerLang,
   dateContext,
   lane,
@@ -52,6 +53,12 @@ export function buildGeneratorUserMessage({
    * profile opted in (orderingFrame && timelineEvidence).
    */
   orderingFrame?: boolean;
+  /**
+   * V10 §4: the insight lines are a query-time TOPIC RECORD (dated
+   * atomic beats assembled for the asked topic) rather than stored
+   * summaries — the header must say what the section is.
+   */
+  arcInsights?: boolean;
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
@@ -96,9 +103,12 @@ export function buildGeneratorUserMessage({
     transcriptLines && transcriptLines.length > 0
       ? `\n\n${transcriptHeader}\n${transcriptLines.join('\n')}`
       : '';
+  const insightHeader = arcInsights
+    ? 'Topic record (dated beats retrieved for the asked topic, chronological — use them to structure the narrative/overview, prefer the atomic facts for specifics, cite factIds only):'
+    : 'Derived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):';
   const insightSection =
     insightLines && insightLines.length > 0
-      ? `\n\nDerived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):\n${insightLines.join('\n')}`
+      ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
   return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${langInstruction}`;
 }

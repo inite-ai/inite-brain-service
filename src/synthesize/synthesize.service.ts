@@ -323,6 +323,9 @@ export class SynthesizeService {
               // V10 §3: dedicated order-of-mention frame — only when
               // the mention record actually fired for this query.
               orderingFrame: profile.orderingFrame && timelineEvidence,
+              // V10 §4: the insight slot carries a query-time topic
+              // record — the header must say so.
+              arcInsights: profile.insightEvidence === 'query_arc',
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -737,6 +740,7 @@ export class SynthesizeService {
     insightLines,
     timelineEvidence,
     orderingFrame,
+    arcInsights,
     model,
     answerLang,
     neverAbstain = false,
@@ -755,6 +759,8 @@ export class SynthesizeService {
     timelineEvidence?: boolean;
     /** V10 §3: order-of-mention frame replaces the enumeration frame. */
     orderingFrame?: boolean;
+    /** V10 §4: insight lines are a query-time topic record. */
+    arcInsights?: boolean;
     model: string;
     answerLang: string | null;
     neverAbstain?: boolean;
@@ -777,6 +783,7 @@ export class SynthesizeService {
       insightLines,
       timelineEvidence,
       orderingFrame,
+      arcInsights,
       answerLang,
       dateContext,
       lane,

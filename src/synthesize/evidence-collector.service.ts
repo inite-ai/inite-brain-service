@@ -17,6 +17,7 @@ import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
+import { QueryArcService } from './query-arc.service';
 
 /**
  * EvidenceCollectorService — the one owner of every typed prompt
@@ -66,6 +67,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly segmentLane?: SegmentLaneService,
     @Optional() private readonly insightLane?: InsightLaneService,
     @Optional() private readonly mentionScan?: MentionScanService,
+    @Optional() private readonly queryArc?: QueryArcService,
   ) {}
 
   /**
@@ -209,8 +211,18 @@ export class EvidenceCollectorService {
     userId?: string;
   }): Promise<string[]> {
     const { profile, lane, companyId, query, callerScopes, userId } = opts;
-    if (!wantsInsightEvidence(profile, lane) || !this.insightLane) return [];
+    if (!wantsInsightEvidence(profile, lane)) return [];
     if (getAbortSignal()?.aborted) return [];
+    // V10 §4: under 'query_arc' the slot is assembled at read time
+    // from the atomic fact record instead of retrieved from stored
+    // insight rows.
+    if (profile.insightEvidence === 'query_arc') {
+      if (!this.queryArc) return [];
+      return this.queryArc
+        .arcLines({ companyId, query, callerScopes, userId })
+        .then((v) => v ?? []);
+    }
+    if (!this.insightLane) return [];
     return this.insightLane
       .insightLines({ companyId, query, callerScopes, userId })
       .then((v) => v ?? []);

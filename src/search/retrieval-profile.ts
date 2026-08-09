@@ -87,8 +87,22 @@ export type VerbatimEvidenceMode =
  *               budget slot (INSIGHT_TOP_K, not factBudget), so
  *               insights never displace atomic facts. Pointwise asks
  *               skip the slot entirely.
+ *  - 'query_arc' — V10 §4: same dispatch and slot as 'routed', but the
+ *               section is ASSEMBLED at read time instead of retrieved
+ *               from stored insight rows: the topic phrase extracted
+ *               from the question scans the atomic fact record
+ *               (dense+BM25 against the TOPIC, coverage-first — the
+ *               mention-scan doctrine over knowledge_fact) and the most
+ *               topical beats are emitted as one chronological dated
+ *               record. Write-time arcs measured null-to-negative
+ *               (v9arcs): coverage thin by construction (only
+ *               fact-dense entities clear the composer floor) and
+ *               stored topics are decided blind to the questions.
+ *               Fact legs exclude stored insight rows exactly as under
+ *               'routed', so worlds permanently carrying
+ *               aggregates/arcs read clean.
  */
-export type InsightEvidenceMode = 'off' | 'routed';
+export type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
 
 /**
  * Timeline evidence for mention-order questions (V8 §2):
@@ -336,8 +350,11 @@ export function resolveRetrievalProfile(
         'routed',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
     insightEvidence:
-      enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed'] as const) ??
-      'off',
+      enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', [
+        'off',
+        'routed',
+        'query_arc',
+      ] as const) ?? 'off',
     timelineEvidence:
       enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', [
         'off',
@@ -424,7 +441,7 @@ export function resolveRetrievalProfileFor(
       'verbatimEvidence',
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
-    ['insightEvidence', ['off', 'routed']],
+    ['insightEvidence', ['off', 'routed', 'query_arc']],
     ['timelineEvidence', ['off', 'routed', 'scan']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],

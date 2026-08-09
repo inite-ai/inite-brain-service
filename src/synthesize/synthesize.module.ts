@@ -7,6 +7,7 @@ import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
+import { QueryArcService } from './query-arc.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 
 @Module({
@@ -19,6 +20,7 @@ import { EvidenceCollectorService } from './evidence-collector.service';
     SegmentLaneService,
     InsightLaneService,
     MentionScanService,
+    QueryArcService,
   ],
   exports: [SynthesizeService],
 })
