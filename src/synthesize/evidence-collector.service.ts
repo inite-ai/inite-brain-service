@@ -174,7 +174,15 @@ export class EvidenceCollectorService {
           : [],
         scanActive
           ? this.mentionScan
-              ?.mentionLines({ companyId, query, callerScopes, userId })
+              ?.mentionLines({
+                companyId,
+                query,
+                callerScopes,
+                userId,
+                // V10 §3: the ordering frame asks for distinct aspect
+                // items, so repeats collapse at the record level too.
+                dedupeAspects: profile.orderingFrame,
+              })
               .then((v) => v ?? [])
           : [],
       ]).then((lanes) => lanes.map((l) => l ?? []));

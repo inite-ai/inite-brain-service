@@ -228,6 +228,18 @@ export interface RetrievalProfile {
    * byte-identical ranking.
    */
   salienceScoring: boolean;
+  /**
+   * V10 §3 ordering frame: when the mention record fired
+   * (timelineEvidence resolved active for an ordering-shaped
+   * question), the generator gets a dedicated order-of-mention frame
+   * — short aspect labels in the record's order, honor the requested
+   * N — INSTEAD of the enumeration frame, whose "enumerate every
+   * matching item with its date" fights both exact-N and aspect
+   * granularity (the measured v9scan null). Also collapses
+   * near-duplicate aspect mentions inside the record itself. Off =
+   * byte-identical prompt.
+   */
+  orderingFrame: boolean;
   /** V9 §4 memory-coverage abstention; off = byte-identical. */
   abstentionCalibration: AbstentionCalibrationMode;
   /**
@@ -354,6 +366,7 @@ export function resolveRetrievalProfile(
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
     entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
+    orderingFrame: envFlagEnabled(env.RETRIEVAL_ORDERING_FRAME),
     abstentionCalibration:
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
         'off',
@@ -451,6 +464,7 @@ export function resolveRetrievalProfileFor(
     'wideProbe',
     'entityExpansion',
     'salienceScoring',
+    'orderingFrame',
     'verifierTopicCoverage',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;

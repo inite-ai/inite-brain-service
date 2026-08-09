@@ -3,6 +3,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import {
   bestMentionPerSession,
+  dedupeMentionLines,
   extractOrderingTopic,
   filterMentions,
   MAX_MENTION_LINES,
@@ -54,6 +55,8 @@ export class MentionScanService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /** V10 §3: collapse near-duplicate aspect mentions (orderingFrame). */
+    dedupeAspects?: boolean;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -98,10 +101,11 @@ export class MentionScanService {
         );
       }
       const terms = topicTerms(topic);
-      return mentions
+      const lines = mentions
         .slice(0, MAX_MENTION_LINES)
         .map((m) => pickMentionLine(m.text, terms))
         .filter((l) => l.length > 0);
+      return opts.dedupeAspects ? dedupeMentionLines(lines) : lines;
     } catch (e) {
       this.logger.warn(
         `mention scan failed (companyId=${opts.companyId}): ${(e as Error).message}`,

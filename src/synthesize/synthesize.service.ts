@@ -320,6 +320,9 @@ export class SynthesizeService {
               transcriptLines,
               insightLines,
               timelineEvidence,
+              // V10 §3: dedicated order-of-mention frame — only when
+              // the mention record actually fired for this query.
+              orderingFrame: profile.orderingFrame && timelineEvidence,
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -733,6 +736,7 @@ export class SynthesizeService {
     transcriptLines,
     insightLines,
     timelineEvidence,
+    orderingFrame,
     model,
     answerLang,
     neverAbstain = false,
@@ -749,6 +753,8 @@ export class SynthesizeService {
     insightLines?: string[];
     /** V8 §2: transcript excerpts are the mention record (ordering ask). */
     timelineEvidence?: boolean;
+    /** V10 §3: order-of-mention frame replaces the enumeration frame. */
+    orderingFrame?: boolean;
     model: string;
     answerLang: string | null;
     neverAbstain?: boolean;
@@ -770,6 +776,7 @@ export class SynthesizeService {
       transcriptLines,
       insightLines,
       timelineEvidence,
+      orderingFrame,
       answerLang,
       dateContext,
       lane,

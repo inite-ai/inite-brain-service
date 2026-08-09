@@ -820,6 +820,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits) | scan (V9 §2: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, segment record scanned per session with BM25+embedding against the TOPIC, one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K — the V8 diagnosis was coverage, not order).",
       },
       {
+        key: 'RETRIEVAL_ORDERING_FRAME',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §3 ordering frame (profile field orderingFrame): when the mention record fired for an ordering-shaped question (timelineEvidence resolved active), the generator gets a dedicated order-of-mention frame — short aspect labels in the record's order, honor the requested N, collapse repeated aspects — INSTEAD of the enumeration frame, whose 'enumerate every matching item with its date' fights both the exact-N constraint and aspect granularity (the measured v9scan null: 40/40 EO predictions changed, score didn't). Also collapses near-duplicate aspect mentions inside the mention record itself (containment ≥0.7 on informative tokens, earliest line kept). Off = byte-identical prompt and record.",
+      },
+      {
         key: 'RETRIEVAL_ABSTENTION_CALIBRATION',
         category: 'pipeline',
         defaultValue: 'off',

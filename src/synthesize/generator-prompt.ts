@@ -1,6 +1,7 @@
 import {
   TEMPORAL_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
+  ORDERING_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   laneInstructionFor,
   type LaneId,
@@ -20,6 +21,7 @@ export function buildGeneratorUserMessage({
   transcriptLines,
   insightLines,
   timelineEvidence,
+  orderingFrame,
   answerLang,
   dateContext,
   lane,
@@ -43,6 +45,13 @@ export function buildGeneratorUserMessage({
    * collapses a session's mentions onto one date).
    */
   timelineEvidence?: boolean;
+  /**
+   * V10 §3: the ordering frame replaces the (enumeration) lane frame —
+   * short aspect labels in the mention record's order, honor the
+   * requested N. Set only when the mention record fired AND the
+   * profile opted in (orderingFrame && timelineEvidence).
+   */
+  orderingFrame?: boolean;
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
@@ -61,8 +70,13 @@ export function buildGeneratorUserMessage({
     : '';
   // Lane frame from the registry — the temporal frame renders inside
   // the date block above instead (it needs the anchored "Today").
-  const laneInstruction =
-    lane && lane !== 'temporal' ? (laneInstructionFor(lane) ?? '') : '';
+  // V10 §3: the ordering frame takes the slot over the lane frame
+  // when the mention record fired for this query.
+  const laneInstruction = orderingFrame
+    ? ORDERING_LANE_INSTRUCTION
+    : lane && lane !== 'temporal'
+      ? (laneInstructionFor(lane) ?? '')
+      : '';
   const instructionSection =
     instructions && instructions.length > 0
       ? `${STANDING_INSTRUCTIONS_INSTRUCTION}Standing instructions:\n${instructions

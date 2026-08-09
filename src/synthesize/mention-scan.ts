@@ -159,6 +159,47 @@ export function bestMentionPerSession(
 }
 
 /**
+ * V10 §3 aspect dedup. Two sessions repeating the same aspect both
+ * emit a mention line (the per-session collapse can't see across
+ * sessions, and the exact-string dedup downstream can't either — the
+ * date prefix and wording differ). Repeats inflate the record and
+ * fight the ordering golds' exact-N constraint, so near-duplicate
+ * lines collapse into the EARLIEST one — the first mention is the
+ * ordering-relevant beat. Containment test on informative tokens:
+ * the smaller line must share ≥70% of its tokens with a kept line
+ * and carry at least 3 of them (thinner lines are too weak to judge).
+ */
+const DEDUP_MIN_TOKENS = 3;
+const DEDUP_CONTAINMENT = 0.7;
+
+function mentionTokens(line: string): Set<string> {
+  const text = line
+    .replace(/^\[[^\]]*\]\s*/, '') // date prefix
+    .replace(/^[^:]{0,40}:\s*/, ''); // speaker label
+  return new Set(topicTerms(text));
+}
+
+export function dedupeMentionLines(lines: string[]): string[] {
+  const kept: Array<Set<string>> = [];
+  const out: string[] = [];
+  for (const line of lines) {
+    const tokens = mentionTokens(line);
+    const dup = kept.some((k) => {
+      const [small, big] = tokens.size <= k.size ? [tokens, k] : [k, tokens];
+      if (small.size < DEDUP_MIN_TOKENS) return false;
+      let shared = 0;
+      for (const t of small) if (big.has(t)) shared += 1;
+      return shared / small.size >= DEDUP_CONTAINMENT;
+    });
+    if (!dup) {
+      kept.push(tokens);
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+/**
  * Pick the single most topic-relevant line from a segment's rendered
  * text (lines are "[YYYY-MM-DD] speaker: text"). Term-overlap scoring,
  * first line on ties/zero — the segment matched as a whole, so its

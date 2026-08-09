@@ -131,6 +131,27 @@ export const ENUMERATION_LANE_INSTRUCTION =
   'or total from your enumeration (sum durations/amounts explicitly ' +
   'when asked for totals).\n';
 
+/**
+ * V10 §3 ordering frame. Under the enumeration frame, ordering
+ * questions fail on GRANULARITY, not count (the measured v9scan null:
+ * 40/40 EO predictions changed, score didn't) — golds want a sequence
+ * of short ASPECT labels, while "enumerate every matching item with
+ * its date" makes the generator emit dated fact enumerations; only
+ * 5/38 answers violated the exact-N constraint, so granularity was
+ * the miss. This frame replaces the enumeration frame when the
+ * mention record fired AND the profile opts in (orderingFrame).
+ */
+export const ORDERING_LANE_INSTRUCTION =
+  'This is an order-of-mention question. The MENTION RECORD section is ' +
+  'the authoritative sequence: one dated line per session where the ' +
+  'topic came up, in chronological order. Answer with a sequence of ' +
+  'SHORT item labels — name each aspect or event in a few words, not ' +
+  'the dated excerpt itself. Take the order strictly from the mention ' +
+  'record. If the question asks for a specific number of items (the ' +
+  'first N, N stages), give exactly that many distinct items; collapse ' +
+  'repeated mentions of the same aspect into its first occurrence and ' +
+  'never pad with restatements.\n';
+
 /** T4 answer conditioning (PrefEval "reminder" pattern). */
 const PREFERENCE_LANE_INSTRUCTION =
   'This is a recommendation question. FIRST scan the facts for the ' +
