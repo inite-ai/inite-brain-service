@@ -9,6 +9,17 @@ import {
   renderArcLines,
   type ArcBeat,
 } from './query-arc';
+import {
+  BRUTE_ONLY,
+  runDenseScanLeg,
+  type CoverageScanTuning,
+} from './scan-leg';
+
+/** The query_arc gate stack is ~7 predicates deep (atomic/status/world
+ *  on top of pii/user), so its approximate KNN overfetches twice the
+ *  shared multiplier — the ×8 precedent of the inline entity-resolution
+ *  KNN, chosen for the same KNN-before-a-heavy-WHERE shape. */
+const ARC_GATE_OVERFETCH_FACTOR = 2;
 
 interface FactScanRow {
   id: unknown;
@@ -55,6 +66,8 @@ export class QueryArcService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
+    scan?: CoverageScanTuning;
   }): Promise<string[]> {
     const topic = extractArcTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -88,18 +101,24 @@ export class QueryArcService {
         ...worldParams,
       };
       const topicVector = await this.embedder.embed(topic);
+      const baseTuning = opts.scan ?? BRUTE_ONLY;
+      const tuning: CoverageScanTuning = {
+        ...baseTuning,
+        overfetch: baseTuning.overfetch * ARC_GATE_OVERFETCH_FACTOR,
+      };
       const pool = await this.surreal.withCompany(
         opts.companyId,
         async (db) => {
-          const [dense] = await db.query<[FactScanRow[]]>(
-            `SELECT id, object, validFrom,
-                    vector::similarity::cosine(embedding, $q) AS score
-               FROM knowledge_fact
-              WHERE embedding != NONE ${atomicGate} ${piiGate} ${userGate} ${worldGate}
-              ORDER BY score DESC
-              LIMIT $k`,
-            { q: topicVector, ...shared },
-          );
+          const dense = await runDenseScanLeg<FactScanRow>({
+            db,
+            table: 'knowledge_fact',
+            projection: 'id, object, validFrom',
+            gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
+            params: { q: topicVector, ...shared },
+            k,
+            tuning,
+            logger: this.logger,
+          });
           const [bm25] = await db.query<[FactScanRow[]]>(
             `SELECT id, object, validFrom,
                     math::max([search::score(1), search::score(2)]) AS score
@@ -110,7 +129,7 @@ export class QueryArcService {
               LIMIT $k`,
             { topic, ...shared },
           );
-          return mergeFactLegs(dense ?? [], bm25 ?? []);
+          return mergeFactLegs(dense, bm25 ?? []);
         },
       );
       // The mention-scan relevance floor decides what counts as ON

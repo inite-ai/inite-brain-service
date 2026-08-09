@@ -19,6 +19,16 @@ import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
+import type { CoverageScanTuning } from './scan-leg';
+
+/** Dense-leg tuning of the coverage scan lanes, from the profile. */
+function scanTuning(profile: RetrievalProfile): CoverageScanTuning {
+  return {
+    mode: profile.coverageScanMode,
+    ef: profile.scanHnswEf,
+    overfetch: profile.scanHnswOverfetch,
+  };
+}
 
 /**
  * EvidenceCollectorService — the one owner of every typed prompt
@@ -229,6 +239,7 @@ export class EvidenceCollectorService {
                 // V10 §3: the ordering frame asks for distinct aspect
                 // items, so repeats collapse at the record level too.
                 dedupeAspects: profile.orderingFrame,
+                scan: scanTuning(profile),
               })
               .then((v) => v ?? [])
           : [],
@@ -264,7 +275,13 @@ export class EvidenceCollectorService {
     if (profile.insightEvidence === 'query_arc') {
       if (!this.queryArc) return [];
       return this.queryArc
-        .arcLines({ companyId, query, callerScopes, userId })
+        .arcLines({
+          companyId,
+          query,
+          callerScopes,
+          userId,
+          scan: scanTuning(profile),
+        })
         .then((v) => v ?? []);
     }
     if (!this.insightLane) return [];

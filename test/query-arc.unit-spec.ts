@@ -176,6 +176,63 @@ describe('QueryArcService', () => {
       svc.arcLines({ companyId: 'c1', query: 'q', callerScopes: [] }),
     ).resolves.toEqual([]);
   });
+
+  it('renders ISO days and sorts chronologically when the driver returns Date objects', async () => {
+    // The SDK decodes datetime columns to JS Dates (CBOR). String(Date)
+    // would render '[Sat Aug 09]' and sort alphabetically by weekday —
+    // the regression this case pins.
+    const svc = makeService({
+      dense: [
+        {
+          id: 'knowledge_fact:late',
+          object: 'wrapped up the parser project',
+          validFrom: new Date('2026-02-01T09:00:00Z'),
+          score: 0.8,
+        },
+        {
+          id: 'knowledge_fact:early',
+          object: 'started the parser project',
+          validFrom: new Date('2026-01-05T09:00:00Z'),
+          score: 0.75,
+        },
+      ],
+      bm25: [],
+    });
+    const lines = await svc.arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read'],
+    });
+    expect(lines).toEqual([
+      '- [2026-01-05] started the parser project',
+      '- [2026-02-01] wrapped up the parser project',
+    ]);
+  });
+
+  it('hnsw tuning emits the KNN dense leg with the FULL gate stack intact', async () => {
+    // The recall trap of the KNN rewrite: SurrealDB applies WHERE after
+    // the approximate walk, so every gate must survive into the KNN SQL
+    // and the overfetch must widen the walk (k=200 × 4 × the lane's own
+    // ×2 gate factor = 1600).
+    const capture: string[] = [];
+    const svc = makeService({ dense: [], bm25: [], capture });
+    await svc.arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: [],
+      scan: { mode: 'hnsw', ef: 400, overfetch: 4 },
+    });
+    const knn = capture[0];
+    expect(knn).toContain('embedding <|1600,1600|> $q');
+    expect(knn).toContain("string::starts_with(predicate, 'summary_')");
+    expect(knn).toContain("status = 'active'");
+    expect(knn).toContain('retractedAt IS NONE');
+    expect(knn).toContain('piiClass IS NONE');
+    expect(knn).toContain('userId IS NONE');
+    // Empty KNN pool → the brute fallback ran before the BM25 leg.
+    expect(capture[1]).toContain('embedding != NONE');
+    expect(capture[2]).toContain('searchHaystack @1@ $topic');
+  });
 });
 
 describe('query_arc gating and prompt header', () => {

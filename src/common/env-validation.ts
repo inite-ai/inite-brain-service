@@ -154,6 +154,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_EF', errors);
   positiveInt(env, 'INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH', errors);
 
+  // ── HNSW on the coverage scan lanes (mention-scan / query_arc) ─────
+  positiveInt(env, 'RETRIEVAL_SCAN_HNSW_EF', errors);
+  positiveInt(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -391,6 +395,7 @@ function validateRetrievalProfileEnv(
     ],
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed', 'query_arc']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
+    ['RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw']],
     ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],

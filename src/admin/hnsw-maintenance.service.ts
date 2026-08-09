@@ -30,6 +30,13 @@ import { EmbedderService } from '../ai/embedder.service';
  *      (POST /v1/admin/maintenance/reindex-embeddings), now unblocked;
  *   c. {action:'create'}      — build fresh indexes at the new size.
  *
+ * segment_embedding_hnsw (the coverage-scan leg, V11 §5) has a swap
+ * caveat: reindex-embeddings rewrites knowledge_fact ONLY — segments
+ * keep their old-size vectors. Segments are derived state (0075), so
+ * the segment step of a swap is drop → delete + re-segment the world →
+ * create; entity_embedding_hnsw shares the same hole and today relies
+ * on entity vectors being rewritten by their own ingest path.
+ *
  * `create` guards this: DEFINE INDEX IF NOT EXISTS SILENTLY NO-OPS when
  * an index already exists at a different dimension (verified on 3.1.5),
  * so a naive re-`create` after a swap would report success while leaving
@@ -49,6 +56,7 @@ export interface HnswMaintenanceResult {
 const FACT_MAIN = 'fact_embedding_hnsw';
 const FACT_ALT = 'fact_alt_embedding_hnsw';
 const ENTITY_MAIN = 'entity_embedding_hnsw';
+const SEGMENT_MAIN = 'segment_embedding_hnsw';
 
 @Injectable()
 export class HnswMaintenanceService {
@@ -82,13 +90,16 @@ export class HnswMaintenanceService {
            DEFINE INDEX IF NOT EXISTS ${FACT_ALT} ON knowledge_fact FIELDS altEmbedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
            DEFINE INDEX IF NOT EXISTS ${ENTITY_MAIN} ON knowledge_entity FIELDS embedding
+             HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;
+           DEFINE INDEX IF NOT EXISTS ${SEGMENT_MAIN} ON episode_segment FIELDS embedding
              HNSW DIMENSION ${dimension} DIST COSINE EFC 200 M 16;`,
         );
       } else {
         await db.query(
           `REMOVE INDEX IF EXISTS ${FACT_MAIN} ON knowledge_fact;
            REMOVE INDEX IF EXISTS ${FACT_ALT} ON knowledge_fact;
-           REMOVE INDEX IF EXISTS ${ENTITY_MAIN} ON knowledge_entity;`,
+           REMOVE INDEX IF EXISTS ${ENTITY_MAIN} ON knowledge_entity;
+           REMOVE INDEX IF EXISTS ${SEGMENT_MAIN} ON episode_segment;`,
         );
       }
       this.logger.log(
@@ -98,7 +109,7 @@ export class HnswMaintenanceService {
         companyId,
         action,
         dimension,
-        indexes: [FACT_MAIN, FACT_ALT, ENTITY_MAIN],
+        indexes: [FACT_MAIN, FACT_ALT, ENTITY_MAIN, SEGMENT_MAIN],
       };
     });
   }
@@ -114,7 +125,7 @@ export class HnswMaintenanceService {
     dimension: number,
   ): Promise<void> {
     const existing = await this.readIndexDimensions(db);
-    const mismatched = [FACT_MAIN, FACT_ALT, ENTITY_MAIN].filter(
+    const mismatched = [FACT_MAIN, FACT_ALT, ENTITY_MAIN, SEGMENT_MAIN].filter(
       (name) => existing.has(name) && existing.get(name) !== dimension,
     );
     if (mismatched.length > 0) {
@@ -134,7 +145,11 @@ export class HnswMaintenanceService {
   /** Map of HNSW index name → its declared DIMENSION, parsed from INFO. */
   private async readIndexDimensions(db: Surreal): Promise<Map<string, number>> {
     const out = new Map<string, number>();
-    for (const table of ['knowledge_fact', 'knowledge_entity']) {
+    for (const table of [
+      'knowledge_fact',
+      'knowledge_entity',
+      'episode_segment',
+    ]) {
       const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
         `INFO FOR TABLE ${table};`,
       );
