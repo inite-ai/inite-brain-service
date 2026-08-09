@@ -907,7 +907,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, salienceScoring, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

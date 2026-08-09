@@ -468,9 +468,31 @@ export class WindowDeriverService {
       }
     }
 
-    // Re-runs own the namespace per conversation.
+    // Re-runs own the namespace per conversation. Under slot semantics
+    // a doomed row may have SUPERSEDED a row of another conversation
+    // (entities span conversations) — deleting it would strand that
+    // loser closed forever with supersededBy → a dead id, and the
+    // re-derived rows would resolve against an empty slot (audit F2).
+    // Revive such losers first (the 0014 sentinel shape: validUntil
+    // restored from priorValidUntil, no retractedAt was ever set), so
+    // the fresh derive re-arbitrates them normally. Matches 0 rows in
+    // no-lifecycle worlds — safe to run unconditionally.
     await db.query(
-      `DELETE knowledge_fact
+      `UPDATE knowledge_fact SET
+          status = 'active',
+          supersededBy = NONE,
+          validUntil = priorValidUntil,
+          priorValidUntil = NONE,
+          retractionReason = NONE,
+          retractedBy = NONE
+        WHERE derivedVersion = $version
+          AND status = 'superseded'
+          AND source.conversationId != $conv
+          AND supersededBy IN (
+            SELECT VALUE id FROM knowledge_fact
+             WHERE derivedVersion = $version
+               AND source.conversationId = $conv);
+       DELETE knowledge_fact
         WHERE derivedVersion = $version AND source.conversationId = $conv`,
       { version, conv: conversationId },
     );
@@ -583,14 +605,15 @@ export class WindowDeriverService {
       // V9 §1: value-bearing aspects take the bitemporal_event
       // lifecycle when the profile asks; V9 phase 0: the resolver
       // batch degrades per-row instead of failing the conversation —
-      // SKIPPED rows are not counted as propositions.
+      // rows that landed nothing (SKIPPED = poisoned row, REJECTED =
+      // low_score / create_returned_none) are not propositions.
       const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
         slotSemantics: resolveExtractionProfile().deriveSlotSemantics,
       });
-      const skippedRows = outcomes.filter(
-        (o) => o.outcome === 'SKIPPED',
+      const unlandedRows = outcomes.filter(
+        (o) => o.outcome === 'SKIPPED' || o.outcome === 'REJECTED',
       ).length;
-      result.propositions += rows.length - skippedRows;
+      result.propositions += rows.length - unlandedRows;
     }
   }
 

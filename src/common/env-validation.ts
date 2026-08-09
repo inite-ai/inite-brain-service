@@ -488,6 +488,14 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V9 §1: value-bearing aspects take the bitemporal_event lifecycle
   // (supersede + competing) in derived worlds. Default off.
   'DERIVER_SLOT_SEMANTICS',
+  // RetrievalProfile boolean points (V8-V10). Parsed with
+  // envFlagEnabled inside resolveRetrievalProfile — same fail-open
+  // typo trap as every other flag here ('yes' silently reads OFF).
+  'RETRIEVAL_ENTITY_EXPANSION',
+  'RETRIEVAL_SALIENCE_SCORING',
+  'RETRIEVAL_UPDATE_STORY',
+  'RETRIEVAL_ORDERING_FRAME',
+  'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',
