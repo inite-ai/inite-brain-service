@@ -39,6 +39,7 @@ import {
   type RetrievalProfile,
 } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
+import { appendUpdateStories } from './update-story';
 export { buildFactIndex } from './fact-index';
 import type { Citation } from './fact-index';
 import { buildGeneratorUserMessage } from './generator-prompt';
@@ -279,25 +280,40 @@ export class SynthesizeService {
     // contract (V9 quality pass; all lanes concurrent inside). Running
     // it AFTER the empty/abstention exits also stops the pre-V9 waste
     // of an abandoned in-flight instruction probe on those paths.
-    const { transcriptLines, insightLines, instructions, timelineEvidence } =
-      this.evidenceCollector
-        ? await this.evidenceCollector.collect({
-            profile,
-            lane,
-            companyId,
-            query: dto.query,
-            callerScopes,
-            // Same fail-closed user scope the fact read path applies (0055).
-            userId: dto.userId,
-            factIds: [...factIndex.keys()],
-            evidence,
-          })
-        : {
-            transcriptLines: [],
-            insightLines: [],
-            instructions: undefined,
-            timelineEvidence: wantsTimelineEvidence(profile, dto.query),
-          };
+    const {
+      transcriptLines,
+      insightLines,
+      instructions,
+      timelineEvidence,
+      updateStories,
+    } = this.evidenceCollector
+      ? await this.evidenceCollector.collect({
+          profile,
+          lane,
+          companyId,
+          query: dto.query,
+          callerScopes,
+          // Same fail-closed user scope the fact read path applies (0055).
+          userId: dto.userId,
+          factIds: [...factIndex.keys()],
+          evidence,
+        })
+      : {
+          transcriptLines: [],
+          insightLines: [],
+          instructions: undefined,
+          timelineEvidence: wantsTimelineEvidence(profile, dto.query),
+          updateStories: undefined,
+        };
+
+    // V10 §2: update-story augmentation — evidence facts that
+    // superseded an older value carry their history on the SAME lines
+    // the generator and the verifier read (prompt-side only; citations
+    // and ranking untouched).
+    const promptFactLines =
+      updateStories && updateStories.size > 0
+        ? appendUpdateStories(factLines, updateStories)
+        : factLines;
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -316,7 +332,7 @@ export class SynthesizeService {
           this.limiter.run(() =>
             this.callGenerator({
               query: dto.query,
-              factLines,
+              factLines: promptFactLines,
               transcriptLines,
               insightLines,
               timelineEvidence,
@@ -395,7 +411,7 @@ export class SynthesizeService {
             this.callVerifier({
               query: dto.query,
               answer: generated.answer,
-              factLines,
+              factLines: promptFactLines,
               // Audit W5 #22: the verifier used to see ONLY factLines,
               // so an answer correctly built from transcript quotes or
               // the computed interval table had claims present in no

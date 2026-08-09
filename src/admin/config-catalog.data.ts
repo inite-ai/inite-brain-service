@@ -820,6 +820,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits) | scan (V9 §2: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, segment record scanned per session with BM25+embedding against the TOPIC, one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K — the V8 diagnosis was coverage, not order).",
       },
       {
+        key: 'RETRIEVAL_UPDATE_STORY',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '[previously: <value> — until <date>]' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
+      },
+      {
         key: 'RETRIEVAL_ORDERING_FRAME',
         category: 'pipeline',
         defaultValue: '0',

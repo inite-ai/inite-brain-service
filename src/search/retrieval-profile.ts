@@ -243,6 +243,17 @@ export interface RetrievalProfile {
    */
   salienceScoring: boolean;
   /**
+   * V10 §2 update-story rendering: evidence facts that superseded an
+   * older value get a compact history suffix on their prompt line —
+   * "previously: <value> — until <date>" — built from the reverse
+   * supersededBy links. Restores the update STORY the KU golds ask
+   * for WITHOUT re-including superseded rows in retrieval (the
+   * v9lifecycle diagnosis: the bitemporal closure hid the old value
+   * and made the row worse). Prompt-side only; retrieval, ranking and
+   * citations untouched; generator and verifier see the same lines.
+   */
+  updateStoryRendering: boolean;
+  /**
    * V10 §3 ordering frame: when the mention record fired
    * (timelineEvidence resolved active for an ordering-shaped
    * question), the generator gets a dedicated order-of-mention frame
@@ -383,6 +394,7 @@ export function resolveRetrievalProfile(
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
     entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
+    updateStoryRendering: envFlagEnabled(env.RETRIEVAL_UPDATE_STORY),
     orderingFrame: envFlagEnabled(env.RETRIEVAL_ORDERING_FRAME),
     abstentionCalibration:
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
@@ -481,6 +493,7 @@ export function resolveRetrievalProfileFor(
     'wideProbe',
     'entityExpansion',
     'salienceScoring',
+    'updateStoryRendering',
     'orderingFrame',
     'verifierTopicCoverage',
   ] as const) {

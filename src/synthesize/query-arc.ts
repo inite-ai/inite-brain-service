@@ -18,7 +18,7 @@
 
 /** Beats per prompt — the arc's own budget (the insight-slot doctrine:
  *  never compete with factBudget). */
-export const ARC_MAX_BEATS = 12;
+const ARC_MAX_BEATS = 12;
 
 /** Per-beat char cap (fact objects are single propositions; a runaway
  *  long object must not eat the section). */
