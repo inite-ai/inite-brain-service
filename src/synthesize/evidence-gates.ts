@@ -77,3 +77,30 @@ export function wantsTimelineEvidence(
   if (!detectOrderingShape(query)) return false;
   return resolveVerbatimMode(profile.verbatimEvidence, query) !== 'fused';
 }
+
+/**
+ * V10 architecture pass: the generator-prompt FRAME switches, resolved
+ * in one place. Each V10 point added a boolean the orchestrator
+ * computed inline at the call site and drilled through two layers;
+ * this kernel is the single flag→frame mapping (and its unit-test
+ * surface).
+ */
+export interface PromptFrames {
+  /** §3: order-of-mention frame — only when the mention record fired. */
+  orderingFrame: boolean;
+  /** §2b: date-arbitrated conflict frame (rides updateStoryRendering). */
+  dateArbitratedConflicts: boolean;
+  /** §4: the insight slot carries a query-time topic record. */
+  arcInsights: boolean;
+}
+
+export function resolvePromptFrames(
+  profile: RetrievalProfile,
+  timelineEvidence: boolean,
+): PromptFrames {
+  return {
+    orderingFrame: profile.orderingFrame && timelineEvidence,
+    dateArbitratedConflicts: profile.updateStoryRendering,
+    arcInsights: profile.insightEvidence === 'query_arc',
+  };
+}

@@ -178,6 +178,41 @@ describe('ordering frame in the generator prompt', () => {
   });
 });
 
+describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
+  const { resolvePromptFrames } = require('../src/synthesize/evidence-gates');
+  const profile = (over: Record<string, unknown>) => ({
+    ...resolveRetrievalProfile({} as NodeJS.ProcessEnv),
+    ...over,
+  });
+
+  it('orderingFrame requires BOTH the profile flag and a fired record', () => {
+    expect(
+      resolvePromptFrames(profile({ orderingFrame: true }), true).orderingFrame,
+    ).toBe(true);
+    expect(
+      resolvePromptFrames(profile({ orderingFrame: true }), false).orderingFrame,
+    ).toBe(false);
+    expect(
+      resolvePromptFrames(profile({}), true).orderingFrame,
+    ).toBe(false);
+  });
+
+  it('conflict arbitration rides updateStoryRendering; arc header rides query_arc', () => {
+    const f = resolvePromptFrames(
+      profile({ updateStoryRendering: true, insightEvidence: 'query_arc' }),
+      false,
+    );
+    expect(f.dateArbitratedConflicts).toBe(true);
+    expect(f.arcInsights).toBe(true);
+    const off = resolvePromptFrames(profile({}), false);
+    expect(off).toEqual({
+      orderingFrame: false,
+      dateArbitratedConflicts: false,
+      arcInsights: false,
+    });
+  });
+});
+
 describe('RETRIEVAL_ORDERING_FRAME profile point', () => {
   it('defaults off; env enables; overlays per tenant', () => {
     expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).orderingFrame).toBe(
