@@ -6,7 +6,6 @@ import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
-import { traceArtifact } from '../common/debug-trace';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import {

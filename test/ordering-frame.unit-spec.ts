@@ -7,6 +7,7 @@ import { MentionScanService } from '../src/synthesize/mention-scan.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
+import { resolvePromptFrames } from '../src/synthesize/evidence-gates';
 import {
   ENUMERATION_LANE_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
@@ -179,7 +180,6 @@ describe('ordering frame in the generator prompt', () => {
 });
 
 describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
-  const { resolvePromptFrames } = require('../src/synthesize/evidence-gates');
   const profile = (over: Record<string, unknown>) => ({
     ...resolveRetrievalProfile({} as NodeJS.ProcessEnv),
     ...over,
