@@ -2,7 +2,7 @@ import { scoreRows } from '../src/search/internals/scoring';
 import type { FusedRow } from '../src/search/internals/types';
 import {
   buildDeriverSystem,
-  DERIVER_SALIENCE_SECTION,
+  SALIENCE_GRADING_SYSTEM,
 } from '../src/admin/window-deriver.service';
 import { resolveExtractionProfile } from '../src/ai/extraction-profile';
 import {
@@ -11,13 +11,16 @@ import {
 } from '../src/search/retrieval-profile';
 
 /**
- * V8 §4 importance scoring (importance-scoring-design-2026-08.md).
- * Write side: DERIVER_SALIENCE_STAMP — the deriver grades 0-3 salience
- * per proposition, stamped as source.salience (FLEXIBLE, rides through
- * fn::resolve_fact untouched). Read side: RETRIEVAL_SALIENCE_SCORING —
- * scoreRows folds SALIENCE_WEIGHTS [0.8, 1.0, 1.1, 1.25]. Both default
- * off; the neutral grade 1 is exactly 1.0 so unstamped rows are
- * byte-identical at any setting.
+ * Importance scoring (importance-scoring-design-2026-08.md; V9 §5
+ * volume-neutral rebuild). Write side: DERIVER_SALIENCE_STAMP — a
+ * SEPARATE post-emission grading turn scores 0-3 salience per emitted
+ * proposition, stamped as source.salience (FLEXIBLE, rides through
+ * fn::resolve_fact untouched); the extraction prompt/schema never
+ * mention salience, so emission volume is untouched (the V8 in-prompt
+ * section measured +54-74% propositions and failed its gates). Read
+ * side: RETRIEVAL_SALIENCE_SCORING — scoreRows folds SALIENCE_WEIGHTS
+ * [0.8, 1.0, 1.1, 1.25]. Both default off; the neutral grade 1 is
+ * exactly 1.0 so unstamped rows are byte-identical at any setting.
  */
 function row(source: unknown): FusedRow {
   return {
@@ -74,18 +77,20 @@ describe('scoreRows salience fold', () => {
   });
 });
 
-describe('deriver salience prompt/schema gating', () => {
-  it('off → system prompt byte-identical (no salience section)', () => {
-    expect(buildDeriverSystem()).not.toContain('SALIENCE');
+describe('deriver salience prompt separation (V9 §5)', () => {
+  it('the extraction prompt NEVER mentions salience — grading is a separate turn', () => {
+    expect(buildDeriverSystem()).not.toContain('salience');
     expect(buildDeriverSystem({ assistantContent: true })).not.toContain(
-      'SALIENCE',
+      'salience',
     );
   });
 
-  it('on → the salience section with the 0-3 rubric', () => {
-    const sys = buildDeriverSystem({ salienceStamp: true });
-    expect(sys).toContain(DERIVER_SALIENCE_SECTION);
-    expect(sys).toContain('3 = identity-central');
+  it('the grading rubric carries the mass targets and the 0-3 scale', () => {
+    expect(SALIENCE_GRADING_SYSTEM).toContain('about 10%');
+    expect(SALIENCE_GRADING_SYSTEM).toContain('about 60%');
+    expect(SALIENCE_GRADING_SYSTEM).toContain('about 25%');
+    expect(SALIENCE_GRADING_SYSTEM).toContain('about 5%');
+    expect(SALIENCE_GRADING_SYSTEM).toContain('3 = identity-central');
   });
 });
 

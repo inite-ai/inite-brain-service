@@ -5,9 +5,42 @@ import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { KeyedMutex } from '../common/keyed-mutex';
-import { ConflictConfig } from './conflict-resolver';
+import {
+  ConflictConfig,
+  type DerivedSemantics,
+  type ResolveOutcome,
+} from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
+
+/**
+ * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
+ * aspect IS the predicate (closed 16-slug vocabulary). Value-bearing
+ * aspects hold a CURRENT value that knowledge updates replace ("lives
+ * in X", "works at Y"); event-like aspects accumulate history. NOTE:
+ * these are topic CLASSES, not slots — the bitemporal_event similarity
+ * gate (0083) is what keeps unrelated claims of one class from
+ * competing; this set only decides which class gets a lifecycle at all.
+ */
+export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
+  'identity',
+  'residence',
+  'work',
+  'education',
+  'health',
+  'possessions',
+  'preferences',
+]);
+
+/** Derive-internal semantics choice (V9 §1); pure, exported for tests. */
+export function derivedSemanticsFor(
+  aspect: string,
+  slotSemantics: boolean,
+): DerivedSemantics {
+  return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect)
+    ? 'bitemporal_event'
+    : 'append_only';
+}
 
 /**
  * Per-fact write primitive: the single entry point for `fn::resolve_fact`
@@ -286,10 +319,21 @@ export class FactResolverService {
   /**
    * Derived-world batch write (S4, one write primitive): every producer
    * routes through fn::resolve_fact — including the window deriver,
-   * which used to raw-INSERT past the resolver. Propositions are
-   * append_only (history matters, no unique active slot) and carry
+   * which used to raw-INSERT past the resolver. Propositions carry
    * their derivedVersion, so resolution is namespace-local (0079) and
    * the batch stays ONE round-trip per session via fn::resolve_facts.
+   *
+   * V9 §1 (DERIVER_SLOT_SEMANTICS → opts.slotSemantics): value-bearing
+   * aspects take 'bitemporal_event' — the similarity+interval-gated
+   * competing pool with EVENT-TIME recency and later-validFrom-wins
+   * supersede (migration 0083) — so derived worlds get a knowledge-
+   * update lifecycle. Event-like aspects stay append_only (history
+   * matters, no unique active slot). Off → byte-identical.
+   *
+   * Batching stays safe for the mixed batch: derive is per-conversation
+   * sequential (sessions resolve in order inside one statement), so the
+   * cross-request race the KeyedMutex guards on the live path cannot
+   * occur here.
    */
   async resolveDerivedBatch(
     // Structural: the deriver hands a narrow query-only view of the
@@ -310,26 +354,60 @@ export class FactResolverService {
       script?: string;
       derivedVersion: string;
     }>,
-  ): Promise<any[]> {
+    opts: { slotSemantics?: boolean } = {},
+  ): Promise<ResolveOutcome[]> {
     if (rows.length === 0) return [];
-    return this.resolveAppendOnlyBatch(
-      db as unknown as Surreal,
-      rows.map((r) => ({
-        companyId: '',
-        entityId: r.entityId,
-        predicate: r.predicate,
-        object: r.object,
-        embedding: r.embedding,
-        confidence: r.confidence,
-        validFrom: r.validFrom,
-        source: r.source,
-        sourceTrust: r.sourceTrust,
-        semantics: 'append_only',
-        lang: r.lang,
-        script: r.script,
-        derivedVersion: r.derivedVersion,
-      })),
-    );
+    const prepared = rows.map((r) => ({
+      companyId: '',
+      entityId: r.entityId,
+      predicate: r.predicate,
+      object: r.object,
+      embedding: r.embedding,
+      confidence: r.confidence,
+      validFrom: r.validFrom,
+      source: r.source,
+      sourceTrust: r.sourceTrust,
+      semantics: derivedSemanticsFor(r.predicate, opts.slotSemantics === true),
+      lang: r.lang,
+      script: r.script,
+      derivedVersion: r.derivedVersion,
+    }));
+    try {
+      return (await this.resolveAppendOnlyBatch(
+        db as unknown as Surreal,
+        prepared,
+      )) as ResolveOutcome[];
+    } catch (e) {
+      // V9 phase 0 fence: the V8 conv-42 failure ("Cannot execute
+      // UPDATE statement using value: NONE", data-dependent) killed the
+      // WHOLE conversation because one poisoned row aborted the single
+      // fn::resolve_facts statement. Retry per row so the batch
+      // degrades to N-1 good rows + a WARN per bad one instead of a
+      // skipped conversation.
+      this.logger.warn(
+        `derived batch resolve failed (${(e as Error).message}); retrying per-row`,
+      );
+      const out: ResolveOutcome[] = [];
+      for (const c of prepared) {
+        try {
+          const [r] = await this.resolveAppendOnlyBatch(
+            db as unknown as Surreal,
+            [c],
+          );
+          out.push(r as ResolveOutcome);
+        } catch (rowErr) {
+          this.logger.warn(
+            `derived row skipped (entity=${c.entityId}, predicate=${c.predicate}): ${(rowErr as Error).message}`,
+          );
+          out.push({
+            outcome: 'SKIPPED',
+            factId: null,
+            reason: (rowErr as Error).message,
+          });
+        }
+      }
+      return out;
+    }
   }
 
   /**

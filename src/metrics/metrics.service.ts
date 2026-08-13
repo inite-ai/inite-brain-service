@@ -458,6 +458,8 @@ export class MetricsService implements OnModuleInit {
       | 'ok'
       | 'no_results'
       | 'no_grounded_evidence'
+      // V9 §4: the memory-coverage abstention floor fired.
+      | 'low_coverage'
       | 'verifier_partial'
       | 'verifier_failed'
       | 'generator_error'

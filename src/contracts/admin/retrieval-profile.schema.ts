@@ -23,7 +23,7 @@ export const RetrievalProfileWireSchema = z.object({
     'routed',
   ]),
   insightEvidence: z.enum(['off', 'routed']),
-  timelineEvidence: z.enum(['off', 'routed']),
+  timelineEvidence: z.enum(['off', 'routed', 'scan']),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
   temporalMode: z.enum(['filter', 'overlap_boost']),
   factBudget: z.number().int(),
@@ -36,6 +36,9 @@ export const RetrievalProfileWireSchema = z.object({
   wideProbeLimit: z.number().int(),
   entityExpansion: z.boolean(),
   salienceScoring: z.boolean(),
+  abstentionCalibration: z.enum(['off', 'coverage', 'verifier']),
+  abstentionMinTopScore: z.number(),
+  abstentionMinEvidence: z.number().int(),
   lanes: z.array(z.string()),
 });
 

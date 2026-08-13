@@ -390,7 +390,8 @@ function validateRetrievalProfileEnv(
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed']],
-    ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed']],
+    ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
+    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];
@@ -479,6 +480,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // contributions (recommendations/answers/instructions given) under the
   // "assistance" aspect. Default off; confirm on a FRESH derivedVersion.
   'DERIVER_ASSISTANT_CONTENT',
+  // V9 §1: value-bearing aspects take the bitemporal_event lifecycle
+  // (supersede + competing) in derived worlds. Default off.
+  'DERIVER_SLOT_SEMANTICS',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',

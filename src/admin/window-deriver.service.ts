@@ -34,7 +34,6 @@ import { ReadPinService } from '../episodes/read-pin.service';
  * is the P3-full follow-up.
  */
 export const WINDOW_DERIVER_VERSION = 'wd-v2';
-const SESSION_GAP_MS = 60 * 60 * 1000;
 
 const DERIVER_SYSTEM = `You extract durable MEMORY PROPOSITIONS from ONE session of a two-person dialogue. The original conversation will NOT be available at retrieval time — each proposition must stand alone years later.
 
@@ -65,26 +64,32 @@ ASSISTANT-SIDE CONTRIBUTIONS
 Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
 
 /**
- * V8 §4 salience stamp (DERIVER_SALIENCE_STAMP): the deriver already
- * judges "durable vs ephemeral" per proposition — asking for a 0-3
- * importance grade in the same call is near-zero marginal tokens,
- * where an after-the-fact LLM re-scoring pass over stored facts would
- * be a full second read of the corpus.
+ * Salience grading (DERIVER_SALIENCE_STAMP, V8 §4 → V9 §5 rebuild):
+ * a SEPARATE cheap turn over the emitted proposition list. The V8
+ * in-prompt section failed both its gates — it primed over-emission
+ * (+54-74% propositions vs the same env without it: NOT recall-
+ * neutral) and inflated the grade mass (0.4/36/52/11.7% vs the
+ * ~10/60/25/5 rubric). Grading AFTER emission is volume-neutral by
+ * construction, and a rubric with explicit mass targets is the
+ * distribution fix. Failure degrades to unstamped rows.
  */
-export const DERIVER_SALIENCE_SECTION = `
+export const SALIENCE_GRADING_SYSTEM = `You grade the long-term SALIENCE of memory propositions about a person — how central each is to remembering them years later.
 
-SALIENCE
-Also grade each proposition's "salience" — how central it is to remembering this person long-term: 0 = incidental detail (smalltalk-adjacent, one-off logistics); 1 = routine fact (the default); 2 = notable (decisions, changes, plans, recurring topics); 3 = identity-central (job, family, health, home, long-term goals). Most propositions are 1; reserve 3 for the few facts a biographer would keep.`;
+Grades and their expected share of a typical list:
+- 0 = incidental detail (smalltalk-adjacent, one-off logistics, weather) — about 10%;
+- 1 = routine fact (ordinary activities, minor preferences, passing mentions) — the default, about 60%;
+- 2 = notable (decisions, changes, plans, milestones, recurring topics) — about 25%;
+- 3 = identity-central (job, family, health, home, long-term goals — the few facts a biographer would keep) — about 5%.
+
+Grade EVERY numbered proposition. Hold the proportions unless the list is genuinely atypical — a list where most grades are 2-3 is almost always inflation, not an exceptional person. Output strictly the JSON schema.`;
 
 /** System prompt assembly; each section only exists when its flag asks. */
 export function buildDeriverSystem(opts?: {
   assistantContent?: boolean;
-  salienceStamp?: boolean;
 }): string {
   return (
     DERIVER_SYSTEM +
-    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '') +
-    (opts?.salienceStamp ? DERIVER_SALIENCE_SECTION : '')
+    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '')
   );
 }
 
@@ -134,33 +139,14 @@ export interface DeriveRunResult {
   previousVersion?: string | null;
 }
 
-export interface EpisodeRow {
-  id: unknown;
-  speaker?: string;
-  text: string;
-  occurredAt: string | Date;
-}
-
-/** Pure: split time-ordered episodes into sessions by inactivity gap. */
-export function segmentSessions(
-  episodes: EpisodeRow[],
-  gapMs: number = SESSION_GAP_MS,
-): EpisodeRow[][] {
-  const sessions: EpisodeRow[][] = [];
-  let current: EpisodeRow[] = [];
-  let prev: number | null = null;
-  for (const ep of episodes) {
-    const t = new Date(ep.occurredAt as string).getTime();
-    if (prev !== null && t - prev > gapMs && current.length > 0) {
-      sessions.push(current);
-      current = [];
-    }
-    current.push(ep);
-    prev = t;
-  }
-  if (current.length > 0) sessions.push(current);
-  return sessions;
-}
+// The session primitive moved to the episodes layer (V9 quality pass —
+// synthesize-side lanes need the same convention and may not import
+// from admin); re-exported so existing consumers keep their import.
+export {
+  segmentSessions,
+  type EpisodeRow,
+} from '../episodes/session-window';
+import { segmentSessions, type EpisodeRow } from '../episodes/session-window';
 
 interface DerivedProposition {
   subject: string;
@@ -594,8 +580,17 @@ export class WindowDeriverService {
           derivedVersion: version,
         };
       });
-      await this.factResolver.resolveDerivedBatch(db, rows);
-      result.propositions += rows.length;
+      // V9 §1: value-bearing aspects take the bitemporal_event
+      // lifecycle when the profile asks; V9 phase 0: the resolver
+      // batch degrades per-row instead of failing the conversation —
+      // SKIPPED rows are not counted as propositions.
+      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
+        slotSemantics: resolveExtractionProfile().deriveSlotSemantics,
+      });
+      const skippedRows = outcomes.filter(
+        (o) => o.outcome === 'SKIPPED',
+      ).length;
+      result.propositions += rows.length - skippedRows;
     }
   }
 
@@ -610,7 +605,6 @@ export class WindowDeriverService {
         role: 'system',
         content: buildDeriverSystem({
           assistantContent: profile.deriveAssistantContent,
-          salienceStamp: profile.deriveSalienceStamp,
         }),
       },
       {
@@ -618,23 +612,39 @@ export class WindowDeriverService {
         content: `Session date: ${sessionDate.toISOString().slice(0, 10)}\nParticipants: ${participants.join(', ')}\n\nTranscript:\n${transcript.join('\n')}`,
       },
     ];
-    const base = await this.deriverPass(messages, profile.deriveSalienceStamp);
+    const base = await this.deriverPass(messages);
+    const merged = await this.completionUnion(profile, messages, base);
+    // V9 §5: salience grades come from a SEPARATE turn over the final
+    // list — the extraction passes above never see the word "salience",
+    // so emission volume is untouched (the V8 in-prompt section
+    // measured +54-74% propositions). Degrades to unstamped.
+    if (profile.deriveSalienceStamp && merged.length > 0) {
+      await this.gradeSalience(merged);
+    }
+    return merged;
+  }
+
+  /** V7 completion pass, additive by construction — a failure degrades
+   *  to the base pass, never fails the session. */
+  private async completionUnion(
+    profile: ReturnType<typeof resolveExtractionProfile>,
+    messages: Array<{
+      role: 'system' | 'user' | 'assistant';
+      content: string;
+    }>,
+    base: DerivedProposition[],
+  ): Promise<DerivedProposition[]> {
     if (!profile.deriveCompletionPass || base.length === 0) return base;
-    // Completion pass (V7 deriver-recall): additive by construction —
-    // a failure here degrades to the base pass, never fails the session.
     let extra: DerivedProposition[] = [];
     try {
-      extra = await this.deriverPass(
-        [
-          ...messages,
-          {
-            role: 'assistant',
-            content: JSON.stringify({ propositions: base }),
-          },
-          { role: 'user', content: DERIVER_COMPLETION_PROMPT },
-        ],
-        profile.deriveSalienceStamp,
-      );
+      extra = await this.deriverPass([
+        ...messages,
+        {
+          role: 'assistant',
+          content: JSON.stringify({ propositions: base }),
+        },
+        { role: 'user', content: DERIVER_COMPLETION_PROMPT },
+      ]);
     } catch (e) {
       this.logger.warn(
         `deriver completion pass failed (${(e as Error).message}); keeping the base pass`,
@@ -657,6 +667,78 @@ export class WindowDeriverService {
   }
 
   /**
+   * V9 §5: the volume-neutral grading turn. Mutates `propositions` in
+   * place (stamps `salience` 0-3 by index); any failure or an
+   * index/length mismatch leaves rows unstamped — the scoring side
+   * treats missing stamps as neutral.
+   */
+  private async gradeSalience(
+    propositions: DerivedProposition[],
+  ): Promise<void> {
+    try {
+      const list = propositions
+        .map((p, i) => `${i}. [${p.subject}] ${p.proposition}`)
+        .join('\n');
+      const res = await this.openai.chat.completions.create({
+        model: this.model,
+        temperature: 0,
+        max_completion_tokens: 4000,
+        messages: [
+          { role: 'system', content: SALIENCE_GRADING_SYSTEM },
+          { role: 'user', content: `Propositions:\n${list}` },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'salience_grades',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                grades: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      index: { type: 'integer' },
+                      salience: { type: 'integer' },
+                    },
+                    required: ['index', 'salience'],
+                  },
+                },
+              },
+              required: ['grades'],
+            },
+          },
+        },
+      });
+      const content = res.choices[0]?.message?.content;
+      if (!content) throw new Error('empty grading response');
+      const parsed = JSON.parse(content) as {
+        grades?: Array<{ index: number; salience: number }>;
+      };
+      for (const g of parsed.grades ?? []) {
+        if (
+          Number.isInteger(g.index) &&
+          g.index >= 0 &&
+          g.index < propositions.length &&
+          Number.isInteger(g.salience) &&
+          g.salience >= 0 &&
+          g.salience <= 3
+        ) {
+          propositions[g.index].salience = g.salience;
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `salience grading turn failed (${(e as Error).message}); rows stay unstamped`,
+      );
+    }
+  }
+
+  /**
    * One structured deriver call with an explicit truncation guard: a
    * finish_reason='length' response is a SILENT recall hole (the JSON
    * either fails to parse — failing the session — or the model
@@ -669,10 +751,9 @@ export class WindowDeriverService {
       role: 'system' | 'user' | 'assistant';
       content: string;
     }>,
-    salienceStamp = false,
   ): Promise<DerivedProposition[]> {
     for (const maxTokens of [8000, 16000]) {
-      const res = await this.deriverRequest(messages, maxTokens, salienceStamp);
+      const res = await this.deriverRequest(messages, maxTokens);
       const choice = res.choices[0];
       if (choice?.finish_reason === 'length') {
         this.logger.warn(
@@ -696,15 +777,11 @@ export class WindowDeriverService {
       content: string;
     }>,
     maxTokens: number,
-    salienceStamp = false,
   ) {
-    // Strict JSON schemas require every property in `required`, so the
-    // salience field exists only when the stamp flag asks — the off
-    // path stays byte-identical (ewave rule).
-    const salienceProps = salienceStamp
-      ? { salience: { type: 'integer' as const } }
-      : {};
-    const salienceRequired = salienceStamp ? ['salience'] : [];
+    // V9 §5: the extraction schema no longer carries salience — grades
+    // come from the separate post-emission turn (gradeSalience), so
+    // the extraction call is byte-identical with the stamp flag on or
+    // off (volume-neutral by construction).
     return this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,
@@ -730,7 +807,6 @@ export class WindowDeriverService {
                     proposition: { type: 'string' },
                     occurred_on: { type: ['string', 'null'] },
                     turns: { type: 'array', items: { type: 'integer' } },
-                    ...salienceProps,
                   },
                   required: [
                     'subject',
@@ -738,7 +814,6 @@ export class WindowDeriverService {
                     'proposition',
                     'occurred_on',
                     'turns',
-                    ...salienceRequired,
                   ],
                 },
               },

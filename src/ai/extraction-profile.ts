@@ -53,6 +53,17 @@ export interface ExtractionPipelineProfile {
    * prompt change confirms on a FRESH derivedVersion).
    */
   deriveSalienceStamp: boolean;
+  /**
+   * DERIVER_SLOT_SEMANTICS (V9 §1, derived-world lifecycle): value-
+   * bearing aspects (VALUE_BEARING_ASPECTS in fact-resolver) resolve
+   * as 'bitemporal_event' — similarity+interval-gated competing pool,
+   * event-time recency, later-validFrom-wins supersede (migration
+   * 0083) — so derived worlds get knowledge-update supersede and
+   * genuine same-date COMPETING rows for the contradiction lane.
+   * Event-like aspects stay append_only. Off → byte-identical writes
+   * (ewave rule: lifecycle-on worlds take a FRESH derivedVersion).
+   */
+  deriveSlotSemantics: boolean;
 }
 
 /** Boot-default profile from env — the single reader of these keys. */
@@ -73,5 +84,6 @@ export function resolveExtractionProfile(
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
+    deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };
 }

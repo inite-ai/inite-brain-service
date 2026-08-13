@@ -36,6 +36,7 @@ import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
 import { AdminAggregatesController } from './admin-aggregates.controller';
 import { AggregateComposerService } from './aggregate-composer.service';
+import { ArcComposerService } from './arc-composer.service';
 import { AdminDeriveController } from './admin-derive.controller';
 import { ProjectionsController } from './projections.controller';
 import { WindowDeriverService } from './window-deriver.service';
@@ -112,6 +113,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminService,
     HnswMaintenanceService,
     AggregateComposerService,
+    ArcComposerService,
     WindowDeriverService,
     SegmentComposerService,
     AdminInfraService,
