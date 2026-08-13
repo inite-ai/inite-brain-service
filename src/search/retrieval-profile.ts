@@ -134,6 +134,23 @@ export type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
 export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
 
 /**
+ * Dense-leg execution mode of the two coverage-first scan lanes
+ * (mention-scan over episode_segment, query_arc over knowledge_fact):
+ *  - 'brute' — exact filtered top-k via a full-table cosine ORDER BY.
+ *              Correct at eval scale by design (coverage was the
+ *              measured failure) and the engine default.
+ *  - 'hnsw'  — approximate KNN (`<|k,ef|>`) against the per-tenant
+ *              HNSW indexes, with overfetch compensating the post-KNN
+ *              gate filtering (SurrealDB applies WHERE after the
+ *              approximate neighbor walk). Falls back to the brute
+ *              scan on error OR an empty post-filter pool, so tenants
+ *              without the indexes built behave identically. The
+ *              promotion gate for large tenants (V11 agenda: default-on
+ *              goes through a vector-index leg first).
+ */
+export type CoverageScanMode = 'brute' | 'hnsw';
+
+/**
  * Memory-coverage abstention (V9 §4):
  *  - 'off'      — abstention is decided solely by the generator's own
  *                 judgment (pre-V9 behavior).
@@ -210,6 +227,19 @@ export interface RetrievalProfile {
   verbatimEvidence: VerbatimEvidenceMode;
   insightEvidence: InsightEvidenceMode;
   timelineEvidence: TimelineEvidenceMode;
+  /**
+   * Dense-leg mode of the coverage scan lanes (see CoverageScanMode).
+   * 'brute' = the legacy exact scan; 'hnsw' requires the tenant's
+   * HNSW indexes (admin maintenance) and passes the parity gate
+   * (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) before being flipped.
+   */
+  coverageScanMode: CoverageScanMode;
+  /** HNSW ef candidate-list size for the scan legs (clamped up to the
+   *  overfetched k at query time — ef below k is never useful). */
+  scanHnswEf: number;
+  /** Overfetch multiplier compensating post-KNN gate filtering; the
+   *  query_arc lane doubles it internally (heavier gate stack). */
+  scanHnswOverfetch: number;
   dateAnchoring: DateAnchoring;
   temporalMode: TemporalMode;
   /** Global fact budget for fact-centric selection. */
@@ -372,6 +402,13 @@ export function resolveRetrievalProfile(
         'routed',
         'scan',
       ] as const) ?? 'off',
+    coverageScanMode:
+      enumEnv(env, 'RETRIEVAL_COVERAGE_SCAN_MODE', [
+        'brute',
+        'hnsw',
+      ] as const) ?? 'brute',
+    scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
+    scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
       enumEnv(env, 'RETRIEVAL_DATE_ANCHORING', [
         'none',
@@ -455,6 +492,7 @@ export function resolveRetrievalProfileFor(
     ],
     ['insightEvidence', ['off', 'routed', 'query_arc']],
     ['timelineEvidence', ['off', 'routed', 'scan']],
+    ['coverageScanMode', ['brute', 'hnsw']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
     ['abstentionCalibration', ['off', 'coverage', 'verifier']],
@@ -473,6 +511,8 @@ export function resolveRetrievalProfileFor(
     'extraEvidenceCap',
     'wideProbeLimit',
     'abstentionMinEvidence',
+    'scanHnswEf',
+    'scanHnswOverfetch',
   ] as const) {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {

@@ -6,11 +6,17 @@ import {
   dedupeMentionLines,
   extractOrderingTopic,
   filterMentions,
+  LEX_MATCH_FLOOR,
   MAX_MENTION_LINES,
   pickMentionLine,
   topicTerms,
   type ScanRow,
 } from './mention-scan';
+import {
+  BRUTE_ONLY,
+  runDenseScanLeg,
+  type CoverageScanTuning,
+} from './scan-leg';
 
 interface SegmentScanRow {
   id: unknown;
@@ -57,6 +63,8 @@ export class MentionScanService {
     userId?: string;
     /** V10 §3: collapse near-duplicate aspect mentions (orderingFrame). */
     dedupeAspects?: boolean;
+    /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
+    scan?: CoverageScanTuning;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -73,15 +81,16 @@ export class MentionScanService {
       const pool = await this.surreal.withCompany(
         opts.companyId,
         async (db) => {
-          const [dense] = await db.query<[SegmentScanRow[]]>(
-            `SELECT id, text, occurredAt,
-                    vector::similarity::cosine(embedding, $q) AS score
-               FROM episode_segment
-              WHERE embedding != NONE ${piiGate} ${userGate}
-              ORDER BY score DESC
-              LIMIT $k`,
-            { q: topicVector, k, ...userParams },
-          );
+          const dense = await runDenseScanLeg<SegmentScanRow>({
+            db,
+            table: 'episode_segment',
+            projection: 'id, text, occurredAt',
+            gates: `${piiGate} ${userGate}`,
+            params: { q: topicVector, k, ...userParams },
+            k,
+            tuning: opts.scan ?? BRUTE_ONLY,
+            logger: this.logger,
+          });
           const [bm25] = await db.query<[SegmentScanRow[]]>(
             `SELECT id, text, occurredAt, search::score(1) AS score
                FROM episode_segment
@@ -90,7 +99,7 @@ export class MentionScanService {
               LIMIT $k`,
             { topic, k, ...userParams },
           );
-          return mergeLegs(dense ?? [], bm25 ?? []);
+          return mergeLegs(dense, bm25 ?? []);
         },
       );
       // V10 §3 (R1): the ordering golds sequence aspects at SUB-session
@@ -141,15 +150,17 @@ function mergeLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
+    const lex =
+      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
-      prev.lex = typeof r.score === 'number' ? r.score : 1;
+      prev.lex = lex;
     } else {
       byId.set(id, {
         id,
         text: r.text,
         occurredAt: new Date(r.occurredAt as string).getTime(),
-        lex: typeof r.score === 'number' ? r.score : 1,
+        lex,
       });
     }
   }

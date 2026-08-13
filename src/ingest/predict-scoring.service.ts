@@ -150,6 +150,8 @@ export class PredictScoringService {
   private cfgNum(key: string, fallback: number): number {
     const raw = this.configService.get<string | number | undefined>(key);
     if (raw === undefined || raw === null) return fallback;
+    // Set-but-blank falls back — Number('') === 0 would zero the gate.
+    if (typeof raw === 'string' && raw.trim() === '') return fallback;
     const n = typeof raw === 'number' ? raw : Number(raw);
     return Number.isFinite(n) ? n : fallback;
   }

@@ -1,5 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import {
   renderUpdateStory,
   type PreviousValue,
@@ -7,6 +9,7 @@ import {
 
 interface LoserRow {
   id: unknown;
+  predicate: string;
   supersededBy: unknown;
   object: string;
   validUntil?: Date | string;
@@ -35,7 +38,11 @@ const MAX_STORY_DEPTH = 3;
 export class UpdateStoryService {
   private readonly logger = new Logger(UpdateStoryService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
+  ) {}
 
   /** factId → rendered history suffix, for facts that have history. */
   async previousStories(opts: {
@@ -54,6 +61,17 @@ export class UpdateStoryService {
       : 'AND userId IS NONE';
     const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
     try {
+      // Predicate scope-fence + ABAC row verdict (audit 2026-08-13 P0):
+      // a superseded ancestor may carry a DIFFERENT predicate than the
+      // already-policy-filtered winner (slot arbitration is cosine-,
+      // not predicate-keyed), so its history line gets its own check.
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.callerScopes,
+        surface: 'update_story',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+          opts.companyId,
+        ),
+      });
       const perRoot = new Map<string, PreviousValue[]>();
       await this.surreal.withCompany(opts.companyId, async (db) => {
         // currentId → the evidence fact whose story it belongs to.
@@ -64,7 +82,8 @@ export class UpdateStoryService {
           if (frontier.size === 0) break;
           const res = await db.query<[unknown, LoserRow[]]>(
             `LET $w = $winners.map(|$x| type::record($x));
-             SELECT id, supersededBy, object, validUntil FROM knowledge_fact
+             SELECT id, predicate, supersededBy, object, validUntil
+               FROM knowledge_fact
               WHERE supersededBy IN $w
                 AND status = 'superseded'
                 AND retractedAt IS NONE
@@ -72,7 +91,9 @@ export class UpdateStoryService {
               ORDER BY validUntil DESC`,
             { winners: [...frontier.keys()], ...userParams },
           );
-          const rows = (res[1] ?? []) as LoserRow[];
+          const rows = ((res[1] ?? []) as LoserRow[]).filter((r) =>
+            rowPolicy.filter(r),
+          );
           const next = new Map<string, string>();
           for (const row of rows) {
             const root = frontier.get(String(row.supersededBy));
@@ -91,6 +112,7 @@ export class UpdateStoryService {
           frontier = next;
         }
       });
+      rowPolicy.finish();
       const out = new Map<string, string>();
       for (const [factId, prevs] of perRoot) {
         const suffix = renderUpdateStory(prevs);

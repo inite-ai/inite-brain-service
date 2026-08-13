@@ -129,6 +129,16 @@ export interface ScanRow {
 }
 
 /**
+ * Lex strength assigned to a BM25-MATCHED row whose reported score is
+ * not a positive number. BM25 legitimately scores 0 when every topic
+ * term appears in (nearly) every doc — IDF collapses — but a row the
+ * matches operator returned is a lexical mention by construction, and
+ * filterMentions' "lexical hits always count" premise must hold for
+ * it. Epsilon keeps ranking ties honest.
+ */
+export const LEX_MATCH_FLOOR = 1e-6;
+
+/**
  * Decide which scanned rows count as MENTIONS. Lexical hits always do
  * (the topic's words literally appear); dense-only rows must clear both
  * the absolute floor and a fraction of the best similarity — otherwise

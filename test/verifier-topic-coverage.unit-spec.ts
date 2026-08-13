@@ -192,6 +192,119 @@ describe('finalizeVerdict consumes questionAnswered (V10 §5)', () => {
     });
     expect(out.answer).toBe(base.answer);
   });
+
+  // V9 §4 core path — the session's one replicated eval win (+17.5pp):
+  // in lenient guardrails under 'verifier' abstention, a non-supported
+  // verdict IS the coverage signal and returns the explicit decline
+  // instead of surfacing the answer with a reason tag.
+  it.each(['unsupported', 'partial'] as const)(
+    'lenient + verifier abstention declines on a %s verdict',
+    (verdict) => {
+      const out = finalize(makeService())({
+        ...base,
+        verdict,
+        guardrails: 'lenient',
+        abstention: 'verifier',
+      });
+      expect(out.answer).toBe(NOT_IN_MEMORY_ANSWER);
+      expect(out.reason).toBe('low_coverage');
+    },
+  );
+
+  it('lenient WITHOUT verifier abstention keeps the tagged answer', () => {
+    const out = finalize(makeService())({
+      ...base,
+      verdict: 'partial',
+      guardrails: 'lenient',
+      abstention: 'off',
+    });
+    expect(out.answer).toBe(base.answer);
+    expect(out.reason).toBe('verifier_partial');
+  });
+
+  it('strict + verifier abstention keeps fail-closed semantics', () => {
+    const out = finalize(makeService())({
+      ...base,
+      verdict: 'unsupported',
+      guardrails: 'strict',
+      abstention: 'verifier',
+    });
+    expect(out.answer).toBeNull();
+    expect(out.reason).toBe('verifier_failed');
+  });
+});
+
+describe('coverageAbstention guardrails matrix (V9 §4)', () => {
+  function makeService(): SynthesizeService {
+    const config = {
+      get: (k: string, d?: string) => d,
+      getOrThrow: () => 'sk',
+    } as unknown as ConfigService;
+    const search = {
+      search: async () => ({ results: [] }),
+    } as unknown as SearchService;
+    return new SynthesizeService(search, config);
+  }
+
+  type Coverage = (args: {
+    profile: Record<string, unknown>;
+    guardrails: string;
+    results: unknown[];
+    explain: boolean;
+  }) => { answer: string | null; reason?: string } | null;
+
+  const coverage = (svc: SynthesizeService): Coverage =>
+    (
+      svc as unknown as { coverageAbstention: Coverage }
+    ).coverageAbstention.bind(svc);
+
+  const failingProfile = {
+    abstentionCalibration: 'coverage',
+    abstentionMinTopScore: 0.5,
+    abstentionMinEvidence: 2,
+  };
+  const thinResults = [
+    { facts: [{ factId: 'f1', object: 'x', score: 0.1 }] },
+  ];
+
+  it('declines below the floor in strict and lenient', () => {
+    for (const guardrails of ['strict', 'lenient']) {
+      const out = coverage(makeService())({
+        profile: failingProfile,
+        guardrails,
+        results: thinResults,
+        explain: false,
+      });
+      expect(out?.answer).toBe(NOT_IN_MEMORY_ANSWER);
+      expect(out?.reason).toBe('low_coverage');
+    }
+  });
+
+  it("never fires in 'answer'/'off' guardrails — the never-abstain caller contract", () => {
+    for (const guardrails of ['answer', 'off']) {
+      expect(
+        coverage(makeService())({
+          profile: failingProfile,
+          guardrails,
+          results: thinResults,
+          explain: false,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("never fires when the profile mode is not 'coverage'", () => {
+    for (const mode of ['off', 'verifier']) {
+      expect(
+        coverage(makeService())({
+          profile: { ...failingProfile, abstentionCalibration: mode },
+          guardrails: 'strict',
+          results: thinResults,
+          explain: false,
+        }),
+      ).toBeNull();
+    }
+  });
 });
 
 describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {

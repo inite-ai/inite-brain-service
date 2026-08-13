@@ -820,6 +820,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits) | scan (V9 §2: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, segment record scanned per session with BM25+embedding against the TOPIC, one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K — the V8 diagnosis was coverage, not order).",
       },
       {
+        key: 'RETRIEVAL_COVERAGE_SCAN_MODE',
+        category: 'pipeline',
+        defaultValue: 'brute',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Dense-leg execution mode of the two coverage-first scan lanes — mention-scan over episode_segment (timelineEvidence='scan') and query_arc over knowledge_fact (insightEvidence='query_arc'): brute (exact filtered top-k via a full-table cosine ORDER BY — correct at eval scale by design, the default; identical legacy semantics) | hnsw (approximate KNN <|k,ef|> against the per-tenant HNSW indexes — segment_embedding_hnsw / fact_embedding_hnsw, built via POST /v1/admin/maintenance/hnsw — with overfetch compensating SurrealDB's post-KNN WHERE filtering; falls back to the brute scan on error OR an empty post-filter pool, so tenants without the indexes behave identically). The V11 scale gate: promotion of the scan lanes to default-on for large tenants goes through this leg plus the parity check (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) first.",
+      },
+      {
+        key: 'RETRIEVAL_SCAN_HNSW_EF',
+        category: 'pipeline',
+        defaultValue: '400',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'HNSW ef (candidate list size) for the coverage scan legs under RETRIEVAL_COVERAGE_SCAN_MODE=hnsw. Clamped up to the overfetched k at query time — ef below k is never useful in HNSW — so the default only matters if raised ABOVE the overfetched k for extra recall at latency cost.',
+      },
+      {
+        key: 'RETRIEVAL_SCAN_HNSW_OVERFETCH',
+        category: 'pipeline',
+        defaultValue: '4',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Overfetch multiplier for the coverage scan legs' approximate KNN: SurrealDB applies WHERE gates AFTER the neighbor walk, so the walk requests k×overfetch candidates to survive gate filtering (pii/user scope on both lanes; the query_arc lane doubles the multiplier internally for its heavier gate stack — atomic/status/world gates — matching the ×8 precedent of INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH). Capped at 4000 candidates per leg.",
+      },
+      {
         key: 'RETRIEVAL_UPDATE_STORY',
         category: 'pipeline',
         defaultValue: '0',
@@ -880,7 +907,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, salienceScoring, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

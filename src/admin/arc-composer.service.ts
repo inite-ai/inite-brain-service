@@ -7,6 +7,7 @@ import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { AGGREGATE_RECORDER } from './aggregate-composer.service';
 import {
+  factDay,
   runInsightComposer,
   type FactRowLite,
   type InsightComposerSpec,
@@ -75,9 +76,7 @@ export function validArc(arc: ArcProposal, facts: FactRowLite[]): boolean {
   if (arc.members.length < 2) return false;
   if (!arc.members.every((m) => m >= 0 && m < facts.length)) return false;
   if (arc.narrative.trim().length === 0) return false;
-  const days = new Set(
-    arc.members.map((m) => String(facts[m].validFrom ?? '').slice(0, 10)),
-  );
+  const days = new Set(arc.members.map((m) => factDay(facts[m].validFrom)));
   return days.size >= 2;
 }
 
@@ -85,7 +84,9 @@ export function validArc(arc: ArcProposal, facts: FactRowLite[]): boolean {
 export function arcValidFrom(arc: ArcProposal, facts: FactRowLite[]): Date {
   let best = 0;
   for (const m of arc.members) {
-    const t = new Date(String(facts[m]?.validFrom ?? 0)).getTime();
+    const v = facts[m]?.validFrom;
+    const t =
+      v instanceof Date ? v.getTime() : new Date(String(v ?? 0)).getTime();
     if (Number.isFinite(t) && t > best) best = t;
   }
   return best > 0 ? new Date(best) : new Date();

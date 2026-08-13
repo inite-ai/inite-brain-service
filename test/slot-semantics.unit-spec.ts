@@ -255,6 +255,83 @@ describe('migration 0084 (day-granular supersede + slot cosine gate)', () => {
   });
 });
 
+describe('migration 0085 (pairwise closure + competing re-admission)', () => {
+  const sql = readFileSync(
+    join(
+      __dirname,
+      '../src/db/migrations/0085_slot_supersede_pairwise_closure.surql',
+    ),
+    'utf-8',
+  );
+
+  it('F1: supersede closes only strictly-earlier-day members', () => {
+    expect(sql).toContain(
+      'WHERE time::floor(validFrom, 1d) < time::floor($valid_from, 1d)',
+    );
+    // The pool-wide loser walk is gone; the loop runs over $losers.
+    expect(sql).toContain('FOR $loser IN $losers');
+    expect(sql).not.toContain('FOR $loser IN $competing');
+    // Contested same/later-day members flip to competing, stay open.
+    expect(sql).toContain(
+      "UPDATE knowledge_fact SET status = 'competing' WHERE id IN $day_peers.id",
+    );
+    expect(sql).toContain('supersededFactIds: $losers.id');
+  });
+
+  it('F1: the decision partitions the pool, not the best_opp pair', () => {
+    // Event order decides per member; the pairwise best_opp comparison
+    // (which masked the strictly-older row when best_opp was the
+    // same-day peer) is gone, and so is the dead margin path for this
+    // semantics (0084 declared it unreachable for batch-derived rows).
+    expect(sql).toContain(
+      "($semantics = 'bitemporal_event' AND array::len($losers) > 0)",
+    );
+    expect(sql).toContain(
+      "($semantics != 'bitemporal_event' AND $new_score >= $best_opp_score + $margin_for_supersede)",
+    );
+    expect(sql).not.toContain(
+      "($semantics = 'bitemporal_event' AND time::floor($valid_from, 1d) > time::floor($best_opp.validFrom, 1d))",
+    );
+  });
+
+  it('F3: bitemporal_event re-admits competing rows to the pool', () => {
+    expect(sql).toContain(
+      "OR (status = 'competing' AND $semantics = 'bitemporal_event')",
+    );
+  });
+
+  it('keeps the 0084 signature — no mapper redefinition', () => {
+    expect(sql).toContain('$slot_similarity: option<float>');
+    expect(sql).not.toContain('DEFINE FUNCTION OVERWRITE fn::resolve_facts');
+  });
+
+  it('carries the 0083 fence and the day-granular backdated guard forward', () => {
+    expect(sql).toContain('IF $new = NONE OR $new.id = NONE');
+    expect(sql).toContain(
+      'WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)',
+    );
+  });
+});
+
+describe('window-deriver targeted re-derive (audit F2)', () => {
+  it('revives cross-conversation losers before the scoped delete', () => {
+    const src = readFileSync(
+      join(__dirname, '../src/admin/window-deriver.service.ts'),
+      'utf-8',
+    );
+    expect(src).toContain('validUntil = priorValidUntil');
+    expect(src).toContain('supersededBy IN (');
+    expect(src).toContain('source.conversationId != $conv');
+    // The revive must precede the conversation-scoped delete in the
+    // SAME statement batch (other DELETEs exist elsewhere in the file).
+    const revive = src.indexOf("status = 'active',\n          supersededBy = NONE");
+    expect(revive).toBeGreaterThan(-1);
+    const delAfter = src.indexOf('DELETE knowledge_fact', revive);
+    expect(delAfter).toBeGreaterThan(revive);
+    expect(delAfter - revive).toBeLessThan(700);
+  });
+});
+
 describe('DERIVER_SLOT_SIMILARITY plumbing', () => {
   it('both resolver call sites pass the slot threshold', () => {
     const src = readFileSync(

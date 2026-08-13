@@ -2,16 +2,34 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ReadPinService } from '../episodes/read-pin.service';
-import { filterMentions, type ScanRow } from './mention-scan';
+import {
+  filterMentions,
+  LEX_MATCH_FLOOR,
+  type ScanRow,
+} from './mention-scan';
 import {
   extractArcTopic,
   pickArcBeats,
   renderArcLines,
   type ArcBeat,
 } from './query-arc';
+import {
+  BRUTE_ONLY,
+  runDenseScanLeg,
+  type CoverageScanTuning,
+} from './scan-leg';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
+
+/** The query_arc gate stack is ~7 predicates deep (atomic/status/world
+ *  on top of pii/user), so its approximate KNN overfetches twice the
+ *  shared multiplier — the ×8 precedent of the inline entity-resolution
+ *  KNN, chosen for the same KNN-before-a-heavy-WHERE shape. */
+const ARC_GATE_OVERFETCH_FACTOR = 2;
 
 interface FactScanRow {
   id: unknown;
+  predicate: string;
   object: string;
   validFrom: Date | string;
   score?: number;
@@ -43,10 +61,13 @@ export class QueryArcService {
    *  times over). */
   private static readonly SCAN_FETCH_CAP = 200;
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     @Optional() private readonly readPin?: ReadPinService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async arcLines(opts: {
@@ -55,6 +76,8 @@ export class QueryArcService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
+    scan?: CoverageScanTuning;
   }): Promise<string[]> {
     const topic = extractArcTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -88,20 +111,37 @@ export class QueryArcService {
         ...worldParams,
       };
       const topicVector = await this.embedder.embed(topic);
+      // Predicate scope-fence + ABAC row verdict — the same seam every
+      // fact read surface applies (audit 2026-08-13 P0: the SQL gates
+      // cover pii/user, but an operator-set requiresScope on a tenant
+      // predicate only lives in the registry).
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.callerScopes,
+        surface: 'query_arc',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+          opts.companyId,
+        ),
+      });
+      const baseTuning = opts.scan ?? BRUTE_ONLY;
+      const tuning: CoverageScanTuning = {
+        ...baseTuning,
+        overfetch: baseTuning.overfetch * ARC_GATE_OVERFETCH_FACTOR,
+      };
       const pool = await this.surreal.withCompany(
         opts.companyId,
         async (db) => {
-          const [dense] = await db.query<[FactScanRow[]]>(
-            `SELECT id, object, validFrom,
-                    vector::similarity::cosine(embedding, $q) AS score
-               FROM knowledge_fact
-              WHERE embedding != NONE ${atomicGate} ${piiGate} ${userGate} ${worldGate}
-              ORDER BY score DESC
-              LIMIT $k`,
-            { q: topicVector, ...shared },
-          );
+          const dense = await runDenseScanLeg<FactScanRow>({
+            db,
+            table: 'knowledge_fact',
+            projection: 'id, predicate, object, validFrom',
+            gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
+            params: { q: topicVector, ...shared },
+            k,
+            tuning,
+            logger: this.logger,
+          });
           const [bm25] = await db.query<[FactScanRow[]]>(
-            `SELECT id, object, validFrom,
+            `SELECT id, predicate, object, validFrom,
                     math::max([search::score(1), search::score(2)]) AS score
                FROM knowledge_fact
               WHERE (searchHaystack @1@ $topic OR object @2@ $topic)
@@ -110,9 +150,13 @@ export class QueryArcService {
               LIMIT $k`,
             { topic, ...shared },
           );
-          return mergeFactLegs(dense ?? [], bm25 ?? []);
+          return mergeFactLegs(
+            dense.filter((r) => rowPolicy.filter(r)),
+            (bm25 ?? []).filter((r) => rowPolicy.filter(r)),
+          );
         },
       );
+      rowPolicy.finish();
       // The mention-scan relevance floor decides what counts as ON
       // TOPIC; the beat picker cuts to budget and restores chronology.
       const mentioned = new Set(
@@ -138,14 +182,24 @@ function mergeFactLegs(
   bm25: FactScanRow[],
 ): Array<{ scan: ScanRow; beat: ArcBeat }> {
   const byId = new Map<string, { scan: ScanRow; beat: ArcBeat }>();
-  const toEntry = (r: FactScanRow): { scan: ScanRow; beat: ArcBeat } => ({
-    scan: {
-      id: String(r.id),
-      text: r.object,
-      occurredAt: new Date(r.validFrom as string).getTime(),
-    },
-    beat: { object: r.object, validFrom: String(r.validFrom) },
-  });
+  const toEntry = (r: FactScanRow): { scan: ScanRow; beat: ArcBeat } => {
+    // The SDK decodes datetime columns to JS Dates (CBOR); String(Date)
+    // is "Sat Aug 09 2026 …", which breaks both the [YYYY-MM-DD] day
+    // slice and the lexicographic chronology sort in pickArcBeats —
+    // normalize to ISO before the beat ever sees it.
+    const validFromIso =
+      r.validFrom instanceof Date
+        ? r.validFrom.toISOString()
+        : String(r.validFrom);
+    return {
+      scan: {
+        id: String(r.id),
+        text: r.object,
+        occurredAt: new Date(r.validFrom as string).getTime(),
+      },
+      beat: { object: r.object, validFrom: validFromIso },
+    };
+  };
   for (const r of dense) {
     const e = toEntry(r);
     e.scan.sim = typeof r.score === 'number' ? r.score : undefined;
@@ -154,7 +208,8 @@ function mergeFactLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
-    const lex = typeof r.score === 'number' ? r.score : 1;
+    const lex =
+      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
       prev.scan.lex = lex;

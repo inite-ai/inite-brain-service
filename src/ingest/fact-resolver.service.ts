@@ -45,7 +45,8 @@ export function derivedSemanticsFor(
 /**
  * Per-fact write primitive: the single entry point for `fn::resolve_fact`
  * (migration 0039). Both ingest paths — typed ingestFact and mention-extracted
- * facts — route through `resolve()` so the 21-positional-arg invocation lives
+ * facts — route through `resolve()` so the 25-positional-arg invocation
+ * (as of 0084: …, $predicate_alias, $slot_similarity) lives
  * in ONE place: a future signature change can't drift the call sites out of
  * sync (which would silently bind a value to the wrong slot, e.g. entropy into
  * script). Owns the conflict weights/thresholds (read from env), the
@@ -265,7 +266,7 @@ export class FactResolverService {
    * lock: append_only never supersedes and never asserts a unique active row, so
    * batched inserts are all correct.
    *
-   * The 22-arg positional binding lives in the migration, NOT here — the TS side
+   * The 25-arg positional binding (0084) lives in the migration, NOT here — the TS side
    * passes a TYPED object array + one shared config, so a fn::resolve_fact
    * signature change can't silently drift a hand-built parameter string.
    * Optional fields are omitted when undefined so `$f.x` resolves to NONE
@@ -504,7 +505,10 @@ export class FactResolverService {
 
   private cfgNum(key: string, fallback: number): number {
     const v = process.env[key];
-    if (v === undefined) return fallback;
+    // Set-but-blank (a common env-file shape) must fall back, not
+    // collapse through Number('') === 0 — a zero DERIVER_SLOT_SIMILARITY
+    // would open the 0084 competing-pool gate to everything.
+    if (v === undefined || v.trim() === '') return fallback;
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   }

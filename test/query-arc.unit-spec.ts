@@ -14,6 +14,7 @@ import {
 } from '../src/search/retrieval-profile';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
+import type { PredicateRegistryService } from '../src/ai/predicate-registry.service';
 
 /**
  * V10 §4 — query-time arc assembly (insightEvidence='query_arc'). The
@@ -94,6 +95,7 @@ describe('QueryArcService', () => {
     dense: Array<Record<string, unknown>>;
     bm25: Array<Record<string, unknown>>;
     capture?: string[];
+    registry?: PredicateRegistryService;
   }): QueryArcService {
     const surreal = {
       withCompany: async (
@@ -113,7 +115,7 @@ describe('QueryArcService', () => {
     const embedder = {
       embed: async () => [0.1, 0.2],
     } as unknown as EmbedderService;
-    return new QueryArcService(surreal, embedder);
+    return new QueryArcService(surreal, embedder, undefined, rows.registry);
   }
 
   it('emits chronological dated beats from the merged scan', async () => {
@@ -175,6 +177,111 @@ describe('QueryArcService', () => {
     await expect(
       svc.arcLines({ companyId: 'c1', query: 'q', callerScopes: [] }),
     ).resolves.toEqual([]);
+  });
+
+  it('renders ISO days and sorts chronologically when the driver returns Date objects', async () => {
+    // The SDK decodes datetime columns to JS Dates (CBOR). String(Date)
+    // would render '[Sat Aug 09]' and sort alphabetically by weekday —
+    // the regression this case pins.
+    const svc = makeService({
+      dense: [
+        {
+          id: 'knowledge_fact:late',
+          object: 'wrapped up the parser project',
+          validFrom: new Date('2026-02-01T09:00:00Z'),
+          score: 0.8,
+        },
+        {
+          id: 'knowledge_fact:early',
+          object: 'started the parser project',
+          validFrom: new Date('2026-01-05T09:00:00Z'),
+          score: 0.75,
+        },
+      ],
+      bm25: [],
+    });
+    const lines = await svc.arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read'],
+    });
+    expect(lines).toEqual([
+      '- [2026-01-05] started the parser project',
+      '- [2026-02-01] wrapped up the parser project',
+    ]);
+  });
+
+  it('drops beats whose predicate requires a scope the caller lacks', async () => {
+    // Audit 2026-08-13 P0: the SQL gates cover pii/user, but a tenant
+    // predicate with an operator-set requiresScope only lives in the
+    // registry — the lane must run the same row-policy seam search does.
+    const registry = {
+      rowPolicyLookup:
+        async () => (p: string) =>
+          p === 'internal_only'
+            ? { requiresScope: 'sec:internal', piiClass: 'none' }
+            : { piiClass: 'none' },
+    } as unknown as PredicateRegistryService;
+    const rows = {
+      dense: [
+        {
+          id: 'knowledge_fact:open',
+          predicate: 'status_update',
+          object: 'started the parser project',
+          validFrom: '2026-01-05T09:00:00Z',
+          score: 0.9,
+        },
+        {
+          id: 'knowledge_fact:gated',
+          predicate: 'internal_only',
+          object: 'secret parser milestone',
+          validFrom: '2026-01-06T09:00:00Z',
+          score: 0.9,
+        },
+      ],
+      bm25: [],
+      registry,
+    };
+    const without = await makeService(rows).arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read'],
+    });
+    expect(without).toEqual(['- [2026-01-05] started the parser project']);
+    const withScope = await makeService(rows).arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read', 'sec:internal'],
+    });
+    expect(withScope).toEqual([
+      '- [2026-01-05] started the parser project',
+      '- [2026-01-06] secret parser milestone',
+    ]);
+  });
+
+  it('hnsw tuning emits the KNN dense leg with the FULL gate stack intact', async () => {
+    // The recall trap of the KNN rewrite: SurrealDB applies WHERE after
+    // the approximate walk, so every gate must survive into the KNN SQL
+    // and the overfetch must widen the walk (k=200 × 4 × the lane's own
+    // ×2 gate factor = 1600).
+    const capture: string[] = [];
+    const svc = makeService({ dense: [], bm25: [], capture });
+    await svc.arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: [],
+      scan: { mode: 'hnsw', ef: 400, overfetch: 4 },
+    });
+    const knn = capture[0];
+    expect(knn).toContain('embedding <|1600,1600|> $q');
+    expect(knn).toContain("string::starts_with(predicate, 'summary_')");
+    expect(knn).toContain("status = 'active'");
+    expect(knn).toContain('retractedAt IS NONE');
+    expect(knn).toContain('piiClass IS NONE');
+    expect(knn).toContain('userId IS NONE');
+    // Empty KNN pool → the brute fallback ran before the BM25 leg.
+    expect(capture[1]).toContain('embedding != NONE');
+    expect(capture[2]).toContain('searchHaystack @1@ $topic');
   });
 });
 
