@@ -829,6 +829,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Dense-leg execution mode of the two coverage-first scan lanes — mention-scan over episode_segment (timelineEvidence='scan') and query_arc over knowledge_fact (insightEvidence='query_arc'): brute (exact filtered top-k via a full-table cosine ORDER BY — correct at eval scale by design, the default; identical legacy semantics) | hnsw (approximate KNN <|k,ef|> against the per-tenant HNSW indexes — segment_embedding_hnsw / fact_embedding_hnsw, built via POST /v1/admin/maintenance/hnsw — with overfetch compensating SurrealDB's post-KNN WHERE filtering; falls back to the brute scan on error OR an empty post-filter pool, so tenants without the indexes behave identically). The V11 scale gate: promotion of the scan lanes to default-on for large tenants goes through this leg plus the parity check (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) first.",
       },
       {
+        key: 'RETRIEVAL_VERIFIER_MODEL',
+        category: 'pipeline',
+        defaultValue: '',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Model override for the verifier/auditor LLM call only — the generator keeps the synthesis model. Empty (default) = the verifier inherits the synthesis model, byte-identical legacy behavior. The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
+      },
+      {
         key: 'RETRIEVAL_SCAN_HNSW_EF',
         category: 'pipeline',
         defaultValue: '400',

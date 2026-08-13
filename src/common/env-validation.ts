@@ -158,6 +158,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_EF', errors);
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', errors);
 
+  // ── Verifier model override (V11 §2 arm a) ─────────────────────────
+  modelIdFormat(env, 'RETRIEVAL_VERIFIER_MODEL', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -729,6 +732,24 @@ function required({
   }
   if (pattern && !pattern.test(v)) {
     errors.push(`${name} does not match expected pattern ${pattern}`);
+  }
+}
+
+/** Set-but-malformed model ids fail boot loudly; empty/unset = inherit. */
+function modelIdFormat(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  errors: string[],
+): void {
+  const v = env[name];
+  if (
+    v !== undefined &&
+    v.trim() !== '' &&
+    !/^[A-Za-z0-9._:/-]{1,64}$/.test(v.trim())
+  ) {
+    errors.push(
+      `${name} must be a plain model id (letters, digits, . _ : / -, max 64 chars)`,
+    );
   }
 }
 

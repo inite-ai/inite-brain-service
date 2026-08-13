@@ -311,6 +311,14 @@ export interface RetrievalProfile {
    * verifier prompt and schema.
    */
   verifierTopicCoverage: boolean;
+  /**
+   * V11 §2 arm (a): model override for the verifier/auditor call ONLY
+   * (the generator keeps the synthesis model). Empty = inherit the
+   * synthesis model — byte-identical behavior. Targets the
+   * abstentionCalibration='verifier' residual: the SAME audit prompt
+   * on a stronger judge model, priced per tenant.
+   */
+  verifierModel: string;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -339,6 +347,15 @@ function nonNegativeFloatEnv(
   if (raw === undefined || raw.trim() === '') return dflt;
   const v = Number(raw);
   return Number.isFinite(v) && v >= 0 ? v : dflt;
+}
+
+/** Plain model-id shape (provider prefixes and version tags allowed);
+ *  anything else — including an unset env — resolves to '' (inherit). */
+const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,64}$/;
+
+function modelIdEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const v = (env[name] ?? '').trim();
+  return MODEL_ID_RE.test(v) ? v : '';
 }
 
 function enumEnv<T extends string>(
@@ -440,6 +457,7 @@ export function resolveRetrievalProfile(
         'verifier',
       ] as const) ?? 'off',
     verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
+    verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -517,6 +535,14 @@ export function resolveRetrievalProfileFor(
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
       merged[key] = Math.floor(v);
+    }
+  }
+  // Free-string knob: the verifier model id (empty = inherit) — the
+  // only non-enum string field, validated against the model-id shape.
+  {
+    const v = o.verifierModel;
+    if (typeof v === 'string' && (v === '' || MODEL_ID_RE.test(v))) {
+      merged.verifierModel = v;
     }
   }
   // Float knobs (coverage score floor lives in (0,1) — flooring would

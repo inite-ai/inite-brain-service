@@ -42,6 +42,7 @@ export const RetrievalProfileWireSchema = z.object({
   updateStoryRendering: z.boolean(),
   orderingFrame: z.boolean(),
   verifierTopicCoverage: z.boolean(),
+  verifierModel: z.string(),
   abstentionCalibration: z.enum(['off', 'coverage', 'verifier']),
   abstentionMinTopScore: z.number(),
   abstentionMinEvidence: z.number().int(),

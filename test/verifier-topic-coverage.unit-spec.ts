@@ -24,6 +24,8 @@ interface CapturedRequest {
     properties: Record<string, unknown>;
     required: string[];
   };
+  temperature?: number;
+  maxCompletionTokens?: number;
 }
 
 function mockOpenAi(response: Record<string, unknown>, captured: CapturedRequest[]) {
@@ -35,10 +37,14 @@ function mockOpenAi(response: Record<string, unknown>, captured: CapturedRequest
           response_format: {
             json_schema: { schema: CapturedRequest['schema'] };
           };
+          temperature?: number;
+          max_completion_tokens?: number;
         }) => {
           captured.push({
             system: req.messages[0].content,
             schema: req.response_format.json_schema.schema,
+            temperature: req.temperature,
+            maxCompletionTokens: req.max_completion_tokens,
           });
           return {
             choices: [
@@ -91,6 +97,34 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     expect(captured[0].system).toContain('questionAnswered');
     expect(captured[0].schema.properties).toHaveProperty('questionAnswered');
     expect(captured[0].schema.required).toContain('questionAnswered');
+  });
+
+  it('reasoning-model judge: no temperature param, widened completion cap', async () => {
+    // gpt-5*/o* reject temperature≠1 (400) and bill hidden reasoning
+    // against max_completion_tokens — the live V11 §2 failure: 23/40
+    // audits degraded to verifier_error under the 256 cap.
+    const captured: CapturedRequest[] = [];
+    await runVerifier({
+      ...BASE_REQ,
+      model: 'gpt-5-mini',
+      openai: mockOpenAi(
+        { verdict: 'supported', unsupportedClaims: [] },
+        captured,
+      ),
+    });
+    expect(captured[0].temperature).toBeUndefined();
+    expect(captured[0].maxCompletionTokens).toBe(2048);
+    // Non-reasoning models keep the deterministic byte-identical call.
+    const classic: CapturedRequest[] = [];
+    await runVerifier({
+      ...BASE_REQ,
+      openai: mockOpenAi(
+        { verdict: 'supported', unsupportedClaims: [] },
+        classic,
+      ),
+    });
+    expect(classic[0].temperature).toBe(0);
+    expect(classic[0].maxCompletionTokens).toBe(256);
   });
 
   it('on — a response without the judgment is a contract violation', async () => {
@@ -328,5 +362,46 @@ describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {
     expect(
       resolveRetrievalProfileFor('other', env).verifierTopicCoverage,
     ).toBe(false);
+  });
+});
+
+describe('RETRIEVAL_VERIFIER_MODEL profile point (V11 §2 arm a)', () => {
+  it("defaults to '' (inherit the synthesis model)", () => {
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierModel).toBe(
+      '',
+    );
+  });
+
+  it('accepts a plain model id and rejects malformed values', () => {
+    expect(
+      resolveRetrievalProfile({
+        RETRIEVAL_VERIFIER_MODEL: 'gpt-5-mini',
+      } as NodeJS.ProcessEnv).verifierModel,
+    ).toBe('gpt-5-mini');
+    // Not a model id → fall back to inherit, never a broken override.
+    expect(
+      resolveRetrievalProfile({
+        RETRIEVAL_VERIFIER_MODEL: 'gpt 5 mini; DROP',
+      } as NodeJS.ProcessEnv).verifierModel,
+    ).toBe('');
+  });
+
+  it('overlays per tenant, empty string restores inherit', () => {
+    const env = {
+      RETRIEVAL_VERIFIER_MODEL: 'gpt-4o-mini',
+      RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
+        beamco: { verifierModel: 'gpt-5-mini' },
+        plainco: { verifierModel: '' },
+        badco: { verifierModel: 'nope nope' },
+      }),
+    } as NodeJS.ProcessEnv;
+    expect(resolveRetrievalProfileFor('beamco', env).verifierModel).toBe(
+      'gpt-5-mini',
+    );
+    expect(resolveRetrievalProfileFor('plainco', env).verifierModel).toBe('');
+    // Malformed overlay value is ignored — the boot default stands.
+    expect(resolveRetrievalProfileFor('badco', env).verifierModel).toBe(
+      'gpt-4o-mini',
+    );
   });
 });

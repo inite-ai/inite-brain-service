@@ -411,7 +411,9 @@ export class SynthesizeService {
               // V10 §5: topic-coverage audit (relationship-claim
               // strictness + the questionAnswered judgment).
               topicCoverage: profile.verifierTopicCoverage,
-              model,
+              // V11 §2 arm (a): the audit may run on a stronger judge
+              // than the generator; empty override = same model.
+              model: profile.verifierModel || model,
             }),
           ),
         { 'synthesize.facts': factIndex.size },
