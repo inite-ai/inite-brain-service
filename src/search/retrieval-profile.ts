@@ -175,8 +175,18 @@ export type CoverageScanMode = 'brute' | 'hnsw';
  *                 verifier already runs in lenient mode. 'answer' mode
  *                 stays exempt (verifier is skipped there), so
  *                 never-abstain QA traffic is structurally untouched.
+ *  - 'minicheck' — V11 §2 arm (b): the same lenient answer-level gate,
+ *                 but the consistency judgment comes from a LOCAL
+ *                 Bespoke-MiniCheck NLI over Ollama (MINICHECK_URL /
+ *                 MINICHECK_MODEL) instead of the LLM verifier — zero
+ *                 marginal API cost. Strict/answer guardrails keep the
+ *                 LLM verifier path untouched.
  */
-export type AbstentionCalibrationMode = 'off' | 'coverage' | 'verifier';
+export type AbstentionCalibrationMode =
+  | 'off'
+  | 'coverage'
+  | 'verifier'
+  | 'minicheck';
 
 /**
  * How the generator's "today" is anchored:
@@ -455,6 +465,7 @@ export function resolveRetrievalProfile(
         'off',
         'coverage',
         'verifier',
+        'minicheck',
       ] as const) ?? 'off',
     verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
@@ -513,7 +524,7 @@ export function resolveRetrievalProfileFor(
     ['coverageScanMode', ['brute', 'hnsw']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
-    ['abstentionCalibration', ['off', 'coverage', 'verifier']],
+    ['abstentionCalibration', ['off', 'coverage', 'verifier', 'minicheck']],
   ];
   for (const [key, allowed] of enumOverlays) {
     const v = o[key];

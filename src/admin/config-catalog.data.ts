@@ -880,7 +880,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
+          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there) | minicheck (V11 §2 arm b: the same lenient answer-level gate, but the consistency judgment comes from a LOCAL Bespoke-MiniCheck NLI over Ollama — MINICHECK_URL / MINICHECK_MODEL — replacing the LLM verifier call on this path; zero marginal API cost). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
+      },
+      {
+        key: 'MINICHECK_URL',
+        category: 'pipeline',
+        defaultValue: 'http://127.0.0.1:11434',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "Ollama base URL for the local Bespoke-MiniCheck NLI used by RETRIEVAL_ABSTENTION_CALIBRATION=minicheck. Only read on that path — no other mode touches it.",
+      },
+      {
+        key: 'MINICHECK_MODEL',
+        category: 'pipeline',
+        defaultValue: 'bespoke-minicheck',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "Ollama model tag for the minicheck abstention judge (`ollama pull bespoke-minicheck`, ~4.7GB, SOTA on the LLM-AggreFact grounded-factuality leaderboard). Only read under RETRIEVAL_ABSTENTION_CALIBRATION=minicheck.",
       },
       {
         key: 'RETRIEVAL_ABSTENTION_MIN_SCORE',

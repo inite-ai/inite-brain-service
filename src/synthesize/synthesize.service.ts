@@ -44,11 +44,13 @@ import {
   type RetrievalProfile,
 } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
+import type { Citation } from './fact-index';
 import { appendUpdateStories } from './update-story';
 export { buildFactIndex } from './fact-index';
 import { runGenerator } from './generator-client';
 import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
+import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
 import { EvidenceCollectorService } from './evidence-collector.service';
@@ -115,6 +117,8 @@ export class SynthesizeService {
   private readonly defaultGuardrails: SynthesisGuardrails;
   private readonly minCalibratedConfidence: number;
   private readonly minFactTrust: number;
+  private readonly minicheckUrl: string;
+  private readonly minicheckModel: string;
 
   // The typed prompt sections (transcript / insights / instructions)
   // come from ONE collector behind one contract (V9 quality pass — the
@@ -162,6 +166,15 @@ export class SynthesizeService {
     // ever drop facts whose source has genuinely EARNED distrust.
     this.minFactTrust = parseFloat(
       this.configService.get<string>('SYNTHESIZE_MIN_FACT_TRUST', '0'),
+    );
+    // V11 §2 arm (b): local NLI endpoint for abstention='minicheck'.
+    this.minicheckUrl = this.configService.get<string>(
+      'MINICHECK_URL',
+      'http://127.0.0.1:11434',
+    );
+    this.minicheckModel = this.configService.get<string>(
+      'MINICHECK_MODEL',
+      'bespoke-minicheck',
     );
   }
 
@@ -386,6 +399,21 @@ export class SynthesizeService {
     // either way.
     let verdict: VerifierOutput;
     try {
+      // V11 §2 arm (b): lenient 'minicheck' delegates the judgment to
+      // the local NLI (miniCheckFinalize owns the contract); null =
+      // the LLM verifier path below. A throw lands in the same catch.
+      const nli = await this.miniCheckFinalize({
+        guardrails,
+        abstention: profile.abstentionCalibration,
+        answer: generated.answer,
+        factLines: promptFactLines,
+        transcriptLines,
+        insightLines,
+        citations,
+        results,
+        decisionLog,
+      });
+      if (nli) return nli;
       verdict = await withSpan(
         'synthesize.verify',
         () =>
@@ -584,6 +612,58 @@ export class SynthesizeService {
       metrics: this.metrics,
       logger: this.logger,
       ...args,
+    });
+  }
+
+  /**
+   * V11 §2 arm (b): the lenient 'minicheck' abstention gate. Returns
+   * the finalized result when the mode is active, null otherwise (the
+   * LLM verifier path continues). The claim is the whole answer text;
+   * the document is the same evidence bundle the generator saw. A
+   * refinement candidate from the V10 §5 lesson — decompose the answer
+   * and check the connecting claim separately — is deliberately NOT in
+   * v1 (measure the plain form first).
+   */
+  private async miniCheckFinalize(args: {
+    guardrails: SynthesisGuardrails;
+    abstention: RetrievalProfile['abstentionCalibration'];
+    answer: string;
+    factLines: string[];
+    transcriptLines: string[];
+    insightLines: string[];
+    citations: Citation[];
+    results: SynthesizeResult['results'];
+    decisionLog?: Parameters<typeof finalizeVerdict>[1]['decisionLog'];
+  }): Promise<SynthesizeResult | null> {
+    if (args.guardrails !== 'lenient' || args.abstention !== 'minicheck') {
+      return null;
+    }
+    const document = [
+      `Facts:\n${args.factLines.join('\n')}`,
+      ...(args.transcriptLines.length
+        ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
+        : []),
+      ...(args.insightLines.length
+        ? [`Derived insights:\n${args.insightLines.join('\n')}`]
+        : []),
+    ].join('\n\n');
+    const consistent = await withSpan('synthesize.verify', () =>
+      miniCheckConsistent({
+        baseUrl: this.minicheckUrl,
+        model: this.minicheckModel,
+        document,
+        claim: args.answer,
+        signal: getAbortSignal(),
+      }),
+    );
+    return this.finalizeVerdict({
+      verdict: consistent ? 'supported' : 'unsupported',
+      answer: args.answer,
+      citations: args.citations,
+      results: args.results,
+      guardrails: args.guardrails,
+      decisionLog: args.decisionLog,
+      abstention: args.abstention,
     });
   }
 

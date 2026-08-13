@@ -84,8 +84,13 @@ export function finalizeVerdict(
   // V9 §4 'verifier' abstention: the verifier's verdict IS the
   // coverage signal — an unsupported/partial answer means the memory
   // does not support what was asked, so a lenient caller gets the
-  // explicit decline instead of ungrounded text.
-  if (guardrails === 'lenient' && abstention === 'verifier') {
+  // explicit decline instead of ungrounded text. The V11 §2
+  // 'minicheck' arm shares the gate — only the judge differs (local
+  // NLI verdict mapped onto supported/unsupported upstream).
+  if (
+    guardrails === 'lenient' &&
+    (abstention === 'verifier' || abstention === 'minicheck')
+  ) {
     deps.metrics?.countSynthesize('low_coverage');
     return attachDecisionLog(
       {

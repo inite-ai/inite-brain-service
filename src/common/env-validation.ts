@@ -399,7 +399,10 @@ function validateRetrievalProfileEnv(
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed', 'query_arc']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
     ['RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw']],
-    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
+    [
+      'RETRIEVAL_ABSTENTION_CALIBRATION',
+      ['off', 'coverage', 'verifier', 'minicheck'],
+    ],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];
