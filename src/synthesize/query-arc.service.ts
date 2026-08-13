@@ -18,6 +18,8 @@ import {
   runDenseScanLeg,
   type CoverageScanTuning,
 } from './scan-leg';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 
 /** The query_arc gate stack is ~7 predicates deep (atomic/status/world
  *  on top of pii/user), so its approximate KNN overfetches twice the
@@ -27,6 +29,7 @@ const ARC_GATE_OVERFETCH_FACTOR = 2;
 
 interface FactScanRow {
   id: unknown;
+  predicate: string;
   object: string;
   validFrom: Date | string;
   score?: number;
@@ -58,10 +61,13 @@ export class QueryArcService {
    *  times over). */
   private static readonly SCAN_FETCH_CAP = 200;
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     @Optional() private readonly readPin?: ReadPinService,
+    @Optional()
+    private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async arcLines(opts: {
@@ -105,6 +111,17 @@ export class QueryArcService {
         ...worldParams,
       };
       const topicVector = await this.embedder.embed(topic);
+      // Predicate scope-fence + ABAC row verdict — the same seam every
+      // fact read surface applies (audit 2026-08-13 P0: the SQL gates
+      // cover pii/user, but an operator-set requiresScope on a tenant
+      // predicate only lives in the registry).
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.callerScopes,
+        surface: 'query_arc',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+          opts.companyId,
+        ),
+      });
       const baseTuning = opts.scan ?? BRUTE_ONLY;
       const tuning: CoverageScanTuning = {
         ...baseTuning,
@@ -116,7 +133,7 @@ export class QueryArcService {
           const dense = await runDenseScanLeg<FactScanRow>({
             db,
             table: 'knowledge_fact',
-            projection: 'id, object, validFrom',
+            projection: 'id, predicate, object, validFrom',
             gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
             params: { q: topicVector, ...shared },
             k,
@@ -124,7 +141,7 @@ export class QueryArcService {
             logger: this.logger,
           });
           const [bm25] = await db.query<[FactScanRow[]]>(
-            `SELECT id, object, validFrom,
+            `SELECT id, predicate, object, validFrom,
                     math::max([search::score(1), search::score(2)]) AS score
                FROM knowledge_fact
               WHERE (searchHaystack @1@ $topic OR object @2@ $topic)
@@ -133,9 +150,13 @@ export class QueryArcService {
               LIMIT $k`,
             { topic, ...shared },
           );
-          return mergeFactLegs(dense, bm25 ?? []);
+          return mergeFactLegs(
+            dense.filter((r) => rowPolicy.filter(r)),
+            (bm25 ?? []).filter((r) => rowPolicy.filter(r)),
+          );
         },
       );
+      rowPolicy.finish();
       // The mention-scan relevance floor decides what counts as ON
       // TOPIC; the beat picker cuts to budget and restores chronology.
       const mentioned = new Set(

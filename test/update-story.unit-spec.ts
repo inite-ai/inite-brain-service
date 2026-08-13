@@ -5,6 +5,7 @@ import {
 import { UpdateStoryService } from '../src/synthesize/update-story.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import type { SurrealService } from '../src/db/surreal.service';
+import type { PredicateRegistryService } from '../src/ai/predicate-registry.service';
 import {
   resolveRetrievalProfile,
   resolveRetrievalProfileFor,
@@ -80,6 +81,7 @@ describe('UpdateStoryService', () => {
   function makeService(
     byWinner: Record<string, Array<Record<string, unknown>>>,
     capture?: string[],
+    registry?: PredicateRegistryService,
   ): UpdateStoryService {
     const surreal = {
       withCompany: async (
@@ -94,7 +96,7 @@ describe('UpdateStoryService', () => {
           },
         }),
     } as unknown as SurrealService;
-    return new UpdateStoryService(surreal);
+    return new UpdateStoryService(surreal, registry);
   }
 
   it('walks the reverse chain and renders most-recent-first', async () => {
@@ -125,6 +127,55 @@ describe('UpdateStoryService', () => {
       ' [previously: works at Foo — until 2026-03-01; earlier: works at Bar — until 2026-01-15]',
     );
     expect(out.has('knowledge_fact:noHistory')).toBe(false);
+  });
+
+  it('drops history rows whose predicate requires a scope the caller lacks', async () => {
+    // Audit 2026-08-13 P0: a superseded ancestor may carry a different
+    // predicate than the policy-filtered winner (slot arbitration is
+    // cosine-keyed), so the history line runs its own row-policy check.
+    const registry = {
+      rowPolicyLookup:
+        async () => (p: string) =>
+          p === 'internal_only'
+            ? { requiresScope: 'sec:internal', piiClass: 'none' }
+            : { piiClass: 'none' },
+    } as unknown as PredicateRegistryService;
+    const byWinner = {
+      'knowledge_fact:w1': [
+        {
+          id: 'knowledge_fact:l1',
+          predicate: 'status_update',
+          supersededBy: 'knowledge_fact:w1',
+          object: 'works at Foo',
+          validUntil: '2026-03-01T00:00:00Z',
+        },
+        {
+          id: 'knowledge_fact:l2',
+          predicate: 'internal_only',
+          supersededBy: 'knowledge_fact:w1',
+          object: 'secret prior value',
+          validUntil: '2026-02-01T00:00:00Z',
+        },
+      ],
+    };
+    const without = await makeService(byWinner, undefined, registry)
+      .previousStories({
+        companyId: 'c1',
+        factIds: ['knowledge_fact:w1'],
+        callerScopes: [],
+      });
+    expect(without.get('knowledge_fact:w1')).toBe(
+      ' [previously: works at Foo — until 2026-03-01]',
+    );
+    const withScope = await makeService(byWinner, undefined, registry)
+      .previousStories({
+        companyId: 'c1',
+        factIds: ['knowledge_fact:w1'],
+        callerScopes: ['sec:internal'],
+      });
+    expect(withScope.get('knowledge_fact:w1')).toBe(
+      ' [previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01]',
+    );
   });
 
   it('applies the superseded-only filter and the PII/user gates', async () => {

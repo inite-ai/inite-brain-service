@@ -14,6 +14,7 @@ import {
 } from '../src/search/retrieval-profile';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
+import type { PredicateRegistryService } from '../src/ai/predicate-registry.service';
 
 /**
  * V10 §4 — query-time arc assembly (insightEvidence='query_arc'). The
@@ -94,6 +95,7 @@ describe('QueryArcService', () => {
     dense: Array<Record<string, unknown>>;
     bm25: Array<Record<string, unknown>>;
     capture?: string[];
+    registry?: PredicateRegistryService;
   }): QueryArcService {
     const surreal = {
       withCompany: async (
@@ -113,7 +115,7 @@ describe('QueryArcService', () => {
     const embedder = {
       embed: async () => [0.1, 0.2],
     } as unknown as EmbedderService;
-    return new QueryArcService(surreal, embedder);
+    return new QueryArcService(surreal, embedder, undefined, rows.registry);
   }
 
   it('emits chronological dated beats from the merged scan', async () => {
@@ -206,6 +208,54 @@ describe('QueryArcService', () => {
     expect(lines).toEqual([
       '- [2026-01-05] started the parser project',
       '- [2026-02-01] wrapped up the parser project',
+    ]);
+  });
+
+  it('drops beats whose predicate requires a scope the caller lacks', async () => {
+    // Audit 2026-08-13 P0: the SQL gates cover pii/user, but a tenant
+    // predicate with an operator-set requiresScope only lives in the
+    // registry — the lane must run the same row-policy seam search does.
+    const registry = {
+      rowPolicyLookup:
+        async () => (p: string) =>
+          p === 'internal_only'
+            ? { requiresScope: 'sec:internal', piiClass: 'none' }
+            : { piiClass: 'none' },
+    } as unknown as PredicateRegistryService;
+    const rows = {
+      dense: [
+        {
+          id: 'knowledge_fact:open',
+          predicate: 'status_update',
+          object: 'started the parser project',
+          validFrom: '2026-01-05T09:00:00Z',
+          score: 0.9,
+        },
+        {
+          id: 'knowledge_fact:gated',
+          predicate: 'internal_only',
+          object: 'secret parser milestone',
+          validFrom: '2026-01-06T09:00:00Z',
+          score: 0.9,
+        },
+      ],
+      bm25: [],
+      registry,
+    };
+    const without = await makeService(rows).arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read'],
+    });
+    expect(without).toEqual(['- [2026-01-05] started the parser project']);
+    const withScope = await makeService(rows).arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: ['brain:read', 'sec:internal'],
+    });
+    expect(withScope).toEqual([
+      '- [2026-01-05] started the parser project',
+      '- [2026-01-06] secret parser milestone',
     ]);
   });
 

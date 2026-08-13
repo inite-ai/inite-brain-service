@@ -7,6 +7,7 @@ import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
 import { getAbortSignal } from '../common/request-context';
+import { pinUserScope } from '../auth/user-scope';
 import { MetricsService } from '../metrics/metrics.service';
 import {
   SynthesisGuardrails,
@@ -182,7 +183,12 @@ export class SynthesizeService {
         `synthesize: query truncated to ${clamped.value.length} chars (companyId=${companyId})`,
       );
     }
-    dto = { ...dto, query: clamped.value };
+    // One user-scope pin for the WHOLE request (audit 2026-08-13 P1-4).
+    // search() re-pins internally on its own clone, so without this a
+    // user-bound token with an omitted userId read personal facts from
+    // search but tenant-global-only supplemental evidence — the
+    // collector lanes see dto.userId directly.
+    dto = { ...dto, query: clamped.value, userId: pinUserScope(dto.userId) };
     const guardrails: SynthesisGuardrails =
       dto.synthesisGuardrails ?? this.defaultGuardrails;
     const model = dto.synthesisModel ?? this.defaultModel;
