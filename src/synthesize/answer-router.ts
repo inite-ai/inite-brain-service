@@ -131,6 +131,27 @@ export const ENUMERATION_LANE_INSTRUCTION =
   'or total from your enumeration (sum durations/amounts explicitly ' +
   'when asked for totals).\n';
 
+/**
+ * V10 §3 ordering frame. Under the enumeration frame, ordering
+ * questions fail on GRANULARITY, not count (the measured v9scan null:
+ * 40/40 EO predictions changed, score didn't) — golds want a sequence
+ * of short ASPECT labels, while "enumerate every matching item with
+ * its date" makes the generator emit dated fact enumerations; only
+ * 5/38 answers violated the exact-N constraint, so granularity was
+ * the miss. This frame replaces the enumeration frame when the
+ * mention record fired AND the profile opts in (orderingFrame).
+ */
+export const ORDERING_LANE_INSTRUCTION =
+  'This is an order-of-mention question. The MENTION RECORD section is ' +
+  'the authoritative sequence: one dated line per session where the ' +
+  'topic came up, in chronological order. Answer with a sequence of ' +
+  'SHORT item labels — name each aspect or event in a few words, not ' +
+  'the dated excerpt itself. Take the order strictly from the mention ' +
+  'record. If the question asks for a specific number of items (the ' +
+  'first N, N stages), give exactly that many distinct items; collapse ' +
+  'repeated mentions of the same aspect into its first occurrence and ' +
+  'never pad with restatements.\n';
+
 /** T4 answer conditioning (PrefEval "reminder" pattern). */
 const PREFERENCE_LANE_INSTRUCTION =
   'This is a recommendation question. FIRST scan the facts for the ' +
@@ -163,6 +184,39 @@ export const CONTRADICTION_NOTE_INSTRUCTION =
   'with their dates, note that they contradict each other, and ask ' +
   'which one is correct. This overrides the always-commit rule for ' +
   'those facts only.\n';
+
+/**
+ * V10 §2b arbitrating conflict frame (updateStoryRendering), v3. The
+ * v10lifecycle autopsy: the conservative 0084 closure leaves REAL
+ * value updates COMPETING, and the blanket hedge frame turned
+ * knowledge_update answers into "conflicting reports … please
+ * confirm" on questions whose golds want the resolved CURRENT value
+ * (KU 9↓/2↑ vs control; in 3 of 4 audited downs the correct newer
+ * value was IN the answer, hedged away). v2 arbitrated by DATE alone
+ * and measured the split exactly (v10hedged: KU 8↑/0↓ — pure win;
+ * CR 13↓/1↑ — crash): CR pairs are not updates but DENIALS
+ * ("never did X" vs "did X"), genuine contradictions the golds want
+ * flagged with an explicit contradictory-information call-out no
+ * matter the dates. v3 classifies the PAIR: denial conflicts hedge
+ * with the call-out; value pairs with a later date commit to the
+ * newer and note the earlier as previous (update-story semantics at
+ * the conflict render); dateless/same-day value pairs hedge.
+ */
+export const CONTRADICTION_DATE_ARBITRATION_INSTRUCTION =
+  'CONFLICT NOTICE: the facts below include statements the memory ' +
+  'system flagged as COMPETING (mutually contradictory), listed as ' +
+  'conflict pairs above the fact list. If the question touches a ' +
+  'conflict pair, first classify the pair:\n' +
+  '- DENIAL conflict — one side asserts something happened/exists and ' +
+  'the other denies it ("never", "no", "not", "have not"). This is a ' +
+  'genuine contradiction regardless of dates: say explicitly "I ' +
+  'notice you\'ve mentioned contradictory information about this", ' +
+  'state both sides with their dates, and ask which one is correct.\n' +
+  '- VALUE update — both sides assert a value or state and one ' +
+  'carries a later date stamp. Treat the later as current: answer ' +
+  'with it directly and mention the earlier as previous (e.g. "…, ' +
+  'previously <old value> until <date>"). If the dates are equal or ' +
+  'missing, present both versions and ask which one is correct.\n';
 
 /** T7 section header: compliance is part of correctness. */
 export const STANDING_INSTRUCTIONS_INSTRUCTION =

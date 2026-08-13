@@ -22,6 +22,11 @@ import {
  * [0.8, 1.0, 1.1, 1.25]. Both default off; the neutral grade 1 is
  * exactly 1.0 so unstamped rows are byte-identical at any setting.
  */
+// Frozen clock: recordedAt/now drifting between two score() calls put
+// a ~1e-10 wobble into the recency term and flaked the exact-equality
+// assertions at millisecond boundaries.
+const FROZEN_NOW = Date.parse('2026-02-01T00:00:00Z');
+
 function row(source: unknown): FusedRow {
   return {
     id: 'knowledge_fact:x',
@@ -30,7 +35,7 @@ function row(source: unknown): FusedRow {
     object: 'test',
     confidence: 1,
     validFrom: '2026-01-01T00:00:00Z',
-    recordedAt: new Date().toISOString(),
+    recordedAt: '2026-01-15T00:00:00Z',
     status: 'active',
     source,
     fusedScore: 1,
@@ -41,7 +46,7 @@ describe('scoreRows salience fold', () => {
   const score = (source: unknown, enabled: boolean): number =>
     scoreRows({
       rows: [row(source)],
-      now: Date.now(),
+      now: FROZEN_NOW,
       salienceScoring: enabled,
     })[0].score;
 

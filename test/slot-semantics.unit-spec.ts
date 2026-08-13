@@ -203,3 +203,70 @@ describe('DERIVER_SLOT_SEMANTICS flag plumbing', () => {
     ).toBe(true);
   });
 });
+
+describe('migration 0084 (day-granular supersede + slot cosine gate)', () => {
+  const sql = readFileSync(
+    join(
+      __dirname,
+      '../src/db/migrations/0084_slot_supersede_day_granularity.surql',
+    ),
+    'utf-8',
+  );
+
+  it('bitemporal_event supersedes by DAY, not datetime', () => {
+    // V9 diagnosis: occurred_on parses to T00:00 while the sessionDate
+    // fallback carries hh:mm of the SAME day — the raw `>` fabricated
+    // knowledge updates out of same-day paraphrases.
+    expect(sql).toContain(
+      "($semantics = 'bitemporal_event' AND time::floor($valid_from, 1d) > time::floor($best_opp.validFrom, 1d))",
+    );
+    expect(sql).not.toContain(
+      "($semantics = 'bitemporal_event' AND $valid_from > $best_opp.validFrom)",
+    );
+  });
+
+  it('the backdated guard is day-granular for bitemporal_event only', () => {
+    expect(sql).toContain(
+      'WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)',
+    );
+    // single_active keeps the raw comparison.
+    expect(sql).toContain('WHERE validFrom > $valid_from');
+  });
+
+  it('bitemporal_event gates on its own cosine threshold with fallback', () => {
+    expect(sql).toContain('$slot_similarity: option<float>');
+    expect(sql).toContain('($slot_similarity ?? $similarity_threshold)');
+    expect(sql).toContain('>= $eff_similarity');
+    // The shared-threshold literal must be gone from the pool gate.
+    expect(sql).not.toContain('>= $similarity_threshold');
+  });
+
+  it('redefines the batch wrapper in lockstep (25th positional arg)', () => {
+    expect(sql).toContain('DEFINE FUNCTION OVERWRITE fn::resolve_facts');
+    expect(sql).toContain('$f.predicate_alias, $cfg.slot_similarity');
+  });
+
+  it('carries the 0083 fence and event-time recency forward', () => {
+    expect(sql).toContain('IF $new = NONE OR $new.id = NONE');
+    expect(sql).toContain("'create_returned_none'");
+    expect(sql).toContain(
+      "IF $semantics = 'bitemporal_event' THEN validFrom ELSE recordedAt END",
+    );
+  });
+});
+
+describe('DERIVER_SLOT_SIMILARITY plumbing', () => {
+  it('both resolver call sites pass the slot threshold', () => {
+    const src = readFileSync(
+      join(__dirname, '../src/ingest/fact-resolver.service.ts'),
+      'utf-8',
+    );
+    // Batch cfg key (fn::resolve_facts maps it positionally).
+    expect(src).toContain(
+      'slot_similarity: this.conflict.slotSimilarityThreshold',
+    );
+    // Inline 25-arg call.
+    expect(src).toContain('$predicate_alias, $slot_similarity');
+    expect(src).toContain("this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9)");
+  });
+});

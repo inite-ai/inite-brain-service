@@ -36,6 +36,7 @@ export class PredictScoringService {
   ) {
     this.conflict = {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
+      slotSimilarityThreshold: this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9),
       weights: {
         confidence: this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE', 0.3),
         sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.4),

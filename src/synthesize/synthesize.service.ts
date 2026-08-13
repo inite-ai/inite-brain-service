@@ -5,9 +5,7 @@ import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
-import { withGenAiCall } from '../common/gen-ai-observability';
 import { clampLlmInputText } from '../common/input-limits';
-import { traceArtifact } from '../common/debug-trace';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
 import {
@@ -22,10 +20,12 @@ import {
   resolveAnswerLang,
   resolveCitations,
   resolveLaneDateContext,
-  salvageTruncatedAnswer,
   verifierErrorResult,
 } from './synthesize.helpers';
-import { wantsTimelineEvidence } from './evidence-gates';
+import {
+  resolvePromptFrames,
+  wantsTimelineEvidence,
+} from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
 import {
   routeLane,
@@ -39,9 +39,11 @@ import {
   type RetrievalProfile,
 } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
+import { appendUpdateStories } from './update-story';
 export { buildFactIndex } from './fact-index';
 import type { Citation } from './fact-index';
-import { buildGeneratorUserMessage } from './generator-prompt';
+import { runGenerator } from './generator-client';
+import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
@@ -86,30 +88,6 @@ import type {
   SynthesisReason,
   SynthesizeResult,
 } from './synthesize.types';
-
-const GENERATOR_SYSTEM = `You are an answer synthesizer for a knowledge graph.
-
-Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a CONCISE answer that:
-1. Uses ONLY information present in the provided facts. Do NOT speculate, fill in missing details, or use outside knowledge.
-2. After each claim in the answer, inline a citation in square brackets, copying the factId EXACTLY as it appears in the fact list — including its "knowledge_fact:" prefix. Do not abbreviate, renumber, or change the prefix. Example: "Maya complained about a broken washing machine [knowledge_fact:8a3fd2c1b9e4f7a6d5c0]". Mirror every factId you cite inline into the citedFactIds array.
-3. If the facts do not answer the question, output the exact answer string "I don't have grounded evidence for that." with citedFactIds set to [].
-
-Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
-
-/**
- * Best-effort / never-abstain generator (guardrails='answer'). Same grounding
- * discipline, but instead of refusing when the facts are thin it commits to
- * the single most likely SHORT answer the retrieved facts point to. For QA
- * settings where an abstention scores strictly worse than a best guess.
- */
-const GENERATOR_SYSTEM_ANSWER = `You are an answer synthesizer for a knowledge graph.
-
-Given a user query and a set of retrieved facts (each prefixed with its factId in square brackets, e.g. "[knowledge_fact:8a3fd2c1b9e4f7a6d5c0] ..."), generate a SHORT, CONCRETE answer that:
-1. Is grounded in the provided facts — prefer specifics stated in them; do not invent named entities, dates, or numbers that no fact supports.
-2. After each claim, inline a citation copying the factId EXACTLY (including its "knowledge_fact:" prefix), and mirror every cited factId into citedFactIds.
-3. ALWAYS commit to an answer. If the facts do not fully resolve the question, give the single most likely short answer they point to — do NOT refuse, do NOT output "I don't have grounded evidence", do NOT hedge with "the facts don't say". Answer in as few words as the question allows.
-
-Output strictly the JSON shape requested by the schema. Do not include preamble, follow-ups, or chain-of-thought.`;
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -279,25 +257,40 @@ export class SynthesizeService {
     // contract (V9 quality pass; all lanes concurrent inside). Running
     // it AFTER the empty/abstention exits also stops the pre-V9 waste
     // of an abandoned in-flight instruction probe on those paths.
-    const { transcriptLines, insightLines, instructions, timelineEvidence } =
-      this.evidenceCollector
-        ? await this.evidenceCollector.collect({
-            profile,
-            lane,
-            companyId,
-            query: dto.query,
-            callerScopes,
-            // Same fail-closed user scope the fact read path applies (0055).
-            userId: dto.userId,
-            factIds: [...factIndex.keys()],
-            evidence,
-          })
-        : {
-            transcriptLines: [],
-            insightLines: [],
-            instructions: undefined,
-            timelineEvidence: wantsTimelineEvidence(profile, dto.query),
-          };
+    const {
+      transcriptLines,
+      insightLines,
+      instructions,
+      timelineEvidence,
+      updateStories,
+    } = this.evidenceCollector
+      ? await this.evidenceCollector.collect({
+          profile,
+          lane,
+          companyId,
+          query: dto.query,
+          callerScopes,
+          // Same fail-closed user scope the fact read path applies (0055).
+          userId: dto.userId,
+          factIds: [...factIndex.keys()],
+          evidence,
+        })
+      : {
+          transcriptLines: [],
+          insightLines: [],
+          instructions: undefined,
+          timelineEvidence: wantsTimelineEvidence(profile, dto.query),
+          updateStories: undefined,
+        };
+
+    // V10 §2: update-story augmentation — evidence facts that
+    // superseded an older value carry their history on the SAME lines
+    // the generator and the verifier read (prompt-side only; citations
+    // and ranking untouched).
+    const promptFactLines =
+      updateStories && updateStories.size > 0
+        ? appendUpdateStories(factLines, updateStories)
+        : factLines;
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -316,10 +309,13 @@ export class SynthesizeService {
           this.limiter.run(() =>
             this.callGenerator({
               query: dto.query,
-              factLines,
+              factLines: promptFactLines,
               transcriptLines,
               insightLines,
               timelineEvidence,
+              // V10 frame switches — resolved once by the kernel
+              // (evidence-gates.resolvePromptFrames), not inline.
+              ...resolvePromptFrames(profile, timelineEvidence),
               model,
               answerLang,
               neverAbstain: guardrails === 'answer',
@@ -389,7 +385,7 @@ export class SynthesizeService {
             this.callVerifier({
               query: dto.query,
               answer: generated.answer,
-              factLines,
+              factLines: promptFactLines,
               // Audit W5 #22: the verifier used to see ONLY factLines,
               // so an answer correctly built from transcript quotes or
               // the computed interval table had claims present in no
@@ -404,6 +400,9 @@ export class SynthesizeService {
               // framing the generator saw — the collector computed it
               // exactly once for both.
               timelineEvidence,
+              // V10 §5: topic-coverage audit (relationship-claim
+              // strictness + the questionAnswered judgment).
+              topicCoverage: profile.verifierTopicCoverage,
               model,
             }),
           ),
@@ -423,6 +422,7 @@ export class SynthesizeService {
 
     return this.finalizeVerdict({
       verdict: verdict.verdict,
+      questionAnswered: verdict.questionAnswered,
       answer: generated.answer,
       citations,
       results,
@@ -443,6 +443,7 @@ export class SynthesizeService {
    */
   private finalizeVerdict({
     verdict,
+    questionAnswered,
     answer,
     citations,
     results,
@@ -451,6 +452,7 @@ export class SynthesizeService {
     abstention,
   }: {
     verdict: VerifierOutput['verdict'];
+    questionAnswered?: boolean;
     answer: string;
     citations: Citation[];
     results: SynthesizeResult['results'];
@@ -459,6 +461,28 @@ export class SynthesizeService {
     abstention?: RetrievalProfile['abstentionCalibration'];
   }): SynthesizeResult {
     if (verdict === 'supported') {
+      // V10 §5: supported-but-not-answering — the V9 abstention
+      // residual (fabrications assembled from real facts pass the
+      // grounding audit). Only the topic-coverage audit produces the
+      // judgment (undefined otherwise), and only the lenient
+      // 'verifier' abstention mode consumes it; strict/answer
+      // guardrails keep pre-V10 supported semantics.
+      if (
+        guardrails === 'lenient' &&
+        abstention === 'verifier' &&
+        questionAnswered === false
+      ) {
+        this.metrics?.countSynthesize('low_coverage');
+        return attachDecisionLog(
+          {
+            answer: NOT_IN_MEMORY_ANSWER,
+            reason: 'low_coverage',
+            citations: [],
+            results,
+          },
+          decisionLog,
+        );
+      }
       this.metrics?.countSynthesize('ok');
       return attachDecisionLog(
         { answer, citations, results },
@@ -699,137 +723,20 @@ export class SynthesizeService {
     return { results, factIndex, factLines };
   }
 
-  private async callGenerator({
-    query,
-    factLines,
-    transcriptLines,
-    insightLines,
-    timelineEvidence,
-    model,
-    answerLang,
-    neverAbstain = false,
-    dateContext,
-    lane,
-    instructions,
-    conflicts,
-  }: {
-    query: string;
-    factLines: string[];
-    /** Episodic-lane quotes (P2) — rendered as a separate typed section. */
-    transcriptLines?: string[];
-    /** V8 §1: derived insights — their own section, own budget slot. */
-    insightLines?: string[];
-    /** V8 §2: transcript excerpts are the mention record (ordering ask). */
-    timelineEvidence?: boolean;
-    model: string;
-    answerLang: string | null;
-    neverAbstain?: boolean;
-    /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
-    dateContext?: string;
-    /** T1 typed dispatch lane, when the router matched. */
-    lane?: LaneId | null;
-    /** T7: standing user instructions for their own section. */
-    instructions?: string[];
-    /** T3: COMPETING conflict pairs detected in the evidence. */
-    conflicts?: Array<{ factIds: string[]; label: string }>;
-  }): Promise<GeneratorOutput> {
-    const systemPrompt = neverAbstain
-      ? GENERATOR_SYSTEM_ANSWER
-      : GENERATOR_SYSTEM;
-    const user = buildGeneratorUserMessage({
-      query,
-      factLines,
-      transcriptLines,
-      insightLines,
-      timelineEvidence,
-      answerLang,
-      dateContext,
-      lane,
-      instructions,
-      conflicts,
+  /**
+   * Thin adapter over the generator client (V10 architecture pass) —
+   * same seam as callVerifier/runVerifier: the orchestrator supplies
+   * its client/metrics/logger, the module owns the call.
+   */
+  private async callGenerator(
+    args: Omit<GenerateRequest, 'openai' | 'metrics' | 'logger'>,
+  ): Promise<GeneratorOutput> {
+    return runGenerator({
+      openai: this.openai,
+      metrics: this.metrics,
+      logger: this.logger,
+      ...args,
     });
-    traceArtifact('synthesize.generator_prompt', {
-      system: systemPrompt,
-      user,
-      model,
-      answerLang,
-    });
-    const res = await withGenAiCall(
-      {
-        kind: 'chat',
-        spanName: 'gen_ai.chat.synthesize_generator',
-        system: 'openai',
-        model,
-        attrs: { 'brain.synthesize.answer_lang': answerLang ?? 'auto' },
-      },
-      this.metrics,
-      () => this.openai.chat.completions.create(
-      {
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: user },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'synthesized_answer',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              answer: { type: 'string' },
-              citedFactIds: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['answer', 'citedFactIds'],
-          },
-        },
-      },
-      max_completion_tokens: 512,
-      temperature: 0,
-    }, { signal: getAbortSignal() }),
-    );
-    const content = res.choices[0]?.message?.content;
-    if (!content) throw new Error('empty generator response');
-    // Audit W5 #24: the exhaustive-list lanes ("a partial list is a wrong
-    // answer") run against a 512-token cap. A truncated strict-JSON body
-    // used to throw here and degrade to `generator_error` — i.e. the
-    // lanes that must enumerate silently ABSTAINED instead of returning
-    // what they had. Say so explicitly in the trace, and salvage the
-    // answer text when the JSON envelope is the only casualty.
-    const finishReason = res.choices[0]?.finish_reason;
-    let parsed: GeneratorOutput;
-    try {
-      parsed = JSON.parse(content) as GeneratorOutput;
-    } catch (err) {
-      if (finishReason !== 'length') throw err;
-      const salvaged = salvageTruncatedAnswer(content);
-      if (!salvaged) throw err;
-      this.logger.warn(
-        'generator output hit the token cap; salvaged the partial answer',
-      );
-      this.metrics?.countSynthesize('generator_truncated');
-      traceArtifact('synthesize.generator_truncated', {
-        finishReason,
-        salvagedChars: salvaged.answer.length,
-      });
-      parsed = salvaged;
-    }
-    if (typeof parsed.answer !== 'string') {
-      throw new Error('generator returned non-string answer');
-    }
-    if (!Array.isArray(parsed.citedFactIds)) {
-      parsed.citedFactIds = [];
-    }
-    if (res.usage) {
-      parsed.usage = {
-        promptTokens: res.usage.prompt_tokens ?? 0,
-        completionTokens: res.usage.completion_tokens ?? 0,
-      };
-    }
-    traceArtifact('synthesize.generator_output', parsed);
-    return parsed;
   }
 
   private async callVerifier(args: {
@@ -839,6 +746,7 @@ export class SynthesizeService {
     transcriptLines?: string[];
     insightLines?: string[];
     timelineEvidence?: boolean;
+    topicCoverage?: boolean;
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

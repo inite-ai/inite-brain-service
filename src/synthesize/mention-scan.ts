@@ -36,6 +36,13 @@ const TOPIC_STRIP_RES: RegExp[] = [
   /\b(?:can|could|would|will) you\b/gi,
   /\bplease\b/gi,
   /\bwalk me through\b/gi,
+  // V10 §3 (R1): the exact-N answer constraint is question SCAFFOLD,
+  // not topic — "Mention ONLY and ONLY three items in your answer"
+  // leaked mention/only/items into the topic terms and polluted both
+  // scan legs (measured on the v10ordering EO failures).
+  /\bmention only and only\b/gi,
+  /\b(?:exactly |just )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) items?\b/gi,
+  /\bin your answer\b/gi,
   /\b(?:list|name|tell me|describe) (?:the )?order(?: in which| of)?\b/gi,
   /\bin (?:what|which) order\b/gi,
   /\bwhat (?:is|was) the order of\b/gi,
@@ -90,6 +97,14 @@ const TERM_STOP = new Set([
   'you',
   'your',
   'our',
+  // V10 §3 (R1): ask-scaffold words that survive the strip in odd
+  // phrasings must never count as topic terms.
+  'mention',
+  'only',
+  'item',
+  'items',
+  'order',
+  'answer',
 ]);
 
 export function topicTerms(topic: string): string[] {
@@ -155,6 +170,47 @@ export function bestMentionPerSession(
     lastAt = r.occurredAt;
   }
   if (best) out.push(best);
+  return out;
+}
+
+/**
+ * V10 §3 aspect dedup. Two sessions repeating the same aspect both
+ * emit a mention line (the per-session collapse can't see across
+ * sessions, and the exact-string dedup downstream can't either — the
+ * date prefix and wording differ). Repeats inflate the record and
+ * fight the ordering golds' exact-N constraint, so near-duplicate
+ * lines collapse into the EARLIEST one — the first mention is the
+ * ordering-relevant beat. Containment test on informative tokens:
+ * the smaller line must share ≥70% of its tokens with a kept line
+ * and carry at least 3 of them (thinner lines are too weak to judge).
+ */
+const DEDUP_MIN_TOKENS = 3;
+const DEDUP_CONTAINMENT = 0.7;
+
+function mentionTokens(line: string): Set<string> {
+  const text = line
+    .replace(/^\[[^\]]*\]\s*/, '') // date prefix
+    .replace(/^[^:]{0,40}:\s*/, ''); // speaker label
+  return new Set(topicTerms(text));
+}
+
+export function dedupeMentionLines(lines: string[]): string[] {
+  const kept: Array<Set<string>> = [];
+  const out: string[] = [];
+  for (const line of lines) {
+    const tokens = mentionTokens(line);
+    const dup = kept.some((k) => {
+      const [small, big] = tokens.size <= k.size ? [tokens, k] : [k, tokens];
+      if (small.size < DEDUP_MIN_TOKENS) return false;
+      let shared = 0;
+      for (const t of small) if (big.has(t)) shared += 1;
+      return shared / small.size >= DEDUP_CONTAINMENT;
+    });
+    if (!dup) {
+      kept.push(tokens);
+      out.push(line);
+    }
+  }
   return out;
 }
 

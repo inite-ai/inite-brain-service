@@ -36,19 +36,20 @@ export function wantsVerbatimEvidence(
 }
 
 /**
- * Insight-lane activation (V8 §1): only under insightEvidence='routed'
- * and only for the question classes where derived insights measured as
- * paying — summarization / progressive-narrative (the summary lane)
- * and enumeration. Pointwise asks (no lane, or any other lane) skip
- * the slot: the V6 lesson generalized — every evidence class pays on
- * its own question class and drowns others; dispatch is the
- * mechanism, not always-on.
+ * Insight-lane activation (V8 §1): only when the profile carries an
+ * insight mode — 'routed' (stored insight rows, V8) or 'query_arc'
+ * (read-time topic assembly, V10 §4) — and only for the question
+ * classes where derived insights measured as paying — summarization /
+ * progressive-narrative (the summary lane) and enumeration. Pointwise
+ * asks (no lane, or any other lane) skip the slot: the V6 lesson
+ * generalized — every evidence class pays on its own question class
+ * and drowns others; dispatch is the mechanism, not always-on.
  */
 export function wantsInsightEvidence(
   profile: RetrievalProfile,
   lane: LaneId | null,
 ): boolean {
-  if (profile.insightEvidence !== 'routed') return false;
+  if (profile.insightEvidence === 'off') return false;
   return lane === 'summary' || lane === 'enumeration';
 }
 
@@ -75,4 +76,31 @@ export function wantsTimelineEvidence(
   }
   if (!detectOrderingShape(query)) return false;
   return resolveVerbatimMode(profile.verbatimEvidence, query) !== 'fused';
+}
+
+/**
+ * V10 architecture pass: the generator-prompt FRAME switches, resolved
+ * in one place. Each V10 point added a boolean the orchestrator
+ * computed inline at the call site and drilled through two layers;
+ * this kernel is the single flag→frame mapping (and its unit-test
+ * surface).
+ */
+export interface PromptFrames {
+  /** §3: order-of-mention frame — only when the mention record fired. */
+  orderingFrame: boolean;
+  /** §2b: date-arbitrated conflict frame (rides updateStoryRendering). */
+  dateArbitratedConflicts: boolean;
+  /** §4: the insight slot carries a query-time topic record. */
+  arcInsights: boolean;
+}
+
+export function resolvePromptFrames(
+  profile: RetrievalProfile,
+  timelineEvidence: boolean,
+): PromptFrames {
+  return {
+    orderingFrame: profile.orderingFrame && timelineEvidence,
+    dateArbitratedConflicts: profile.updateStoryRendering,
+    arcInsights: profile.insightEvidence === 'query_arc',
+  };
 }

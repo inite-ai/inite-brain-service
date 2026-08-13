@@ -1,6 +1,8 @@
 import {
   TEMPORAL_LANE_INSTRUCTION,
   CONTRADICTION_NOTE_INSTRUCTION,
+  CONTRADICTION_DATE_ARBITRATION_INSTRUCTION,
+  ORDERING_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
   laneInstructionFor,
   type LaneId,
@@ -20,6 +22,9 @@ export function buildGeneratorUserMessage({
   transcriptLines,
   insightLines,
   timelineEvidence,
+  orderingFrame,
+  dateArbitratedConflicts,
+  arcInsights,
   answerLang,
   dateContext,
   lane,
@@ -43,6 +48,27 @@ export function buildGeneratorUserMessage({
    * collapses a session's mentions onto one date).
    */
   timelineEvidence?: boolean;
+  /**
+   * V10 §3: the ordering frame replaces the (enumeration) lane frame —
+   * short aspect labels in the mention record's order, honor the
+   * requested N. Set only when the mention record fired AND the
+   * profile opted in (orderingFrame && timelineEvidence).
+   */
+  orderingFrame?: boolean;
+  /**
+   * V10 §2b: date-arbitrating conflict frame — different-day conflict
+   * pairs commit to the latest value and note the earlier as
+   * previous; same-day pairs keep the hedge. Set from
+   * profile.updateStoryRendering; off = the blanket hedge frame,
+   * byte-identical.
+   */
+  dateArbitratedConflicts?: boolean;
+  /**
+   * V10 §4: the insight lines are a query-time TOPIC RECORD (dated
+   * atomic beats assembled for the asked topic) rather than stored
+   * summaries — the header must say what the section is.
+   */
+  arcInsights?: boolean;
   answerLang: string | null;
   dateContext?: string;
   /** T1 typed dispatch: lane-specific answer instruction. */
@@ -61,19 +87,27 @@ export function buildGeneratorUserMessage({
     : '';
   // Lane frame from the registry — the temporal frame renders inside
   // the date block above instead (it needs the anchored "Today").
-  const laneInstruction =
-    lane && lane !== 'temporal' ? (laneInstructionFor(lane) ?? '') : '';
+  // V10 §3: the ordering frame takes the slot over the lane frame
+  // when the mention record fired for this query.
+  const laneInstruction = orderingFrame
+    ? ORDERING_LANE_INSTRUCTION
+    : lane && lane !== 'temporal'
+      ? (laneInstructionFor(lane) ?? '')
+      : '';
   const instructionSection =
     instructions && instructions.length > 0
       ? `${STANDING_INSTRUCTIONS_INSTRUCTION}Standing instructions:\n${instructions
           .map((i) => `- ${i}`)
           .join('\n')}\n`
       : '';
+  const conflictNote = dateArbitratedConflicts
+    ? CONTRADICTION_DATE_ARBITRATION_INSTRUCTION
+    : CONTRADICTION_NOTE_INSTRUCTION;
   const conflictSection =
     conflicts && conflicts.length > 0
       ? `Conflict pairs (write-side COMPETING):\n${conflicts
           .map((c) => `- ${c.label}: ${c.factIds.join(' vs ')}`)
-          .join('\n')}\n${CONTRADICTION_NOTE_INSTRUCTION}`
+          .join('\n')}\n${conflictNote}`
       : '';
   const transcriptHeader = timelineEvidence
     ? 'Transcript excerpts (verbatim, chronological — this is the MENTION RECORD: derive the order in which topics were raised from the sequence of excerpts and their dates, preferring it over fact date stamps; cite factIds only):'
@@ -82,9 +116,12 @@ export function buildGeneratorUserMessage({
     transcriptLines && transcriptLines.length > 0
       ? `\n\n${transcriptHeader}\n${transcriptLines.join('\n')}`
       : '';
+  const insightHeader = arcInsights
+    ? 'Topic record (dated beats retrieved for the asked topic, chronological — use them to structure the narrative/overview, prefer the atomic facts for specifics, cite factIds only):'
+    : 'Derived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):';
   const insightSection =
     insightLines && insightLines.length > 0
-      ? `\n\nDerived insights (summaries composed from the facts — use them for overview/enumeration structure, prefer the atomic facts for specifics, cite factIds only):\n${insightLines.join('\n')}`
+      ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
   return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${langInstruction}`;
 }

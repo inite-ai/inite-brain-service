@@ -389,7 +389,7 @@ function validateRetrievalProfileEnv(
       'RETRIEVAL_VERBATIM_EVIDENCE',
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
-    ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed']],
+    ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed', 'query_arc']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
     ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],

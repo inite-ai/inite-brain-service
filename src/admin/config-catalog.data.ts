@@ -799,7 +799,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "How derived insight rows — aspect aggregates (source.recorder='aggregate-composer-v1') and promotion/compaction summaries (predicate summary_*) — reach answers: off (they ride the fact legs as ordinary rows — pre-V8 behavior; the naive always-on composition measured MS tie / BEAM −2.0pp with summarization down, because aggregates displace atomic facts inside the fact budget) | routed (fact legs exclude insight rows; summarization/progressive-narrative/enumeration questions retrieve them as their own dense+BM25 convex-fused pool under a separate prompt slot — INSIGHT_TOP_K, not factBudget; pointwise asks skip the slot).",
+          "How derived insight rows — aspect aggregates (source.recorder='aggregate-composer-v1') and promotion/compaction summaries (predicate summary_*) — reach answers: off (they ride the fact legs as ordinary rows — pre-V8 behavior; the naive always-on composition measured MS tie / BEAM −2.0pp with summarization down, because aggregates displace atomic facts inside the fact budget) | routed (fact legs exclude insight rows; summarization/progressive-narrative/enumeration questions retrieve them as their own dense+BM25 convex-fused pool under a separate prompt slot — INSIGHT_TOP_K, not factBudget; pointwise asks skip the slot) | query_arc (V10 §4: same dispatch and slot, but the section is ASSEMBLED at read time — the topic phrase extracted from the question scans the atomic fact record dense+BM25 coverage-first, the most topical beats emit as one chronological dated record; write-time arcs measured null-to-negative in v9arcs because stored topics are decided blind to the questions and only fact-dense entities clear the composer floor. Fact legs exclude stored insight rows exactly as under routed).",
       },
       {
         key: 'RETRIEVAL_SALIENCE_SCORING',
@@ -818,6 +818,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           "Timeline evidence for mention-order questions: off (pre-V8 — the appendix segment lane runs only under verbatimEvidence='always') | routed (ordering/sequence-shaped questions — the order-lexicon — also get the chronological segment appendix: the mention record in occurredAt order. Event-time extraction collapses a session's mentions onto one validFrom date, so mention order is unrecoverable from facts alone — the measured BEAM event_ordering failure. Skipped when the query's resolved verbatim mode is fused, to avoid duplicating segments already arriving as hits) | scan (V9 §2: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, segment record scanned per session with BM25+embedding against the TOPIC, one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K — the V8 diagnosis was coverage, not order).",
+      },
+      {
+        key: 'RETRIEVAL_UPDATE_STORY',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §2 update-story rendering (profile field updateStoryRendering): evidence facts that superseded an older value get a compact history suffix on their prompt line — '[previously: <value> — until <date>]' — built from the reverse supersededBy links (indexed since 0059; ≤3 chain generations, ≤3 entries per line). Restores the update STORY that knowledge_update golds ask for WITHOUT re-including superseded rows in retrieval — the v9lifecycle diagnosis: the bitemporal closure hid the old value at asOf and made the row worse. Prompt-side only: retrieval, ranking and citations untouched; the generator and the verifier read the same augmented lines. Off = byte-identical prompt.",
+      },
+      {
+        key: 'RETRIEVAL_ORDERING_FRAME',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §3 ordering frame (profile field orderingFrame): when the mention record fired for an ordering-shaped question (timelineEvidence resolved active), the generator gets a dedicated order-of-mention frame — short aspect labels in the record's order, honor the requested N, collapse repeated aspects — INSTEAD of the enumeration frame, whose 'enumerate every matching item with its date' fights both the exact-N constraint and aspect granularity (the measured v9scan null: 40/40 EO predictions changed, score didn't). Also collapses near-duplicate aspect mentions inside the mention record itself (containment ≥0.7 on informative tokens, earliest line kept). Off = byte-identical prompt and record.",
       },
       {
         key: 'RETRIEVAL_ABSTENTION_CALIBRATION',
@@ -845,6 +863,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Coverage floor for RETRIEVAL_ABSTENTION_CALIBRATION=coverage: minimum fact count across the retrieved evidence. 1 effectively disables the count floor (empty evidence already returns no_results).',
+      },
+      {
+        key: 'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V10 §5 verifier topic-coverage (profile field verifierTopicCoverage): the corrective-RAG auditor additionally (a) treats asserted CONNECTIONS between facts — causal/motivational/attributive links — as claims needing their own evidence, and (b) outputs a questionAnswered judgment: does the evidence actually answer the query, or merely share its topic. In lenient guardrails under abstentionCalibration='verifier', supported-but-not-answering declines like unsupported (the V9 residual: 13/40 abstention misses were fabrications assembled from real facts, each claim individually grounded, the causal link invented). Strict/answer guardrails keep pre-V10 semantics. Off = byte-identical verifier prompt and schema.",
       },
       {
         key: 'RETRIEVAL_PROFILE_OVERRIDES',
@@ -1097,6 +1124,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
+      },
+      {
+        key: 'DERIVER_SLOT_SIMILARITY',
+        category: 'extractor',
+        defaultValue: '0.9',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "V10 §1: the bitemporal_event competing pool's own cosine gate (0084) — derive-time slot resolution only; live-ingest 'bitemporal' keeps CONFLICT_SIMILARITY_THRESHOLD. The shared 0.85 measured clustering whole TOPICS on dev-chat derive (v9lifecycle superseded-pair audit: a more specific loser replaced by a less specific same-aspect winner), so the slot gate defaults tighter (0.9). Set 0.85 to reproduce the V9 behavior exactly. Requires re-derive to take effect.",
       },
       {
         key: 'DERIVER_SLOT_SEMANTICS',

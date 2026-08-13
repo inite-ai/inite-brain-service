@@ -3,6 +3,7 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import {
   bestMentionPerSession,
+  dedupeMentionLines,
   extractOrderingTopic,
   filterMentions,
   MAX_MENTION_LINES,
@@ -54,6 +55,8 @@ export class MentionScanService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /** V10 §3: collapse near-duplicate aspect mentions (orderingFrame). */
+    dedupeAspects?: boolean;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -90,18 +93,29 @@ export class MentionScanService {
           return mergeLegs(dense ?? [], bm25 ?? []);
         },
       );
-      const mentions = bestMentionPerSession(filterMentions(pool));
+      // V10 §3 (R1): the ordering golds sequence aspects at SUB-session
+      // granularity (one long session can raise several distinct
+      // aspects), so under the ordering frame the per-session collapse
+      // is replaced by segment-level mentions in occurredAt order —
+      // within-session sequence preserved — with the aspect dedup
+      // doing the collapsing. The V9 one-line-per-session record stays
+      // the default (dedupeAspects off).
+      const kept = filterMentions(pool);
+      const mentions = opts.dedupeAspects
+        ? [...kept].sort((a, b) => a.occurredAt - b.occurredAt)
+        : bestMentionPerSession(kept);
       if (mentions.length > MAX_MENTION_LINES) {
         this.logger.warn(
-          `mention scan capped: ${mentions.length} session-mentions → ` +
+          `mention scan capped: ${mentions.length} mentions → ` +
             `${MAX_MENTION_LINES} (topic="${topic.slice(0, 60)}")`,
         );
       }
       const terms = topicTerms(topic);
-      return mentions
+      const lines = mentions
         .slice(0, MAX_MENTION_LINES)
         .map((m) => pickMentionLine(m.text, terms))
         .filter((l) => l.length > 0);
+      return opts.dedupeAspects ? dedupeMentionLines(lines) : lines;
     } catch (e) {
       this.logger.warn(
         `mention scan failed (companyId=${opts.companyId}): ${(e as Error).message}`,

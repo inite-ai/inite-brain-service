@@ -20,6 +20,12 @@ import type { MetricsService } from '../metrics/metrics.service';
 export interface VerifierOutput {
   verdict: 'supported' | 'partial' | 'unsupported';
   unsupportedClaims?: string[];
+  /**
+   * V10 §5 (topic-coverage audits only): whether the evidence contains
+   * an actual answer to the query — not merely facts on its topic.
+   * Undefined when the audit ran without topic coverage.
+   */
+  questionAnswered?: boolean;
 }
 
 const VERIFIER_SYSTEM = `You are a fact-grounding auditor for a knowledge-graph answer system.
@@ -34,6 +40,21 @@ Definitions:
 Be strict on "supported" — a paraphrase that adds detail beyond the evidence is "partial" at best. Cite each unsupported / partially-supported claim by quoting the offending span verbatim.
 
 Output strictly the JSON shape requested by the schema.`;
+
+/**
+ * V10 §5 topic-coverage addendum. The V9 residual on the abstention
+ * row: 13/40 misses were fabrications ASSEMBLED from real facts —
+ * every atomic claim individually grounded, the connecting link
+ * invented — and the base audit passes them as "supported". Two
+ * tightenings: relationship claims need their own evidence, and the
+ * auditor separately judges whether the evidence answers the query
+ * at all.
+ */
+const TOPIC_COVERAGE_ADDENDUM = `
+
+Two additional rules for this audit:
+- Relationship claims: any asserted CONNECTION between facts — causal ("because", "led to", "which made"), motivational, attributive, or part-whole — is itself a claim. It counts as supported only when some piece of evidence states that connection directly. An answer whose individual facts are each supported but whose connecting link appears nowhere in the evidence is "partial" at best.
+- Additionally output "questionAnswered": true only when the evidence contains an actual answer to the query — a statement (or directly-linked statements) that resolves what the query asks. Evidence that is merely on the same topic, or answers a neighboring question, does not count. Judge the EVIDENCE against the query, independently of how confident the answer sounds.`;
 
 export interface VerifyRequest {
   openai: OpenAI;
@@ -52,6 +73,12 @@ export interface VerifyRequest {
    * generator was explicitly told to prefer it over fact date stamps).
    */
   timelineEvidence?: boolean;
+  /**
+   * V10 §5: enable the topic-coverage audit — relationship-claim
+   * strictness plus the `questionAnswered` judgment. Off =
+   * byte-identical prompt and schema.
+   */
+  topicCoverage?: boolean;
   model: string;
 }
 
@@ -87,10 +114,13 @@ function buildVerifierUserMessage({
 }
 
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
-  const { openai, metrics, model } = req;
+  const { openai, metrics, model, topicCoverage } = req;
+  const system = topicCoverage
+    ? VERIFIER_SYSTEM + TOPIC_COVERAGE_ADDENDUM
+    : VERIFIER_SYSTEM;
   const user = buildVerifierUserMessage(req);
   traceArtifact('synthesize.verifier_prompt', {
-    system: VERIFIER_SYSTEM,
+    system,
     user,
     model,
   });
@@ -107,7 +137,7 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
         {
           model,
           messages: [
-            { role: 'system', content: VERIFIER_SYSTEM },
+            { role: 'system', content: system },
             { role: 'user', content: user },
           ],
           response_format: {
@@ -127,8 +157,15 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
                     type: 'array',
                     items: { type: 'string' },
                   },
+                  ...(topicCoverage
+                    ? { questionAnswered: { type: 'boolean' } }
+                    : {}),
                 },
-                required: ['verdict', 'unsupportedClaims'],
+                required: [
+                  'verdict',
+                  'unsupportedClaims',
+                  ...(topicCoverage ? ['questionAnswered'] : []),
+                ],
               },
             },
           },
@@ -147,6 +184,9 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
     parsed.verdict !== 'unsupported'
   ) {
     throw new Error('verifier returned invalid verdict');
+  }
+  if (topicCoverage && typeof parsed.questionAnswered !== 'boolean') {
+    throw new Error('verifier returned no questionAnswered judgment');
   }
   traceArtifact('synthesize.verifier_output', parsed);
   return parsed;

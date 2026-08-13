@@ -69,6 +69,7 @@ export class FactResolverService {
   ) {
     this.conflict = {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
+      slotSimilarityThreshold: this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9),
       weights: {
         confidence:  this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE',  0.30),
         sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.40),
@@ -302,6 +303,7 @@ export class FactResolverService {
     });
     const cfg = {
       similarity_threshold: this.conflict.similarityThreshold,
+      slot_similarity: this.conflict.slotSimilarityThreshold,
       w_confidence: this.conflict.weights.confidence,
       w_source_trust: this.conflict.weights.sourceTrust,
       w_recency: this.conflict.weights.recency,
@@ -465,7 +467,7 @@ export class FactResolverService {
             $w_confidence, $w_source_trust, $w_recency, $w_authority,
             $reject_threshold, $margin_for_supersede,
             $lang, $script, $entropy, $user_id, $derived_version,
-            $predicate_alias
+            $predicate_alias, $slot_similarity
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -481,6 +483,7 @@ export class FactResolverService {
             source_trust: p.sourceTrust,
             semantics: p.semantics,
             similarity_threshold: this.conflict.similarityThreshold,
+            slot_similarity: this.conflict.slotSimilarityThreshold,
             w_confidence: this.conflict.weights.confidence,
             w_source_trust: this.conflict.weights.sourceTrust,
             w_recency: this.conflict.weights.recency,

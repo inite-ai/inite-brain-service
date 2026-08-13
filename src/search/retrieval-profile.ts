@@ -87,8 +87,22 @@ export type VerbatimEvidenceMode =
  *               budget slot (INSIGHT_TOP_K, not factBudget), so
  *               insights never displace atomic facts. Pointwise asks
  *               skip the slot entirely.
+ *  - 'query_arc' — V10 §4: same dispatch and slot as 'routed', but the
+ *               section is ASSEMBLED at read time instead of retrieved
+ *               from stored insight rows: the topic phrase extracted
+ *               from the question scans the atomic fact record
+ *               (dense+BM25 against the TOPIC, coverage-first — the
+ *               mention-scan doctrine over knowledge_fact) and the most
+ *               topical beats are emitted as one chronological dated
+ *               record. Write-time arcs measured null-to-negative
+ *               (v9arcs): coverage thin by construction (only
+ *               fact-dense entities clear the composer floor) and
+ *               stored topics are decided blind to the questions.
+ *               Fact legs exclude stored insight rows exactly as under
+ *               'routed', so worlds permanently carrying
+ *               aggregates/arcs read clean.
  */
-export type InsightEvidenceMode = 'off' | 'routed';
+export type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
 
 /**
  * Timeline evidence for mention-order questions (V8 §2):
@@ -228,8 +242,45 @@ export interface RetrievalProfile {
    * byte-identical ranking.
    */
   salienceScoring: boolean;
+  /**
+   * V10 §2 update-story rendering: evidence facts that superseded an
+   * older value get a compact history suffix on their prompt line —
+   * "previously: <value> — until <date>" — built from the reverse
+   * supersededBy links. Restores the update STORY the KU golds ask
+   * for WITHOUT re-including superseded rows in retrieval (the
+   * v9lifecycle diagnosis: the bitemporal closure hid the old value
+   * and made the row worse). Prompt-side only; retrieval, ranking and
+   * citations untouched; generator and verifier see the same lines.
+   */
+  updateStoryRendering: boolean;
+  /**
+   * V10 §3 ordering frame: when the mention record fired
+   * (timelineEvidence resolved active for an ordering-shaped
+   * question), the generator gets a dedicated order-of-mention frame
+   * — short aspect labels in the record's order, honor the requested
+   * N — INSTEAD of the enumeration frame, whose "enumerate every
+   * matching item with its date" fights both exact-N and aspect
+   * granularity (the measured v9scan null). Also collapses
+   * near-duplicate aspect mentions inside the record itself. Off =
+   * byte-identical prompt.
+   */
+  orderingFrame: boolean;
   /** V9 §4 memory-coverage abstention; off = byte-identical. */
   abstentionCalibration: AbstentionCalibrationMode;
+  /**
+   * V10 §5 verifier topic-coverage: the auditor additionally judges
+   * (a) relationship claims — an asserted causal/attributive link
+   * between individually-supported facts is itself a claim needing
+   * direct evidence — and (b) whether the evidence actually ANSWERS
+   * the query (`questionAnswered`), not merely shares its topic. In
+   * lenient guardrails under abstentionCalibration='verifier', a
+   * supported-but-not-answering verdict declines like unsupported
+   * (the V9 residual: 13/40 abstention misses were fabrications
+   * assembled from real facts, each claim individually grounded).
+   * Strict/answer guardrails are untouched. Off = byte-identical
+   * verifier prompt and schema.
+   */
+  verifierTopicCoverage: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -310,8 +361,11 @@ export function resolveRetrievalProfile(
         'routed',
       ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
     insightEvidence:
-      enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed'] as const) ??
-      'off',
+      enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', [
+        'off',
+        'routed',
+        'query_arc',
+      ] as const) ?? 'off',
     timelineEvidence:
       enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', [
         'off',
@@ -340,12 +394,15 @@ export function resolveRetrievalProfile(
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
     entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
     salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
+    updateStoryRendering: envFlagEnabled(env.RETRIEVAL_UPDATE_STORY),
+    orderingFrame: envFlagEnabled(env.RETRIEVAL_ORDERING_FRAME),
     abstentionCalibration:
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
         'off',
         'coverage',
         'verifier',
       ] as const) ?? 'off',
+    verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -396,7 +453,7 @@ export function resolveRetrievalProfileFor(
       'verbatimEvidence',
       ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
     ],
-    ['insightEvidence', ['off', 'routed']],
+    ['insightEvidence', ['off', 'routed', 'query_arc']],
     ['timelineEvidence', ['off', 'routed', 'scan']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
@@ -436,6 +493,9 @@ export function resolveRetrievalProfileFor(
     'wideProbe',
     'entityExpansion',
     'salienceScoring',
+    'updateStoryRendering',
+    'orderingFrame',
+    'verifierTopicCoverage',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

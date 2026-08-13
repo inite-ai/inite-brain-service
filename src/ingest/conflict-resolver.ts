@@ -149,6 +149,14 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> =
 // Mirror of conflict_resolution.scoring in the spec. Tunable via env.
 export interface ConflictConfig {
   similarityThreshold: number;
+  /**
+   * V10 §1: the bitemporal_event competing pool's own cosine gate
+   * (DERIVER_SLOT_SIMILARITY). The shared threshold is tuned for live
+   * ingest and measured clustering whole topics on dev-chat derive
+   * (v9lifecycle); the slot gate tightens derive-only without touching
+   * 'bitemporal' behavior.
+   */
+  slotSimilarityThreshold: number;
   weights: {
     confidence: number;
     sourceTrust: number;

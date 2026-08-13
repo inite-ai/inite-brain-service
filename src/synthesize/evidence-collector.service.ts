@@ -17,6 +17,8 @@ import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
+import { QueryArcService } from './query-arc.service';
+import { UpdateStoryService } from './update-story.service';
 
 /**
  * EvidenceCollectorService — the one owner of every typed prompt
@@ -50,6 +52,13 @@ export interface CollectedEvidence {
    * framings can never disagree.
    */
   timelineEvidence: boolean;
+  /**
+   * V10 §2: factId → rendered history suffix ("previously: … — until
+   * …") for evidence facts that superseded an older value; undefined
+   * when the profile has the lane off or nothing has history. Applied
+   * by the caller to the SAME fact lines both prompts read.
+   */
+  updateStories?: Map<string, string>;
 }
 
 @Injectable()
@@ -66,6 +75,8 @@ export class EvidenceCollectorService {
     @Optional() private readonly segmentLane?: SegmentLaneService,
     @Optional() private readonly insightLane?: InsightLaneService,
     @Optional() private readonly mentionScan?: MentionScanService,
+    @Optional() private readonly queryArc?: QueryArcService,
+    @Optional() private readonly updateStory?: UpdateStoryService,
   ) {}
 
   /**
@@ -85,12 +96,48 @@ export class EvidenceCollectorService {
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
-    const [instructions, transcriptLines, insightLines] = await Promise.all([
-      this.collectStandingInstructions(opts),
-      this.collectTranscriptLines(opts, timelineEvidence),
-      this.collectInsightLines(opts),
-    ]);
-    return { transcriptLines, insightLines, instructions, timelineEvidence };
+    const [instructions, transcriptLines, insightLines, updateStories] =
+      await Promise.all([
+        this.collectStandingInstructions(opts),
+        this.collectTranscriptLines(opts, timelineEvidence),
+        this.collectInsightLines(opts),
+        this.collectUpdateStories(opts),
+      ]);
+    return {
+      transcriptLines,
+      insightLines,
+      instructions,
+      timelineEvidence,
+      updateStories,
+    };
+  }
+
+  /**
+   * V10 §2: the history suffixes for evidence facts that superseded an
+   * older value. Gated on the profile; degrades to undefined.
+   */
+  private async collectUpdateStories({
+    profile,
+    companyId,
+    callerScopes,
+    factIds,
+    userId,
+  }: {
+    profile: RetrievalProfile;
+    companyId: string;
+    callerScopes: string[];
+    factIds: string[];
+    userId?: string;
+  }): Promise<Map<string, string> | undefined> {
+    if (!profile.updateStoryRendering || !this.updateStory) return undefined;
+    if (factIds.length === 0) return undefined;
+    if (getAbortSignal()?.aborted) return undefined;
+    return this.updateStory.previousStories({
+      companyId,
+      factIds,
+      callerScopes,
+      userId,
+    });
   }
 
   /**
@@ -174,7 +221,15 @@ export class EvidenceCollectorService {
           : [],
         scanActive
           ? this.mentionScan
-              ?.mentionLines({ companyId, query, callerScopes, userId })
+              ?.mentionLines({
+                companyId,
+                query,
+                callerScopes,
+                userId,
+                // V10 §3: the ordering frame asks for distinct aspect
+                // items, so repeats collapse at the record level too.
+                dedupeAspects: profile.orderingFrame,
+              })
               .then((v) => v ?? [])
           : [],
       ]).then((lanes) => lanes.map((l) => l ?? []));
@@ -201,8 +256,18 @@ export class EvidenceCollectorService {
     userId?: string;
   }): Promise<string[]> {
     const { profile, lane, companyId, query, callerScopes, userId } = opts;
-    if (!wantsInsightEvidence(profile, lane) || !this.insightLane) return [];
+    if (!wantsInsightEvidence(profile, lane)) return [];
     if (getAbortSignal()?.aborted) return [];
+    // V10 §4: under 'query_arc' the slot is assembled at read time
+    // from the atomic fact record instead of retrieved from stored
+    // insight rows.
+    if (profile.insightEvidence === 'query_arc') {
+      if (!this.queryArc) return [];
+      return this.queryArc
+        .arcLines({ companyId, query, callerScopes, userId })
+        .then((v) => v ?? []);
+    }
+    if (!this.insightLane) return [];
     return this.insightLane
       .insightLines({ companyId, query, callerScopes, userId })
       .then((v) => v ?? []);
