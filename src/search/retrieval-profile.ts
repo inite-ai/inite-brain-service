@@ -329,6 +329,14 @@ export interface RetrievalProfile {
    * on a stronger judge model, priced per tenant.
    */
   verifierModel: string;
+  /**
+   * V12 §2 read side: surface the rolling conversation digests
+   * (conversation_digest, written under DERIVER_DIGEST) into the
+   * insight slot — merged AHEAD of retrieved insight lines, same
+   * budget. Off = byte-identical; pointless (empty) against worlds
+   * derived without the digest flag.
+   */
+  digestEvidence: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -469,6 +477,7 @@ export function resolveRetrievalProfile(
       ] as const) ?? 'off',
     verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
+    digestEvidence: envFlagEnabled(env.RETRIEVAL_DIGEST_EVIDENCE),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -573,6 +582,7 @@ export function resolveRetrievalProfileFor(
     'updateStoryRendering',
     'orderingFrame',
     'verifierTopicCoverage',
+    'digestEvidence',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

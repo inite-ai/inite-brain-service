@@ -883,6 +883,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there) | minicheck (V11 §2 arm b: the same lenient answer-level gate, but the consistency judgment comes from a LOCAL Bespoke-MiniCheck NLI over Ollama — MINICHECK_URL / MINICHECK_MODEL — replacing the LLM verifier call on this path; zero marginal API cost). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
       },
       {
+        key: 'RETRIEVAL_DIGEST_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
+      },
+      {
         key: 'MINICHECK_URL',
         category: 'pipeline',
         defaultValue: 'http://127.0.0.1:11434',

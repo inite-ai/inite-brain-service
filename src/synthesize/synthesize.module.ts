@@ -9,6 +9,7 @@ import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
+import { DigestLaneService } from './digest-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 
 @Module({
@@ -23,6 +24,7 @@ import { EvidenceCollectorService } from './evidence-collector.service';
     MentionScanService,
     QueryArcService,
     UpdateStoryService,
+    DigestLaneService,
   ],
   exports: [SynthesizeService],
 })
