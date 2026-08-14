@@ -367,6 +367,7 @@ Rules:
 - Durable facts only. When newer content contradicts an earlier beat, keep both with their dates ("switched from X to Y").
 - If the session adds no durable content, return the existing digest unchanged.
 - No meta-language: never "mentioned", "discussed", "stated", "asked about" — write the facts and events themselves.
+- PLAIN PROSE ONLY. Never reproduce code, templates, markup, tables, config or command output from the session — describe what it does in one clause ("built the transactions page template with per-row categories") instead. A digest containing a code block is ALWAYS wrong.
 - Preserve names, dates, counts, versions and temporal qualifiers exactly.
 - Keep the whole digest under 250 words; compress the least-informative old beats first, never the dated skeleton.`;
 
@@ -397,6 +398,16 @@ export async function foldDigest(
   // A degrade must never ERASE the digest — an empty/failed fold keeps
   // the previous state (same contract as the salience grading turn).
   if (!text) return args.existing;
+  // Prompt-escape belt (measured live on the first wd-v12 tenants: a
+  // mini model echoed a Jinja template from a code-heavy session as
+  // the whole "digest"). Markup/code output is ALWAYS wrong here —
+  // keep the previous state instead of poisoning every later fold.
+  if (/```|\{%|<\/?[a-z][a-z0-9]*[\s>]/i.test(text)) {
+    deps.logger.warn(
+      'digest fold returned code/markup — keeping the previous state',
+    );
+    return args.existing;
+  }
   return text.length > DIGEST_CHAR_CAP
     ? `${text.slice(0, DIGEST_CHAR_CAP - 1)}…`
     : text;
