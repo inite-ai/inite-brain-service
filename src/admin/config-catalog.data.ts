@@ -1180,6 +1180,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
       },
       {
+        key: 'DERIVER_DIGEST',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V12 §2 rolling conversation digest (the graphiti saga port; LIGHT ablation: the scratchpad is the load-bearing component at 100K, +160% on summarization): the deriver folds each session chronologically into one bounded narrative digest per conversation (conversation_digest, migration 0086) — the dated story of how topics evolved, which summarization golds ask for and fact extraction keeps thinnest. Merge contract: durable facts only, contradictions keep both beats with dates, unchanged when nothing new, no meta-language, ≤250 words (2400-char hard cap). Two watermarks: lastIngestAt (monotonic fold time) + lastEventAt (max folded occurredAt, advance-only). One extra deriver-model call per session; replace-per-namespace on re-derive. Read-side use is separately gated (RETRIEVAL_DIGEST_EVIDENCE, ships with the V12 leg). Default off — byte-identical derive. Requires re-derive.",
+      },
+      {
         key: 'DERIVER_MENTION_STAMP',
         category: 'extractor',
         defaultValue: '0',

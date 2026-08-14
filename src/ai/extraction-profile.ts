@@ -67,6 +67,18 @@ export interface ExtractionPipelineProfile {
    */
   deriveMentionStamp: boolean;
   /**
+   * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
+   * the scratchpad is the load-bearing 100K component, +160% on
+   * summarization): the deriver ALSO folds each session
+   * chronologically into one bounded rolling digest per conversation
+   * (conversation_digest, 0086) — the narrative arc with day stamps
+   * that summarization golds ask for and fact extraction keeps
+   * thinnest. One extra LLM call per session. Read-side use is
+   * separately gated (RETRIEVAL_DIGEST_EVIDENCE, ships with the V12
+   * leg); off → no calls, no writes, byte-identical derive.
+   */
+  deriveDigest: boolean;
+  /**
    * DERIVER_SLOT_SEMANTICS (V9 §1, derived-world lifecycle): value-
    * bearing aspects (VALUE_BEARING_ASPECTS in fact-resolver) resolve
    * as 'bitemporal_event' — similarity+interval-gated competing pool,
@@ -98,6 +110,7 @@ export function resolveExtractionProfile(
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
+    deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };
 }

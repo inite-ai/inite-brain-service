@@ -230,6 +230,46 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     }
   });
 
+  it('DERIVER_DIGEST folds sessions and persists the digest with both watermarks', async () => {
+    // V12 §2 (graphiti saga port): off → no digest SQL at all; on →
+    // one replace-per-namespace write with lastEventAt = the last
+    // folded turn's occurredAt (event time, not wall clock).
+    const props = {
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'pets',
+          proposition: "Caroline's cats are named Luna and Oliver.",
+          occurred_on: null,
+          turns: [1],
+        },
+      ],
+    };
+    delete process.env.DERIVER_DIGEST;
+    const off = makeSvc(props);
+    await off.svc.run('co_x');
+    expect(
+      off.queries.some((q) => q.sql.includes('conversation_digest')),
+    ).toBe(false);
+
+    process.env.DERIVER_DIGEST = '1';
+    try {
+      const on = makeSvc(props);
+      await on.svc.run('co_x');
+      const write = on.queries.find((q) =>
+        q.sql.includes('CREATE conversation_digest'),
+      );
+      expect(write).toBeDefined();
+      expect(write?.sql).toContain('DELETE conversation_digest');
+      expect(write?.params?.version).toBe(WINDOW_DERIVER_VERSION);
+      expect(write?.params?.conv).toBe('conv-1');
+      expect(String(write?.params?.summary).length).toBeGreaterThan(0);
+      expect(write?.params?.eventAt).toBe('2023-05-01T10:01:00.000Z');
+    } finally {
+      delete process.env.DERIVER_DIGEST;
+    }
+  });
+
   it('uses occurred_on as validFrom when parseable', async () => {
     const { svc, derived } = makeSvc({
       propositions: [

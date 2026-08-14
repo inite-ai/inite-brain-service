@@ -497,6 +497,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V12 §1: per-fact mention anchor (source.mentionedAt/turnIndex from
   // the first grounding turn's occurredAt). Default off.
   'DERIVER_MENTION_STAMP',
+  // V12 §2: rolling per-conversation digest fold (conversation_digest,
+  // 0086). Default off.
+  'DERIVER_DIGEST',
   // RetrievalProfile boolean points (V8-V10). Parsed with
   // envFlagEnabled inside resolveRetrievalProfile — same fail-open
   // typo trap as every other flag here ('yes' silently reads OFF).

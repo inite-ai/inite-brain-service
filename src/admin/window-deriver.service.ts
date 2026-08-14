@@ -45,7 +45,11 @@ export {
   buildDeriverSystem,
   propositionKey,
 } from './deriver-client';
-import { callDeriver, type DerivedProposition } from './deriver-client';
+import {
+  callDeriver,
+  foldDigest,
+  type DerivedProposition,
+} from './deriver-client';
 
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
@@ -417,11 +421,23 @@ export class WindowDeriverService {
       { version, conv: conversationId },
     );
 
+    // V12 §2 rolling digest: fold sessions chronologically into one
+    // bounded narrative (the graphiti saga port). '' accumulates only
+    // under the flag; null = off, zero extra calls.
+    let digest = resolveExtractionProfile().deriveDigest ? '' : null;
+    let digestEventAt: Date | null = null;
     for (const session of segmentSessions(episodes)) {
       const sessionDate = new Date(session[0].occurredAt as string);
       const transcript = session.map(
         (e, i) => `[${i}] ${e.speaker ?? 'unknown'}: ${e.text}`,
       );
+      if (digest !== null) {
+        digest = await this.foldDigest(digest, sessionDate, transcript);
+        const last = new Date(
+          session[session.length - 1].occurredAt as string,
+        );
+        if (!digestEventAt || last > digestEventAt) digestEventAt = last;
+      }
       const props = await this.callDeriver(
         sessionDate,
         speakers,
@@ -552,6 +568,26 @@ export class WindowDeriverService {
       ).length;
       result.propositions += rows.length - unlandedRows;
     }
+    // Persist the digest AFTER the fold loop: replace-per-namespace
+    // (derived state, rebuilt with the conversation on re-derive).
+    // lastIngestAt = fold wall-clock (monotonic filter watermark for a
+    // future incremental path); lastEventAt = max folded occurredAt.
+    if (digest !== null && digest.trim() && digestEventAt) {
+      await db.query(
+        `DELETE conversation_digest
+          WHERE conversationId = $conv AND derivedVersion = $version;
+         CREATE conversation_digest SET
+           conversationId = $conv, derivedVersion = $version,
+           summary = $summary, lastIngestAt = time::now(),
+           lastEventAt = <datetime>$eventAt`,
+        {
+          conv: conversationId,
+          version,
+          summary: digest,
+          eventAt: digestEventAt.toISOString(),
+        },
+      );
+    }
   }
 
   // Thin adapter over the deriver client (V10.5 audit pass) — the
@@ -565,6 +601,17 @@ export class WindowDeriverService {
     return callDeriver(
       { openai: this.openai, model: this.model, logger: this.logger },
       { sessionDate, participants, transcript },
+    );
+  }
+
+  private async foldDigest(
+    existing: string,
+    sessionDate: Date,
+    transcript: string[],
+  ): Promise<string> {
+    return foldDigest(
+      { openai: this.openai, model: this.model, logger: this.logger },
+      { existing, sessionDate, transcript },
     );
   }
 }
