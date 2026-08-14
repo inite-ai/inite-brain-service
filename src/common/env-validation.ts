@@ -494,6 +494,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V9 §1: value-bearing aspects take the bitemporal_event lifecycle
   // (supersede + competing) in derived worlds. Default off.
   'DERIVER_SLOT_SEMANTICS',
+  // V12 §1: per-fact mention anchor (source.mentionedAt/turnIndex from
+  // the first grounding turn's occurredAt). Default off.
+  'DERIVER_MENTION_STAMP',
   // RetrievalProfile boolean points (V8-V10). Parsed with
   // envFlagEnabled inside resolveRetrievalProfile — same fail-open
   // typo trap as every other flag here ('yes' silently reads OFF).

@@ -496,6 +496,22 @@ export class WindowDeriverService {
           (p.salience as number) <= 3
             ? { salience: p.salience }
             : {};
+        // V12 §1 (graphiti reference_time port): anchor the fact to
+        // the event time of its FIRST grounding turn, with the
+        // within-session ordinal for tie-breaks — mention order
+        // becomes recoverable from facts. Same FLEXIBLE-source ride
+        // as salience: no migration, no resolver-arity change.
+        const firstTurn = p.turns.find((t) => t >= 0 && t < session.length);
+        const mention =
+          resolveExtractionProfile().deriveMentionStamp &&
+          firstTurn !== undefined
+            ? {
+                mentionedAt: new Date(
+                  session[firstTurn].occurredAt as string,
+                ).toISOString(),
+                turnIndex: firstTurn,
+              }
+            : {};
         const source = {
           vertical: 'derived',
           recorder: version,
@@ -504,6 +520,7 @@ export class WindowDeriverService {
             .filter((t) => t >= 0 && t < session.length)
             .map((t) => String(session[t].id)),
           ...salience,
+          ...mention,
         };
         return {
           entityId: subjectEntity,

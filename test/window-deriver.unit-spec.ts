@@ -196,6 +196,40 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     expect(rows[0].sourceTrust as number).toBeGreaterThan(0);
   });
 
+  it('DERIVER_MENTION_STAMP anchors source.mentionedAt to the first grounding turn', async () => {
+    // V12 §1 (graphiti reference_time port): the stamp is the TURN's
+    // occurredAt, not the session date — mention order becomes
+    // recoverable from facts. Off → source byte-identical (no keys).
+    const props = {
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'pets',
+          proposition: "Caroline's cats are named Luna and Oliver.",
+          occurred_on: null,
+          turns: [1],
+        },
+      ],
+    };
+    delete process.env.DERIVER_MENTION_STAMP;
+    const off = makeSvc(props);
+    await off.svc.run('co_x');
+    const offSource = off.derived[0].source as Record<string, unknown>;
+    expect(offSource.mentionedAt).toBeUndefined();
+    expect(offSource.turnIndex).toBeUndefined();
+
+    process.env.DERIVER_MENTION_STAMP = '1';
+    try {
+      const on = makeSvc(props);
+      await on.svc.run('co_x');
+      const src = on.derived[0].source as Record<string, unknown>;
+      expect(src.mentionedAt).toBe('2023-05-01T10:01:00.000Z');
+      expect(src.turnIndex).toBe(1);
+    } finally {
+      delete process.env.DERIVER_MENTION_STAMP;
+    }
+  });
+
   it('uses occurred_on as validFrom when parseable', async () => {
     const { svc, derived } = makeSvc({
       propositions: [

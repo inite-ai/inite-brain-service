@@ -1180,6 +1180,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
       },
       {
+        key: 'DERIVER_MENTION_STAMP',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V12 §1 mention anchoring (the graphiti reference_time port): each derived fact is stamped with the event time of its FIRST grounding turn — source.mentionedAt (that turn's occurredAt, not the session date) and source.turnIndex (within-session ordinal). Pure metadata on the FLEXIBLE source object: no prompt change, no migration, no resolver-arity change, byte-identical off. This is what makes mention ORDER recoverable from facts — extraction otherwise collapses a session's mentions onto one validFrom (the measured event_ordering failure, 5% strict). Read-side consumers ship with the V12 ordering leg; unstamped rows read as before. Requires re-derive on a FRESH derivedVersion.",
+      },
+      {
         key: 'DERIVER_SLOT_SIMILARITY',
         category: 'extractor',
         defaultValue: '0.9',
