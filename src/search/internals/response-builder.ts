@@ -76,6 +76,14 @@ export function assembleHits({
         status: row.status,
         sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
         ...(row.highlight ? { highlight: row.highlight } : {}),
+        // Mention anchor rides in FLEXIBLE `source` (V12 §1) — surface
+        // it only when it's the string the deriver stamped.
+        ...(typeof (row.source as { mentionedAt?: unknown } | null)
+          ?.mentionedAt === 'string'
+          ? {
+              mentionedAt: (row.source as { mentionedAt: string }).mentionedAt,
+            }
+          : {}),
         score,
         breakdown,
       }));

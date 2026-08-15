@@ -283,6 +283,22 @@ export interface RetrievalProfile {
   segmentTopK: number;
   /** Listwise rerank over the fused segment pool before the top-k cut. */
   segmentRerank: boolean;
+  /**
+   * Cross-encoder rescoring of the fused FACT pool before the
+   * fact-centric budget cut (July A3): the top
+   * SEARCH_FACT_RERANK_WINDOW facts by fused score are reordered by
+   * the joint encoder, so the budget window fills by relevance rather
+   * than lexical luck. Off by default until measured per genre.
+   */
+  factRerank: boolean;
+  /**
+   * V12 read side of DERIVER_MENTION_STAMP: fact lines carry a
+   * "(mentioned YYYY-MM-DD)" suffix when the stamped mention date
+   * disagrees with validFrom by calendar day — the generator sees the
+   * session-anchored date next to the (possibly collapsed) validity
+   * date. Unstamped rows render as before.
+   */
+  mentionDates: boolean;
   /** Extra pre-retrieved facts folded into evidence (union cap). */
   extraEvidenceCap: number;
   /** PRF second retrieval for summary/enumeration-routed questions. */
@@ -487,6 +503,8 @@ export function resolveRetrievalProfile(
     sourceExcerptsCap: positiveIntEnv(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', 16),
     segmentTopK: positiveIntEnv(env, 'SEARCH_SEGMENT_LANE_TOPK', 5),
     segmentRerank: envFlagEnabled(env.SEARCH_SEGMENT_LANE_RERANK),
+    factRerank: envFlagEnabled(env.SEARCH_FACT_RERANK),
+    mentionDates: envFlagEnabled(env.RETRIEVAL_MENTION_DATES),
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
@@ -603,6 +621,8 @@ export function resolveRetrievalProfileFor(
   }
   for (const key of [
     'segmentRerank',
+    'factRerank',
+    'mentionDates',
     'wideProbe',
     'entityExpansion',
     'salienceScoring',
@@ -659,6 +679,8 @@ export interface SearchTuning {
   /** Cross-encoder windows + margin-skip. */
   crossEncoderLocalWindow: number;
   crossEncoderWindow: number;
+  /** Fact-pool slice the fact-level rerank pass rescoring can afford. */
+  factRerankWindow: number;
   rerankSkipMargin: number;
   stageBudgets: StageBudgets;
   /** Token-count worker offload (response shaping). */
@@ -717,6 +739,7 @@ export function resolveSearchTuning(
       20,
     ),
     crossEncoderWindow: tuningInt(env, 'SEARCH_CROSS_ENCODER_WINDOW', 50),
+    factRerankWindow: tuningInt(env, 'SEARCH_FACT_RERANK_WINDOW', 64),
     rerankSkipMargin: nonNegativeFloat(env, 'SEARCH_RERANK_SKIP_MARGIN'),
     stageBudgets: resolveStageBudgets(env),
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),

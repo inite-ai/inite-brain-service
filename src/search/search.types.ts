@@ -28,6 +28,10 @@ export interface SearchHit {
      *  caller chase a citation back to WHO claimed it. Absent on
      *  pre-0044 facts. */
     sourceKey?: string;
+    /** DERIVER_MENTION_STAMP anchor (V12 §1): event time of the fact's
+     *  first grounding turn, from source.mentionedAt. Absent on
+     *  unstamped rows. */
+    mentionedAt?: string;
     /** BM25 match snippet with <em>…</em> around the matched terms, from
      *  search::highlight (SEARCH_HIGHLIGHT_ENABLED). Present only for
      *  lexically-matched facts when the flag is on. */

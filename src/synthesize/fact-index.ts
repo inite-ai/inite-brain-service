@@ -51,6 +51,15 @@ export function buildFactIndex(
      * STALE values; the marker makes recency selection a read-off.
      */
     markRecency?: boolean;
+    /**
+     * V12 mention anchoring (profile.mentionDates): append
+     * "(mentioned YYYY-MM-DD)" when the DERIVER_MENTION_STAMP anchor
+     * disagrees with validFrom by calendar day — the generator sees
+     * WHEN a fact was said next to when it claims to hold, instead of
+     * only the (possibly collapsed) validity date. Unstamped facts and
+     * same-day anchors render nothing.
+     */
+    mentionDates?: boolean;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -69,10 +78,13 @@ export function buildFactIndex(
       const elapsed = opts?.elapsedAsOf
         ? formatElapsed(f.validFrom, opts.elapsedAsOf)
         : '';
+      const mention = opts?.mentionDates
+        ? formatMentionDate(f.mentionedAt, f.validFrom)
+        : '';
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
-        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${elapsed}`,
+        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${mention}${elapsed}`,
         t: validT,
         slot: `${r.entityId}::${f.predicate}`,
         obj: f.object,
@@ -116,6 +128,20 @@ function formatFactValidity(validFrom?: string, validUntil?: string): string {
   if (from && until) return ` (valid ${from} → ${until})`;
   if (from) return ` (as of ${from})`;
   return ` (until ${until})`;
+}
+
+/**
+ * "(mentioned YYYY-MM-DD)" suffix for stamped facts whose mention
+ * anchor and validFrom fall on different calendar days — same-day
+ * anchors add nothing the validity suffix doesn't already say, so they
+ * render empty. Shares toValidityDate's parsing (epoch sentinel and
+ * unparseable values render nothing).
+ */
+function formatMentionDate(mentionedAt?: string, validFrom?: string): string {
+  const mention = toValidityDate(mentionedAt);
+  if (!mention) return '';
+  if (toValidityDate(validFrom) === mention) return '';
+  return ` (mentioned ${mention})`;
 }
 
 function toValidityDate(value?: string): string | undefined {

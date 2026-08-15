@@ -256,6 +256,9 @@ export class SynthesizeService {
       // (knowledge-update misses answer STALE values) — active for any
       // routed request, independent of lane.
       markRecency: profile.lanes.has('recency'),
+      // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
+      // facts whose anchor disagrees with validFrom by day.
+      mentionDates: profile.mentionDates,
     });
     if ('empty' in prepared) return prepared.empty;
     const { results, factIndex, factLines } = prepared;
@@ -543,12 +546,20 @@ export class SynthesizeService {
       chronological?: boolean;
       /** T5: mark the newest fact of multi-statement slots. */
       markRecency?: boolean;
+      /** V12: mention-date suffix on stamped facts (profile.mentionDates). */
+      mentionDates?: boolean;
     },
   ):
     | { empty: SynthesizeResult }
     | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
-    const { answerMode, explain, elapsedAsOf, chronological, markRecency } =
-      opts;
+    const {
+      answerMode,
+      explain,
+      elapsedAsOf,
+      chronological,
+      markRecency,
+      mentionDates,
+    } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
       // point is to commit to a best-effort answer instead of abstaining
@@ -578,6 +589,7 @@ export class SynthesizeService {
       elapsedAsOf,
       chronological,
       markRecency,
+      mentionDates,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
