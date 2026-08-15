@@ -25,6 +25,7 @@ export const RetrievalProfileWireSchema = z.object({
   insightEvidence: z.enum(['off', 'routed', 'query_arc']),
   timelineEvidence: z.enum(['off', 'routed', 'scan']),
   coverageScanMode: z.enum(['brute', 'hnsw']),
+  coverageLexMode: z.enum(['phrase', 'or_terms']),
   scanHnswEf: z.number().int(),
   scanHnswOverfetch: z.number().int(),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),

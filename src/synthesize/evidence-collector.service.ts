@@ -265,6 +265,7 @@ export class EvidenceCollectorService {
                 // items, so repeats collapse at the record level too.
                 dedupeAspects: profile.orderingFrame,
                 scan: scanTuning(profile),
+                lex: profile.coverageLexMode,
               })
               .then((v) => v ?? [])
           : [],
@@ -306,6 +307,7 @@ export class EvidenceCollectorService {
           callerScopes,
           userId,
           scan: scanTuning(profile),
+          lex: profile.coverageLexMode,
         })
         .then((v) => v ?? []);
     }

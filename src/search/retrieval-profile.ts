@@ -151,6 +151,24 @@ export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
 export type CoverageScanMode = 'brute' | 'hnsw';
 
 /**
+ * Lexical-leg query shape of the coverage scan lanes (V11 audit A2):
+ *  - 'phrase'   — one matcher per indexed field fed the whole topic
+ *                 phrase. The matches operator (`@N@`) is AND-semantics
+ *                 over the analyzed tokens on SurrealDB 3.x — EVERY
+ *                 topic token must appear in the row — so multi-word
+ *                 topics rarely fire and the lexical half of "hybrid"
+ *                 is mostly decorative. The legacy default.
+ *  - 'or_terms' — per-term matchers over topicTerms (bounded, unique
+ *                 match refs) OR-ed together; a row mentioning ANY
+ *                 topic word is a lexical hit, scored as the sum over
+ *                 terms of the best per-field BM25 (disjunctive BM25 —
+ *                 multi-term rows rank higher). Empirics on the 3.2.1
+ *                 stand: unmatched refs score 0.0, duplicate refs bind
+ *                 scoring to the LAST matcher (hence unique refs).
+ */
+export type CoverageLexMode = 'phrase' | 'or_terms';
+
+/**
  * Memory-coverage abstention (V9 §4):
  *  - 'off'      — abstention is decided solely by the generator's own
  *                 judgment (pre-V9 behavior).
@@ -244,6 +262,9 @@ export interface RetrievalProfile {
    * (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) before being flipped.
    */
   coverageScanMode: CoverageScanMode;
+  /** Lexical-leg query shape of the scan lanes (see CoverageLexMode);
+   *  'phrase' = the legacy AND-semantics matcher. */
+  coverageLexMode: CoverageLexMode;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -442,6 +463,11 @@ export function resolveRetrievalProfile(
         'brute',
         'hnsw',
       ] as const) ?? 'brute',
+    coverageLexMode:
+      enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', [
+        'phrase',
+        'or_terms',
+      ] as const) ?? 'phrase',
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -531,6 +557,7 @@ export function resolveRetrievalProfileFor(
     ['insightEvidence', ['off', 'routed', 'query_arc']],
     ['timelineEvidence', ['off', 'routed', 'scan']],
     ['coverageScanMode', ['brute', 'hnsw']],
+    ['coverageLexMode', ['phrase', 'or_terms']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
     ['abstentionCalibration', ['off', 'coverage', 'verifier', 'minicheck']],

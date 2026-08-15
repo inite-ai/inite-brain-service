@@ -829,6 +829,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Dense-leg execution mode of the two coverage-first scan lanes — mention-scan over episode_segment (timelineEvidence='scan') and query_arc over knowledge_fact (insightEvidence='query_arc'): brute (exact filtered top-k via a full-table cosine ORDER BY — correct at eval scale by design, the default; identical legacy semantics) | hnsw (approximate KNN <|k,ef|> against the per-tenant HNSW indexes — segment_embedding_hnsw / fact_embedding_hnsw, built via POST /v1/admin/maintenance/hnsw — with overfetch compensating SurrealDB's post-KNN WHERE filtering; falls back to the brute scan on error OR an empty post-filter pool, so tenants without the indexes behave identically). The V11 scale gate: promotion of the scan lanes to default-on for large tenants goes through this leg plus the parity check (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) first.",
       },
       {
+        key: 'RETRIEVAL_COVERAGE_LEX_MODE',
+        category: 'pipeline',
+        defaultValue: 'phrase',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Lexical-leg (BM25) query shape of the two coverage-first scan lanes — mention-scan over episode_segment and query_arc over knowledge_fact: phrase (one matcher per indexed field fed the whole extracted topic phrase — the legacy default; the matches operator @N@ is AND-semantics over analyzed tokens on SurrealDB 3.x, so a 2-5 token topic must appear IN FULL and the lexical leg rarely fires, leaving the hybrid pool dense-driven — the V11 audit A2 finding) | or_terms (per-term matchers over the stripped topic terms OR-ed with unique match refs, bounded at 8 terms; a row mentioning ANY topic word is a lexical hit, scored as the sum over terms of the best per-field BM25 so multi-term rows rank higher). Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (coverageLexMode). Measured-behavior change: flip after the eval pair, not by default.",
+      },
+      {
         key: 'RETRIEVAL_VERIFIER_MODEL',
         category: 'pipeline',
         defaultValue: '',
@@ -943,7 +952,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, coverageLexMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

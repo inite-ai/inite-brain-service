@@ -94,6 +94,25 @@ describe('MentionScanService dense-leg modes', () => {
     expect(lines).toHaveLength(1);
   });
 
+  it("lex='or_terms' rewrites the BM25 leg as per-term matchers", async () => {
+    const capture: string[] = [];
+    const svc = makeService({ dense: [], bm25: [segment], capture });
+    const lines = await svc.mentionLines({
+      companyId: 'c1',
+      query: 'In what order did I raise the parser project aspects?',
+      callerScopes: [],
+      lex: 'or_terms',
+    });
+    // Topic strips to 'raise the parser project aspects' → four terms.
+    expect(capture[1]).toContain('text @1@ $t0 OR text @2@ $t1');
+    expect(capture[1]).toContain(
+      'math::sum([search::score(1), search::score(2), ' +
+        'search::score(3), search::score(4)])',
+    );
+    expect(capture[1]).not.toContain('$topic');
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
   it('degrades to [] on any failure (the sibling-lane contract)', async () => {
     const surreal = {
       withCompany: async () => {
