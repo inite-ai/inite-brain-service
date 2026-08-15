@@ -15,6 +15,8 @@ import {
   memoryLifecycleCorrectness,
   ndcgAtKVector,
   bootstrapMeanCI,
+  refusalRate,
+  confabulationCount,
 } from '../metrics';
 
 /**
@@ -67,7 +69,15 @@ export class Aggregator {
       .filter((r): r is NonNullable<typeof r> => r !== undefined);
     const memAssertions = group.flatMap((o) => o.memoryAssertionResults);
     const miaResults = group.flatMap((o) => o.miaTestResults);
-    const synthOutcomes = group.flatMap((o) => o.synthesizeOutcomes);
+    const allSynthOutcomes = group.flatMap((o) => o.synthesizeOutcomes);
+    // Partition off the false-premise (expectRefusal) outcomes: they are
+    // SUPPOSED to abstain, so folding them into the faithfulness / abstain
+    // / conformal / verifier rows would invert those gates (a correct
+    // refusal would read as a low-quality answer, and the abstain-rate
+    // gate would trip on queries designed to abstain). They get their own
+    // hallucination-resistance metric below.
+    const synthOutcomes = allSynthOutcomes.filter((o) => !o.expectedRefusal);
+    const refusalOutcomes = allSynthOutcomes.filter((o) => o.expectedRefusal);
     const synthScored = synthOutcomes.filter(
       (o): o is typeof o & { faithfulness: number } => o.faithfulness !== null,
     );
@@ -82,6 +92,11 @@ export class Aggregator {
       synthOutcomes.length === 0
         ? null
         : synthOutcomes.filter((o) => o.passed).length / synthOutcomes.length;
+    // Hallucination-resistance: fraction of false-premise queries the
+    // system correctly refused (Synthius-Mem's adversarial-robustness
+    // headline). confabulation-count is the diagnostic complement.
+    const synthRefusalRate = refusalRate(refusalOutcomes);
+    const synthConfabulations = confabulationCount(refusalOutcomes);
 
     // Temporal split: queries carrying an asOf are bitemporal /
     // historical-intent; the rest are current-state. A SOTA-claim
@@ -254,6 +269,23 @@ export class Aggregator {
             : 1 - synthVerifierFailures / synthOutcomes.length,
         threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
         n: synthOutcomes.length,
+      },
+      // ── Hallucination resistance (false-premise / expectRefusal) ──────
+      // The load-bearing safety metric: fraction of queries about facts
+      // the corpus never held that the system correctly REFUSED. Gated at
+      // 0.8; confabulation-count is the diagnostic complement (a count, so
+      // no threshold — the gate comparator is value >= threshold, which
+      // inverts wrong for "want zero", same as the verifier-failures row).
+      {
+        name: 'hallucination-resistance:refusal-rate',
+        value: synthRefusalRate,
+        threshold: refusalOutcomes.length > 0 ? 0.8 : undefined,
+        n: refusalOutcomes.length,
+      },
+      {
+        name: 'hallucination-resistance:confabulation-count',
+        value: refusalOutcomes.length === 0 ? null : synthConfabulations,
+        n: refusalOutcomes.length,
       },
       ...phase4Metrics(synthOutcomes),
       {

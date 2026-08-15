@@ -162,6 +162,18 @@ export interface SynthesizeExpectation {
    */
   allowEmptyAnswer?: boolean;
   /**
+   * False-premise / hallucination-resistance gate. When true, the query
+   * asks about a fact the corpus never contained (an invented relative,
+   * job, event, or a cross-entity mis-attribution). A correct system
+   * REFUSES — so the query passes IFF the synthesizer declines (null
+   * answer or the "no grounded evidence" sentinel), and a confident
+   * answer FAILS. Runs under STRICT guardrails (the production refusal
+   * contract) and skips faithfulness scoring (a confabulation is wrong
+   * regardless of its internal consistency). Distinct from
+   * allowEmptyAnswer, which merely TOLERATES a refusal.
+   */
+  expectRefusal?: boolean;
+  /**
    * Optional asOf for bitemporal synthesize.
    */
   asOf?: string;
@@ -205,6 +217,18 @@ export interface SynthesizeOutcome {
   verifierFailureKind?: 'length_mismatch' | 'invalid_verdicts' | 'exception';
   /** Pass = answer present (or allowEmptyAnswer) AND faithfulness ≥ floor AND no verifier failure. */
   passed: boolean;
+  /**
+   * False-premise gate (mirrors SynthesizeExpectation.expectRefusal). Set
+   * so the aggregator can partition refusal-expected outcomes OUT of the
+   * faithfulness / abstain / verifier-failure rows (they're supposed to
+   * abstain — counting them would invert those gates) and INTO the
+   * hallucination-resistance metric.
+   */
+  expectedRefusal?: boolean;
+  /** Whether the synthesizer actually refused (null answer or the
+   *  "no grounded evidence" sentinel). Only meaningful when
+   *  expectedRefusal is true. */
+  refused?: boolean;
   /** Floor that was applied — surfaced for the report. */
   faithfulnessFloor: number;
   /**

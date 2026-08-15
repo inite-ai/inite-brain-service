@@ -55,6 +55,13 @@ modules stay under `test/eval/`.
 - **Faithfulness mean + pass-rate + verifier-failures** — RAGAS claim-
   decomposition; sourceFacts fall back to retrieved-context when
   emitted citations are thin
+- **Hallucination resistance** — `hallucination-resistance:refusal-rate`
+  (gate 0.8) + `confabulation-count` (diagnostic) over the false-premise
+  scenarios (`SynthesizeExpectation.expectRefusal`): the fraction of
+  queries about never-ingested facts the system correctly REFUSED. These
+  outcomes are partitioned OUT of the faithfulness / abstain / verifier
+  rows (they abstain by design) and each false-premise scenario ships a
+  grounded CONTROL query so a "refuse everything" system fails too
 - **MIA-AUC** with underpowered guard — auto-bypasses gate when
   `N_pos + N_neg < 30` (default `MIA_MIN_N`)
 - **Memory-lifecycle correctness** — update / supersede / retract /
