@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0](https://github.com/inite-ai/inite-brain-service/compare/v1.0.0...v1.1.0) (2026-08-15)
+
+
+### Features
+
+* **eval:** false-premise scenarios + hallucination-resistance metric ([a634e4d](https://github.com/inite-ai/inite-brain-service/commit/a634e4d3313e8c8bb7e7b5024677f83030784bce))
+
+
+### Bug Fixes
+
+* **deps:** dedupe yaml@2.9.0 lockfile blocks left by textual dependabot merges ([64d9172](https://github.com/inite-ai/inite-brain-service/commit/64d9172ab318583ee5bc9ff08c310b8ca3ed08ea))
+* **deps:** dedupe yaml@2.9.0 lockfile blocks left by textual dependabot merges ([fe7b1c1](https://github.com/inite-ai/inite-brain-service/commit/fe7b1c1379b8fd686c3673b4e5773e004db31d17))
+* **search:** edge-expansion default OFF after measured-null ablation + alpha-0 parser fix ([3f3cb56](https://github.com/inite-ai/inite-brain-service/commit/3f3cb56dacacc96deeddbc3062758e84a43547e6))
+* **search:** edge-expansion default OFF after the measured-null ablation + alpha-0 parser fix ([3a0ec1c](https://github.com/inite-ai/inite-brain-service/commit/3a0ec1c08e2aee9fc54f3bdafc3dfda20000763f))
+
 ## [1.0.0](https://github.com/inite-ai/inite-brain-service/compare/v0.8.1...v1.0.0) (2026-08-15)
 
 
