@@ -610,3 +610,99 @@ describe('buildFactIndex recency marker (T5)', () => {
   });
 });
 
+
+describe('buildFactIndex mention-date suffix (V12 §1 read side)', () => {
+  const mkHit = (facts: Array<Record<string, unknown>>) =>
+    ({
+      entityId: 'e1',
+      entityType: 'person',
+      canonicalName: 'nadia',
+      externalRefs: {},
+      score: 1,
+      facts,
+    }) as unknown as SearchHit;
+
+  const fact = (over: Record<string, unknown>) => ({
+    factId: 'knowledge_fact:m1',
+    predicate: 'went_to',
+    object: 'a pottery class',
+    confidence: 0.7,
+    score: 1,
+    ...over,
+  });
+
+  it('renders the anchor when it disagrees with validFrom by day', () => {
+    const { factLines } = buildFactIndex(
+      [
+        mkHit([
+          fact({
+            validFrom: '2023-05-06T00:00:00.000Z',
+            mentionedAt: '2023-05-08T15:56:00.000Z',
+          }),
+        ]),
+      ],
+      { mentionDates: true },
+    );
+    expect(factLines[0]).toContain('(as of 2023-05-06)');
+    expect(factLines[0]).toContain('(mentioned 2023-05-08)');
+  });
+
+  it('same-day anchors render nothing extra', () => {
+    const { factLines } = buildFactIndex(
+      [
+        mkHit([
+          fact({
+            validFrom: '2023-05-06T00:00:00.000Z',
+            mentionedAt: '2023-05-06T15:56:00.000Z',
+          }),
+        ]),
+      ],
+      { mentionDates: true },
+    );
+    expect(factLines[0]).not.toContain('mentioned');
+  });
+
+  it('unstamped facts and disabled flag render the historical format', () => {
+    const stamped = mkHit([
+      fact({
+        validFrom: '2023-05-06T00:00:00.000Z',
+        mentionedAt: '2023-05-08T15:56:00.000Z',
+      }),
+    ]);
+    expect(
+      buildFactIndex([stamped]).factLines[0],
+    ).not.toContain('mentioned');
+    const unstamped = mkHit([fact({ validFrom: '2023-05-06T00:00:00.000Z' })]);
+    expect(
+      buildFactIndex([unstamped], { mentionDates: true }).factLines[0],
+    ).not.toContain('mentioned');
+  });
+
+  it('renders a bare anchor when validFrom is missing', () => {
+    const { factLines } = buildFactIndex(
+      [mkHit([fact({ mentionedAt: '2023-05-08T15:56:00.000Z' })])],
+      { mentionDates: true },
+    );
+    expect(factLines[0]).toContain('(mentioned 2023-05-08)');
+  });
+
+  it('epoch-sentinel and unparseable anchors render nothing', () => {
+    const { factLines } = buildFactIndex(
+      [
+        mkHit([
+          fact({
+            validFrom: '2023-05-06T00:00:00.000Z',
+            mentionedAt: '1970-01-01T00:00:00.000Z',
+          }),
+          fact({
+            factId: 'knowledge_fact:m2',
+            validFrom: '2023-05-06T00:00:00.000Z',
+            mentionedAt: 'not-a-date',
+          }),
+        ]),
+      ],
+      { mentionDates: true },
+    );
+    expect(factLines.join('\n')).not.toContain('mentioned');
+  });
+});

@@ -9,6 +9,7 @@ import { withStageBudget, type StageBudgets } from './internals/stage-budget';
 import { resolveSearchTuning } from './retrieval-profile';
 import { fetchNeighbours, type Neighbour } from './internals/neighbours';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
+import { collectFactWindow, remapWindowScores } from './internals/fact-rerank';
 import { PipelineContext } from './pipeline-context';
 
 /**
@@ -155,6 +156,58 @@ export class SearchRerankService {
       ctx,
       neighboursByEntity: neighboursByEntity ?? new Map(),
     });
+  }
+
+  /**
+   * Fact-level cross-encoder pass (July A3, profile.factRerank):
+   * rescore the top-`factRerankWindow` facts of the fused pool so the
+   * fact-centric budget cut selects by joint-encoder relevance instead
+   * of fused score alone. Mutates window-row scores IN PLACE via the
+   * rank-preserving remap (see internals/fact-rerank.ts) — bucket
+   * order, the window/tail boundary and the top-1 score value are all
+   * unchanged. Identity fallback on timeout/failure, same contract as
+   * every rerank stage.
+   */
+  async rerankFactsGlobal({
+    byEntity,
+    ctx,
+  }: {
+    byEntity: Map<string, EntityBucket>;
+    ctx: PipelineContext;
+  }): Promise<void> {
+    if (!ctx.profile.factRerank || !this.crossEncoder.isEnabled()) return;
+    const window = ctx.tuning?.factRerankWindow ?? 64;
+    const rows = collectFactWindow([...byEntity.values()], window);
+    if (rows.length <= 1) return;
+    const inputs = rows.map(({ row }) => {
+      const ent = row.row.entity ?? {
+        type: 'other',
+        canonicalName: 'unknown',
+      };
+      return {
+        label: `${ent.canonicalName} — ${row.row.predicate}`,
+        body: String(row.row.object ?? ''),
+      };
+    });
+    const identityPerm = inputs.map((_, i) => i);
+    let timedOut = false;
+    const perm = await withSpan(
+      'search.fact_rerank',
+      () =>
+        withStageBudget({
+          stage: 'crossEncoder',
+          budgetMs: budgetsOf(ctx).crossEncoder,
+          fn: () => this.crossEncoder.rerank(ctx.dto.query, inputs),
+          fallback: identityPerm,
+          logger: this.logger,
+          onFallback: () => {
+            timedOut = true;
+          },
+        }),
+      { 'fact_rerank.candidates': inputs.length },
+    );
+    this.metrics?.countCrossEncoder(timedOut ? 'fact_error' : 'fact_invoked');
+    if (!timedOut) remapWindowScores(rows, perm);
   }
 
   // eslint-disable-next-line max-params

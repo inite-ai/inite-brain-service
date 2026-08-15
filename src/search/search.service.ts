@@ -567,6 +567,11 @@ export class SearchService {
       ctx,
       neighboursByEntity,
     });
+    // 7b. Fact-level cross-encoder rescoring (July A3, profile-gated):
+    // reorders the top of the flat fact pool IN PLACE so step 8's
+    // global cut selects by joint-encoder relevance. No-op unless
+    // profile.factRerank.
+    await this.rerank.rerankFactsGlobal({ byEntity, ctx });
     // The rerank stage only ranks a bounded window (≤20 buckets). When the
     // caller asked for more (limit up to the DTO's @Max(100)), the reranked
     // head is correct but the tail beyond the window was dropped — a silent

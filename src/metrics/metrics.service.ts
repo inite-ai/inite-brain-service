@@ -423,7 +423,9 @@ export class MetricsService implements OnModuleInit {
       | 'invoked'
       | 'error'
       | 'skipped_disabled'
-      | 'skipped_singleton',
+      | 'skipped_singleton'
+      | 'fact_invoked'
+      | 'fact_error',
   ): void {
     this.searchCrossEncoderCount.inc({ outcome } as LabelValues<'outcome'>);
   }

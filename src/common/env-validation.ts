@@ -526,6 +526,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // dense+BM25 as units in their own right; optional listwise rerank.
   'SEARCH_SEGMENT_LANE_ENABLED',
   'SEARCH_SEGMENT_LANE_RERANK',
+  // July A3: cross-encoder rescoring of the fused fact pool before the
+  // fact-centric budget cut. Default off pending a paired leg.
+  'SEARCH_FACT_RERANK',
+  // V12 read side of DERIVER_MENTION_STAMP: "(mentioned YYYY-MM-DD)"
+  // fact-line suffix when the anchor disagrees with validFrom by day.
+  'RETRIEVAL_MENTION_DATES',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

@@ -908,6 +908,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
       },
       {
+        key: 'RETRIEVAL_MENTION_DATES',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V12 §1 read side (profile field mentionDates): append "(mentioned YYYY-MM-DD)" to fact lines whose DERIVER_MENTION_STAMP anchor (source.mentionedAt) disagrees with validFrom by calendar day — the generator sees when a fact was said next to when it claims to hold, instead of only the (possibly collapsed) validity date. Generator and verifier read the same lines, so evidence parity is free. Unstamped facts and same-day anchors render nothing; against worlds derived without the stamp the flag is byte-identical off.',
+      },
+      {
         key: 'MINICHECK_URL',
         category: 'pipeline',
         defaultValue: 'http://127.0.0.1:11434',
@@ -1050,6 +1059,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'Precision-trim the fused segment pool with the listwise reranker before the top-k cut.',
+      },
+      {
+        key: 'SEARCH_FACT_RERANK',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'July A3: cross-encoder rescoring of the fused FACT pool before the fact-centric budget cut. The entity-bucket cross-encoder pass reorders buckets, but the global fact window slices by fused score alone — the measured dominant LoCoMo miss class (gold sitting in the derived facts, lost to selection). Rescoring the top SEARCH_FACT_RERANK_WINDOW facts with the joint encoder fills the budget by relevance. Rank-preserving score remap: window/tail boundary and the top-1 score value are unchanged, so abstention gates read the same numbers. Default off pending a paired leg.',
+      },
+      {
+        key: 'SEARCH_FACT_RERANK_WINDOW',
+        category: 'pipeline',
+        defaultValue: '64',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Fact-pool slice the fact-level cross-encoder rescoring pass covers (top-N by fused score). Local ONNX scoring is sequential — raise SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS together with this window or the pass falls back to fused order.',
       },
       {
         key: 'AGENT_QA_TOOLS_V2',
