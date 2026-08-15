@@ -177,3 +177,46 @@ Sources: arXiv 2501.13956, 2405.14831, 2502.14802, 2504.19413,
 2506.05690, 2404.16130, 2410.05779, 2510.27246, 2507.03724,
 2502.12110; getzep/graphiti search{,_utils,_config_recipes}.py; Zep
 and Letta engineering blogs; Cognee/Memobase/Supermemory self-runs.
+
+## 5. Ablation executed (same day): edge expansion = measured NULL, default flipped OFF
+
+The action-1 build wave (edge fence + catalog truth) shipped in
+`c6b4917`; the action-2 ablation ran on LoCoMo dev-5 — the ONE eval
+axis whose worlds carry edges (locow8/wd-v2: 255 edges over 1238
+entities) — with the V10 guard env, judge gpt-4.1-mini, paired by
+questionId.
+
+**Bug caught by the ablation itself:** the documented kill switch
+(`SEARCH_EDGE_EXPANSION_ALPHA=0`) had NEVER been reachable — the
+parser's `rawAlpha > 0` guard silently mapped an explicit 0 back to
+0.4, so the first "arm B" ran byte-identical to its baseline. That
+invalid pair became a same-config replication measurement: headline
+reproduces to 0.0pp with 17/17 flips on n=762 — the axis's noise
+floor. Parser fixed (0 is now valid) and alpha ≤ 0 now returns BEFORE
+the two graph round-trips instead of after them.
+
+**The real pair (fixed kill switch):**
+
+| | edge expansion ON (α=0.4) | OFF (α=0) | Δ | p (McNemar) |
+|---|---|---|---|---|
+| headline judge (n=762) | 75.3% | 74.8% | −0.5pp | 0.61 |
+| multi-hop (n=142) | 60.6% | 57.7% | −2.8pp | 0.29 |
+| temporal (n=156) | 75.0% | 75.6% | +0.6pp | 1.0 |
+| open-domain (n=46) | 37.0% | 39.1% | +2.2pp | 1.0 |
+| single-hop (n=418) | 84.7% | 84.2% | −0.5pp | 0.75 |
+
+NULL across the board — every row inside the measured replication
+noise envelope; the multi-hop lean (8 flips total) is well inside the
+±4pp/ability band. Matches the external prior (Mem0^g's own multi-hop
+LOSS; AgentMemBench "avoid GEM for retrieval").
+
+**Decision (per the §4 pre-commitment):** default flipped to
+`SEARCH_EDGE_EXPANSION_ALPHA=0` — the default search path stops paying
+two graph round-trips per request for a measured-null mechanism. The
+knob stays runtime-tunable per tenant (0.4 = historical behavior); the
+guard band for future LoCoMo runs moves to the OFF arm (74.8).
+
+**Residual not covered by this ablation:** the rerank neighbour
+injection (B2 — `Connected to:` lines in the LLM rerank prompt) is a
+separate mechanism that rides the reranker, not alpha; it remains
+default-on-when-reranker-configured and unmeasured in isolation.

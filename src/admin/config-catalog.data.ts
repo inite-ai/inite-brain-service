@@ -729,11 +729,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_EDGE_EXPANSION_ALPHA',
         category: 'search',
-        defaultValue: '0.4',
+        defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Inherited-score multiplier for an expanded neighbour (≤0.4 so a neighbour can never outrank its seed).',
+          'Inherited-score multiplier for an edge-expanded neighbour; 0 (the default since 2026-08-15) disables edge expansion entirely — the LoCoMo dev-5 ablation on the one edge-bearing eval world measured NULL (ON 75.3 vs OFF 74.8, n=762 paired McNemar, p=0.61, inside the same-config replication noise floor), so the default search path stops paying two graph round-trips. Set 0.4 (the historical value; keep ≤0.4 so a neighbour never outranks its seed) to re-enable per tenant.',
       },
       {
         key: 'SEARCH_CHATTER_PENALTY',
