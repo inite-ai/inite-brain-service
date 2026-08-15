@@ -113,6 +113,25 @@ function buildVerifierUserMessage({
   return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
 }
 
+/**
+ * gpt-5* / o-series reasoning models reject a non-default temperature
+ * (400 Unsupported value) AND bill their hidden reasoning against
+ * max_completion_tokens — a 256 cap starves the visible JSON. Measured
+ * live on the V11 §2 strong-judge arm: 23/40 audits 400'd and degraded
+ * to verifier_error before this guard. Non-reasoning models keep the
+ * deterministic temperature 0 and the tight cap — byte-identical call.
+ */
+const REASONING_MODEL_RE = /^(gpt-5|o\d)/;
+
+function verifierCallParams(model: string): {
+  temperature?: number;
+  max_completion_tokens: number;
+} {
+  return REASONING_MODEL_RE.test(model)
+    ? { max_completion_tokens: 2048 }
+    : { temperature: 0, max_completion_tokens: 256 };
+}
+
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
   const { openai, metrics, model, topicCoverage } = req;
   const system = topicCoverage
@@ -169,8 +188,7 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
               },
             },
           },
-          max_completion_tokens: 256,
-          temperature: 0,
+          ...verifierCallParams(model),
         },
         { signal: getAbortSignal() },
       ),

@@ -86,11 +86,12 @@ export class SearchRerankService {
     return withSpan(
       'search.fetch_neighbours',
       () =>
-        fetchNeighbours(
+        fetchNeighbours({
           db,
-          this.logger,
-          wideCandidates.map((e) => e.entityId),
-        ),
+          logger: this.logger,
+          entityIds: wideCandidates.map((e) => e.entityId),
+          userId: ctx.dto.userId,
+        }),
       { 'neighbours.candidates': wideCandidates.length },
     );
   }

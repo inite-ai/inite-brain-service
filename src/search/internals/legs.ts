@@ -2,6 +2,7 @@ import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
 import type { SearchTuning } from '../retrieval-profile';
+import { buildEdgeFence, type EdgeFence } from './edge-fence';
 
 /** The slice of SearchTuning the legs consume (kept narrow for tests). */
 export type LegTuning = Pick<
@@ -37,10 +38,10 @@ const DEFAULT_LEG_TUNING: LegTuning = {
  * Off (default) → empty string → the query is byte-identical to before; the
  * legacy separate edge-expansion query runs instead. Verified on 3.2.0.
  */
-const combinedGraphProjection = (on: boolean): string =>
+const combinedGraphProjection = (on: boolean, fence: EdgeFence): string =>
   on
-    ? `entityId->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
-     entityId<-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours,`
+    ? `entityId->(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: out.{id, userId} } AS outNeighbours,
+     entityId<-(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: in.{id, userId} } AS inNeighbours,`
     : '';
 
 export interface RunVectorLegOptions {
@@ -53,6 +54,9 @@ export interface RunVectorLegOptions {
   logger?: { warn: (msg: string) => void };
   /** Resolved by the retrieval-profile bootstrap (S5.2). */
   tuning?: LegTuning;
+  /** Edge policy fence for the combined vector+graph projection; the
+   *  fail-closed default matches callers with no user scope. */
+  edgeFence?: EdgeFence;
 }
 
 export async function runVectorLeg({
@@ -63,6 +67,7 @@ export async function runVectorLeg({
   baseWhere,
   logger,
   tuning = DEFAULT_LEG_TUNING,
+  edgeFence = buildEdgeFence(),
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   // HNSW path (opt-in): approximate KNN over the per-tenant indexes
@@ -85,7 +90,7 @@ export async function runVectorLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
-        ${combinedGraphProjection(tuning.combinedVectorGraph)}
+        ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
         vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
       WHERE embedding != NONE
@@ -95,6 +100,7 @@ export async function runVectorLeg({
     `;
   const [rows] = await db.query<[FactRow[]]>(sql, {
     ...baseWhere.params,
+    ...(tuning.combinedVectorGraph ? edgeFence.params : {}),
     q: queryEmbedding,
     k,
   });
@@ -129,17 +135,28 @@ async function runVectorLegKnn({
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
-  const [rows] = await db.query<[FactRow[]]>(
+  //
+  // The projection MUST be vector::distance::knn(), not a fresh cosine
+  // call: re-projecting vector::similarity::cosine next to the KNN
+  // operator drops the planner off the KnnScan and costs more than the
+  // full scan (V11 audit A4 — 6-8s vs 0.45s brute on a 20k stand table;
+  // one such query at kOver=1600 OOM-killed a 16GB SurrealDB). COSINE
+  // distance = 1 − cosine similarity; converted below so consumers
+  // (fusion normalization, margin cuts) keep exact sim semantics.
+  const [rows] = await db.query<[Array<FactRow & { knnDist?: number }>]>(
     `SELECT ${projection},
-            vector::similarity::cosine(embedding, $q) AS simScore
+            vector::distance::knn() AS knnDist
        FROM knowledge_fact
        WHERE embedding <|${kOver},${ef}|> $q
          ${baseWhere.sql}
-       ORDER BY simScore DESC
+       ORDER BY knnDist ASC
        LIMIT $k`,
     { ...baseWhere.params, q: queryEmbedding, k },
   );
-  return (rows as FactRow[]) ?? [];
+  return (rows ?? []).map(({ knnDist, ...rest }) => ({
+    ...rest,
+    simScore: typeof knnDist === 'number' ? 1 - knnDist : undefined,
+  })) as FactRow[];
 }
 
 /**

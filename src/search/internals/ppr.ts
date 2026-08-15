@@ -1,5 +1,6 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import type { EntityBucket } from './types';
+import { buildEdgeFence } from './edge-fence';
 
 const ALPHA = 0.85;
 const ITERATIONS = 3;
@@ -7,16 +8,20 @@ const PPR_BOOST_BETA = 0.5;
 
 type PprEdge = { in: unknown; out: unknown; weight?: number };
 
-/** PPR step 1 — fetch in-subgraph edges. */
+/** PPR step 1 — fetch in-subgraph edges. Both endpoints are already in
+ *  the (fact-fenced) candidate set, so only the edge-row fence applies. */
 async function fetchPprEdges(
   db: Surreal,
   ids: string[],
+  userId?: string,
 ): Promise<PprEdge[]> {
   const ridIds = ids.map((s) => new StringRecordId(s));
+  const fence = buildEdgeFence(userId);
   const [edgeRows] = await db.query<[PprEdge[]]>(
     `SELECT in, out, weight FROM knowledge_edge
-       WHERE in INSIDE $ids AND out INSIDE $ids`,
-    { ids: ridIds },
+       WHERE in INSIDE $ids AND out INSIDE $ids
+         AND ${fence.cond}`,
+    { ids: ridIds, ...fence.params },
   );
   return (edgeRows as PprEdge[]) ?? [];
 }
@@ -133,10 +138,11 @@ function applyPprBoost(
 export async function applyPprPrior(
   db: Surreal,
   byEntity: Map<string, EntityBucket>,
+  userId?: string,
 ): Promise<void> {
   const ids = [...byEntity.keys()];
   if (ids.length < 2) return;
-  const edges = await fetchPprEdges(db, ids);
+  const edges = await fetchPprEdges(db, ids, userId);
   if (edges.length === 0) return;
 
   const { adj, outWeight } = buildPprAdjacency(ids, edges);

@@ -283,6 +283,30 @@ describe('QueryArcService', () => {
     expect(capture[1]).toContain('embedding != NONE');
     expect(capture[2]).toContain('searchHaystack @1@ $topic');
   });
+
+  it("lex='or_terms' rewrites the BM25 leg as per-term two-field matchers", async () => {
+    const capture: string[] = [];
+    const svc = makeService({ dense: [], bm25: [], capture });
+    await svc.arcLines({
+      companyId: 'c1',
+      query: 'Summarize the parser project',
+      callerScopes: [],
+      lex: 'or_terms',
+    });
+    const bm25 = capture[1];
+    // Topic strips to 'parser project' → two terms × two fields.
+    expect(bm25).toContain(
+      'searchHaystack @1@ $t0 OR object @2@ $t0 OR ' +
+        'searchHaystack @3@ $t1 OR object @4@ $t1',
+    );
+    expect(bm25).toContain(
+      'math::sum([math::max([search::score(1), search::score(2)]), ' +
+        'math::max([search::score(3), search::score(4)])])',
+    );
+    // The gate stack survives the rewrite.
+    expect(bm25).toContain("status = 'active'");
+    expect(bm25).toContain('piiClass IS NONE');
+  });
 });
 
 describe('query_arc gating and prompt header', () => {

@@ -49,6 +49,7 @@ export { buildFactIndex } from './fact-index';
 import { runGenerator } from './generator-client';
 import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
+import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchDto } from '../search/dto/search.dto';
 import { EvidenceCollectorService } from './evidence-collector.service';
@@ -115,6 +116,8 @@ export class SynthesizeService {
   private readonly defaultGuardrails: SynthesisGuardrails;
   private readonly minCalibratedConfidence: number;
   private readonly minFactTrust: number;
+  private readonly minicheckUrl: string;
+  private readonly minicheckModel: string;
 
   // The typed prompt sections (transcript / insights / instructions)
   // come from ONE collector behind one contract (V9 quality pass — the
@@ -163,6 +166,15 @@ export class SynthesizeService {
     this.minFactTrust = parseFloat(
       this.configService.get<string>('SYNTHESIZE_MIN_FACT_TRUST', '0'),
     );
+    // V11 §2 arm (b): local NLI endpoint for abstention='minicheck'.
+    this.minicheckUrl = this.configService.get<string>(
+      'MINICHECK_URL',
+      'http://127.0.0.1:11434',
+    );
+    this.minicheckModel = this.configService.get<string>(
+      'MINICHECK_MODEL',
+      'bespoke-minicheck',
+    );
   }
 
   async synthesize({
@@ -183,11 +195,9 @@ export class SynthesizeService {
         `synthesize: query truncated to ${clamped.value.length} chars (companyId=${companyId})`,
       );
     }
-    // One user-scope pin for the WHOLE request (audit 2026-08-13 P1-4).
-    // search() re-pins internally on its own clone, so without this a
-    // user-bound token with an omitted userId read personal facts from
-    // search but tenant-global-only supplemental evidence — the
-    // collector lanes see dto.userId directly.
+    // One user-scope pin for the WHOLE request (audit 2026-08-13 P1-4):
+    // search() re-pins its own clone only — the collector lanes read
+    // dto.userId directly and got tenant-global-only evidence without it.
     dto = { ...dto, query: clamped.value, userId: pinUserScope(dto.userId) };
     const guardrails: SynthesisGuardrails =
       dto.synthesisGuardrails ?? this.defaultGuardrails;
@@ -384,9 +394,22 @@ export class SynthesizeService {
     // lenient modes. Strict gates the answer behind a 'supported'
     // verdict; lenient surfaces the verdict but returns the answer
     // either way.
+    // V11 §2 arm (b): lenient 'minicheck' delegates the judgment to
+    // the local NLI; the verdict falls through to the SAME
+    // finalizeVerdict gate below (verdict.ts treats the mode like
+    // 'verifier'). A throw lands in the shared verifier_error catch.
+    const nliMode =
+      guardrails === 'lenient' && profile.abstentionCalibration === 'minicheck';
     let verdict: VerifierOutput;
     try {
-      verdict = await withSpan(
+      verdict = nliMode
+        ? await this.miniCheckVerdict({
+            answer: generated.answer,
+            factLines: promptFactLines,
+            transcriptLines,
+            insightLines,
+          })
+        : await withSpan(
         'synthesize.verify',
         () =>
           this.limiter.run(() =>
@@ -411,7 +434,9 @@ export class SynthesizeService {
               // V10 §5: topic-coverage audit (relationship-claim
               // strictness + the questionAnswered judgment).
               topicCoverage: profile.verifierTopicCoverage,
-              model,
+              // V11 §2 arm (a): the audit may run on a stronger judge
+              // than the generator; empty override = same model.
+              model: profile.verifierModel || model,
             }),
           ),
         { 'synthesize.facts': factIndex.size },
@@ -583,6 +608,44 @@ export class SynthesizeService {
       logger: this.logger,
       ...args,
     });
+  }
+
+  /**
+   * V11 §2 arm (b): the local-NLI judgment mapped onto the verifier
+   * verdict shape, so it falls through the SAME finalizeVerdict gate
+   * (verdict.ts treats 'minicheck' like 'verifier'). The claim is the
+   * whole answer text; the document is the evidence bundle the
+   * generator saw. A refinement candidate from the V10 §5 lesson —
+   * decompose the answer and check the connecting claim separately —
+   * is deliberately NOT in v1 (measure the plain form first).
+   */
+  private async miniCheckVerdict(args: {
+    answer: string;
+    factLines: string[];
+    transcriptLines: string[];
+    insightLines: string[];
+  }): Promise<VerifierOutput> {
+    const document = [
+      `Facts:\n${args.factLines.join('\n')}`,
+      ...(args.transcriptLines.length
+        ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
+        : []),
+      ...(args.insightLines.length
+        ? [`Derived insights:\n${args.insightLines.join('\n')}`]
+        : []),
+    ].join('\n\n');
+    const consistent = await withSpan('synthesize.verify', () =>
+      miniCheckConsistent({
+        baseUrl: this.minicheckUrl,
+        model: this.minicheckModel,
+        document,
+        claim: args.answer,
+        signal: getAbortSignal(),
+      }),
+    );
+    return consistent
+      ? { verdict: 'supported', unsupportedClaims: [] }
+      : { verdict: 'unsupported', unsupportedClaims: [args.answer] };
   }
 
   private async callVerifier(args: {

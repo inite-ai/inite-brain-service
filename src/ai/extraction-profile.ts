@@ -54,6 +54,31 @@ export interface ExtractionPipelineProfile {
    */
   deriveSalienceStamp: boolean;
   /**
+   * DERIVER_MENTION_STAMP (V12 §1, the graphiti reference_time port):
+   * each derived fact is stamped with the event time of ITS first
+   * grounding turn — source.mentionedAt (per-turn occurredAt, not the
+   * session date) + source.turnIndex (within-session ordinal). Pure
+   * metadata: no prompt change, no schema migration, no resolver
+   * change (source is FLEXIBLE). This is what makes mention ORDER
+   * recoverable from facts — extraction currently collapses a
+   * session's mentions onto one validFrom (the measured event_ordering
+   * failure). Read-side consumers ship with the V12 ordering leg;
+   * unstamped rows read as before. Off → byte-identical writes.
+   */
+  deriveMentionStamp: boolean;
+  /**
+   * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
+   * the scratchpad is the load-bearing 100K component, +160% on
+   * summarization): the deriver ALSO folds each session
+   * chronologically into one bounded rolling digest per conversation
+   * (conversation_digest, 0086) — the narrative arc with day stamps
+   * that summarization golds ask for and fact extraction keeps
+   * thinnest. One extra LLM call per session. Read-side use is
+   * separately gated (RETRIEVAL_DIGEST_EVIDENCE, ships with the V12
+   * leg); off → no calls, no writes, byte-identical derive.
+   */
+  deriveDigest: boolean;
+  /**
    * DERIVER_SLOT_SEMANTICS (V9 §1, derived-world lifecycle): value-
    * bearing aspects (VALUE_BEARING_ASPECTS in fact-resolver) resolve
    * as 'bitemporal_event' — similarity+interval-gated competing pool,
@@ -84,6 +109,8 @@ export function resolveExtractionProfile(
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
+    deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
+    deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };
 }

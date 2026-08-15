@@ -19,6 +19,7 @@ import { InsightLaneService } from './insight-lane.service';
 import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
+import { DigestLaneService } from './digest-lane.service';
 import type { CoverageScanTuning } from './scan-leg';
 
 /** Dense-leg tuning of the coverage scan lanes, from the profile. */
@@ -87,6 +88,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly mentionScan?: MentionScanService,
     @Optional() private readonly queryArc?: QueryArcService,
     @Optional() private readonly updateStory?: UpdateStoryService,
+    @Optional() private readonly digestLane?: DigestLaneService,
   ) {}
 
   /**
@@ -106,20 +108,43 @@ export class EvidenceCollectorService {
   }): Promise<CollectedEvidence> {
     const { profile, query } = opts;
     const timelineEvidence = wantsTimelineEvidence(profile, query);
-    const [instructions, transcriptLines, insightLines, updateStories] =
-      await Promise.all([
-        this.collectStandingInstructions(opts),
-        this.collectTranscriptLines(opts, timelineEvidence),
-        this.collectInsightLines(opts),
-        this.collectUpdateStories(opts),
-      ]);
-    return {
+    const [
+      instructions,
       transcriptLines,
       insightLines,
+      updateStories,
+      digestLines,
+    ] = await Promise.all([
+      this.collectStandingInstructions(opts),
+      this.collectTranscriptLines(opts, timelineEvidence),
+      this.collectInsightLines(opts),
+      this.collectUpdateStories(opts),
+      this.collectDigestLines(opts),
+    ]);
+    return {
+      transcriptLines,
+      // V12 §2: digests merge AHEAD of retrieved insight lines under
+      // the same slot — generator, verifier and NLI judge all see them
+      // (evidence parity by construction, the W5 #22 lesson).
+      insightLines: digestLines.length
+        ? [...digestLines, ...insightLines]
+        : insightLines,
       instructions,
       timelineEvidence,
       updateStories,
     };
+  }
+
+  /** V12 §2 read side — gated on profile.digestEvidence; degrades []. */
+  private async collectDigestLines(opts: {
+    profile: RetrievalProfile;
+    companyId: string;
+  }): Promise<string[]> {
+    if (!opts.profile.digestEvidence || !this.digestLane) return [];
+    if (getAbortSignal()?.aborted) return [];
+    return this.digestLane
+      .digestLines({ companyId: opts.companyId })
+      .then((v) => v ?? []);
   }
 
   /**
@@ -240,6 +265,7 @@ export class EvidenceCollectorService {
                 // items, so repeats collapse at the record level too.
                 dedupeAspects: profile.orderingFrame,
                 scan: scanTuning(profile),
+                lex: profile.coverageLexMode,
               })
               .then((v) => v ?? [])
           : [],
@@ -281,6 +307,7 @@ export class EvidenceCollectorService {
           callerScopes,
           userId,
           scan: scanTuning(profile),
+          lex: profile.coverageLexMode,
         })
         .then((v) => v ?? []);
     }

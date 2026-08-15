@@ -158,10 +158,16 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_EF', errors);
   positiveInt(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', errors);
 
+  // ── Verifier model override (V11 §2 arm a) ─────────────────────────
+  modelIdFormat(env, 'RETRIEVAL_VERIFIER_MODEL', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
   nonNegativeInt(env, 'COMMUNITIES_LP_OFFLOAD_MIN_EDGES', errors);
+  positiveInt(env, 'COMMUNITIES_MIN_SIZE', errors);
+  positiveInt(env, 'COMMUNITIES_MAX_ITERATIONS', errors);
+  positiveInt(env, 'COMMUNITIES_SUMMARY_MAX_MEMBERS', errors);
 
   // ── tokenBudget shaping offload (default ON) ───────────────────────
   positiveInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', errors);
@@ -396,7 +402,11 @@ function validateRetrievalProfileEnv(
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed', 'query_arc']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
     ['RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw']],
-    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier']],
+    ['RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms']],
+    [
+      'RETRIEVAL_ABSTENTION_CALIBRATION',
+      ['off', 'coverage', 'verifier', 'minicheck'],
+    ],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
   ];
@@ -488,12 +498,19 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V9 §1: value-bearing aspects take the bitemporal_event lifecycle
   // (supersede + competing) in derived worlds. Default off.
   'DERIVER_SLOT_SEMANTICS',
+  // V12 §1: per-fact mention anchor (source.mentionedAt/turnIndex from
+  // the first grounding turn's occurredAt). Default off.
+  'DERIVER_MENTION_STAMP',
+  // V12 §2: rolling per-conversation digest fold (conversation_digest,
+  // 0086). Default off.
+  'DERIVER_DIGEST',
   // RetrievalProfile boolean points (V8-V10). Parsed with
   // envFlagEnabled inside resolveRetrievalProfile — same fail-open
   // typo trap as every other flag here ('yes' silently reads OFF).
   'RETRIEVAL_ENTITY_EXPANSION',
   'RETRIEVAL_SALIENCE_SCORING',
   'RETRIEVAL_UPDATE_STORY',
+  'RETRIEVAL_DIGEST_EVIDENCE',
   'RETRIEVAL_ORDERING_FRAME',
   'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
@@ -729,6 +746,24 @@ function required({
   }
   if (pattern && !pattern.test(v)) {
     errors.push(`${name} does not match expected pattern ${pattern}`);
+  }
+}
+
+/** Set-but-malformed model ids fail boot loudly; empty/unset = inherit. */
+function modelIdFormat(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  errors: string[],
+): void {
+  const v = env[name];
+  if (
+    v !== undefined &&
+    v.trim() !== '' &&
+    !/^[A-Za-z0-9._:/-]{1,64}$/.test(v.trim())
+  ) {
+    errors.push(
+      `${name} must be a plain model id (letters, digits, . _ : / -, max 64 chars)`,
+    );
   }
 }
 

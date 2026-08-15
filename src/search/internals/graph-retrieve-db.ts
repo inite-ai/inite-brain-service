@@ -1,5 +1,6 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import type { GraphEntity, GraphFactRow } from './graph-retrieve';
+import { buildEdgeFence } from './edge-fence';
 
 /**
  * DB layer for graph-retrieve. Three queries:
@@ -103,16 +104,23 @@ export async function fetchOneHopNeighbourIds(
 ): Promise<string[]> {
   if (seedIds.length === 0) return [];
   const rids = seedIds.map((s) => new StringRecordId(s));
+  // Tenant-global surface (seeds and facts already filter userId IS
+  // NONE) — the edge walk carries the same fail-closed fence.
+  const fence = buildEdgeFence();
   type Row = {
     id: unknown;
-    outNeighbours: Array<{ peer: { id: unknown } | null }> | null;
-    inNeighbours: Array<{ peer: { id: unknown } | null }> | null;
+    outNeighbours: Array<{
+      peer: { id: unknown; userId?: string | null } | null;
+    }> | null;
+    inNeighbours: Array<{
+      peer: { id: unknown; userId?: string | null } | null;
+    }> | null;
   };
   const [rows] = await db.query<[Row[]]>(
     `SELECT
         id,
-        ->knowledge_edge.{ peer: out.{id} } AS outNeighbours,
-        <-knowledge_edge.{ peer: in.{id} } AS inNeighbours
+        ->(knowledge_edge WHERE ${fence.cond}).{ peer: out.{id, userId} } AS outNeighbours,
+        <-(knowledge_edge WHERE ${fence.cond}).{ peer: in.{id, userId} } AS inNeighbours
       FROM $ids`,
     { ids: rids },
   );
@@ -120,11 +128,14 @@ export async function fetchOneHopNeighbourIds(
   for (const row of rows ?? []) {
     const seedId = String(row.id);
     const consider = (
-      side: Array<{ peer: { id: unknown } | null }> | null,
+      side: Array<{
+        peer: { id: unknown; userId?: string | null } | null;
+      }> | null,
     ) => {
       if (!side) return;
       for (const e of side) {
         if (!e?.peer) continue;
+        if (!fence.allowsPeer(e.peer.userId)) continue;
         const peerId = String(e.peer.id);
         if (peerId === seedId) continue;
         out.add(peerId);

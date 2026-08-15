@@ -6,6 +6,7 @@ import { withSpan } from '../common/tracing';
 import { traceArtifact } from '../common/debug-trace';
 import type { EntityBucket, FactRow } from './internals/types';
 import { runVectorLeg, runLexicalLeg } from './internals/legs';
+import { buildEdgeFence } from './internals/edge-fence';
 import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
 import { runSegmentLegs } from './internals/segment-leg';
@@ -66,6 +67,7 @@ export class SearchRetrievalService {
                 baseWhere,
                 logger: this.logger,
                 tuning: ctx.tuning,
+                edgeFence: buildEdgeFence(ctx.dto.userId),
               });
               span.setAttribute('candidates', rows.length);
               traceArtifact(

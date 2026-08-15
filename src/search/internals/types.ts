@@ -19,11 +19,13 @@ export type RetrievalStage =
   | 'segment';
 
 /** One graph edge to a neighbour entity, as projected by both the edge-
- *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg. */
+ *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg.
+ *  `peer.userId` feeds the edge-fence peer check (edge-fence.ts) — a
+ *  user-scoped peer entity is invisible outside its own user's calls. */
 export interface NeighbourEdge {
   kind: string;
   weight?: number;
-  peer: { id: unknown } | null;
+  peer: { id: unknown; userId?: string | null } | null;
 }
 
 export interface FactRow {

@@ -209,11 +209,15 @@ export class EntityResolverService {
   ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
     const kOver = Math.min(this.candidateK * this.hnswOverfetch, 1000);
     // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
+    // vector::distance::knn() reuses the walk's distance — projecting a
+    // fresh cosine next to the KNN operator drops the planner off the
+    // KnnScan (V11 audit A4). sim = 1 − cosine distance, so the caller's
+    // cosineFloor comparison keeps exact sim semantics.
     const [rows] = await db.query<
-      [Array<{ entityId: unknown; etype: string; sim: number }>]
+      [Array<{ entityId: unknown; etype: string; dist: number }>]
     >(
       `SELECT entityId, entityId.type AS etype,
-              vector::similarity::cosine(embedding, $q) AS sim
+              vector::distance::knn() AS dist
          FROM knowledge_fact
          WHERE embedding <|${kOver},${this.hnswEf}|> $q
            AND predicate = 'name'
@@ -221,11 +225,16 @@ export class EntityResolverService {
            AND retractedAt IS NONE
            AND userId IS NONE
            AND entityId.mergedInto IS NONE
-         ORDER BY sim DESC
+         ORDER BY dist ASC
          LIMIT $k`,
       { q, k: this.candidateK },
     );
-    return (rows as Array<{ entityId: unknown; etype: string; sim: number }>) ?? [];
+    return (
+      (rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? []
+    ).map(({ dist, ...rest }) => ({
+      ...rest,
+      sim: typeof dist === 'number' ? 1 - dist : 0,
+    }));
   }
 }
 

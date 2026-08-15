@@ -151,6 +151,24 @@ export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
 export type CoverageScanMode = 'brute' | 'hnsw';
 
 /**
+ * Lexical-leg query shape of the coverage scan lanes (V11 audit A2):
+ *  - 'phrase'   — one matcher per indexed field fed the whole topic
+ *                 phrase. The matches operator (`@N@`) is AND-semantics
+ *                 over the analyzed tokens on SurrealDB 3.x — EVERY
+ *                 topic token must appear in the row — so multi-word
+ *                 topics rarely fire and the lexical half of "hybrid"
+ *                 is mostly decorative. The legacy default.
+ *  - 'or_terms' — per-term matchers over topicTerms (bounded, unique
+ *                 match refs) OR-ed together; a row mentioning ANY
+ *                 topic word is a lexical hit, scored as the sum over
+ *                 terms of the best per-field BM25 (disjunctive BM25 —
+ *                 multi-term rows rank higher). Empirics on the 3.2.1
+ *                 stand: unmatched refs score 0.0, duplicate refs bind
+ *                 scoring to the LAST matcher (hence unique refs).
+ */
+export type CoverageLexMode = 'phrase' | 'or_terms';
+
+/**
  * Memory-coverage abstention (V9 §4):
  *  - 'off'      — abstention is decided solely by the generator's own
  *                 judgment (pre-V9 behavior).
@@ -175,8 +193,18 @@ export type CoverageScanMode = 'brute' | 'hnsw';
  *                 verifier already runs in lenient mode. 'answer' mode
  *                 stays exempt (verifier is skipped there), so
  *                 never-abstain QA traffic is structurally untouched.
+ *  - 'minicheck' — V11 §2 arm (b): the same lenient answer-level gate,
+ *                 but the consistency judgment comes from a LOCAL
+ *                 Bespoke-MiniCheck NLI over Ollama (MINICHECK_URL /
+ *                 MINICHECK_MODEL) instead of the LLM verifier — zero
+ *                 marginal API cost. Strict/answer guardrails keep the
+ *                 LLM verifier path untouched.
  */
-export type AbstentionCalibrationMode = 'off' | 'coverage' | 'verifier';
+export type AbstentionCalibrationMode =
+  | 'off'
+  | 'coverage'
+  | 'verifier'
+  | 'minicheck';
 
 /**
  * How the generator's "today" is anchored:
@@ -234,6 +262,9 @@ export interface RetrievalProfile {
    * (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) before being flipped.
    */
   coverageScanMode: CoverageScanMode;
+  /** Lexical-leg query shape of the scan lanes (see CoverageLexMode);
+   *  'phrase' = the legacy AND-semantics matcher. */
+  coverageLexMode: CoverageLexMode;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -311,6 +342,22 @@ export interface RetrievalProfile {
    * verifier prompt and schema.
    */
   verifierTopicCoverage: boolean;
+  /**
+   * V11 §2 arm (a): model override for the verifier/auditor call ONLY
+   * (the generator keeps the synthesis model). Empty = inherit the
+   * synthesis model — byte-identical behavior. Targets the
+   * abstentionCalibration='verifier' residual: the SAME audit prompt
+   * on a stronger judge model, priced per tenant.
+   */
+  verifierModel: string;
+  /**
+   * V12 §2 read side: surface the rolling conversation digests
+   * (conversation_digest, written under DERIVER_DIGEST) into the
+   * insight slot — merged AHEAD of retrieved insight lines, same
+   * budget. Off = byte-identical; pointless (empty) against worlds
+   * derived without the digest flag.
+   */
+  digestEvidence: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -339,6 +386,15 @@ function nonNegativeFloatEnv(
   if (raw === undefined || raw.trim() === '') return dflt;
   const v = Number(raw);
   return Number.isFinite(v) && v >= 0 ? v : dflt;
+}
+
+/** Plain model-id shape (provider prefixes and version tags allowed);
+ *  anything else — including an unset env — resolves to '' (inherit). */
+const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,64}$/;
+
+function modelIdEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const v = (env[name] ?? '').trim();
+  return MODEL_ID_RE.test(v) ? v : '';
 }
 
 function enumEnv<T extends string>(
@@ -407,6 +463,11 @@ export function resolveRetrievalProfile(
         'brute',
         'hnsw',
       ] as const) ?? 'brute',
+    coverageLexMode:
+      enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', [
+        'phrase',
+        'or_terms',
+      ] as const) ?? 'phrase',
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -438,8 +499,11 @@ export function resolveRetrievalProfile(
         'off',
         'coverage',
         'verifier',
+        'minicheck',
       ] as const) ?? 'off',
     verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
+    verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
+    digestEvidence: envFlagEnabled(env.RETRIEVAL_DIGEST_EVIDENCE),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -493,9 +557,10 @@ export function resolveRetrievalProfileFor(
     ['insightEvidence', ['off', 'routed', 'query_arc']],
     ['timelineEvidence', ['off', 'routed', 'scan']],
     ['coverageScanMode', ['brute', 'hnsw']],
+    ['coverageLexMode', ['phrase', 'or_terms']],
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
-    ['abstentionCalibration', ['off', 'coverage', 'verifier']],
+    ['abstentionCalibration', ['off', 'coverage', 'verifier', 'minicheck']],
   ];
   for (const [key, allowed] of enumOverlays) {
     const v = o[key];
@@ -519,6 +584,14 @@ export function resolveRetrievalProfileFor(
       merged[key] = Math.floor(v);
     }
   }
+  // Free-string knob: the verifier model id (empty = inherit) — the
+  // only non-enum string field, validated against the model-id shape.
+  {
+    const v = o.verifierModel;
+    if (typeof v === 'string' && (v === '' || MODEL_ID_RE.test(v))) {
+      merged.verifierModel = v;
+    }
+  }
   // Float knobs (coverage score floor lives in (0,1) — flooring would
   // destroy it, so it overlays outside the int loop; 0 is a valid
   // "disable this floor" value).
@@ -536,6 +609,7 @@ export function resolveRetrievalProfileFor(
     'updateStoryRendering',
     'orderingFrame',
     'verifierTopicCoverage',
+    'digestEvidence',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

@@ -17,6 +17,8 @@ import {
   runDenseScanLeg,
   type CoverageScanTuning,
 } from './scan-leg';
+import { buildLexMatchLeg } from './lex-leg';
+import type { CoverageLexMode } from '../search/retrieval-profile';
 
 interface SegmentScanRow {
   id: unknown;
@@ -65,6 +67,8 @@ export class MentionScanService {
     dedupeAspects?: boolean;
     /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
     scan?: CoverageScanTuning;
+    /** Lexical-leg shape (V11 A2); omitted → the legacy phrase matcher. */
+    lex?: CoverageLexMode;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -91,13 +95,18 @@ export class MentionScanService {
             tuning: opts.scan ?? BRUTE_ONLY,
             logger: this.logger,
           });
+          const lexLeg = buildLexMatchLeg({
+            fields: ['text'],
+            topic,
+            mode: opts.lex ?? 'phrase',
+          });
           const [bm25] = await db.query<[SegmentScanRow[]]>(
-            `SELECT id, text, occurredAt, search::score(1) AS score
+            `SELECT id, text, occurredAt, ${lexLeg.score} AS score
                FROM episode_segment
-              WHERE text @1@ $topic ${piiGate} ${userGate}
+              WHERE ${lexLeg.where} ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { topic, k, ...userParams },
+            { ...lexLeg.params, k, ...userParams },
           );
           return mergeLegs(dense, bm25 ?? []);
         },

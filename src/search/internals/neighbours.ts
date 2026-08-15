@@ -1,4 +1,5 @@
 import { Surreal, StringRecordId } from 'surrealdb';
+import { buildEdgeFence } from './edge-fence';
 
 export type Neighbour = {
   canonicalName: string;
@@ -18,33 +19,51 @@ export type Neighbour = {
  * even on dense tenants. Returns an empty map on any failure — the
  * reranker falls back to its non-graph path.
  */
-export async function fetchNeighbours(
-  db: Surreal,
-  logger: { warn: (msg: string) => void },
-  entityIds: string[],
-): Promise<Map<string, Neighbour[]>> {
+export async function fetchNeighbours({
+  db,
+  logger,
+  entityIds,
+  userId,
+}: {
+  db: Surreal;
+  logger: { warn: (msg: string) => void };
+  entityIds: string[];
+  /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
+  userId?: string;
+}): Promise<Map<string, Neighbour[]>> {
   const out = new Map<string, Neighbour[]>();
   if (entityIds.length === 0) return out;
   const rids = entityIds.map((s) => new StringRecordId(s));
+  const fence = buildEdgeFence(userId);
   type Row = {
     id: unknown;
     outNeighbours: Array<{
       kind: string;
-      peer: { id: unknown; type: string; canonicalName: string } | null;
+      peer: {
+        id: unknown;
+        type: string;
+        canonicalName: string;
+        userId?: string | null;
+      } | null;
     }> | null;
     inNeighbours: Array<{
       kind: string;
-      peer: { id: unknown; type: string; canonicalName: string } | null;
+      peer: {
+        id: unknown;
+        type: string;
+        canonicalName: string;
+        userId?: string | null;
+      } | null;
     }> | null;
   };
   try {
     const [rows] = await db.query<[Row[]]>(
       `SELECT
            id,
-           ->knowledge_edge.{ kind, peer: out.{id, type, canonicalName} } AS outNeighbours,
-           <-knowledge_edge.{ kind, peer: in.{id, type, canonicalName} } AS inNeighbours
+           ->(knowledge_edge WHERE ${fence.cond}).{ kind, peer: out.{id, type, canonicalName, userId} } AS outNeighbours,
+           <-(knowledge_edge WHERE ${fence.cond}).{ kind, peer: in.{id, type, canonicalName, userId} } AS inNeighbours
          FROM $ids`,
-      { ids: rids },
+      { ids: rids, ...fence.params },
     );
     for (const row of (rows as Row[]) ?? []) {
       const id = String(row.id);
@@ -53,12 +72,18 @@ export async function fetchNeighbours(
       const pushSide = (
         side: Array<{
           kind: string;
-          peer: { id: unknown; type: string; canonicalName: string } | null;
+          peer: {
+            id: unknown;
+            type: string;
+            canonicalName: string;
+            userId?: string | null;
+          } | null;
         }> | null,
       ) => {
         if (!side) return;
         for (const e of side) {
           if (!e?.peer) continue;
+          if (!fence.allowsPeer(e.peer.userId)) continue;
           const peerId = String(e.peer.id);
           // Self-loop guard (identity_of after merge): skip when
           // the peer is the entity itself.
@@ -99,11 +124,18 @@ export async function fetchNeighbours(
  * Soft-fails to the input list on any DB error — graph expansion is
  * best-effort.
  */
-export async function expandEntityIdsViaEdges(
-  db: Surreal,
-  logger: { warn: (msg: string) => void },
-  entityIds: string[],
-): Promise<string[]> {
+export async function expandEntityIdsViaEdges({
+  db,
+  logger,
+  entityIds,
+  userId,
+}: {
+  db: Surreal;
+  logger: { warn: (msg: string) => void };
+  entityIds: string[];
+  /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
+  userId?: string;
+}): Promise<string[]> {
   if (entityIds.length === 0) return entityIds;
   const rids = entityIds.map((raw) => {
     const id = raw.startsWith('knowledge_entity:')
@@ -111,10 +143,15 @@ export async function expandEntityIdsViaEdges(
       : raw;
     return new StringRecordId(`knowledge_entity:${id}`);
   });
+  const fence = buildEdgeFence(userId);
   type Row = {
     id: unknown;
-    outNeighbours: Array<{ peer: { id: unknown } | null }> | null;
-    inNeighbours: Array<{ peer: { id: unknown } | null }> | null;
+    outNeighbours: Array<{
+      peer: { id: unknown; userId?: string | null } | null;
+    }> | null;
+    inNeighbours: Array<{
+      peer: { id: unknown; userId?: string | null } | null;
+    }> | null;
   };
   const out = new Set<string>();
   for (const id of entityIds) {
@@ -124,19 +161,22 @@ export async function expandEntityIdsViaEdges(
     const [rows] = await db.query<[Row[]]>(
       `SELECT
              id,
-             ->knowledge_edge.{ peer: out.{id} } AS outNeighbours,
-             <-knowledge_edge.{ peer: in.{id} } AS inNeighbours
+             ->(knowledge_edge WHERE ${fence.cond}).{ peer: out.{id, userId} } AS outNeighbours,
+             <-(knowledge_edge WHERE ${fence.cond}).{ peer: in.{id, userId} } AS inNeighbours
            FROM $ids`,
-      { ids: rids },
+      { ids: rids, ...fence.params },
     );
     for (const row of (rows as Row[]) ?? []) {
       const seedId = String(row.id);
       const consider = (
-        side: Array<{ peer: { id: unknown } | null }> | null,
+        side: Array<{
+          peer: { id: unknown; userId?: string | null } | null;
+        }> | null,
       ) => {
         if (!side) return;
         for (const e of side) {
           if (!e?.peer) continue;
+          if (!fence.allowsPeer(e.peer.userId)) continue;
           const peerId = String(e.peer.id);
           if (peerId === seedId) continue;
           out.add(peerId);

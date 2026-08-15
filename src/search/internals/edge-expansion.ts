@@ -1,6 +1,7 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
 import type { EntityBucket, FactRow, NeighbourEdge } from './types';
+import { buildEdgeFence } from './edge-fence';
 
 /**
  * Pick the top-N entity ids from the post-bucketing map by rankScore.
@@ -214,14 +215,15 @@ export async function expandViaEdges({
   });
   if (uncovered.length > 0) {
     const seedRids = uncovered.map((s) => new StringRecordId(s.entityId));
+    const fence = buildEdgeFence(dto.userId);
     try {
       const [rows] = await db.query<[EdgeRow[]]>(
         `SELECT
              id,
-             ->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
-             <-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours
+             ->(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: out.{id, userId} } AS outNeighbours,
+             <-(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: in.{id, userId} } AS inNeighbours
            FROM $ids`,
-        { ids: seedRids },
+        { ids: seedRids, ...fence.params },
       );
       edgeRows.push(...((rows as EdgeRow[]) ?? []));
     } catch (err) {
@@ -235,6 +237,9 @@ export async function expandViaEdges({
   // Collect (seedId, neighbourId, weight) tuples. Dedupe per-seed by
   // neighbour, capped at maxNeighboursPerSeed. Drop identity_of
   // self-loops (post-merge residue) — they cannot inject anything new.
+  // The peer-side fence ALSO covers prefetched neighbourhoods (the
+  // combined vector+graph leg projects peer.userId for exactly this).
+  const peerFence = buildEdgeFence(dto.userId);
   type Tuple = { seedId: string; neighbourId: string; weight: number };
   const tuples: Tuple[] = [];
   for (const row of edgeRows) {
@@ -244,12 +249,13 @@ export async function expandViaEdges({
       side: Array<{
         kind: string;
         weight?: number;
-        peer: { id: unknown } | null;
+        peer: { id: unknown; userId?: string | null } | null;
       }> | null,
     ) => {
       if (!side) return;
       for (const e of side) {
         if (!e?.peer) continue;
+        if (!peerFence.allowsPeer(e.peer.userId)) continue;
         const peerId = String(e.peer.id);
         if (peerId === seedId) continue;
         // Skip neighbours already retrieved — vector evidence is

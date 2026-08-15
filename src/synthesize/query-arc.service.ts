@@ -18,6 +18,8 @@ import {
   runDenseScanLeg,
   type CoverageScanTuning,
 } from './scan-leg';
+import { buildLexMatchLeg } from './lex-leg';
+import type { CoverageLexMode } from '../search/retrieval-profile';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 
@@ -78,6 +80,8 @@ export class QueryArcService {
     userId?: string;
     /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
     scan?: CoverageScanTuning;
+    /** Lexical-leg shape (V11 A2); omitted → the legacy phrase matcher. */
+    lex?: CoverageLexMode;
   }): Promise<string[]> {
     const topic = extractArcTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii')
@@ -140,15 +144,20 @@ export class QueryArcService {
             tuning,
             logger: this.logger,
           });
+          const lexLeg = buildLexMatchLeg({
+            fields: ['searchHaystack', 'object'],
+            topic,
+            mode: opts.lex ?? 'phrase',
+          });
           const [bm25] = await db.query<[FactScanRow[]]>(
             `SELECT id, predicate, object, validFrom,
-                    math::max([search::score(1), search::score(2)]) AS score
+                    ${lexLeg.score} AS score
                FROM knowledge_fact
-              WHERE (searchHaystack @1@ $topic OR object @2@ $topic)
+              WHERE ${lexLeg.where}
                 ${atomicGate} ${piiGate} ${userGate} ${worldGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { topic, ...shared },
+            { ...lexLeg.params, ...shared },
           );
           return mergeFactLegs(
             dense.filter((r) => rowPolicy.filter(r)),

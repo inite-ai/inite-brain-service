@@ -47,6 +47,11 @@ function candidate(sim: number, etype = 'customer') {
   return [[{ entityId: 'knowledge_entity:x', etype, sim }]];
 }
 
+/** KNN-path rows carry the walk's cosine DISTANCE (sim = 1 − dist). */
+function knnCandidate(dist: number, etype = 'customer') {
+  return [[{ entityId: 'knowledge_entity:x', etype, dist }]];
+}
+
 describe('EntityResolverService.resolveByName', () => {
   it('returns null and touches nothing when the flag is off', async () => {
     const { svc, db, judge } = makeService({
@@ -140,7 +145,8 @@ describe('EntityResolverService name-candidate scan (INGEST_INLINE_RESOLUTION_HN
       INGEST_INLINE_RESOLUTION_HNSW: '1',
       INGEST_INLINE_RESOLUTION_CANDIDATES: '5', // kOver = 5 × 8 = 40
     });
-    db.query.mockResolvedValueOnce(candidate(0.95));
+    // The KNN path returns the walk's cosine DISTANCE (sim = 1 − dist).
+    db.query.mockResolvedValueOnce(knnCandidate(0.05));
     const out = await svc.resolveByName({
       db: db as any,
       name: 'Acme',
@@ -151,6 +157,10 @@ describe('EntityResolverService name-candidate scan (INGEST_INLINE_RESOLUTION_HN
     expect(db.query).toHaveBeenCalledTimes(1);
     expect(sqlOf(db)).toContain('embedding <|40,100|> $q');
     expect(sqlOf(db)).toContain("predicate = 'name'");
+    // A4 idiom: the projection reuses the walk's distance — a fresh
+    // cosine next to the KNN operator drops the planner off the KnnScan.
+    expect(sqlOf(db)).toContain('vector::distance::knn()');
+    expect(sqlOf(db)).not.toContain('similarity::cosine');
     // KNN pre-filter replaces the explicit embedding-not-none guard.
     expect(sqlOf(db)).not.toContain('embedding != NONE');
   });
@@ -163,7 +173,7 @@ describe('EntityResolverService name-candidate scan (INGEST_INLINE_RESOLUTION_HN
       INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH: '4', // kOver = 10 × 4 = 40
       INGEST_INLINE_RESOLUTION_HNSW_EF: '64',
     });
-    db.query.mockResolvedValueOnce(candidate(0.95));
+    db.query.mockResolvedValueOnce(knnCandidate(0.05));
     await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] });
     expect(sqlOf(db)).toContain('embedding <|40,64|> $q');
   });
@@ -194,11 +204,12 @@ describe('EntityResolverService name-candidate scan (INGEST_INLINE_RESOLUTION_HN
       ...ENABLED,
       INGEST_INLINE_RESOLUTION_HNSW: '1',
     });
-    // Nearest is a different type; below it is one under the floor → no match.
+    // Nearest is a different type; below it is one under the floor → no
+    // match. KNN rows carry the walk's distance (sim = 1 − dist).
     db.query.mockResolvedValueOnce([
       [
-        { entityId: 'knowledge_entity:a', etype: 'asset', sim: 0.98 },
-        { entityId: 'knowledge_entity:b', etype: 'customer', sim: 0.5 },
+        { entityId: 'knowledge_entity:a', etype: 'asset', dist: 0.02 },
+        { entityId: 'knowledge_entity:b', etype: 'customer', dist: 0.5 },
       ],
     ]);
     expect(

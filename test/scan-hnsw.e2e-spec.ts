@@ -137,4 +137,69 @@ describe('coverage-scan HNSW parity (real SurrealDB)', () => {
     // Date objects (the mergeFactLegs normalization).
     expect(bruteArc[0]).toMatch(/^- \[\d{4}-\d{2}-\d{2}\] /);
   });
+
+  it("lex='or_terms' surfaces partial-topic rows the AND matcher cannot", async () => {
+    // The A2 class: the row mentions ONE topic word ('parser', never
+    // 'project'), so the legacy phrase matcher — AND-semantics over
+    // analyzed tokens — can never return it as a lexical hit. Under
+    // or_terms it is a hit by construction. Executed against a REAL
+    // SurrealDB, this also pins the rewrite's operator semantics:
+    // unique match refs, the parenthesized disjunction ahead of the
+    // gate tail, and the sum-of-max score projection all parse and
+    // plan on the FULLTEXT indexes. (No phrase-side absence assert:
+    // the dense leg may legitimately pick the row up by embedding —
+    // the rewrite claim is about the lexical leg only.)
+    const surreal = f.app.get(SurrealService);
+    const embedder = f.app.get(EmbedderService);
+    const text = '[2026-01-20] user: wrapping up the parser rewrite tonight';
+    await surreal.withCompany(f.companyId, async (db) => {
+      await db.query(`INSERT INTO episode_segment $rows`, {
+        rows: [
+          {
+            conversationId: 'conv_partial',
+            seq: 0,
+            episodeIds: [],
+            text,
+            occurredAt: new Date('2026-01-20T10:00:00Z'),
+            recorder: 'test-seeder',
+            embedding: await embedder.embed(text),
+          },
+        ],
+      });
+    });
+    const fact = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'work', id: 'parity_subject' },
+        predicate: 'work_update_partial',
+        object: 'parser rewrite kickoff planned',
+        validFrom: '2026-01-20',
+        confidence: 0.9,
+        source: { vertical: 'work', recorder: 'bot' },
+      });
+    expect([200, 201]).toContain(fact.status);
+
+    const mention = f.app.get(MentionScanService);
+    const orTermMentions = await mention.mentionLines({
+      companyId: f.companyId,
+      query: ORDER_QUERY,
+      callerScopes: [],
+      lex: 'or_terms',
+    });
+    expect(
+      orTermMentions.some((l) => l.includes('parser rewrite tonight')),
+    ).toBe(true);
+
+    const arc = f.app.get(QueryArcService);
+    const orTermArc = await arc.arcLines({
+      companyId: f.companyId,
+      query: ARC_QUERY,
+      callerScopes: [],
+      lex: 'or_terms',
+    });
+    expect(
+      orTermArc.some((l) => l.includes('parser rewrite kickoff')),
+    ).toBe(true);
+  });
 });

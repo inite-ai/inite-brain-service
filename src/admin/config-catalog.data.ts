@@ -306,7 +306,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_PPR_ENABLED',
         category: 'search',
-        defaultValue: '1',
+        // Code default is OFF (retrieval-profile.ts pprEnabled): on
+        // small per-tenant graphs PPR amplifies hub effects
+        // pathologically — measured. The catalog claimed '1' until the
+        // 2026-08 graph audit.
+        defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: true,
       },
@@ -345,7 +349,10 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'MULTI_HOP_EDGE_EXPANSION_ENABLED',
         category: 'multihop',
-        defaultValue: '1',
+        // Code default is OFF ("so the existing eval baseline doesn't
+        // shift" — multi-hop-chain.service.ts). The catalog claimed
+        // '1' until the 2026-08 graph audit.
+        defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: true,
       },
@@ -829,6 +836,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Dense-leg execution mode of the two coverage-first scan lanes — mention-scan over episode_segment (timelineEvidence='scan') and query_arc over knowledge_fact (insightEvidence='query_arc'): brute (exact filtered top-k via a full-table cosine ORDER BY — correct at eval scale by design, the default; identical legacy semantics) | hnsw (approximate KNN <|k,ef|> against the per-tenant HNSW indexes — segment_embedding_hnsw / fact_embedding_hnsw, built via POST /v1/admin/maintenance/hnsw — with overfetch compensating SurrealDB's post-KNN WHERE filtering; falls back to the brute scan on error OR an empty post-filter pool, so tenants without the indexes behave identically). The V11 scale gate: promotion of the scan lanes to default-on for large tenants goes through this leg plus the parity check (scripts/scan-hnsw-parity.ts, recall ≥ 0.98) first.",
       },
       {
+        key: 'RETRIEVAL_COVERAGE_LEX_MODE',
+        category: 'pipeline',
+        defaultValue: 'phrase',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Lexical-leg (BM25) query shape of the two coverage-first scan lanes — mention-scan over episode_segment and query_arc over knowledge_fact: phrase (one matcher per indexed field fed the whole extracted topic phrase — the legacy default; the matches operator @N@ is AND-semantics over analyzed tokens on SurrealDB 3.x, so a 2-5 token topic must appear IN FULL and the lexical leg rarely fires, leaving the hybrid pool dense-driven — the V11 audit A2 finding) | or_terms (per-term matchers over the stripped topic terms OR-ed with unique match refs, bounded at 8 terms; a row mentioning ANY topic word is a lexical hit, scored as the sum over terms of the best per-field BM25 so multi-term rows rank higher). Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (coverageLexMode). Measured-behavior change: flip after the eval pair, not by default.",
+      },
+      {
+        key: 'RETRIEVAL_VERIFIER_MODEL',
+        category: 'pipeline',
+        defaultValue: '',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Model override for the verifier/auditor LLM call only — the generator keeps the synthesis model. Empty (default) = the verifier inherits the synthesis model, byte-identical legacy behavior. The V11 §2 strong-judge arm: under abstentionCalibration='verifier' the abstention decision quality is bounded by the audit model's judgment, so a tenant can pay for a stronger judge (e.g. gpt-5-mini) on exactly one call per answer without touching generation cost. Also overlayable per tenant via RETRIEVAL_PROFILE_OVERRIDES (verifierModel).",
+      },
+      {
         key: 'RETRIEVAL_SCAN_HNSW_EF',
         category: 'pipeline',
         defaultValue: '400',
@@ -871,7 +896,34 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
+          "V9 §4 memory-coverage abstention (profile field abstentionCalibration): off (abstention decided solely by the generator's judgment — pre-V9) | coverage (in strict/lenient guardrails, evidence must clear the coverage floor — best fact score ≥ RETRIEVAL_ABSTENTION_MIN_SCORE and fact count ≥ RETRIEVAL_ABSTENTION_MIN_EVIDENCE — before generation; below it synthesize returns an explicit not-in-my-memory answer with reason low_coverage. Calibration finding: retrieval-level floors cannot detect ANSWER-absence on topically-adjacent questions — useful only for genuinely off-topic queries) | verifier (answer-level coverage: in lenient guardrails an unsupported/partial verifier verdict returns the explicit not-in-my-memory decline instead of ungrounded text; zero extra cost — the verifier already runs there) | minicheck (V11 §2 arm b: the same lenient answer-level gate, but the consistency judgment comes from a LOCAL Bespoke-MiniCheck NLI over Ollama — MINICHECK_URL / MINICHECK_MODEL — replacing the LLM verifier call on this path; zero marginal API cost). 'answer' guardrails are always exempt: that mode is a caller-level never-abstain contract.",
+      },
+      {
+        key: 'RETRIEVAL_DIGEST_EVIDENCE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
+      },
+      {
+        key: 'MINICHECK_URL',
+        category: 'pipeline',
+        defaultValue: 'http://127.0.0.1:11434',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "Ollama base URL for the local Bespoke-MiniCheck NLI used by RETRIEVAL_ABSTENTION_CALIBRATION=minicheck. Only read on that path — no other mode touches it.",
+      },
+      {
+        key: 'MINICHECK_MODEL',
+        category: 'pipeline',
+        defaultValue: 'bespoke-minicheck',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          "Ollama model tag for the minicheck abstention judge (`ollama pull bespoke-minicheck`, ~4.7GB, SOTA on the LLM-AggreFact grounded-factuality leaderboard). Only read under RETRIEVAL_ABSTENTION_CALIBRATION=minicheck.",
       },
       {
         key: 'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -907,7 +959,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, coverageLexMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',
@@ -1153,6 +1205,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Importance scoring, write side (V8 §4 → V9 §5 volume-neutral rebuild): after the proposition passes, a SEPARATE cheap grading turn scores each emitted proposition's salience 0-3 (0 incidental, 1 routine, 2 notable, 3 identity-central) against a mass rubric (~10/60/25/5), and the write stamps it as source.salience — no schema migration, no resolver change (source is FLEXIBLE). The V8 in-prompt section primed over-emission (+54-74% propositions, write-parity gate FAIL) and inflated grades; grading AFTER emission is volume-neutral by construction. Read-side use is separately gated by RETRIEVAL_SALIENCE_SCORING; unstamped rows read as neutral. Default off; confirm on a FRESH derivedVersion. Requires re-derive.",
       },
       {
+        key: 'DERIVER_DIGEST',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V12 §2 rolling conversation digest (the graphiti saga port; LIGHT ablation: the scratchpad is the load-bearing component at 100K, +160% on summarization): the deriver folds each session chronologically into one bounded narrative digest per conversation (conversation_digest, migration 0086) — the dated story of how topics evolved, which summarization golds ask for and fact extraction keeps thinnest. Merge contract: durable facts only, contradictions keep both beats with dates, unchanged when nothing new, no meta-language, ≤250 words (2400-char hard cap). Two watermarks: lastIngestAt (monotonic fold time) + lastEventAt (max folded occurredAt, advance-only). One extra deriver-model call per session; replace-per-namespace on re-derive. Read-side use is separately gated (RETRIEVAL_DIGEST_EVIDENCE, ships with the V12 leg). Default off — byte-identical derive. Requires re-derive.",
+      },
+      {
+        key: 'DERIVER_MENTION_STAMP',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "V12 §1 mention anchoring (the graphiti reference_time port): each derived fact is stamped with the event time of its FIRST grounding turn — source.mentionedAt (that turn's occurredAt, not the session date) and source.turnIndex (within-session ordinal). Pure metadata on the FLEXIBLE source object: no prompt change, no migration, no resolver-arity change, byte-identical off. This is what makes mention ORDER recoverable from facts — extraction otherwise collapses a session's mentions onto one validFrom (the measured event_ordering failure, 5% strict). Read-side consumers ship with the V12 ordering leg; unstamped rows read as before. Requires re-derive on a FRESH derivedVersion.",
+      },
+      {
         key: 'DERIVER_SLOT_SIMILARITY',
         category: 'extractor',
         defaultValue: '0.9',
@@ -1280,6 +1350,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Edge count from which community label propagation runs on the job worker pool instead of the main thread (needs JOB_WORKER_POOL_SIZE > 0; pool failures fall back in-thread). 0 = never offload.',
+      },
+      {
+        key: 'COMMUNITIES_MIN_SIZE',
+        category: 'dreams',
+        defaultValue: '3',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Minimum member count for a detected community to be persisted (and summarized). Smaller clusters are dropped as noise.',
+      },
+      {
+        key: 'COMMUNITIES_MAX_ITERATIONS',
+        category: 'dreams',
+        defaultValue: '10',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Label-propagation sweep cap for community detection. The algorithm usually converges in 3-5 sweeps; the cap bounds pathological oscillation.',
+      },
+      {
+        key: 'COMMUNITIES_SUMMARY_MAX_MEMBERS',
+        category: 'dreams',
+        defaultValue: '10',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'How many member entities (by degree) are sampled into the LLM community-summary prompt.',
       },
       // ── Compaction: promotion ────────────────────────────────
       {

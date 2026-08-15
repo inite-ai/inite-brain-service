@@ -316,11 +316,12 @@ export class MultiHopChainService {
       anchorIds = priorEntityIds;
       if (envFlagEnabled(process.env.MULTI_HOP_EDGE_EXPANSION_ENABLED)) {
         try {
-          anchorIds = await this.search.expandEntityIdsViaEdges(
+          anchorIds = await this.search.expandEntityIdsViaEdges({
             companyId,
-            priorEntityIds,
+            entityIds: priorEntityIds,
             callerScopes,
-          );
+            userId: dto.userId,
+          });
         } catch (err) {
           this.logger.warn(
             `multi-hop edge-expansion failed, anchoring to bare prior set: ${(err as Error).message}`,

@@ -348,3 +348,93 @@ function deriverRequest(
     },
   });
 }
+
+/**
+ * V12 §2 (the graphiti saga merge contract, adapted): fold ONE session
+ * into the rolling conversation digest. The digest is the narrative
+ * arc — how topics evolved, with dates — the summarization golds ask
+ * for and fact extraction keeps thinnest (the earliest exploratory
+ * beats). Bounded state, one call per session, chronological fold
+ * order is the caller's contract.
+ */
+export const DIGEST_MERGE_SYSTEM = `You maintain a rolling digest of ONE ongoing conversation.
+
+Input: the EXISTING DIGEST (may be empty) and one SESSION transcript with its date.
+Merge the session's durable content into the digest and output the FULL updated digest text, nothing else.
+
+Rules:
+- Narrative and chronological: keep the story of how topics and projects EVOLVED, with day stamps like [2026-03-15] on each beat. Early beats stay in the digest — do not drop history when adding new beats.
+- Durable facts only. When newer content contradicts an earlier beat, keep both with their dates ("switched from X to Y").
+- If the session adds no durable content, return the existing digest unchanged.
+- No meta-language: never "mentioned", "discussed", "stated", "asked about" — write the facts and events themselves.
+- PLAIN PROSE ONLY. Never reproduce code, templates, markup, tables, config or command output from the session — describe what it does in one clause ("built the transactions page template with per-row categories") instead. A digest containing a code block is ALWAYS wrong.
+- Preserve names, dates, counts, versions and temporal qualifiers exactly.
+- Keep the whole digest under 250 words; compress the least-informative old beats first, never the dated skeleton.`;
+
+/** Hard cap on stored digest text — the prompt asks for ~250 words;
+ *  this is the belt for prompt-escape (chars, not tokens). */
+export const DIGEST_CHAR_CAP = 2400;
+
+export async function foldDigest(
+  deps: DeriverClientDeps,
+  args: { existing: string; sessionDate: Date; transcript: string[] },
+): Promise<string> {
+  const day = args.sessionDate.toISOString().slice(0, 10);
+  const res = await deps.openai.chat.completions.create({
+    model: deps.model,
+    temperature: 0.1,
+    max_completion_tokens: 1200,
+    messages: [
+      { role: 'system', content: DIGEST_MERGE_SYSTEM },
+      {
+        role: 'user',
+        content:
+          `EXISTING DIGEST:\n${args.existing || '(empty)'}\n\n` +
+          `SESSION [${day}]:\n${args.transcript.join('\n')}`,
+      },
+    ],
+  });
+  const text = (res.choices[0]?.message?.content ?? '').trim();
+  // A degrade must never ERASE the digest — an empty/failed fold keeps
+  // the previous state (same contract as the salience grading turn).
+  if (!text) return args.existing;
+  // Prompt-escape belt (measured live on the first wd-v12 tenants: a
+  // mini model echoed a Jinja template from a code-heavy session as
+  // the whole "digest"). Markup/code output is ALWAYS wrong here —
+  // keep the previous state instead of poisoning every later fold.
+  if (/```|\{%|<\/?[a-z][a-z0-9]*[\s>]/i.test(text)) {
+    deps.logger.warn(
+      'digest fold returned code/markup — keeping the previous state',
+    );
+    return args.existing;
+  }
+  if (text.length <= DIGEST_CHAR_CAP) return text;
+  // Over budget: hard-truncating the TAIL would eat the NEWEST beats
+  // (measured on the first wd-v12 tenants — the digest ended mid-word
+  // inside the latest session). One compress turn owns the trade-off;
+  // the hard cap stays as the last belt only.
+  const compressed = await deps.openai.chat.completions
+    .create({
+      model: deps.model,
+      temperature: 0.1,
+      max_completion_tokens: 1200,
+      messages: [
+        { role: 'system', content: DIGEST_MERGE_SYSTEM },
+        {
+          role: 'user',
+          content:
+            'This digest exceeds the budget. Rewrite it UNDER 250 words: ' +
+            'merge the oldest and least-informative beats into fewer summary ' +
+            'beats; PRESERVE every beat from the most recent sessions and ' +
+            'the dated skeleton.\n\n' +
+            text,
+        },
+      ],
+    })
+    .then((r) => (r.choices[0]?.message?.content ?? '').trim())
+    .catch(() => '');
+  const final = compressed && compressed.length <= text.length ? compressed : text;
+  return final.length > DIGEST_CHAR_CAP
+    ? `${final.slice(0, DIGEST_CHAR_CAP - 1)}…`
+    : final;
+}
