@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`BOOTSTRAP_GOLD_SET — golden isotonic fit matches the snapshotted (thresholds, values, sampleCount) tuple 1`] = `
 {
