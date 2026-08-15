@@ -129,17 +129,28 @@ async function runVectorLegKnn({
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
-  const [rows] = await db.query<[FactRow[]]>(
+  //
+  // The projection MUST be vector::distance::knn(), not a fresh cosine
+  // call: re-projecting vector::similarity::cosine next to the KNN
+  // operator drops the planner off the KnnScan and costs more than the
+  // full scan (V11 audit A4 — 6-8s vs 0.45s brute on a 20k stand table;
+  // one such query at kOver=1600 OOM-killed a 16GB SurrealDB). COSINE
+  // distance = 1 − cosine similarity; converted below so consumers
+  // (fusion normalization, margin cuts) keep exact sim semantics.
+  const [rows] = await db.query<[Array<FactRow & { knnDist?: number }>]>(
     `SELECT ${projection},
-            vector::similarity::cosine(embedding, $q) AS simScore
+            vector::distance::knn() AS knnDist
        FROM knowledge_fact
        WHERE embedding <|${kOver},${ef}|> $q
          ${baseWhere.sql}
-       ORDER BY simScore DESC
+       ORDER BY knnDist ASC
        LIMIT $k`,
     { ...baseWhere.params, q: queryEmbedding, k },
   );
-  return (rows as FactRow[]) ?? [];
+  return (rows ?? []).map(({ knnDist, ...rest }) => ({
+    ...rest,
+    simScore: typeof knnDist === 'number' ? 1 - knnDist : undefined,
+  })) as FactRow[];
 }
 
 /**

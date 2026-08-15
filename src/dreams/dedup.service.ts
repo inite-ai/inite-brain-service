@@ -237,17 +237,28 @@ export class DreamsDedupService {
       const overfetch = parseInt(process.env.SEARCH_HNSW_OVERFETCH ?? '4', 10);
       const kOver = Math.min(5 * overfetch, 1000);
       try {
-        const res = await db.query<[unknown, Row[]]>(
+        // vector::distance::knn() reuses the walk's distance — a fresh
+        // cosine projection next to the KNN operator drops the planner
+        // off the KnnScan (V11 audit A4). sim = 1 − cosine distance;
+        // works with the LET-var query vector (stand-verified).
+        const res = await db.query<
+          [unknown, Array<{ entityId: unknown; dist: number }>]
+        >(
           `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
-           SELECT entityId, vector::similarity::cosine(embedding, $q) AS sim
+           SELECT entityId, vector::distance::knn() AS dist
              FROM knowledge_fact
             WHERE embedding <|${kOver},${ef}|> $q
               AND ${filters}
-            ORDER BY sim DESC
+            ORDER BY dist ASC
             LIMIT 5;`,
           { fid: seedFactId, ...fence.params },
         );
-        return (res[1] as Row[]) ?? [];
+        return ((res[1] as Array<{ entityId: unknown; dist: number }>) ?? []).map(
+          ({ entityId, dist }) => ({
+            entityId,
+            sim: typeof dist === 'number' ? 1 - dist : 0,
+          }),
+        );
       } catch (e) {
         this.logger.warn(
           `[dreams.dedup] KNN leg failed (${(e as Error).message}); falling back to scan`,
