@@ -1,9 +1,9 @@
 name: Deploy brain.inite.ai landing
 
 # Builds + deploys the marketing/docs landing that serves /, /{en,ru}*,
-# /skills.tar.gz, /install.sh on the SAME host as the backend
+# /skills.tar.gz, /install.sh, /openapi.json on the SAME host as the backend
 # (brain.inite.ai). Backend's Traefik router is restricted to
-# /v1, /mcp, /health, /metrics, /openapi.json — see deploy-brain.yml.
+# /v1, /mcp, /health, /metrics — see deploy-brain.yml.
 
 on:
   push:
@@ -121,11 +121,11 @@ jobs:
           cd /opt/projects/${{ env.PROJECT_NAME }}
 
           # Landing handles Host(brain.inite.ai) as a catch-all. Backend
-          # owns the explicit /v1, /mcp, /health, /metrics, /openapi.json
-          # prefixes via priority=200 + PathPrefix rules. Traefik picks the
-          # longest matching rule, so backend wins on its paths and the
-          # landing serves everything else (/, /{en,ru}/*, /skills.tar.gz,
-          # /install.sh, /_next/*).
+          # owns the explicit /v1, /mcp, /health, /metrics prefixes via
+          # priority=200 + PathPrefix rules. Traefik picks the longest
+          # matching rule, so backend wins on its paths and the landing
+          # serves everything else (/, /{en,ru}/*, /skills.tar.gz,
+          # /install.sh, /openapi.json, /_next/*).
           tee docker-compose.yml > /dev/null << EOF
           services:
             ${{ env.PROJECT_NAME }}:
@@ -239,9 +239,15 @@ jobs:
           for i in $(seq 1 12); do
             if curl -fs "https://${{ env.DOMAIN }}/en" > /dev/null 2>&1; then
               echo "[ok] https://${{ env.DOMAIN }}/en responds"
-              echo "[ok] /skills.tar.gz: $(curl -fsI https://${{ env.DOMAIN }}/skills.tar.gz | head -1)"
-              echo "[ok] /install.sh:    $(curl -fsI https://${{ env.DOMAIN }}/install.sh | head -1)"
-              echo "[ok] /v1/health:     $(curl -fsI https://${{ env.DOMAIN }}/health | head -1)"
+              # Status codes, not decorated echoes. The lines below used to
+              # print "[ok]" whether or not the curl succeeded — `curl -fsI`
+              # writes nothing on a failure, so a 404 rendered as "[ok] " with
+              # an empty tail and read as a pass. /openapi.json was a 404 for
+              # months while this probe ran green on every deploy.
+              for path in /skills.tar.gz /install.sh /health /openapi.json; do
+                code=$(curl -s -o /dev/null -w '%{http_code}' "https://${{ env.DOMAIN }}$path")
+                [ "$code" = "200" ] && echo "[ok]   $path -> $code" || echo "[warn] $path -> $code"
+              done
               exit 0
             fi
             echo "[info] external probe retry ($i/12)..."

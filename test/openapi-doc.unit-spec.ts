@@ -70,6 +70,24 @@ describe('docs/openapi.json', () => {
     expect(committed).toEqual(built);
   });
 
+  // The landing serves a second copy at brain.inite.ai/openapi.json — the URL
+  // its own footer, llms.txt and .well-known/agent-actions have always pointed
+  // at, and which 404'd because deploy-brain.yml routed the path to this
+  // service, which has no route for it. It has to be a copy rather than a
+  // reference: brain-landing's Docker build copies only from inside
+  // brain-landing/, so a route reaching up to ../../docs would work locally
+  // and fail in production. Something then has to notice when the two stop
+  // agreeing, and this is that something.
+  it('is published byte-identically to brain-landing/public', () => {
+    const published = readFileSync(
+      join(__dirname, '..', 'brain-landing', 'public', 'openapi.json'),
+      'utf8',
+    );
+    expect(published).toBe(
+      readFileSync(join(__dirname, '..', 'docs', 'openapi.json'), 'utf8'),
+    );
+  });
+
   it.each(PLATFORM_OPERATIONS)(
     'documents %s %s with operationId and responses',
     (path, method) => {
