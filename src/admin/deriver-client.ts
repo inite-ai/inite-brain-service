@@ -408,7 +408,33 @@ export async function foldDigest(
     );
     return args.existing;
   }
-  return text.length > DIGEST_CHAR_CAP
-    ? `${text.slice(0, DIGEST_CHAR_CAP - 1)}…`
-    : text;
+  if (text.length <= DIGEST_CHAR_CAP) return text;
+  // Over budget: hard-truncating the TAIL would eat the NEWEST beats
+  // (measured on the first wd-v12 tenants — the digest ended mid-word
+  // inside the latest session). One compress turn owns the trade-off;
+  // the hard cap stays as the last belt only.
+  const compressed = await deps.openai.chat.completions
+    .create({
+      model: deps.model,
+      temperature: 0.1,
+      max_completion_tokens: 1200,
+      messages: [
+        { role: 'system', content: DIGEST_MERGE_SYSTEM },
+        {
+          role: 'user',
+          content:
+            'This digest exceeds the budget. Rewrite it UNDER 250 words: ' +
+            'merge the oldest and least-informative beats into fewer summary ' +
+            'beats; PRESERVE every beat from the most recent sessions and ' +
+            'the dated skeleton.\n\n' +
+            text,
+        },
+      ],
+    })
+    .then((r) => (r.choices[0]?.message?.content ?? '').trim())
+    .catch(() => '');
+  const final = compressed && compressed.length <= text.length ? compressed : text;
+  return final.length > DIGEST_CHAR_CAP
+    ? `${final.slice(0, DIGEST_CHAR_CAP - 1)}…`
+    : final;
 }
