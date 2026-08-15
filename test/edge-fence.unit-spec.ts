@@ -103,6 +103,7 @@ describe('edge expansion under the fence', () => {
       dto: { query: 'q' } as never,
       callerScopes: [],
       passesPolicy: () => true,
+      config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
     });
     expect(sql[0]).toContain(
       '->(knowledge_edge WHERE invalidatedAt IS NONE AND userId IS NONE)',
@@ -123,6 +124,7 @@ describe('edge expansion under the fence', () => {
       dto: { query: 'q', userId: 'alice' } as never,
       callerScopes: [],
       passesPolicy: () => true,
+      config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
     });
     expect(sql[0]).toContain('userId = $edgeScopeUserId');
     expect(params[0].edgeScopeUserId).toBe('alice');
@@ -138,6 +140,7 @@ describe('edge expansion under the fence', () => {
       dto: { query: 'q' } as never,
       callerScopes: [],
       passesPolicy: () => true,
+      config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
       prefetchedNeighbours: new Map([
         [
           'knowledge_entity:seed',
@@ -269,5 +272,60 @@ describe('graph-retrieve neighbour walk under the fence', () => {
     const ids = await fetchOneHopNeighbourIds(db, ['knowledge_entity:seed']);
     expect(sql[0]).toContain('invalidatedAt IS NONE AND userId IS NONE');
     expect(ids).toEqual(['knowledge_entity:pub']);
+  });
+});
+
+describe('resolveExpansionConfig — the alpha kill switch', () => {
+  // Deferred import keeps this spec's header list stable.
+  const { resolveExpansionConfig } = jest.requireActual(
+    '../src/search/internals/edge-expansion',
+  );
+
+  it('an explicit 0 disables (the pre-fix parser mapped it to 0.4)', () => {
+    expect(
+      resolveExpansionConfig({
+        SEARCH_EDGE_EXPANSION_ALPHA: '0',
+      } as NodeJS.ProcessEnv).alpha,
+    ).toBe(0);
+  });
+
+  it('default is OFF since the 2026-08-15 ablation; 0.4 re-enables', () => {
+    expect(resolveExpansionConfig({} as NodeJS.ProcessEnv).alpha).toBe(0);
+    expect(
+      resolveExpansionConfig({
+        SEARCH_EDGE_EXPANSION_ALPHA: '0.4',
+      } as NodeJS.ProcessEnv).alpha,
+    ).toBe(0.4);
+    expect(
+      resolveExpansionConfig({
+        SEARCH_EDGE_EXPANSION_ALPHA: 'nope',
+      } as NodeJS.ProcessEnv).alpha,
+    ).toBe(0);
+    expect(
+      resolveExpansionConfig({
+        SEARCH_EDGE_EXPANSION_ALPHA: '1.5',
+      } as NodeJS.ProcessEnv).alpha,
+    ).toBe(0);
+  });
+
+  it('alpha 0 skips the edge queries entirely', async () => {
+    const { db, sql } = captureDb([[[]]]);
+    const injected = await expandViaEdges({
+      db,
+      logger: warnless,
+      byEntity: new Map([
+        [
+          'knowledge_entity:seed',
+          { entityId: 'knowledge_entity:seed', rankScore: 1, bestScore: 1, facts: [] },
+        ],
+      ]) as never,
+      baseWhere: { sql: '', params: {} },
+      dto: { query: 'q' } as never,
+      callerScopes: [],
+      passesPolicy: () => true,
+      config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0 },
+    });
+    expect(injected).toBe(0);
+    expect(sql).toHaveLength(0);
   });
 });

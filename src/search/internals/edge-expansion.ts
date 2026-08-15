@@ -88,11 +88,17 @@ export interface ExpansionConfig {
   alpha: number;
 }
 
-/** Pure fallback for callers that resolve no env (unit fixtures). */
+/** Pure fallback for callers that resolve no env (unit fixtures).
+ *  alpha 0 = edge expansion OFF — the 2026-08-15 default flip: the
+ *  LoCoMo dev-5 ablation on the one edge-bearing eval world measured
+ *  NULL (ON 75.3 vs OFF 74.8, n=762 paired, p=0.61 — inside the
+ *  same-config replication noise floor of ±17 flips), so the default
+ *  path stops paying two graph round-trips per search. Re-enable per
+ *  tenant with SEARCH_EDGE_EXPANSION_ALPHA=0.4. */
 const DEFAULT_EXPANSION_CONFIG: ExpansionConfig = {
   topSeeds: 3,
   maxNeighboursPerSeed: 5,
-  alpha: 0.4,
+  alpha: 0,
 };
 
 /**
@@ -109,11 +115,17 @@ export function resolveExpansionConfig(env: NodeJS.ProcessEnv): ExpansionConfig 
     1,
     parseInt(env.SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS ?? '5', 10) || 5,
   );
-  const rawAlpha = parseFloat(env.SEARCH_EDGE_EXPANSION_ALPHA ?? '0.4');
+  // 0 is meaningful — the kill switch AND the default since the
+  // 2026-08-15 ablation (see DEFAULT_EXPANSION_CONFIG). The pre-fix
+  // parser (`rawAlpha > 0`) silently mapped an explicit 0 back to the
+  // old 0.4 default, so the documented "0 disables edge expansion"
+  // had never been reachable via env — caught by the ablation arm
+  // running byte-identical to its baseline.
+  const rawAlpha = parseFloat(env.SEARCH_EDGE_EXPANSION_ALPHA ?? '0');
   const alpha =
-    Number.isFinite(rawAlpha) && rawAlpha > 0 && rawAlpha <= 1
+    Number.isFinite(rawAlpha) && rawAlpha >= 0 && rawAlpha <= 1
       ? rawAlpha
-      : 0.4;
+      : 0;
   return { topSeeds, maxNeighboursPerSeed, alpha };
 }
 
@@ -193,6 +205,10 @@ export async function expandViaEdges({
   config = DEFAULT_EXPANSION_CONFIG,
   prefetchedNeighbours,
 }: ExpandViaEdgesOptions): Promise<number> {
+  // alpha ≤ 0 = the kill switch: skip BEFORE the edge fan-out and the
+  // neighbour-fact fetch — the merge would inject nothing anyway, so
+  // paying the two round trips is pure waste.
+  if (config.alpha <= 0) return 0;
   const seeds = selectEdgeExpansionSeeds(byEntity, config.topSeeds);
   if (seeds.length === 0) return 0;
 

@@ -212,7 +212,11 @@ export async function runWorlds(
   worlds: EvalWorld[],
   opts: DriverOptions,
 ): Promise<{ scores: EvalScore[]; checkpointed: number }> {
-  const log = opts.log ?? ((m: string) => console.error(m));
+  // Default sink strips control chars: parts of the tag come from the
+  // dataset (conversationRef), and a newline smuggled through it could
+  // forge progress lines the chain scripts grep (js/log-injection).
+  const log =
+    opts.log ?? ((m: string) => console.error(m.replace(/[\r\n]+/g, ' ')));
   const done = await loadCheckpoint<EvalScore>(
     opts.resume,
     (s) => s.questionId,
