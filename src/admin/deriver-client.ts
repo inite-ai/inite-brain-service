@@ -41,6 +41,26 @@ ASSISTANT-SIDE CONTRIBUTIONS
 Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
 
 /**
+ * V12 §3 event-dating rules (DERIVER_DATE_RESOLVE) — the graphiti
+ * anti-collapse port for `occurred_on`. The base contract's one-liner
+ * ("when determinable, else null") measures as a session-date
+ * collapse: relative expressions land on the day of the CONVERSATION
+ * and "when did X happen" answers come out off by days (the armD miss
+ * class: gold "7 May" → answered the session date). Flag-gated,
+ * default off: a prompt change confirms only on a FRESH
+ * derivedVersion.
+ */
+export const DERIVER_DATE_SECTION = `
+
+EVENT DATING
+"occurred_on" dates the EVENT, never the conversation:
+- Resolve relative time by calendar arithmetic from the session date: "yesterday" on 2023-05-08 is 2023-05-07; "last Friday", "two weekends ago", "next month" resolve the same way. Never copy the session date for an event that merely got MENTIONED that day.
+- Use the session date ONLY for events that happened during the session's own day ("today I…", "this morning").
+- Planned or future events: date the planned occurrence when it is stated or derivable ("next Friday" → that Friday's date).
+- Month-only knowledge resolves to the FIRST day of that month ("in June" → 2023-06-01); year-only to January 1st. This is a rendering convention, not a precision claim.
+- When the event time is genuinely undeterminable, use null — a wrong default is worse than no date.`;
+
+/**
  * Salience grading (DERIVER_SALIENCE_STAMP, V8 §4 → V9 §5 rebuild):
  * a SEPARATE cheap turn over the emitted proposition list. The V8
  * in-prompt section failed both its gates — it primed over-emission
@@ -63,10 +83,12 @@ Grade EVERY numbered proposition. Hold the proportions unless the list is genuin
 /** System prompt assembly; each section only exists when its flag asks. */
 export function buildDeriverSystem(opts?: {
   assistantContent?: boolean;
+  dateResolve?: boolean;
 }): string {
   return (
     DERIVER_SYSTEM +
-    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '')
+    (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '') +
+    (opts?.dateResolve ? DERIVER_DATE_SECTION : '')
   );
 }
 
@@ -132,6 +154,7 @@ export async function callDeriver(
       role: 'system',
       content: buildDeriverSystem({
         assistantContent: profile.deriveAssistantContent,
+        dateResolve: profile.deriveDateResolve,
       }),
     },
     {

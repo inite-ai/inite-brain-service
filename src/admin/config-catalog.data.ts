@@ -908,6 +908,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
       },
       {
+        key: 'DERIVER_DATE_RESOLVE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V12 §3 event-dating rules for the session deriver (the graphiti anti-collapse port): occurred_on must date the EVENT, never the conversation — relative expressions resolve by calendar arithmetic from the session date, the session date is only valid for same-day events, month/year-only knowledge resolves to the period start, and a genuinely undeterminable date stays null instead of defaulting. Targets the measured off-by-days answer class (validFrom = session-date collapse). Prompt change: confirms only on a FRESH derivedVersion; off = byte-identical prompt.',
+      },
+      {
         key: 'RETRIEVAL_MENTION_DATES',
         category: 'pipeline',
         defaultValue: '0',
