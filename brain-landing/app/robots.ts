@@ -16,7 +16,23 @@ import { SITE_URL } from '../lib/seo'
  * app surfaces (api / admin / auth).
  */
 
-const APP_PATHS = ['/api/', '/en/admin/', '/ru/admin/', '/admin/', '/auth/']
+/**
+ * Not-for-crawling surfaces.
+ *
+ * /v1/ and /mcp belong to the backend, and they are POST-only and key-gated. A
+ * crawler only ever issues GET, so every one of those URLs is a permanent 404
+ * to anything that walks it — while .well-known/agent-actions publishes the
+ * full list of them by design, as the machine-readable manifest agents are
+ * meant to read. Google read it too and walked the URLs: /v1/search,
+ * /v1/dreams/run, /v1/facts/:id/retract and /v1/entities/:id/forget all landed
+ * in the 2026-08 not-found report, the last two with the literal `:id`
+ * placeholder still in the path.
+ *
+ * The manifest itself stays crawlable — that is the point of publishing it,
+ * and an agent calling an endpoint it names is making an API call, not a
+ * crawl. What stops here is a search crawler treating an API as pages.
+ */
+const APP_PATHS = ['/api/', '/v1/', '/mcp', '/en/admin/', '/ru/admin/', '/admin/', '/auth/']
 
 const CITATION_GRADE = [
   'OAI-SearchBot',

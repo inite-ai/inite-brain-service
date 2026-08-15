@@ -1390,16 +1390,43 @@ export function buildOpenApiDocument(): Json {
   return sortKeysDeep(document) as Json;
 }
 
+/**
+ * Where the document is written.
+ *
+ * Two copies, because brain.inite.ai/openapi.json is a URL three things
+ * already promise — the landing's footer on every page, its llms.txt, and
+ * .well-known/agent-actions as the API description — and none of them ever
+ * resolved. The reason was routing, not authorship: deploy-brain.yml claimed
+ * `Path(/openapi.json)` for the backend at priority 200, and the backend has
+ * no route for it, no Swagger module, and no copy of this file in its image
+ * (its Dockerfile ships src, dist and package.json). The request reached the
+ * one container that could not answer it.
+ *
+ * The document is a committed static artifact, so the path now falls through
+ * to the landing's catch-all and is served from its public/ next to
+ * /install.sh and /skills.tar.gz. It has to be a second write rather than a
+ * reference: the landing's Docker build copies only from inside
+ * brain-landing/, so a route reaching up to ../../docs would work locally and
+ * 404 in production.
+ *
+ * The copies cannot drift: one run of this script produces both, and
+ * test/openapi-doc.unit-spec.ts asserts both against a fresh build.
+ */
+const OUT_PATHS = [
+  join(__dirname, '..', 'docs', 'openapi.json'),
+  join(__dirname, '..', 'brain-landing', 'public', 'openapi.json'),
+];
+
 function main(): void {
-  const outPath = join(__dirname, '..', 'docs', 'openapi.json');
   const document = buildOpenApiDocument();
-  writeFileSync(outPath, JSON.stringify(document, null, 2) + '\n', 'utf8');
+  const body = JSON.stringify(document, null, 2) + '\n';
+  for (const outPath of OUT_PATHS) writeFileSync(outPath, body, 'utf8');
   const paths = Object.keys(document.paths as Json).length;
   const schemas = Object.keys(
     (document.components as Json).schemas as Json,
   ).length;
   process.stdout.write(
-    `wrote docs/openapi.json (${paths} paths, ${schemas} schemas)\n`,
+    `wrote ${OUT_PATHS.length} copies (${paths} paths, ${schemas} schemas)\n`,
   );
 }
 

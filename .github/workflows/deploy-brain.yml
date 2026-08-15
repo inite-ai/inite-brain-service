@@ -381,12 +381,22 @@ jobs:
                 - /opt/projects/${{ env.PROJECT_NAME }}/baselines:/var/brain/baselines
               labels:
                 # ── Backend routes only — landing handles the rest of brain.inite.ai.
-                # Backend owns /v1/*, /mcp/*, /health, /metrics, /openapi.json.
+                # Backend owns /v1/*, /mcp/*, /health, /metrics.
                 # Traefik sorts by rule length so this PathPrefix-restricted
                 # router naturally outranks the landing's Host-only catch-all.
+                #
+                # /openapi.json used to be claimed here and was a 404 the whole
+                # time: this service has no route for it, no Swagger module, and
+                # the image does not even ship docs/openapi.json — the Dockerfile
+                # copies src, dist and package.json, nothing else. Claiming the
+                # path only guaranteed the request never reached anything that
+                # could answer it. The document is a committed static artifact,
+                # so it now falls through to the landing's catch-all and is
+                # served out of brain-landing/public alongside /install.sh and
+                # /skills.tar.gz, written there by scripts/build-openapi.ts.
                 - "traefik.enable=true"
                 - "traefik.docker.network=traefik-global"
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || Path(\`/openapi.json\`))"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`))"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.priority=200"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.entrypoints=websecure"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}.tls=true"
@@ -394,7 +404,7 @@ jobs:
                 - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.server.port=${{ env.PORT }}"
                 - "traefik.http.services.${{ env.PROJECT_NAME }}.loadbalancer.responseForwarding.flushInterval=-1"
                 # http→https redirect for the same backend paths (landing has its own).
-                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`) || Path(\`/openapi.json\`))"
+                - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.rule=Host(\`${{ env.DOMAIN }}\`) && (PathPrefix(\`/v1\`) || PathPrefix(\`/mcp\`) || PathPrefix(\`/health\`))"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.priority=200"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.entrypoints=web"
                 - "traefik.http.routers.${{ env.PROJECT_NAME }}-http.middlewares=redirect-to-https"

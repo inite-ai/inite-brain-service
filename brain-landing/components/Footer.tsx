@@ -6,11 +6,22 @@ interface Props {
   lang: Lang
 }
 
-export function Footer({ lang }: Props) {
+/**
+ * The footer's link table, exported so a test can walk it.
+ *
+ * It used to be built inline in the component, which is why two dead links sat
+ * in the Resources column unnoticed — on every page of the site, since this
+ * footer renders on all of them. /docs/search has never existed (the page is
+ * /docs/api/search), and /openapi.json was claimed by the backend's Traefik
+ * router while the backend had no route for it. /health, the third link, is
+ * fine and always was. The 2026-08 Search Console crawl is where the other two
+ * surfaced, as not-founds, months after the fact.
+ */
+export function footerColumns(lang: Lang) {
   const t = getMessages(lang)
   const f = t.footer
 
-  const cols = [
+  return [
     {
       title: f.columns.product.title,
       links: [
@@ -35,10 +46,20 @@ export function Footer({ lang }: Props) {
       links: [
         { label: f.columns.resources.openapi, href: 'https://brain.inite.ai/openapi.json', ext: true },
         { label: f.columns.resources.status, href: 'https://brain.inite.ai/health', ext: true },
-        { label: f.columns.resources.api, href: `/${lang}/docs/search`, ext: false },
+        // /docs/search has never existed — the page is /docs/api/search, and
+        // this link 404'd from every page on the site. Google logged it as a
+        // not-found in the 2026-08 crawl alongside the other two entries in
+        // this column.
+        { label: f.columns.resources.api, href: `/${lang}/docs/api/search`, ext: false },
       ],
     },
   ]
+}
+
+export function Footer({ lang }: Props) {
+  const t = getMessages(lang)
+  const f = t.footer
+  const cols = footerColumns(lang)
 
   return (
     <footer className="mt-12 border-t border-[var(--border)] pt-12 pb-10">
