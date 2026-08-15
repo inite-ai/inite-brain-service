@@ -299,6 +299,13 @@ export interface RetrievalProfile {
    * date. Unstamped rows render as before.
    */
   mentionDates: boolean;
+  /**
+   * §8 item 3 over-enumeration contract: enumeration-lane answers
+   * commit to ONLY the items the facts tie to the asked scope — the
+   * measured judge-sink class is the gold list PLUS thematically
+   * adjacent extras. Off = the historical exhaustive-only frame.
+   */
+  enumStrict: boolean;
   /** Extra pre-retrieved facts folded into evidence (union cap). */
   extraEvidenceCap: number;
   /** PRF second retrieval for summary/enumeration-routed questions. */
@@ -505,6 +512,7 @@ export function resolveRetrievalProfile(
     segmentRerank: envFlagEnabled(env.SEARCH_SEGMENT_LANE_RERANK),
     factRerank: envFlagEnabled(env.SEARCH_FACT_RERANK),
     mentionDates: envFlagEnabled(env.RETRIEVAL_MENTION_DATES),
+    enumStrict: envFlagEnabled(env.RETRIEVAL_ENUM_STRICT),
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
@@ -623,6 +631,7 @@ export function resolveRetrievalProfileFor(
     'segmentRerank',
     'factRerank',
     'mentionDates',
+    'enumStrict',
     'wideProbe',
     'entityExpansion',
     'salienceScoring',

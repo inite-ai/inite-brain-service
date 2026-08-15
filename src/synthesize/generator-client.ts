@@ -68,6 +68,8 @@ export interface GenerateRequest {
   dateContext?: string;
   /** T1 typed dispatch lane, when the router matched. */
   lane?: LaneId | null;
+  /** §8 item 3: enumeration scope discipline (profile.enumStrict). */
+  enumStrict?: boolean;
   /** T7: standing user instructions for their own section. */
   instructions?: string[];
   /** T3: COMPETING conflict pairs detected in the evidence. */

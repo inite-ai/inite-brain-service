@@ -4,6 +4,7 @@ import {
   CONTRADICTION_DATE_ARBITRATION_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
+  ENUM_STRICT_CLAUSE,
   laneInstructionFor,
   type LaneId,
 } from './answer-router';
@@ -30,6 +31,7 @@ export function buildGeneratorUserMessage({
   lane,
   instructions,
   conflicts,
+  enumStrict,
 }: {
   query: string;
   factLines: string[];
@@ -77,6 +79,12 @@ export function buildGeneratorUserMessage({
   instructions?: string[];
   /** T3: write-side COMPETING conflict pairs present in the evidence. */
   conflicts?: Array<{ factIds: string[]; label: string }>;
+  /**
+   * §8 item 3 (profile.enumStrict): scope discipline appended to the
+   * enumeration lane frame — the measured judge-sink class is answers
+   * listing the gold items PLUS thematically adjacent extras.
+   */
+  enumStrict?: boolean;
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
@@ -92,7 +100,8 @@ export function buildGeneratorUserMessage({
   const laneInstruction = orderingFrame
     ? ORDERING_LANE_INSTRUCTION
     : lane && lane !== 'temporal'
-      ? (laneInstructionFor(lane) ?? '')
+      ? (laneInstructionFor(lane) ?? '') +
+        (lane === 'enumeration' && enumStrict ? ENUM_STRICT_CLAUSE : '')
       : '';
   const instructionSection =
     instructions && instructions.length > 0

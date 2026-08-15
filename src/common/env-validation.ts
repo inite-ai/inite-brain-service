@@ -536,6 +536,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V12 read side of DERIVER_MENTION_STAMP: "(mentioned YYYY-MM-DD)"
   // fact-line suffix when the anchor disagrees with validFrom by day.
   'RETRIEVAL_MENTION_DATES',
+  // §8 item 3: enumeration scope discipline — only items the facts tie
+  // to the asked scope; extras sink strict-judged list answers.
+  'RETRIEVAL_ENUM_STRICT',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',
