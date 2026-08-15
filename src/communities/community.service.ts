@@ -81,8 +81,11 @@ export class CommunityService {
 
   /**
    * Which communities an entity belongs to. Cheap entity→community lookup
-   * over the `member_out_idx`; also the type-hint feed for the listwise
-   * reranker ("this entity is part of the <label> cluster").
+   * over the `member_out_idx`. Consumed by the REST/MCP surface only —
+   * no retrieval stage reads communities (graph research 2026-08: the
+   * once-planned reranker type-hint was never built, and community
+   * summaries for factoid QA have zero positive ablations externally;
+   * the offline-aggregation slot is occupied by the digest lane).
    */
   async forEntity(
     companyId: string,

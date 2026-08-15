@@ -165,6 +165,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
   nonNegativeInt(env, 'COMMUNITIES_LP_OFFLOAD_MIN_EDGES', errors);
+  positiveInt(env, 'COMMUNITIES_MIN_SIZE', errors);
+  positiveInt(env, 'COMMUNITIES_MAX_ITERATIONS', errors);
+  positiveInt(env, 'COMMUNITIES_SUMMARY_MAX_MEMBERS', errors);
 
   // ── tokenBudget shaping offload (default ON) ───────────────────────
   positiveInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', errors);

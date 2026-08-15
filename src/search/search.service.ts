@@ -257,14 +257,16 @@ export class SearchService {
 
   /** Public re-export for the multi-hop executor. Opens a scoped
    *  connection, then delegates to the neighbour-fetch module. */
-  async expandEntityIdsViaEdges(
-    companyId: string,
-    entityIds: string[],
-    callerScopes: string[],
-  ): Promise<string[]> {
+  async expandEntityIdsViaEdges(opts: {
+    companyId: string;
+    entityIds: string[];
+    callerScopes: string[];
+    userId?: string;
+  }): Promise<string[]> {
+    const { companyId, entityIds, callerScopes, userId } = opts;
     if (entityIds.length === 0) return entityIds;
     return this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
-      expandEntityIdsViaEdgesDb(db, this.logger, entityIds),
+      expandEntityIdsViaEdgesDb({ db, logger: this.logger, entityIds, userId }),
     );
   }
 
@@ -672,7 +674,7 @@ export class SearchService {
     if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
     await withSpan(
       'search.ppr',
-      () => applyPprPrior(db, byEntity),
+      () => applyPprPrior(db, byEntity, ctx.dto.userId),
       { 'ppr.entities': byEntity.size },
     );
   }

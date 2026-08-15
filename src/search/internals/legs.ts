@@ -2,6 +2,7 @@ import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
 import type { SearchTuning } from '../retrieval-profile';
+import { buildEdgeFence, type EdgeFence } from './edge-fence';
 
 /** The slice of SearchTuning the legs consume (kept narrow for tests). */
 export type LegTuning = Pick<
@@ -37,10 +38,10 @@ const DEFAULT_LEG_TUNING: LegTuning = {
  * Off (default) → empty string → the query is byte-identical to before; the
  * legacy separate edge-expansion query runs instead. Verified on 3.2.0.
  */
-const combinedGraphProjection = (on: boolean): string =>
+const combinedGraphProjection = (on: boolean, fence: EdgeFence): string =>
   on
-    ? `entityId->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
-     entityId<-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours,`
+    ? `entityId->(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: out.{id, userId} } AS outNeighbours,
+     entityId<-(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: in.{id, userId} } AS inNeighbours,`
     : '';
 
 export interface RunVectorLegOptions {
@@ -53,6 +54,9 @@ export interface RunVectorLegOptions {
   logger?: { warn: (msg: string) => void };
   /** Resolved by the retrieval-profile bootstrap (S5.2). */
   tuning?: LegTuning;
+  /** Edge policy fence for the combined vector+graph projection; the
+   *  fail-closed default matches callers with no user scope. */
+  edgeFence?: EdgeFence;
 }
 
 export async function runVectorLeg({
@@ -63,6 +67,7 @@ export async function runVectorLeg({
   baseWhere,
   logger,
   tuning = DEFAULT_LEG_TUNING,
+  edgeFence = buildEdgeFence(),
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   // HNSW path (opt-in): approximate KNN over the per-tenant indexes
@@ -85,7 +90,7 @@ export async function runVectorLeg({
         validFrom, validUntil, recordedAt, retractedAt, status, source,
         trustSnapshot, corroboration, userId,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
-        ${combinedGraphProjection(tuning.combinedVectorGraph)}
+        ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
         vector::similarity::cosine(embedding, $q) AS simScore
       FROM knowledge_fact
       WHERE embedding != NONE
@@ -95,6 +100,7 @@ export async function runVectorLeg({
     `;
   const [rows] = await db.query<[FactRow[]]>(sql, {
     ...baseWhere.params,
+    ...(tuning.combinedVectorGraph ? edgeFence.params : {}),
     q: queryEmbedding,
     k,
   });

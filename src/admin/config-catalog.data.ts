@@ -306,7 +306,11 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_PPR_ENABLED',
         category: 'search',
-        defaultValue: '1',
+        // Code default is OFF (retrieval-profile.ts pprEnabled): on
+        // small per-tenant graphs PPR amplifies hub effects
+        // pathologically — measured. The catalog claimed '1' until the
+        // 2026-08 graph audit.
+        defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: true,
       },
@@ -345,7 +349,10 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'MULTI_HOP_EDGE_EXPANSION_ENABLED',
         category: 'multihop',
-        defaultValue: '1',
+        // Code default is OFF ("so the existing eval baseline doesn't
+        // shift" — multi-hop-chain.service.ts). The catalog claimed
+        // '1' until the 2026-08 graph audit.
+        defaultValue: '0',
         runtimeMutable: true,
         isBooleanFlag: true,
       },
@@ -1343,6 +1350,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Edge count from which community label propagation runs on the job worker pool instead of the main thread (needs JOB_WORKER_POOL_SIZE > 0; pool failures fall back in-thread). 0 = never offload.',
+      },
+      {
+        key: 'COMMUNITIES_MIN_SIZE',
+        category: 'dreams',
+        defaultValue: '3',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Minimum member count for a detected community to be persisted (and summarized). Smaller clusters are dropped as noise.',
+      },
+      {
+        key: 'COMMUNITIES_MAX_ITERATIONS',
+        category: 'dreams',
+        defaultValue: '10',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Label-propagation sweep cap for community detection. The algorithm usually converges in 3-5 sweeps; the cap bounds pathological oscillation.',
+      },
+      {
+        key: 'COMMUNITIES_SUMMARY_MAX_MEMBERS',
+        category: 'dreams',
+        defaultValue: '10',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'How many member entities (by degree) are sampled into the LLM community-summary prompt.',
       },
       // ── Compaction: promotion ────────────────────────────────
       {

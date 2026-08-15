@@ -53,12 +53,11 @@ describe('MultiHopService', () => {
         i++;
         return { results: out };
       },
-      expandEntityIdsViaEdges: async (
-        _company: string,
-        ids: string[],
-      ): Promise<string[]> => {
-        expandCalls.push(ids);
-        return expandedIds ?? ids;
+      expandEntityIdsViaEdges: async (opts: {
+        entityIds: string[];
+      }): Promise<string[]> => {
+        expandCalls.push(opts.entityIds);
+        return expandedIds ?? opts.entityIds;
       },
     } as unknown as SearchService;
     return { svc, calls, expandCalls };
