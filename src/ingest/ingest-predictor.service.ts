@@ -149,7 +149,7 @@ export class IngestPredictionService {
                 userId, trustSnapshot, corroboration
            FROM knowledge_fact
            WHERE entityId = type::record('knowledge_entity', $eid)
-             AND predicate = $predicate
+             AND (predicateAlias ?? predicate) = $predicate
              AND retractedAt IS NONE
              AND status = 'active'
              AND ${args.userId ? '(userId IS NONE OR userId = $userId)' : 'userId IS NONE'}
@@ -174,9 +174,10 @@ export class IngestPredictionService {
 
       const candidateScore = this.scoring.scoreCandidate(args);
 
-      // The decision below mirrors fn::resolve_fact's ORDER (migration
-      // 0055): reject (bitemporal only) → empty-competing INSERTED →
-      // CORROBORATED → INSERTED_HISTORICAL (single_active) → supersede/
+      // The decision below mirrors fn::resolve_fact's ORDER (0055, 0082):
+      // reject (bitemporal only) → CORROBORATED (pooled over candidates
+      // for append_only, over competing otherwise) → empty-competing
+      // INSERTED → INSERTED_HISTORICAL (single_active) → supersede/
       // compete. Getting the order OR the semantics wrong makes the
       // preflight report an outcome the real resolver would never pick.
 
@@ -196,8 +197,24 @@ export class IngestPredictionService {
         };
       }
 
-      // 2. append_only never has competing facts — always INSERTED.
+      // 2. append_only never competes/supersedes — but since 0082 it CAN
+      // corroborate: the resolver pools corroboration over ALL candidates
+      // (same canonical predicate, exact object, different origin), so the
+      // preflight mirrors that before declaring a clean insert.
       if (policy.semantics === 'append_only') {
+        const appendOrigin = originKeyOf(args.source);
+        const appendCorroborator = priors.find(
+          (c) =>
+            c.object === args.object && originKeyOf(c.source) !== appendOrigin,
+        );
+        if (appendCorroborator) {
+          return {
+            wouldOutcome: 'CORROBORATED',
+            reasoning: `Same object already recorded from a different origin (${originKeyOf(appendCorroborator.source)} ≠ ${appendOrigin}); the fact would corroborate the incumbent, not duplicate it (0082: corroboration runs for append_only).`,
+            opposingFacts: gate([rowToOpposingFact(appendCorroborator)]),
+            predicatePolicy: policy,
+          };
+        }
         return {
           wouldOutcome: 'INSERTED',
           reasoning:

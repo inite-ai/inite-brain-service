@@ -7,8 +7,9 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
-import { policyFor } from '../ingest/conflict-resolver';
+import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { envFlagEnabled } from '../common/env-validation';
+import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
  * DreamsCorroborateService — fuzzy cross-source corroboration.
@@ -32,11 +33,13 @@ import { envFlagEnabled } from '../common/env-validation';
  *   - different origin (one document re-worded is NOT confirmation);
  *   - validity intervals overlap (sequential states are history, not
  *     the same claim);
- *   - predicate semantics 'bitemporal' (append_only predicates are
- *     event history — two similar events are two events; single_active
- *     never has two active rows). JS policyFor is the legacy lookup, so
- *     tenant-pack predicates unknown to it default to bitemporal — the
- *     LLM judge is the backstop for those;
+ *   - predicate semantics: seed 'bitemporal' claims sweep; seed
+ *     'append_only' stays out (event history — two similar events are
+ *     two events; single_active never has two active rows). Predicates
+ *     UNKNOWN to the JS seed are open-vocabulary coinages (0082): they
+ *     write as append_only, but fuzzy same-assertion corroboration is
+ *     exactly what collapses re-worded coinages, so they sweep like
+ *     claims — the LLM judge is the backstop;
  *   - exactly-equal objects skip the LLM (deterministic corroboration —
  *     these only exist for pairs that never conflicted at ingest);
  *   - LLM verdict 'same_assertion' required for everything else;
@@ -143,7 +146,10 @@ export class DreamsCorroborateService {
     return this.enabled && !!this.openai;
   }
 
-  async run(db: Surreal): Promise<CorroborateResult> {
+  async run(
+    db: Surreal,
+    derivedVersion: string | null = null,
+  ): Promise<CorroborateResult> {
     const result: CorroborateResult = {
       groupsConsidered: 0,
       groupBacklog: 0,
@@ -157,7 +163,7 @@ export class DreamsCorroborateService {
 
     const { groups, backlog } = await withSpan(
       'dreams.corroborate.find_groups',
-      () => this.findCandidateGroups(db),
+      () => this.findCandidateGroups(db, derivedVersion),
     );
     result.groupsConsidered = groups.length;
     result.groupBacklog = backlog;
@@ -181,7 +187,7 @@ export class DreamsCorroborateService {
         );
         break;
       }
-      const members = await this.fetchGroupMembers(db, group);
+      const members = await this.fetchGroupMembers(db, group, derivedVersion);
       const pairs = this.selectPairs(members);
 
       // Judge in parallel under the semaphore, apply serially. The old
@@ -272,29 +278,48 @@ export class DreamsCorroborateService {
    */
   private async findCandidateGroups(
     db: Surreal,
+    derivedVersion: string | null,
   ): Promise<{
     groups: Array<{ entityId: unknown; predicate: string }>;
     backlog: number;
   }> {
-    const [rows] = await db.query<
-      [Array<{ entityId: unknown; predicate: string; n: number }>]
+    const fence = derivedVersionFence(derivedVersion);
+    const [rawRows] = await db.query<
+      [Array<{ entityId: unknown; canonPredicate: string; n: number }>]
     >(
-      `SELECT entityId, predicate, count() AS n FROM knowledge_fact
+      // 0082: groups key on the CANONICAL predicate so coinages of one
+      // canon land in the same group; fetchGroupMembers mirrors the key.
+      `SELECT entityId, predicateAlias ?? predicate AS canonPredicate,
+              count() AS n FROM knowledge_fact
        WHERE status = 'active' AND retractedAt IS NONE AND embedding != NONE
          AND userId IS NONE
-       GROUP BY entityId, predicate`,
+         ${fence.clause}
+       GROUP BY entityId, canonPredicate`,
+      fence.params,
     );
+    const rows = (
+      (rawRows as Array<{
+        entityId: unknown;
+        canonPredicate: string;
+        n: number;
+      }>) ?? []
+    ).map((r) => ({ entityId: r.entityId, predicate: r.canonPredicate, n: r.n }));
     // Negative-result memo (0060): a group already judged at the SAME
     // member count is excluded before the window is cut. Without this,
     // the deterministic most-populated-first order re-selected the same
     // all-'different' groups every night — permanent starvation of the
     // rest of the backlog at full LLM cost.
     const checked = await this.loadCheckedMemo(db);
-    const eligible = (
-      (rows as Array<{ entityId: unknown; predicate: string; n: number }>) ?? []
-    )
+    const eligible = rows
       .filter((g) => g.n >= 2 && g.n <= MAX_GROUP_SIZE)
-      .filter((g) => policyFor(g.predicate).semantics === 'bitemporal')
+      .filter((g) => {
+        // 0082: seed lookup, not policyFor — the fallback for unknown
+        // predicates is append_only now, but an unknown (coined)
+        // predicate is an observation whose re-worded duplicates only
+        // this sweep can collapse. Known seeds keep the old rule.
+        const seed = PREDICATE_POLICIES[g.predicate];
+        return seed ? seed.semantics === 'bitemporal' : true;
+      })
       .filter(
         (g) => checked.get(`${String(g.entityId)}|${g.predicate}`) !== g.n,
       )
@@ -332,20 +357,27 @@ export class DreamsCorroborateService {
   private async fetchGroupMembers(
     db: Surreal,
     group: { entityId: unknown; predicate: string },
+    derivedVersion: string | null,
   ): Promise<ActiveFactRow[]> {
+    const fence = derivedVersionFence(derivedVersion);
     const [rows] = await db.query<[ActiveFactRow[]]>(
+      // 0082: the group key is the CANONICAL predicate — membership
+      // matches on `predicateAlias ?? predicate` so coinages join their
+      // canon's group.
       `SELECT id, entityId, predicate, object, validFrom, validUntil,
               recordedAt, embedding,
               fn::origin_key_of(source) AS originKey,
               corroboration.count ?? 0 AS corroborationCount
        FROM knowledge_fact
-       WHERE entityId = $entity AND predicate = $predicate
+       WHERE entityId = $entity AND (predicateAlias ?? predicate) = $predicate
          AND status = 'active' AND retractedAt IS NONE AND embedding != NONE
          AND userId IS NONE
+         ${fence.clause}
        ORDER BY recordedAt ASC`,
       {
         entity: new StringRecordId(String(group.entityId)),
         predicate: group.predicate,
+        ...fence.params,
       },
     );
     return (rows as ActiveFactRow[]) ?? [];

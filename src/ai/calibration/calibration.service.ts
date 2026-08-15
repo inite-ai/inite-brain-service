@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { envFlagNotDisabled } from '../../common/env-validation';
 import { createHash } from 'node:crypto';
 import {
   applyMap,
@@ -48,7 +49,9 @@ export class CalibrationService implements OnModuleInit {
     @Optional() private readonly apiKeys?: ApiKeyService,
   ) {
     this.disabled =
-      this.configService.get<string>('CALIBRATION_USE_GOLD_SET', '1') === '0';
+      !envFlagNotDisabled(
+        this.configService.get<string>('CALIBRATION_USE_GOLD_SET'),
+      );
     this.extractorModel = this.configService.get<string>(
       'OPENAI_CHAT_MODEL',
       'gpt-4o-mini',

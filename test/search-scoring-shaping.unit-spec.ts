@@ -1,8 +1,9 @@
-import { bucketByEntity } from '../src/search/internals/scoring';
+import { bucketByEntity, scoreRows } from '../src/search/internals/scoring';
 import { assembleHits } from '../src/search/internals/response-builder';
 import type {
   ScoredRow,
   FactRow,
+  FusedRow,
   EntityBucket,
 } from '../src/search/internals/types';
 
@@ -35,9 +36,8 @@ function scored(f: FactRow, score: number): ScoredRow {
       fusedScore: score,
       confidence: f.confidence,
       decay: 1,
-      predBoost: 1,
       finalScore: score,
-      stages: ['hype'],
+      stages: ['vector'],
     },
   };
 }
@@ -90,7 +90,6 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([withSrc, noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: true,
     });
@@ -107,7 +106,6 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: true,
     });
@@ -121,11 +119,80 @@ describe('assembleHits requireProvenance', () => {
     );
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
-      backfillByEntity: new Map(),
       entityTypes: undefined,
       requireProvenance: false,
     });
     expect(hits).toHaveLength(1);
     expect(hits[0].facts).toHaveLength(1);
   });
+});
+
+describe('scoreRows chatter penalty', () => {
+  // Fixed recordedAt + now = same instant → decay is exactly 1 for BOTH
+  // predicates, isolating the chatter factor from the said/preference
+  // half-life difference.
+  const AT = '2026-01-01T00:00:00.000Z';
+  const NOW = Date.parse(AT);
+  const fused = (predicate: string, object: string): FusedRow => ({
+    ...fact({ predicate, object, recordedAt: AT, validFrom: AT }),
+    fusedScore: 1,
+  });
+
+  it('demotes a said fact below a substantive fact at equal fusedScore', () => {
+    const [said, pref] = scoreRows({
+      rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
+      now: NOW,
+      chatterPenalty: 0.35,
+    });
+    expect(said.score).toBeLessThan(pref.score);
+    expect(said.breakdown.chatterPenalty).toBe(0.35);
+    // Substantive fact is untouched — no chatterPenalty field.
+    expect(pref.breakdown.chatterPenalty).toBeUndefined();
+  });
+
+  it('penalty 1.0 (default/off) → byte-identical scores, no breakdown field', () => {
+    const [said, pref] = scoreRows({
+      rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
+      now: NOW,
+    });
+    expect(said.score).toBeCloseTo(pref.score, 10);
+    expect(said.breakdown.chatterPenalty).toBeUndefined();
+  });
+
+  it('an out-of-range penalty (≥1) is treated as off', () => {
+    const [said] = scoreRows({
+      rows: [fused('said', 'x')],
+      now: NOW,
+      chatterPenalty: 1.5,
+    });
+    expect(said.breakdown.chatterPenalty).toBeUndefined();
+  });
+});
+
+describe('assembleHits fact-window shaping', () => {
+  const bucket = (facts: ScoredRow[]): EntityBucket => ({
+    entityId: 'knowledge_entity:e1',
+    rankScore: 1,
+    bestScore: 1,
+    facts,
+  });
+
+  it('caps facts per entity at factsPerEntity (default 5, raisable)', () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      scored(fact({ predicate: `p${i}`, object: `v${i}` }), 1 - i * 0.01),
+    );
+    const def = assembleHits({
+      topEntities: [bucket(many)],
+      entityTypes: undefined,
+    });
+    expect(def[0].facts).toHaveLength(5);
+
+    const wide = assembleHits({
+      topEntities: [bucket(many)],
+      entityTypes: undefined,
+      factsPerEntity: 10,
+    });
+    expect(wide[0].facts).toHaveLength(10);
+  });
+
 });

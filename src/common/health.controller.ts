@@ -5,7 +5,22 @@ import {
   HttpStatus,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { HealthService } from './health.service';
+
+// Resolved once at boot. Both deploy shapes run from the directory that
+// holds package.json (Docker WORKDIR /app with `node dist/main.js`; dev
+// `nest start` from the repo root), so cwd is the stable anchor — the
+// compiled __dirname lives under dist/ where the manifest never ships.
+const SERVICE_VERSION = ((): string => {
+  try {
+    const raw = readFileSync(join(process.cwd(), 'package.json'), 'utf8');
+    return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 @Controller()
 export class HealthController {
@@ -21,7 +36,7 @@ export class HealthController {
     return {
       status: dbOk ? 'ok' : 'degraded',
       service: 'inite-brain-service',
-      version: '0.1.0',
+      version: SERVICE_VERSION,
       timestamp: new Date().toISOString(),
       checks: {
         surrealdb: dbOk ? 'ok' : 'unreachable',

@@ -48,6 +48,41 @@ import { CORE_PREDICATES } from '../ai/predicate-registry.service';
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 
+/**
+ * V9 §1: the derive-internal semantics superset. 'bitemporal_event'
+ * (migration 0083 — bitemporal gating with event-time recency and
+ * later-validFrom-wins supersede) is deliberately NOT part of the
+ * public `Semantics` union: it is never a predicate policy, never
+ * accepted by the registry admin API, and never appears in the wire
+ * schemas — only the derived-batch write path emits it. Typing it as
+ * a separate union keeps the registry surface closed while giving the
+ * write path a compile-time name for the value (a bare-string typo
+ * would silently take the fn's gated ELSE branch).
+ */
+export type DerivedSemantics = Semantics | 'bitemporal_event';
+
+/**
+ * One row's result from fn::resolve_fact / fn::resolve_facts, as the
+ * TS side consumes it. The stored fn returns additional per-outcome
+ * fields (supersededFactIds, scoreBreakdown, …) — modeled loosely via
+ * the index signature; the discriminant and factId are the contract
+ * every caller relies on. 'SKIPPED' is TS-side only: the V9 phase-0
+ * fence emits it for a row whose per-row retry also failed.
+ */
+export interface ResolveOutcome {
+  outcome:
+    | 'INSERTED'
+    | 'INSERTED_HISTORICAL'
+    | 'SUPERSEDED'
+    | 'COMPETING'
+    | 'CORROBORATED'
+    | 'REJECTED'
+    | 'SKIPPED';
+  factId: string | null;
+  reason?: string | null;
+  [extra: string]: unknown;
+}
+
 export interface PredicatePolicy {
   semantics: Semantics;
   decayHalfLifeDays: number | null; // null = never decay
@@ -56,7 +91,11 @@ export interface PredicatePolicy {
 }
 
 export const DEFAULT_POLICY: PredicatePolicy = {
-  semantics: 'bitemporal',
+  // W3 (audit 2026-08 #2): unknown predicate = open-vocabulary coinage →
+  // append_only, mirroring DEFAULT_FALLBACK in the tenant registry
+  // (predicate-registry-internals/types.ts) so display-only consumers
+  // report the same semantics the write path applies.
+  semantics: 'append_only',
   decayHalfLifeDays: 60,
   piiClass: 'none',
 };
@@ -110,6 +149,14 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> =
 // Mirror of conflict_resolution.scoring in the spec. Tunable via env.
 export interface ConflictConfig {
   similarityThreshold: number;
+  /**
+   * V10 §1: the bitemporal_event competing pool's own cosine gate
+   * (DERIVER_SLOT_SIMILARITY). The shared threshold is tuned for live
+   * ingest and measured clustering whole topics on dev-chat derive
+   * (v9lifecycle); the slot gate tightens derive-only without touching
+   * 'bitemporal' behavior.
+   */
+  slotSimilarityThreshold: number;
   weights: {
     confidence: number;
     sourceTrust: number;

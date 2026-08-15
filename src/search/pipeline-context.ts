@@ -1,4 +1,5 @@
 import { SearchDto, SearchMode } from './dto/search.dto';
+import type { RetrievalProfile, SearchTuning } from './retrieval-profile';
 
 /**
  * Per-request retrieval-pipeline context, shared by the search
@@ -16,4 +17,17 @@ export interface PipelineContext {
   includeContested: boolean;
   mode: SearchMode;
   candidateK: number;
+  /**
+   * Derived world this request reads, resolved per tenant from the
+   * projection registry (audit W2 #9). null → legacy namespace.
+   */
+  derivedVersion: string | null;
+  /** Per-tenant retrieval profile, resolved once by the guard. */
+  profile: RetrievalProfile;
+  /**
+   * Deployment-wide tuning knobs, resolved once per request by the
+   * retrieval-profile bootstrap (S5.2 — the one module allowed to read
+   * the environment under the boundary).
+   */
+  tuning: SearchTuning;
 }

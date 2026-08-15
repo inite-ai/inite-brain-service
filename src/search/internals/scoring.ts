@@ -2,32 +2,18 @@ import { policyFor } from '../../ingest/conflict-resolver';
 import type { FusedRow, ScoredRow, EntityBucket } from './types';
 import { diversityKey } from './diversity-key';
 
-// Per-predicate boost α. Most predicates use the soft default
-// (0.5 → max 1.5x boost) — a strong embedding hit on the wrong class
-// can still beat a weak hit on the right one. PII-class discriminators
-// (dob, email, phone) use a stronger α (1.5) because they're high-
-// cardinality identifiers — when the router says "this is a dob lookup",
-// the dob fact MUST surface above the name fact for the same entity.
-// Address uses 0.8 — between the two — because address-vs-name
-// disambiguation is real but less stark than dob-vs-name.
-//
-// Empirical anchor: per-predicate eval reported dob match-rate
-// 0.30 → 0.60 after the prompt patch, still 40% miss; raising α here
-// is the second half of the fix.
-const PREDICATE_BOOST_ALPHA: Record<string, number> = {
-  dob: 1.5,
-  email: 1.5,
-  phone: 1.5,
-  address: 0.8,
-};
-const PREDICATE_BOOST_ALPHA_DEFAULT = 0.5;
+// Low-value "chatter" predicates. `said` is the extractor's residual class
+// (a bare attributed utterance — "Hey Mel!", "That's great!") and, in a long
+// conversation, floods an entity with hundreds of contentless facts.
+// They compete at full strength for the few per-entity slots that reach
+// synthesis and bury the substantive facts (preference/intent/status). The chatterPenalty (SEARCH_CHATTER_PENALTY,
+// default 1.0 = off) is a sub-1.0 multiplier that demotes them below real
+// facts of the same entity. Kept a set (not the α map) because it's a
+// PENALTY, structurally distinct from the boost that can't go below 1.
+const CHATTER_PREDICATES = new Set(['said']);
 
 const DEGREE_BOOST_WEIGHT = 0.3;
 const DEGREE_BOOST_TOP_N = 2;
-
-export interface PredicateDistribution {
-  weights: Record<string, number>;
-}
 
 /**
  * Optional confidence calibrator — fits the Phase 3 isotonic-
@@ -40,20 +26,17 @@ export interface ConfidenceCalibrator {
 }
 
 /**
- * Decay × calibratedConfidence × predicate-boost scoring for each
- * fused row. Pure — `now` and `calibrator` are passed in so tests
- * stay deterministic.
+ * Decay × calibratedConfidence scoring for each fused row. Pure —
+ * `now` and `calibrator` are passed in so tests stay deterministic.
  *
  *   score = fusedScore × exp(-ln2 × ageDays / halfLife)
- *           × calibratedConfidence × (1 + α × predicateDist.weights[p])
+ *           × calibratedConfidence
  *
- * `predicateDist` null → boost reduces to 1.0. `policy.decayHalfLifeDays`
- * null → no decay (1.0). `calibrator` null → calibratedConfidence ===
- * rawConfidence.
+ * `policy.decayHalfLifeDays` null → no decay (1.0). `calibrator` null →
+ * calibratedConfidence === rawConfidence.
  */
 export interface ScoreRowsOptions {
   rows: FusedRow[];
-  predicateDist: PredicateDistribution | null;
   now: number;
   calibrator?: ConfidenceCalibrator | null;
   /**
@@ -74,21 +57,103 @@ export interface ScoreRowsOptions {
    * Default 0 → factor exactly 1.0 → byte-identical ranking.
    */
   authorityDelta?: number;
+  /**
+   * Sub-1.0 multiplier applied to CHATTER_PREDICATES (`said`) facts to
+   * demote contentless conversational utterances below substantive facts
+   * of the same entity. Default 1.0 → no penalty → byte-identical ranking.
+   * Only values in (0,1] make sense; ≥1 (or unset) leaves chatter unpenalized.
+   */
+  chatterPenalty?: number;
+  /**
+   * Temporal overlap boost (audit W4 #17, profile temporalMode =
+   * 'overlap_boost'): with an `asOf` anchor set, facts whose validity
+   * interval contains the anchor keep factor 1.0 and facts outside it
+   * decay exponentially with the gap (half-life
+   * TEMPORAL_OVERLAP_HALF_LIFE_DAYS, floor TEMPORAL_OVERLAP_FLOOR).
+   * Unset → factor exactly 1.0 → byte-identical ranking. Under the
+   * strict 'filter' mode every surviving row contains the anchor, so
+   * enabling this there is also a no-op by construction.
+   */
+  temporalAnchor?: Date | null;
+  /**
+   * V8 §4 importance scoring (profile salienceScoring, default off):
+   * folds the deriver-stamped source.salience (0-3) into ranking via
+   * SALIENCE_WEIGHTS. Rows without a stamp — legacy worlds, live
+   * ingest, segments — sit on the neutral grade 1 (weight 1.0), so
+   * they are unaffected; off → factor exactly 1.0 → byte-identical.
+   */
+  salienceScoring?: boolean;
 }
+
+/**
+ * Multiplicative weight per salience grade 0-3. A tuning constant by
+ * design (the segment-budget precedent); the neutral grade 1 MUST stay
+ * exactly 1.0 so unstamped rows are byte-identical at any setting.
+ */
+const SALIENCE_WEIGHTS = [0.8, 1.0, 1.1, 1.25] as const;
 
 const CORROBORATION_CAP = 3;
 
+/** Hindsight-style distance decay for out-of-interval facts. */
+const TEMPORAL_OVERLAP_HALF_LIFE_DAYS = 90;
+/** Score floor for facts arbitrarily far from the anchor — decayed, never dropped. */
+const TEMPORAL_OVERLAP_FLOOR = 0.25;
+
+/**
+ * 1.0 when the fact's validity interval contains the anchor; otherwise
+ * floor + (1 − floor) · exp(−ln2 · gapDays / halfLife). Rows without a
+ * parseable validFrom are neutral (1.0). Observable through
+ * breakdown.temporalOverlap — deliberately not exported (S5.5).
+ */
+function temporalOverlapFactor(
+  row: { validFrom?: unknown; validUntil?: unknown },
+  anchorMs: number,
+): number {
+  const vf = row.validFrom ? new Date(String(row.validFrom)).getTime() : NaN;
+  if (!Number.isFinite(vf)) return 1;
+  const vuMs = row.validUntil
+    ? new Date(String(row.validUntil)).getTime()
+    : Infinity;
+  const vu = Number.isFinite(vuMs) ? vuMs : Infinity;
+  if (vf <= anchorMs && anchorMs < vu) return 1;
+  const gapDays =
+    (vf > anchorMs ? vf - anchorMs : anchorMs - vu) / 86_400_000;
+  const decay = Math.exp(
+    (-Math.LN2 * gapDays) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS,
+  );
+  return TEMPORAL_OVERLAP_FLOOR + (1 - TEMPORAL_OVERLAP_FLOOR) * decay;
+}
+
 export function scoreRows({
   rows,
-  predicateDist,
   now,
   calibrator = null,
   trustBeta = 0,
   corroborationGamma = 0,
   authorityDelta = 0,
+  chatterPenalty = 1,
+  temporalAnchor = null,
+  salienceScoring = false,
 }: ScoreRowsOptions): ScoredRow[] {
+  const salienceFactorFor = (source: unknown): number => {
+    if (!salienceScoring) return 1;
+    const s = (source as { salience?: unknown } | null)?.salience;
+    return typeof s === 'number' && Number.isInteger(s) && s >= 0 && s <= 3
+      ? SALIENCE_WEIGHTS[s]
+      : 1;
+  };
+  // A penalty is only meaningful in (0,1]; anything else (unset, ≥1, invalid)
+  // means "no penalty" so ranking is byte-identical to before.
+  const chatterFactorFor = (predicate: string): number =>
+    chatterPenalty > 0 && chatterPenalty < 1 && CHATTER_PREDICATES.has(predicate)
+      ? chatterPenalty
+      : 1;
   return rows.map((row) => {
-    const policy = policyFor(row.predicate);
+    // 0082: predicate-keyed lookups (policy, chatter) go through the
+    // EDC-canonical alias — a coined predicate inherits its canon's
+    // decay/chatter treatment. Alias-less rows are byte-identical.
+    const canonPredicate = row.predicateAlias ?? row.predicate;
+    const policy = policyFor(canonPredicate);
     // Usage reinforcement: when the pipeline attached a lastReadAt
     // (SEARCH_USAGE_DECAY_ENABLED → enrichWithUsage), the decay clock
     // restarts at the most recent retrieval — memory that keeps getting
@@ -105,11 +170,6 @@ export function scoreRows({
       policy.decayHalfLifeDays === null
         ? 1
         : Math.exp((-Math.LN2 * ageDays) / policy.decayHalfLifeDays);
-    const alpha =
-      PREDICATE_BOOST_ALPHA[row.predicate] ?? PREDICATE_BOOST_ALPHA_DEFAULT;
-    const predBoost = predicateDist
-      ? 1 + alpha * (predicateDist.weights[row.predicate] ?? 0)
-      : 1;
     const calibratedConfidence = calibrator
       ? calibrator.calibrate(row.confidence)
       : row.confidence;
@@ -148,14 +208,21 @@ export function scoreRows({
       authorityFactor,
     };
 
+    const chatterFactor = chatterFactorFor(canonPredicate);
+    const temporalOverlap = temporalAnchor
+      ? temporalOverlapFactor(row, temporalAnchor.getTime())
+      : 1;
+    const salienceFactor = salienceFactorFor(row.source);
     const finalScore =
       row.fusedScore *
       decay *
       calibratedConfidence *
-      predBoost *
+      chatterFactor *
       trustFactor *
       corroborationFactor *
-      authorityFactor;
+      authorityFactor *
+      temporalOverlap *
+      salienceFactor;
     return {
       row,
       score: finalScore,
@@ -164,7 +231,9 @@ export function scoreRows({
         confidence: row.confidence,
         calibratedConfidence,
         decay,
-        predBoost,
+        ...(chatterFactor !== 1 ? { chatterPenalty: chatterFactor } : {}),
+        ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
+        ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
         factTrust,
         finalScore,
         stages: row.stages ?? [],
@@ -206,7 +275,12 @@ export function bucketByEntity(scored: ScoredRow[]): Map<string, EntityBucket> {
     // skipped and never contributed to the degree boost.
     let skippedBest = false;
     for (const f of sortedFacts) {
-      const key = diversityKey(f.row.predicate, f.row.object);
+      // 0082: cap on the canonical predicate — coinages of one canon
+      // share a diversity bucket instead of each getting their own.
+      const key = diversityKey(
+        f.row.predicateAlias ?? f.row.predicate,
+        f.row.object,
+      );
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
       if (f.score === bucket.bestScore && !skippedBest) {

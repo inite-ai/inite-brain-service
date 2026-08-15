@@ -82,7 +82,12 @@ address, etc.) instead.
 
 GENERAL RULES
   • Each clause produces zero or more facts. A clause that asserts no
-    extractable predicate (e.g. a greeting) produces zero.
+    extractable predicate produces ZERO facts. This explicitly includes
+    contentless social utterances — greetings ("Hey Mel!"), acknowledgements
+    and backchannels ("That's great!", "Wow, nice!", "lol same"), thanks,
+    and questions that assert nothing ("How's it going?"). Do NOT emit a
+    "said" fact for these; the said predicate is for an utterance that carries
+    real content no more-specific predicate captures, never for small talk.
   • Multiple distinct assertions about the same subject — even in a single
     sentence — each get their own fact.
   • Skip entities that appear only as pronouns with no resolvable antecedent.
@@ -94,13 +99,207 @@ GENERAL RULES
 PREDICATE VOCABULARY
 `;
 
+/**
+ * Dialogue extraction header (Phase 4 v2, EXTRACTOR_DIALOGUE_PROFILE). Rebuilt
+ * from the 3-way SOTA convergence (Mem0 additive-extraction, Graphiti combined
+ * extractor, EDC / Dense-X / "conservative bias" literature):
+ *   • NO closed predicate vocabulary in the prompt — a closed label set as the
+ *     output contract IS the cause of catch-all collapse ("conservative bias":
+ *     LLMs retreat to a safe generic label ~2× more than they hallucinate).
+ *     The LLM coins a SPECIFIC predicate; canonicalization to the registry
+ *     happens downstream (EDC), never here. buildDialogueSystemPrompt therefore
+ *     appends NO predicate cards.
+ *   • The value is a SELF-CONTAINED, specificity-PRESERVING statement, not a
+ *     bare token — v1's "shrink to 'sunset'" over-compressed and lost the
+ *     recall drivers every SOTA system keeps ("aerial yoga" not "yoga";
+ *     Graphiti/Mem0 both forbid generalizing). Retrieval embeds this fact text
+ *     (Graphiti embeds `fact`, not the predicate), so open predicates don't hurt
+ *     recall.
+ *   • Attribute to the ACTOR, enumerate lists, and be exhaustive (Mem0's
+ *     "when in doubt, extract" — dedup is downstream).
+ * Output SCHEMA is unchanged (clauses/entities/facts/edges); grounding's
+ * substring-drop is bypassed for this profile (values are normalized, not spans).
+ */
+export const EXTRACTION_PROMPT_HEADER_DIALOGUE = `You extract durable MEMORY facts from a turn of personal conversation, for a knowledge graph an AI will search later to answer questions. The original conversation will NOT be available at retrieval time — ONLY the facts you extract survive. So be exhaustive, specific, and self-contained.
+
+OUTPUT CONTRACT — JSON with four top-level fields, in this order:
+
+  1. clauses[] — verbatim sub-spans of the input, ONE independent assertion each.
+
+  2. entities[] — the people/things involved. name = the person's name when known,
+     else the clearest noun phrase that denotes them; resolve pronouns and roles to
+     who they refer to — NEVER a bare "I"/"you"/"the woman". type (closed enum:
+     ${ENTITY_TYPE_VOCABULARY.join(', ')}). canonical = explicit canonical form or null.
+
+  3. facts[] — durable facts. Each: entityIndex, clauseIndex, predicate, valueSpan,
+     confidence (0..1; >0.8 explicit, 0.5–0.8 inferred).
+
+  4. edges[] — entity-to-entity links: (X, works_at, Y), (X, owns, Y), (X, knows, Y),
+     (X, lives_at, Y). kind = lowercase snake_case. Link two named people with an
+     EDGE, not a fact routed through scenery.
+
+predicate — COIN A SPECIFIC ONE (there is no fixed list to choose from):
+  Write the most specific relationship label as lowercase snake_case, derived from
+  the clause: painted, researched, adopted, visited, relationship_status,
+  favorite_book, plays_instrument, kids_like, works_as, volunteers_at. Do NOT fall
+  back to vague catch-alls (preference, intent, interacted_with, status, did, said) —
+  they erase the meaning that makes a fact findable. A self-referencing fact ("I love
+  hiking" → hobby = "hiking") is good — with a SPECIFIC predicate.
+
+valueSpan — a CLEAN, SELF-CONTAINED value that PRESERVES SPECIFICITY:
+  Understandable on its own; pronouns replaced with the entity's name.
+  • KEEP every concrete noun, number, brand, title, and qualifier. NEVER generalize:
+      "aerial yoga" NOT "yoga"; "assistant manager" NOT "manager";
+      "Ferrari 488 GTB" NOT "car"; "adoption agencies" NOT "agencies".
+  • Strip filler, quotes, and reaction words; keep the concrete value.
+  • It need NOT be a substring of the input — write the clean, faithful value.
+  • Preserve meaning: "didn't get to bed until 2am" = late bedtime, not "slept until 2am";
+    "used to love hiking" = no longer, not currently.
+
+ATTRIBUTE TO THE ACTOR, NOT THE SPEAKER:
+  A statement ABOUT someone is a fact about THAT person. A→B "You captured the sunset
+  perfectly!" about B's painting → entity B, predicate painted, value "a sunset".
+  B→A "your kids must love dinosaurs" → A's kids, kids_like = "dinosaurs". Never store
+  one person's reaction as the speaker's own preference.
+
+ENUMERATE — never collapse a list:
+  "we do pottery, camping, and painting" → THREE facts (hobby="pottery",
+  hobby="camping", hobby="painting"), never one. Every list item gets its own fact.
+
+BE EXHAUSTIVE (recall matters more than brevity):
+  When in doubt, EXTRACT — a redundant fact costs far less than a missing one; dedup
+  happens downstream. Cover EVERY distinct assertion in the turn, not just the first —
+  do not stop after the first topic. Only skip contentless social utterances: greetings,
+  acknowledgements, backchannels ("That's great!", "lol same"), thanks, and questions
+  that assert nothing. NEVER emit a "said" fact for those.
+
+  • Near-zero temperature; the strict JSON schema is enforced by the runtime.
+`;
+
 export function renderPredicateCard(p: PredicateDefinition): string {
   return `\n${p.predicateId} [${p.semantics}]\n${p.description.trim()}\n`;
 }
 
-export function buildSystemPrompt(predicates: PredicateDefinition[]): string {
+/**
+ * Dialogue-profile system prompt (Phase 4 v2): the open header ALONE — NO
+ * predicate cards. Showing the closed vocab is exactly what causes catch-all
+ * anchoring, so the extractor runs fully open; the registry vocabulary is
+ * applied later by the canonicalization step, not shown to the extractor.
+ * `predicates` is intentionally unused (kept for signature parity with
+ * buildSystemPrompt).
+ */
+export function buildDialogueSystemPrompt(
+  _predicates: PredicateDefinition[],
+): string {
+  return EXTRACTION_PROMPT_HEADER_DIALOGUE;
+}
+
+/**
+ * Facet-specialist instructions, appended to the dialogue header for a single
+ * extra pass (EXTRACTOR_ROUTING_ENABLED). Each one narrows the job to ONE
+ * contract so it stops competing with the other four in a single call — the
+ * general pass still runs, and the union is deduplicated downstream, so a
+ * facet can only ADD recall, never remove it.
+ */
+const FACET_INSTRUCTIONS: Record<string, string> = {
+  enumeration: `
+=== THIS PASS: LIST ITEMS ONLY ===
+Ignore everything that is not an enumeration. Find every list in the turn and emit ONE FACT PER ITEM — never a single fact holding a joined list, never a summary of the list.
+  "we do pottery, camping, and painting" → THREE facts.
+  "I've read The Hobbit, Dune and most of Discworld" → THREE facts, each with the title as the value.
+Repeat the same predicate across the items of one list; the items are what differ. Missing an item is the failure mode this pass exists to prevent, so err toward emitting one more.
+If the turn contains no list, return empty facts.`,
+  entity: `
+=== THIS PASS: NAMED THINGS ONLY ===
+Ignore everything that is not anchored to a PROPER NAME — a person, brand, product, place, organisation, book, film or team the turn names explicitly.
+Emit the name EXACTLY as written. Never substitute a description for a name:
+  "Under Armour" NOT "a renowned outdoor gear company"; "the UK" NOT "Europe";
+  "The Name of the Wind" NOT "a fantasy book".
+If the turn refers to something only by description and never names it, DO NOT emit a fact for it — that is the general pass's job, not this one.
+If the turn names nothing, return empty facts.`,
+};
+
+/**
+ * The system prompt for one specialist pass. An unknown facet degrades to the
+ * plain dialogue prompt (a redundant general pass), which the union dedupes —
+ * never an error.
+ */
+export function buildFacetSystemPrompt(facet: string): string {
   return (
-    EXTRACTION_PROMPT_HEADER + predicates.map(renderPredicateCard).join('\n')
+    EXTRACTION_PROMPT_HEADER_DIALOGUE + (FACET_INSTRUCTIONS[facet] ?? '')
+  );
+}
+
+/** Conversation participants for one turn — drives coreference resolution. */
+export interface ConversationContext {
+  /** Who is speaking this turn. First-person refers to them. */
+  speakerName?: string;
+  /** Who they address. Second-person ("you") refers to them. */
+  addresseeName?: string;
+}
+
+/**
+ * Render the per-turn speaker framing prepended to the user message. This
+ * is the single highest-leverage fix for pronoun-entity scatter: told who
+ * is speaking, the extractor attributes "I decided to transition" to the
+ * speaker instead of minting a junk "I" node. Mirrors LoCoMo's `Speaker
+ * said, "…"` serialization, Graphiti's pronoun ban, and Mem0's
+ * "replace pronouns with the speaker name" rule.
+ *
+ * Returns '' when no speaker is known, so the extractor input is
+ * byte-identical to the pre-coreference behaviour.
+ */
+export function buildConversationContext(ctx: ConversationContext): string {
+  if (!ctx.speakerName) return '';
+  const addressee = ctx.addresseeName
+    ? `, addressing "${ctx.addresseeName}"`
+    : '';
+  const secondPerson = ctx.addresseeName
+    ? ` Second-person ("you", "your") refers to "${ctx.addresseeName}".`
+    : '';
+  return (
+    `CONVERSATION CONTEXT\n` +
+    `This turn was spoken by "${ctx.speakerName}"${addressee}. ` +
+    `First-person references ("I", "me", "my", "myself") refer to "${ctx.speakerName}" — ` +
+    `emit "${ctx.speakerName}" as the entity for the speaker's own statements, NEVER a bare "I"/"me" node, ` +
+    `and attach the speaker's self-facts to it rather than to a topic or description entity from the same clause.` +
+    secondPerson +
+    ` Never create an entity whose name is a bare pronoun or a bare definite description ("the woman", "my ex"); ` +
+    `resolve it to the participant it refers to. Do NOT map group "we"/"us" to a single person.\n\n`
+  );
+}
+
+/**
+ * Object-normalization section (EXTRACTION_OBJECT_NORMALIZE). Appended
+ * after the predicate vocabulary; the schema gains a required nullable
+ * `object` field in lockstep (buildExtractionSchema). Fixes the measured
+ * aggregation failure: raw verbal spans as stored objects ("camped in
+ * the mountains with my kids") scatter the same value across phrasings,
+ * so "list all X" questions cannot converge. The span stays the
+ * grounding anchor; the object is the retrieval value.
+ */
+export const OBJECT_NORMALIZATION_SECTION = `
+NORMALIZED OBJECT (in addition to valueSpan)
+For each fact, also emit "object": the MINIMAL clean phrase naming the
+value — strip surrounding verbs, possessives, temporal modifiers, and
+subordinate clauses from the valueSpan.
+  • Every word of object MUST already appear inside valueSpan. Do not
+    introduce new words, synonyms, or canonical labels — the server
+    validates word containment and falls back to the raw span otherwise.
+  • Keep specificity: "aerial yoga" stays "aerial yoga", never "yoga".
+  • valueSpan "camped in the mountains with my kids" → object "the mountains".
+  • valueSpan "really loves the new espresso machine" → object "espresso machine".
+  • When the span already IS the minimal value, set object to null.
+`;
+
+export function buildSystemPrompt(
+  predicates: PredicateDefinition[],
+  opts?: { objectNormalization?: boolean },
+): string {
+  return (
+    EXTRACTION_PROMPT_HEADER +
+    predicates.map(renderPredicateCard).join('\n') +
+    (opts?.objectNormalization ? OBJECT_NORMALIZATION_SECTION : '')
   );
 }
 
@@ -140,8 +339,25 @@ export function renderExtractionProfiles(
   );
 }
 
-/** Strict JSON schema mirror of the prompt's output contract. */
-export function buildExtractionSchema(): Record<string, unknown> {
+/**
+ * Strict JSON schema mirror of the prompt's output contract.
+ * `objectNormalization` adds the required-nullable `object` field in
+ * lockstep with OBJECT_NORMALIZATION_SECTION; off → byte-identical
+ * schema (strict mode forces every property into `required`, so the
+ * field cannot simply be optional).
+ */
+export function buildExtractionSchema(opts?: {
+  objectNormalization?: boolean;
+}): Record<string, unknown> {
+  const objectProperty = opts?.objectNormalization
+    ? {
+        object: {
+          type: ['string', 'null'],
+          description:
+            'MINIMAL clean phrase naming the value, made ONLY of words already inside valueSpan (server-validated); null when the span already is the minimal value.',
+        },
+      }
+    : {};
   return {
     type: 'object',
     additionalProperties: false,
@@ -183,6 +399,7 @@ export function buildExtractionSchema(): Record<string, unknown> {
               description:
                 'VERBATIM substring of the input naming the object value. Server validates substring containment; ungrounded facts are dropped.',
             },
+            ...objectProperty,
             confidence: { type: 'number', minimum: 0, maximum: 1 },
           },
           required: [
@@ -190,6 +407,7 @@ export function buildExtractionSchema(): Record<string, unknown> {
             'clauseIndex',
             'predicate',
             'valueSpan',
+            ...(opts?.objectNormalization ? ['object'] : []),
             'confidence',
           ],
         },

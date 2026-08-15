@@ -2,7 +2,7 @@ import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SearchDto } from '../../search/dto/search.dto';
 
-export type SynthesisGuardrails = 'strict' | 'lenient' | 'off';
+export type SynthesisGuardrails = 'strict' | 'lenient' | 'off' | 'answer';
 
 /**
  * SynthesizeDto extends SearchDto so all retrieval levers
@@ -29,9 +29,14 @@ export class SynthesizeDto extends SearchDto {
    *              the verifier's verdict for the caller to decide.
    *   off      — skip verifier altogether (cheapest; for callers that
    *              do their own grounding downstream).
+   *   answer   — best-effort / never-abstain: the generator always emits a
+   *              short concrete answer from the retrieved facts and never
+   *              returns the "no grounded evidence" refusal; verifier is
+   *              skipped. For QA settings (e.g. benchmark answering) where an
+   *              abstention scores worse than a best-guess answer.
    */
   @IsOptional()
-  @IsIn(['strict', 'lenient', 'off'])
+  @IsIn(['strict', 'lenient', 'off', 'answer'])
   synthesisGuardrails?: SynthesisGuardrails;
 
   /**

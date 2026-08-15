@@ -58,8 +58,10 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
     const fresh = await ingest('said', 'fresh remark that must stay active');
     await backdate(aged, 365);
 
-    // Control group: 5 aged facts on a bitemporal (default-semantics)
-    // predicate — never promoted no matter the age.
+    // Control group: 5 aged facts on a COINED (not-in-seed) predicate —
+    // never promoted no matter the age. Coined predicates write as
+    // append_only since 0082, but promotion folds only seed-declared
+    // append_only event history; specific observations stay verbatim.
     const control: string[] = [];
     for (let i = 1; i <= 5; i++) {
       control.push(await ingest('claim_probe', `unrelated claim ${i}`));

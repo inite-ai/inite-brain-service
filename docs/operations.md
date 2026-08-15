@@ -58,10 +58,18 @@ the operator's reference for running Brain.
 | `SEARCH_TRUST_BETA` | `0` | fact_trust in ranking (source-reputation Phase 5): search scores ×= `1 + β·(sourceReputation − 0.5)` from the write-time trust snapshot. `0` = byte-identical ranking; snapshot-less facts sit on the neutral 0.5 at any β. |
 | `SEARCH_CORROBORATION_GAMMA` | `0` | Search scores ×= `1 + γ·min(corroborationCount, 3)` — independently confirmed facts rank higher. `0` = off. |
 | `SEARCH_AUTHORITY_DELTA` | `0` | Search scores ×= `1 + δ·authority` from the registry-declared source authority in the write-time trust snapshot. Facts from unregistered sources (authority 0) are unaffected at any δ. `0` = off. |
+| `SEARCH_CHATTER_PENALTY` | `1.0` | Sub-1.0 ranking multiplier on low-value `said` chatter facts ("Hey!", "That's great!") so substantive facts of the same entity aren't buried. `1.0` = off; a demotion needs a value in `(0,1)`, e.g. `0.35`. |
+| `INGEST_CONTEXTUAL_FACT_EMBEDDING` | `0` | Contextual fact embedding (Anthropic Contextual Retrieval, fact-level): embed each mention-extracted fact with a compact context stamp (speaker + session date) prepended to `predicate: object`, so the stored vector is closer to context-referencing queries. `0` = bare text (byte-identical embeddings). Changes the embedding basis → requires re-ingest to take effect. |
+| `INGEST_EVENT_TIME_EXTRACTION` | `0` | Event-time extraction: when a mention clause carries a relative temporal expression (`yesterday`, `last year`, `3 weeks ago`, RU `вчера`/`три недели назад`), resolve the occurrence date against the message time and stamp the fact's `validFrom` with it instead of the message time — so "went to the group yesterday" (said 8 May) records the event on 7 May. Multilingual via `chrono-node`, dispatched by the clause's detected language (en/ru/fr/de/es/pt/nl/ja/…) with an English fallback; no LLM call. A clause with no resolvable expression falls back to the message time unchanged. Changes stored `validFrom` → requires re-ingest to take effect. **Prod prerequisite:** a backdated `validFrom` can make a bitemporal supersede stamp `validUntil` earlier than the incumbent's `validFrom` (inverted interval → fact hidden from `asOf`). `single_active` is guarded (out-of-order → `INSERTED_HISTORICAL`); the bitemporal path is not. Keep OFF in prod until the supersede clamps `validUntil ≥ validFrom` (or restrict event-time to episodic/append_only predicates). Safe for benchmark tenants. |
+| `INGEST_BATCH_EDGES` | `0` | Batched edge persistence. Collapses a mention's per-edge `RELATE` round-trips into TWO queries — one multi-statement existence check, then one multi-statement `RELATE` for only the edges that don't already exist; a re-ingest with all edges present is a SINGLE round-trip. Same observable outcome as the per-edge loop (idempotent RELATE on `UNIQUE(in,out,kind)`, in-batch `(from,to,kind)` dedup). The existence check makes the RELATE batch collision-free in the common case; a concurrent writer creating one of the missing edges between check and RELATE trips the batch atomically → caught and redone through the per-edge idempotent primitive. `0` = per-edge loop (byte-identical). Read at boot. |
+| `SEARCH_COMBINED_VECTOR_GRAPH` | `0` | Combined vector+graph retrieval — SurrealDB's native hybrid strength. Folds each fact's entity neighbourhood (`->knowledge_edge->`) into the vector KNN query as a co-equal projection, so candidate generation is ONE SurrealQL round-trip instead of a vector query plus a separate edge-expansion lookup. Edge-expansion then reuses the prefetched neighbours and only queries seeds the vector leg didn't cover. `0` = empty projection + legacy separate lookup (byte-identical). Read at boot. A latency/architecture win (fewer round-trips, DB-side traversal); ranking is unchanged. Pairs well with `SEARCH_HNSW_ENABLED` (native ANN index) at scale. |
+| `SEARCH_HIGHLIGHT_ENABLED` | `0` | BM25 match snippets. The FULLTEXT indexes are defined with `HIGHLIGHTS` but `search::highlight` was never queried; when on, the lexical leg projects `search::highlight('<em>','</em>',1)` and search responses carry a `highlight` field on lexically-matched facts (matched terms wrapped in `<em>…</em>`). `0` = no `highlight` field (byte-identical payload). Read at boot. |
 | `SEARCH_USAGE_RECORDING_ENABLED` | `0` | Stamp the facts each search surfaces into `fact_usage` (readCount + lastReadAt), fire-and-forget after the response. Prerequisite for usage-aware decay — enable this first and let usage accumulate. |
 | `SEARCH_USAGE_DECAY_ENABLED` | `0` | Restart the ranking decay clock at `max(recordedAt, lastReadAt)` — facts that keep getting retrieved stay fresh. Off (or no usage row) = decay from `recordedAt`, byte-identical. |
-| `SEARCH_QUERY_EXPANSION_ENABLED` | `0` | Read-side multi-query expansion: one LLM call (cached, budgeted `SEARCH_STAGE_BUDGET_QUERY_EXPANSION_MS`, default 1500) rewrites the query into `SEARCH_QUERY_EXPANSION_N` (default 2, max 4) alternative phrasings; each runs an extra vector leg, merged by max cosine. Every failure degrades to the original-query legs. Model via `SEARCH_QUERY_EXPANSION_MODEL` (default `gpt-4o-mini`). |
 | `SEARCH_HNSW_ENABLED` | `0` | Approximate-KNN vector leg over the per-tenant HNSW indexes (create first: `POST /v1/admin/maintenance/hnsw`, per tenant, after any embedder reindex). Tenants without indexes soft-fall back to the exact full scan, so the flag is safe to flip globally mid-rollout. `SEARCH_HNSW_OVERFETCH` (4) × k candidates are pulled before WHERE filters (KNN filters post-hoc); `SEARCH_HNSW_EF` (100) is the search width. Re-run the quality eval after enabling — approximate recall is a trade. Worth it past ~50k active facts per tenant. |
+| `INGEST_INLINE_RESOLUTION_HNSW` | `0` | Route the inline entity-resolution name-candidate scan through the same per-tenant HNSW index instead of a full cosine scan of every `name` fact on each inline resolution. Over-fetches `INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH` (8) × k candidates before the name/type WHERE (KNN filters post-hoc); `INGEST_INLINE_RESOLUTION_HNSW_EF` (100) is the search width. Tenants without the index soft-fall back to the full scan. Only active when `INGEST_INLINE_RESOLUTION_ENABLED` is also on. **Correctness gate:** a missed approximate candidate creates a DUPLICATE entity (not just lower recall like search) — before enabling per tenant, run the dedup/quality eval and confirm the HNSW path finds every candidate the full scan does. Higher default over-fetch than search (8 vs 4) because `name` facts are a small fraction of all facts; a name-query embedding is near other name facts, but verify per corpus. |
+| `RETRIEVAL_COVERAGE_SCAN_MODE` | `brute` | Dense-leg mode of the two coverage-first scan lanes — mention-scan over `episode_segment` (`RETRIEVAL_TIMELINE_EVIDENCE=scan`) and query_arc over `knowledge_fact` (`RETRIEVAL_INSIGHT_EVIDENCE=query_arc`). `brute` = exact full-table cosine (correct at eval scale by design). `hnsw` = approximate KNN against the per-tenant indexes (`segment_embedding_hnsw` / `fact_embedding_hnsw`; `create` builds all four indexes) with `RETRIEVAL_SCAN_HNSW_OVERFETCH` (4; query_arc doubles it internally) × k candidates pulled before the WHERE gates and `RETRIEVAL_SCAN_HNSW_EF` clamped up to the overfetched k. Falls back to the brute scan on error OR an empty post-filter pool. **Enable gate per tenant:** build indexes, then `npx tsx scripts/scan-hnsw-parity.ts --tenant <id>` must show recall ≥ 0.98 before flipping the tenant's override. Segment-index embedder-swap caveat: reindex-embeddings does NOT rewrite segments — drop → re-segment → create. |
+| `RETRIEVAL_COVERAGE_LEX_MODE` | `phrase` | Lexical-leg (BM25) query shape of the same two scan lanes. `phrase` = one matcher per indexed field fed the whole extracted topic phrase — the matches operator (`@N@`) is AND-semantics over analyzed tokens on SurrealDB 3.x, so a multi-word topic must appear IN FULL and the lexical leg rarely fires (V11 audit A2). `or_terms` = per-term matchers over the stripped topic terms OR-ed with unique match refs (bounded at 8 terms), scored as the sum over terms of the best per-field BM25 — a row mentioning ANY topic word is a lexical hit, and rows covering more topic words rank higher. Overlayable per tenant (`coverageLexMode`). Measured-behavior change: flip after an eval pair, not by default. |
 | `SYNTHESIZE_MIN_FACT_TRUST` | `0` | Citation floor on write-time source reputation (beside `SYNTHESIZE_MIN_CONFIDENCE`). `0` = off; floors ≤ 0.5 never drop unscored facts. |
 | `DOCUMENT_INGEST_ENABLED` | `0` | Master switch for the [document pipeline](document-pipeline.md) (`POST /v1/ingest/document` + `/v1/documents/*`). Off = every route answers 503 and the legacy mention/fact paths behave byte-identically. |
 | `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated per-pack indexer runs + relevance router + async (queue-driven) document ingest. Off = only the `'_general'` union pass runs. |
@@ -203,22 +211,51 @@ Stay single-process until at least one of these holds:
   every API pod `PROCESS_ROLE=api` and run exactly one (or a few —
   leases arbitrate) `PROCESS_ROLE=worker` pod.
 
+## Retrieval profile (per-tenant configuration)
+
+The genre-dependent retrieval dimensions are NOT feature flags — they
+are per-tenant configuration, resolved once per request into a
+`RetrievalProfile` object (the platform directive 2026-08-03 replaced
+the old per-lane flag forks with this surface). Env sets the boot
+default; `RETRIEVAL_PROFILE_OVERRIDES` overlays per tenant.
+
+| Key | Default | What it does |
+|---|---|---|
+| `RETRIEVAL_GENRE` | `assistant_chat` | Names the corpus shape (`dialogue` \| `assistant_chat` \| `documents`) so per-tenant overrides read as intent. The dimensions the engine actually branches on are the two below. |
+| `RETRIEVAL_VERBATIM_EVIDENCE` | `shape_conditioned` | How verbatim L0 evidence reaches answers: `off` (facts only), `shape_conditioned` (episode quotes + provenance excerpts only when the question asks for conversational content — the engine default), `always` (all verbatim lanes unconditionally as a prompt appendix; the diary-genre profile), `fused` (segments become scored, reranked, citable SearchHits inside the search pipeline instead of an appendix), `routed` (per-query dispatch: verbatim-shaped questions take the fused path, everything else stays shape_conditioned). |
+| `RETRIEVAL_INSIGHT_EVIDENCE` | `off` | How derived insight rows (aspect aggregates + `summary_*` promotion/compaction summaries) reach answers: `off` (they ride the fact legs as ordinary rows), `routed` (fact legs exclude them; summarization/enumeration-routed questions retrieve them as their own dense+BM25 fused pool under a separate prompt slot — `INSIGHT_TOP_K`, not the fact budget). |
+| `RETRIEVAL_TIMELINE_EVIDENCE` | `off` | `routed`: ordering/sequence-shaped questions (the order-lexicon) also get the chronological segment appendix — the occurredAt-ordered mention record. Event-time extraction collapses a session's mentions onto one `validFrom` date, so mention order is unrecoverable from facts alone. Skipped when the query's resolved verbatim mode is `fused`. `scan`: the mention record is built by the topic-scan lane instead of the top-K appendix — topic phrase extracted from the question, the segment record scanned per session (BM25+embedding against the TOPIC), one dated line per session-mention in occurredAt order; coverage bounded by session count, not top-K. |
+| `RETRIEVAL_ABSTENTION_CALIBRATION` | `off` | `coverage`: in strict/lenient guardrails, evidence must clear the coverage floor (best fact score ≥ `RETRIEVAL_ABSTENTION_MIN_SCORE`, default 0.35; fact count ≥ `RETRIEVAL_ABSTENTION_MIN_EVIDENCE`, default 2) before generation — below it synthesize returns an explicit not-in-my-memory answer (reason `low_coverage`). Note: retrieval-level floors cannot detect answer-absence on topically-adjacent questions (measured non-discriminative) — use for genuinely off-topic traffic. `verifier`: answer-level coverage — in lenient guardrails an unsupported/partial verifier verdict returns the explicit decline instead of ungrounded text (no extra LLM cost). `answer` guardrails are always exempt (caller-level never-abstain contract). |
+| `RETRIEVAL_SALIENCE_SCORING` | off | Fold the deriver-stamped `source.salience` (0-3, written under `DERIVER_SALIENCE_STAMP`) into ranking — weights [0.8, 1.0, 1.1, 1.25] per grade. Unstamped rows sit on the neutral grade and are unaffected. Enable only against a salience-stamped derived world. |
+| `RETRIEVAL_DATE_ANCHORING` | `absolute` | How the generator's "today" anchors: `none` (session-date-convention golds, e.g. the LoCoMo eval profile), `session_date` (only when the caller sends `asOf`), `absolute` (asOf, else wall clock). |
+| `RETRIEVAL_TEMPORAL_MODE` | `filter` | How an explicit `asOf` shapes retrieval: `filter` (strict bitemporal point-in-time closure), `overlap_boost` (the validity gate is relaxed; facts outside the interval survive with an exponential distance decay on their score — a slightly-wrong asOf degrades results instead of emptying them). |
+| `RETRIEVAL_ENTITY_EXPANSION` | off | Second retrieval pass anchored on the top entities the first pass discovered and the query never named. Costs one extra embedding + two leg queries when it fires; enable per genre after measuring. |
+| `RETRIEVAL_PROFILE_OVERRIDES` | — | JSON object mapping companyId → partial profile (`lanes` as an array of lane ids). Malformed per-tenant entries are ignored; the JSON shape is boot-validated. |
+
+Introspection: `GET /v1/admin/retrieval-profile` (brain:admin) returns
+the profile the calling tenant actually resolves to — use it to verify
+an override took. The eval harness stamps the same object into every
+report header.
+
+Removed in the same refactor (delete from deployment env — they are
+inert but lie): `SEARCH_RERANKER_ENABLED`, `SEARCH_HYPE_ENABLED`,
+`SEARCH_QUERY_EXPANSION_N`. The LLM reranker is now a CAPABILITY: it
+runs wherever an OpenAI key is configured, bounded by the stage budget
+and `SEARCH_RERANK_SKIP_MARGIN`. After deploying this fold, expect the
+`brain_search_rerank_total{outcome=invoked}` rate to rise; watch it and
+OpenAI spend for a day, and tune the skip margin rather than looking
+for the deleted kill switch.
+
 ## Retrieval feature flags
 
-The search pipeline ships every feature OFF by default and asks
-operators to opt in once they've measured impact on their tenant
-shape. Each flag is a single boolean / numeric env var; flipping it is
-a service restart, not a schema change.
+Infra-shaped knobs (budgets, windows, iteration counts) stay
+individual env vars: flipping one is a service restart, not a schema
+change.
 
 | Flag | Default | What it does | When to enable |
 |---|---|---|---|
-| `SEARCH_HYPE_ENABLED` | `0` | At ingest, generates a hypothetical-question embedding alongside the literal-object embedding. Search takes `max(cos_main, cos_alt)`. Closes the question→statement gap without an LLM call on the read path. Costs +1 LLM + 1 embed per fact at ingest time. | Question-shaped queries dominate (chat / NL search). Skip for pure-id lookup workloads. |
-| `SEARCH_PREDICATE_ROUTER_ENABLED` | `0` | Joint LLM call per query that emits a soft distribution over predicates AND target entity types. Boosts facts whose predicate matches the query's intent class; type prior gets piped into the reranker prompt. Cached by query hash (LRU 500). | Predicate-class confusion in the eval (`tier upgrade` vs `complained_about` matches). Cheap once the cache warms. |
-| `SEARCH_CROSS_ENCODER_ENABLED` | `0` | Cohere Rerank v3.5 (or compatible) cross-encoder between fusion and the LLM stage. Reorders a wide window (default 50) and feeds the narrow top-20 to the LLM stage; pre-prunes for the LLM stage so its prompt stays small. Tracked via `brain_search_cross_encoder_total{outcome}`. Identity-fallback on any error — search never breaks because the cross-encoder hiccupped. Requires `COHERE_API_KEY`. | Recall@1 plateau and / or LLM rerank cost is dominating. The cheapest precision gain in the pipeline once you have the key. |
 | `SEARCH_CROSS_ENCODER_WINDOW` | `50` | Wide-window size that the cross-encoder reorders. Larger → more recall headroom, more Cohere tokens. | Long-tailed candidate distributions where the gold answer often sits beyond rank-20 from fusion alone. |
-| `SEARCH_CROSS_ENCODER_LOCAL` | `0` | No-vendor fallback: run a cross-encoder locally via `@xenova/transformers` (ONNX) when `COHERE_API_KEY` is absent. Inference runs in a `worker_thread` (never blocks the event loop); model is ~279MB (set `TRANSFORMERS_CACHE` so it survives restarts). `SEARCH_CROSS_ENCODER_LOCAL_MODEL` (default `Xenova/bge-reranker-base`), `SEARCH_CROSS_ENCODER_LOCAL_WORKER=0` forces in-thread. | A self-hoster with no rerank vendor who still wants joint-encoder precision. |
 | `SEARCH_CROSS_ENCODER_LOCAL_WINDOW` | `20` | Window the LOCAL path reranks (it scores pairs sequentially, so it uses a tighter window than Cohere's `_WINDOW`). Bounded by the stage budget. | Rarely — raise only if local rerank latency is comfortably under `SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS`. |
-| `SEARCH_RERANKER_ENABLED` | `0` | Listwise LLM reranker (RankGPT-style, strict JSON schema) over the top-20 fused candidates. Includes 1-hop SubgraphRAG-style neighbour context per candidate. | Recall@1 plateau. The single biggest dial in the pipeline. |
 | `SEARCH_RERANKER_SC_N` | `1` | Permutation Self-Consistency: runs the reranker `N` times in parallel with shuffled orderings, aggregates via Borda count. `3` is the literature default. | Run-to-run jitter on the reranker. Costs N× LLM tokens (latency ~constant via the parallel limiter). |
 | `SEARCH_RERANK_SKIP_MARGIN` | `0` | Relative-gap gate: skip the reranker when `(top1 − top2) / top1 ≥ M`. Cuts LLM cost on queries where the leader is already obvious. Tracked via `brain_search_rerank_total{outcome=skipped_margin}`. | After enabling the reranker, when `invoked` rate is high and recall has headroom. Start at `0.5` and tune via the metric. See operator playbook. |
 | `SEARCH_PPR_ENABLED` | `0` | Personalized PageRank prior over the candidate-entity subgraph (HippoRAG-style). 3 power iterations, α=0.85. Multiplies rankScore by `(1 + 0.5·rNorm)`. | Fat tenants (≥ ~100 entities). Hub effects amplify pathologically on small graphs — measured. |
@@ -405,6 +442,26 @@ docker / fly / k8s don't `SIGKILL` you with no log line.
 | `pnpm test:eval:json` | Loads a directory from `BRAIN_DIRECTORY_JSON=…/file.json` and runs retrieval + lifecycle assertions; same runner, your data. | Bringing up brain on a real customer dataset; smoke-testing a CSV→JSON export against the eval harness. |
 | `pnpm test:e2e:jobs` | Real-Surreal e2e: enqueue → claim → renew → complete cycle, dedup collision, fail+requeue, zombie reap, leader_lease in `system` DB. | After touching anything in `src/jobs/` or migrations 0028-0031. |
 | `pnpm lint` | ESLint flat config. | Every commit. |
+
+## Eval stand
+
+Idioms for accelerated benchmark legs (LoCoMo / LongMemEval / BEAM)
+against a local stand — mistakes here burn paid multi-hour runs:
+
+- **`THROTTLE_DISABLED=1` is REQUIRED for accelerated ingest legs.**
+  The per-route `@Throttle` decorators do NOT read the env rate-limit
+  values — only the throttler master switch disables them. Without it
+  the brain's own throttler 429s the eval runner at ~120 req/min
+  (`ThrottlerException` — easily misread as an OpenAI 429) and a
+  multi-hour ingest dies mid-flight. Never set it in production.
+- One heavy chain (ingest or QA) per SurrealDB stand container at a
+  time — two concurrent chains have OOM'd a 4-GB stand repeatedly.
+- Fresh tenant per write-leg attempt (mint a new single-tenant API
+  key), so lazy per-tenant migrations and half-written substrates can
+  never contaminate a pair.
+- Gate chain steps on CHECKPOINT COMPLETENESS (row count in the
+  `--resume` file), not runner exit codes — the runners exit 0 with
+  errored rows.
 
 ## See also
 

@@ -1,6 +1,7 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
-import type { EntityBucket, FactRow } from './types';
+import type { EntityBucket, FactRow, NeighbourEdge } from './types';
+import { buildEdgeFence } from './edge-fence';
 
 /**
  * Pick the top-N entity ids from the post-bucketing map by rankScore.
@@ -87,7 +88,19 @@ export interface ExpansionConfig {
   alpha: number;
 }
 
-export function resolveExpansionConfig(env = process.env): ExpansionConfig {
+/** Pure fallback for callers that resolve no env (unit fixtures). */
+const DEFAULT_EXPANSION_CONFIG: ExpansionConfig = {
+  topSeeds: 3,
+  maxNeighboursPerSeed: 5,
+  alpha: 0.4,
+};
+
+/**
+ * Env resolution lives with the caller-supplied env — the S5.2 boundary
+ * allows raw environment reads only in the retrieval-profile bootstrap,
+ * which calls this from resolveSearchTuning().
+ */
+export function resolveExpansionConfig(env: NodeJS.ProcessEnv): ExpansionConfig {
   const topSeeds = Math.max(
     1,
     parseInt(env.SEARCH_EDGE_EXPANSION_TOP_SEEDS ?? '3', 10) || 3,
@@ -129,6 +142,44 @@ export interface ExpandViaEdgesOptions {
   callerScopes: string[];
   passesPolicy: (row: FactRow, dto: SearchDto, scopes: string[]) => boolean;
   config?: ExpansionConfig;
+  /**
+   * Neighbourhoods already fetched inline by the combined vector+graph leg
+   * (SEARCH_COMBINED_VECTOR_GRAPH), keyed by entity id. Seeds covered here are
+   * served from it; only the uncovered seeds hit the DB — saving the separate
+   * round-trip for everything the vector KNN already surfaced.
+   */
+  prefetchedNeighbours?: Map<
+    string,
+    { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+  >;
+}
+
+/**
+ * Build the seed→neighbourhood map from vector-leg facts that carried their
+ * entity's edges inline (combined vector+graph leg). Returns undefined when no
+ * row has neighbours (flag off / lexical-only), so callers pass nothing and
+ * edge-expansion behaves exactly as before. One entity can back several facts;
+ * first non-null wins (same entity ⇒ same neighbourhood).
+ */
+export function buildNeighbourMap(
+  rows: FactRow[],
+):
+  | Map<string, { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }>
+  | undefined {
+  const map = new Map<
+    string,
+    { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+  >();
+  for (const r of rows) {
+    if (r.outNeighbours === undefined && r.inNeighbours === undefined) continue;
+    const eid = String(r.entityId);
+    if (map.has(eid)) continue;
+    map.set(eid, {
+      outNeighbours: r.outNeighbours ?? null,
+      inNeighbours: r.inNeighbours ?? null,
+    });
+  }
+  return map.size > 0 ? map : undefined;
 }
 
 export async function expandViaEdges({
@@ -139,46 +190,56 @@ export async function expandViaEdges({
   dto,
   callerScopes,
   passesPolicy,
-  config = resolveExpansionConfig(),
+  config = DEFAULT_EXPANSION_CONFIG,
+  prefetchedNeighbours,
 }: ExpandViaEdgesOptions): Promise<number> {
   const seeds = selectEdgeExpansionSeeds(byEntity, config.topSeeds);
   if (seeds.length === 0) return 0;
 
-  const seedRids = seeds.map((s) => new StringRecordId(s.entityId));
   type EdgeRow = {
     id: unknown;
-    outNeighbours: Array<{
-      kind: string;
-      weight?: number;
-      peer: { id: unknown } | null;
-    }> | null;
-    inNeighbours: Array<{
-      kind: string;
-      weight?: number;
-      peer: { id: unknown } | null;
-    }> | null;
+    outNeighbours: NeighbourEdge[] | null;
+    inNeighbours: NeighbourEdge[] | null;
   };
-  let edgeRows: EdgeRow[] = [];
-  try {
-    const [rows] = await db.query<[EdgeRow[]]>(
-      `SELECT
-           id,
-           ->knowledge_edge.{ kind, weight, peer: out.{id} } AS outNeighbours,
-           <-knowledge_edge.{ kind, weight, peer: in.{id} } AS inNeighbours
-         FROM $ids`,
-      { ids: seedRids },
-    );
-    edgeRows = (rows as EdgeRow[]) ?? [];
-  } catch (err) {
-    logger.warn(
-      `expandViaEdges: neighbour query failed, skipping expansion: ${(err as Error).message}`,
-    );
-    return 0;
+  const edgeRows: EdgeRow[] = [];
+  // Serve seeds the combined leg already fetched; query only the rest.
+  const uncovered = seeds.filter((s) => {
+    const pre = prefetchedNeighbours?.get(s.entityId);
+    if (!pre) return true;
+    edgeRows.push({
+      id: s.entityId,
+      outNeighbours: pre.outNeighbours ?? null,
+      inNeighbours: pre.inNeighbours ?? null,
+    });
+    return false;
+  });
+  if (uncovered.length > 0) {
+    const seedRids = uncovered.map((s) => new StringRecordId(s.entityId));
+    const fence = buildEdgeFence(dto.userId);
+    try {
+      const [rows] = await db.query<[EdgeRow[]]>(
+        `SELECT
+             id,
+             ->(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: out.{id, userId} } AS outNeighbours,
+             <-(knowledge_edge WHERE ${fence.cond}).{ kind, weight, peer: in.{id, userId} } AS inNeighbours
+           FROM $ids`,
+        { ids: seedRids, ...fence.params },
+      );
+      edgeRows.push(...((rows as EdgeRow[]) ?? []));
+    } catch (err) {
+      logger.warn(
+        `expandViaEdges: neighbour query failed, skipping expansion: ${(err as Error).message}`,
+      );
+      if (edgeRows.length === 0) return 0;
+    }
   }
 
   // Collect (seedId, neighbourId, weight) tuples. Dedupe per-seed by
   // neighbour, capped at maxNeighboursPerSeed. Drop identity_of
   // self-loops (post-merge residue) — they cannot inject anything new.
+  // The peer-side fence ALSO covers prefetched neighbourhoods (the
+  // combined vector+graph leg projects peer.userId for exactly this).
+  const peerFence = buildEdgeFence(dto.userId);
   type Tuple = { seedId: string; neighbourId: string; weight: number };
   const tuples: Tuple[] = [];
   for (const row of edgeRows) {
@@ -188,12 +249,13 @@ export async function expandViaEdges({
       side: Array<{
         kind: string;
         weight?: number;
-        peer: { id: unknown } | null;
+        peer: { id: unknown; userId?: string | null } | null;
       }> | null,
     ) => {
       if (!side) return;
       for (const e of side) {
         if (!e?.peer) continue;
+        if (!peerFence.allowsPeer(e.peer.userId)) continue;
         const peerId = String(e.peer.id);
         if (peerId === seedId) continue;
         // Skip neighbours already retrieved — vector evidence is
@@ -283,7 +345,6 @@ export async function expandViaEdges({
                 fusedScore: 0,
                 confidence: row.confidence,
                 decay: 1,
-                predBoost: 1,
                 finalScore: 0,
                 stages: fused.stages,
               },

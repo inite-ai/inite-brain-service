@@ -28,16 +28,54 @@ export function externalRefKey(vertical: string, id: string): string {
   return `${safe(vertical)}__${safe(id)}`;
 }
 
+/** PII classes the redactor can find — stored as episode.piiClass. */
+export type PiiClass = 'email' | 'phone' | 'number';
+
 /**
- * Naive PII redactor — masks emails, phone-like numbers, and 9+ digit runs.
- * 0.2.0 will replace this with @inite/assistant.piiMask once the package
- * exposes a server-side import path.
+ * PII redactor with a report of what it found (P0 of the substrate
+ * redesign). The historical phone regex was destructive on temporal text —
+ * `"2019-2023"` → `[PHONE]`, `"May 7, 1998. 2019"` mangled — because any
+ * 9+-char digit/separator run matched. A candidate now masks only when its
+ * DIGIT count is phone/card-shaped (9-16) and it does not look like a year
+ * range or an ISO datetime. Dates, ranges, and ratings pass through intact;
+ * real phones (10-15 digits) and separated card numbers (16) still mask.
+ */
+export function redactPiiWithReport(text: string): {
+  text: string;
+  classes: PiiClass[];
+} {
+  const classes = new Set<PiiClass>();
+  const out = text
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, () => {
+      classes.add('email');
+      return '[EMAIL]';
+    })
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, (m) => {
+      const digits = m.replace(/\D/g, '');
+      if (digits.length < 9 || digits.length > 16) return m;
+      // Year range / year list ("1998. 2019", "2019 - 2023" never reach
+      // here at ≤8 digits; this guards 3-year spans and similar).
+      if (/^\s*(19|20)\d{2}(\D+(19|20)\d{2})+\s*$/.test(m)) return m;
+      // ISO datetime ("2023-05-07 12:34") — temporal, not a phone.
+      if (/^\s*(19|20)\d{2}-\d{2}-\d{2}/.test(m)) return m;
+      classes.add('phone');
+      return '[PHONE]';
+    })
+    .replace(/\b\d{9,}\b/g, () => {
+      // A bare digit run ≥9 is an id/account/card; ISO-less timestamps
+      // (e.g. epoch millis) are ids too — mask. Years never reach 9 digits.
+      classes.add('number');
+      return '[NUM]';
+    });
+  return { text: out, classes: [...classes] };
+}
+
+/**
+ * Back-compat wrapper — every existing call site keeps its signature; the
+ * fix rides in via redactPiiWithReport.
  */
 export function redactPii(text: string): string {
-  return text
-    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[EMAIL]')
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[PHONE]')
-    .replace(/\b\d{9,}\b/g, '[NUM]');
+  return redactPiiWithReport(text).text;
 }
 
 /**
@@ -107,17 +145,3 @@ export function evidenceValidationError(evidence: unknown): string | null {
   return null;
 }
 
-/**
- * Gate for the HyPE post-INSERT alt-embedding UPDATE. We only generate +
- * write the hypothetical-question embedding when a fact was actually
- * INSERTED (not superseded/competed/rejected), HyPE is enabled, and we
- * have a concrete factId to UPDATE — otherwise we'd burn an LLM call on a
- * row that won't keep the embedding.
- */
-export function shouldWriteHypeAltEmbedding(
-  outcome: unknown,
-  hypeEnabled: boolean,
-  factId: string | null,
-): boolean {
-  return factId !== null && hypeEnabled && outcome === 'INSERTED';
-}

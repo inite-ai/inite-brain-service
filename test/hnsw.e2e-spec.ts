@@ -68,6 +68,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     expect(create.body.action).toBe('create');
     expect(create.body.dimension).toBe(1536); // StubEmbedder
     expect(create.body.indexes).toContain('fact_embedding_hnsw');
+    expect(create.body.indexes).toContain('segment_embedding_hnsw');
 
     const baseline = await search('HNSW Probe Tenant');
 

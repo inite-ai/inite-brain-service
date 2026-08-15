@@ -34,7 +34,6 @@ describe('scoreRows — usage-aware decay', () => {
   it('restarts the decay clock at lastReadAt', () => {
     const [stale, used] = scoreRows({
       rows: [row(), row({ lastReadAt: new Date(NOW - DAY).toISOString() })],
-      predicateDist: null,
       now: NOW,
     });
     // 120 days at half-life 60 → 0.25; read a day ago → ~0.988.
@@ -52,7 +51,6 @@ describe('scoreRows — usage-aware decay', () => {
           lastReadAt: new Date(NOW - 30 * DAY).toISOString(),
         }),
       ],
-      predicateDist: null,
       now: NOW,
     });
     expect(freshWithStaleRead.score).toBe(fresh.score);
@@ -61,7 +59,6 @@ describe('scoreRows — usage-aware decay', () => {
   it('no usage stamp → byte-identical to the pre-0053 formula', () => {
     const [scored] = scoreRows({
       rows: [row()],
-      predicateDist: null,
       now: NOW,
     });
     expect(scored.breakdown.decay).toBeCloseTo(

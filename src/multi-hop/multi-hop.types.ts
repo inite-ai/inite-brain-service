@@ -38,6 +38,8 @@ export interface MultiHopResult {
     answer: string | null;
     reason?: SynthesisReason;
     citations: Citation[];
+    /** Generator-call token cost (context-minimization accounting). */
+    tokenUsage?: { promptTokens: number; completionTokens: number };
   };
 }
 

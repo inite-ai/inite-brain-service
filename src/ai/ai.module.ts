@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { EmbedderService } from './embedder.service';
 import { ExtractorService } from './extractor.service';
 import { ExtractorRunnerService } from './extractor-runner.service';
@@ -7,9 +8,6 @@ import { ExtractorLlmService } from './extractor-llm.service';
 import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
 import { RerankerService } from './reranker.service';
-import { HypeService } from './hype.service';
-import { PredicateRouterService } from './predicate-router.service';
-import { QueryExpansionService } from './query-expansion.service';
 import { CrossEncoderService } from './cross-encoder.service';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
 import { PredicateRegistryService } from './predicate-registry.service';
@@ -38,9 +36,6 @@ import { EntityJudgeService } from './entity-judge.service';
     ExtractorRunnerService,
     ExtractorService,
     RerankerService,
-    HypeService,
-    PredicateRouterService,
-    QueryExpansionService,
     CrossEncoderService,
     PredicateRegistryService,
     LocalPredicateSelectorService,
@@ -50,8 +45,8 @@ import { EntityJudgeService } from './entity-judge.service';
     {
       // Local cross-encoder fallback (no-Cohere-key rerank). Construction is
       // cheap — the ONNX model lazy-loads on first use — so it's always
-      // provided; CrossEncoderService only invokes it when
-      // SEARCH_CROSS_ENCODER_LOCAL=1 and Cohere isn't configured.
+      // provided; CrossEncoderService invokes it when Cohere isn't
+      // configured.
       provide: LocalCrossEncoderProvider,
       useFactory: (config: ConfigService) =>
         new LocalCrossEncoderProvider({
@@ -62,8 +57,9 @@ import { EntityJudgeService } from './entity-judge.service';
           // ONNX inference runs in a worker_thread by default so it never
           // blocks the main event loop; SEARCH_CROSS_ENCODER_LOCAL_WORKER=0
           // keeps the in-thread path (benchmarks / constrained envs).
-          useWorker:
-            config.get<string>('SEARCH_CROSS_ENCODER_LOCAL_WORKER', '1') !== '0',
+          useWorker: envFlagNotDisabled(
+            config.get<string>('SEARCH_CROSS_ENCODER_LOCAL_WORKER'),
+          ),
           scoreTimeoutMs: parseInt(
             config.get<string>('SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS', '2000'),
             10,
@@ -88,9 +84,6 @@ import { EntityJudgeService } from './entity-judge.service';
     // snapshot instead of duplicating the engine.
     ExtractorRunnerService,
     RerankerService,
-    HypeService,
-    PredicateRouterService,
-    QueryExpansionService,
     CrossEncoderService,
     PredicateRegistryService,
     LocalPredicateSelectorService,

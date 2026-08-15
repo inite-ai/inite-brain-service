@@ -20,10 +20,26 @@ export interface ExtractedEntity {
 export interface ExtractedFact {
   entityIndex: number;
   predicate: string;
+  /**
+   * EDC-canonical id for a coined predicate (0082, open vocabulary
+   * only). The raw coinage stays in `predicate` — specificity is the
+   * dialogue profile's whole point — while resolution, dedup and the
+   * read-side predicate consumers key on `predicateAlias ?? predicate`.
+   * Absent when the predicate is already canonical (registry hit or a
+   * novel coinage that became its own canon).
+   */
+  predicateAlias?: string;
   object: string;
   confidence: number;
   /** The clause this fact was anchored to (verbatim sub-span). */
   clause?: string;
+  /**
+   * The verbatim grounded span the object was derived from. Equal to
+   * `object` unless object normalization rewrote the stored value
+   * (EXTRACTION_OBJECT_NORMALIZE); kept for audit and pattern-cache
+   * matching either way.
+   */
+  valueSpan?: string;
   /**
    * Semantic entropy across the N stochastic re-rolls (Farquhar et al.,
    * Nature 2024). Only populated when EXTRACTOR_SC_PASSES > 1; absent
@@ -63,6 +79,14 @@ export interface RawExtractedFact {
   predicate: string;
   valueSpan: string;
   confidence: number;
+  /**
+   * LLM-proposed NORMALIZED value (EXTRACTION_OBJECT_NORMALIZE): the
+   * minimal clean phrase naming the value, derived from valueSpan.
+   * Server-validated — every content word must appear in the grounded
+   * span (anti-hallucination stays structural); invalid proposals fall
+   * back to the span. Absent when the flag is off.
+   */
+  object?: string;
 }
 
 export const ENTITY_TYPE_VOCABULARY = [

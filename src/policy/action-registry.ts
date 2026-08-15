@@ -32,9 +32,15 @@ export const ACTIONS: Record<string, ActionSpec> = {
   search_multi_hop: { kind: 'read', family: 'mcp_read', title: 'Multi-hop search' },
   graph_retrieve: { kind: 'read', family: 'mcp_read', title: 'Graph-first retrieval' },
   synthesize: { kind: 'read', family: 'mcp_read', title: 'Synthesize answer' },
+  agent_qa: { kind: 'read', family: 'mcp_read', title: 'Agent-in-loop answer' },
   memory_diff: { kind: 'read', family: 'mcp_read', title: 'Memory diff' },
   get_entity_profile: { kind: 'read', family: 'mcp_read', title: 'Entity profile' },
   get_entity_timeline: { kind: 'read', family: 'mcp_read', title: 'Entity timeline' },
+  autocomplete_entities: {
+    kind: 'read',
+    family: 'mcp_read',
+    title: 'Entity name autocomplete',
+  },
   get_competing_facts: { kind: 'read', family: 'mcp_read', title: 'Competing facts' },
   summarize_entity: { kind: 'read', family: 'mcp_read', title: 'Summarize entity' },
   detect_contradiction: { kind: 'read', family: 'mcp_read', title: 'Detect contradiction' },
@@ -91,6 +97,14 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.registry.unfeature': { kind: 'write', family: 'rest', title: 'Unfeature pack' },
   'rest.registry.publisher.upsert': { kind: 'write', family: 'rest', title: 'Upsert publisher profile' },
   'rest.registry.publisher.get': { kind: 'read', family: 'rest', title: 'Get publisher page' },
+  // Raw-substrate driver v1: the L0 episode substrate as a contract.
+  'rest.episodes.list': { kind: 'read', family: 'rest', title: 'List episodes' },
+  'rest.episodes.export': { kind: 'read', family: 'rest', title: 'Export episodes (NDJSON)' },
+  'rest.projections.list': { kind: 'read', family: 'rest', title: 'List derived projections' },
+  'rest.projections.rebuild': { kind: 'admin', family: 'rest', title: 'Rebuild a derived projection' },
+  'rest.episodes.subscribe': { kind: 'admin', family: 'rest', title: 'Register an episode webhook' },
+  'rest.episodes.subscriptions': { kind: 'read', family: 'rest', title: 'List episode webhooks' },
+  'rest.episodes.unsubscribe': { kind: 'admin', family: 'rest', title: 'Delete an episode webhook' },
   'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
 };
 

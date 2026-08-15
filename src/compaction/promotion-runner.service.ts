@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { policyFor } from '../ingest/conflict-resolver';
+import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import {
   ConcatSummaryGenerator,
   FactToSummarize,
@@ -166,7 +166,16 @@ export class PromotionRunnerService {
     ];
     return (rows ?? [])
       .filter((g) => g.n >= this.minGroup)
-      .filter((g) => policyFor(g.predicate).semantics === 'append_only');
+      .filter((g) => {
+        // 0082: SEED lookup, not policyFor — the unknown-predicate
+        // fallback is append_only now, but a coined (open-vocabulary)
+        // predicate is a specific observation; folding those into a
+        // `summary_<coinage>` row would trade recall drivers for a
+        // paraphrase. Promotion keeps folding exactly the predicates it
+        // always folded: seed-declared append_only event history.
+        const seed = PREDICATE_POLICIES[g.predicate];
+        return seed !== undefined && seed.semantics === 'append_only';
+      });
   }
 
   /** Fold one group's aged tail into a summary fact. Returns count folded. */

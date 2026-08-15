@@ -86,7 +86,7 @@ export class MetricsService implements OnModuleInit {
 
   // Outcomes:
   //   invoked          — reranker actually ran on the candidate set
-  //   skipped_disabled — SEARCH_RERANKER_ENABLED=0 or no OpenAI key
+  //   skipped_disabled — no OpenAI client configured
   //   skipped_singleton— ≤1 candidate after fusion, nothing to reorder
   //   skipped_margin   — top-1 vs top-2 fused-score gap exceeded
   //                      SEARCH_RERANK_SKIP_MARGIN; the leader is
@@ -159,7 +159,7 @@ export class MetricsService implements OnModuleInit {
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
-  //   skipped_disabled — SEARCH_CROSS_ENCODER_ENABLED=0 or no Cohere key
+  //   skipped_disabled — neither Cohere key nor local provider available
   //   skipped_singleton— ≤1 candidate, nothing to reorder
   // The error vs invoked split is what tells the operator whether the
   // cross-encoder is actually doing work or silently degrading.
@@ -458,9 +458,15 @@ export class MetricsService implements OnModuleInit {
       | 'ok'
       | 'no_results'
       | 'no_grounded_evidence'
+      // V9 §4: the memory-coverage abstention floor fired.
+      | 'low_coverage'
       | 'verifier_partial'
       | 'verifier_failed'
       | 'generator_error'
+      // The generator hit the token cap and the partial answer was
+      // salvaged (audit W5 #24) — distinct from generator_error, which
+      // means we returned nothing at all.
+      | 'generator_truncated'
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);

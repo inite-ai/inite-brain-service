@@ -5,10 +5,8 @@ import type { PackExtractionProfile } from './predicate-registry-internals/types
 import { ExtractorLlmService } from './extractor-llm.service';
 import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
-import {
-  clusterKey,
-  selfConsistencyByFact,
-} from './extractor-internals/semantic-entropy';
+import { mergeExtractions } from './extractor-internals/merge';
+import { detectFacets, type Facet } from './extractor-internals/facet-router';
 import type {
   ExtractedEntity,
   ExtractionResult,
@@ -16,11 +14,21 @@ import type {
 import {
   applyGroundingGate,
   groundEntities,
+  objectNormalizationEnabled,
   parseClauses,
   parseEntities,
   parseRawFacts,
 } from './extractor-internals/grounding';
 import { validateEdges } from './extractor-internals/edge-validator';
+import { denoiseFacts } from './extractor-internals/denoise';
+import { resolveExtractionProfile } from './extraction-profile';
+import {
+  buildConversationContext,
+  buildFacetSystemPrompt,
+  type ConversationContext,
+} from './extractor-internals/prompts';
+
+export type { ConversationContext } from './extractor-internals/prompts';
 
 type Snapshot = {
   versionHash: string;
@@ -81,9 +89,11 @@ export class ExtractorRunnerService {
     companyId: string;
     snapshot: Snapshot;
     overrides?: RunOverrides;
+    context?: ConversationContext;
   }): Promise<ExtractionResult | null> {
-    const { trimmed, companyId, snapshot, overrides } = args;
+    const { trimmed, companyId, snapshot, overrides, context } = args;
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
+    const contextPrefix = buildConversationContext(context ?? {});
 
     const skip = await this.local.trySkip(companyId, trimmed);
     if (skip) return skip;
@@ -101,18 +111,47 @@ export class ExtractorRunnerService {
         trimmed,
         snapshot,
         systemPrompt,
+        contextPrefix,
+        context,
         overrides: { ...overrides, scPasses },
+      });
+    }
+
+    // Facet routing — specialist passes ON TOP of the general one, only for
+    // the turns whose shape warrants them (a list, a proper name). The router
+    // is a local heuristic: paying an LLM call to decide whether to pay more
+    // LLM calls is the wrong shape. Off / no facet detected → single pass,
+    // byte-identical.
+    // Audit W3 #6: routing is a DIALOGUE-PROFILE feature — the facet
+    // prompt always emits the dialogue header (normalized, non-verbatim
+    // values), while the grounding gate only tolerates those under
+    // EXTRACTOR_DIALOGUE_PROFILE. With routing on and the profile off we
+    // paid 2-3x the LLM calls and then dropped every fact they produced.
+    // The doc comment claimed "dialogue profile only"; now the code does.
+    const profile = resolveExtractionProfile();
+    const facets = profile.facetRouting ? detectFacets(trimmed) : [];
+    if (facets.length > 0) {
+      return this.runFacetExtract({
+        companyId,
+        trimmed,
+        snapshot,
+        systemPrompt,
+        facets,
+        contextPrefix,
+        context,
+        overrides,
       });
     }
 
     const rawJson = await this.llm.callLlm({
       trimmed,
       systemPrompt,
+      contextPrefix,
       temperature: 0.1,
       model: overrides?.model,
     });
     if (!rawJson) return null;
-    return this.assembleResult({ companyId, trimmed, snapshot, rawJson });
+    return this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
   }
 
   private async runMultiPassExtract(args: {
@@ -120,6 +159,8 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
+    contextPrefix?: string;
+    context?: ConversationContext;
     overrides?: RunOverrides;
   }): Promise<ExtractionResult | null> {
     const N = args.overrides?.scPasses ?? this.llm.scPasses;
@@ -135,6 +176,7 @@ export class ExtractorRunnerService {
           .callLlm({
             trimmed: args.trimmed,
             systemPrompt: args.systemPrompt,
+            contextPrefix: args.contextPrefix,
             temperature: t,
             model: args.overrides?.model,
           })
@@ -154,6 +196,7 @@ export class ExtractorRunnerService {
               trimmed: args.trimmed,
               snapshot: args.snapshot,
               rawJson: rj,
+              context: args.context,
             })
           : null,
       ),
@@ -163,59 +206,89 @@ export class ExtractorRunnerService {
     // tells the caller to skip the cache (see run()'s contract).
     if (surviving.length === 0) return null;
 
-    const passFacts = surviving.map((r) =>
-      r.facts.map((f) => ({ predicate: f.predicate, object: f.object })),
-    );
-    const sc = selfConsistencyByFact(passFacts);
-
-    const entityKey = (e: { name: string; type: string }) =>
-      `${e.type}:${e.name.toLowerCase().trim()}`;
-    const entityMap = new Map<string, ExtractionResult['entities'][number]>();
-    for (const r of surviving) {
-      for (const e of r.entities) {
-        const k = entityKey(e);
-        if (!entityMap.has(k)) entityMap.set(k, e);
-      }
-    }
-    const entities = [...entityMap.values()];
-
-    const edgeMap = new Map<string, ExtractionResult['edges'][number]>();
-    for (const r of surviving) {
-      for (const ed of r.edges) {
-        const k = `${ed.fromEntityIndex}-${ed.kind}-${ed.toEntityIndex}`;
-        if (!edgeMap.has(k)) edgeMap.set(k, ed);
-      }
-    }
-    const edges = [...edgeMap.values()];
-
-    const seenClusters = new Set<string>();
-    const facts: ExtractionResult['facts'] = [];
-    for (const r of surviving) {
-      for (const f of r.facts) {
-        const k = clusterKey({ predicate: f.predicate, object: f.object });
-        if (seenClusters.has(k)) continue;
-        seenClusters.add(k);
-        const stats = sc.get(k);
-        facts.push({
-          ...f,
-          ...(stats
-            ? {
-                extractionEntropy: stats.entropy,
-                extractionAgreement: stats.agreement,
-              }
-            : {}),
-        });
-      }
-    }
+    const { clusterCount, ...merged } = mergeExtractions(surviving, {
+      selfConsistency: true,
+    });
 
     traceArtifact('extractor.sc_passes', {
       passes: surviving.length,
       temperatures,
-      clusterCount: sc.size,
-      clusterEntropy: facts[0]?.extractionEntropy ?? 0,
+      clusterCount,
+      clusterEntropy: merged.facts[0]?.extractionEntropy ?? 0,
     });
 
-    return { entities, facts, edges };
+    return merged;
+  }
+
+  /**
+   * Facet routing (`EXTRACTOR_ROUTING_ENABLED`, dialogue profile only): run the
+   * general pass PLUS one specialist pass per facet the turn warrants, then
+   * union them.
+   *
+   * The specialists are strictly ADDITIVE — the general pass still runs, and
+   * the union deduplicates by semantic cluster, so a facet can only add recall.
+   * That is deliberate: the measured failures are things the general pass
+   * DROPPED (a list item, a brand name), not things it got wrong, and a
+   * replace-the-general-pass design would trade one recall hole for another.
+   */
+  private async runFacetExtract(args: {
+    companyId: string;
+    trimmed: string;
+    snapshot: Snapshot;
+    systemPrompt: string;
+    facets: Facet[];
+    contextPrefix?: string;
+    context?: ConversationContext;
+    overrides?: RunOverrides;
+  }): Promise<ExtractionResult | null> {
+    const prompts = [
+      args.systemPrompt,
+      ...args.facets.map((f) => buildFacetSystemPrompt(f)),
+    ];
+    const rawJsons = await Promise.all(
+      prompts.map((systemPrompt, i) =>
+        this.llm
+          .callLlm({
+            trimmed: args.trimmed,
+            systemPrompt,
+            contextPrefix: args.contextPrefix,
+            temperature: 0.1,
+            model: args.overrides?.model,
+          })
+          .catch((e) => {
+            // A specialist failing costs its extra recall, nothing else — the
+            // general pass (index 0) still carries the turn.
+            this.logger.warn(
+              `facet pass ${i === 0 ? 'general' : args.facets[i - 1]} failed: ${(e as Error).message}`,
+            );
+            return null;
+          }),
+      ),
+    );
+    const results = await Promise.all(
+      rawJsons.map((rj) =>
+        rj
+          ? this.assembleResult({
+              companyId: args.companyId,
+              trimmed: args.trimmed,
+              snapshot: args.snapshot,
+              rawJson: rj,
+              context: args.context,
+            })
+          : null,
+      ),
+    );
+    const surviving = results.filter((r): r is ExtractionResult => !!r);
+    if (surviving.length === 0) return null;
+
+    const { clusterCount: _c, ...merged } = mergeExtractions(surviving);
+    traceArtifact('extractor.facets', {
+      facets: args.facets,
+      passes: surviving.length,
+      generalFacts: results[0]?.facts.length ?? 0,
+      mergedFacts: merged.facts.length,
+    });
+    return merged;
   }
 
   private async assembleResult(args: {
@@ -223,18 +296,31 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     rawJson: any;
+    context?: ConversationContext;
   }): Promise<ExtractionResult> {
-    const { companyId, trimmed, snapshot, rawJson } = args;
+    const { companyId, trimmed, snapshot, rawJson, context } = args;
 
     const parsedEntities: ExtractedEntity[] = parseEntities(rawJson);
     const clauses = parseClauses(rawJson);
     const rawFacts = parseRawFacts(rawJson, parsedEntities.length);
-    const { facts: valueGroundedFacts, dropped } = applyGroundingGate(
-      trimmed,
-      rawFacts,
+    // Dialogue profile (Phase 4): values are normalized, not verbatim spans, so
+    // the substring-drop gate would delete every normalized fact. Keep them.
+    const {
+      facts: valueGroundedFacts,
+      dropped,
+      ungroundedObjects,
+    } = applyGroundingGate(trimmed, rawFacts, {
       clauses,
-    );
+      allowUngrounded: resolveExtractionProfile().vocabulary === 'open',
+      normalizeObjects: objectNormalizationEnabled(resolveExtractionProfile()),
+    });
 
+    if (ungroundedObjects.length > 0) {
+      traceArtifact('extractor.ungrounded_object_proposals', {
+        count: ungroundedObjects.length,
+        ungroundedObjects,
+      });
+    }
     if (dropped.length > 0) {
       this.logger.warn(
         `extractor dropped ${dropped.length} fact(s) that failed span-grounding: ${dropped
@@ -260,8 +346,13 @@ export class ExtractorRunnerService {
 
     // Entity span-grounding: drop entities whose name never appears in the
     // source, then re-index the surviving facts/edges onto the compacted
-    // entity array.
-    const groundedMask = groundEntities(trimmed, parsedEntities);
+    // entity array. Known participants (speaker/addressee) are allow-listed:
+    // a coreference-resolved speaker name is legitimately absent from a
+    // first-person-only turn ("I decided …") yet must survive.
+    const allowedNames = [context?.speakerName, context?.addresseeName].filter(
+      (n): n is string => !!n,
+    );
+    const groundedMask = groundEntities(trimmed, parsedEntities, allowedNames);
     const remap = new Map<number, number>();
     const entities: ExtractedEntity[] = [];
     parsedEntities.forEach((e, i) => {
@@ -296,8 +387,25 @@ export class ExtractorRunnerService {
 
     await this.refine.applyPredicateRefinements(facts, snapshot as never, companyId);
 
-    const result: ExtractionResult = { entities, facts, edges };
-    this.local.persistPatterns({ companyId, clauses, rawFacts, facts, edges });
+    // Denoise (flag-gated, default off → identity): drop generic `said`
+    // small-talk the LLM over-emits, which otherwise dilutes retrieval and
+    // crowds real facts out of the synthesis window.
+    const denoised = denoiseFacts(facts, resolveExtractionProfile().dropSaid);
+    if (denoised.length < facts.length) {
+      traceArtifact('extractor.denoise', {
+        dropped: facts.length - denoised.length,
+        kept: denoised.length,
+      });
+    }
+
+    const result: ExtractionResult = { entities, facts: denoised, edges };
+    this.local.persistPatterns({
+      companyId,
+      clauses,
+      rawFacts,
+      facts: denoised,
+      edges,
+    });
     return result;
   }
 }

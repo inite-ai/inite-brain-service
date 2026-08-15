@@ -51,21 +51,39 @@ export interface LocomoSession {
 }
 
 export type LocomoQACategory =
-  /** category 1 — single-hop: answer is in one turn. */
+  /** category 1 — multi-hop: requires joining evidence across turns. */
   | 1
-  /** category 2 — multi-hop: requires joining evidence across turns. */
+  /** category 2 — temporal: requires reasoning about WHEN something happened. */
   | 2
-  /** category 3 — temporal: requires reasoning about WHEN something happened. */
+  /** category 3 — open-domain: requires commonsense beyond what's in the conversation. */
   | 3
-  /** category 4 — open-domain: requires commonsense beyond what's in the conversation. */
+  /** category 4 — single-hop: answer is in one turn. */
   | 4
-  /** category 5 — adversarial: gold answer is "no information available" — the agent must refuse to invent one. */
+  /**
+   * category 5 — adversarial: the question presupposes something the
+   * conversation never establishes; the agent must decline rather than
+   * invent an answer. Upstream stores the tempting-but-wrong answer under
+   * `adversarial_answer` and leaves `answer` absent. Per the official
+   * LoCoMo protocol these are EXCLUDED from the headline accuracy
+   * (score = correct(cat1-4) / total(cat1-4)) and reported separately as
+   * an abstention rate. See docs/locomo.md.
+   */
   | 5;
 
 export interface LocomoQuestion {
   question: string;
+  /**
+   * Gold answer. Absent for adversarial (cat5) questions upstream — the
+   * loader leaves it '' there and the runner scores cat5 on abstention,
+   * not string overlap.
+   */
   answer: string;
   category: LocomoQACategory;
+  /**
+   * The tempting-but-unsupported answer for adversarial (cat5) questions,
+   * carried through for diagnostics/reporting. Absent for cat1-4.
+   */
+  adversarialAnswer?: string;
   /** Turn ids that the gold reasoning cites — useful for joint-F1 scoring. */
   evidence: string[];
 }
@@ -87,4 +105,21 @@ export interface NormalizedConversation {
   speakerB: string;
   sessions: LocomoSession[];
   qa: LocomoQuestion[];
+}
+
+/**
+ * The VERIFIED category mapping (checked against dataset counts — see
+ * docs/eval-protocol.md rule 1; mem0-lineage harnesses ship it shifted).
+ * Single source of truth for every runner, baseline, and compare script.
+ */
+export const LOCOMO_CATEGORY_NAMES: Record<number, string> = {
+  1: 'multi-hop',
+  2: 'temporal',
+  3: 'open-domain',
+  4: 'single-hop',
+  5: 'adversarial',
+};
+
+export function categoryLabel(category: number): string {
+  return LOCOMO_CATEGORY_NAMES[category] ?? `category-${category}`;
 }

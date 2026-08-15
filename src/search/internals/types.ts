@@ -10,19 +10,31 @@
  * to the provenance activity that found it (HippoRAG/PROV-style).
  */
 export type RetrievalStage =
-  | 'hype'
+  | 'vector'
   | 'lexical'
-  | 'query_expansion'
   | 'graph_seed'
   | 'graph_neighbour'
   | 'edge_expansion'
   | 'ppr'
-  | 'backfill';
+  | 'segment';
+
+/** One graph edge to a neighbour entity, as projected by both the edge-
+ *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg.
+ *  `peer.userId` feeds the edge-fence peer check (edge-fence.ts) — a
+ *  user-scoped peer entity is invisible outside its own user's calls. */
+export interface NeighbourEdge {
+  kind: string;
+  weight?: number;
+  peer: { id: unknown; userId?: string | null } | null;
+}
 
 export interface FactRow {
   id: unknown;
   entityId: unknown;
   predicate: string;
+  /** EDC-canonical id for a coined predicate (0082); predicate-keyed
+   *  consumers (policy, chatter, diversity) use `predicateAlias ?? predicate`. */
+  predicateAlias?: string;
   object: string;
   confidence: number;
   validFrom: string;
@@ -39,6 +51,11 @@ export interface FactRow {
     externalRefs?: Record<string, string>;
     mergedInto?: unknown;
   };
+  // Graph neighbourhood of this fact's entity, projected inline by the vector
+  // leg when SEARCH_COMBINED_VECTOR_GRAPH is on (KNN + graph traversal in one
+  // query). Absent otherwise; edge-expansion then does its own lookup.
+  outNeighbours?: NeighbourEdge[] | null;
+  inNeighbours?: NeighbourEdge[] | null;
   // One of these is set per row depending on which leg surfaced it;
   // hybrid mode merges both and lets the fusion stage combine. Field
   // names sidestep the SurrealQL `vec::*` and `lex::*` namespace
@@ -47,6 +64,9 @@ export interface FactRow {
   // record-id order instead of by score.
   simScore?: number;
   bm25Score?: number;
+  /** BM25 match snippet from search::highlight, set by the lexical leg when
+   *  SEARCH_HIGHLIGHT_ENABLED is on. Absent on vector-only rows. */
+  highlight?: string;
   /**
    * Write-time source-trust snapshot (migration 0044) — read straight
    * off the row so trust can enter ranking without a join. Absent on
@@ -80,7 +100,7 @@ export interface FactRow {
   lastReadAt?: string;
   /**
    * Set of stages that surfaced this row. Multi-stage hits are common
-   * (e.g. hype + graph_seed) — the set lets DecisionLog show every
+   * (e.g. vector + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.
    */
   stages?: RetrievalStage[];
@@ -92,7 +112,7 @@ export type FusedRow = FactRow & { fusedScore: number };
  * Per-fact score breakdown — every multiplicative component is kept
  * separate so the DecisionLog can show why this fact beat the others.
  *
- *  Phase 1 fields: fusedScore, confidence, decay, predBoost, finalScore,
+ *  Phase 1 fields: fusedScore, confidence, decay, finalScore,
  *                  stages.
  *  Phase 3 additions: calibratedConfidence (isotonic-mapped raw),
  *                  extractionEntropy (semantic entropy across N
@@ -112,7 +132,23 @@ export interface ScoreBreakdown {
   /** Phase 3.C: conformal p-value for the synthesize-side guardrail. */
   conformalPValue?: number;
   decay: number;
-  predBoost: number;
+  /**
+   * Sub-1.0 chatter demotion applied to `said` facts (SEARCH_CHATTER_PENALTY).
+   * Omitted when 1.0 (no penalty) so unpenalised rows are byte-identical.
+   */
+  chatterPenalty?: number;
+  /**
+   * Interval-overlap decay vs the asOf anchor (profile temporalMode =
+   * 'overlap_boost', audit W4 #17). Omitted when 1.0 — i.e. the fact's
+   * validity interval contains the anchor, or no anchor was set.
+   */
+  temporalOverlap?: number;
+  /**
+   * V8 §4 importance factor from the deriver-stamped source.salience
+   * (profile salienceScoring). Omitted when 1.0 — scoring off, an
+   * unstamped row, or the neutral grade.
+   */
+  salience?: number;
   /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the

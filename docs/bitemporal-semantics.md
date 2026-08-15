@@ -57,7 +57,14 @@ Open-ended intervals (`validUntil IS NONE`) are treated as extending to +∞:
 | `[Mar15, ∞)` | `[Jan1, Apr1)` | Yes — overlap on `[Mar15, Apr1)`, conflict |
 | `[Apr1, May1)` | `[Apr15, ∞)` | Yes — overlap on `[Apr15, May1)`, conflict |
 
-Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap check — by definition only one row at a time, every prior active conflicts with the new one. Append-only (`said`, `complained_about`, `interacted_with`) never conflict.
+Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap check — by definition only one row at a time, every prior active conflicts with the new one. Append-only (`said`, `complained_about`, `interacted_with`) never conflict — but since migration 0082 they DO corroborate: an exact-object claim from a different origin strengthens the incumbent (`status='corroborating'`) instead of piling up as a duplicate active row.
+
+### Coined predicates: canonical alias + append_only (migration 0082)
+
+The dialogue extraction profile (open vocabulary) keeps the SPECIFIC predicate the extractor coined — `painted_seascape`, not `hobby`. Two consequences, both engine-wide invariants:
+
+1. **Resolution keys on the canonical form.** The EDC canonicalization the extraction prompt promises runs as an *alias pass*: the coinage stays in `predicate`, the registry's canonical id lands in `knowledge_fact.predicateAlias`, and the resolver (plus dedup, the diversity cap, chatter demotion, and the dreams sweeps) key on `predicateAlias ?? predicate`. Closed-vocabulary tenants never populate the alias, so their keys are byte-identical to pre-0082.
+2. **Unknown predicates default to `append_only`, not `bitemporal`.** A predicate absent from the registry is an open-vocabulary observation; supersede/compete semantics were designed for closed CRM predicates and made every coined fact take the serialized per-fact mutex path. Seed and operator-declared predicates keep their per-predicate policies. Two seed-keyed carve-outs deliberately do NOT follow the fallback: dreams-corroborate sweeps coined groups (fuzzy same-assertion is what collapses re-worded coinages) while still skipping seed append_only event history, and episodic promotion folds ONLY seed append_only predicates (a `summary_<coinage>` row would trade recall drivers for a paraphrase).
 
 ## What changes for callers
 

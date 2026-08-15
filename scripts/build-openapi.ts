@@ -96,6 +96,20 @@ import {
   SubmittedFactSchema,
   SubmittedRelationSchema,
 } from '../src/contracts/documents/documents.schema';
+import {
+  CreateEpisodeSubscriptionRequestSchema,
+  CreateEpisodeSubscriptionResponseSchema,
+  DeleteEpisodeSubscriptionResponseSchema,
+  EpisodeSubscriptionRowSchema,
+  EpisodeSubscriptionsListResponseSchema,
+  EpisodesAvailableEventSchema,
+  EpisodesListResponseSchema,
+  EpisodeWireSchema,
+  ProjectionRowSchema,
+  ProjectionsListResponseSchema,
+  RebuildProjectionRequestSchema,
+  RebuildProjectionResponseSchema,
+} from '../src/contracts/episodes/driver.schema';
 
 type Json = Record<string, unknown>;
 
@@ -171,6 +185,19 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   IndexerWorkListResponse: IndexerWorkListResponseSchema,
   WorkContentChunk: WorkContentChunkSchema,
   WorkContentResponse: WorkContentResponseSchema,
+  // --- raw-substrate driver (src/contracts/episodes/driver.schema.ts)
+  EpisodeWire: EpisodeWireSchema,
+  EpisodesListResponse: EpisodesListResponseSchema,
+  ProjectionRow: ProjectionRowSchema,
+  ProjectionsListResponse: ProjectionsListResponseSchema,
+  RebuildProjectionRequest: RebuildProjectionRequestSchema,
+  RebuildProjectionResponse: RebuildProjectionResponseSchema,
+  CreateEpisodeSubscriptionRequest: CreateEpisodeSubscriptionRequestSchema,
+  CreateEpisodeSubscriptionResponse: CreateEpisodeSubscriptionResponseSchema,
+  EpisodeSubscriptionRow: EpisodeSubscriptionRowSchema,
+  EpisodeSubscriptionsListResponse: EpisodeSubscriptionsListResponseSchema,
+  DeleteEpisodeSubscriptionResponse: DeleteEpisodeSubscriptionResponseSchema,
+  EpisodesAvailableEvent: EpisodesAvailableEventSchema,
 };
 
 function generateComponentSchemas(): Json {
@@ -871,6 +898,201 @@ function sourcesPaths(): Json {
   };
 }
 
+/**
+ * Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md).
+ * Flag-gated with 404 (not 503): an absent surface is indistinguishable
+ * from a disabled one by design.
+ */
+const DRIVER_404: Json = {
+  ...AUTH_ERRORS,
+  '404': errorRef('NotFound'),
+};
+
+function driverPaths(): Json {
+  const episodeFilters = [
+    queryParam('conversationId', 'Only turns of this conversation.'),
+    queryParam('speaker', 'Only turns by this speaker.'),
+    queryParam('since', 'ISO lower bound on occurredAt (inclusive).'),
+    queryParam('until', 'ISO upper bound on occurredAt (exclusive).'),
+  ];
+  return {
+    '/v1/episodes': {
+      get: operation({
+        operationId: 'listEpisodes',
+        tag: 'Episodes',
+        summary: 'Read the L0 episode substrate (keyset-paged)',
+        description:
+          'Verbatim pre-extraction dialogue turns in stable ' +
+          '(occurredAt, id) order — the raw layer any consumer can build ' +
+          'its own projection from. Callers without `brain:read_pii` see ' +
+          'only episodes whose piiClass is empty. 404 until ' +
+          'EPISODES_API_ENABLED=1. Source: ' +
+          'src/episodes/episodes.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          ...episodeFilters,
+          queryParam('limit', 'Page size (max 200, default 50).', {
+            type: 'integer',
+          }),
+          queryParam(
+            'cursor',
+            'Opaque keyset cursor from the previous page (`nextCursor`).',
+          ),
+        ],
+        responses: {
+          '200': jsonResponse('One page of episodes.', ref('EpisodesListResponse')),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/episodes/export': {
+      get: operation({
+        operationId: 'exportEpisodes',
+        tag: 'Episodes',
+        summary: 'Stream the substrate as NDJSON (replay/export)',
+        description:
+          'The same filtered stream as GET /v1/episodes, one episode per ' +
+          'line, paged internally — bounded memory however large the ' +
+          'tenant. 404 until EPISODES_API_ENABLED=1.',
+        scope: 'brain:read',
+        parameters: episodeFilters,
+        responses: {
+          '200': {
+            description: 'NDJSON stream; each line is an Episode.',
+            content: {
+              'application/x-ndjson': { schema: ref('EpisodeWire') },
+            },
+          },
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/episodes/subscriptions': {
+      post: operation({
+        operationId: 'createEpisodeSubscription',
+        tag: 'Episodes',
+        summary: 'Register a new-episode webhook endpoint',
+        description:
+          'Registers an http(s) endpoint for `episodes_available` pushes ' +
+          '(see the EpisodesAvailableEvent schema and the top-level ' +
+          'webhooks section). The HMAC signing secret is returned exactly ' +
+          'once. Pushes carry METADATA ONLY — bodies are pulled through ' +
+          'GET /v1/episodes under the subscriber’s own scopes. ' +
+          'Delivery is at-least-once. 404 until ' +
+          'EPISODE_SUBSCRIPTIONS_ENABLED=1.',
+        scope: 'brain:admin',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: ref('CreateEpisodeSubscriptionRequest'),
+            },
+          },
+        },
+        responses: {
+          '201': jsonResponse(
+            'Registered; store the secret now.',
+            ref('CreateEpisodeSubscriptionResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+      get: operation({
+        operationId: 'listEpisodeSubscriptions',
+        tag: 'Episodes',
+        summary: 'List registered webhook endpoints',
+        description:
+          'Secrets are never included. 404 until ' +
+          'EPISODE_SUBSCRIPTIONS_ENABLED=1.',
+        scope: 'brain:read',
+        responses: {
+          '200': jsonResponse(
+            'Registered endpoints.',
+            ref('EpisodeSubscriptionsListResponse'),
+          ),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/episodes/subscriptions/{id}': {
+      delete: operation({
+        operationId: 'deleteEpisodeSubscription',
+        tag: 'Episodes',
+        summary: 'Delete a webhook endpoint',
+        description: '404 until EPISODE_SUBSCRIPTIONS_ENABLED=1.',
+        scope: 'brain:admin',
+        parameters: [
+          pathParam('id', 'The episode_subscription record id.'),
+        ],
+        responses: {
+          '200': jsonResponse(
+            'Whether a subscription was deleted.',
+            ref('DeleteEpisodeSubscriptionResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/projections': {
+      get: operation({
+        operationId: 'listProjections',
+        tag: 'Projections',
+        summary: 'List derived surfaces and the live read pin',
+        description:
+          'Every derived world (facts@version, …) with its lifecycle ' +
+          'status (building/built/live/residual/failed), watermark, ' +
+          'builder identity and stats, plus the process-local read pin ' +
+          '(RETRIEVAL_DERIVED_VERSION). A registry row promises a ' +
+          'queryable world. 404 until PROJECTIONS_API_ENABLED=1. Source: ' +
+          'src/admin/projections.controller.ts.',
+        scope: 'brain:read',
+        responses: {
+          '200': jsonResponse(
+            'Derived worlds + read pin.',
+            ref('ProjectionsListResponse'),
+          ),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/projections/{name}/rebuild': {
+      post: operation({
+        operationId: 'rebuildProjection',
+        tag: 'Projections',
+        summary: 'Rebuild a derived surface (public verb)',
+        description:
+          'The public verb over the maintenance batch engine. v1 rebuilds ' +
+          '`facts` (the session-window deriver): derives into the given ' +
+          'version (a paid, operator-invoked batch), optionally flips the ' +
+          'live read pin (`activate`). Rewriting the pinned world needs ' +
+          '`force`. 404 until PROJECTIONS_API_ENABLED=1.',
+        scope: 'brain:admin',
+        parameters: [
+          pathParam('name', 'The projection name (v1: `facts`).'),
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': { schema: ref('RebuildProjectionRequest') },
+          },
+        },
+        responses: {
+          '200': jsonResponse(
+            'The batch result.',
+            ref('RebuildProjectionResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+  };
+}
+
 function indexerWorkPaths(): Json {
   return {
     '/v1/indexer/work': {
@@ -1095,6 +1317,23 @@ export function buildOpenApiDocument(): Json {
           'identity ⋈ learned reputation. Public projection — operator ' +
           'annotations (owner/note) stay on the admin surface.',
       },
+      {
+        name: 'Episodes',
+        description:
+          'The raw-substrate driver: verbatim pre-extraction dialogue ' +
+          'turns (L0) as a contract — keyset reads, NDJSON export, and ' +
+          'signed new-episode webhooks — so any consumer can build its ' +
+          'own projection without touching our database. Flags: ' +
+          'EPISODES_API_ENABLED / EPISODE_SUBSCRIPTIONS_ENABLED ' +
+          '(off → 404).',
+      },
+      {
+        name: 'Projections',
+        description:
+          'Derived surfaces as first-class records: lifecycle status, ' +
+          'watermark, builder identity, and rebuild as the public verb. ' +
+          'Flag: PROJECTIONS_API_ENABLED (off → 404).',
+      },
     ],
     paths: {
       ...registryPaths(),
@@ -1103,6 +1342,32 @@ export function buildOpenApiDocument(): Json {
       ...documentsPaths(),
       ...indexerWorkPaths(),
       ...sourcesPaths(),
+      ...driverPaths(),
+    },
+    webhooks: {
+      episodesAvailable: {
+        post: {
+          operationId: 'episodesAvailableWebhook',
+          tags: ['Episodes'],
+          summary: 'New-episode push (outbound webhook)',
+          description:
+            'Brain POSTs this to every registered subscription endpoint ' +
+            'when fresh episodes land. Metadata only — never episode ' +
+            'text. Signed `X-Brain-Signature: sha256=<hex hmac>` over ' +
+            'the raw JSON body with the per-subscription secret. ' +
+            'Delivery is at-least-once (dedupe on episode ids); the ' +
+            'watermark advances only after a 2xx.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': { schema: ref('EpisodesAvailableEvent') },
+            },
+          },
+          responses: {
+            '200': { description: 'Acknowledged; the watermark advances.' },
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {

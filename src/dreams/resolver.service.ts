@@ -8,6 +8,7 @@ import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
+import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that
@@ -102,7 +103,10 @@ export class DreamsResolverService {
     return this.enabled && !!this.openai;
   }
 
-  async run(db: Surreal): Promise<ResolverResult> {
+  async run(
+    db: Surreal,
+    derivedVersion: string | null = null,
+  ): Promise<ResolverResult> {
     const result: ResolverResult = {
       pairsConsidered: 0,
       llmJudgements: 0,
@@ -114,7 +118,7 @@ export class DreamsResolverService {
 
     const pairs = await withSpan(
       'dreams.resolve.find_pairs',
-      () => this.findCompetingPairs(db),
+      () => this.findCompetingPairs(db, derivedVersion),
       { 'resolve.min_age_days': this.minAgeDays },
     );
     result.pairsConsidered = pairs.length;
@@ -127,7 +131,7 @@ export class DreamsResolverService {
     const judged = await Promise.all(
       pairs.map((pair) =>
         withSpan('dreams.resolve.judge', () =>
-          this.limiter.run(() => this.judge(db, pair)),
+          this.limiter.run(() => this.judge(db, pair, derivedVersion)),
         ).then((verdict) => ({ pair, verdict })),
       ),
     );
@@ -168,22 +172,30 @@ export class DreamsResolverService {
    */
   private async findCompetingPairs(
     db: Surreal,
+    derivedVersion: string | null,
   ): Promise<Array<{ a: CompetingFactRow; b: CompetingFactRow }>> {
     const cutoff = new Date(
       Date.now() - this.minAgeDays * 24 * 60 * 60 * 1000,
     );
+    const fence = derivedVersionFence(derivedVersion);
     // Fetch ALL competing facts (no age filter in the query). The group-size
     // check that follows decides what's a 2-way pair vs a 3+-way disagreement,
     // so it must see every competing member. Filtering by age here would hide a
     // recent member of a genuine 3-way group and make it look like a clean pair
     // we could auto-resolve — exactly the multi-way case we must NOT touch.
+    // The version fence is NOT an age-style filter hazard: worlds are
+    // disjoint namespaces, so scoping to one world never hides a member
+    // of that world's group — it hides the SAME fact re-derived into
+    // other worlds, which used to masquerade as a 3-way disagreement.
     const [rows] = await db.query<[CompetingFactRow[]]>(
       `SELECT id, entityId, predicate, object, confidence, validFrom, recordedAt, source
        FROM knowledge_fact
        WHERE status = 'competing'
          AND retractedAt IS NONE
          AND userId IS NONE
+         ${fence.clause}
        ORDER BY entityId, predicate, recordedAt ASC`,
+      fence.params,
     );
     const all = (rows as CompetingFactRow[]) ?? [];
 
@@ -224,6 +236,7 @@ export class DreamsResolverService {
   private async judge(
     db: Surreal,
     pair: { a: CompetingFactRow; b: CompetingFactRow },
+    derivedVersion: string | null,
   ): Promise<{ kind: 'a_wins' | 'b_wins' | 'unsure' }> {
     // Pull a few neighbouring active facts on the same entity to give
     // the LLM context — sometimes the resolution depends on what's
@@ -232,6 +245,7 @@ export class DreamsResolverService {
     const ctxFacts = await this.fetchEntityContext(
       db,
       String(pair.a.entityId),
+      derivedVersion,
     );
     const sys = `You resolve a CONTRADICTION between two facts in a knowledge graph.
 
@@ -311,7 +325,9 @@ Output strictly the JSON shape requested.`;
   private async fetchEntityContext(
     db: Surreal,
     entityId: string,
+    derivedVersion: string | null,
   ): Promise<string> {
+    const fence = derivedVersionFence(derivedVersion);
     type R = { predicate: string; object: string; recordedAt: string };
     const [rows] = await db.query<[R[]]>(
       `SELECT predicate, object, recordedAt FROM knowledge_fact
@@ -319,9 +335,10 @@ Output strictly the JSON shape requested.`;
          AND status = 'active'
          AND retractedAt IS NONE
          AND userId IS NONE
+         ${fence.clause}
        ORDER BY recordedAt DESC
        LIMIT 6`,
-      { eid: new StringRecordId(entityId) },
+      { eid: new StringRecordId(entityId), ...fence.params },
     );
     const r = (rows as R[]) ?? [];
     if (r.length === 0) return '(no other active facts)';

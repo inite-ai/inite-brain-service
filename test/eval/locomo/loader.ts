@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import type {
   LocomoDataset,
+  LocomoQuestion,
   LocomoRawConversation,
   LocomoSample,
   LocomoSession,
@@ -44,7 +45,25 @@ export function normalizeSample(sample: LocomoSample): NormalizedConversation {
     speakerA: sample.conversation.speaker_a,
     speakerB: sample.conversation.speaker_b,
     sessions,
-    qa: sample.qa,
+    // LoCoMo gold answers are typed string, but the upstream JSON stores
+    // some as numbers (counts, years) — `answer.toLowerCase()` in the
+    // token-F1 scorer then throws. Coerce to string at the load boundary so
+    // every downstream metric sees a string; null/undefined → '' (harmless).
+    //
+    // Adversarial (cat5) questions carry no `answer` — the tempting-but-
+    // unsupported answer lives under the snake_case `adversarial_answer`.
+    // Surface it as `adversarialAnswer` for diagnostics; the runner scores
+    // cat5 on abstention, so `answer` staying '' is correct there.
+    qa: sample.qa.map((q) => {
+      const raw = q as LocomoQuestion & { adversarial_answer?: unknown };
+      const adversarialAnswer =
+        raw.adversarial_answer == null ? undefined : String(raw.adversarial_answer);
+      return {
+        ...q,
+        answer: q.answer == null ? '' : String(q.answer),
+        ...(adversarialAnswer !== undefined ? { adversarialAnswer } : {}),
+      };
+    }),
   };
 }
 

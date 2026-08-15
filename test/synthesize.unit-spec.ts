@@ -120,6 +120,51 @@ describe('SynthesizeService', () => {
     expect(out.citations).toEqual([]);
   });
 
+  it('answer mode never abstains — returns the answer, skips the verifier', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [
+        { factId: 'f1', predicate: 'preference', object: 'sunsets' },
+      ]),
+    ]);
+    // ONLY a generator response is stubbed — if the verifier ran it would
+    // consume a second call. It must not; answer mode returns directly.
+    const { svc } = makeSvc(
+      search,
+      {},
+      [JSON.stringify({ answer: 'Sunsets [f1].', citedFactIds: ['f1'] })],
+    );
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'answer' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.answer).toBe('Sunsets [f1].');
+    expect(out.reason).toBeUndefined();
+  });
+
+  it('answer mode: a stray sentinel is NOT tagged as abstention', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
+    ]);
+    const { svc } = makeSvc(
+      search,
+      {},
+      [
+        JSON.stringify({
+          answer: "I don't have grounded evidence for that.",
+          citedFactIds: [],
+        }),
+      ],
+    );
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'answer' },
+      callerScopes: ['brain:read'],
+    });
+    // Returned as the answer, never the no_grounded_evidence reason.
+    expect(out.reason).not.toBe('no_grounded_evidence');
+  });
+
   it('strict mode + supported verdict returns answer with citations', async () => {
     const search = makeSearch([
       makeHit('cust_a', [
@@ -399,5 +444,49 @@ describe('SynthesizeService', () => {
     const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
     expect(out.answer).toContain('customer');
     expect(out.reason).toBeUndefined();
+  });
+
+  it('surfaces each fact validity window in the generator prompt', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [
+        { factId: 'f1', predicate: 'attended', object: 'support group' },
+      ]),
+    ]);
+    // Capture the generator's user prompt to assert the date is present.
+    const prompts: string[] = [];
+    const cfg = makeConfig({
+      OPENAI_API_KEY: 'sk-stub',
+      SYNTHESIZE_DEFAULT_GUARDRAILS: 'off',
+    });
+    const svc = new SynthesizeService(search, cfg);
+    (svc as any).openai = {
+      chat: {
+        completions: {
+          create: async (req: any) => {
+            const user = req.messages?.find((m: any) => m.role === 'user');
+            if (user) prompts.push(String(user.content));
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      answer: 'They attended on 2026-01-01 [f1].',
+                      citedFactIds: ['f1'],
+                    }),
+                  },
+                },
+              ],
+            } as any;
+          },
+        },
+      },
+    };
+    await svc.synthesize({
+      companyId: 'co_x',
+      dto: { query: 'when did they attend?' },
+      callerScopes: ['brain:read'],
+    });
+    // makeHit pins validFrom = 2026-01-01, no validUntil → "(as of …)".
+    expect(prompts[0]).toContain('attended: support group (as of 2026-01-01)');
   });
 });

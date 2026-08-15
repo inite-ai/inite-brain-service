@@ -24,7 +24,9 @@ function headResolveFactMigration(): { name: string; body: string } {
   let head: { name: string; body: string } | null = null;
   for (const f of files) {
     const text = readFileSync(join(MIGRATIONS_DIR, f), 'utf8');
-    if (text.includes('DEFINE FUNCTION OVERWRITE fn::resolve_fact')) {
+    // The trailing `(` pins the exact function — otherwise the batch wrapper
+    // `fn::resolve_facts(` (migration 0071) substring-matches and hijacks head.
+    if (text.includes('DEFINE FUNCTION OVERWRITE fn::resolve_fact(')) {
       head = { name: f, body: text };
     }
   }

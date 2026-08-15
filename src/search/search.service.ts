@@ -9,14 +9,12 @@ import { clampLlmInputText } from '../common/input-limits';
 import { traceArtifact } from '../common/debug-trace';
 
 import type { SearchHit } from './search.types';
-import type { EntityBucket, FactRow } from './internals/types';
-import {
-  resolveStageBudgets,
-  withStageBudget,
-  type StageBudgets,
-} from './internals/stage-budget';
+import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
 import { buildBaseWhere } from './internals/where-builder';
-import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
+import {
+  hydrateSurvivors,
+  reattributeMerged,
+} from './internals/identity-merge';
 import {
   makeRowPolicyFilter,
   type PredicatePolicyLookup,
@@ -24,11 +22,15 @@ import {
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
-import { expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb } from './internals/neighbours';
-import { expandViaEdges } from './internals/edge-expansion';
+import {
+  expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb,
+  type Neighbour,
+} from './internals/neighbours';
+import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
+import { buildEntityExpansionQuery } from './internals/query-expansion';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
-import { backfillEntityFacts } from './internals/backfill';
+import { selectFactCentric } from './internals/fact-centric';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
 import {
@@ -43,8 +45,13 @@ import {
 } from './internals/graph-retrieve-db';
 import { SearchRetrievalService } from './search-retrieval.service';
 import { SearchRerankService } from './search-rerank.service';
+import { resolveVerbatimMode } from './verbatim-routing';
 import { PipelineContext } from './pipeline-context';
-import { envFlagEnabled } from '../common/env-validation';
+import { ReadPinService } from '../episodes/read-pin.service';
+import {
+  getActiveRetrievalProfile,
+  resolveSearchTuning,
+} from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
 export type { SearchHit } from './search.types';
@@ -59,16 +66,28 @@ export type { GraphRetrieveHit } from './internals/graph-retrieve';
  *   1. Translate the public `SearchDto` into a per-request context.
  *   2. Open the scoped DB connection and sequence the stages (retrieval
  *      → fusion → identity merge → scoring → bucketing → edge expansion
- *      → PPR → rerank → backfill → assemble).
+ *      → PPR → rerank → fact-centric selection → assemble).
  *   3. Own the db-threading stages that need no AI service (identity
- *      merge, edge expansion, PPR, backfill, graph retrieval).
+ *      merge, edge expansion, PPR, graph retrieval).
  *
  * Anything heavier than that belongs in a stage module or stage service.
  */
+
+/**
+ * Hand-off between the DB-scoped stages and the connectionless rank
+ * tail (audit W4 #20): everything the rerank/assembly stages need,
+ * prefetched so the scoped pool slot is released before the pipeline's
+ * slowest awaits (cross-encoder pass, external LLM rerank).
+ */
+interface StagedPipeline {
+  byEntity: Map<string, import('./internals/types').EntityBucket>;
+  rowPolicy: ReturnType<typeof makeRowPolicyFilter>;
+  neighboursByEntity: Map<string, Neighbour[]>;
+}
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
-  private readonly budgets: StageBudgets = resolveStageBudgets();
 
   // Fourth dep is the tenant predicate registry — the row fence must see
   // operator-authored requiresScope predicates, not only the code seed.
@@ -82,6 +101,9 @@ export class SearchService {
     private readonly rerank: SearchRerankService,
     @Optional() private readonly predicateRegistry?: PredicateRegistryService,
     @Optional() private readonly workerPool?: JobWorkerPool,
+    // Sixth: the per-tenant derived-world pin (audit W2). Optional so
+    // positionally-constructed unit tests fall back to the env default.
+    @Optional() private readonly readPin?: ReadPinService,
   ) {}
 
   /**
@@ -235,14 +257,16 @@ export class SearchService {
 
   /** Public re-export for the multi-hop executor. Opens a scoped
    *  connection, then delegates to the neighbour-fetch module. */
-  async expandEntityIdsViaEdges(
-    companyId: string,
-    entityIds: string[],
-    callerScopes: string[],
-  ): Promise<string[]> {
+  async expandEntityIdsViaEdges(opts: {
+    companyId: string;
+    entityIds: string[];
+    callerScopes: string[];
+    userId?: string;
+  }): Promise<string[]> {
+    const { companyId, entityIds, callerScopes, userId } = opts;
     if (entityIds.length === 0) return entityIds;
     return this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
-      expandEntityIdsViaEdgesDb(db, this.logger, entityIds),
+      expandEntityIdsViaEdgesDb({ db, logger: this.logger, entityIds, userId }),
     );
   }
 
@@ -273,7 +297,11 @@ export class SearchService {
       return { results: [] };
     }
     const limit = dto.limit ?? 10;
-    const asOf = dto.asOf ? new Date(dto.asOf) : null;
+    // Defense-in-depth: an Invalid Date param is rejected by the
+    // Surreal SDK at serialization time (SurrealSqonError → 500), so
+    // an unparseable asOf from ANY caller degrades to no time filter.
+    const asOfMs = dto.asOf ? Date.parse(dto.asOf) : NaN;
+    const asOf = Number.isNaN(asOfMs) ? null : new Date(asOfMs);
     const includeRetracted = dto.includeRetracted ?? false;
     const includeContested = dto.includeContested ?? true;
     const mode: SearchMode = dto.searchMode ?? 'hybrid';
@@ -292,27 +320,45 @@ export class SearchService {
       await this.retrieval.prewarmQueryEmbedding(dto.query);
     }
 
-    const out = await this.surreal.withScopedCompany(
+    // Which derived world this tenant reads — registry first, env
+    // bootstrap as the fallback (audit W2 #9). Resolved BEFORE the
+    // scoped connection so the registry lookup never holds a pool slot.
+    const derivedVersion =
+      (await this.readPin?.resolve(companyId)) ??
+      ReadPinService.bootstrapDefault();
+
+    const profile = getActiveRetrievalProfile();
+    const tuning = resolveSearchTuning();
+    const ctx: PipelineContext = {
+      dto,
+      callerScopes,
+      companyId,
+      limit,
+      asOf,
+      includeRetracted,
+      includeContested,
+      mode,
+      candidateK,
+      derivedVersion,
+      profile,
+      tuning,
+    };
+    // Audit W4 #20: only the DB-touching stages run inside the scoped
+    // connection; the cross-encoder pass and the external LLM rerank —
+    // the pipeline's slowest awaits — run AFTER the 8-slot pool
+    // connection is released (their one DB need, the 1-hop rerank
+    // neighbourhoods, is prefetched inside the scope).
+    const staged = await this.surreal.withScopedCompany(
       companyId,
       callerScopes,
-      (db) =>
-        this.runPipeline(db, {
-          dto,
-          callerScopes,
-          companyId,
-          limit,
-          asOf,
-          includeRetracted,
-          includeContested,
-          mode,
-          candidateK,
-        }),
+      (db) => this.runDbStages(db, ctx),
     );
+    const out = await this.rankAndAssemble(staged, ctx);
     // Usage reinforcement, write side (opt-in): stamp the facts this
     // search actually surfaced. Fire-and-forget on the root pool — the
     // response never waits on it, and multi-hop / synthesize get it for
     // free since they route through this method.
-    if (envFlagEnabled(process.env.SEARCH_USAGE_RECORDING_ENABLED)) {
+    if (tuning.usageRecording) {
       recordFactUsage({
         surreal: this.surreal,
         logger: this.logger,
@@ -325,10 +371,10 @@ export class SearchService {
     return out;
   }
 
-  private async runPipeline(
+  private async runDbStages(
     db: Surreal,
     ctx: PipelineContext,
-  ): Promise<{ results: SearchHit[] }> {
+  ): Promise<StagedPipeline> {
     // Phase 4.B locale-aware retrieval. Detect the query language
     // (or honour the explicit dto.queryLang) and apply a two-pass
     // filter → cross-lingual backoff strategy. `und` or disabled →
@@ -339,6 +385,9 @@ export class SearchService {
       asOf: ctx.asOf,
       includeRetracted: ctx.includeRetracted,
       includeContested: ctx.includeContested,
+      derivedVersion: ctx.derivedVersion,
+      temporalMode: ctx.profile.temporalMode,
+      excludeInsightRows: ctx.profile.insightEvidence !== 'off',
       opts: { langFilter },
     });
     traceArtifact('search.query', {
@@ -348,17 +397,6 @@ export class SearchService {
       asOf: ctx.dto.asOf,
       langFilter,
     });
-
-    // Router LLM (optional, budgeted) depends ONLY on the query text —
-    // kick it off alongside retrieval instead of awaiting it serially
-    // after merge/meta-union (a cache-miss added its full round-trip to
-    // the critical path). Awaited at stage 3 where its output is first
-    // consumed; .catch keeps a router failure from becoming an
-    // unhandled rejection while retrieval is still in flight (the
-    // router stage degrades to null on its own errors anyway).
-    const routerPromise = this.retrieval
-      .runRouterStage(ctx.dto.query)
-      .catch(() => null);
 
     // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
     const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
@@ -370,6 +408,9 @@ export class SearchService {
         asOf: ctx.asOf,
         includeRetracted: ctx.includeRetracted,
         includeContested: ctx.includeContested,
+        derivedVersion: ctx.derivedVersion,
+        temporalMode: ctx.profile.temporalMode,
+        excludeInsightRows: ctx.profile.insightEvidence !== 'off',
       });
       const fallback = await this.retrieval.runRetrievalStage(
         db,
@@ -391,9 +432,39 @@ export class SearchService {
       });
     }
 
+    // 1c. Entity-expansion second retrieval (audit W4 #19, profile
+    // entityExpansion): the first pass DISCOVERED entities the query
+    // never named; a second legs+fusion pass anchored on the top
+    // discovered names pulls the facts a single-shot query misses.
+    // Runs BEFORE scoring so expansion rows go through identity-merge,
+    // ABAC, scoring, and rerank exactly like first-pass rows.
+    if (ctx.profile.entityExpansion && fused.length > 0) {
+      const expansionQuery = buildEntityExpansionQuery(ctx.dto.query, fused);
+      if (expansionQuery) {
+        const extra = await this.retrieval.runRetrievalStage(
+          db,
+          { ...ctx, dto: { ...ctx.dto, query: expansionQuery } },
+          baseWhere,
+        );
+        const seen = new Set(fused.map((r) => String(r.id)));
+        let added = 0;
+        for (const r of extra) {
+          if (!seen.has(String(r.id))) {
+            fused.push(r);
+            seen.add(String(r.id));
+            added += 1;
+          }
+        }
+        traceArtifact('search.entity_expansion', {
+          expansionQuery,
+          added,
+        });
+      }
+    }
+
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One
     // filter instance covers the whole pipeline (fusion + edge
-    // expansion + backfill) so the decision summary aggregates once.
+    // expansion) so the decision summary aggregates once.
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: ctx.callerScopes,
       surface: 'search',
@@ -419,33 +490,82 @@ export class SearchService {
 
     // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
     // from the most recent retrieval instead of only recordedAt. Soft-
-    // fails inside; rows injected later (edge expansion / backfill) stay
+    // fails inside; rows injected later (edge expansion) stay
     // unenriched — supplementary context, not primary relevance.
-    if (envFlagEnabled(process.env.SEARCH_USAGE_DECAY_ENABLED)) {
+    if (ctx.tuning.usageDecay) {
       await enrichWithUsage(db, this.logger, filtered);
     }
 
-    // 3. Predicate / type router — launched in parallel with retrieval
-    // above; first consumed here.
-    const routerOut = await routerPromise;
-    const predicateDist = routerOut?.predicates ?? null;
-    const typeDist = routerOut?.types ?? null;
-
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.
-    const byEntity = this.retrieval.scoreAndBucket(filtered, predicateDist);
+    // Under temporalMode='overlap_boost' the asOf anchor feeds the
+    // interval-overlap decay; in 'filter' mode every surviving row
+    // already contains the anchor, so passing it is a no-op there.
+    const byEntity = this.retrieval.scoreAndBucket(filtered, {
+      temporalAnchor:
+        ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+      tuning: ctx.tuning,
+      salienceScoring: ctx.profile.salienceScoring,
+    });
 
-    // 5. Edge expansion (default ON) — graph-walk from top seeds.
-    await this.runEdgeExpansionStage({ db, byEntity, baseWhere, ctx, rowFilterFn });
+    // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
+    // combined vector+graph leg ran, the vector-matched facts already carry
+    // their entity's neighbourhood (fetched in the same KNN query), so hand it
+    // over to skip re-querying those seeds.
+    const prefetchedNeighbours = buildNeighbourMap(filtered);
+    await this.runEdgeExpansionStage({
+      db,
+      byEntity,
+      baseWhere,
+      ctx,
+      rowFilterFn,
+      prefetchedNeighbours,
+    });
 
     // 6. PPR (opt-in) — HippoRAG-style cluster lift.
-    await this.runPprStage(db, byEntity);
+    await this.runPprStage(db, byEntity, ctx);
 
-    // 7. Cross-encoder + LLM rerank.
-    let topEntities = await this.rerank.runRerankStage({
+    // 6b. Verbatim fusion leg (audit W4 #18): under the 'fused' profile,
+    // segments arrive as their own scored buckets and compete with fact
+    // buckets in the rerank + fact-centric stages — citable next to
+    // facts instead of an unscored prompt appendix. 'routed' resolves
+    // per query: only verbatim-shaped asks run the leg — the V6
+    // three-block pairs measured fused at SSA +7.1pp vs SSU −10.0pp /
+    // TR −8.3pp (pooled −5.0pp at n=239).
+    if (
+      resolveVerbatimMode(ctx.profile.verbatimEvidence, ctx.dto.query) ===
+      'fused'
+    ) {
+      const segBuckets = await this.retrieval.runSegmentLegStage(db, ctx);
+      for (const [k, v] of segBuckets) {
+        if (!byEntity.has(k)) byEntity.set(k, v);
+      }
+    }
+
+    // Last DB touch: prefetch the 1-hop neighbourhoods the LLM rerank
+    // body wants, so the rerank stage needs no connection at all.
+    const neighboursByEntity = await this.rerank.prefetchNeighbours(
       db,
       byEntity,
       ctx,
-      typeDist,
+    );
+    return { byEntity, rowPolicy, neighboursByEntity };
+  }
+
+  /**
+   * Post-connection stages (audit W4 #20): cross-encoder + LLM rerank,
+   * tail refill, fact-centric selection, assembly, output shaping. No
+   * DB handle in scope — everything here runs on prefetched state.
+   */
+  private async rankAndAssemble(
+    staged: StagedPipeline,
+    ctx: PipelineContext,
+  ): Promise<{ results: SearchHit[] }> {
+    const { byEntity, rowPolicy, neighboursByEntity } = staged;
+    // 7. Cross-encoder + LLM rerank.
+    let topEntities = await this.rerank.runRerankStage({
+      byEntity,
+      ctx,
+      neighboursByEntity,
     });
     // The rerank stage only ranks a bounded window (≤20 buckets). When the
     // caller asked for more (limit up to the DTO's @Max(100)), the reranked
@@ -462,32 +582,39 @@ export class SearchService {
     }
     topEntities = topEntities.slice(0, ctx.limit);
 
-    // 8. Backfill missing facts for top-K, then assemble.
-    const backfillByEntity = await withStageBudget({
-      stage: 'backfill',
-      budgetMs: this.budgets.backfill,
-      fn: () =>
-        backfillEntityFacts({
-          db,
-          logger: this.logger,
-          entityIds: topEntities.map((e) => e.entityId),
-          baseWhere,
-          dto: ctx.dto,
-          callerScopes: ctx.callerScopes,
-          passesPolicy: (row) => rowFilterFn(row),
-        }),
-      fallback: new Map<string, FactRow[]>(),
-      logger: this.logger,
+    // 8. Fact-centric selection (Phase A of the typed-memory roadmap):
+    // facts compete globally for the window instead of entities — the
+    // top-`limit` entity gate made a gold fact unreachable whenever its
+    // entity missed the entity ranking. Draws from ALL buckets
+    // (pre-slice); the global score cut replaces per-entity backfill.
+    const factCentricBudget = ctx.profile.factBudget;
+    topEntities = selectFactCentric([...byEntity.values()], factCentricBudget, {
+      // Keep the reranked order for the buckets the reranker judged
+      // (audit W4 #15 — its output used to be computed and thrown
+      // away), and honour the caller's limit.
+      priority: topEntities.map((b) => b.entityId),
+      limit: ctx.limit,
     });
+    traceArtifact('search.fact_centric', {
+      entities: topEntities.length,
+      facts: topEntities.reduce((a, b) => a + b.facts.length, 0),
+      limit: ctx.limit,
+    });
+
     const hits = assembleHits({
       topEntities,
-      backfillByEntity,
       entityTypes: ctx.dto.entityTypes,
       requireProvenance: ctx.dto.requireProvenance === true,
+      factsPerEntity: factCentricBudget,
     });
     rowPolicy.finish();
     return {
-      results: await applyOutputShaping(hits, ctx.dto, this.workerPool),
+      results: await applyOutputShaping(
+        hits,
+        ctx.dto,
+        this.workerPool,
+        ctx.tuning,
+      ),
     };
   }
 
@@ -497,14 +624,18 @@ export class SearchService {
     baseWhere,
     ctx,
     rowFilterFn,
+    prefetchedNeighbours,
   }: {
     db: Surreal;
     byEntity: Map<string, EntityBucket>;
     baseWhere: { sql: string; params: Record<string, unknown> };
     ctx: PipelineContext;
     rowFilterFn: (row: FactRow) => boolean;
+    prefetchedNeighbours?: Map<
+      string,
+      { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+    >;
   }): Promise<void> {
-    if (process.env.SEARCH_EDGE_EXPANSION_ENABLED === '0') return;
     if (byEntity.size < 1) return;
     await withSpan(
       'search.edge_expansion',
@@ -514,9 +645,11 @@ export class SearchService {
           logger: this.logger,
           byEntity,
           baseWhere,
+          config: ctx.tuning.edgeExpansion,
           dto: ctx.dto,
           callerScopes: ctx.callerScopes,
           passesPolicy: (row) => rowFilterFn(row),
+          prefetchedNeighbours,
         });
         span.setAttribute('edge_expansion.injected', injected);
         if (injected > 0) {
@@ -533,17 +666,15 @@ export class SearchService {
   private async runPprStage(
     db: Surreal,
     byEntity: Map<string, EntityBucket>,
+    ctx: PipelineContext,
   ): Promise<void> {
-    const pprForced = envFlagEnabled(process.env.SEARCH_PPR_ENABLED);
-    const pprAutoThreshold = parseInt(
-      process.env.SEARCH_PPR_AUTO_THRESHOLD ?? '0',
-      10,
-    );
+    const pprForced = ctx.tuning.pprEnabled;
+    const pprAutoThreshold = ctx.tuning.pprAutoThreshold;
     const pprAuto = pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
     if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
     await withSpan(
       'search.ppr',
-      () => applyPprPrior(db, byEntity),
+      () => applyPprPrior(db, byEntity, ctx.dto.userId),
       { 'ppr.entities': byEntity.size },
     );
   }

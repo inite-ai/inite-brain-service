@@ -12,9 +12,12 @@ import {
   EXTRACTION_PROMPT_HEADER,
   buildExtractionSchema,
   buildSystemPrompt,
+  buildDialogueSystemPrompt,
   renderExtractionProfiles,
   renderPredicateCard,
 } from './extractor-internals/prompts';
+import { objectNormalizationEnabled } from './extractor-internals/grounding';
+import { resolveExtractionProfile } from './extraction-profile';
 
 /**
  * ExtractorLlmService — the OpenAI I/O slice of the extractor: the chat
@@ -68,12 +71,35 @@ export class ExtractorLlmService {
     active: PredicateDefinition[];
     extractionProfiles?: PackExtractionProfile[];
   }): string {
-    const base =
-      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
-        ? buildSystemPrompt(snapshot.active)
+    // Phase 4 dialogue profile: swap the closed-vocab/verbatim header for the
+    // open/normalized one. Only when the operator hasn't pinned a custom header
+    // via EXTRACTION_SYSTEM_PROMPT (that escape hatch still wins). Off →
+    // byte-identical to before.
+    const dialogue =
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
+      resolveExtractionProfile().vocabulary === 'open';
+    const base = dialogue
+      ? buildDialogueSystemPrompt(snapshot.active)
+      : this.systemPromptHeader === EXTRACTION_PROMPT_HEADER
+        ? buildSystemPrompt(snapshot.active, {
+            objectNormalization: this.objectNormalizationActive(),
+          })
         : this.systemPromptHeader +
           snapshot.active.map(renderPredicateCard).join('\n');
     return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
+  }
+
+  /**
+   * EXTRACTION_OBJECT_NORMALIZE is only meaningful on the span-grounded
+   * general profile: the dialogue profile normalizes through its own
+   * contract, and a pinned custom header (EXTRACTION_SYSTEM_PROMPT)
+   * would not explain the extra schema field to the model.
+   */
+  private objectNormalizationActive(): boolean {
+    return (
+      this.systemPromptHeader === EXTRACTION_PROMPT_HEADER &&
+      objectNormalizationEnabled(resolveExtractionProfile())
+    );
   }
 
   /**
@@ -87,10 +113,18 @@ export class ExtractorLlmService {
     systemPrompt: string;
     temperature?: number;
     model?: string;
+    /**
+     * Per-turn speaker framing prepended to the user message (see
+     * buildConversationContext). Grounding still runs against `trimmed`
+     * alone, so the prefix drives coreference without polluting valueSpan
+     * containment. Empty/absent → byte-identical to the pre-coreference call.
+     */
+    contextPrefix?: string;
   }): Promise<any> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
     const model = args.model ?? this.model;
+    const userContent = (args.contextPrefix ?? '') + trimmed;
     const res = await this.limiter.run(() =>
       withGenAiCall(
         {
@@ -107,14 +141,18 @@ export class ExtractorLlmService {
               model,
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: trimmed },
+                { role: 'user', content: userContent },
               ],
               response_format: {
                 type: 'json_schema',
                 json_schema: {
                   name: 'extraction',
                   strict: true,
-                  schema: buildExtractionSchema(),
+                  // Schema and prompt section move in lockstep — the
+                  // object field only exists when the prompt explains it.
+                  schema: buildExtractionSchema({
+                    objectNormalization: this.objectNormalizationActive(),
+                  }),
                 },
               },
               max_completion_tokens: 1500,

@@ -185,16 +185,19 @@ jobs:
                 # backfill=2s. A stalled LLM fail-opens with the previous
                 # stage's result; the request still completes inside the
                 # overall pipeline budget instead of stacking 90s × N.
-                - SEARCH_PREDICATE_ROUTER_ENABLED=1
-                - SEARCH_RERANKER_ENABLED=1
+                # Platform refactor 2026-08: SEARCH_RERANKER_ENABLED /
+                # SEARCH_HYPE_ENABLED / SEARCH_PREDICATE_ROUTER_ENABLED are
+                # deleted keys — the LLM reranker is a capability now (runs
+                # because OPENAI_API_KEY is set, bounded by stage budget +
+                # SEARCH_RERANK_SKIP_MARGIN); HyPE and the predicate router
+                # were removed with their code (never measured to a verdict
+                # in the eval program).
+                # Retrieval profile (docs/operations.md): prod is the
+                # assistant-chat default on every dimension —
+                # verbatim=shape_conditioned, dateAnchoring=absolute. The
+                # genre tag documents that intent for operators.
+                - RETRIEVAL_GENRE=assistant_chat
                 - SEARCH_RERANKER_SC_N=3
-                # HyPE alt-embedding (migration 0008): hypothetical-question
-                # embedding written at ingest so a question→statement query
-                # pair surfaces via max(cos_main, cos_alt) in the vector leg.
-                # Was off — turning on as part of the graph-layer activation
-                # so the question-shaped chat queries hit fact statements
-                # without an LLM rewrite.
-                - SEARCH_HYPE_ENABLED=1
                 # PPR over the candidate subgraph (HippoRAG-style). Auto
                 # threshold lowered from 100 → 25 so the typical per-tenant
                 # graph (~30-80 candidates) actually triggers it. Hub-effect
@@ -204,13 +207,13 @@ jobs:
                 # in the original PPR rollout.
                 - SEARCH_PPR_ENABLED=0
                 - SEARCH_PPR_AUTO_THRESHOLD=25
-                # Edge-based candidate expansion. Top-3 entities by post-
-                # bucketing rankScore seed a 1-hop walk over knowledge_edge;
-                # neighbours not retrieved by vector/BM25 enter the candidate
-                # set with inherited rankScore = α × seed × edge_weight.
-                # α=0.4 by default — inherited score never beats a direct
-                # retrieval hit; only competes with weak fusion candidates.
-                - SEARCH_EDGE_EXPANSION_ENABLED=1
+                # Edge-based candidate expansion (always on since the
+                # platform refactor folded SEARCH_EDGE_EXPANSION_ENABLED).
+                # Top-3 entities by post-bucketing rankScore seed a 1-hop
+                # walk over knowledge_edge; neighbours not retrieved by
+                # vector/BM25 enter the candidate set with inherited
+                # rankScore = α × seed × edge_weight. α=0.4 — inherited
+                # score never beats a direct retrieval hit.
                 - SEARCH_EDGE_EXPANSION_TOP_SEEDS=3
                 - SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS=5
                 - SEARCH_EDGE_EXPANSION_ALPHA=0.4

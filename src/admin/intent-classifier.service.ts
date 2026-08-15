@@ -9,7 +9,7 @@ import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { LRUCache } from '../common/lru-cache';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 
 /**
  * Zero-shot intent classifier — multilingual NLI without enumerated
@@ -106,7 +106,7 @@ export class IntentClassifierService
 
   constructor(private readonly config: ConfigService) {
     this.enabled =
-      this.config.get<string>('CHAT_ROUTE_NLI_ENABLED', 'true') !== 'false';
+      envFlagNotDisabled(this.config.get<string>('CHAT_ROUTE_NLI_ENABLED'));
     this.modelId = this.config.get<string>(
       'CHAT_ROUTE_NLI_MODEL',
       DEFAULT_MODEL,

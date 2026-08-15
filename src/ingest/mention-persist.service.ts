@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { Surreal, StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
@@ -8,6 +8,14 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
+import {
+  isFirstPersonSelfReference,
+  isSecondPersonReference,
+  matchesParticipantName,
+} from '../common/coreference';
+import type { KnownEntity } from './dto/ingest-mention.dto';
+import { envFlagEnabled } from '../common/env-validation';
+import { resolveEventTime } from './event-time';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -61,15 +69,58 @@ export class MentionPersistService {
     });
   }
 
+  /**
+   * Decide which known participant (if any) an extracted entity corefers
+   * to, so resolveOrCreateNamedEntity can anchor it to that participant's
+   * externalRef instead of minting a pronoun/duplicate node:
+   *   - first-person singular ("I", "me", "my") or the speaker's own name
+   *     → the speaker;
+   *   - second-person ("you", "your") or the addressee's own name
+   *     → the addressee;
+   *   - anything else → no hint (normal name/embedding resolution).
+   * Returns undefined when no participant matches, preserving the prior
+   * behaviour for third-party named entities.
+   */
+  private hintFor(
+    e: { name: string },
+    speaker: KnownEntity | undefined,
+    addressee: KnownEntity | undefined,
+  ): KnownEntity | undefined {
+    if (
+      speaker &&
+      (isFirstPersonSelfReference(e.name) ||
+        matchesParticipantName(e.name, speaker.name))
+    ) {
+      return speaker;
+    }
+    if (
+      addressee &&
+      (isSecondPersonReference(e.name) ||
+        matchesParticipantName(e.name, addressee.name))
+    ) {
+      return addressee;
+    }
+    return undefined;
+  }
+
   private async persistEntities(
     db: Surreal,
     p: { extraction: any; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, dto } = p;
+    // Speaker/addressee anchors for coreference. The OLD code paired
+    // knownEntities to entities BY POSITION (knownEntities[i]), which only
+    // ever hinted extraction.entities[0] and never the pronoun entity the
+    // extractor actually emitted for a first-person statement — so "I decided
+    // to transition" minted a junk "I" node instead of attaching to the
+    // speaker. Resolve by ROLE instead, then hint each extracted entity by
+    // coreference (see hintFor).
+    const speakerHint = dto.knownEntities?.find((k) => k.role === 'speaker');
+    const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
       const e = extraction.entities[i];
-      const knownHint = dto.knownEntities?.[i];
+      const knownHint = this.hintFor(e, speakerHint, addresseeHint);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet).
       const incomingFacts = extraction.facts
@@ -105,10 +156,17 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
+    const eventTimeOn = envFlagEnabled(
+      process.env.INGEST_EVENT_TIME_EXTRACTION,
+    );
+    if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
+      return this.persistFactsBatched(db, p, eventTimeOn);
+    }
     for (let i = 0; i < extraction.facts.length; i++) {
       const f = extraction.facts[i];
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
+      const validFrom = this.factValidFrom(f, dto, eventTimeOn);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -117,13 +175,103 @@ export class MentionPersistService {
             entityId: eid,
             f,
             source,
-            validFrom: new Date(dto.emittedAt),
+            validFrom,
             precomputedEmbedding: factEmbeddings[i],
           }),
         { predicate: f.predicate, entityId: eid },
       );
       if (factId) factIds.push(factId);
     }
+    return factIds;
+  }
+
+  /**
+   * The fact's occurrence time. A clause often refers to when something
+   * HAPPENED in the past ("went yesterday", "painted last year") — with
+   * INGEST_EVENT_TIME_EXTRACTION on and a resolvable relative expression, use
+   * the resolved event date; else the message time. Shared by the per-fact
+   * and batched persist paths.
+   *
+   * PROD CAVEAT (docs/operations.md): a backdated validFrom on a BITEMPORAL
+   * supersede can stamp the incumbent's validUntil earlier than its own
+   * validFrom (inverted interval, fact hidden from asOf). single_active is
+   * guarded (INSERTED_HISTORICAL); bitemporal is not.
+   */
+  private factValidFrom(
+    f: { predicate: string; clause?: string },
+    dto: IngestMentionDto,
+    eventTimeOn: boolean,
+  ): Date {
+    const event = eventTimeOn ? resolveEventTime(f.clause, dto.emittedAt) : null;
+    if (!event) return new Date(dto.emittedAt);
+    traceArtifact('ingest.fact.event_time', {
+      predicate: f.predicate,
+      expr: event.expr,
+      resolved: event.date.toISOString().slice(0, 10),
+      emittedAt: String(dto.emittedAt).slice(0, 10),
+    });
+    return event.date;
+  }
+
+  /**
+   * Batched fact persistence (flag INGEST_BATCH_FACTS): resolve all of a
+   * mention's facts through FactResolverService.resolveMany — append_only facts
+   * (the bulk) collapse into ONE fn::resolve_facts round-trip, single_active /
+   * bitemporal keep the per-fact + lock path. Same observable outcome as the
+   * per-fact loop; the trace tail is shared (emitFactOutcome).
+   */
+  private async persistFactsBatched(
+    db: Surreal,
+    p: {
+      companyId: string;
+      dto: IngestMentionDto;
+      extraction: any;
+      source: MentionSource;
+      factEmbeddings: number[][];
+      entityIds: string[];
+    },
+    eventTimeOn: boolean,
+  ): Promise<string[]> {
+    const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
+    const specs: Array<{
+      f: { predicate: string; object: string };
+      input: Parameters<FactResolverService['resolve']>[1];
+    }> = [];
+    for (let i = 0; i < extraction.facts.length; i++) {
+      const f = extraction.facts[i];
+      const eid = entityIds[f.entityIndex];
+      if (!eid) continue;
+      specs.push({
+        f,
+        input: {
+          companyId,
+          entityId: eid,
+          predicate: f.predicate,
+          predicateAlias: f.predicateAlias,
+          object: f.object,
+          confidence: f.confidence,
+          validFrom: this.factValidFrom(f, dto, eventTimeOn),
+          source,
+          entropy:
+            typeof f.extractionEntropy === 'number'
+              ? f.extractionEntropy
+              : undefined,
+          precomputedEmbedding: factEmbeddings[i],
+        },
+      });
+    }
+    if (specs.length === 0) return [];
+
+    const resolved = await traceSpan(
+      'ingest.facts.batch',
+      () => this.factResolver.resolveMany(db, specs.map((s) => s.input)),
+      { facts: specs.length },
+    );
+    const factIds: string[] = [];
+    resolved.forEach((r, k) => {
+      const factId = this.emitFactOutcome(specs[k].f, r.result, r.semantics);
+      if (factId) factIds.push(factId);
+    });
     return factIds;
   }
 
@@ -142,6 +290,7 @@ export class MentionPersistService {
       entityId: string;
       f: {
         predicate: string;
+        predicateAlias?: string;
         object: string;
         confidence: number;
         extractionEntropy?: number;
@@ -158,6 +307,7 @@ export class MentionPersistService {
       companyId: p.companyId,
       entityId: p.entityId,
       predicate: f.predicate,
+      predicateAlias: f.predicateAlias,
       object: f.object,
       confidence: f.confidence,
       validFrom: p.validFrom,
@@ -165,12 +315,21 @@ export class MentionPersistService {
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
     });
+    return this.emitFactOutcome(f, result, semantics);
+  }
 
+  /**
+   * Surface supersede / compete outcomes in the trace so the demo can show
+   * "Berlin fact closed at July 1, Dublin became current" — otherwise the
+   * chain is invisible to the operator. Returns the resolved factId. Shared
+   * by the per-fact and batched (resolveMany) persist paths.
+   */
+  private emitFactOutcome(
+    f: { predicate: string; object: string },
+    result: any,
+    semantics: string,
+  ): string | null {
     const factId = result?.factId ? String(result.factId) : null;
-
-    // Surface supersede / compete outcomes in the trace so the demo can show
-    // "Berlin fact closed at July 1, Dublin became current" — otherwise the
-    // chain is invisible to the operator.
     traceArtifact('ingest.fact.outcome', {
       predicate: f.predicate,
       // Symmetric with the redacted ingest.mention.input trace: mask any
@@ -186,7 +345,6 @@ export class MentionPersistService {
         ? { competingFactIds: (result.competingFactIds as unknown[]).map(String) }
         : {}),
     });
-
     return factId;
   }
 
@@ -200,6 +358,9 @@ export class MentionPersistService {
     p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
+    if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
+      return this.persistEdgesBatched(db, { extraction, entityIds, dto });
+    }
     const edgeIds: string[] = [];
     for (const e of extraction.edges) {
       const fromEid = entityIds[e.fromEntityIndex];
@@ -231,5 +392,122 @@ export class MentionPersistService {
       }
     }
     return edgeIds;
+  }
+
+  /**
+   * Batched edge persistence (flag INGEST_BATCH_EDGES). Collapses the N
+   * per-edge RELATE round-trips into TWO queries: one multi-statement
+   * existence check, then one multi-statement RELATE for only the edges
+   * that don't already exist. On re-ingest (all edges present) it's a
+   * SINGLE round-trip. Same observable outcome as the per-edge loop —
+   * idempotent RELATE keyed on UNIQUE(in,out,kind).
+   *
+   * The existence check makes the RELATE batch collision-free in the
+   * common case, so a multi-statement RELATE (which throws atomically if
+   * ANY statement trips the unique index) is safe. A concurrent writer
+   * creating one of the missing edges between our check and RELATE is the
+   * one residual race — we catch the throw and redo the missing set
+   * through the per-edge idempotent primitive.
+   */
+  private async persistEdgesBatched(
+    db: Surreal,
+    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
+  ): Promise<string[]> {
+    const { extraction, entityIds, dto } = p;
+    // Deduplicate candidates within the batch: the extraction can emit the
+    // same (from,to,kind) twice, which the per-edge loop would resolve to
+    // the same id twice. One entry keeps the RELATE batch collision-free.
+    const seen = new Set<string>();
+    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> =
+      [];
+    for (const e of extraction.edges) {
+      const from = entityIds[e.fromEntityIndex];
+      const to = entityIds[e.toEntityIndex];
+      if (!from || !to || from === to) continue;
+      const key = `${from} ${to} ${e.kind}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cands.push({ from, to, kind: e.kind, confidence: e.confidence });
+    }
+    if (cands.length === 0) return [];
+
+    const sourceOf = (c: { confidence: number }) => ({
+      vertical: dto.contextRef.vertical,
+      eventId: dto.contextRef.eventId,
+      conversationId: dto.contextRef.conversationId,
+      messageId: dto.contextRef.messageId,
+      confidence: c.confidence,
+    });
+
+    return traceSpan(
+      'ingest.edge.batch',
+      async () => {
+        // 1. One round-trip existence check (N SELECTs, one query).
+        const existParams: Record<string, unknown> = {};
+        const existStmts = cands
+          .map((c, i) => {
+            existParams[`f${i}`] = new StringRecordId(c.from);
+            existParams[`t${i}`] = new StringRecordId(c.to);
+            existParams[`k${i}`] = c.kind;
+            return `SELECT id FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} LIMIT 1;`;
+          })
+          .join('\n');
+        const existResults = await db.query<unknown[]>(existStmts, existParams);
+
+        const edgeIds: string[] = [];
+        const missing: typeof cands = [];
+        cands.forEach((c, i) => {
+          const row = ((existResults[i] as Array<{ id: unknown }>) ?? [])[0];
+          if (row?.id) edgeIds.push(String(row.id));
+          else missing.push(c);
+        });
+        if (missing.length === 0) return edgeIds;
+
+        // 2. One round-trip RELATE for the missing edges.
+        try {
+          const relParams: Record<string, unknown> = {};
+          const relStmts = missing
+            .map((c, i) => {
+              relParams[`f${i}`] = new StringRecordId(c.from);
+              relParams[`t${i}`] = new StringRecordId(c.to);
+              relParams[`k${i}`] = c.kind;
+              relParams[`s${i}`] = sourceOf(c);
+              return `RELATE $f${i}->knowledge_edge->$t${i} CONTENT { kind: $k${i}, weight: 1.0, source: $s${i} } RETURN AFTER;`;
+            })
+            .join('\n');
+          const relResults = await db.query<unknown[]>(relStmts, relParams);
+          missing.forEach((_c, i) => {
+            const edge = ((relResults[i] as Array<{ id: unknown }>) ?? [])[0];
+            if (edge?.id) edgeIds.push(String(edge.id));
+          });
+        } catch (err) {
+          // Residual race: a concurrent writer created one of these between
+          // the check and the RELATE, tripping UNIQUE(in,out,kind) and
+          // failing the whole multi-statement query. Redo the missing set
+          // through the per-edge idempotent primitive (each resolves its own
+          // violation to the existing id).
+          this.logger.warn(
+            `[ingest.edge] batch RELATE fell back to per-edge: ${(err as Error).message}`,
+          );
+          for (const c of missing) {
+            try {
+              const id = await createEdgeBetween(db, {
+                fromEntityId: c.from,
+                toEntityId: c.to,
+                kind: c.kind,
+                source: sourceOf(c),
+              });
+              if (id) edgeIds.push(id);
+            } catch (e2) {
+              this.logger.warn(
+                `[ingest.edge] kind=${c.kind} from=${c.from} to=${c.to} failed: ${(e2 as Error).message}`,
+              );
+            }
+          }
+        }
+        return edgeIds;
+      },
+      { edges: cands.length },
+    );
   }
 }

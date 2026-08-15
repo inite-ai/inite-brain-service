@@ -302,6 +302,28 @@ export class PredicateRegistryService {
     this.cache.delete(companyId);
   }
 
+  /**
+   * 0082: canonicalize's auto-inserts (aliased / proposed) update the
+   * cached snapshot IN PLACE instead of invalidating it. Invalidation
+   * made the NEXT canonicalize reload the whole registry — one full
+   * SELECT (embeddings included) per novel coinage, O(n²) under an open
+   * vocabulary; the eval stand's SurrealDB OOM'd exactly there. The
+   * active row-set is untouched, so versionHash stays valid; other pods
+   * converge via the snapshot TTL.
+   */
+  private noteAutoInsert(
+    companyId: string,
+    novelId: string,
+    canonicalId: string,
+  ): void {
+    const cached = this.cache.get(companyId);
+    if (!cached) return;
+    const s = cached.snapshot;
+    s.aliasMap.set(novelId, canonicalId);
+    if (!s.knownIds) s.knownIds = new Set();
+    s.knownIds.add(novelId);
+  }
+
   // ── Admin CRUD ────────────────────────────────────────────────────────
 
   /**
@@ -494,11 +516,19 @@ export class PredicateRegistryService {
     return this.surreal.withCompany(companyId, async (db) => {
       // We need ALL rows (not just active) so we can chain through
       // 'aliased' rows to their canonical id when a fact's predicate
-      // points at an alias.
-      const [rows] = await db.query<[Array<Record<string, unknown>>]>(
-        `SELECT * FROM knowledge_predicate`,
-      );
-      const all = ((rows as Array<Record<string, unknown>>) ?? []).map(
+      // points at an alias. Embeddings ride ONLY for active rows —
+      // similarity search never consults the rest, and under an open
+      // vocabulary the proposed set dominates the table (0082: pulling
+      // their vectors made every snapshot reload O(registry) MB and
+      // OOM'd the eval stand's SurrealDB).
+      const [activeRows, restRows] = (await db.query<
+        [Array<Record<string, unknown>>, Array<Record<string, unknown>>]
+      >(
+        `SELECT * FROM knowledge_predicate WHERE status = 'active';
+         SELECT * OMIT embedding FROM knowledge_predicate WHERE status != 'active'`,
+      )) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
+      const rows = [...(activeRows ?? []), ...(restRows ?? [])];
+      const all = (rows ?? []).map(
         (r) => ({
           row: r,
           def: deserializeFromRow(r),
@@ -511,7 +541,10 @@ export class PredicateRegistryService {
 
       // Build aliasMap: for each row, follow aliasedTo chains until we
       // land on an active predicate (or give up). Length-capped to defend
-      // against accidental loops in the registry data.
+      // against accidental loops in the registry data. 0082: a chain may
+      // also end on a 'proposed' row — a proposed predicate is its own
+      // canon (self-map), so a repeat coinage short-circuits in
+      // canonicalize() instead of re-embedding and re-inserting.
       const aliasMap = new Map<string, string>();
       const allById = new Map(all.map(({ def }) => [def.predicateId, def]));
       const MAX_CHAIN = 8;
@@ -527,10 +560,18 @@ export class PredicateRegistryService {
           cursor = allById.get(cursor.aliasedTo);
           hops++;
         }
-        if (cursor && cursor.status === 'active') {
+        if (
+          cursor &&
+          (cursor.status === 'active' || cursor.status === 'proposed')
+        ) {
           aliasMap.set(def.predicateId, cursor.predicateId);
         }
       }
+      const knownIds = new Set(
+        all
+          .filter(({ def }) => def.status !== 'deprecated')
+          .map(({ def }) => def.predicateId),
+      );
 
       // Embedding lookup for active predicates only (no point matching
       // against deprecated rows). Skip any active row whose embedding
@@ -577,7 +618,15 @@ export class PredicateRegistryService {
       // Fold extraction profiles into the hash: a profile-only pack upgrade
       // must bust the extractor cache even though no predicate row changed.
       const versionHash = computeHash(active, extractionProfiles);
-      return { versionHash, active, byId, aliasMap, embeddings, extractionProfiles };
+      return {
+        versionHash,
+        active,
+        byId,
+        aliasMap,
+        embeddings,
+        extractionProfiles,
+        knownIds,
+      };
     });
   }
 
@@ -611,12 +660,18 @@ export class PredicateRegistryService {
   ): Promise<CanonicalizeDecision> {
     const snapshot = await this.getSnapshot(companyId);
 
-    // Direct hit on an active predicate or a known alias chain.
+    // Direct hit on an active predicate, a known alias chain, or (0082)
+    // a proposed predicate that is its own canon — repeat coinages must
+    // resolve here, not fall through to embed + re-insert.
     const aliasResolved = snapshot.aliasMap.get(predicate);
-    if (aliasResolved && snapshot.byId.has(aliasResolved)) {
+    if (
+      aliasResolved &&
+      (snapshot.byId.has(aliasResolved) ||
+        snapshot.knownIds?.has(aliasResolved))
+    ) {
       return { kind: 'matched', canonicalId: aliasResolved };
     }
-    if (snapshot.byId.has(predicate)) {
+    if (snapshot.byId.has(predicate) || snapshot.knownIds?.has(predicate)) {
       return { kind: 'matched', canonicalId: predicate };
     }
 
@@ -668,7 +723,7 @@ export class PredicateRegistryService {
             },
           });
         });
-        this.invalidate(companyId);
+        this.noteAutoInsert(companyId, predicate, best!.predicateId);
       } catch (e) {
         this.logger.warn(
           `canonicalize: auto-alias insert failed for '${predicate}' → '${best!.predicateId}': ${(e as Error).message}`,
@@ -708,7 +763,7 @@ export class PredicateRegistryService {
           },
         });
       });
-      this.invalidate(companyId);
+      this.noteAutoInsert(companyId, predicate, predicate);
     } catch (e) {
       this.logger.warn(
         `canonicalize: proposed insert failed for '${predicate}': ${(e as Error).message}`,

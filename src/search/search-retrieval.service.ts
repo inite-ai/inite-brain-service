@@ -1,59 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
-import { PredicateRouterService } from '../ai/predicate-router.service';
-import { QueryExpansionService } from '../ai/query-expansion.service';
 import { CalibrationService } from '../ai/calibration/calibration.service';
 import { withSpan } from '../common/tracing';
 import { traceArtifact } from '../common/debug-trace';
 import type { EntityBucket, FactRow } from './internals/types';
-import {
-  resolveStageBudgets,
-  withStageBudget,
-  type StageBudgets,
-} from './internals/stage-budget';
-import { runVectorLeg, runLexicalLeg, mergeVectorRows } from './internals/legs';
+import { runVectorLeg, runLexicalLeg } from './internals/legs';
+import { buildEdgeFence } from './internals/edge-fence';
 import { fuse } from './internals/fusion';
-import {
-  scoreRows,
-  bucketByEntity,
-  type PredicateDistribution,
-} from './internals/scoring';
+import { scoreRows, bucketByEntity } from './internals/scoring';
+import { runSegmentLegs } from './internals/segment-leg';
 import { PipelineContext } from './pipeline-context';
+import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
 
 /**
  * SearchRetrievalService — the retrieval-side stages of the search
- * pipeline: parallel vector + lexical legs with fusion, the optional
- * predicate/type router LLM call, and confidence-calibrated scoring +
- * per-entity bucketing. Owns the embedder (vector leg), predicate
- * router, and calibration deps. SearchService threads the scoped `db`
- * handle through these methods and sequences them with the rerank
- * stage; splitting them out keeps every search class ≤3 injected deps.
+ * pipeline: parallel vector + lexical legs with fusion, and
+ * confidence-calibrated scoring + per-entity bucketing. Owns the
+ * embedder (vector leg) and calibration deps. SearchService threads the
+ * scoped `db` handle through these methods and sequences them with the
+ * rerank stage; splitting them out keeps every search class ≤3 injected
+ * deps.
  */
 @Injectable()
 export class SearchRetrievalService {
   private readonly logger = new Logger(SearchRetrievalService.name);
-  private readonly budgets: StageBudgets = resolveStageBudgets();
-  // Source-reputation Phase 5 — all default 0 so ranking stays
-  // byte-identical until an operator opts in. Validated at boot
-  // (env-validation); the local guard covers post-boot env drift.
-  private readonly trustBeta = nonNegativeFloatEnv('SEARCH_TRUST_BETA');
-  private readonly corroborationGamma = nonNegativeFloatEnv(
-    'SEARCH_CORROBORATION_GAMMA',
-  );
-  private readonly authorityDelta = nonNegativeFloatEnv(
-    'SEARCH_AUTHORITY_DELTA',
-  );
 
-  // Fourth dep is the read-side query expansion (Wave 2) — a fire-and-
-  // degrade LLM sidecar to the vector leg, not a new pipeline stage, so
-  // it lives here with the legs it feeds rather than in a fourth class.
-  // eslint-disable-next-line max-params
   constructor(
     private readonly embedder: EmbedderService,
-    private readonly predicateRouter: PredicateRouterService,
     private readonly calibration: CalibrationService,
-    private readonly queryExpansion: QueryExpansionService,
   ) {}
 
   /**
@@ -84,22 +59,17 @@ export class SearchRetrievalService {
         : withSpan(
             'search.vector_leg',
             async (span) => {
-              const [primary, altRows] = await Promise.all([
-                runVectorLeg({
-                  db,
-                  embedder: this.embedder,
-                  query: ctx.dto.query,
-                  k: ctx.candidateK,
-                  baseWhere,
-                  logger: this.logger,
-                }),
-                this.runExpansionLegs(db, ctx, baseWhere),
-              ]);
-              const rows = altRows.length
-                ? mergeVectorRows(primary, altRows)
-                : primary;
+              const rows = await runVectorLeg({
+                db,
+                embedder: this.embedder,
+                query: ctx.dto.query,
+                k: ctx.candidateK,
+                baseWhere,
+                logger: this.logger,
+                tuning: ctx.tuning,
+                edgeFence: buildEdgeFence(ctx.dto.userId),
+              });
               span.setAttribute('candidates', rows.length);
-              span.setAttribute('expansion_candidates', altRows.length);
               traceArtifact(
                 'search.vector_hits',
                 rows.slice(0, 20).map((r) => ({
@@ -125,6 +95,7 @@ export class SearchRetrievalService {
                 query: ctx.dto.query,
                 k: ctx.candidateK,
                 baseWhere,
+                tuning: ctx.tuning,
               });
               span.setAttribute('candidates', rows.length);
               traceArtifact(
@@ -146,59 +117,74 @@ export class SearchRetrievalService {
   }
 
   /**
-   * Query-expansion vector legs (opt-in). One LLM reformulation call
-   * (cached, under budget) fans out into one vector leg per alternative
-   * phrasing; the caller merges them into the primary leg by max cosine.
-   * Every failure path returns [] — the original query always serves.
+   * Verbatim fusion leg (audit W4 #18, profile verbatimEvidence =
+   * 'fused'): episode segments retrieved as first-class candidates —
+   * dense + BM25 through the SAME convex fuse() as the fact legs, then
+   * the same scoring — returned as their own entity buckets for the
+   * rerank / fact-centric stages to arbitrate against facts. Failures
+   * degrade to an empty map: verbatim is additive evidence, never a
+   * reason to fail the search.
    */
-  private async runExpansionLegs(
+  async runSegmentLegStage(
     db: Surreal,
     ctx: PipelineContext,
-    baseWhere: { sql: string; params: Record<string, unknown> },
-  ): Promise<FactRow[]> {
-    if (!this.queryExpansion.isEnabled()) return [];
-    const alts = await withStageBudget({
-      stage: 'queryExpansion',
-      budgetMs: this.budgets.queryExpansion,
-      fn: () => this.queryExpansion.expand(ctx.dto.query),
-      fallback: [] as string[],
-      logger: this.logger,
-    });
-    if (alts.length === 0) return [];
-    traceArtifact('search.query_expansion', { query: ctx.dto.query, alts });
-    const legs = await Promise.all(
-      alts.map((alt) =>
-        runVectorLeg({
+  ): Promise<Map<string, EntityBucket>> {
+    try {
+      return await withSpan('search.segment_leg', async (span) => {
+        const queryVector =
+          ctx.mode !== 'lexical'
+            ? await this.embedder.embed(ctx.dto.query)
+            : null;
+        const { vectorRows, lexicalRows } = await runSegmentLegs({
           db,
-          embedder: this.embedder,
-          query: alt,
-          k: ctx.candidateK,
-          baseWhere,
-          logger: this.logger,
-        }).catch((e: Error) => {
-          this.logger.warn(`expansion leg failed: ${e.message}`);
-          return [] as FactRow[];
-        }),
-      ),
-    );
-    return legs.flat();
-  }
-
-  /** Predicate / type router (optional LLM call, under budget). */
-  async runRouterStage(query: string) {
-    const out = await withSpan('search.route', async (span) => {
-      const r = await withStageBudget({
-        stage: 'router',
-        budgetMs: this.budgets.router,
-        fn: () => this.predicateRouter.route(query),
-        fallback: null,
-        logger: this.logger,
+          queryText: ctx.dto.query,
+          queryVector,
+          fetchK: Math.max(ctx.profile.segmentTopK * 3, 12),
+          callerScopes: ctx.callerScopes,
+          userId: ctx.dto.userId,
+          mode: ctx.mode,
+        });
+        const fused = fuse(vectorRows, lexicalRows, ctx.mode);
+        for (const r of fused) {
+          if (!r.stages?.includes('segment')) {
+            r.stages = [...(r.stages ?? []), 'segment'];
+          }
+        }
+        span.setAttribute('candidates', fused.length);
+        traceArtifact(
+          'search.segment_hits',
+          fused.slice(0, 10).map((r) => ({
+            segmentId: String(r.id),
+            fusedScore: r.fusedScore,
+            object: r.object.slice(0, 120),
+          })),
+        );
+        const buckets = this.scoreAndBucket(fused, {
+          temporalAnchor:
+            ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+          tuning: ctx.tuning,
+          salienceScoring: ctx.profile.salienceScoring,
+        });
+        // profile.segmentTopK means "segments per prompt" — the appendix
+        // lane honoured it, the first fused cut did not (every fetchK
+        // candidate became a bucket; measured 2.3× prompt bloat on LME
+        // SSA). Keep only the top-K segment buckets by score; the fetch
+        // overshoot still feeds the fusion/scoring stages their pool.
+        if (buckets.size > ctx.profile.segmentTopK) {
+          const keep = [...buckets.values()]
+            .sort((a, b) => b.bestScore - a.bestScore)
+            .slice(0, ctx.profile.segmentTopK);
+          buckets.clear();
+          for (const b of keep) buckets.set(b.entityId, b);
+        }
+        return buckets;
       });
-      span.setAttribute('router.hit', r !== null);
-      return r;
-    });
-    if (out) traceArtifact('search.router_classification', out);
-    return out;
+    } catch (e) {
+      this.logger.warn(
+        `segment fusion leg failed (companyId=${ctx.companyId}): ${(e as Error).message}`,
+      );
+      return new Map();
+    }
   }
 
   /**
@@ -208,25 +194,41 @@ export class SearchRetrievalService {
    */
   scoreAndBucket(
     rows: Parameters<typeof scoreRows>[0]['rows'],
-    predicateDist: PredicateDistribution | null,
+    opts?: {
+      /**
+       * asOf anchor for the interval-overlap decay (profile
+       * temporalMode = 'overlap_boost'). Null/omitted → factor 1.0.
+       */
+      temporalAnchor?: Date | null;
+      /**
+       * Deployment tuning (trust/corroboration/authority/chatter
+       * knobs). Omitted → resolved fresh from the bootstrap, so a live
+       * env flip lands on the next call (no constructor capture —
+       * audit W6 #28).
+       */
+      tuning?: SearchTuning;
+      /**
+       * V8 §4: profile salienceScoring — folds the deriver-stamped
+       * source.salience into ranking. Omitted/false → byte-identical.
+       */
+      salienceScoring?: boolean;
+    },
   ): Map<string, EntityBucket> {
+    const tuning = opts?.tuning ?? resolveSearchTuning();
     const scored = scoreRows({
       rows,
-      predicateDist,
       now: Date.now(),
       calibrator: {
         calibrate: (raw: number) => this.calibration.calibrate(raw),
       },
-      trustBeta: this.trustBeta,
-      corroborationGamma: this.corroborationGamma,
-      authorityDelta: this.authorityDelta,
+      trustBeta: tuning.trustBeta,
+      corroborationGamma: tuning.corroborationGamma,
+      authorityDelta: tuning.authorityDelta,
+      chatterPenalty: tuning.chatterPenalty,
+      temporalAnchor: opts?.temporalAnchor ?? null,
+      salienceScoring: opts?.salienceScoring ?? false,
     });
     return bucketByEntity(scored);
   }
 }
 
-/** Optional non-negative float env knob; unset/invalid → 0 (feature off). */
-function nonNegativeFloatEnv(name: string): number {
-  const v = Number(process.env[name] ?? 0);
-  return Number.isFinite(v) && v > 0 ? v : 0;
-}

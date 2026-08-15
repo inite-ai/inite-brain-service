@@ -1,5 +1,6 @@
 import { StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
+import { ReadPinService } from '../../episodes/read-pin.service';
 
 /**
  * Compose the WHERE-clause fragment that every leg query shares.
@@ -26,6 +27,31 @@ export interface BuildBaseWhereOptions {
   asOf: Date | null;
   includeRetracted: boolean;
   includeContested: boolean;
+  /**
+   * Derived world this read serves, resolved per TENANT by
+   * ReadPinService (audit W2 #9). null → the legacy namespace.
+   * Undefined means "the caller did not resolve one" and falls back to
+   * the env bootstrap default, so pure-function callers and tests keep
+   * working; production callers always pass it.
+   */
+  derivedVersion?: string | null;
+  /**
+   * Profile temporalMode (audit W4 #17). 'overlap_boost' relaxes the
+   * asOf validity closure — near-miss facts survive to scoring, where
+   * the interval-overlap factor decays them by distance instead of a
+   * hard cut. Default 'filter' keeps strict point-in-time semantics.
+   */
+  temporalMode?: 'filter' | 'overlap_boost';
+  /**
+   * Profile insightEvidence='routed' (V8 §1): derived insight rows —
+   * aggregates (source.recorder='aggregate-composer-v1') and
+   * promotion/compaction summaries (predicate 'summary_*') — leave the
+   * fact legs and reach prompts only through the insight lane's own
+   * budget slot. The measured naive null (MS tie / BEAM −2.0pp,
+   * summarization DOWN) was exactly these rows displacing atomic facts
+   * inside the fact budget. Default false = pre-V8 byte-identical.
+   */
+  excludeInsightRows?: boolean;
   opts?: BaseWhereOptions;
 }
 
@@ -34,6 +60,9 @@ export function buildBaseWhere({
   asOf,
   includeRetracted,
   includeContested,
+  derivedVersion,
+  temporalMode = 'filter',
+  excludeInsightRows = false,
   opts = {},
 }: BuildBaseWhereOptions): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
@@ -41,6 +70,20 @@ export function buildBaseWhere({
 
   if (!includeRetracted) clauses.push(`AND retractedAt IS NONE`);
   if (!includeContested) clauses.push(`AND status != 'competing'`);
+
+  // ── Insight-row arbitration (V8 §1) ────────────────────────────
+  // Both idioms are the ones their writers already use against these
+  // rows: the aggregate composer excludes its own output with
+  // `source.recorder != $recorder`, promotion excludes summaries with
+  // `!string::starts_with(predicate, 'summary_')` — rows without a
+  // recorder pass the first test (NONE != 'x').
+  if (excludeInsightRows) {
+    clauses.push(
+      `AND source.recorder != $insightRecorder
+         AND !string::starts_with(predicate, 'summary_')`,
+    );
+    params.insightRecorder = 'aggregate-composer-v1';
+  }
 
   // ── User scope (migration 0055) — FAIL-CLOSED ──────────────────
   // No userId on the request → only tenant-global memory. With one →
@@ -51,6 +94,25 @@ export function buildBaseWhere({
     params.scopeUserId = dto.userId;
   } else {
     clauses.push(`AND userId IS NONE`);
+  }
+
+  // ── Derived-version namespace (substrate redesign P3 v1) ───────
+  // Versioned derivations coexist in one tenant: a batch deriver stamps
+  // its facts with derivedVersion and the read path pins exactly ONE
+  // world. Unset pin → legacy namespace only (field IS NONE), so a
+  // derived batch never leaks into default reads and vice versa.
+  // The pin is per-TENANT and comes from the projection registry
+  // (audit W2 #9); `undefined` here means an unresolved caller, which
+  // falls back to the process bootstrap default.
+  const pin =
+    derivedVersion === undefined
+      ? ReadPinService.bootstrapDefault()
+      : derivedVersion;
+  if (pin) {
+    clauses.push(`AND derivedVersion = $derivedVersion`);
+    params.derivedVersion = pin;
+  } else {
+    clauses.push(`AND derivedVersion IS NONE`);
   }
 
   if (dto.minConfidence !== undefined) {
@@ -92,7 +154,21 @@ export function buildBaseWhere({
   //   Bitemporal access ("what was true on date X") is the
   //   exception, served by the `asOf` parameter or the entity
   //   timeline endpoint.
-  if (asOf) {
+  if (asOf && temporalMode === 'overlap_boost') {
+    // Overlap-boost mode (audit W4 #17): the validity interval is NOT a
+    // gate here — facts outside it survive retrieval and the scoring
+    // stage decays them by their distance to asOf (Hindsight-style
+    // overlap + distance decay). A slightly-wrong asOf degrades scores
+    // instead of emptying the result set. Retraction and lifecycle
+    // gates still apply — soft recall never resurrects retracted or
+    // compacted rows.
+    clauses.push(
+      `AND (retractedAt IS NONE OR retractedAt > $asOf)
+         AND status != 'compacted'
+         AND status != 'corroborating'`,
+    );
+    params.asOf = asOf;
+  } else if (asOf) {
     // Explicit historical asOf — point-in-time view.
     // Filter on the VALIDITY axis (validFrom/validUntil); do NOT
     // gate on recordedAt — search shouldn't disappear a fact just

@@ -95,6 +95,69 @@ tsx scripts/run-locomo.ts \
   --out var/locomo-qa-only.json
 ```
 
+## LLM-judge scoring (`--judge`)
+
+Token-F1 / ROUGE-L / BLEU-1 penalise a correct answer that paraphrases
+or adds detail — LoCoMo gold "two cats and a dog" scores low against a
+correct "I have a dog named Luna and two cats named Oliver and Bailey".
+Every recent memory-system paper (Mem0, TiMem, MemMachine, Synthius-Mem)
+therefore reports an **LLM-as-judge** binary accuracy instead. `--judge`
+adds one **alongside** the surface-overlap metrics (never replacing them),
+so our numbers are directly comparable to those papers:
+
+```bash
+OPENAI_API_KEY=sk-... \
+  tsx scripts/run-locomo.ts \
+    --dataset /tmp/locomo10.json --api-key local-dev-key \
+    --judge --judge-model gpt-4.1-mini \
+    --out var/locomo-full.json
+```
+
+Judging an EXISTING report is near-free and needs no brain / no dataset —
+run the paid QA pass once, then judge (and re-judge with a future prompt
+version) offline:
+
+```bash
+OPENAI_API_KEY=sk-... \
+  tsx scripts/run-locomo.ts --judge-report var/locomo-full.json
+```
+
+The report gains `judgeAccuracy` + `judgedN` on `overall` and each
+`perCategory` row; category 5 (adversarial) gets both `judgeAccuracy` and
+the heuristic `adversarial` score, which cross-validate.
+
+**Cost.** ~350 input + ~10 output tokens per question × ~1,800 QA pairs →
+**≈ $0.25–0.35** for a full LoCoMo-10 judge pass on gpt-4.1-mini (noise
+against the ~$80 QA run). Even a gpt-4.1 judge stays ≈ $1.50.
+
+**The judge prompt is FIXED** (pinned for cross-run/cross-paper
+comparability). Change it only with a deliberate version bump. It is
+`LOCOMO_JUDGE_SYSTEM` in `test/eval/locomo/judge.ts`, verbatim:
+
+```
+You are grading a memory system's answer against a gold answer for a
+question about a long multi-session conversation.
+
+Grade CORRECT or WRONG. CORRECT means the prediction conveys the same
+essential information as the gold answer; wording, word order, and
+formatting differences do not matter. Numeric values and dates must match
+in meaning (e.g. "May 2023" matches "2023-05"). A prediction that adds
+extra correct detail is still CORRECT; one that contradicts or omits the
+essential fact is WRONG.
+
+Special case — abstention gold: if the gold answer states that the
+conversation contains no information (e.g. "no information available",
+"not mentioned"), the prediction is CORRECT only if it also declines to
+answer, and WRONG if it asserts any specific answer.
+
+Output strictly the requested JSON.
+```
+
+An OpenAI judge is used even for the `--agent claude-mcp` run: using the
+same vendor to answer AND grade would be a self-preference bias smell, so
+the judge stays on the independent OpenAI path. A judge error on any
+single question is recorded (`judgeErrored`) and never fails the run.
+
 ## Two QA agent profiles
 
 The runner exposes both natural paths brain ships:
@@ -160,10 +223,12 @@ The runner emits a single JSON report:
     "rougeL": 0.0,
     "bleu1": 0.0,
     "exactMatch": 0.0,
-    "adversarial": 0.0
+    "adversarial": 0.0,
+    "judgeAccuracy": 0.0,   // present only with --judge
+    "judgedN": 1540
   },
   "perCategory": [
-    { "category": 1, "n": 480, "f1": 0.0, "rougeL": 0.0, "bleu1": 0.0, "exactMatch": 0.0, "adversarial": 0.0 },
+    { "category": 1, "n": 480, "f1": 0.0, "rougeL": 0.0, "bleu1": 0.0, "exactMatch": 0.0, "adversarial": 0.0, "judgeAccuracy": 0.0 },
     ...
   ],
   "perSample": [

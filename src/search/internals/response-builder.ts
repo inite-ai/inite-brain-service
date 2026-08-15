@@ -1,39 +1,37 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { countJsonTokens } from '../../common/token-counter';
-import { envFlagEnabled } from '../../common/env-validation';
 import type { SearchDto } from '../dto/search.dto';
 import type { SearchHit } from '../search.types';
-import type { EntityBucket, FactRow } from './types';
+import type { SearchTuning } from '../retrieval-profile';
+import type { EntityBucket } from './types';
+
+/** The shaping slice of SearchTuning; defaults mirror the env defaults. */
+export type ShapingTuning = Pick<
+  SearchTuning,
+  'tokenCountOffload' | 'tokenOffloadMinHits'
+>;
 
 /**
- * Assemble final SearchHit rows from a reranked top-K bucket list plus
- * the backfilled per-entity fact map. Two-stage fact rendering:
- *   1. Matched facts first, sorted by score (existing behaviour).
- *   2. Backfill — pick at most ONE fact per NEW predicate not already
- *      represented in matched. Recency breaks per-predicate ties.
- *      Predicate-diverse instead of pure recency because the
- *      per-predicate eval surfaced that recency-only order buries
- *      dob/address under repeated occupation/genre facts on
- *      wikidata-shape entities.
- *
- * Cap at 5 — unchanged. The diversity step is what makes the cap
- * useful: a query for "Anton Chekhov born 1860" gets {name, dob,
- * address, occupation, genre} instead of {name, occupation×4} and
- * the eval-side fact-predicate assertion passes.
+ * Assemble final SearchHit rows from the fact-centric top-K bucket
+ * list. Matched facts render sorted by score; `factsPerEntity` caps the
+ * per-entity window (under fact-centric selection the global budget
+ * already bounded the total, so the cap is a formality that keeps the
+ * hit shape stable).
  */
 export interface AssembleHitsOptions {
   topEntities: EntityBucket[];
-  backfillByEntity: Map<string, FactRow[]>;
   entityTypes: string[] | undefined;
   requireProvenance?: boolean;
+  /** Per-entity fact cap. Default 5. */
+  factsPerEntity?: number;
 }
 
 export function assembleHits({
   topEntities,
-  backfillByEntity,
   entityTypes,
   requireProvenance = false,
+  factsPerEntity = 5,
 }: AssembleHitsOptions): SearchHit[] {
   // requireProvenance — DTO compliance primitive: keep only facts whose
   // ingest path preserved a non-empty `source` trail (vertical/eventId/
@@ -48,6 +46,9 @@ export function assembleHits({
       return ent ? entityTypes.includes(ent.type) : false;
     })
     .map((e) => {
+      const matchedSorted = e.facts
+        .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
+        .sort((a, b) => b.score - a.score);
       const ent = e.facts[0]?.row.entity ?? {
         id: e.entityId,
         type: 'other',
@@ -65,62 +66,25 @@ export function assembleHits({
         const refs = sf.row.entity?.externalRefs;
         if (refs) Object.assign(mergedRefs, refs);
       }
-      const matchedFactIds = new Set(e.facts.map((sf) => String(sf.row.id)));
-      const matchedRender = e.facts
-        .filter((sf) => !requireProvenance || hasProvenance(sf.row.source))
-        .sort((a, b) => b.score - a.score)
-        .map(({ row, score, breakdown }) => ({
-          factId: String(row.id),
-          predicate: row.predicate,
-          object: row.object,
-          confidence: row.confidence,
-          validFrom: row.validFrom,
-          validUntil: row.validUntil ?? undefined,
-          status: row.status,
-          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
-          score,
-          breakdown,
-        }));
-      const matchedPredicates = new Set(matchedRender.map((f) => f.predicate));
-      const backfillRows = (backfillByEntity.get(e.entityId) ?? [])
-        .filter((r) => !matchedFactIds.has(String(r.id)))
-        .filter((r) => !requireProvenance || hasProvenance(r.source))
-        .sort(
-          (a, b) =>
-            new Date(b.recordedAt).getTime() -
-            new Date(a.recordedAt).getTime(),
-        );
-      const backfillRender: typeof matchedRender = [];
-      const seenPredicates = new Set(matchedPredicates);
-      for (const row of backfillRows) {
-        if (seenPredicates.has(row.predicate)) continue;
-        seenPredicates.add(row.predicate);
-        backfillRender.push({
-          factId: String(row.id),
-          predicate: row.predicate,
-          object: row.object,
-          confidence: row.confidence,
-          validFrom: row.validFrom,
-          validUntil: row.validUntil ?? undefined,
-          status: row.status,
-          sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
-          score: 0,
-          breakdown: {
-            fusedScore: 0,
-            confidence: row.confidence,
-            decay: 1,
-            predBoost: 1,
-            finalScore: 0,
-            stages: ['backfill'],
-          },
-        });
-      }
+      const matchedRender = matchedSorted.map(({ row, score, breakdown }) => ({
+        factId: String(row.id),
+        predicate: row.predicate,
+        object: row.object,
+        confidence: row.confidence,
+        validFrom: row.validFrom,
+        validUntil: row.validUntil ?? undefined,
+        status: row.status,
+        sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
+        ...(row.highlight ? { highlight: row.highlight } : {}),
+        score,
+        breakdown,
+      }));
       return {
         entityId: e.entityId,
         entityType: ent.type,
         canonicalName: ent.canonicalName,
         externalRefs: mergedRefs,
-        facts: [...matchedRender, ...backfillRender].slice(0, 5),
+        facts: matchedRender.slice(0, factsPerEntity),
         score: e.bestScore,
       };
     })
@@ -162,12 +126,6 @@ export function tokenCountWorkerModulePath(): string {
   return cachedWorkerModulePath;
 }
 
-function offloadMinHits(): number {
-  const raw = process.env.SEARCH_TOKEN_OFFLOAD_MIN_HITS;
-  const n = raw === undefined ? Number.NaN : parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 1 ? n : OFFLOAD_MIN_HITS_DEFAULT;
-}
-
 /**
  * Per-hit token counts (+1 per hit for the array comma). Serialisation
  * happens on the main thread either way; for large hit lists the
@@ -180,17 +138,12 @@ function offloadMinHits(): number {
 async function countHitTokens(
   results: SearchHit[],
   pool?: TokenCountPool,
+  tuning?: ShapingTuning,
 ): Promise<number[]> {
   const syncCounts = () => results.map((hit) => countJsonTokens(hit) + 1);
-  const offloadEnabled = envFlagEnabled(
-    process.env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1',
-  );
-  if (
-    !pool ||
-    !offloadEnabled ||
-    results.length < offloadMinHits() ||
-    !pool.enabled()
-  ) {
+  const offloadEnabled = tuning?.tokenCountOffload ?? true;
+  const minHits = tuning?.tokenOffloadMinHits ?? OFFLOAD_MIN_HITS_DEFAULT;
+  if (!pool || !offloadEnabled || results.length < minHits || !pool.enabled()) {
     return syncCounts();
   }
   const texts = results.map((hit) => JSON.stringify(hit));
@@ -229,10 +182,12 @@ async function countHitTokens(
  * per-hit counting may batch out to the worker pool (see
  * countHitTokens); semantics are identical on both paths.
  */
+// eslint-disable-next-line max-params
 export async function applyOutputShaping(
   hits: SearchHit[],
   dto: SearchDto,
   pool?: TokenCountPool,
+  tuning?: ShapingTuning,
 ): Promise<SearchHit[]> {
   let results = hits;
   if (dto.confidenceFloor !== undefined) {
@@ -274,7 +229,7 @@ export async function applyOutputShaping(
     // the budget stays a hard ceiling. The per-hit encodes batch out
     // to the worker pool for large lists (sync fallback inside).
     const envelopeTokens = countJsonTokens({ results: [] });
-    const perHit = await countHitTokens(results, pool);
+    const perHit = await countHitTokens(results, pool, tuning);
     let used = envelopeTokens;
     let keep = 0;
     for (const hitTokens of perHit) {

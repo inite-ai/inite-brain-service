@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
+import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { normalizeEntityId } from './entity-read.helpers';
@@ -78,6 +79,46 @@ export class EntityForgetService {
       const edgeIds = ((edgeIdRows as any[]) ?? []).map((r) => String(r.id));
       const factsDeleted = factIds.length;
       const edgesDeleted = edgeIds.length;
+
+      // L0 grounding turns (audit W1, finding #13). Erasure used to stop at
+      // L1: the verbatim episodes naming the subject stayed readable through
+      // the episodic/segment lanes and GET /v1/episodes, AND a re-derive
+      // resurrected the deleted facts from them. Resolve the grounding
+      // episodes BEFORE the facts go — source.episodeIds is the only link.
+      //
+      // A turn that grounds facts of several subjects is deleted whole: the
+      // other subjects keep their derived facts (separate rows), they lose
+      // only the raw turn. Erasure wins over retention.
+      const [groundingRows] = await db.query<any[][]>(
+        `SELECT source.episodeIds AS eps FROM knowledge_fact
+         WHERE entityId = type::record('knowledge_entity', $rid)
+           AND source.episodeIds IS NOT NONE`,
+        { rid: ref.id },
+      );
+      const episodeIds = [
+        ...new Set(
+          ((groundingRows as any[]) ?? []).flatMap((r) =>
+            Array.isArray(r.eps) ? r.eps.map((e: unknown) => String(e)) : [],
+          ),
+        ),
+      ].filter((id) => id.startsWith('episode:'));
+      let episodesDeleted = 0;
+      let segmentsDeleted = 0;
+      if (episodeIds.length > 0) {
+        const refs = episodeIds.map((id) => new StringRecordId(id));
+        // Segments are a rebuildable projection over the same turns — a
+        // segment that quotes an erased episode must go with it.
+        const [segRows] = await db.query<any[][]>(
+          `DELETE episode_segment WHERE episodeIds CONTAINSANY $eps RETURN BEFORE`,
+          { eps: refs },
+        );
+        segmentsDeleted = ((segRows as any[]) ?? []).length;
+        const [epRows] = await db.query<any[][]>(
+          `DELETE episode WHERE id INSIDE $eps RETURN BEFORE`,
+          { eps: refs },
+        );
+        episodesDeleted = ((epRows as any[]) ?? []).length;
+      }
 
       // Cascade hard-delete. Embedding columns die with the rows.
       // fact_usage (0053) and retrieval_feedback (0054) rows are keyed by
@@ -181,6 +222,8 @@ export class EntityForgetService {
         factsDeleted,
         edgesDeleted,
         auditEventsDeleted,
+        episodesDeleted,
+        segmentsDeleted,
         // GDPR accountability (Art. 5(2)/30): record WHO performed the
         // erasure (hashed admin credential), not just that it happened.
         forgottenBy: actorKeyHash ?? 'unknown',
@@ -190,7 +233,9 @@ export class EntityForgetService {
       this.logger.warn(
         `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
         `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
-        `auditEventsDeleted=${auditEventsDeleted} reason=${dto.reason} ` +
+        `auditEventsDeleted=${auditEventsDeleted} ` +
+        `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
+        `reason=${dto.reason} ` +
         `by=${actorKeyHash ?? 'unknown'}`,
       );
 
@@ -199,6 +244,8 @@ export class EntityForgetService {
         factsDeleted,
         edgesDeleted,
         auditEventsDeleted,
+        episodesDeleted,
+        segmentsDeleted,
         forgottenAt: forgottenAt.toISOString(),
       };
     });

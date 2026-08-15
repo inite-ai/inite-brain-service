@@ -14,6 +14,32 @@ import { POLICY_ACTION_KEY } from '../policy/action-registry';
 import { getRequestContext } from '../common/request-context';
 import { resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
+import { envFlagEnabled } from '../common/env-validation';
+import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
+
+/**
+ * Tenant override (BRAIN_TENANT_OVERRIDE_ENABLED, default off): an
+ * admin-scoped key may address another tenant via X-Brain-Tenant — the
+ * per-call pinning the sink interfaces anticipated. Built for eval
+ * harnesses that need per-question tenant isolation (e.g. LongMemEval:
+ * one haystack per question) without minting hundreds of keys; never
+ * enable in multi-tenant prod without a policy review.
+ */
+function resolveTenantOverride(
+  record: ApiKeyRecord,
+  request: { headers?: Record<string, unknown> },
+): string {
+  if (!envFlagEnabled(process.env.BRAIN_TENANT_OVERRIDE_ENABLED)) {
+    return record.companyId;
+  }
+  const requested = String(request.headers?.['x-brain-tenant'] ?? '').trim();
+  const allowed =
+    requested !== '' &&
+    requested !== record.companyId &&
+    record.scopes.includes('brain:admin') &&
+    /^[a-z0-9_-]{2,64}$/.test(requested);
+  return allowed ? requested : record.companyId;
+}
 
 const REQUIRED_SCOPES_KEY = 'requiredScopes';
 export const RequireScopes = (...scopes: BrainScope[]) =>
@@ -119,8 +145,18 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
+    const companyId = resolveTenantOverride(record, request);
+    // Retrieval profile — resolved ONCE per request, next to brainAuth
+    // (S3 of the platform directive). Everything below the boundary
+    // takes this object; nothing re-reads the genre env keys.
+    const retrievalProfile = resolveRetrievalProfileFor(companyId);
+    {
+      const store = getRequestContext();
+      if (store) store.retrievalProfile = retrievalProfile;
+    }
+
     (request as AuthenticatedRequest).brainAuth = {
-      companyId: record.companyId,
+      companyId,
       scopes: record.scopes,
       keyHash: record.keyHash,
       ...(record.userId ? { userId: record.userId } : {}),

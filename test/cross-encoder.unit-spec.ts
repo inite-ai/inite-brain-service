@@ -2,10 +2,10 @@ import { ConfigService } from '@nestjs/config';
 import { CrossEncoderService } from '../src/ai/cross-encoder.service';
 
 /**
- * Unit coverage for the optional Cohere cross-encoder. We only test
- * the in-process behaviour (config gating, fallback shape) — the
+ * Unit coverage for the Cohere cross-encoder capability. We only test
+ * the in-process behaviour (capability gating, fallback shape) — the
  * happy path requires a live Cohere endpoint and is exercised by the
- * quality eval when SEARCH_CROSS_ENCODER_ENABLED=1 is set in CI.
+ * quality eval when COHERE_API_KEY is set in CI.
  */
 describe('CrossEncoderService', () => {
   function svc(env: Record<string, string | undefined>): CrossEncoderService {
@@ -15,29 +15,12 @@ describe('CrossEncoderService', () => {
     return new CrossEncoderService(cfg);
   }
 
-  it('reports disabled when SEARCH_CROSS_ENCODER_ENABLED!=1', () => {
-    expect(svc({ COHERE_API_KEY: 'k' }).isEnabled()).toBe(false);
-    expect(
-      svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '0',
-        COHERE_API_KEY: 'k',
-      }).isEnabled(),
-    ).toBe(false);
+  it('reports disabled with neither a Cohere key nor a local provider', () => {
+    expect(svc({}).isEnabled()).toBe(false);
   });
 
-  it('reports disabled when COHERE_API_KEY is missing', () => {
-    expect(
-      svc({ SEARCH_CROSS_ENCODER_ENABLED: '1' }).isEnabled(),
-    ).toBe(false);
-  });
-
-  it('reports enabled with both flag and key', () => {
-    expect(
-      svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
-        COHERE_API_KEY: 'k',
-      }).isEnabled(),
-    ).toBe(true);
+  it('reports enabled when the vendor key is present (capability)', () => {
+    expect(svc({ COHERE_API_KEY: 'k' }).isEnabled()).toBe(true);
   });
 
   it('returns identity when disabled', async () => {
@@ -52,7 +35,6 @@ describe('CrossEncoderService', () => {
 
   it('returns identity for ≤1 candidate even when enabled', async () => {
     const s = svc({
-      SEARCH_CROSS_ENCODER_ENABLED: '1',
       COHERE_API_KEY: 'k',
     });
     expect(await s.rerank('q', [])).toEqual([]);
@@ -61,7 +43,6 @@ describe('CrossEncoderService', () => {
 
   it('returns identity on empty / whitespace query', async () => {
     const s = svc({
-      SEARCH_CROSS_ENCODER_ENABLED: '1',
       COHERE_API_KEY: 'k',
     });
     expect(
@@ -78,7 +59,6 @@ describe('CrossEncoderService', () => {
       new Response('bad', { status: 500 })) as typeof fetch;
     try {
       const s = svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
         COHERE_API_KEY: 'k',
       });
       const out = await s.rerank('q', [
@@ -100,7 +80,6 @@ describe('CrossEncoderService', () => {
       })) as typeof fetch;
     try {
       const s = svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
         COHERE_API_KEY: 'k',
       });
       const out = await s.rerank('q', [
@@ -128,7 +107,6 @@ describe('CrossEncoderService', () => {
       )) as typeof fetch;
     try {
       const s = svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
         COHERE_API_KEY: 'k',
       });
       const out = await s.rerank('q', [
@@ -153,7 +131,6 @@ describe('CrossEncoderService', () => {
       )) as typeof fetch;
     try {
       const s = svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
         COHERE_API_KEY: 'k',
       });
       const out = await s.rerank('q', [
@@ -182,7 +159,6 @@ describe('CrossEncoderService', () => {
       )) as typeof fetch;
     try {
       const s = svc({
-        SEARCH_CROSS_ENCODER_ENABLED: '1',
         COHERE_API_KEY: 'k',
       });
       const out = await s.rerank('q', [
