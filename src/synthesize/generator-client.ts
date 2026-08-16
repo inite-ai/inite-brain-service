@@ -6,6 +6,27 @@ import type { MetricsService } from '../metrics/metrics.service';
 import type { LaneId } from '../search/retrieval-profile';
 import { buildGeneratorUserMessage } from './generator-prompt';
 import { salvageTruncatedAnswer } from './synthesize.helpers';
+
+/**
+ * gpt-5* / o-series reasoning models reject a non-default temperature
+ * (400 Unsupported value) AND bill hidden reasoning against
+ * max_completion_tokens — the measured V11 §2 verifier failure class,
+ * same guard as verifier.ts / deriver-client.ts. Unguarded, a
+ * SYNTHESIZE_MODEL=gpt-5-* arm reads as 100% generator_error
+ * abstention — indistinguishable from a retrieval regression in the
+ * aggregate. Reasoning models get a 4× visible cap and no temperature;
+ * everything else keeps the historical byte-identical call.
+ */
+const REASONING_MODEL_RE = /^(gpt-5|o\d)/;
+
+function generatorCallParams(model: string): {
+  temperature?: number;
+  max_completion_tokens: number;
+} {
+  return REASONING_MODEL_RE.test(model)
+    ? { max_completion_tokens: 2048 }
+    : { temperature: 0, max_completion_tokens: 512 };
+}
 import type { GeneratorOutput } from './synthesize.types';
 
 /**
@@ -119,8 +140,7 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
               },
             },
           },
-          max_completion_tokens: 512,
-          temperature: 0,
+          ...generatorCallParams(model),
         },
         { signal: getAbortSignal() },
       ),
