@@ -29,8 +29,6 @@ import { DreamsService } from '../dreams/dreams.service';
 import { CalibrationRefitService } from '../ai/calibration/calibration-refit.service';
 import { CompactionService } from '../compaction/compaction.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
-// eslint-disable-next-line import/no-restricted-paths -- TODO: layer migration. Move the inline withCompany() / withAdminDb() queries below into a dedicated admin service, then drop this import. New controllers MUST NOT import db/* directly.
-import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpCode } from '@nestjs/common';
@@ -85,7 +83,6 @@ export class AdminJobsController {
     private readonly calibrationRefit: CalibrationRefitService,
     private readonly changefeed: ChangefeedConsumerService,
     private readonly scheduler: SchedulerRegistry,
-    private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
     private readonly reindex: ReindexEmbeddingsService,
     private readonly scenarios: ScenarioRunnerService,
@@ -482,14 +479,9 @@ export class AdminJobsController {
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
       try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
-            `SELECT runId, kind, ts, subject, object, detail
-               FROM dream_emit WHERE runId = $runId ORDER BY ts ASC`,
-            { runId },
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
+        const rows = (await this.dreams.emitsForRun(companyId, runId)) as Array<
+          Record<string, any>
+        >;
         for (const r of rows) {
           emits.push({
             runId: r.runId,

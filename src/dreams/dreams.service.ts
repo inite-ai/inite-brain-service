@@ -631,4 +631,24 @@ export class DreamsService implements OnModuleInit {
       );
     }
   }
+
+  /**
+   * Emit trail of one dreams run for a tenant — the admin debug surface
+   * (GET dreams emits) delegates here so the SurrealQL stays in the
+   * service that owns the table (write is 40 lines up), never in a
+   * controller.
+   */
+  async emitsForRun(
+    companyId: string,
+    runId: string,
+  ): Promise<Array<Record<string, unknown>>> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const res = (await db.query<unknown[]>(
+        `SELECT runId, kind, ts, subject, object, detail
+           FROM dream_emit WHERE runId = $runId ORDER BY ts ASC`,
+        { runId },
+      )) as Array<Array<Record<string, unknown>>>;
+      return res[0] ?? [];
+    });
+  }
 }
