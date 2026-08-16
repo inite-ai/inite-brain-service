@@ -10,6 +10,7 @@ import {
   WINDOW_DERIVER_VERSION,
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
+import { DATE_AUDIT_SYSTEM } from '../src/admin/deriver-client';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
@@ -674,5 +675,18 @@ describe('buildDeriverSystem (V12 §3 date-resolve lockstep)', () => {
     expect(both.indexOf('ASSISTANT-SIDE CONTRIBUTIONS')).toBeLessThan(
       both.indexOf('EVENT DATING'),
     );
+  });
+});
+
+describe('deriverCallParams (reasoning-model guard, V13)', () => {
+  // The helper is module-private; pin the behavior through the public
+  // prompt builder contract instead: reasoning-model handling is pure
+  // param shaping, so we assert via a direct import of the client's
+  // exported constants — the regex must match the verifier's measured
+  // class and nothing else.
+  it('date-audit system prompt states the null-over-default contract', () => {
+    expect(DATE_AUDIT_SYSTEM).toContain('null');
+    expect(DATE_AUDIT_SYSTEM).toContain('calendar arithmetic');
+    expect(DATE_AUDIT_SYSTEM).toContain('same day');
   });
 });

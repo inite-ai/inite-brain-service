@@ -60,6 +60,111 @@ EVENT DATING
 - Month-only knowledge resolves to the FIRST day of that month ("in June" → 2023-06-01); year-only to January 1st. This is a rendering convention, not a precision claim.
 - When the event time is genuinely undeterminable, use null — a wrong default is worse than no date.`;
 
+
+/**
+ * V13 date audit (DERIVER_DATE_AUDIT) — the post-pass shape of the
+ * failed in-prompt date rules. Measured lineage: prose rules inside
+ * the extraction prompt moved NOTHING (wd-v4 date distribution
+ * byte-equal to the replicates, armH null), while the same contract as
+ * a dedicated after-emission turn is exactly how salience grading
+ * succeeded after ITS in-prompt version failed both gates (V8 §4 →
+ * V9 §5). One extra cheap call per session; failure degrades to the
+ * un-audited dates.
+ */
+export const DATE_AUDIT_SYSTEM = `You audit the event dates of memory propositions extracted from ONE dated dialogue session. For every numbered proposition decide "occurred_on" — the ISO date (YYYY-MM-DD) the described EVENT actually happened:
+- Resolve relative expressions from the transcript ("yesterday", "last Friday", "two weekends ago", "next month") by calendar arithmetic from the session date.
+- The session date is correct ONLY for events that happened during that same day ("today I…", "this morning").
+- Planned or future events take the planned occurrence date when stated or derivable.
+- Month-only knowledge resolves to the FIRST day of that month; year-only to January 1st.
+- Genuinely undeterminable: null. A wrong default is worse than no date.
+Return a decision for EVERY index. Output strictly the JSON schema.`;
+
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function auditDates(
+  deps: DeriverClientDeps,
+  args: {
+    sessionDate: Date;
+    transcript: string[];
+    propositions: DerivedProposition[];
+  },
+): Promise<void> {
+  try {
+    const list = args.propositions
+      .map(
+        (p, i) =>
+          `${i}. [${p.subject}] ${p.proposition} (current occurred_on: ${p.occurred_on ?? 'null'})`,
+      )
+      .join('\n');
+    const res = await deps.openai.chat.completions.create({
+      model: deps.model,
+      ...deriverCallParams(deps.model, 0, 4000),
+      messages: [
+        { role: 'system', content: DATE_AUDIT_SYSTEM },
+        {
+          role: 'user',
+          content: `Session date: ${args.sessionDate.toISOString().slice(0, 10)}\n\nTranscript:\n${args.transcript.join('\n')}\n\nPropositions:\n${list}`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'date_audit',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              dates: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    index: { type: 'integer' },
+                    occurred_on: { type: ['string', 'null'] },
+                  },
+                  required: ['index', 'occurred_on'],
+                },
+              },
+            },
+            required: ['dates'],
+          },
+        },
+      },
+    });
+    const content = res.choices[0]?.message?.content;
+    if (!content) throw new Error('empty date-audit response');
+    const parsed = JSON.parse(content) as {
+      dates?: Array<{ index: number; occurred_on: string | null }>;
+    };
+    for (const d of parsed.dates ?? []) {
+      if (
+        !Number.isInteger(d.index) ||
+        d.index < 0 ||
+        d.index >= args.propositions.length
+      ) {
+        continue;
+      }
+      // Apply BOTH values and explicit nulls — clearing a fabricated
+      // session-date default is the audit's whole point. Malformed
+      // date strings keep the original.
+      if (d.occurred_on === null) {
+        args.propositions[d.index].occurred_on = null;
+      } else if (
+        typeof d.occurred_on === 'string' &&
+        ISO_DAY_RE.test(d.occurred_on)
+      ) {
+        args.propositions[d.index].occurred_on = d.occurred_on;
+      }
+    }
+  } catch (e) {
+    deps.logger.warn(
+      `date audit turn failed (${(e as Error).message}); dates stay un-audited`,
+    );
+  }
+}
+
 /**
  * Salience grading (DERIVER_SALIENCE_STAMP, V8 §4 → V9 §5 rebuild):
  * a SEPARATE cheap turn over the emitted proposition list. The V8
@@ -135,6 +240,26 @@ export interface DeriverClientDeps {
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
 /**
+ * gpt-5* / o-series reasoning models reject a non-default temperature
+ * (400 Unsupported value) AND bill hidden reasoning against
+ * max_completion_tokens — the measured V11 §2 verifier failure class,
+ * same guard as synthesize/verifier.ts. Reasoning models get a 4×
+ * visible cap and no temperature; everything else keeps the historical
+ * byte-identical call.
+ */
+const REASONING_MODEL_RE = /^(gpt-5|o\d)/;
+
+function deriverCallParams(
+  model: string,
+  temperature: number,
+  cap: number,
+): { temperature?: number; max_completion_tokens: number } {
+  return REASONING_MODEL_RE.test(model)
+    ? { max_completion_tokens: cap * 4 }
+    : { temperature, max_completion_tokens: cap };
+}
+
+/**
  * One session's full extraction: base pass → optional completion-pass
  * union → optional salience grading turn (V9 §5: grades come from a
  * SEPARATE turn over the final list — the extraction passes never see
@@ -164,6 +289,13 @@ export async function callDeriver(
   ];
   const base = await deriverPass(deps, messages);
   const merged = await completionUnion(deps, { profile, messages, base });
+  if (profile.deriveDateAudit && merged.length > 0) {
+    await auditDates(deps, {
+      sessionDate: args.sessionDate,
+      transcript: args.transcript,
+      propositions: merged,
+    });
+  }
   if (profile.deriveSalienceStamp && merged.length > 0) {
     await gradeSalience(deps, merged);
   }
@@ -232,8 +364,7 @@ async function gradeSalience(
       .join('\n');
     const res = await deps.openai.chat.completions.create({
       model: deps.model,
-      temperature: 0,
-      max_completion_tokens: 4000,
+      ...deriverCallParams(deps.model, 0, 4000),
       messages: [
         { role: 'system', content: SALIENCE_GRADING_SYSTEM },
         { role: 'user', content: `Propositions:\n${list}` },
@@ -331,8 +462,7 @@ function deriverRequest(
   // off (volume-neutral by construction).
   return deps.openai.chat.completions.create({
     model: deps.model,
-    temperature: 0.1,
-    max_completion_tokens: maxTokens,
+    ...deriverCallParams(deps.model, 0.1, maxTokens),
     messages,
     response_format: {
       type: 'json_schema',
@@ -405,8 +535,7 @@ export async function foldDigest(
   const day = args.sessionDate.toISOString().slice(0, 10);
   const res = await deps.openai.chat.completions.create({
     model: deps.model,
-    temperature: 0.1,
-    max_completion_tokens: 1200,
+    ...deriverCallParams(deps.model, 0.1, 1200),
     messages: [
       { role: 'system', content: DIGEST_MERGE_SYSTEM },
       {
@@ -439,8 +568,7 @@ export async function foldDigest(
   const compressed = await deps.openai.chat.completions
     .create({
       model: deps.model,
-      temperature: 0.1,
-      max_completion_tokens: 1200,
+      ...deriverCallParams(deps.model, 0.1, 1200),
       messages: [
         { role: 'system', content: DIGEST_MERGE_SYSTEM },
         {

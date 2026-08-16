@@ -917,6 +917,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'V12 §3 event-dating rules for the session deriver (the graphiti anti-collapse port): occurred_on must date the EVENT, never the conversation — relative expressions resolve by calendar arithmetic from the session date, the session date is only valid for same-day events, month/year-only knowledge resolves to the period start, and a genuinely undeterminable date stays null instead of defaulting. Targets the measured off-by-days answer class (validFrom = session-date collapse). Prompt change: confirms only on a FRESH derivedVersion; off = byte-identical prompt.',
       },
       {
+        key: 'DERIVER_DATE_AUDIT',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V13 date audit: a dedicated after-emission turn re-derives occurred_on for every proposition against the transcript + session date (resolve relative time by calendar arithmetic; session date only for same-day events; explicit null clears fabricated defaults). The post-pass shape of the failed in-prompt rules — DERIVER_DATE_RESOLVE measured a byte-equal date distribution and a null pair (armH), while salience succeeded only as a post-pass after ITS in-prompt version failed. One extra deriver-model call per session; failure degrades to un-audited dates. Fresh derivedVersion required.',
+      },
+      {
         key: 'RETRIEVAL_MENTION_DATES',
         category: 'pipeline',
         defaultValue: '0',
