@@ -48,7 +48,6 @@ function makeController(scheduler: SchedulerRegistry): AdminJobsController {
     undef,
     undef,
     undef,
-    undef,
   );
 }
 

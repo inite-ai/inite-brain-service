@@ -55,7 +55,6 @@ function makeController(
     undef,
     undef,
     undef,
-    undef,
   );
 }
 

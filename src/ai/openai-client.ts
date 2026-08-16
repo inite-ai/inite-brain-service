@@ -32,3 +32,32 @@ export function createOpenAiClient(config: ConfigService): OpenAI | null {
 export function createOpenAiClientOrThrow(config: ConfigService): OpenAI {
   return buildClient(config, config.getOrThrow<string>('OPENAI_API_KEY'));
 }
+
+/**
+ * Per-model-class chat-call params — the ONE copy of the reasoning
+ * guard (the measured V11 §2 class: gpt-5 and o-series models reject a
+ * non-default temperature with 400 and bill hidden reasoning against
+ * max_completion_tokens, so tight caps starve the visible output).
+ * Verifier, generator and deriver all hand-rolled this after the
+ * verifier fix; three copies with divergent cap policies is exactly
+ * the 13-client lesson above repeating itself.
+ *
+ * `gpt-5-chat*` variants are NOT reasoning models (they accept
+ * temperature) — the negative lookahead keeps them on the
+ * deterministic branch, where an over-match would silently run
+ * temperature-1.0 replicates through a ±few-pp measurement program.
+ */
+const REASONING_MODEL_RE = /^(gpt-5(?!-chat)|o\d)/;
+
+export function isReasoningModel(model: string): boolean {
+  return REASONING_MODEL_RE.test(model);
+}
+
+export function chatCallParams(
+  model: string,
+  opts: { temperature: number; visibleCap: number; reasoningCap?: number },
+): { temperature?: number; max_completion_tokens: number } {
+  return isReasoningModel(model)
+    ? { max_completion_tokens: opts.reasoningCap ?? opts.visibleCap * 4 }
+    : { temperature: opts.temperature, max_completion_tokens: opts.visibleCap };
+}

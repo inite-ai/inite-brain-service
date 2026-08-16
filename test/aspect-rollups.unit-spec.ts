@@ -14,8 +14,16 @@ function m(
   predicate: string,
   object: string,
   day: string,
+  over?: Partial<RollupMember>,
 ): RollupMember {
-  return { entityId, predicate, object, validFrom: new Date(`${day}T00:00:00Z`) };
+  return {
+    entityId,
+    predicate,
+    object,
+    validFrom: new Date(`${day}T00:00:00Z`),
+    dated: true,
+    ...over,
+  };
 }
 
 describe('composeAspectRollups', () => {
@@ -74,7 +82,8 @@ describe('composeAspectRollups', () => {
     );
     const out = composeAspectRollups(members, { charCap: 800 });
     expect(out).toHaveLength(1);
-    expect(out[0].object.length).toBeLessThan(1000);
+    // The header/suffix envelope rides INSIDE the cap now.
+    expect(out[0].object.length).toBeLessThanOrEqual(800);
     expect(out[0].object).toContain('and');
     expect(out[0].object).toMatch(/…and \d+ more$/);
   });
@@ -86,5 +95,40 @@ describe('composeAspectRollups', () => {
       m('e1', 'events', 'z'.repeat(500), '2023-05-03'),
     ];
     expect(composeAspectRollups(members, { charCap: 600 })).toHaveLength(0);
+  });
+});
+
+
+describe('composeAspectRollups V13 review fixes', () => {
+  it('undated members render without an asserted date stamp', () => {
+    const out = composeAspectRollups([
+      m('e1', 'activities', 'Went camping.', '2023-06-12', { dated: false }),
+      m('e1', 'activities', 'Tried pottery.', '2023-05-01'),
+      m('e1', 'activities', 'Swam in the lake.', '2023-06-01'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].object).not.toContain('(2023-06-12)');
+    expect(out[0].object).toContain('(2023-05-01)');
+  });
+
+  it('duplicate texts keep the EARLIEST-dated copy', () => {
+    const out = composeAspectRollups([
+      m('e1', 'events', 'Went camping.', '2023-05-10'),
+      m('e1', 'events', 'went camping.', '2023-03-01'),
+      m('e1', 'events', 'Ran a race.', '2023-06-01'),
+      m('e1', 'events', 'Baked bread.', '2023-07-01'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].object).toContain('(2023-03-01)');
+    expect(out[0].object).not.toContain('(2023-05-10)');
+  });
+
+  it('unions member episodeIds capped and deduped', () => {
+    const out = composeAspectRollups([
+      m('e1', 'events', 'A.', '2023-05-01', { episodeIds: ['ep1', 'ep2'] }),
+      m('e1', 'events', 'B.', '2023-05-02', { episodeIds: ['ep2', 'ep3'] }),
+      m('e1', 'events', 'C.', '2023-05-03'),
+    ]);
+    expect(out[0].episodeIds).toEqual(['ep1', 'ep2', 'ep3']);
   });
 });

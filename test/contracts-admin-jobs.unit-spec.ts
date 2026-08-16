@@ -75,7 +75,6 @@ function makeController(jobs: JobRunService): AdminJobsController {
     undef,
     undef,
     undef,
-    undef,
   );
 }
 

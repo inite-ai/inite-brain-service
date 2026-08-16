@@ -62,6 +62,10 @@ export interface DeriveRunResult {
   conversations: number;
   sessions: number;
   propositions: number;
+  /** Composed aspect-rollup rows (V13 A2) — separate from
+   *  `propositions` so volume-parity gates keep comparing pure
+   *  extraction volume across flag pairs. */
+  rollups?: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
   /**
@@ -443,7 +447,15 @@ export class WindowDeriverService {
         (e, i) => `[${i}] ${e.speaker ?? 'unknown'}: ${e.text}`,
       );
       if (digest !== null) {
-        digest = await this.foldDigest(digest, sessionDate, transcript);
+        // Degrade, never fail: the version-scoped DELETE already ran —
+        // a fold error would strand the conversation with ZERO facts.
+        try {
+          digest = await this.foldDigest(digest, sessionDate, transcript);
+        } catch (e) {
+          this.logger.warn(
+            `digest fold failed (${(e as Error).message}) — keeping prior digest state`,
+          );
+        }
         const last = new Date(
           session[session.length - 1].occurredAt as string,
         );
@@ -487,7 +499,62 @@ export class WindowDeriverService {
       // namespace — still one round-trip per session, but the resolver
       // stamps the trust snapshot, locale and status instead of a raw
       // INSERT hand-copying its contract.
-      const rows = resolved.map(({ p, entityId: subjectEntity }, i) => {
+      const rows = this.buildDerivedRows({
+        resolved,
+        vectors,
+        sessionDate,
+        session,
+        version,
+        conversationId,
+      });
+      // V9 §1: value-bearing aspects take the bitemporal_event
+      // lifecycle when the profile asks; V9 phase 0: the resolver
+      // batch degrades per-row instead of failing the conversation —
+      // rows that landed nothing (SKIPPED = poisoned row, REJECTED =
+      // low_score / create_returned_none) are not propositions.
+      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
+        slotSemantics: resolveExtractionProfile().deriveSlotSemantics,
+      });
+      const unlandedRows = outcomes.filter(
+        (o) => o.outcome === 'SKIPPED' || o.outcome === 'REJECTED',
+      ).length;
+      result.propositions += rows.length - unlandedRows;
+      if (rollupPool) {
+        this.collectRollupPool({ rollupPool, resolved, rows, outcomes });
+      }
+    }
+    await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
+    if (rollupPool && rollupPool.length > 0) {
+      await this.writeAspectRollups({
+        db,
+        conversationId,
+        version,
+        pool: rollupPool,
+        result,
+      });
+    }
+  }
+
+
+  /** Row construction for one session's resolved propositions — split
+   *  from deriveConversation for the line-budget gate; behavior is the
+   *  map it used to inline. */
+  private buildDerivedRows({
+    resolved,
+    vectors,
+    sessionDate,
+    session,
+    version,
+    conversationId,
+  }: {
+    resolved: Array<{ p: DerivedProposition; entityId: string }>;
+    vectors: number[][];
+    sessionDate: Date;
+    session: EpisodeRow[];
+    version: string;
+    conversationId: string;
+  }) {
+    return resolved.map(({ p, entityId: subjectEntity }, i) => {
         const aspect = p.aspect
           .toLowerCase()
           .replace(/[^a-z0-9_]+/g, '_')
@@ -507,7 +574,11 @@ export class WindowDeriverService {
           !Number.isNaN(occurred.getTime()) &&
           occurred.toISOString().slice(0, 10) === p.occurred_on
             ? occurred
-            : sessionDate;
+            : p.dateCleared
+              ? // Audit-cleared → epoch sentinel (the read path's
+                // "undated"); sessionDate would re-stamp the removed value.
+                new Date(0)
+              : sessionDate;
         const det = detectLanguage(p.proposition);
         const lang = det.language !== 'und' ? det.language : undefined;
         const script = det.language !== 'und' ? det.script : undefined;
@@ -566,30 +637,45 @@ export class WindowDeriverService {
           derivedVersion: version,
         };
       });
-      // V9 §1: value-bearing aspects take the bitemporal_event
-      // lifecycle when the profile asks; V9 phase 0: the resolver
-      // batch degrades per-row instead of failing the conversation —
-      // rows that landed nothing (SKIPPED = poisoned row, REJECTED =
-      // low_score / create_returned_none) are not propositions.
-      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
-        slotSemantics: resolveExtractionProfile().deriveSlotSemantics,
-      });
-      const unlandedRows = outcomes.filter(
-        (o) => o.outcome === 'SKIPPED' || o.outcome === 'REJECTED',
-      ).length;
-      result.propositions += rows.length - unlandedRows;
-      if (rollupPool) accumulateLanded(rollupPool, rows, outcomes);
-    }
-    await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
-    if (rollupPool && rollupPool.length > 0) {
-      await this.writeAspectRollups({
-        db,
-        conversationId,
-        version,
-        pool: rollupPool,
-        result,
-      });
-    }
+  }
+
+  /**
+   * Fold this session's LANDED rows into the conversation rollup pool.
+   * dated = the row carries a REAL event date (not the session
+   * fallback, not the cleared sentinel) — the composer only prints
+   * date stamps for these; episodeIds ride along so the rollup keeps
+   * provenance the excerpt lane can follow.
+   */
+  private collectRollupPool({
+    rollupPool,
+    resolved,
+    rows,
+    outcomes,
+  }: {
+    rollupPool: RollupMember[];
+    resolved: Array<{ p: DerivedProposition }>;
+    rows: Array<{
+      entityId: string;
+      predicate: string;
+      object: string;
+      validFrom: Date;
+      source?: { episodeIds?: unknown };
+    }>;
+    outcomes: Array<{ outcome: string }>;
+  }): void {
+    const meta = resolved.map(({ p }) => {
+      const occ =
+        p.occurred_on && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_on)
+          ? new Date(`${p.occurred_on}T00:00:00.000Z`)
+          : null;
+      return {
+        dated:
+          !!occ &&
+          !Number.isNaN(occ.getTime()) &&
+          occ.toISOString().slice(0, 10) === p.occurred_on,
+      };
+    });
+    accumulateLanded(rollupPool, rows, { outcomes, meta });
   }
 
   /**
@@ -666,6 +752,10 @@ export class WindowDeriverService {
           conversationId,
           rollup: true,
           memberCount: r.memberCount,
+          // Union of member grounding turns — the provenance/excerpt
+          // lane filters on episodeIds IS NOT NONE; without it a
+          // winning rollup silently yields zero quote lines.
+          ...(r.episodeIds.length > 0 ? { episodeIds: r.episodeIds } : {}),
         },
         sourceTrust: sourceTrustFor({
           vertical: 'derived',
@@ -680,7 +770,10 @@ export class WindowDeriverService {
       const landed = outcomes.filter(
         (o) => o.outcome !== 'SKIPPED' && o.outcome !== 'REJECTED',
       ).length;
-      result.propositions += landed;
+      // Separate counter: result.propositions feeds the volume-parity
+      // gates (percent-level comparisons across flag pairs) — folding
+      // composed rows in would report inflated EXTRACTION volume.
+      result.rollups = (result.rollups ?? 0) + landed;
       this.logger.log(
         `aspect rollups: ${landed}/${rollups.length} landed (${conversationId})`,
       );

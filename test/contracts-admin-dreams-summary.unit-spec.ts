@@ -29,8 +29,19 @@ function makeController(): AdminJobsController {
    
   return new AdminJobsController(
     jobs,
-    undef, undef, undef, undef, undef, undef, undef, undef, undef,
-    undef, undef, undef, undef, undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
   );
 }
 

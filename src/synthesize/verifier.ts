@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { chatCallParams } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
@@ -121,16 +122,7 @@ function buildVerifierUserMessage({
  * to verifier_error before this guard. Non-reasoning models keep the
  * deterministic temperature 0 and the tight cap — byte-identical call.
  */
-const REASONING_MODEL_RE = /^(gpt-5|o\d)/;
 
-function verifierCallParams(model: string): {
-  temperature?: number;
-  max_completion_tokens: number;
-} {
-  return REASONING_MODEL_RE.test(model)
-    ? { max_completion_tokens: 2048 }
-    : { temperature: 0, max_completion_tokens: 256 };
-}
 
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
   const { openai, metrics, model, topicCoverage } = req;
@@ -188,7 +180,7 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
               },
             },
           },
-          ...verifierCallParams(model),
+          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
         },
         { signal: getAbortSignal() },
       ),

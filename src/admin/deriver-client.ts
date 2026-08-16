@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { chatCallParams } from '../ai/openai-client';
 import {
   resolveExtractionProfile,
 } from '../ai/extraction-profile';
@@ -85,7 +86,10 @@ async function auditDates(
   deps: DeriverClientDeps,
   args: {
     sessionDate: Date;
-    transcript: string[];
+    /** The base deriver conversation — continued, not re-prefixed, so
+     *  the transcript (the dominant token mass) stays a prompt-cache
+     *  hit like completionUnion's continuation 30 lines up. */
+    messages: ChatMessage[];
     propositions: DerivedProposition[];
   },
 ): Promise<void> {
@@ -98,12 +102,13 @@ async function auditDates(
       .join('\n');
     const res = await deps.openai.chat.completions.create({
       model: deps.model,
-      ...deriverCallParams(deps.model, 0, 4000),
+      ...chatCallParams(deps.model, { temperature: 0, visibleCap: 4000 }),
       messages: [
-        { role: 'system', content: DATE_AUDIT_SYSTEM },
+        ...args.messages,
+        { role: 'assistant', content: `Propositions:\n${list}` },
         {
           role: 'user',
-          content: `Session date: ${args.sessionDate.toISOString().slice(0, 10)}\n\nTranscript:\n${args.transcript.join('\n')}\n\nPropositions:\n${list}`,
+          content: `${DATE_AUDIT_SYSTEM}\n\nSession date: ${args.sessionDate.toISOString().slice(0, 10)}. Audit the numbered propositions above.`,
         },
       ],
       response_format: {
@@ -138,7 +143,18 @@ async function auditDates(
     const parsed = JSON.parse(content) as {
       dates?: Array<{ index: number; occurred_on: string | null }>;
     };
-    for (const d of parsed.dates ?? []) {
+    const dates = parsed.dates ?? [];
+    // An index === length entry is the perfect tell of a 1-based reply:
+    // applying a shifted map would stamp every proposition with its
+    // NEIGHBOR'S date — strictly worse than the un-audited baseline the
+    // degrade contract promises. Abort the whole application.
+    if (dates.some((d) => d.index === args.propositions.length)) {
+      deps.logger.warn(
+        'date audit reply looks 1-based (index === length) — discarding the audit',
+      );
+      return;
+    }
+    for (const d of dates) {
       if (
         !Number.isInteger(d.index) ||
         d.index < 0 ||
@@ -147,15 +163,25 @@ async function auditDates(
         continue;
       }
       // Apply BOTH values and explicit nulls — clearing a fabricated
-      // session-date default is the audit's whole point. Malformed
-      // date strings keep the original.
+      // session-date default is the audit's whole point. The cleared
+      // marker survives to the row builder, which renders "undated" as
+      // the epoch sentinel instead of the session-date fallback.
       if (d.occurred_on === null) {
         args.propositions[d.index].occurred_on = null;
+        args.propositions[d.index].dateCleared = true;
       } else if (
         typeof d.occurred_on === 'string' &&
-        ISO_DAY_RE.test(d.occurred_on)
+        ISO_DAY_RE.test(d.occurred_on) &&
+        // Calendar round-trip — the same guard the row builder uses:
+        // shape-only acceptance let an impossible date ('2023-02-30')
+        // overwrite a CORRECT one and then silently collapse to the
+        // session date downstream.
+        new Date(`${d.occurred_on}T00:00:00.000Z`)
+          .toISOString()
+          .slice(0, 10) === d.occurred_on
       ) {
         args.propositions[d.index].occurred_on = d.occurred_on;
+        args.propositions[d.index].dateCleared = false;
       }
     }
   } catch (e) {
@@ -226,6 +252,10 @@ export interface DerivedProposition {
   aspect: string;
   proposition: string;
   occurred_on: string | null;
+  /** V13 date audit: the audit EXPLICITLY cleared a fabricated date —
+   *  the row builder must express "undated" (epoch sentinel), never
+   *  fall back to the session date it just removed. */
+  dateCleared?: boolean;
   turns: number[];
   /** 0-3 importance grade; present only under DERIVER_SALIENCE_STAMP. */
   salience?: number;
@@ -239,25 +269,6 @@ export interface DeriverClientDeps {
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
-/**
- * gpt-5* / o-series reasoning models reject a non-default temperature
- * (400 Unsupported value) AND bill hidden reasoning against
- * max_completion_tokens — the measured V11 §2 verifier failure class,
- * same guard as synthesize/verifier.ts. Reasoning models get a 4×
- * visible cap and no temperature; everything else keeps the historical
- * byte-identical call.
- */
-const REASONING_MODEL_RE = /^(gpt-5|o\d)/;
-
-function deriverCallParams(
-  model: string,
-  temperature: number,
-  cap: number,
-): { temperature?: number; max_completion_tokens: number } {
-  return REASONING_MODEL_RE.test(model)
-    ? { max_completion_tokens: cap * 4 }
-    : { temperature, max_completion_tokens: cap };
-}
 
 /**
  * One session's full extraction: base pass → optional completion-pass
@@ -292,7 +303,7 @@ export async function callDeriver(
   if (profile.deriveDateAudit && merged.length > 0) {
     await auditDates(deps, {
       sessionDate: args.sessionDate,
-      transcript: args.transcript,
+      messages,
       propositions: merged,
     });
   }
@@ -364,7 +375,7 @@ async function gradeSalience(
       .join('\n');
     const res = await deps.openai.chat.completions.create({
       model: deps.model,
-      ...deriverCallParams(deps.model, 0, 4000),
+      ...chatCallParams(deps.model, { temperature: 0, visibleCap: 4000 }),
       messages: [
         { role: 'system', content: SALIENCE_GRADING_SYSTEM },
         { role: 'user', content: `Propositions:\n${list}` },
@@ -462,7 +473,7 @@ function deriverRequest(
   // off (volume-neutral by construction).
   return deps.openai.chat.completions.create({
     model: deps.model,
-    ...deriverCallParams(deps.model, 0.1, maxTokens),
+    ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: maxTokens }),
     messages,
     response_format: {
       type: 'json_schema',
@@ -535,7 +546,7 @@ export async function foldDigest(
   const day = args.sessionDate.toISOString().slice(0, 10);
   const res = await deps.openai.chat.completions.create({
     model: deps.model,
-    ...deriverCallParams(deps.model, 0.1, 1200),
+    ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: 1200 }),
     messages: [
       { role: 'system', content: DIGEST_MERGE_SYSTEM },
       {
@@ -568,7 +579,7 @@ export async function foldDigest(
   const compressed = await deps.openai.chat.completions
     .create({
       model: deps.model,
-      ...deriverCallParams(deps.model, 0.1, 1200),
+      ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: 1200 }),
       messages: [
         { role: 'system', content: DIGEST_MERGE_SYSTEM },
         {

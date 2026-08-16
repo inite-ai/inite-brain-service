@@ -11,6 +11,10 @@ import {
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
 import { DATE_AUDIT_SYSTEM } from '../src/admin/deriver-client';
+import {
+  chatCallParams,
+  isReasoningModel,
+} from '../src/ai/openai-client';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
@@ -678,12 +682,37 @@ describe('buildDeriverSystem (V12 §3 date-resolve lockstep)', () => {
   });
 });
 
-describe('deriverCallParams (reasoning-model guard, V13)', () => {
-  // The helper is module-private; pin the behavior through the public
-  // prompt builder contract instead: reasoning-model handling is pure
-  // param shaping, so we assert via a direct import of the client's
-  // exported constants — the regex must match the verifier's measured
-  // class and nothing else.
+describe('chatCallParams (the ONE reasoning-model guard)', () => {
+  it('reasoning models: no temperature, reasoning cap', () => {
+    expect(chatCallParams('gpt-5-mini', { temperature: 0, visibleCap: 512 })).toEqual({
+      max_completion_tokens: 2048,
+    });
+    expect(chatCallParams('o3-mini', { temperature: 0.1, visibleCap: 1000, reasoningCap: 8000 })).toEqual({
+      max_completion_tokens: 8000,
+    });
+  });
+
+  it('non-reasoning models keep the byte-identical historical call', () => {
+    expect(chatCallParams('gpt-4o-mini', { temperature: 0, visibleCap: 512 })).toEqual({
+      temperature: 0,
+      max_completion_tokens: 512,
+    });
+    expect(chatCallParams('gpt-4.1-mini', { temperature: 0.1, visibleCap: 1200 })).toEqual({
+      temperature: 0.1,
+      max_completion_tokens: 1200,
+    });
+  });
+
+  it('gpt-5-chat variants are NOT reasoning models (temperature kept)', () => {
+    expect(isReasoningModel('gpt-5-chat-latest')).toBe(false);
+    expect(chatCallParams('gpt-5-chat-latest', { temperature: 0, visibleCap: 512 })).toEqual({
+      temperature: 0,
+      max_completion_tokens: 512,
+    });
+    expect(isReasoningModel('gpt-5-mini')).toBe(true);
+    expect(isReasoningModel('gpt-5')).toBe(true);
+  });
+
   it('date-audit system prompt states the null-over-default contract', () => {
     expect(DATE_AUDIT_SYSTEM).toContain('null');
     expect(DATE_AUDIT_SYSTEM).toContain('calendar arithmetic');
