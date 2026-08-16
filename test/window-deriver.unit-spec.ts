@@ -650,3 +650,29 @@ describe('buildDeriverSystem (E3a assistant-content lockstep)', () => {
     expect(on).toContain('the CONTRIBUTING participant');
   });
 });
+
+describe('buildDeriverSystem (V12 §3 date-resolve lockstep)', () => {
+  it('flag off: byte-identical base contract, no EVENT DATING section', () => {
+    const base = buildDeriverSystem();
+    expect(base).toBe(buildDeriverSystem({ dateResolve: false }));
+    expect(base).not.toContain('EVENT DATING');
+  });
+
+  it('flag on: appends the dating rules after the base contract', () => {
+    const on = buildDeriverSystem({ dateResolve: true });
+    expect(on.startsWith(buildDeriverSystem())).toBe(true);
+    expect(on).toContain('EVENT DATING');
+    expect(on).toContain('never the conversation');
+    expect(on).toContain('use null');
+  });
+
+  it('composes with assistant-content in declaration order', () => {
+    const both = buildDeriverSystem({
+      assistantContent: true,
+      dateResolve: true,
+    });
+    expect(both.indexOf('ASSISTANT-SIDE CONTRIBUTIONS')).toBeLessThan(
+      both.indexOf('EVENT DATING'),
+    );
+  });
+});

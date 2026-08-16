@@ -132,6 +132,20 @@ export const ENUMERATION_LANE_INSTRUCTION =
   'when asked for totals).\n';
 
 /**
+ * §8 item 3 over-enumeration contract (profile.enumStrict): the
+ * measured judge-sink class is the gold list PLUS thematically
+ * adjacent extras ("yoga, kickboxing, circuit training, weight
+ * training and taekwondo" against four gold items). Appended AFTER the
+ * exhaustive-scan frame so both disciplines read together: scan
+ * everything, keep only what fits the asked scope.
+ */
+export const ENUM_STRICT_CLAUSE =
+  'Match the asked scope LITERALLY (person, activity kind, time ' +
+  'window): include only items the facts tie to that exact scope — an ' +
+  'unsupported extra item is as wrong as a missing one. Do not pad the ' +
+  'list with related or similar-category items.\n';
+
+/**
  * V10 §3 ordering frame. Under the enumeration frame, ordering
  * questions fail on GRANULARITY, not count (the measured v9scan null:
  * 40/40 EO predictions changed, score didn't) — golds want a sequence

@@ -706,3 +706,33 @@ describe('buildFactIndex mention-date suffix (V12 §1 read side)', () => {
     expect(factLines.join('\n')).not.toContain('mentioned');
   });
 });
+
+describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
+  const base = {
+    query: 'What forms of exercise does Melanie do?',
+    factLines: ['[knowledge_fact:x] melanie (person) — activities: yoga'],
+    answerLang: null,
+    lane: 'enumeration' as const,
+  };
+  it('off: byte-identical historical enumeration frame', () => {
+    const off = buildGeneratorUserMessage(base);
+    expect(off).toBe(buildGeneratorUserMessage({ ...base, enumStrict: false }));
+    expect(off).not.toContain('Match the asked scope LITERALLY');
+  });
+  it('on: appends the scope clause after the exhaustive frame', () => {
+    const on = buildGeneratorUserMessage({ ...base, enumStrict: true });
+    expect(on).toContain('a partial list is a wrong answer');
+    expect(on).toContain('Match the asked scope LITERALLY');
+    expect(on.indexOf('partial list')).toBeLessThan(
+      on.indexOf('Match the asked scope'),
+    );
+  });
+  it('does not fire outside the enumeration lane', () => {
+    const other = buildGeneratorUserMessage({
+      ...base,
+      lane: 'preference' as never,
+      enumStrict: true,
+    });
+    expect(other).not.toContain('Match the asked scope LITERALLY');
+  });
+});

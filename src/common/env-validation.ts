@@ -501,6 +501,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V12 §1: per-fact mention anchor (source.mentionedAt/turnIndex from
   // the first grounding turn's occurredAt). Default off.
   'DERIVER_MENTION_STAMP',
+  // V12 §3: occurred_on anti-collapse prompt rules (date the EVENT,
+  // resolve relative time, null over session-date default). Default
+  // off; confirms only on a FRESH derivedVersion.
+  'DERIVER_DATE_RESOLVE',
   // V12 §2: rolling per-conversation digest fold (conversation_digest,
   // 0086). Default off.
   'DERIVER_DIGEST',
@@ -532,6 +536,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V12 read side of DERIVER_MENTION_STAMP: "(mentioned YYYY-MM-DD)"
   // fact-line suffix when the anchor disagrees with validFrom by day.
   'RETRIEVAL_MENTION_DATES',
+  // §8 item 3: enumeration scope discipline — only items the facts tie
+  // to the asked scope; extras sink strict-judged list answers.
+  'RETRIEVAL_ENUM_STRICT',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

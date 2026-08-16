@@ -91,6 +91,8 @@ interface Args extends Record<string, unknown> {
   judgeReport?: string;
   /** JSONL checkpoint: finished questions survive quota deaths / OOMs. */
   resume?: string;
+  /** Synthesis guardrails override; default 'answer' (community convention). */
+  guardrails?: string;
 }
 
 const FLAGS = {
@@ -110,6 +112,7 @@ const FLAGS = {
   '--company-id': { key: 'companyId', type: 'string' },
   '--judge': { key: 'judge', type: 'bool' },
   '--judge-model': { key: 'judgeModel', type: 'string' },
+  '--guardrails': { key: 'guardrails', type: 'string' },
   '--judge-report': { key: 'judgeReport', type: 'string' },
   '--resume': { key: 'resume', type: 'string' },
 } as const;
@@ -262,8 +265,10 @@ async function main() {
           // Never-abstain: on LoCoMo an abstention scores strictly worse than
           // a best-effort short answer (the LLM judge rewards a topical guess
           // and punishes "no evidence"). Match the community answering
-          // convention every published system uses.
-          synthesisGuardrails: 'answer',
+          // convention every published system uses. --guardrails overrides
+          // for abstention-focused arms (cat5 wants lenient+verifier).
+          synthesisGuardrails: (args.guardrails ??
+            'answer') as 'strict' | 'lenient' | 'off' | 'answer',
         });
 
   const report = await runLocomo(sliced, agent, {

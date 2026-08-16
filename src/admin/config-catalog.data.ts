@@ -908,6 +908,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
       },
       {
+        key: 'DERIVER_DATE_RESOLVE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V12 §3 event-dating rules for the session deriver (the graphiti anti-collapse port): occurred_on must date the EVENT, never the conversation — relative expressions resolve by calendar arithmetic from the session date, the session date is only valid for same-day events, month/year-only knowledge resolves to the period start, and a genuinely undeterminable date stays null instead of defaulting. Targets the measured off-by-days answer class (validFrom = session-date collapse). Prompt change: confirms only on a FRESH derivedVersion; off = byte-identical prompt.',
+      },
+      {
         key: 'RETRIEVAL_MENTION_DATES',
         category: 'pipeline',
         defaultValue: '0',
@@ -915,6 +924,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: true,
         description:
           'V12 §1 read side (profile field mentionDates): append "(mentioned YYYY-MM-DD)" to fact lines whose DERIVER_MENTION_STAMP anchor (source.mentionedAt) disagrees with validFrom by calendar day — the generator sees when a fact was said next to when it claims to hold, instead of only the (possibly collapsed) validity date. Generator and verifier read the same lines, so evidence parity is free. Unstamped facts and same-day anchors render nothing; against worlds derived without the stamp the flag is byte-identical off.',
+      },
+      {
+        key: 'RETRIEVAL_ENUM_STRICT',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          '§8 item 3 over-enumeration contract (profile field enumStrict): appends a scope-discipline clause to the enumeration lane frame — include ONLY items the facts tie to the asked scope (person, activity kind, time window); an unsupported extra is as wrong as a missing item. The measured judge-sink class is the gold list plus thematically adjacent extras. Off = the historical exhaustive-only frame, byte-identical.',
       },
       {
         key: 'MINICHECK_URL',

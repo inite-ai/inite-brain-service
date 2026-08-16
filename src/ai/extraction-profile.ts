@@ -67,6 +67,17 @@ export interface ExtractionPipelineProfile {
    */
   deriveMentionStamp: boolean;
   /**
+   * DERIVER_DATE_RESOLVE (V12 §3, the graphiti anti-collapse port for
+   * event dating): a prompt section hardening `occurred_on` — resolve
+   * relative time by calendar arithmetic from the session date, date
+   * the EVENT never the conversation, session date only for same-day
+   * events, null over a fabricated default. Targets the measured
+   * off-by-days class (validFrom = session-date collapse). Prompt
+   * change ⇒ confirms only on a FRESH derivedVersion; off →
+   * byte-identical prompt.
+   */
+  deriveDateResolve: boolean;
+  /**
    * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
    * the scratchpad is the load-bearing 100K component, +160% on
    * summarization): the deriver ALSO folds each session
@@ -110,6 +121,7 @@ export function resolveExtractionProfile(
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
+    deriveDateResolve: envFlagEnabled(env.DERIVER_DATE_RESOLVE),
     deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };

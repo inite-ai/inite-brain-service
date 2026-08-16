@@ -348,6 +348,8 @@ export class SynthesizeService {
               // meaningless without a stated "today".
               dateContext: resolveLaneDateContext(profile, lane, dto.asOf),
               lane,
+              // §8 item 3: enumeration scope discipline.
+              enumStrict: profile.enumStrict,
               // T7: standing instructions in their own section.
               instructions,
               // T3: evidence-conditional — fires on write-side COMPETING
