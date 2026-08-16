@@ -50,6 +50,11 @@ import {
   foldDigest,
   type DerivedProposition,
 } from './deriver-client';
+import {
+  accumulateLanded,
+  composeAspectRollups,
+  type RollupMember,
+} from './aspect-rollups';
 
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
@@ -426,6 +431,12 @@ export class WindowDeriverService {
     // under the flag; null = off, zero extra calls.
     let digest = resolveExtractionProfile().deriveDigest ? '' : null;
     let digestEventAt: Date | null = null;
+    // V13 A2: landed rows accumulate per conversation for the aspect
+    // rollup pass ([] only under the flag — zero cost off).
+    const rollupPool: RollupMember[] | null = resolveExtractionProfile()
+      .deriveAspectRollups
+      ? []
+      : null;
     for (const session of segmentSessions(episodes)) {
       const sessionDate = new Date(session[0].occurredAt as string);
       const transcript = session.map(
@@ -567,25 +578,115 @@ export class WindowDeriverService {
         (o) => o.outcome === 'SKIPPED' || o.outcome === 'REJECTED',
       ).length;
       result.propositions += rows.length - unlandedRows;
+      if (rollupPool) accumulateLanded(rollupPool, rows, outcomes);
     }
-    // Persist the digest AFTER the fold loop: replace-per-namespace
-    // (derived state, rebuilt with the conversation on re-derive).
-    // lastIngestAt = fold wall-clock (monotonic filter watermark for a
-    // future incremental path); lastEventAt = max folded occurredAt.
-    if (digest !== null && digest.trim() && digestEventAt) {
-      await db.query(
-        `DELETE conversation_digest
-          WHERE conversationId = $conv AND derivedVersion = $version;
-         CREATE conversation_digest SET
-           conversationId = $conv, derivedVersion = $version,
-           summary = $summary, lastIngestAt = time::now(),
-           lastEventAt = <datetime>$eventAt`,
-        {
-          conv: conversationId,
-          version,
-          summary: digest,
-          eventAt: digestEventAt.toISOString(),
+    await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
+    if (rollupPool && rollupPool.length > 0) {
+      await this.writeAspectRollups({
+        db,
+        conversationId,
+        version,
+        pool: rollupPool,
+        result,
+      });
+    }
+  }
+
+  /**
+   * Persist the digest AFTER the fold loop: replace-per-namespace
+   * (derived state, rebuilt with the conversation on re-derive).
+   * lastIngestAt = fold wall-clock (monotonic filter watermark for a
+   * future incremental path); lastEventAt = max folded occurredAt.
+   */
+  private async persistDigest({
+    db,
+    conversationId,
+    version,
+    digest,
+    digestEventAt,
+  }: {
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
+    conversationId: string;
+    version: string;
+    digest: string | null;
+    digestEventAt: Date | null;
+  }): Promise<void> {
+    if (digest === null || !digest.trim() || !digestEventAt) return;
+    await db.query(
+      `DELETE conversation_digest
+        WHERE conversationId = $conv AND derivedVersion = $version;
+       CREATE conversation_digest SET
+         conversationId = $conv, derivedVersion = $version,
+         summary = $summary, lastIngestAt = time::now(),
+         lastEventAt = <datetime>$eventAt`,
+      {
+        conv: conversationId,
+        version,
+        summary: digest,
+        eventAt: digestEventAt.toISOString(),
+      },
+    );
+  }
+
+  /**
+   * V13 A2 aspect rollups: mechanical per-(entity, aspect) list-facts
+   * over this conversation's landed rows (see aspect-rollups.ts for
+   * the composition contract). Written through the same resolver
+   * batch as every derived row; failure degrades to a warning — the
+   * atomic facts already landed.
+   */
+  private async writeAspectRollups({
+    db,
+    conversationId,
+    version,
+    pool,
+    result,
+  }: {
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
+    conversationId: string;
+    version: string;
+    pool: RollupMember[];
+    result: DeriveRunResult;
+  }): Promise<void> {
+    try {
+      const rollups = composeAspectRollups(pool);
+      if (rollups.length === 0) return;
+      const vectors = await this.embedding.embedMany(
+        rollups.map((r) => r.object),
+      );
+      const rows = rollups.map((r, i) => ({
+        entityId: r.entityId,
+        predicate: r.predicate,
+        object: r.object,
+        confidence: 0.85,
+        validFrom: r.validFrom,
+        source: {
+          vertical: 'derived',
+          recorder: version,
+          conversationId,
+          rollup: true,
+          memberCount: r.memberCount,
         },
+        sourceTrust: sourceTrustFor({
+          vertical: 'derived',
+          recorder: version,
+        }),
+        embedding: vectors[i],
+        derivedVersion: version,
+      }));
+      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
+        slotSemantics: false,
+      });
+      const landed = outcomes.filter(
+        (o) => o.outcome !== 'SKIPPED' && o.outcome !== 'REJECTED',
+      ).length;
+      result.propositions += landed;
+      this.logger.log(
+        `aspect rollups: ${landed}/${rollups.length} landed (${conversationId})`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `aspect rollup pass failed (${(e as Error).message}) — atomic facts unaffected`,
       );
     }
   }

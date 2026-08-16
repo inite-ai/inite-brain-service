@@ -926,6 +926,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'V13 date audit: a dedicated after-emission turn re-derives occurred_on for every proposition against the transcript + session date (resolve relative time by calendar arithmetic; session date only for same-day events; explicit null clears fabricated defaults). The post-pass shape of the failed in-prompt rules — DERIVER_DATE_RESOLVE measured a byte-equal date distribution and a null pair (armH), while salience succeeded only as a post-pass after ITS in-prompt version failed. One extra deriver-model call per session; failure degrades to un-audited dates. Fresh derivedVersion required.',
       },
       {
+        key: 'DERIVER_ASPECT_ROLLUPS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 A2 aspect rollups (July program §6.3 item 4, the MIRIX-shaped write-time composition): after a conversation derives, this run's landed rows group per (entity, aspect) and ≥3-member groups compose into one chronological list-fact written as predicate '<aspect>_rollup' (never competing in member slots; provenance rollup:true + memberCount; validFrom = newest member; 2400-char cap keeps the chronological prefix and states the cut). Mechanical and LLM-free — deterministic under re-derive, zero extra calls. Targets the measured largest miss bucket: MH-enumeration golds where every item exists atomically but no atom holds the list. Fresh derivedVersion required.",
+      },
+      {
         key: 'RETRIEVAL_MENTION_DATES',
         category: 'pipeline',
         defaultValue: '0',

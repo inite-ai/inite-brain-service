@@ -87,6 +87,15 @@ export interface ExtractionPipelineProfile {
    */
   deriveDateAudit: boolean;
   /**
+   * DERIVER_ASPECT_ROLLUPS (V13, July A2): mechanical per-(entity,
+   * aspect) list-facts composed from the conversation's landed rows —
+   * write-time composition for the MH-enumeration miss class (every
+   * item exists atomically, no atom holds the list). LLM-free and
+   * deterministic; rollups write as `<aspect>_rollup` so they never
+   * compete in member slots. Fresh derivedVersion required.
+   */
+  deriveAspectRollups: boolean;
+  /**
    * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
    * the scratchpad is the load-bearing 100K component, +160% on
    * summarization): the deriver ALSO folds each session
@@ -132,6 +141,7 @@ export function resolveExtractionProfile(
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
     deriveDateResolve: envFlagEnabled(env.DERIVER_DATE_RESOLVE),
     deriveDateAudit: envFlagEnabled(env.DERIVER_DATE_AUDIT),
+    deriveAspectRollups: envFlagEnabled(env.DERIVER_ASPECT_ROLLUPS),
     deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };

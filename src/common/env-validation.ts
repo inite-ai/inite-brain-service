@@ -508,6 +508,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V13: dedicated after-emission date audit turn (the post-pass shape
   // of the failed prompt rules). Default off; fresh derivedVersion.
   'DERIVER_DATE_AUDIT',
+  // V13 A2: mechanical per-(entity, aspect) rollup facts at write time
+  // (the MH-enumeration lever). Default off; fresh derivedVersion.
+  'DERIVER_ASPECT_ROLLUPS',
   // V12 §2: rolling per-conversation digest fold (conversation_digest,
   // 0086). Default off.
   'DERIVER_DIGEST',
