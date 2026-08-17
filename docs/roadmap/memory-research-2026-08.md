@@ -358,3 +358,71 @@ Key rigor-audit sources: MRAgent 2606.06036 [ICML 2026], MemGAS [ICLR 2026,
 structure <1.5 F1/component], GraphRAG-Bench 2506.05690 [ICLR 2026],
 HippoRAG 2 [ICML 2025], DeepMind LIMIT 2508.21038 [theory], ConvoMem
 2511.10523, "Does Memory Need Graphs?" 2601.01280.
+
+## 8. Foveated memory — the resolution-cascade program (E-fovea, 2026-08-17)
+
+Frame (the platform lens): foveated and uniform are not competing hypotheses but
+LAYERS of one cascade priced by resolution — L0 profile/digest (always-on,
+~free) → L1 fact index (one retrieval) → L2 raw windows at attention points
+(built, `RETRIEVAL_RAW_WINDOW`) → L3 full-transcript escalation (NOT built —
+no path today lifts a whole raw session into a large-context call). Escalation
+triggers already exist (coverage floors, verifier verdicts, search-loop refine
+signal); they currently lead to abstain/re-search, never UP a layer.
+
+External evidence (full payloads in session research): FOVI's inverted-U — at
+matched budget, non-uniform allocation beats uniform; Mastra OM — a plain
+3-rung resolution ladder scores 94.87 LongMemEval vs 60.2 full-context (and is
+prompt-cacheable, 4-10× cheaper); irreversible decay is dead (compression
+−35pp vs raw; super-linear error compounding under repeated summarization —
+RD theorem: reversibility beats scoring tricks; STALE: staleness detection
+needs the raw you'd delete). **Never degrade L0** — policies grade the DEFAULT
+SERVING layer only. The direct "age-graded serving vs uniform at matched token
+budget" ablation is UNPUBLISHED anywhere — E1 below is simultaneously our leg
+and a citable result. Predictive gaze: proven as latency (−62% TTFT, hit-rate
+78%), unproven as accuracy and gated by the sleep-time predictability law —
+E2 carries a hit-rate go/no-go before any accuracy bet. RL memory policies
+(MemAgent ICLR-2026 oral): strong but weights-owner territory — not us.
+
+Internal map (signal inventory, agent pass over the repo): the machinery mostly
+EXISTS and is unconnected —
+- `fact_usage` side table (0053) with `readCount` written-and-never-read;
+  `SEARCH_USAGE_RECORDING_ENABLED` / `SEARCH_USAGE_DECAY_ENABLED` both default
+  off. Flip recording first — the table is empty until then.
+- Write-tier machinery already runs: compaction (hot retention 90d) +
+  episodic→semantic promotion (180d, default off) — keyed `(entity,predicate)`,
+  not conversation; `conversation_digest` IS the per-conversation cold-tier
+  artifact, with `lastIngestAt` documented as the incremental-fold hook.
+- CONFIRMED absent: any age/usage conditioning in evidence-gates/collector; any
+  prefetch before a query (all probes fire inside an in-flight request); any
+  per-conversation budgets (profile is per-tenant, resolved once in the guard);
+  any conversation-open lifecycle host (MCP stateless by construction).
+- Found wrinkle: ranking-time decay uses the seed `policyFor`, not the
+  tenant-aware registry — tenant-added predicates decay at the 60d default
+  regardless of their registry entry (small fix candidate).
+
+Experiments (cheap → expensive), mapped to code seams:
+- **E1 — age-graded serving vs uniform at matched tokens** (read-side only, no
+  re-ingest): recent sessions serve raw windows, mid-age digests, old
+  facts-only vs the uniform mix. Seams: evidence-gates/collector heat argument
+  (digest-lane's `lastEventAt` widened to a heat table); per-conversation
+  budget overlay via the ALS profile re-stamp (the guard's own idiom). Score
+  per age band: LME loader has both dates (`meta` flows to score rows
+  verbatim); LoCoMo needs one derivation (asOf is pinned to last session —
+  the one line that erases age). Expect FOVI's inverted-U.
+- **E2 — prefetch with a predictability gate**: 4a alongside-query probe (one
+  LANE_REGISTRY entry, wideProbe as the template) and/or 4b sleep-time dreams
+  op (PromotionRunner as the reference for a bounded nightly pass). Go/no-go =
+  prefetch hit rate BEFORE any accuracy claim; product metric = TTFT.
+- **E3 — surprise-gated extraction depth** (write-side): high-novelty turns get
+  exhaustive extraction, low-novelty digest-only, at matched extraction spend.
+  Honest risk: LoCoMo golds often live in low-surprise smalltalk — a flat
+  result is a genuine debunk of write-side foveation for this genre.
+- **L3 escalation lane** (build candidate): verifier-unsupported / low-coverage
+  → fetch the full raw session(s) → one large-context generation. Cost is
+  bounded by fire rate; metrics are the cascade's — accuracy vs always-cheap
+  and always-expensive bounds, mean cost/question, per-layer fire rates.
+
+Quick wins independent of the program: flip usage recording on the eval stand
+(data starts accruing for free); the tenant-aware decay fix; promote
+`INSIGHT_TOP_K`/`DIGEST_LIMIT` to profile fields (prereq for per-conversation
+budgets).
