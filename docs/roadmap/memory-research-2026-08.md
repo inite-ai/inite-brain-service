@@ -426,3 +426,47 @@ Quick wins independent of the program: flip usage recording on the eval stand
 (data starts accruing for free); the tenant-aware decay fix; promote
 `INSIGHT_TOP_K`/`DIGEST_LIMIT` to profile fields (prereq for per-conversation
 budgets).
+
+## 9. The pointer hypothesis (architectural frame, 2026-08-17)
+
+Statement: cognitive capability over a persistent substrate is bounded less by
+model intelligence than by the GEOMETRY OF ACCESS — the system of pointers that
+decides which part of reality is made computationally available at high
+resolution. Memory (facts → pointer → raw window), vision (periphery → pointer
+→ fixation), reasoning (hypothesis → pointer → evidence → verification) and
+planning (branch → pointer → simulation → commitment) are four surfaces of one
+mechanism. The closed loop — substrate → pointer → observation → resolution →
+prediction → surprise → new pointer — is a perception-action loop over
+persistent reality, not a memory system.
+
+Evidence already on the ledger, re-read through this frame:
+- Eleven fixed-geometry interventions (rerankers, prompt rules, model swaps
+  both directions) = eleven nulls/negatives. Every large measured effect is an
+  access-geometry change: raw-replay (−22pp when absent), dual-trace scene
+  anchors (+20.2 published), date-context (+21pp temporal, our interim), and
+  the router-off decomposition (−5.4pp traced per-question to POINTER
+  machinery: recency markers, preference probe, chronological ordering — same
+  model, same substrate, different addressing).
+- The cleanest external control: oracle retrieval ≈ 92% on LongMemEval with
+  the same model class that memory systems hold at 50-70 — the reasoner was
+  never the binding constraint; the presented world was.
+- The loop exists in embryo: searchLoop's refineQuery IS surprise → new
+  pointer (round-capped). The missing edge is PREDICTION as a read-side
+  control signal (surprise currently exists only at write time).
+
+Falsification battery (all already scheduled):
+- E1 age-graded serving: no inverted-U ⇒ resolution allocation doesn't matter
+  at matched budget — hypothesis weakens materially.
+- Search-loop legs: null on the gold-in-window class ⇒ active addressing adds
+  nothing over one-shot — the loop's value is disproven for this genre.
+- L3 escalation: if the cascade cannot approach full-context accuracy at a
+  fraction of its cost, variable resolution is decorative.
+- E2 prefetch hit-rate: prediction edge unviable if next-need is
+  unpredictable (the sleep-time law's gate).
+- E-graph 2×2: distinguishes pointer LOOP value from pointer FIELD structure.
+
+Guardrails on the frame itself: (i) the scaling path is not refuted — it is
+priced in as the cascade's top layer (full-context beats memory at ≤130K on
+accuracy; pointers decide WHEN to pay for the fully-unfolded picture);
+(ii) physical analogies (pointer states / einselection) are decorative, not
+load-bearing — no engineering constraint follows from them.
