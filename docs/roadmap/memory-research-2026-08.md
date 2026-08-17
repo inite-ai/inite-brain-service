@@ -227,3 +227,71 @@ Stand reminders: source `.env` BEFORE exports; registry live-row beats
 `surrealdb/surrealdb:latest` (3.2.1 — 3.1.5 breaks index state) with
 `--restart unless-stopped --memory 4g`; `--resume` accepts a report-synthesized
 checkpoint after any interrupt.
+
+## 6. Follow-up research: graph utilization (2026-08-17)
+
+Question: are we leaving points on the table by not exploiting graph structure
+"NN-style" (PPR, GNN rerankers, projections)? Verdict: **no — for this genre the
+graph-read hypothesis fails the transfer test**, with one productive exception.
+
+- Our edge-expansion NULL is now doubly confirmed: HippoRAG 1's own ablation has
+  "query nodes + neighbors" WORSE than query-nodes-only (R@2 25.4 vs 37.1 on
+  MuSiQue) — unscored k-hop expansion injects noise even on the graph-friendliest
+  benchmarks. Do not build 2-hop variants.
+- Graph storage loses multi-hop on-genre: Mem0 vs Mem0g (same vendor, 10 runs):
+  graph variant −3.96pp multi-hop LoCoMo, 3.2× latency. PPR wins concentrate on
+  entity-chain Wikipedia QA (2Wiki); every third-party read of HippoRAG-family on
+  conversational memory is mid-pack (61.6 LoCoMo / 45.9 LME / 54% single-hop
+  FactConsolidation). GNN rerankers / graph embeddings / G-Retriever: curated-KG
+  genre, no conversational evidence, training burden — not production-viable here.
+- The exception (what the field's on-genre ablations actually credit): assemble
+  chains at **write time** (PREMem composition, +3-7pp ablated, gains on
+  multi-hop — built as B9) or by **read-time iteration** (MRAgent's ablation:
+  iteration > structure; REMem +13.4 reasoning — built as B6 in constrained
+  form). Static path-retrieval + path-rendering has no published on-genre
+  evidence; if we ever test it, that is novel territory.
+- Only PPR variant worth one cheap paired run someday: seed the walk from
+  query-to-TRIPLE matches (HippoRAG 2's +12.5 recall component), not entity
+  nodes. Expectation per transfer evidence: null to small.
+
+Key sources: arXiv 2405.14831 (Table 5), 2502.14802, 2504.19413, 2509.10852
+(PREMem), 2606.06036 (MRAgent), 2604.09666, 2602.13530.
+
+## 7. Follow-up research: compression/decompression + multimodal (2026-08-17)
+
+Frame: memory IS rate-distortion coding — and the 2026 field now says this
+explicitly (arXiv 2605.10870 decision-centric RD; 2607.08032 RD survey). The
+empirical consensus converges on exactly our architecture: facts→KEYS, topical
+segments→retrieval unit, raw turns→VALUES, distortion measured at decision time.
+
+- **Dual-trace encoding is the single largest published effect found in the
+  whole research pass**: fact + one-clause scene trace of the context it was
+  learned in → +20.2pp LongMemEval-S (95% CI +12.1..+29.3), temporal +40pp,
+  KU +25pp, single-session +0 (arXiv 2604.12948). Pure text; the mechanism is
+  encoding specificity, not imagery — built as B10.
+- High-ratio compression does not survive for memory: LLMLingua-class degrades
+  −47% between 1.5× and 3.4× on extractive QA; 500xCompressor retains 62-73% of
+  capability; ~4× query-aware denoising is the reliable plateau. Soft-token/KV
+  memory (gist, ICAE, cartridges) is model-weight-locked and per-corpus-trained —
+  dead for an append-heavy dialogue store; KV eviction compounds degradation
+  per turn. Text-space substrates (ours) remain the only portable medium.
+- Granularity ladder (SeCom ICLR 2025, cleanest ablation): topical SEGMENT beats
+  turn and session as the retrieval unit — a future knob for our segment
+  composer (WINDOW=4 fixed windows today).
+- Sleep-vs-read split: precompute the index and stable derivations (sleep-time
+  compute ~5× test-compute savings when queries are predictable), reconstruct
+  content from raw at answer time (raw replay beats precomputed fact stores on
+  content fidelity). Recursive summary-of-summaries decay is real but UNMEASURED
+  in the field — a cheap novel in-house measurement if we want one.
+- Multimodal: gains exist only where images carry unverbalized information
+  (Mem-Gallery: naive image accumulation UNDERPERFORMS text-only; DualMem:
+  cross-modal keys retrieve what caption keys miss on incidental visual cues).
+  For LoCoMo specifically, re-captioning BLIP-2 images with a modern VLM is
+  structurally risky: golds were authored against the original captions — an
+  unmeasured lever with asymmetric downside. The transferable insight for a
+  text team is context-binding, i.e. B10.
+
+Key sources: arXiv 2604.12948 (dual-trace), 2502.05589 (SeCom), 2509.21212
+(SGMem), 2605.10870 + 2607.08032 (RD framing), 2504.13171 (sleep-time),
+2506.06266 (cartridges), 2601.03515 (Mem-Gallery), 2606.27499 (DualMem),
+2512.04763 (LoCoMo-V captions 23% vs native vision 81%).
