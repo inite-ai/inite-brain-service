@@ -257,6 +257,23 @@ graph-read hypothesis fails the transfer test**, with one productive exception.
 Key sources: arXiv 2405.14831 (Table 5), 2502.14802, 2504.19413, 2509.10852
 (PREMem), 2606.06036 (MRAgent), 2604.09666, 2602.13530.
 
+**Genre-conditionality caveat (platform lens, 2026-08-17).** The verdict above
+is conditional on the CONVERSATIONAL genre, because all three of our eval axes
+are conversational — and this engine is a universal memory platform
+(`RetrievalProfile.genre`: dialogue / assistant_chat / documents; doc-ingest
+pipeline, CRM verticals, domain packs). The same literature says graph levers
+DO pay elsewhere: PPR on entity-chain QA over clean KGs, GraphRAG community
+summaries on global-sensemaking over document corpora, and even Mem0g's own
+ablation had the graph WINNING temporal (+2.6) and open-domain (+2.8) while
+losing multi-hop. The platform-correct posture is therefore per-genre
+configuration, not removal — which the α=0 default already implements (the
+segment-lane precedent: genre-dependent sign, resolved by profile, not by
+deletion). **Recorded gap:** we have NO non-conversational eval axis, so
+genre-conditional levers are unmeasurable exactly where they should pay. Work
+item for a future program: a documents-genre axis (GraphRAG-Bench /
+MuSiQue-class over our doc-ingest path) before investing further in — or
+retiring — graph machinery platform-wide.
+
 ## 7. Follow-up research: compression/decompression + multimodal (2026-08-17)
 
 Frame: memory IS rate-distortion coding — and the 2026 field now says this
