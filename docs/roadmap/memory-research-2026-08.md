@@ -159,6 +159,21 @@ with nugget-primary temporal targets (derive floor ±0.8pp headline / ±3.5 per-
 
 ## 3. Protocol hygiene for anything we publish
 
+**Ontological grounding rule (2026-08-17).** Without expert-grounded ontology on
+both ends of the pipe, hallucinated synthetics score 90+ on ANY genre — KG,
+documents, or dialogue (measured: the standard lenient judge accepts 62.8% of
+intentionally-wrong topically-adjacent answers; 56% of per-category comparisons
+are noise). The defenses are structural, and this engine already carries them
+as per-tenant configuration, not forks: write-side — closed expert predicate
+vocabulary, fixed aspect ontology, span-grounding, per-proposition turn
+grounding, compose-pass member validation (a hallucinated composition cannot
+invent provenance); read-side — factId citations + verifier-against-evidence;
+eval-side — strict judge + nugget decomposition. **Standing gate for any NEW
+eval axis (including the future documents axis): a judge-calibration probe —
+score a set of intentionally-wrong, topically-adjacent answers and report the
+judge's acceptance rate next to the headline.** An axis without this number is
+not evidence; a 90+ on it is not a result.
+
 Any external number must pin: judge model + strictness probe, answer model, category set
 (cat-5 in/out), split, n, and retrieval budget (tokens/query). Three incompatible BEAM score
 families and a 20–40pp vendor-inflation gap on LoCoMo/LME make unpinned numbers
@@ -312,3 +327,34 @@ Key sources: arXiv 2604.12948 (dual-trace), 2502.05589 (SeCom), 2509.21212
 (SGMem), 2605.10870 + 2607.08032 (RD framing), 2504.13171 (sleep-time),
 2506.06266 (cartridges), 2601.03515 (Mem-Gallery), 2606.27499 (DualMem),
 2512.04763 (LoCoMo-V captions 23% vs native vision 81%).
+
+**Rigor audit of §6 (steelman pass, 2026-08-17).** An adversarial re-audit
+against top-venue evidence corrects three things. (1) MRAgent (NUS, ICML 2026
+accepted, code released) is the strongest PRO-graph result on our genre and our
+first pass miscategorized it: LoCoMo 84.21 vs Mem0 68.31, LongMemEval 72.95 vs
+RAG 54.65, token-cheaper than Mem0/A-Mem; its ablation shows structure helping
+MONOTONICALLY (CE<CTE<CTC, ~+5-12pp multi-hop recall) on top of the iteration
+effect its own Theorem 4.1 locates the power in. Missing control: the same
+active loop over a FLAT store. (2) "Fidelity Before Structure" (2601.00821) is
+single-author, not yet peer-reviewed — downgraded from how §6 used it
+(direction corroborated by PKU "Does Memory Need Graphs?" and Salesforce
+ConvoMem). (3) Mem0-vs-Mem0g is vendor-grade on both sides — corroboration
+only, never primary. Narrowed verdict that SURVIVES: no work anywhere shows
+graph structure beating a strong flat substrate (verbatim chunks + hybrid
+retrieval + reranker + adaptive retrieval) at matched adaptivity and budget on
+conversational memory; every big pro-graph win decomposes into iteration,
+genre transfer, or weak baselines; no major lab ships KG-structured
+conversational memory (OpenAI Dreaming V3 = synthesis, no KG).
+
+**The settling experiment (E-graph) — runnable on existing flags, zero new
+code**: a 2×2 on LoCoMo-MH + LME — {edge expansion α=0 / α>0} ×
+{RETRIEVAL_SEARCH_LOOP off / on}, matched budgets. Audit's prediction:
+iteration ≫ one-shot on either substrate; edges add <4pp (below leg
+readability) once iteration is on. If edges add ≥4pp on multi-hop WITH the
+loop enabled, the MRAgent mechanism transfers and an associative-tags build
+(their Cue-Tag-Content shape) enters the next program; otherwise the
+anti-graph verdict is settled with the exact control the literature lacks.
+Key rigor-audit sources: MRAgent 2606.06036 [ICML 2026], MemGAS [ICLR 2026,
+structure <1.5 F1/component], GraphRAG-Bench 2506.05690 [ICLR 2026],
+HippoRAG 2 [ICML 2025], DeepMind LIMIT 2508.21038 [theory], ConvoMem
+2511.10523, "Does Memory Need Graphs?" 2601.01280.
