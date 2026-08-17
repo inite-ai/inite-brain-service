@@ -60,6 +60,12 @@ export function buildFactIndex(
      * same-day anchors render nothing.
      */
     mentionDates?: boolean;
+    /**
+     * V13 scene traces (profile.sceneTraces): append "(context: …)"
+     * from the deriver-stamped source.scene — the situational anchor
+     * the dual-trace encoding wrote. Unstamped facts render nothing.
+     */
+    sceneTraces?: boolean;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -75,16 +81,10 @@ export function buildFactIndex(
         object: f.object,
         ...(f.sourceKey ? { sourceKey: f.sourceKey } : {}),
       });
-      const elapsed = opts?.elapsedAsOf
-        ? formatElapsed(f.validFrom, opts.elapsedAsOf)
-        : '';
-      const mention = opts?.mentionDates
-        ? formatMentionDate(f.mentionedAt, f.validFrom)
-        : '';
       const t = f.validFrom ? Date.parse(f.validFrom) : NaN;
       const validT = Number.isNaN(t) || t === 0 ? Number.POSITIVE_INFINITY : t;
       entries.push({
-        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${formatFactValidity(f.validFrom, f.validUntil)}${mention}${elapsed}`,
+        line: `[${f.factId}] ${r.canonicalName} (${r.entityType}) — ${f.predicate}: ${f.object}${factLineSuffixes(f, opts)}`,
         t: validT,
         slot: `${r.entityId}::${f.predicate}`,
         obj: f.object,
@@ -110,6 +110,30 @@ export function buildFactIndex(
     entries.sort((a, b) => a.t - b.t);
   }
   return { factIndex, factLines: entries.map((e) => e.line) };
+}
+
+/** The flag-gated suffix chain of one fact line: validity, mention
+ *  anchor, scene trace, precomputed elapsed — in that order (split
+ *  from buildFactIndex for the complexity gate). */
+function factLineSuffixes(
+  f: SearchHit['facts'][number],
+  opts?: {
+    elapsedAsOf?: string;
+    mentionDates?: boolean;
+    sceneTraces?: boolean;
+  },
+): string {
+  const elapsed = opts?.elapsedAsOf
+    ? formatElapsed(f.validFrom, opts.elapsedAsOf)
+    : '';
+  const mention = opts?.mentionDates
+    ? formatMentionDate(f.mentionedAt, f.validFrom)
+    : '';
+  const scene =
+    opts?.sceneTraces && f.scene?.trim()
+      ? ` (context: ${f.scene.trim()})`
+      : '';
+  return `${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
 }
 
 /**

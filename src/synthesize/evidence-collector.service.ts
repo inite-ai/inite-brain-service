@@ -13,6 +13,7 @@ import {
   wantsTimelineEvidence,
   wantsVerbatimEvidence,
 } from './evidence-gates';
+import { CrossEncoderService } from '../ai/cross-encoder.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
@@ -21,6 +22,15 @@ import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import type { CoverageScanTuning } from './scan-leg';
+
+/** Grounding anchors the raw-window lane expands (top evidence order). */
+const RAW_WINDOW_MAX_ANCHORS = 4;
+
+/** V13 noise filter: sections at or under this length pass untouched —
+ *  filtering a short section risks more than it saves. */
+const NOISE_FILTER_MIN_LINES = 8;
+/** Fraction of a filtered section's lines that survives (top-ranked). */
+const NOISE_FILTER_KEEP_FRACTION = 0.6;
 
 /** Dense-leg tuning of the coverage scan lanes, from the profile. */
 function scanTuning(profile: RetrievalProfile): CoverageScanTuning {
@@ -89,6 +99,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly queryArc?: QueryArcService,
     @Optional() private readonly updateStory?: UpdateStoryService,
     @Optional() private readonly digestLane?: DigestLaneService,
+    @Optional() private readonly crossEncoder?: CrossEncoderService,
   ) {}
 
   /**
@@ -121,26 +132,79 @@ export class EvidenceCollectorService {
       this.collectUpdateStories(opts),
       this.collectDigestLines(opts),
     ]);
+    // V12 §2: digests merge AHEAD of retrieved insight lines under
+    // the same slot — generator, verifier and NLI judge all see them
+    // (evidence parity by construction, the W5 #22 lesson).
+    const insightSlot = digestLines.length
+      ? [...digestLines, ...insightLines]
+      : insightLines;
+    // V13 noise filter (the unported LIGHT component): injected
+    // context sections are relevance-gated by the local cross-encoder;
+    // fact lines are NEVER filtered. The mention record is exempt —
+    // its value is coverage, exactly what a relevance cut destroys.
+    const [filteredTranscript, filteredInsights] =
+      profile.noiseFilter && this.crossEncoder?.isEnabled()
+        ? await Promise.all([
+            timelineEvidence
+              ? transcriptLines
+              : this.noiseFilterLines(query, transcriptLines),
+            this.noiseFilterLines(query, insightSlot),
+          ])
+        : [transcriptLines, insightSlot];
     return {
-      transcriptLines,
-      // V12 §2: digests merge AHEAD of retrieved insight lines under
-      // the same slot — generator, verifier and NLI judge all see them
-      // (evidence parity by construction, the W5 #22 lesson).
-      insightLines: digestLines.length
-        ? [...digestLines, ...insightLines]
-        : insightLines,
+      transcriptLines: filteredTranscript,
+      insightLines: filteredInsights,
       instructions,
       timelineEvidence,
       updateStories,
     };
   }
 
-  /** V12 §2 read side — gated on profile.digestEvidence; degrades []. */
+  /**
+   * Keep the top-ranked NOISE_FILTER_KEEP_FRACTION of a section's
+   * lines (cross-encoder relevance vs the query), preserving the
+   * section's original order. Two inert paths: short sections pass
+   * untouched, and an exact-identity permutation reads as "no ranking
+   * signal" (the provider's failure fallback) — everything survives.
+   */
+  private async noiseFilterLines(
+    query: string,
+    lines: string[],
+  ): Promise<string[]> {
+    if (lines.length <= NOISE_FILTER_MIN_LINES || !this.crossEncoder) {
+      return lines;
+    }
+    const perm = await this.crossEncoder.rerank(
+      query,
+      lines.map((l) => ({ label: l, body: '' })),
+    );
+    if (perm.every((p, i) => p === i)) return lines;
+    const keepCount = Math.max(
+      NOISE_FILTER_MIN_LINES,
+      Math.ceil(lines.length * NOISE_FILTER_KEEP_FRACTION),
+    );
+    const keep = new Set(perm.slice(0, keepCount));
+    return lines.filter((_, i) => keep.has(i));
+  }
+
+  /** V12 §2 read side — gated on profile.digestEvidence; degrades [].
+   *  V13 gate-shaping: under digestLanes='summary_ku' the narrative
+   *  block renders only for summary/recency-routed questions (the
+   *  lanes that took the measured strict gains) — everywhere else it
+   *  measurably bleeds (abstention −7.5, summarization nugget −1.9). */
   private async collectDigestLines(opts: {
     profile: RetrievalProfile;
+    lane: LaneId | null;
     companyId: string;
   }): Promise<string[]> {
     if (!opts.profile.digestEvidence || !this.digestLane) return [];
+    if (
+      opts.profile.digestLanes === 'summary_ku' &&
+      opts.lane !== 'summary' &&
+      opts.lane !== 'recency'
+    ) {
+      return [];
+    }
     if (getAbortSignal()?.aborted) return [];
     return this.digestLane
       .digestLines({ companyId: opts.companyId })
@@ -218,7 +282,7 @@ export class EvidenceCollectorService {
     // default does not (they measurably distract on assistant chats);
     // 'fused' retrieves them as scored SearchHits inside search, so
     // appending them here would duplicate the evidence.
-    const [laneLines, sourceLines, segmentLines, scanLines] =
+    const [laneLines, sourceLines, segmentLines, scanLines, windowLines] =
       await Promise.all([
         active
           ? this.episodeLane
@@ -269,10 +333,26 @@ export class EvidenceCollectorService {
               })
               .then((v) => v ?? [])
           : [],
+        // V13 raw-window lane: gated on its OWN flag, not the verbatim
+        // mode — the hybrid-substrate leg must be measurable on the
+        // default shape-conditioned profile.
+        profile.rawWindow
+          ? this.episodeLane
+              ?.rawWindows({
+                companyId,
+                factIds,
+                callerScopes,
+                userId,
+                anchors: RAW_WINDOW_MAX_ANCHORS,
+                span: profile.rawWindowSpan,
+              })
+              .then((v) => v ?? [])
+          : [],
       ]).then((lanes) => lanes.map((l) => l ?? []));
     return [
       ...new Set([
         ...scanLines,
+        ...windowLines,
         ...segmentLines,
         ...sourceLines,
         ...laneLines,

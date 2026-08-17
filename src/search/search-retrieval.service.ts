@@ -9,6 +9,7 @@ import { runVectorLeg, runLexicalLeg } from './internals/legs';
 import { buildEdgeFence } from './internals/edge-fence';
 import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
+import type { QueryTimeRange } from './internals/scoring';
 import { runSegmentLegs } from './internals/segment-leg';
 import { PipelineContext } from './pipeline-context';
 import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
@@ -164,6 +165,7 @@ export class SearchRetrievalService {
             ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
           tuning: ctx.tuning,
           salienceScoring: ctx.profile.salienceScoring,
+          queryRange: ctx.queryRange ?? null,
         });
         // profile.segmentTopK means "segments per prompt" — the appendix
         // lane honoured it, the first fused cut did not (every fetchK
@@ -212,6 +214,11 @@ export class SearchRetrievalService {
        * source.salience into ranking. Omitted/false → byte-identical.
        */
       salienceScoring?: boolean;
+      /**
+       * V13: query-named period for the time filter (profile
+       * timeFilter). Null/omitted → factor 1.0, byte-identical.
+       */
+      queryRange?: QueryTimeRange | null;
     },
   ): Map<string, EntityBucket> {
     const tuning = opts?.tuning ?? resolveSearchTuning();
@@ -226,6 +233,7 @@ export class SearchRetrievalService {
       authorityDelta: tuning.authorityDelta,
       chatterPenalty: tuning.chatterPenalty,
       temporalAnchor: opts?.temporalAnchor ?? null,
+      queryRange: opts?.queryRange ?? null,
       salienceScoring: opts?.salienceScoring ?? false,
     });
     return bucketByEntity(scored);

@@ -6,6 +6,8 @@ import type { DecisionLogEntry } from './decision-log';
 import { resolveDateContext } from './evidence-union';
 import type { Citation } from './fact-index';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
+import { buildDateMathLines } from './date-math';
+import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -13,6 +15,28 @@ import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
  * the service over 800). No IO, no DI; type-only imports back into the
  * service module, so there is no runtime cycle.
  */
+
+/**
+ * V13 answer-side frames, both profile-gated and both pure: the
+ * computed date table (RETRIEVAL_DATE_MATH) and the G2 per-shape
+ * reading instruction (RETRIEVAL_ANSWER_CONDITIONING). Undefined
+ * fields render nothing — byte-identical prompt with both flags off.
+ */
+export function resolveAnswerFrames(args: {
+  profile: RetrievalProfile;
+  query: string;
+  results: SearchHit[];
+}): { dateMathLines?: string[]; shapeInstruction?: string } {
+  const shape = args.profile.answerConditioning
+    ? detectAnswerShape(args.query)
+    : null;
+  return {
+    dateMathLines: args.profile.dateMath
+      ? buildDateMathLines(args.results)
+      : undefined,
+    shapeInstruction: shape ? shapeInstructionFor(shape) : undefined,
+  };
+}
 
 /** Temporal lane forces the Today anchor from asOf; others follow the
  *  profile's dateAnchoring. */

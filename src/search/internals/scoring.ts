@@ -76,6 +76,16 @@ export interface ScoreRowsOptions {
    */
   temporalAnchor?: Date | null;
   /**
+   * V13 time-constrained retrieval (profile timeFilter, default off):
+   * with a query-named period parsed (internals/time-range.ts), facts
+   * whose validity interval or mention anchor overlaps the period keep
+   * factor 1.0 and out-of-period facts decay exponentially with the
+   * gap to the nearest period edge — the same half-life/floor idiom as
+   * the temporal overlap boost. Rank-only demotion, nothing dropped;
+   * unset/null → factor exactly 1.0 → byte-identical ranking.
+   */
+  queryRange?: QueryTimeRange | null;
+  /**
    * V8 §4 importance scoring (profile salienceScoring, default off):
    * folds the deriver-stamped source.salience (0-3) into ranking via
    * SALIENCE_WEIGHTS. Rows without a stamp — legacy worlds, live
@@ -98,6 +108,55 @@ const CORROBORATION_CAP = 3;
 const TEMPORAL_OVERLAP_HALF_LIFE_DAYS = 90;
 /** Score floor for facts arbitrarily far from the anchor — decayed, never dropped. */
 const TEMPORAL_OVERLAP_FLOOR = 0.25;
+
+/** Query-named period (ms epoch, `to` exclusive) for the time filter. */
+export interface QueryTimeRange {
+  fromMs: number;
+  toMs: number;
+}
+
+/**
+ * V13 time filter: 1.0 when the fact's EVENT anchor lands in the
+ * query-named period; otherwise the same floor-plus-decay as the
+ * overlap boost, measured from the gap to the nearest period edge.
+ * Anchor semantics: a CLOSED validity interval overlaps honestly; an
+ * open-ended row (no validUntil — the dominant shape in derived
+ * worlds) anchors on validFrom as the event/statement day, because
+ * treating [validFrom, ∞) as overlap would make the filter inert on
+ * every later period. An in-period mention stamp rescues either
+ * shape. Rows without a parseable validFrom are neutral.
+ */
+function timeRangeFactor(
+  row: { validFrom?: unknown; validUntil?: unknown; source?: unknown },
+  range: QueryTimeRange,
+): number {
+  const vf = row.validFrom ? new Date(String(row.validFrom)).getTime() : NaN;
+  if (!Number.isFinite(vf)) return 1;
+  const vuRaw = row.validUntil
+    ? new Date(String(row.validUntil)).getTime()
+    : NaN;
+  const inRange = Number.isFinite(vuRaw)
+    ? vf < range.toMs && range.fromMs < vuRaw
+    : vf >= range.fromMs && vf < range.toMs;
+  if (inRange) return 1;
+  const mentionRaw = (row.source as { mentionedAt?: unknown } | null)
+    ?.mentionedAt;
+  const mention = mentionRaw ? new Date(String(mentionRaw)).getTime() : NaN;
+  if (
+    Number.isFinite(mention) &&
+    mention >= range.fromMs &&
+    mention < range.toMs
+  ) {
+    return 1;
+  }
+  const upper = Number.isFinite(vuRaw) ? vuRaw : vf;
+  const gapDays =
+    (vf >= range.toMs ? vf - range.toMs : range.fromMs - upper) / 86_400_000;
+  const decay = Math.exp(
+    (-Math.LN2 * Math.max(0, gapDays)) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS,
+  );
+  return TEMPORAL_OVERLAP_FLOOR + (1 - TEMPORAL_OVERLAP_FLOOR) * decay;
+}
 
 /**
  * 1.0 when the fact's validity interval contains the anchor; otherwise
@@ -133,6 +192,7 @@ export function scoreRows({
   authorityDelta = 0,
   chatterPenalty = 1,
   temporalAnchor = null,
+  queryRange = null,
   salienceScoring = false,
 }: ScoreRowsOptions): ScoredRow[] {
   const salienceFactorFor = (source: unknown): number => {
@@ -212,6 +272,7 @@ export function scoreRows({
     const temporalOverlap = temporalAnchor
       ? temporalOverlapFactor(row, temporalAnchor.getTime())
       : 1;
+    const timeRange = queryRange ? timeRangeFactor(row, queryRange) : 1;
     const salienceFactor = salienceFactorFor(row.source);
     const finalScore =
       row.fusedScore *
@@ -222,6 +283,7 @@ export function scoreRows({
       corroborationFactor *
       authorityFactor *
       temporalOverlap *
+      timeRange *
       salienceFactor;
     return {
       row,
@@ -233,6 +295,7 @@ export function scoreRows({
         decay,
         ...(chatterFactor !== 1 ? { chatterPenalty: chatterFactor } : {}),
         ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
+        ...(timeRange !== 1 ? { timeRange } : {}),
         ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
         factTrust,
         finalScore,

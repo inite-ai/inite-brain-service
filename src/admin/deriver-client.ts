@@ -211,15 +211,50 @@ Grades and their expected share of a typical list:
 
 Grade EVERY numbered proposition. Hold the proportions unless the list is genuinely atypical — a list where most grades are 2-3 is almost always inflation, not an exceptional person. Output strictly the JSON schema.`;
 
+/**
+ * V13 structural event-time grounding (DERIVER_TURN_HEADERS) — the
+ * graphiti reference_time prompt shape. The measured mention-collapse
+ * (one "Session date:" line for the whole session) leaves the model no
+ * per-turn anchor, so multi-day sessions and "yesterday" said late in a
+ * session date wrong. This section pairs with the per-turn timestamp
+ * render in the transcript itself. The session-date convention for
+ * same-day events stays (armK: removing it measured −4.9 — that
+ * default IS the answer convention of dialogue benchmarks).
+ */
+export const DERIVER_TURN_TIME_SECTION = `
+
+TURN TIMESTAMPS
+Each transcript line carries its own timestamp: [N] (YYYY-MM-DD HH:MM) speaker: text.
+- Resolve relative time expressions against the timestamp of the turn that SAYS them, not the session's first day: "yesterday" in a turn stamped 2023-05-08 is 2023-05-07 even when the session started 2023-05-07.
+- When turns span more than one calendar day, date each proposition's event from ITS grounding turns' timestamps.
+- Events that happened during a turn's own day ("today I…", "this morning") date to that turn's calendar day — this rule is unchanged.`;
+
+/**
+ * V13 scene traces (DERIVER_SCENE_TRACE) — the dual-trace encoding
+ * port (arXiv 2604.12948: fact + a concrete trace of the context it
+ * was learned in; +20.2pp LongMemEval-S, temporal +40pp, in their
+ * controlled pair). Encoding specificity in pure text: the trace
+ * binds the fact to its situation, which is what makes it findable
+ * from situational questions the bare proposition never matches.
+ */
+export const DERIVER_SCENE_SECTION = `
+
+SCENE TRACES
+For every proposition also fill "scene": ONE short clause capturing the concrete situation in which this was learned — the occasion, activity or exchange it surfaced in ("while planning the Portland trip with her sister", "reacting to the failed job interview"). Ground it in the session; name the concrete occasion, never a generic one ("during the conversation" is always wrong). Use null only when the session gives no situational context at all.`;
+
 /** System prompt assembly; each section only exists when its flag asks. */
 export function buildDeriverSystem(opts?: {
   assistantContent?: boolean;
   dateResolve?: boolean;
+  turnHeaders?: boolean;
+  sceneTrace?: boolean;
 }): string {
   return (
     DERIVER_SYSTEM +
     (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '') +
-    (opts?.dateResolve ? DERIVER_DATE_SECTION : '')
+    (opts?.dateResolve ? DERIVER_DATE_SECTION : '') +
+    (opts?.turnHeaders ? DERIVER_TURN_TIME_SECTION : '') +
+    (opts?.sceneTrace ? DERIVER_SCENE_SECTION : '')
   );
 }
 
@@ -252,6 +287,9 @@ export interface DerivedProposition {
   aspect: string;
   proposition: string;
   occurred_on: string | null;
+  /** V13 scene trace (DERIVER_SCENE_TRACE): one clause of encoding
+   *  context — the situation in which this was learned. */
+  scene?: string | null;
   /** V13 date audit: the audit EXPLICITLY cleared a fabricated date —
    *  the row builder must express "undated" (epoch sentinel), never
    *  fall back to the session date it just removed. */
@@ -291,6 +329,8 @@ export async function callDeriver(
       content: buildDeriverSystem({
         assistantContent: profile.deriveAssistantContent,
         dateResolve: profile.deriveDateResolve,
+        turnHeaders: profile.deriveTurnHeaders,
+        sceneTrace: profile.deriveSceneTrace,
       }),
     },
     {
@@ -432,6 +472,96 @@ async function gradeSalience(
 }
 
 /**
+ * V13 cross-session composition (DERIVER_COMPOSE_PASS) — the PREMem
+ * shape (EMNLP 2025 Findings 2509.10852): reasoning moved to memory
+ * CONSTRUCTION. The measured largest miss bucket is multi-hop golds
+ * where every atom exists and no atom states the combination; the
+ * mechanical per-aspect rollup (armL) measured negative, and the graph
+ * literature's on-genre verdict is "assemble the chain at write time
+ * or by read-time iteration — never by static traversal". This is the
+ * write-time half: one extra call per CONVERSATION over the landed
+ * atoms of all its sessions, emitting only multi-atom compositions.
+ */
+export const COMPOSE_SYSTEM = `You compose HIGHER-ORDER memory propositions from one conversation's atomic propositions (extracted across multiple dated sessions). Emit ONLY propositions that COMBINE two or more atoms into a durable fact that NO single atom states:
+- accumulation: the complete list gathered across sessions ("X's pets are A, B and C");
+- transformation: a value that changed, with both states and dates ("X moved from A (date1) to B (date2)");
+- specification: a general fact merged with its later concrete detail;
+- connection: a cause/enable/purpose link the atoms explicitly support.
+
+Rules: every composition must be fully supported by its member atoms — never bridge with outside knowledge; carry the members' absolute dates into the text; skip anything a single atom already states; skip near-duplicates of another composition. "members" lists the atom numbers used (two or more). "occurred_on" dates the composed event when determinable, else null. Up to 20 compositions; an empty list is the correct output when nothing composes.`;
+
+/** One composed row proposal from the cross-session pass. */
+export interface ComposedProposition {
+  aspect: string;
+  proposition: string;
+  occurred_on: string | null;
+  members: number[];
+}
+
+/**
+ * The cross-session composition call. Atoms render as a numbered dated
+ * list; the reply's member indices are validated by the caller (a
+ * composition keeps only in-range members and needs ≥2 to land).
+ * Throws on transport/parse errors — the caller degrades to zero
+ * composed rows; the atomic facts already landed.
+ */
+export async function composeCrossSession(
+  deps: DeriverClientDeps,
+  args: {
+    atoms: Array<{ predicate: string; object: string; dateIso: string | null }>;
+  },
+): Promise<ComposedProposition[]> {
+  const list = args.atoms
+    .map(
+      (a, i) =>
+        `${i}. [${a.predicate}]${a.dateIso ? ` (${a.dateIso})` : ''} ${a.object}`,
+    )
+    .join('\n');
+  const res = await deps.openai.chat.completions.create({
+    model: deps.model,
+    ...chatCallParams(deps.model, { temperature: 0, visibleCap: 6000 }),
+    messages: [
+      { role: 'system', content: COMPOSE_SYSTEM },
+      { role: 'user', content: `Atomic propositions:\n${list}` },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'composed_propositions',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            compositions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  aspect: { type: 'string' },
+                  proposition: { type: 'string' },
+                  occurred_on: { type: ['string', 'null'] },
+                  members: { type: 'array', items: { type: 'integer' } },
+                },
+                required: ['aspect', 'proposition', 'occurred_on', 'members'],
+              },
+            },
+          },
+          required: ['compositions'],
+        },
+      },
+    },
+  });
+  const content = res.choices[0]?.message?.content;
+  if (!content) throw new Error('empty composition response');
+  const parsed = JSON.parse(content) as {
+    compositions?: ComposedProposition[];
+  };
+  return Array.isArray(parsed.compositions) ? parsed.compositions : [];
+}
+
+/**
  * One structured deriver call with an explicit truncation guard: a
  * finish_reason='length' response is a SILENT recall hole (the JSON
  * either fails to parse — failing the session — or the model
@@ -471,6 +601,9 @@ function deriverRequest(
   // come from the separate post-emission turn (gradeSalience), so
   // the extraction call is byte-identical with the stamp flag on or
   // off (volume-neutral by construction).
+  // V13 scene traces: the `scene` field exists in the schema ONLY
+  // under DERIVER_SCENE_TRACE — off keeps the schema byte-identical.
+  const sceneTrace = resolveExtractionProfile().deriveSceneTrace;
   return deps.openai.chat.completions.create({
     model: deps.model,
     ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: maxTokens }),
@@ -495,6 +628,9 @@ function deriverRequest(
                   proposition: { type: 'string' },
                   occurred_on: { type: ['string', 'null'] },
                   turns: { type: 'array', items: { type: 'integer' } },
+                  ...(sceneTrace
+                    ? { scene: { type: ['string', 'null'] } }
+                    : {}),
                 },
                 required: [
                   'subject',
@@ -502,6 +638,7 @@ function deriverRequest(
                   'proposition',
                   'occurred_on',
                   'turns',
+                  ...(sceneTrace ? ['scene'] : []),
                 ],
               },
             },

@@ -4,9 +4,35 @@ import { SurrealService } from '../db/surreal.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 
 interface EpisodeQuoteRow {
+  id?: unknown;
+  conversationId?: string;
   speaker?: string;
   text: string;
   occurredAt: Date | string;
+}
+
+/** Both provenance-shaped lanes read the same grounding stamp. */
+const FACT_EPISODES_SQL = `SELECT source.episodeIds AS eps FROM knowledge_fact
+            WHERE id INSIDE $ids AND source.episodeIds IS NOT NONE`;
+
+/** First-seen episode ids from fact grounding stamps, capped.
+ *  Evidence order ≈ relevance order, so first-seen wins the cap. */
+function collectAnchorEpisodeIds(
+  facts: Array<{ eps?: unknown }>,
+  cap: number,
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const f of facts) {
+    if (!Array.isArray(f.eps)) continue;
+    for (const e of f.eps) {
+      const id = String(e);
+      if (!id.startsWith('episode:') || seen.has(id)) continue;
+      seen.add(id);
+      if (ids.length < cap) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 /** Chronological `[YYYY-MM-DD] Speaker: text` rendering shared by both lanes. */
@@ -111,25 +137,11 @@ export class EpisodeLaneService {
     const cap = opts.cap;
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [facts] = await db.query<
-          [Array<{ eps?: unknown }>]
-        >(
-          `SELECT source.episodeIds AS eps FROM knowledge_fact
-            WHERE id INSIDE $ids AND source.episodeIds IS NOT NONE`,
+        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(
+          FACT_EPISODES_SQL,
           { ids: opts.factIds.map((id) => new StringRecordId(id)) },
         );
-        // Evidence order ≈ relevance order, so first-seen wins the cap.
-        const episodeIds: string[] = [];
-        const seen = new Set<string>();
-        for (const f of facts ?? []) {
-          if (!Array.isArray(f.eps)) continue;
-          for (const e of f.eps) {
-            const id = String(e);
-            if (!id.startsWith('episode:') || seen.has(id)) continue;
-            seen.add(id);
-            if (episodeIds.length < cap) episodeIds.push(id);
-          }
-        }
+        const episodeIds = collectAnchorEpisodeIds(facts ?? [], cap);
         const rows = await this.episodes.byIds({
           companyId: opts.companyId,
           ids: episodeIds,
@@ -142,6 +154,77 @@ export class EpisodeLaneService {
     } catch (e) {
       this.logger.warn(
         `source-excerpt lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * V13 raw-window lane (RETRIEVAL_RAW_WINDOW, the hybrid-substrate
+   * read side): the top evidence facts' grounding turns expand into a
+   * bounded window of SURROUNDING raw turns — the context the
+   * derivation summarized away. Where `sourceExcerpts` quotes exactly
+   * the grounding turn, this lane reads the scene around it (the
+   * MemMachine contextualized-matching shape; the controlled ablation
+   * that motivates it: fact-only substrates lose −22pp vs raw chunks).
+   * Same PII/user fences, same degradation contract: [] on any
+   * failure — the lane never breaks synthesis.
+   */
+  async rawWindows(opts: {
+    companyId: string;
+    factIds: string[];
+    callerScopes: string[];
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
+    /** Grounding anchors to expand (top evidence order). */
+    anchors: number;
+    /** Neighbor turns each side of an anchor (profile.rawWindowSpan). */
+    span: number;
+  }): Promise<string[]> {
+    if (opts.factIds.length === 0) return [];
+    try {
+      return await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(
+          FACT_EPISODES_SQL,
+          { ids: opts.factIds.map((id) => new StringRecordId(id)) },
+        );
+        const anchorIds = collectAnchorEpisodeIds(facts ?? [], opts.anchors);
+        const includePii = opts.callerScopes.includes('brain:read_pii');
+        const anchorRows = await this.episodes.byIds({
+          companyId: opts.companyId,
+          ids: anchorIds,
+          includePii,
+          userId: opts.userId,
+          db,
+        });
+        const windows = await Promise.all(
+          anchorRows
+            .filter((r) => r.conversationId)
+            .map((r) =>
+              this.episodes.windowAround({
+                companyId: opts.companyId,
+                conversationId: String(r.conversationId),
+                centerIso: new Date(r.occurredAt as string).toISOString(),
+                span: opts.span,
+                includePii,
+                userId: opts.userId,
+                db,
+              }),
+            ),
+        );
+        // Overlapping anchor windows dedupe by turn id before render.
+        const byId = new Map<string, EpisodeQuoteRow>();
+        for (const w of windows) {
+          for (const row of w) {
+            const key = String(row.id ?? `${row.occurredAt}|${row.text}`);
+            if (!byId.has(key)) byId.set(key, row);
+          }
+        }
+        return renderQuoteLines([...byId.values()]);
+      });
+    } catch (e) {
+      this.logger.warn(
+        `raw-window lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
       );
       return [];
     }

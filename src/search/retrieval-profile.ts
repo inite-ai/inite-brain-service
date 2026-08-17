@@ -230,6 +230,9 @@ export type DateAnchoring = 'none' | 'session_date' | 'absolute';
  */
 export type TemporalMode = 'filter' | 'overlap_boost';
 
+/** Digest-evidence lane targeting (see RetrievalProfile.digestLanes). */
+export type DigestLaneMode = 'all' | 'summary_ku';
+
 /** One id per dispatch lane; the Lane registry must cover all of them. */
 export type LaneId =
   | 'temporal'
@@ -299,6 +302,14 @@ export interface RetrievalProfile {
    * date. Unstamped rows render as before.
    */
   mentionDates: boolean;
+  /**
+   * V13 read side of DERIVER_SCENE_TRACE: fact lines carry a
+   * "(context: …)" suffix from the stamped source.scene — the
+   * situational anchor the dual-trace encoding wrote. Unstamped rows
+   * render as before; against worlds derived without the stamp the
+   * flag is byte-identical off.
+   */
+  sceneTraces: boolean;
   /**
    * §8 item 3 over-enumeration contract: enumeration-lane answers
    * commit to ONLY the items the facts tie to the asked scope — the
@@ -381,6 +392,60 @@ export interface RetrievalProfile {
    * derived without the digest flag.
    */
   digestEvidence: boolean;
+  /**
+   * V13 digest gate-shaping: which routed lanes the digest lines
+   * render into. 'all' = the V12 behavior (every prompt). 'summary_ku'
+   * = only summary- and recency/knowledge-update-shaped questions —
+   * the lanes that took the measured strict gains — so the narrative
+   * block stops bleeding into abstention and extraction prompts.
+   */
+  digestLanes: DigestLaneMode;
+  /**
+   * V13 hybrid substrate (facts-as-index): the top fact hits' grounding
+   * turns expand into a bounded raw-turn window (neighbors on both
+   * sides) rendered as transcript evidence — the answer reads source
+   * text, not only extracted propositions. Off = byte-identical.
+   */
+  rawWindow: boolean;
+  /** Raw-turn window half-span (turns each side of a grounding turn). */
+  rawWindowSpan: number;
+  /**
+   * V13 time-constrained retrieval (TSM shape): when the query names an
+   * absolute period (a day, month, year or range — code-parsed, no
+   * LLM), facts overlapping the period rank above out-of-period facts
+   * at equal similarity. Rank-only demotion — nothing is dropped.
+   */
+  timeFilter: boolean;
+  /**
+   * V13 deterministic date arithmetic: a computed date table (weekday
+   * + gap to the previous dated evidence) renders next to the facts so
+   * the generator never does raw calendar math (mini-class models
+   * measure 14-40% on it). Event-to-event deltas only — the measured
+   * anti-pattern "[elapsed: N days before today]" is not reintroduced.
+   */
+  dateMath: boolean;
+  /**
+   * V13 G2 answer conditioning: a per-question-shape instruction
+   * block (chained reasoning for why/how, exhaustive coverage for
+   * aggregation shapes, exact-token for verbatim shapes) selected by
+   * the code-side shape detectors. Off = byte-identical prompt.
+   */
+  answerConditioning: boolean;
+  /**
+   * V13 noise filter (the unported LIGHT component): injected context
+   * lines (transcript/insight/digest) are relevance-gated against the
+   * query by the local cross-encoder before prompt assembly; the fact
+   * block is never filtered. Off = byte-identical.
+   */
+  noiseFilter: boolean;
+  /**
+   * V13 constrained search loop (the MemMachine/Letta shape, NOT the
+   * rejected free agent loop): the generator may return one structured
+   * refine-request instead of an answer; the engine runs ONE extra
+   * retrieval with the refined query, merges evidence, and forces an
+   * answer. Hard cap of one extra round. Off = byte-identical.
+   */
+  searchLoop: boolean;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -512,6 +577,7 @@ export function resolveRetrievalProfile(
     segmentRerank: envFlagEnabled(env.SEARCH_SEGMENT_LANE_RERANK),
     factRerank: envFlagEnabled(env.SEARCH_FACT_RERANK),
     mentionDates: envFlagEnabled(env.RETRIEVAL_MENTION_DATES),
+    sceneTraces: envFlagEnabled(env.RETRIEVAL_SCENE_TRACES),
     enumStrict: envFlagEnabled(env.RETRIEVAL_ENUM_STRICT),
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
     wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
@@ -530,6 +596,16 @@ export function resolveRetrievalProfile(
     verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
     digestEvidence: envFlagEnabled(env.RETRIEVAL_DIGEST_EVIDENCE),
+    digestLanes:
+      enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
+      'all',
+    rawWindow: envFlagEnabled(env.RETRIEVAL_RAW_WINDOW),
+    rawWindowSpan: positiveIntEnv(env, 'RETRIEVAL_RAW_WINDOW_SPAN', 2),
+    timeFilter: envFlagEnabled(env.RETRIEVAL_TIME_FILTER),
+    dateMath: envFlagEnabled(env.RETRIEVAL_DATE_MATH),
+    answerConditioning: envFlagEnabled(env.RETRIEVAL_ANSWER_CONDITIONING),
+    noiseFilter: envFlagEnabled(env.RETRIEVAL_NOISE_FILTER),
+    searchLoop: envFlagEnabled(env.RETRIEVAL_SEARCH_LOOP),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -587,6 +663,7 @@ export function resolveRetrievalProfileFor(
     ['dateAnchoring', ['none', 'session_date', 'absolute']],
     ['temporalMode', ['filter', 'overlap_boost']],
     ['abstentionCalibration', ['off', 'coverage', 'verifier', 'minicheck']],
+    ['digestLanes', ['all', 'summary_ku']],
   ];
   for (const [key, allowed] of enumOverlays) {
     const v = o[key];
@@ -604,6 +681,7 @@ export function resolveRetrievalProfileFor(
     'abstentionMinEvidence',
     'scanHnswEf',
     'scanHnswOverfetch',
+    'rawWindowSpan',
   ] as const) {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
@@ -631,6 +709,7 @@ export function resolveRetrievalProfileFor(
     'segmentRerank',
     'factRerank',
     'mentionDates',
+    'sceneTraces',
     'enumStrict',
     'wideProbe',
     'entityExpansion',
@@ -639,6 +718,12 @@ export function resolveRetrievalProfileFor(
     'orderingFrame',
     'verifierTopicCoverage',
     'digestEvidence',
+    'rawWindow',
+    'timeFilter',
+    'dateMath',
+    'answerConditioning',
+    'noiseFilter',
+    'searchLoop',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

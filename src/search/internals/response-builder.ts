@@ -84,6 +84,11 @@ export function assembleHits({
               mentionedAt: (row.source as { mentionedAt: string }).mentionedAt,
             }
           : {}),
+        // Scene trace rides the same way (V13 dual-trace encoding).
+        ...(typeof (row.source as { scene?: unknown } | null)?.scene ===
+        'string'
+          ? { scene: (row.source as { scene: string }).scene }
+          : {}),
         score,
         breakdown,
       }));

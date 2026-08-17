@@ -34,6 +34,10 @@ export interface EpisodeTurnRow {
 }
 
 export interface EpisodeQuoteRow {
+  /** Present on byIds/windowAround reads (dedupe key); absent on BM25. */
+  id?: unknown;
+  /** Present on byIds/windowAround reads (window-expansion anchor). */
+  conversationId?: string;
   speaker?: string;
   text: string;
   occurredAt: Date | string;
@@ -163,7 +167,7 @@ export class EpisodeReadStoreService {
     if (opts.ids.length === 0) return [];
     return this.run(opts.companyId, opts.db, async (db) => {
       const [rows] = await db.query<[EpisodeQuoteRow[]]>(
-        `SELECT speaker, text, occurredAt FROM episode
+        `SELECT id, conversationId, speaker, text, occurredAt FROM episode
           WHERE id INSIDE $ids ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`,
         {
           ids: opts.ids.map((id) => new StringRecordId(id)),
@@ -171,6 +175,52 @@ export class EpisodeReadStoreService {
         },
       );
       return rows ?? [];
+    });
+  }
+
+  /**
+   * V13 raw-turn window (RETRIEVAL_RAW_WINDOW): the turns immediately
+   * around an anchor moment of one conversation — `span` before the
+   * anchor (inclusive) and `span` after, chronological. Two bounded
+   * ORDER BY occurredAt queries, both PII- and user-fenced; an anchor
+   * the fences hide returns only what the caller may see.
+   */
+  async windowAround(opts: {
+    companyId: string;
+    conversationId: string;
+    centerIso: string;
+    span: number;
+    includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
+    db?: EpisodeDb;
+  }): Promise<EpisodeQuoteRow[]> {
+    return this.run(opts.companyId, opts.db, async (db) => {
+      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`;
+      const params = {
+        conv: opts.conversationId,
+        c: new Date(opts.centerIso),
+        ...this.userParams(opts.userId),
+      };
+      const [before, after] = await Promise.all([
+        db
+          .query<[EpisodeQuoteRow[]]>(
+            `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+              WHERE conversationId = $conv AND occurredAt <= $c ${gates}
+              ORDER BY occurredAt DESC LIMIT ${Math.max(1, opts.span + 1)}`,
+            params,
+          )
+          .then(([rows]) => rows ?? []),
+        db
+          .query<[EpisodeQuoteRow[]]>(
+            `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+              WHERE conversationId = $conv AND occurredAt > $c ${gates}
+              ORDER BY occurredAt ASC LIMIT ${Math.max(1, opts.span)}`,
+            params,
+          )
+          .then(([rows]) => rows ?? []),
+      ]);
+      return [...before.reverse(), ...after];
     });
   }
 

@@ -469,6 +469,9 @@ export class MetricsService implements OnModuleInit {
       // salvaged (audit W5 #24) — distinct from generator_error, which
       // means we returned nothing at all.
       | 'generator_truncated'
+      // V13 constrained search loop: the one refine round ran (the
+      // final outcome is still counted separately by the exits above).
+      | 'search_loop_refined'
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);

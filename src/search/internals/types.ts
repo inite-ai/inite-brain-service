@@ -144,6 +144,12 @@ export interface ScoreBreakdown {
    */
   temporalOverlap?: number;
   /**
+   * V13 time-filter factor vs the query-named period (profile
+   * timeFilter). Omitted when 1.0 — the fact overlaps the period, no
+   * period parsed, or the filter is off.
+   */
+  timeRange?: number;
+  /**
    * V8 §4 importance factor from the deriver-stamped source.salience
    * (profile salienceScoring). Omitted when 1.0 — scoring off, an
    * unstamped row, or the neutral grade.

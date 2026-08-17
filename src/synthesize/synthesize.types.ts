@@ -51,6 +51,13 @@ export interface SynthesizeResult {
 export interface GeneratorOutput {
   answer: string;
   citedFactIds: string[];
+  /**
+   * V13 constrained search loop (profile.searchLoop): the generator's
+   * one refine request — a better retrieval query when the evidence
+   * does not contain the asked detail. Only present when the call was
+   * made with the refine affordance; null/absent = no request.
+   */
+  refineQuery?: string | null;
   /** Generator-call usage, when the provider reported it. */
   usage?: TokenUsage;
 }

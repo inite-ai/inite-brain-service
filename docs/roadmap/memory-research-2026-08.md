@@ -181,3 +181,49 @@ full-context strict-protocol BEAM numbers at any tier.
 - PRIMETIME — arXiv 2504.16155 (mini-class date arithmetic 14–40%) · TISER — arXiv 2504.05258
 - ReasoningBank — arXiv 2509.25140 · MemOps — arXiv 2607.12893 · MINJA — arXiv 2503.03704
 - Production reverse-engineering — shloked.com (ChatGPT/Claude/Gemini memory architectures)
+
+## 5. V13 build (2026-08-17) — what was built, how to measure it
+
+Everything below is default-off, per-tenant configuration (no eval forks); goldens
+carry the flag budget (engine flags 45→52, retrieval keys 24→32). Unit coverage:
+`time-range.unit-spec`, `v13-answer-frames.unit-spec`, `turn-headers.unit-spec`.
+
+| # | Lever | Flag(s) | Target axis / expectation |
+|---|-------|---------|---------------------------|
+| B1 | Raw-turn window: fact hits expand to surrounding raw turns (facts-as-index) | `RETRIEVAL_RAW_WINDOW` (+`RETRIEVAL_RAW_WINDOW_SPAN`, default 2) | The 63% gold-absent class. First leg: LME SSA (episodic lane's native genre), then LME MS/temporal; LoCoMo pair as sanity. Literature: −22pp fact-only ablation. |
+| B2 | Per-turn timestamp headers in the deriver (event-time grounding) | `DERIVER_TURN_HEADERS` — **fresh derivedVersion required** | BEAM event_ordering (0.0 strict) + temporal nugget; LME temporal. Read with nugget-primary target; derive floor ±0.8pp headline / ±3.5 per-cat. Session-date fallback kept (armK guard). |
+| B3 | Time-constrained retrieval: query-named absolute period boosts in-range facts | `RETRIEVAL_TIME_FILTER` | LME temporal residue (~74 q at 41.7%). Open-ended rows anchor on validFrom as event day; closed intervals overlap honestly; mention stamp rescues. Inert when the query names no absolute period. |
+| B4 | Deterministic date table (weekday + event-to-event gaps, computed in code) | `RETRIEVAL_DATE_MATH` | LoCoMo temporal + LME temporal. PRIMETIME: mini-class raw date math is 14-40%. No "elapsed before today" frame. Verifier sees the same table. |
+| B5 | G2 per-shape answer conditioning (chained / aggregation / verbatim) | `RETRIEVAL_ANSWER_CONDITIONING` | The 22% gold-in-window class, ceiling ≈ +4.9pp LoCoMo (MH 61.3% + OD 43.5% are the shape targets). |
+| B6 | Constrained search loop: ONE structured refine round, then forced answer | `RETRIEVAL_SEARCH_LOOP` | The 22%+15% classes; MemMachine/Letta shape. NOT the E11 free loop (that measured −4.6). Watch `search_loop_refined` counter for fire rate; cost = ≤1 extra search + 1 extra generation per fired question. |
+| B7 | Digest gate-shaping: digest lines only into summary/recency-routed prompts | `RETRIEVAL_DIGEST_LANES=summary_ku` (with `RETRIEVAL_DIGEST_EVIDENCE=1`) | BEAM: keep the +5.0 strict (KU +15) while un-bleeding abstention (−7.5) and summ nugget (−1.9). |
+| B8 | Noise filter: cross-encoder relevance gate on injected context lines | `RETRIEVAL_NOISE_FILTER` | BEAM nugget (+~2pp per LIGHT's ablation at 100K). Needs the local CE (`SEARCH_CROSS_ENCODER_LOCAL_WORKER=0` on the eval stand). Facts and the mention record are never filtered. |
+| B9 | Cross-session composition pass: one LLM call per conversation composes multi-atom facts (PREMem shape) | `DERIVER_COMPOSE_PASS` — **fresh derivedVersion required** | LoCoMo multi-hop (61.3%, largest miss bucket = composed-fact-absent) + LME MS. On-genre published ablation +3-7pp concentrated on multi-hop; the graph research verdict: assemble chains at write time or by read iteration, never by static traversal (edge-expansion NULL doubly confirmed by HippoRAG's own neighbor ablation). Pairs naturally with B2 on the same fresh derive. |
+| B10 | Scene traces: per-fact one-clause encoding context, stamped + folded into the embedding (dual-trace port, arXiv 2604.12948) | `DERIVER_SCENE_TRACE` (write, **fresh derivedVersion**) + `RETRIEVAL_SCENE_TRACES` (read render) | The single largest published effect found in the research pass: +20.2pp LongMemEval-S overall, temporal +40pp, KU +25pp, multi-session +30pp in their controlled pair (single-session +0 — expect gains on cross-session axes). Mechanism = encoding specificity, pure text. Pairs with B2/B9 on the same fresh derive. |
+
+Recommended measurement order (cheap → expensive, banked confirms first):
+
+1. **Tier-0 confirms (unchanged by this build):** LME full-500 on current code
+   (banked ≈ +4.6pp, $15-20, worlds need re-ingest — commands in
+   `next-session-measure-2026-08.md`); verifier=gpt-5-mini at n≥120 on the BEAM
+   abstention block; BEAM k-tuning legs (`SEARCH_SEGMENT_LANE_TOPK`/
+   `SEARCH_EPISODIC_LANE_TOPK` ≈ 15).
+2. **BEAM read pack (cheapest legs, ~$1-2 each, --skip-ingest):** B7, B8, B4 —
+   nugget-primary via `scripts/offline-nugget-score.ts`; per-ability n=40 → ±8pp
+   strict noise, decide on nugget.
+3. **LME SSA leg (B1):** `SEARCH_EPISODIC_LANE_ENABLED=1 SYNTHESIZE_SOURCE_EXCERPTS=1
+   RETRIEVAL_RAW_WINDOW=1` on SSA indices 444-499 (56-world rebuild once); then
+   temporal block 233-365 with B3+B4.
+4. **LoCoMo pair (sanity, $2-3/arm):** ctl vs B1+B4+B5+B6 combined on wd-v3s
+   (`--skip-ingest`, guardrails answer, McNemar via
+   `scripts/eval-analysis/locomo-mcnemar.py`; ±2.2pp floor — only a combined leg
+   has a chance to read).
+5. **B2 derive leg (most expensive, quota-gated):** fresh `wd-v6t` derive on
+   loco-321 with `DERIVER_TURN_HEADERS=1`, then BEAM EO/temporal nugget target
+   (re-segment worlds 11/12/18/19/20 first — they have zero episode_segment rows).
+
+Stand reminders: source `.env` BEFORE exports; registry live-row beats
+`RETRIEVAL_DERIVED_VERSION`; loco-321 = volume `loco321_rocks` on
+`surrealdb/surrealdb:latest` (3.2.1 — 3.1.5 breaks index state) with
+`--restart unless-stopped --memory 4g`; `--resume` accepts a report-synthesized
+checkpoint after any interrupt.
