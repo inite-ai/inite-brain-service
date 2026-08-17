@@ -75,7 +75,6 @@ function makeController(): AdminJobsController {
     undef,
     undef,
     undef,
-    undef,
     apiKeys,
     undef,
     undef,
@@ -107,7 +106,6 @@ describe('AdminJobsController.leases() — wire contract', () => {
 
   it('handles empty leases/claims gracefully', async () => {
     const controller = new AdminJobsController(
-      undefined as never,
       undefined as never,
       undefined as never,
       undefined as never,

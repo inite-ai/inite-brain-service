@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { chatCallParams } from '../ai/openai-client';
 import {
   resolveExtractionProfile,
 } from '../ai/extraction-profile';
@@ -59,6 +60,136 @@ EVENT DATING
 - Planned or future events: date the planned occurrence when it is stated or derivable ("next Friday" → that Friday's date).
 - Month-only knowledge resolves to the FIRST day of that month ("in June" → 2023-06-01); year-only to January 1st. This is a rendering convention, not a precision claim.
 - When the event time is genuinely undeterminable, use null — a wrong default is worse than no date.`;
+
+
+/**
+ * V13 date audit (DERIVER_DATE_AUDIT) — the post-pass shape of the
+ * failed in-prompt date rules. Measured lineage: prose rules inside
+ * the extraction prompt moved NOTHING (wd-v4 date distribution
+ * byte-equal to the replicates, armH null), while the same contract as
+ * a dedicated after-emission turn is exactly how salience grading
+ * succeeded after ITS in-prompt version failed both gates (V8 §4 →
+ * V9 §5). One extra cheap call per session; failure degrades to the
+ * un-audited dates.
+ */
+export const DATE_AUDIT_SYSTEM = `You audit the event dates of memory propositions extracted from ONE dated dialogue session. For every numbered proposition decide "occurred_on" — the ISO date (YYYY-MM-DD) the described EVENT actually happened:
+- Resolve relative expressions from the transcript ("yesterday", "last Friday", "two weekends ago", "next month") by calendar arithmetic from the session date.
+- The session date is correct ONLY for events that happened during that same day ("today I…", "this morning").
+- Planned or future events take the planned occurrence date when stated or derivable.
+- Month-only knowledge resolves to the FIRST day of that month; year-only to January 1st.
+- Genuinely undeterminable: null. A wrong default is worse than no date.
+Return a decision for EVERY index. Output strictly the JSON schema.`;
+
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function auditDates(
+  deps: DeriverClientDeps,
+  args: {
+    sessionDate: Date;
+    /** The base deriver conversation — continued, not re-prefixed, so
+     *  the transcript (the dominant token mass) stays a prompt-cache
+     *  hit like completionUnion's continuation 30 lines up. */
+    messages: ChatMessage[];
+    propositions: DerivedProposition[];
+  },
+): Promise<void> {
+  try {
+    const list = args.propositions
+      .map(
+        (p, i) =>
+          `${i}. [${p.subject}] ${p.proposition} (current occurred_on: ${p.occurred_on ?? 'null'})`,
+      )
+      .join('\n');
+    const res = await deps.openai.chat.completions.create({
+      model: deps.model,
+      ...chatCallParams(deps.model, { temperature: 0, visibleCap: 4000 }),
+      messages: [
+        ...args.messages,
+        { role: 'assistant', content: `Propositions:\n${list}` },
+        {
+          role: 'user',
+          content: `${DATE_AUDIT_SYSTEM}\n\nSession date: ${args.sessionDate.toISOString().slice(0, 10)}. Audit the numbered propositions above.`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'date_audit',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              dates: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    index: { type: 'integer' },
+                    occurred_on: { type: ['string', 'null'] },
+                  },
+                  required: ['index', 'occurred_on'],
+                },
+              },
+            },
+            required: ['dates'],
+          },
+        },
+      },
+    });
+    const content = res.choices[0]?.message?.content;
+    if (!content) throw new Error('empty date-audit response');
+    const parsed = JSON.parse(content) as {
+      dates?: Array<{ index: number; occurred_on: string | null }>;
+    };
+    const dates = parsed.dates ?? [];
+    // An index === length entry is the perfect tell of a 1-based reply:
+    // applying a shifted map would stamp every proposition with its
+    // NEIGHBOR'S date — strictly worse than the un-audited baseline the
+    // degrade contract promises. Abort the whole application.
+    if (dates.some((d) => d.index === args.propositions.length)) {
+      deps.logger.warn(
+        'date audit reply looks 1-based (index === length) — discarding the audit',
+      );
+      return;
+    }
+    for (const d of dates) {
+      if (
+        !Number.isInteger(d.index) ||
+        d.index < 0 ||
+        d.index >= args.propositions.length
+      ) {
+        continue;
+      }
+      // Apply BOTH values and explicit nulls — clearing a fabricated
+      // session-date default is the audit's whole point. The cleared
+      // marker survives to the row builder, which renders "undated" as
+      // the epoch sentinel instead of the session-date fallback.
+      if (d.occurred_on === null) {
+        args.propositions[d.index].occurred_on = null;
+        args.propositions[d.index].dateCleared = true;
+      } else if (
+        typeof d.occurred_on === 'string' &&
+        ISO_DAY_RE.test(d.occurred_on) &&
+        // Calendar round-trip — the same guard the row builder uses:
+        // shape-only acceptance let an impossible date ('2023-02-30')
+        // overwrite a CORRECT one and then silently collapse to the
+        // session date downstream.
+        new Date(`${d.occurred_on}T00:00:00.000Z`)
+          .toISOString()
+          .slice(0, 10) === d.occurred_on
+      ) {
+        args.propositions[d.index].occurred_on = d.occurred_on;
+        args.propositions[d.index].dateCleared = false;
+      }
+    }
+  } catch (e) {
+    deps.logger.warn(
+      `date audit turn failed (${(e as Error).message}); dates stay un-audited`,
+    );
+  }
+}
 
 /**
  * Salience grading (DERIVER_SALIENCE_STAMP, V8 §4 → V9 §5 rebuild):
@@ -121,6 +252,10 @@ export interface DerivedProposition {
   aspect: string;
   proposition: string;
   occurred_on: string | null;
+  /** V13 date audit: the audit EXPLICITLY cleared a fabricated date —
+   *  the row builder must express "undated" (epoch sentinel), never
+   *  fall back to the session date it just removed. */
+  dateCleared?: boolean;
   turns: number[];
   /** 0-3 importance grade; present only under DERIVER_SALIENCE_STAMP. */
   salience?: number;
@@ -133,6 +268,7 @@ export interface DeriverClientDeps {
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+
 
 /**
  * One session's full extraction: base pass → optional completion-pass
@@ -164,6 +300,13 @@ export async function callDeriver(
   ];
   const base = await deriverPass(deps, messages);
   const merged = await completionUnion(deps, { profile, messages, base });
+  if (profile.deriveDateAudit && merged.length > 0) {
+    await auditDates(deps, {
+      sessionDate: args.sessionDate,
+      messages,
+      propositions: merged,
+    });
+  }
   if (profile.deriveSalienceStamp && merged.length > 0) {
     await gradeSalience(deps, merged);
   }
@@ -232,8 +375,7 @@ async function gradeSalience(
       .join('\n');
     const res = await deps.openai.chat.completions.create({
       model: deps.model,
-      temperature: 0,
-      max_completion_tokens: 4000,
+      ...chatCallParams(deps.model, { temperature: 0, visibleCap: 4000 }),
       messages: [
         { role: 'system', content: SALIENCE_GRADING_SYSTEM },
         { role: 'user', content: `Propositions:\n${list}` },
@@ -331,8 +473,7 @@ function deriverRequest(
   // off (volume-neutral by construction).
   return deps.openai.chat.completions.create({
     model: deps.model,
-    temperature: 0.1,
-    max_completion_tokens: maxTokens,
+    ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: maxTokens }),
     messages,
     response_format: {
       type: 'json_schema',
@@ -405,8 +546,7 @@ export async function foldDigest(
   const day = args.sessionDate.toISOString().slice(0, 10);
   const res = await deps.openai.chat.completions.create({
     model: deps.model,
-    temperature: 0.1,
-    max_completion_tokens: 1200,
+    ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: 1200 }),
     messages: [
       { role: 'system', content: DIGEST_MERGE_SYSTEM },
       {
@@ -439,8 +579,7 @@ export async function foldDigest(
   const compressed = await deps.openai.chat.completions
     .create({
       model: deps.model,
-      temperature: 0.1,
-      max_completion_tokens: 1200,
+      ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: 1200 }),
       messages: [
         { role: 'system', content: DIGEST_MERGE_SYSTEM },
         {

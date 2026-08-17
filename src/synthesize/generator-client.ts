@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { chatCallParams } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { traceArtifact } from '../common/debug-trace';
@@ -6,6 +7,8 @@ import type { MetricsService } from '../metrics/metrics.service';
 import type { LaneId } from '../search/retrieval-profile';
 import { buildGeneratorUserMessage } from './generator-prompt';
 import { salvageTruncatedAnswer } from './synthesize.helpers';
+
+
 import type { GeneratorOutput } from './synthesize.types';
 
 /**
@@ -119,8 +122,7 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
               },
             },
           },
-          max_completion_tokens: 512,
-          temperature: 0,
+          ...chatCallParams(model, { temperature: 0, visibleCap: 512, reasoningCap: 4096 }),
         },
         { signal: getAbortSignal() },
       ),

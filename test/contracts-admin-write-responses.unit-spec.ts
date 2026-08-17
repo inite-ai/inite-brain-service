@@ -112,9 +112,21 @@ describe('write-side wire contracts', () => {
     } as never;
      
     const ctl = new AdminJobsController(
-      jobs, undef, undef, undef, undef, undef, undef, undef, undef, undef,
-      undef, undef, undef, undef, undef,
-    );
+    jobs,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+  );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -128,9 +140,21 @@ describe('write-side wire contracts', () => {
     } as never;
      
     const ctl = new AdminJobsController(
-      undef, dreams, undef, undef, undef, undef, undef, undef, undef, undef,
-      undef, undef, undef, undef, undef,
-    );
+    undef,
+    dreams,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+  );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -147,9 +171,21 @@ describe('write-side wire contracts', () => {
     } as never;
      
     const ctl = new AdminJobsController(
-      undef, undef, undef, undef, undef, undef, apiKeys, undef, undef,
-      undef, undef, undef, undef, compaction, undef,
-    );
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    apiKeys,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    compaction,
+    undef,
+  );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -168,9 +204,21 @@ describe('write-side wire contracts', () => {
     } as never;
      
     const ctl = new AdminJobsController(
-      undef, undef, refit, undef, undef, undef, undef, undef, undef,
-      undef, undef, undef, undef, undef, undef,
-    );
+    undef,
+    undef,
+    refit,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+  );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -192,9 +240,21 @@ describe('write-side wire contracts', () => {
     } as never;
      
     const ctl = new AdminJobsController(
-      undef, undef, undef, changefeed, undef, undef, undef, undef, undef,
-      undef, undef, undef, undef, undef, undef,
-    );
+    undef,
+    undef,
+    undef,
+    changefeed,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+  );
     const payload = await ctl.drainChangefeed();
     assertParses(ChangefeedDrainResponseSchema, payload, 'changefeed/drain');
   });
