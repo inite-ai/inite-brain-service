@@ -2,6 +2,8 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { ReadPinService } from '../episodes/read-pin.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { makeRowPolicyFilter } from '../policy/row-filter';
 import { fuse } from '../search/internals/fusion';
 import {
   INSIGHT_TOP_K,
@@ -27,10 +29,14 @@ import {
 export class InsightLaneService {
   private readonly logger = new Logger(InsightLaneService.name);
 
+  // Registry dep landed with the audit's row-policy fix — same
+  // @Optional degradation contract as the read pin.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly embedder: EmbedderService,
     @Optional() private readonly readPin?: ReadPinService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async insightLines(opts: {
@@ -61,7 +67,20 @@ export class InsightLaneService {
           return fuse(vectorRows, lexicalRows, 'hybrid');
         },
       );
-      return fused
+      // Audit 2026-08-19 P1: the same predicate scope-fence + ABAC row
+      // verdict every other prompt-producing lane applies (the SQL
+      // gates cover pii/user; operator-set requiresScope lives only in
+      // the registry).
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.callerScopes,
+        surface: 'insight_lane',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+          opts.companyId,
+        ),
+      });
+      const admitted = fused.filter((r) => rowPolicy.filter(r));
+      rowPolicy.finish();
+      return admitted
         .sort((a, b) => b.fusedScore - a.fusedScore)
         .slice(0, INSIGHT_TOP_K)
         .map((r) => {

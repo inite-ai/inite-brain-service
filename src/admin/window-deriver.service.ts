@@ -55,6 +55,7 @@ import {
 import {
   accumulateLanded,
   composeAspectRollups,
+  majorityEntityId,
   type RollupMember,
 } from './aspect-rollups';
 
@@ -339,7 +340,32 @@ export class WindowDeriverService {
           `DELETE knowledge_fact WHERE derivedVersion = $version`,
           { version: name },
         );
+        // Audit 2026-08-19 P1: the version's digests die with it — a
+        // reaped world must not keep serving its narrative.
+        await db.query(
+          `DELETE conversation_digest WHERE derivedVersion = $version`,
+          { version: name },
+        );
         deleted[name] = v.n;
+      }
+      // Digests of versions with ZERO remaining facts (fold ran but the
+      // fact write failed, or a version never landed facts) are
+      // unreachable through any keep-set derived from facts — sweep the
+      // orphans by the same keep-set.
+      const [digestVersions] = await db.query<
+        [Array<{ derivedVersion?: string }>]
+      >(
+        `SELECT derivedVersion FROM conversation_digest
+          WHERE derivedVersion IS NOT NONE
+          GROUP BY derivedVersion`,
+      );
+      for (const v of digestVersions ?? []) {
+        const name = String(v.derivedVersion);
+        if (keep.has(name) || name in deleted) continue;
+        await db.query(
+          `DELETE conversation_digest WHERE derivedVersion = $version`,
+          { version: name },
+        );
       }
     });
     // A registry row promises a queryable world — reaped versions lose theirs.
@@ -777,11 +803,19 @@ export class WindowDeriverService {
     digest: string | null;
     digestEventAt: Date | null;
   }): Promise<void> {
-    if (digest === null || !digest.trim() || !digestEventAt) return;
+    // Audit 2026-08-19 P1: deriving a (conversation, version) claims the
+    // whole namespace — the OLD digest dies regardless of whether this
+    // run produced a new one (flag now off, or the fold degraded).
+    // Leaving it would serve a narrative inconsistent with the facts
+    // that were just rewritten next to it.
     await db.query(
       `DELETE conversation_digest
-        WHERE conversationId = $conv AND derivedVersion = $version;
-       CREATE conversation_digest SET
+        WHERE conversationId = $conv AND derivedVersion = $version`,
+      { conv: conversationId, version },
+    );
+    if (digest === null || !digest.trim() || !digestEventAt) return;
+    await db.query(
+      `CREATE conversation_digest SET
          conversationId = $conv, derivedVersion = $version,
          summary = $summary, lastIngestAt = time::now(),
          lastEventAt = <datetime>$eventAt`,
@@ -889,12 +923,18 @@ export class WindowDeriverService {
   }): Promise<void> {
     try {
       const raw = await this.composeCrossSession(pool);
+      // Audit 2026-08-19: dedupe member indices ([0,0] must not pass the
+      // two-member floor) and demand two DISTINCT supporting atoms.
       const compositions = raw
         .map((c) => ({
           ...c,
-          members: c.members.filter(
-            (m) => Number.isInteger(m) && m >= 0 && m < pool.length,
-          ),
+          members: [
+            ...new Set(
+              c.members.filter(
+                (m) => Number.isInteger(m) && m >= 0 && m < pool.length,
+              ),
+            ),
+          ],
         }))
         .filter((c) => c.members.length >= 2 && c.proposition.trim());
       if (compositions.length === 0) return;
@@ -919,7 +959,7 @@ export class WindowDeriverService {
           ...new Set(members.flatMap((m) => m.episodeIds)),
         ].slice(0, 64);
         return {
-          entityId: members[0].entityId,
+          entityId: majorityEntityId(members),
           predicate: aspect || 'other',
           object: c.proposition,
           confidence: 0.85,
@@ -965,6 +1005,9 @@ export class WindowDeriverService {
       { openai: this.openai, model: this.model, logger: this.logger },
       {
         atoms: pool.map((m) => ({
+          // Entity tag so the model never blends different people's
+          // atoms into one composition (audit 2026-08-19).
+          entity: m.entityId.split(':').pop()?.slice(0, 40) ?? m.entityId,
           predicate: m.predicate,
           object: m.object,
           dateIso: m.dated ? m.validFrom.toISOString().slice(0, 10) : null,

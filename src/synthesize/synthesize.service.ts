@@ -22,6 +22,7 @@ import {
 } from './verdict';
 import {
   attachDecisionLog,
+  buildSecondaryDto,
   resolveAnswerFrames,
   resolveAnswerLang,
   resolveCitations,
@@ -53,7 +54,6 @@ import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
-import type { SearchDto } from '../search/dto/search.dto';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import {
   NOOP_REPORTER,
@@ -220,7 +220,7 @@ export class SynthesizeService {
     const laneProbeHits = await this.runLaneProbe({
       profile,
       lane,
-      query: dto.query,
+      dto,
       companyId,
       callerScopes,
       baseHits: searchResult.results,
@@ -301,6 +301,9 @@ export class SynthesizeService {
           callerScopes,
           // Same fail-closed user scope the fact read path applies (0055).
           userId: dto.userId,
+          // Audit 2026-08-19 P1: secondary searches inside the collector
+          // (instruction probe) inherit the caller's filter contract.
+          dto,
           factIds: [...factIndex.keys()],
           evidence,
         })
@@ -605,15 +608,13 @@ export class SynthesizeService {
       return null;
     }
     try {
+      // Audit 2026-08-19 P1: the refined retrieval inherits the FULL
+      // caller filter contract (anchors, floors, mode, user scope) —
+      // only the query text changes.
       const probe = await withSpan('synthesize.search_loop', () =>
         this.search.search(
           args.companyId,
-          {
-            query: refineQuery,
-            limit: dto.limit ?? 10,
-            ...(dto.asOf ? { asOf: dto.asOf } : {}),
-            ...(dto.userId ? { userId: dto.userId } : {}),
-          } as SearchDto,
+          buildSecondaryDto(dto, { query: refineQuery }),
           args.callerScopes,
         ),
       );
@@ -708,24 +709,30 @@ export class SynthesizeService {
   private async runLaneProbe({
     profile,
     lane,
-    query,
+    dto,
     companyId,
     callerScopes,
     baseHits,
   }: {
     profile: RetrievalProfile;
     lane: LaneId | null;
-    query: string;
+    dto: SynthesizeDto;
     companyId: string;
     callerScopes: string[];
     baseHits: SearchHit[];
   }): Promise<SearchHit[]> {
-    const probeDto = laneProbeDto(profile, lane, { query, baseHits });
+    const probeDto = laneProbeDto(profile, lane, { query: dto.query, baseHits });
     if (!probeDto) return [];
     if (getAbortSignal()?.aborted) return [];
     try {
+      // Audit 2026-08-19 P1: the probe inherits the caller's full
+      // filter contract; the lane supplies only its query and limit.
       const probe = await withSpan('synthesize.lane_probe', () =>
-        this.search.search(companyId, probeDto as SearchDto, callerScopes),
+        this.search.search(
+          companyId,
+          buildSecondaryDto(dto, probeDto),
+          callerScopes,
+        ),
       );
       return probe.results;
     } catch (e) {

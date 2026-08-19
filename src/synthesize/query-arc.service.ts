@@ -35,7 +35,22 @@ interface FactScanRow {
   object: string;
   validFrom: Date | string;
   score?: number;
+  // Policy fields (audit 2026-08-19 P1: the row filter reads source /
+  // trustSnapshot / corroboration / userId — a projection without them
+  // evaluated source- and trust-conditioned rules over null).
+  source?: unknown;
+  trustSnapshot?: {
+    authority?: number;
+    declaredTrust?: number;
+    learnedTrust?: number;
+  } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
 }
+
+/** The one projection every policy-filtered fact read uses. */
+const POLICY_PROJECTION =
+  'id, predicate, object, validFrom, source, trustSnapshot, corroboration, userId';
 
 /**
  * Query-time arc lane (V10 §4, insightEvidence='query_arc').
@@ -137,7 +152,7 @@ export class QueryArcService {
           const dense = await runDenseScanLeg<FactScanRow>({
             db,
             table: 'knowledge_fact',
-            projection: 'id, predicate, object, validFrom',
+            projection: POLICY_PROJECTION,
             gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
             params: { q: topicVector, ...shared },
             k,
@@ -150,7 +165,7 @@ export class QueryArcService {
             mode: opts.lex ?? 'phrase',
           });
           const [bm25] = await db.query<[FactScanRow[]]>(
-            `SELECT id, predicate, object, validFrom,
+            `SELECT ${POLICY_PROJECTION},
                     ${lexLeg.score} AS score
                FROM knowledge_fact
               WHERE ${lexLeg.where}

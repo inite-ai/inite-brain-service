@@ -29,9 +29,12 @@ const DATE_TABLE_CAP = 12;
 
 const DAY_MS = 86_400_000;
 
-/** Epoch sentinel = "undated" convention — never a real evidence date. */
+/** Epoch sentinel = "undated" convention — never a real evidence date.
+ *  Only the sentinel's OWN calendar day is excluded; genuine pre-1970
+ *  history stays renderable (audit 2026-08-19: `ms > DAY_MS` dropped
+ *  every date up to 1970-01-02). */
 function isRealDate(ms: number): boolean {
-  return Number.isFinite(ms) && ms > DAY_MS;
+  return Number.isFinite(ms) && Math.floor(ms / DAY_MS) !== 0;
 }
 
 function collectDayMs(hits: SearchHit[]): number[] {

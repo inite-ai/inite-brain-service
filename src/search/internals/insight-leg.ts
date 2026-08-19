@@ -44,6 +44,16 @@ export interface InsightRow {
   object: string;
   validFrom?: unknown;
   score?: number;
+  // Policy fields (audit 2026-08-19 P1): the insight lane's row filter
+  // reads these — a projection without them judged rules over null.
+  source?: unknown;
+  trustSnapshot?: {
+    authority?: number;
+    declaredTrust?: number;
+    learnedTrust?: number;
+  } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
 }
 
 /**
@@ -81,7 +91,10 @@ function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
     validFrom: valid,
     recordedAt: new Date().toISOString(),
     status: 'active',
-    source: { vertical: 'insight' },
+    source: r.source ?? { vertical: 'insight' },
+    ...(r.trustSnapshot !== undefined ? { trustSnapshot: r.trustSnapshot } : {}),
+    ...(r.corroboration !== undefined ? { corroboration: r.corroboration } : {}),
+    ...(r.userId !== undefined ? { userId: r.userId } : {}),
     ...(kind === 'vector'
       ? { simScore: r.score ?? 0 }
       : { bm25Score: r.score ?? 0 }),
@@ -132,6 +145,7 @@ export async function runInsightLegs({
     queryVector
       ? db.query<[InsightRow[]]>(
           `SELECT id, predicate, object, validFrom,
+                  source, trustSnapshot, corroboration, userId,
                   vector::similarity::cosine(embedding, $q) AS score
              FROM knowledge_fact
             WHERE embedding != NONE ${insightGate} ${piiGate} ${userGate} ${worldGate}
@@ -142,6 +156,7 @@ export async function runInsightLegs({
       : Promise.resolve([[] as InsightRow[]]),
     db.query<[InsightRow[]]>(
       `SELECT id, predicate, object, validFrom,
+              source, trustSnapshot, corroboration, userId,
               math::max([search::score(1), search::score(2)]) AS score
          FROM knowledge_fact
         WHERE (searchHaystack @1@ $q OR object @2@ $q)

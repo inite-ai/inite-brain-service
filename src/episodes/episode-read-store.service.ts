@@ -207,7 +207,7 @@ export class EpisodeReadStoreService {
           .query<[EpisodeQuoteRow[]]>(
             `SELECT id, conversationId, speaker, text, occurredAt FROM episode
               WHERE conversationId = $conv AND occurredAt <= $c ${gates}
-              ORDER BY occurredAt DESC LIMIT ${Math.max(1, opts.span + 1)}`,
+              ORDER BY occurredAt DESC, id DESC LIMIT ${Math.max(1, opts.span + 1)}`,
             params,
           )
           .then(([rows]) => rows ?? []),
@@ -215,7 +215,7 @@ export class EpisodeReadStoreService {
           .query<[EpisodeQuoteRow[]]>(
             `SELECT id, conversationId, speaker, text, occurredAt FROM episode
               WHERE conversationId = $conv AND occurredAt > $c ${gates}
-              ORDER BY occurredAt ASC LIMIT ${Math.max(1, opts.span)}`,
+              ORDER BY occurredAt ASC, id ASC LIMIT ${Math.max(1, opts.span)}`,
             params,
           )
           .then(([rows]) => rows ?? []),

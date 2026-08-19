@@ -181,3 +181,13 @@ export function accumulateLanded(
     });
   });
 }
+
+/** Majority entity among a composition's member atoms (audit
+ *  2026-08-19: attribution must not default to the first member). */
+export function majorityEntityId(members: RollupMember[]): string {
+  const counts = new Map<string, number>();
+  for (const m of members) {
+    counts.set(m.entityId, (counts.get(m.entityId) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}

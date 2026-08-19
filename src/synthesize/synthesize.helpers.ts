@@ -2,6 +2,7 @@ import type { SearchHit } from '../search/search.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
+import type { SearchDto } from '../search/dto/search.dto';
 import type { DecisionLogEntry } from './decision-log';
 import { resolveDateContext } from './evidence-union';
 import type { Citation } from './fact-index';
@@ -36,6 +37,43 @@ export function resolveAnswerFrames(args: {
       : undefined,
     shapeInstruction: shape ? shapeInstructionFor(shape) : undefined,
   };
+}
+
+/**
+ * Secondary-retrieval DTO builder (audit 2026-08-19 P1: every probe and
+ * refine round used to send only {query, limit}, silently dropping the
+ * caller's filter contract — entity/predicate/type anchors, confidence
+ * and status floors, search mode, asOf and the user scope. An M2M call
+ * with an explicit userId lost the user's memory in every secondary
+ * search). One builder inherits the FULL constraint set; only the query
+ * and limit vary per probe.
+ */
+export function buildSecondaryDto(
+  base: SearchDto,
+  override: { query: string; limit?: number },
+): SearchDto {
+  return {
+    ...(base.asOf !== undefined ? { asOf: base.asOf } : {}),
+    ...(base.userId !== undefined ? { userId: base.userId } : {}),
+    ...(base.entityIds ? { entityIds: base.entityIds } : {}),
+    ...(base.entityTypes ? { entityTypes: base.entityTypes } : {}),
+    ...(base.predicates ? { predicates: base.predicates } : {}),
+    ...(base.minConfidence !== undefined
+      ? { minConfidence: base.minConfidence }
+      : {}),
+    ...(base.includeContested !== undefined
+      ? { includeContested: base.includeContested }
+      : {}),
+    ...(base.includeRetracted !== undefined
+      ? { includeRetracted: base.includeRetracted }
+      : {}),
+    ...(base.requireProvenance !== undefined
+      ? { requireProvenance: base.requireProvenance }
+      : {}),
+    ...(base.searchMode ? { searchMode: base.searchMode } : {}),
+    query: override.query,
+    limit: override.limit ?? base.limit ?? 10,
+  } as SearchDto;
 }
 
 /** Temporal lane forces the Today anchor from asOf; others follow the

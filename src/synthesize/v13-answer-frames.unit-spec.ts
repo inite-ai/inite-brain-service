@@ -46,6 +46,13 @@ describe('buildDateMathLines (V13 RETRIEVAL_DATE_MATH)', () => {
     expect(lines.join('\n')).not.toMatch(/today|before now|ago/i);
   });
 
+  it('keeps genuine pre-1970 history (only the sentinel day is excluded)', () => {
+    const lines = buildDateMathLines([
+      hit([{ validFrom: '1969-12-31T00:00:00.000Z' }]),
+    ]);
+    expect(lines).toEqual(['1969-12-31 = Wednesday']);
+  });
+
   it('skips the epoch "undated" sentinel and dedupes same-day stamps', () => {
     const lines = buildDateMathLines([
       hit([

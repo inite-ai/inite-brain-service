@@ -232,23 +232,29 @@ jobs:
           docker-compose logs --tail=120 ${{ env.PROJECT_NAME }}
           exit 1
 
-      - name: External health probe (warning-only)
+      - name: External health probe
         if: github.event.inputs.action != 'logs'
-        continue-on-error: true
         run: |
+          # Unreachable domain stays a WARNING (DNS/Traefik propagation on a
+          # fresh deploy is not this job's fault — the container-level probe
+          # above already gates the deploy). But once the domain answers,
+          # every artifact path must be a 200: a 404 here is a broken deploy,
+          # not a flake (audit 2026-08-19: this step was warning-only and
+          # /openapi.json 404'd for months while it ran green).
           for i in $(seq 1 12); do
             if curl -fs "https://${{ env.DOMAIN }}/en" > /dev/null 2>&1; then
               echo "[ok] https://${{ env.DOMAIN }}/en responds"
-              # Status codes, not decorated echoes. The lines below used to
-              # print "[ok]" whether or not the curl succeeded — `curl -fsI`
-              # writes nothing on a failure, so a 404 rendered as "[ok] " with
-              # an empty tail and read as a pass. /openapi.json was a 404 for
-              # months while this probe ran green on every deploy.
+              fail=0
               for path in /skills.tar.gz /install.sh /health /openapi.json; do
                 code=$(curl -s -o /dev/null -w '%{http_code}' "https://${{ env.DOMAIN }}$path")
-                [ "$code" = "200" ] && echo "[ok]   $path -> $code" || echo "[warn] $path -> $code"
+                if [ "$code" = "200" ]; then
+                  echo "[ok]  $path -> $code"
+                else
+                  echo "[err] $path -> $code"
+                  fail=1
+                fi
               done
-              exit 0
+              exit $fail
             fi
             echo "[info] external probe retry ($i/12)..."
             sleep 10

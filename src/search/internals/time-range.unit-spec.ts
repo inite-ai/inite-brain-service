@@ -52,6 +52,29 @@ describe('parseQueryTimeRange (V13 RETRIEVAL_TIME_FILTER)', () => {
     expect(r!.toMs - r!.fromMs).toBe(DAY_MS);
   });
 
+  it('rejects impossible calendar dates instead of normalizing them', () => {
+    // Date.UTC would roll 2024-02-30 into 2024-03-01 — the filter must
+    // not anchor on a DAY the query never named (audit 2026-08-19). The
+    // year the words also matched still anchors the coarse fallback —
+    // rank-only and honest ("some day in 2024").
+    expect(parseQueryTimeRange('what happened on 2024-02-30?')).toEqual({
+      fromMs: Date.UTC(2024, 0, 1),
+      toMs: Date.UTC(2025, 0, 1),
+    });
+    // An impossible day with a real month falls back one precision
+    // level — the month envelope, not the day.
+    expect(parseQueryTimeRange('the party on 31 April 2023')).toEqual({
+      fromMs: Date.UTC(2023, 3, 1),
+      toMs: Date.UTC(2023, 4, 1),
+    });
+    // Real leap day parses at day precision; the impossible one falls
+    // back to the year envelope.
+    const leap = parseQueryTimeRange('on 29 February 2024');
+    expect(leap!.toMs - leap!.fromMs).toBe(DAY_MS);
+    const notLeap = parseQueryTimeRange('on 29 February 2023');
+    expect(notLeap!.toMs - notLeap!.fromMs).toBeGreaterThan(DAY_MS);
+  });
+
   it('returns null for relative or yearless expressions', () => {
     for (const q of [
       'when did Melanie paint the sunrise?',

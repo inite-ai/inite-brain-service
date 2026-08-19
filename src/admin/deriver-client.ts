@@ -488,7 +488,7 @@ export const COMPOSE_SYSTEM = `You compose HIGHER-ORDER memory propositions from
 - specification: a general fact merged with its later concrete detail;
 - connection: a cause/enable/purpose link the atoms explicitly support.
 
-Rules: every composition must be fully supported by its member atoms — never bridge with outside knowledge; carry the members' absolute dates into the text; skip anything a single atom already states; skip near-duplicates of another composition. "members" lists the atom numbers used (two or more). "occurred_on" dates the composed event when determinable, else null. Up to 20 compositions; an empty list is the correct output when nothing composes.`;
+Rules: every composition must be fully supported by its member atoms — never bridge with outside knowledge; carry the members' absolute dates into the text; skip anything a single atom already states; skip near-duplicates of another composition; never blend atoms about DIFFERENT people into one claim unless the composition states the relationship between them explicitly. "members" lists the atom numbers used (two or more distinct). "occurred_on" dates the composed event when determinable, else null. Up to 20 compositions; an empty list is the correct output when nothing composes.`;
 
 /** One composed row proposal from the cross-session pass. */
 export interface ComposedProposition {
@@ -508,13 +508,18 @@ export interface ComposedProposition {
 export async function composeCrossSession(
   deps: DeriverClientDeps,
   args: {
-    atoms: Array<{ predicate: string; object: string; dateIso: string | null }>;
+    atoms: Array<{
+      entity: string;
+      predicate: string;
+      object: string;
+      dateIso: string | null;
+    }>;
   },
 ): Promise<ComposedProposition[]> {
   const list = args.atoms
     .map(
       (a, i) =>
-        `${i}. [${a.predicate}]${a.dateIso ? ` (${a.dateIso})` : ''} ${a.object}`,
+        `${i}. [${a.entity}/${a.predicate}]${a.dateIso ? ` (${a.dateIso})` : ''} ${a.object}`,
     )
     .join('\n');
   const res = await deps.openai.chat.completions.create({

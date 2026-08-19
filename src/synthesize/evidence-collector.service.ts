@@ -8,6 +8,7 @@ import {
   INSTRUCTION_PROBE_QUERY,
   extractStandingInstructions,
 } from './answer-router';
+import { buildSecondaryDto } from './synthesize.helpers';
 import {
   wantsInsightEvidence,
   wantsTimelineEvidence,
@@ -114,6 +115,9 @@ export class EvidenceCollectorService {
     query: string;
     callerScopes: string[];
     userId?: string;
+    /** The caller's full request — secondary searches (instruction
+     *  probe) inherit its filter contract (audit 2026-08-19 P1). */
+    dto?: SearchDto;
     factIds: string[];
     evidence: SearchHit[];
   }): Promise<CollectedEvidence> {
@@ -196,8 +200,14 @@ export class EvidenceCollectorService {
     profile: RetrievalProfile;
     lane: LaneId | null;
     companyId: string;
+    userId?: string;
   }): Promise<string[]> {
     if (!opts.profile.digestEvidence || !this.digestLane) return [];
+    // Audit 2026-08-19 P1: digests are TENANT-GLOBAL derived state with
+    // no per-row user/PII fence — a user-scoped request must not read a
+    // narrative folded from other users' conversations. Fail closed
+    // until digests carry per-user policy metadata.
+    if (opts.userId) return [];
     if (
       opts.profile.digestLanes === 'summary_ku' &&
       opts.lane !== 'summary' &&
@@ -409,11 +419,13 @@ export class EvidenceCollectorService {
     companyId,
     callerScopes,
     evidence,
+    dto,
   }: {
     profile: RetrievalProfile;
     companyId: string;
     callerScopes: string[];
     evidence: SearchHit[];
+    dto?: SearchDto;
   }): Promise<string[] | undefined> {
     if (!profile.lanes.has('instruction')) return undefined;
     // Structured cancellation: the probe is a full second search — if
@@ -423,10 +435,14 @@ export class EvidenceCollectorService {
     if (getAbortSignal()?.aborted) return undefined;
     let probeHits: SearchHit[] = [];
     try {
+      // Audit 2026-08-19 P1: the probe inherits the caller's filter
+      // contract (user scope included) — only its query/limit are fixed.
       const probe = await withSpan('synthesize.instruction_probe', () =>
         this.search.search(
           companyId,
-          { query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto,
+          dto
+            ? buildSecondaryDto(dto, { query: INSTRUCTION_PROBE_QUERY, limit: 8 })
+            : ({ query: INSTRUCTION_PROBE_QUERY, limit: 8 } as SearchDto),
           callerScopes,
         ),
       );

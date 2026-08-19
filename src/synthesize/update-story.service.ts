@@ -13,6 +13,15 @@ interface LoserRow {
   supersededBy: unknown;
   object: string;
   validUntil?: Date | string;
+  // Policy fields (audit 2026-08-19 P1) — see row-filter.ts.
+  source?: unknown;
+  trustSnapshot?: {
+    authority?: number;
+    declaredTrust?: number;
+    learnedTrust?: number;
+  } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
 }
 
 /** Depth of the reverse-link walk: the immediate predecessor plus two
@@ -82,7 +91,8 @@ export class UpdateStoryService {
           if (frontier.size === 0) break;
           const res = await db.query<[unknown, LoserRow[]]>(
             `LET $w = $winners.map(|$x| type::record($x));
-             SELECT id, predicate, supersededBy, object, validUntil
+             SELECT id, predicate, supersededBy, object, validUntil,
+                    source, trustSnapshot, corroboration, userId
                FROM knowledge_fact
               WHERE supersededBy IN $w
                 AND status = 'superseded'

@@ -65,7 +65,14 @@ function collect(re: RegExp, text: string): RegExpExecArray[] {
 }
 
 function validDay(y: number, m: number, d: number): boolean {
-  return m >= 0 && m <= 11 && d >= 1 && d <= 31 && y >= 1900 && y <= 2100;
+  if (m < 0 || m > 11 || d < 1 || d > 31 || y < 1900 || y > 2100) return false;
+  // Round-trip: Date.UTC silently normalizes impossible calendar dates
+  // (2024-02-30 -> 2024-03-01), which would anchor the filter on a day
+  // the query never named (audit 2026-08-19).
+  const dt = new Date(Date.UTC(y, m, d));
+  return (
+    dt.getUTCFullYear() === y && dt.getUTCMonth() === m && dt.getUTCDate() === d
+  );
 }
 
 /** Envelope of [from, to) intervals; null when the list is empty. */
