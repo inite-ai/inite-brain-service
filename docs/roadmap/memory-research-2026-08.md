@@ -61,8 +61,9 @@ multi-hop there) — conflict/freshness resolution belongs in code, at assembly 
 protocol** vs LIGHT's 0.358 (our anchor); Router-Mem's plain full pipeline hits 43.3 on its
 harness. So 0.40–0.45 looks claimable without exotic machinery. Two lanes are
 protocol-capped, not capability-capped: contradiction resolution (0.006–0.05 for *all*
-systems strict vs 91.4% under a lenient judge — never quote our internal 52–55 next to the
-official 0.03) and event ordering is nearly so (0.16–0.22 for all — but that is Kendall-tau
+systems strict vs 60.6 under the vendor AMB harness — a ≥12× lane inflation; the earlier
+"91.4% lenient CR" marker in this doc was a mis-mapped citation, 91.4 is Hindsight's
+LongMemEval headline. Never quote our internal 52–55 next to the official 0.03) and event ordering is nearly so (0.16–0.22 for all — but that is Kendall-tau
 over event sequences, i.e. exactly what per-turn timestamps would feed). We ported 3 of 4
 LIGHT components; the unported one is **noise filtering** (binary chunk-relevance gate on
 scratchpad content, ~+2pp @100K, growing with scale). Their retrieval-k ablation: k=15
@@ -173,6 +174,28 @@ eval axis (including the future documents axis): a judge-calibration probe —
 score a set of intentionally-wrong, topically-adjacent answers and report the
 judge's acceptance rate next to the headline.** An axis without this number is
 not evidence; a 90+ on it is not a result.
+
+**AMB leaderboard forensic (2026-08-19; Exabase M-1 76.9 / Hindsight 73.4 /
+Honcho 63.0 @100K).** The board (agentmemorybenchmark.ai) is owned by Vectorize
+— the vendor of Hindsight, the #2 entry; the #1 entry (Exabase) forked the
+owner's harness and ran Gemini 3 Flash as BOTH answerer and judge; submissions
+are self-run, the judge is unpinned, and the harness README itself admits
+"small changes can swing accuracy scores by double digits". Question set is a
+per-tier regeneration (~400 @100K), not the paper's validated 2,000. Academic
+strict-protocol systems appear only as pasted original-paper numbers next to
+vendor-harness numbers (direct cross-currency conflation); the official BEAM
+project page hosts no leaderboard at all. Currency triangulation (CR-lane
+inflation ≥12×; rubric-shape factor 1.3× measured on our own strict pair):
+lenient(AMB) ≈ 1.5–2.0× strict-nugget, placing all three at ~0.32–0.51
+strict-equivalent — statistically indistinguishable from our measured 0.46,
+likely above only Honcho. The one ablation-backed takeaway in the trio:
+Honcho's dreaming ON/OFF — consolidation helps @100K, off is better ≥500K —
+independently confirming our V9 lifecycle-parity law. Exabase's
+salience-modulated decay (the fovea program's interest): two sentences of
+proprietary prose, zero ablations — not citable as evidence. Meta-rule
+adopted: demand the bare-backbone delta from every vendor claim (Honcho's own
+LoCoMo delta over bare Haiku is +6pp — the honest size of a memory system's
+contribution under a modern backbone).
 
 Any external number must pin: judge model + strictness probe, answer model, category set
 (cat-5 in/out), split, n, and retrieval budget (tokens/query). Three incompatible BEAM score
