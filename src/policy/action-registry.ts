@@ -115,6 +115,10 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.episodes.subscriptions': { kind: 'read', family: 'rest', title: 'List episode webhooks' },
   'rest.episodes.unsubscribe': { kind: 'admin', family: 'rest', title: 'Delete an episode webhook' },
   'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
+  // Rolling user profile v1 (USER_PROFILE_API_ENABLED). MCP-tool-style
+  // name (the get_entity_profile precedent) so a future MCP surface
+  // shares the action; REST-only today.
+  get_user_profile: { kind: 'read', family: 'rest', title: 'Get user profile' },
 };
 
 /**

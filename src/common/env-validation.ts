@@ -498,6 +498,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark
   // poll over recordedAt, metadata-only payloads, HMAC-signed).
   'EPISODE_SUBSCRIPTIONS_ENABLED',
+  // Rolling user profile v1: GET /v1/users/:userId/profile —
+  // deterministic per-user profile assembly for prompt injection.
+  // Default off → routes 404.
+  'USER_PROFILE_API_ENABLED',
   // E3b object normalization: the extractor proposes a minimal clean value
   // alongside the verbatim span; the server admits it only when every word
   // appears in the grounded span. Default off pending a paid confirm leg.
