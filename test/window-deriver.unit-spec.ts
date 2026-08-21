@@ -185,14 +185,31 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       propositions: 2,
       unresolvedSubjects: 1,
     });
+    // Audit 2026-08-19 P1: in-run writes (and their namespace-claim
+    // deletes) live in `<version>.staging`; the final version is only
+    // ever touched by the atomic flip at the end of a clean run.
+    const staging = `${WINDOW_DERIVER_VERSION}.staging`;
     const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
-    expect(del?.params?.version).toBe(WINDOW_DERIVER_VERSION);
+    expect(del?.params?.version).toBe(staging);
+    const flip = queries.find(
+      (q) =>
+        q.sql.includes('BEGIN TRANSACTION') &&
+        q.sql.includes('UPDATE knowledge_fact SET derivedVersion = $final'),
+    );
+    expect(flip).toBeDefined();
+    expect(flip?.sql).toContain(
+      'DELETE knowledge_fact WHERE derivedVersion = $final',
+    );
+    expect(flip?.params).toMatchObject({
+      final: WINDOW_DERIVER_VERSION,
+      staging,
+    });
     // S4/0079: the write goes through the ONE write primitive
     // (fn::resolve_facts via FactResolverService), not a raw INSERT.
     const rows = derived;
     expect(rows).toHaveLength(2);
     expect(rows[0].predicate).toBe('pets');
-    expect(rows[0].derivedVersion).toBe(WINDOW_DERIVER_VERSION);
+    expect(rows[0].derivedVersion).toBe(staging);
     expect(String(rows[0].object)).toContain('Luna and Oliver');
     const source = rows[0].source as Record<string, unknown>;
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
@@ -280,7 +297,18 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(
         on.queries.some((q) => q.sql.includes('DELETE conversation_digest')),
       ).toBe(true);
-      expect(write?.params?.version).toBe(WINDOW_DERIVER_VERSION);
+      // Digest writes stage like fact writes; the digest flip
+      // transaction promotes them alongside the facts.
+      expect(write?.params?.version).toBe(`${WINDOW_DERIVER_VERSION}.staging`);
+      expect(
+        on.queries.some(
+          (q) =>
+            q.sql.includes('BEGIN TRANSACTION') &&
+            q.sql.includes(
+              'UPDATE conversation_digest SET derivedVersion = $final',
+            ),
+        ),
+      ).toBe(true);
       expect(write?.params?.conv).toBe('conv-1');
       expect(String(write?.params?.summary).length).toBeGreaterThan(0);
       expect(write?.params?.eventAt).toBe('2023-05-01T10:01:00.000Z');
