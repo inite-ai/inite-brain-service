@@ -23,6 +23,11 @@ const FACT_EPISODES_BY_ID_SQL = `SELECT id, source.episodeIds AS eps FROM knowle
  *  fact line — an unbudgeted turn would blow up every line it rides). */
 const GROUNDING_QUOTE_CHAR_CAP = 240;
 
+/** Per-line budget of the assistant lane (audit 2026-08-21 #7): a turn
+ *  is up to 16K chars at ingest; topK uncapped lines could dominate the
+ *  whole prompt. 600 chars keeps a recommendation payload intact. */
+const ASSISTANT_LINE_CHAR_CAP = 600;
+
 /** First-seen episode ids from fact grounding stamps, capped.
  *  Evidence order ≈ relevance order, so first-seen wins the cap. */
 function collectAnchorEpisodeIds(
@@ -123,20 +128,28 @@ export class EpisodeLaneService {
   }
 
   /**
-   * Multiworld §10 assistant verbatim lane (RETRIEVAL_ASSISTANT_LANE),
-   * EXCHANGE granularity (the SeCom retrieval-unit finding). The
+   * Multiworld §10 assistant verbatim lane (RETRIEVAL_ASSISTANT_LANE):
+   * BM25 over L0 restricted to turns SPOKEN BY the assistant role. The
    * measured SSA failure class is structural — assistant-contributed
-   * content is never extracted into facts, so fact-anchored lanes have
-   * nothing to anchor near the gold turn; and the v1 turn-level
-   * role-filtered BM25 measured only +2/−0 because the question's
-   * anchor terms usually live in the USER side of the exchange while
-   * the payload lives in the assistant REPLY ("the shop in Bandung" is
-   * the user's ask; "Miss Bee Providore" is the answer). So: BM25 over
-   * ALL turns, then serve the exchange — the hit itself plus, for a
-   * non-assistant hit, the first assistant turn that FOLLOWS it in its
-   * conversation. Speaker matching is a case-insensitive SUFFIX
-   * (`match`) because harness speakers are `<convSlug>__<role>`. Same
-   * PII/user fences, same degradation contract: [] on any failure.
+   * content is never extracted into facts (the base deriver contract is
+   * user-fact-shaped), so fact-anchored lanes (source excerpts,
+   * raw windows) have nothing to anchor near the gold turn. This lane
+   * reaches the content directly by role, no facts involved. Speaker
+   * matching is a case-insensitive SUFFIX (`match`) because harness
+   * speakers are `<convSlug>__<role>`.
+   *
+   * Measured lineage: this role-filtered shape took SSA 42.9→46.4
+   * (flips +2/−0); the v1.1 exchange expansion (BM25 over all turns +
+   * follow-up assistant reply) measured NO additional gain (+0/−1 vs
+   * v1) while adding per-hit DB queries and an ordering hazard on
+   * same-timestamp turns — reverted (audit 2026-08-21 #6/#7). The
+   * residual miss class is retrieval RANK (the gold exchange not in
+   * BM25 top-K), which the typed-derive world addresses densely.
+   *
+   * Budget: each line is clamped to ASSISTANT_LINE_CHAR_CAP — a turn
+   * can be 16K chars at ingest and this lane renders up to topK of
+   * them. Same PII/user fences, same degradation contract: [] on any
+   * failure.
    */
   async assistantTurns(opts: {
     companyId: string;
@@ -144,46 +157,30 @@ export class EpisodeLaneService {
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
-    /** Anchor hits per prompt (profile.assistantLaneTopK). */
+    /** Quotes per prompt (profile.assistantLaneTopK). */
     limit: number;
     /** Speaker suffix identifying the role (profile.assistantLaneMatch). */
     match: string;
   }): Promise<string[]> {
     try {
-      const includePii = opts.callerScopes.includes('brain:read_pii');
-      const suffix = opts.match.toLowerCase();
-      const hits = await this.episodes.searchText({
+      const rows = await this.episodes.searchText({
         companyId: opts.companyId,
         query: opts.query,
         limit: opts.limit,
-        includePii,
+        includePii: opts.callerScopes.includes('brain:read_pii'),
         userId: opts.userId,
+        speakerSuffix: opts.match,
       });
-      const replies = await Promise.all(
-        hits.map((r) =>
-          !String(r.speaker ?? '')
-            .toLowerCase()
-            .endsWith(suffix) && r.conversationId
-            ? this.episodes
-                .nextTurnBySpeaker({
-                  companyId: opts.companyId,
-                  conversationId: String(r.conversationId),
-                  afterIso: new Date(r.occurredAt as string).toISOString(),
-                  speakerSuffix: suffix,
-                  includePii,
-                  userId: opts.userId,
-                })
-                .catch(() => null)
-            : Promise.resolve(null),
+      return renderQuoteLines(
+        rows.map((r) =>
+          r.text.length > ASSISTANT_LINE_CHAR_CAP
+            ? {
+                ...r,
+                text: `${r.text.slice(0, ASSISTANT_LINE_CHAR_CAP - 1)}…`,
+              }
+            : r,
         ),
       );
-      const byId = new Map<string, EpisodeQuoteRow>();
-      for (const row of [...hits, ...replies]) {
-        if (!row) continue;
-        const key = String(row.id ?? `${row.occurredAt}|${row.text}`);
-        if (!byId.has(key)) byId.set(key, row);
-      }
-      return renderQuoteLines([...byId.values()]);
     } catch (e) {
       this.logger.warn(
         `assistant lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,

@@ -1310,7 +1310,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          "Multiworld §10 READ union: comma-separated derivedVersion list — the read path serves the SET of worlds (WHERE derivedVersion INSIDE […]), rows competing in the same legs and fusion. The tenant's own resolved world (registry live row / RETRIEVAL_DERIVED_VERSION) is always INCLUDED in the union, never displaced. Write/maintenance surfaces (derive, dreams, compaction, communities) stay single-world. Unset = single-pin behavior, byte-identical.",
+          "Multiworld §10 READ union: comma-separated derivedVersion list — the read path serves the SET of worlds (WHERE derivedVersion INSIDE […]), rows competing in the same legs and fusion. The tenant's own resolved world (registry live row / RETRIEVAL_DERIVED_VERSION) is always INCLUDED in the union, never displaced. Write/maintenance surfaces (derive, dreams, compaction, communities) stay single-world; the derive rewrite guard and GC keep every union member (audit 2026-08-21). CONSTRAINT: union members must be COMPLEMENTARY worlds (typed lanes over one substrate) — unioning two full snapshots of the same contract duplicates semantically-equal rows under different ids (dedup is by record id only) and they eat the shared budget; per-world descriptors/budgets are deferred until the first union pair measures. Unset = single-pin behavior, byte-identical.",
       },
       {
         key: 'SYNTHESIZE_ANSWER_ROUTER_ENABLED',

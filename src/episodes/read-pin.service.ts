@@ -81,6 +81,20 @@ export class ReadPinService {
   }
 
   /**
+   * The full read set around one resolved primary pin, as a Set —
+   * the shape lifecycle surfaces consume (derive rewrite guard, GC;
+   * audit 2026-08-21 P1): a union-served world is as live as the
+   * primary pin and must survive both.
+   */
+  static readSet(primary: string | null | undefined): Set<string> {
+    return new Set(
+      [primary, ...(ReadPinService.bootstrapUnion() ?? [])].filter(
+        (v): v is string => Boolean(v),
+      ),
+    );
+  }
+
+  /**
    * Live derived version for this tenant, or null for the legacy
    * namespace. Registry `live` row wins; otherwise the env bootstrap.
    * Registry failures degrade to the bootstrap rather than emptying a

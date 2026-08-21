@@ -27,6 +27,11 @@ import type { CoverageScanTuning } from './scan-leg';
 /** Grounding anchors the raw-window lane expands (top evidence order). */
 const RAW_WINDOW_MAX_ANCHORS = 4;
 
+/** Hard bound on assistant-lane quotes regardless of env/override
+ *  (audit 2026-08-21 #7): with the 600-char line cap this bounds the
+ *  section at ~14K chars even under a hostile override. */
+const ASSISTANT_LANE_MAX_TOPK = 24;
+
 /** V13 noise filter: sections at or under this length pass untouched —
  *  filtering a short section risks more than it saves. */
 const NOISE_FILTER_MIN_LINES = 8;
@@ -415,7 +420,10 @@ export class EvidenceCollectorService {
                 query,
                 callerScopes,
                 userId,
-                limit: profile.assistantLaneTopK,
+                limit: Math.min(
+                  profile.assistantLaneTopK,
+                  ASSISTANT_LANE_MAX_TOPK,
+                ),
                 match: profile.assistantLaneMatch,
               })
               .then((v) => v ?? [])

@@ -162,120 +162,54 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
   });
 });
 
-describe('EpisodeLaneService.assistantTurns (multiworld §10 — exchange granularity)', () => {
+describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', () => {
   const base = {
     companyId: 'co_x',
-    query: 'the food shop in Bandung you told me about',
+    query: 'What did you recommend for the rate limiter?',
     callerScopes: ['brain:read', 'brain:read_pii'],
     limit: 6,
     match: 'assistant',
   };
 
-  function makeExchangeLane(perQuery: Array<Array<Record<string, unknown>>>): {
-    svc: EpisodeLaneService;
-    queries: Array<{ sql: string; params: Record<string, unknown> }>;
-  } {
-    const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
-    const surreal = {
-      withCompany: async (
-        _co: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
-        fn({
-          query: async (sql: string, params: Record<string, unknown>) => {
-            queries.push({ sql, params });
-            return [perQuery[queries.length - 1] ?? []];
-          },
-        }),
-    } as unknown as SurrealService;
-    return {
-      svc: new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal)),
-      queries,
-    };
-  }
-
-  it('a user-turn hit serves the exchange: anchor + the assistant reply', async () => {
-    const { svc, queries } = makeExchangeLane([
-      [
-        {
-          id: 'episode:u1',
-          conversationId: 'lme:1',
-          speaker: 'conv_1__user',
-          text: 'any good food shop in Bandung?',
-          occurredAt: '2023-05-01T10:00:00Z',
-        },
-      ],
-      [
-        {
-          id: 'episode:a1',
-          conversationId: 'lme:1',
-          speaker: 'conv_1__assistant',
-          text: 'Try Miss Bee Providore',
-          occurredAt: '2023-05-01T10:01:00Z',
-        },
-      ],
+  it('filters by case-insensitive speaker suffix and renders quotes', async () => {
+    const { svc, queries } = makeLane([
+      {
+        speaker: 'conv_1__assistant',
+        text: 'Use the token bucket',
+        occurredAt: '2023-05-01T10:00:00Z',
+      },
     ]);
     const lines = await svc.assistantTurns(base);
     expect(lines).toEqual([
-      '[2023-05-01] conv_1__user: any good food shop in Bandung?',
-      '[2023-05-01] conv_1__assistant: Try Miss Bee Providore',
+      '[2023-05-01] conv_1__assistant: Use the token bucket',
     ]);
-    // BM25 pass is role-UNfiltered (anchor terms live in the user turn)…
-    expect(queries[0].sql).not.toContain('ends_with');
-    // …the reply query is the role-filtered follow-up in-conversation.
-    expect(queries[1].sql).toContain(
+    expect(queries[0].sql).toContain(
       "string::ends_with(string::lowercase(speaker), $speakerSuffix)",
     );
-    expect(queries[1].params.speakerSuffix).toBe('assistant');
-    expect(queries[1].params.conv).toBe('lme:1');
+    expect(queries[0].params.speakerSuffix).toBe('assistant');
   });
 
-  it('an assistant-turn hit is served as is — no follow-up query', async () => {
-    const { svc, queries } = makeExchangeLane([
-      [
-        {
-          id: 'episode:a1',
-          conversationId: 'lme:1',
-          speaker: 'conv_1__Assistant',
-          text: 'Try Miss Bee Providore',
-          occurredAt: '2023-05-01T10:01:00Z',
-        },
-      ],
-    ]);
-    const lines = await svc.assistantTurns(base);
-    expect(lines).toEqual([
-      '[2023-05-01] conv_1__Assistant: Try Miss Bee Providore',
-    ]);
-    expect(queries).toHaveLength(1);
+  it('lowercases the configured match before binding', async () => {
+    const { svc, queries } = makeLane([]);
+    await svc.assistantTurns({ ...base, match: 'Assistant' });
+    expect(queries[0].params.speakerSuffix).toBe('assistant');
   });
 
-  it('dedupes when the reply is itself a BM25 hit', async () => {
-    const shared = {
-      id: 'episode:a1',
-      conversationId: 'lme:1',
-      speaker: 'conv_1__assistant',
-      text: 'Try Miss Bee Providore in Bandung',
-      occurredAt: '2023-05-01T10:01:00Z',
-    };
-    const { svc } = makeExchangeLane([
-      [
-        {
-          id: 'episode:u1',
-          conversationId: 'lme:1',
-          speaker: 'conv_1__user',
-          text: 'any good food shop in Bandung?',
-          occurredAt: '2023-05-01T10:00:00Z',
-        },
-        shared,
-      ],
-      [shared],
+  it('clamps runaway turns to the per-line budget (audit 2026-08-21 #7)', async () => {
+    const { svc } = makeLane([
+      {
+        speaker: 'conv_1__assistant',
+        text: 'x'.repeat(5000),
+        occurredAt: '2023-05-01T10:00:00Z',
+      },
     ]);
-    const lines = await svc.assistantTurns(base);
-    expect(lines).toHaveLength(2);
+    const [line] = await svc.assistantTurns(base);
+    expect(line.length).toBeLessThan(700);
+    expect(line).toContain('…');
   });
 
   it('keeps the PII fence for callers without brain:read_pii', async () => {
-    const { svc, queries } = makeExchangeLane([[]]);
+    const { svc, queries } = makeLane([]);
     await svc.assistantTurns({ ...base, callerScopes: ['brain:read'] });
     expect(queries[0].sql).toContain('AND piiClass IS NONE');
   });
