@@ -11,6 +11,7 @@ import {
   resolveExpansionConfig,
   type ExpansionConfig,
 } from './internals/edge-expansion';
+import { GENRE_PRESETS } from './genre-presets';
 
 /**
  * RetrievalProfile — the per-tenant configuration object that replaced
@@ -25,6 +26,12 @@ import {
  * nothing below the resolution point reads process.env for these
  * dimensions. Env keeps one job: the default profile at boot, plus
  * optional per-tenant overrides (RETRIEVAL_PROFILE_OVERRIDES).
+ *
+ * Between the env layer and the code defaults sits the GENRE PRESET
+ * layer (genre-presets.ts): each genre ships tuned defaults for the
+ * measured levers, applied per field only where the corresponding env
+ * key is unset — explicit env key > genre preset > code default, and a
+ * per-company overlay field beats all three.
  */
 
 export type RetrievalGenre = 'dialogue' | 'assistant_chat' | 'documents';
@@ -529,16 +536,74 @@ function enumEnv<T extends string>(
   return (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
 }
 
+const GENRES = ['dialogue', 'assistant_chat', 'documents'] as const;
+
+/** The genre dimension resolved alone — the preset lookup needs it
+ *  before any other field can resolve. */
+function resolveGenre(env: NodeJS.ProcessEnv): RetrievalGenre {
+  return enumEnv(env, 'RETRIEVAL_GENRE', GENRES) ?? 'assistant_chat';
+}
+
+/** Legacy per-lane keys imply 'always' ONLY when one of them is
+ *  enabled; their falsy state is indistinguishable from unset, so it
+ *  defers to the genre preset (the first-class key
+ *  RETRIEVAL_VERBATIM_EVIDENCE is the explicit off switch). */
+function legacyVerbatimMode(
+  env: NodeJS.ProcessEnv,
+): VerbatimEvidenceMode | undefined {
+  return envFlagEnabled(env.SEARCH_EPISODIC_LANE_ENABLED) ||
+    envFlagEnabled(env.SYNTHESIZE_SOURCE_EXCERPTS) ||
+    envFlagEnabled(env.SEARCH_SEGMENT_LANE_ENABLED)
+    ? 'always'
+    : undefined;
+}
+
+/** SYNTHESIZE_DATE_CONTEXT set to ANY value is an explicit operator
+ *  choice (E2 made date context default-on, so an explicit '0' is the
+ *  measured LoCoMo pin and must beat a preset); unset defers to the
+ *  genre preset. */
+function legacyDateAnchoring(
+  env: NodeJS.ProcessEnv,
+): DateAnchoring | undefined {
+  if (env.SYNTHESIZE_DATE_CONTEXT === undefined) return undefined;
+  return envFlagNotDisabled(env.SYNTHESIZE_DATE_CONTEXT) ? 'absolute' : 'none';
+}
+
+/** env ?? preset ?? off for boolean profile fields. envFlagEnabled
+ *  cannot tell unset from an explicit '0', so the unset check comes
+ *  first: a SET key — including an explicit '0' — is the operator's
+ *  word and beats the preset in both directions. */
+function presetFlag(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  preset: boolean | undefined,
+): boolean {
+  if (env[name] === undefined) return preset ?? false;
+  return envFlagEnabled(env[name]);
+}
+
 /**
  * The boot-default profile, from env. The enum dimensions have
  * first-class keys (RETRIEVAL_GENRE / RETRIEVAL_VERBATIM_EVIDENCE /
  * RETRIEVAL_DATE_ANCHORING); when unset they derive from the legacy
  * per-lane keys so existing deployments resolve to the same behavior.
  * This function is the ONLY place those env keys are read.
+ *
+ * Field precedence (genre-presets.ts): explicit env key > genre preset
+ * > code default. The preset partial for the resolved genre fills only
+ * the fields whose env keys are unset.
  */
 export function resolveRetrievalProfile(
   env: NodeJS.ProcessEnv = process.env,
 ): RetrievalProfile {
+  return resolveForGenre(resolveGenre(env), env);
+}
+
+function resolveForGenre(
+  genre: RetrievalGenre,
+  env: NodeJS.ProcessEnv,
+): RetrievalProfile {
+  const preset = GENRE_PRESETS[genre];
   const routerOn = envFlagEnabled(env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
   const lanes = new Set<LaneId>();
   if (routerOn) {
@@ -550,17 +615,8 @@ export function resolveRetrievalProfile(
       }
     }
   }
-  const legacyVerbatimAlways =
-    envFlagEnabled(env.SEARCH_EPISODIC_LANE_ENABLED) ||
-    envFlagEnabled(env.SYNTHESIZE_SOURCE_EXCERPTS) ||
-    envFlagEnabled(env.SEARCH_SEGMENT_LANE_ENABLED);
   return {
-    genre:
-      enumEnv(env, 'RETRIEVAL_GENRE', [
-        'dialogue',
-        'assistant_chat',
-        'documents',
-      ] as const) ?? 'assistant_chat',
+    genre,
     verbatimEvidence:
       enumEnv(env, 'RETRIEVAL_VERBATIM_EVIDENCE', [
         'off',
@@ -568,19 +624,26 @@ export function resolveRetrievalProfile(
         'always',
         'fused',
         'routed',
-      ] as const) ?? (legacyVerbatimAlways ? 'always' : 'shape_conditioned'),
+      ] as const) ??
+      legacyVerbatimMode(env) ??
+      preset.verbatimEvidence ??
+      'shape_conditioned',
     insightEvidence:
       enumEnv(env, 'RETRIEVAL_INSIGHT_EVIDENCE', [
         'off',
         'routed',
         'query_arc',
-      ] as const) ?? 'off',
+      ] as const) ??
+      preset.insightEvidence ??
+      'off',
     timelineEvidence:
       enumEnv(env, 'RETRIEVAL_TIMELINE_EVIDENCE', [
         'off',
         'routed',
         'scan',
-      ] as const) ?? 'off',
+      ] as const) ??
+      preset.timelineEvidence ??
+      'off',
     coverageScanMode:
       enumEnv(env, 'RETRIEVAL_COVERAGE_SCAN_MODE', [
         'brute',
@@ -599,53 +662,100 @@ export function resolveRetrievalProfile(
         'session_date',
         'absolute',
       ] as const) ??
-      (envFlagNotDisabled(env.SYNTHESIZE_DATE_CONTEXT) ? 'absolute' : 'none'),
+      legacyDateAnchoring(env) ??
+      preset.dateAnchoring ??
+      'absolute',
     temporalMode:
       enumEnv(env, 'RETRIEVAL_TEMPORAL_MODE', [
         'filter',
         'overlap_boost',
-      ] as const) ?? 'filter',
+      ] as const) ??
+      preset.temporalMode ??
+      'filter',
     factBudget: positiveIntEnv(env, 'SEARCH_FACT_CENTRIC_BUDGET', 48),
     quotesPerPrompt: positiveIntEnv(env, 'SEARCH_EPISODIC_LANE_TOPK', 8),
     sourceExcerptsCap: positiveIntEnv(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', 16),
     segmentTopK: positiveIntEnv(env, 'SEARCH_SEGMENT_LANE_TOPK', 5),
-    segmentRerank: envFlagEnabled(env.SEARCH_SEGMENT_LANE_RERANK),
-    factRerank: envFlagEnabled(env.SEARCH_FACT_RERANK),
-    mentionDates: envFlagEnabled(env.RETRIEVAL_MENTION_DATES),
-    sceneTraces: envFlagEnabled(env.RETRIEVAL_SCENE_TRACES),
-    enumStrict: envFlagEnabled(env.RETRIEVAL_ENUM_STRICT),
+    segmentRerank: presetFlag(
+      env,
+      'SEARCH_SEGMENT_LANE_RERANK',
+      preset.segmentRerank,
+    ),
+    factRerank: presetFlag(env, 'SEARCH_FACT_RERANK', preset.factRerank),
+    mentionDates: presetFlag(
+      env,
+      'RETRIEVAL_MENTION_DATES',
+      preset.mentionDates,
+    ),
+    sceneTraces: presetFlag(env, 'RETRIEVAL_SCENE_TRACES', preset.sceneTraces),
+    enumStrict: presetFlag(env, 'RETRIEVAL_ENUM_STRICT', preset.enumStrict),
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
-    wideProbe: envFlagEnabled(env.SYNTHESIZE_LANE_WIDE_PROBE),
+    wideProbe: presetFlag(env, 'SYNTHESIZE_LANE_WIDE_PROBE', preset.wideProbe),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
-    entityExpansion: envFlagEnabled(env.RETRIEVAL_ENTITY_EXPANSION),
-    salienceScoring: envFlagEnabled(env.RETRIEVAL_SALIENCE_SCORING),
-    updateStoryRendering: envFlagEnabled(env.RETRIEVAL_UPDATE_STORY),
-    orderingFrame: envFlagEnabled(env.RETRIEVAL_ORDERING_FRAME),
+    entityExpansion: presetFlag(
+      env,
+      'RETRIEVAL_ENTITY_EXPANSION',
+      preset.entityExpansion,
+    ),
+    salienceScoring: presetFlag(
+      env,
+      'RETRIEVAL_SALIENCE_SCORING',
+      preset.salienceScoring,
+    ),
+    updateStoryRendering: presetFlag(
+      env,
+      'RETRIEVAL_UPDATE_STORY',
+      preset.updateStoryRendering,
+    ),
+    orderingFrame: presetFlag(
+      env,
+      'RETRIEVAL_ORDERING_FRAME',
+      preset.orderingFrame,
+    ),
     abstentionCalibration:
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
         'off',
         'coverage',
         'verifier',
         'minicheck',
-      ] as const) ?? 'off',
-    verifierTopicCoverage: envFlagEnabled(env.RETRIEVAL_VERIFIER_TOPIC_COVERAGE),
+      ] as const) ??
+      preset.abstentionCalibration ??
+      'off',
+    verifierTopicCoverage: presetFlag(
+      env,
+      'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
+      preset.verifierTopicCoverage,
+    ),
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL'),
-    digestEvidence: envFlagEnabled(env.RETRIEVAL_DIGEST_EVIDENCE),
+    digestEvidence: presetFlag(
+      env,
+      'RETRIEVAL_DIGEST_EVIDENCE',
+      preset.digestEvidence,
+    ),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
+      preset.digestLanes ??
       'all',
-    rawWindow: envFlagEnabled(env.RETRIEVAL_RAW_WINDOW),
+    rawWindow: presetFlag(env, 'RETRIEVAL_RAW_WINDOW', preset.rawWindow),
     rawWindowSpan: positiveIntEnv(env, 'RETRIEVAL_RAW_WINDOW_SPAN', 2),
-    assistantLane: envFlagEnabled(env.RETRIEVAL_ASSISTANT_LANE),
+    assistantLane: presetFlag(
+      env,
+      'RETRIEVAL_ASSISTANT_LANE',
+      preset.assistantLane,
+    ),
     assistantLaneTopK: positiveIntEnv(env, 'RETRIEVAL_ASSISTANT_LANE_TOPK', 6),
     assistantLaneMatch: speakerMatchEnv(env, 'RETRIEVAL_ASSISTANT_LANE_MATCH'),
-    factsAsKeys: envFlagEnabled(env.RETRIEVAL_FACTS_AS_KEYS),
+    factsAsKeys: presetFlag(env, 'RETRIEVAL_FACTS_AS_KEYS', preset.factsAsKeys),
     factsAsKeysCap: positiveIntEnv(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', 8),
-    timeFilter: envFlagEnabled(env.RETRIEVAL_TIME_FILTER),
-    dateMath: envFlagEnabled(env.RETRIEVAL_DATE_MATH),
-    answerConditioning: envFlagEnabled(env.RETRIEVAL_ANSWER_CONDITIONING),
-    noiseFilter: envFlagEnabled(env.RETRIEVAL_NOISE_FILTER),
-    searchLoop: envFlagEnabled(env.RETRIEVAL_SEARCH_LOOP),
+    timeFilter: presetFlag(env, 'RETRIEVAL_TIME_FILTER', preset.timeFilter),
+    dateMath: presetFlag(env, 'RETRIEVAL_DATE_MATH', preset.dateMath),
+    answerConditioning: presetFlag(
+      env,
+      'RETRIEVAL_ANSWER_CONDITIONING',
+      preset.answerConditioning,
+    ),
+    noiseFilter: presetFlag(env, 'RETRIEVAL_NOISE_FILTER', preset.noiseFilter),
+    searchLoop: presetFlag(env, 'RETRIEVAL_SEARCH_LOOP', preset.searchLoop),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -662,28 +772,48 @@ export function resolveRetrievalProfile(
 
 const LANE_ID_SET = new Set<string>(ALL_LANES);
 
+/** The tenant's parsed overlay object from RETRIEVAL_PROFILE_OVERRIDES,
+ *  or undefined when absent/malformed (per-tenant fail-open to base —
+ *  the JSON shape itself is boot-validated in env-validation). */
+function tenantOverlay(
+  companyId: string,
+  env: NodeJS.ProcessEnv,
+): Record<string, unknown> | undefined {
+  const raw = env.RETRIEVAL_PROFILE_OVERRIDES;
+  if (!raw || !raw.trim()) return undefined;
+  let overrides: Record<string, Record<string, unknown>>;
+  try {
+    overrides = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  const o = overrides?.[companyId];
+  return o && typeof o === 'object' ? o : undefined;
+}
+
 /**
  * Per-tenant profile resolution: the boot default overlaid with the
  * tenant's entry in RETRIEVAL_PROFILE_OVERRIDES (a JSON object mapping
  * companyId → partial profile; `lanes` as an array of LaneIds).
- * Unknown fields and malformed overrides are ignored per-tenant — the
- * JSON shape itself is boot-validated in env-validation.
+ * Unknown fields and malformed overrides are ignored per-tenant.
+ *
+ * The overlay's `genre` resolves FIRST: a tenant pinned to another
+ * genre gets THAT genre's preset-backed base (genre-presets.ts), then
+ * the remaining overlay fields apply on top — so per-field precedence
+ * is overlay field > explicit env key > genre preset > code default.
  */
 export function resolveRetrievalProfileFor(
   companyId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): RetrievalProfile {
-  const base = resolveRetrievalProfile(env);
-  const raw = env.RETRIEVAL_PROFILE_OVERRIDES;
-  if (!raw || !raw.trim()) return base;
-  let overrides: Record<string, Record<string, unknown>>;
-  try {
-    overrides = JSON.parse(raw);
-  } catch {
-    return base;
-  }
-  const o = overrides?.[companyId];
-  if (!o || typeof o !== 'object') return base;
+  const o = tenantOverlay(companyId, env);
+  const overlayGenre =
+    o && typeof o.genre === 'string' &&
+    (GENRES as readonly string[]).includes(o.genre)
+      ? (o.genre as RetrievalGenre)
+      : resolveGenre(env);
+  const base = resolveForGenre(overlayGenre, env);
+  if (!o) return base;
   const merged: RetrievalProfile = { ...base };
   // Data-driven like the numeric/boolean loops below — every enum
   // field overlays through one loop (a per-field if-ladder pushed the

@@ -127,8 +127,10 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION=minicheck profile point', () => {
     expect(
       resolveRetrievalProfileFor('beamco', env).abstentionCalibration,
     ).toBe('minicheck');
+    // No overlay → the default genre's preset applies ('verifier' on
+    // assistant_chat — genre-presets.ts), not 'off'.
     expect(
       resolveRetrievalProfileFor('other', env).abstentionCalibration,
-    ).toBe('off');
+    ).toBe('verifier');
   });
 });

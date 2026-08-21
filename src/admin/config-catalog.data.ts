@@ -761,7 +761,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Default-profile genre tag: dialogue | assistant_chat | documents. The genre dimensions the engine actually branches on are RETRIEVAL_VERBATIM_EVIDENCE and RETRIEVAL_DATE_ANCHORING; this names the corpus so per-tenant overrides read as intent.',
+          "Default-profile genre tag: dialogue | assistant_chat | documents. Each genre carries a PRESET of tuned defaults for the measured levers (src/search/genre-presets.ts — e.g. dialogue: verbatim 'always' + date anchoring 'none'; assistant_chat: scene traces + verifier abstention; documents: none — unmeasured axis). A preset value applies only where the corresponding env key is unset: explicit env key > genre preset > code default, and a per-company overlay field (RETRIEVAL_PROFILE_OVERRIDES) beats all three; an overlay that changes genre re-derives that genre's preset-backed base first.",
       },
       {
         key: 'RETRIEVAL_VERBATIM_EVIDENCE',
