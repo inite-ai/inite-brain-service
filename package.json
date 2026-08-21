@@ -26,6 +26,7 @@
     "lint:ci": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
     "test": "jest --config ./test/jest-unit.json",
     "test:unit": "jest --config ./test/jest-unit.json",
+    "test:socket": "jest --config ./test/jest-socket.json",
     "test:watch": "jest --config ./test/jest-unit.json --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:e2e:real": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPatterns=brain.real",

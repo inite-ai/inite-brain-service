@@ -19,12 +19,14 @@ const DIGEST_LIMIT = 4;
  * parity by construction).
  *
  * Same contracts as the sibling lanes: derived-world pin resolved per
- * tenant, degrade to [] on any failure, no env reads. SCOPE NOTE:
- * digests are tenant-global derived state built from whole
- * conversations — there is no per-row pii/user gate to apply here.
- * Fine for the default-off eval leg; the production story belongs to
- * the policy-aware evidence context (V11 brief item 10) before any
- * default-on.
+ * tenant, degrade to [] on any failure, no env reads. SCOPE POLICY
+ * (0087, V11 item 10): digests carry userScopes — the distinct
+ * non-null episode userIds of the folded window. A tenant-global
+ * caller (no userId — today's M2M surface) reads everything,
+ * unchanged. A user-scoped caller reads fail-closed: only digests
+ * whose userScopes is empty/NONE (purely tenant-global content) or
+ * exactly [that user] — a digest folded from ANY other user's turns
+ * (mixed-scope included) is never exposed.
  */
 @Injectable()
 export class DigestLaneService {
@@ -35,7 +37,12 @@ export class DigestLaneService {
     @Optional() private readonly readPin?: ReadPinService,
   ) {}
 
-  async digestLines(opts: { companyId: string }): Promise<string[]> {
+  async digestLines(opts: {
+    companyId: string;
+    /** Scope key of the asking end-user; omitted → tenant-global
+     *  caller, no user gate (M2M reads the whole tenant today). */
+    userId?: string;
+  }): Promise<string[]> {
     try {
       const derivedVersion =
         (await this.readPin?.resolveRead(opts.companyId)) ??
@@ -44,7 +51,18 @@ export class DigestLaneService {
       // The fence clause is 'AND'-prefixed for splicing after other
       // filters; this WHERE has none, so strip the connective.
       const worldGate = fence.clause.replace(/^AND /, '');
-      const worldParams = fence.params;
+      // 0087 fail-closed user gate: a user-scoped caller sees only
+      // purely tenant-global digests (userScopes empty/NONE) or
+      // digests scoped to exactly [that user] — never a digest whose
+      // fold touched another user's turns.
+      const userGate = opts.userId
+        ? `AND (userScopes IS NONE
+              OR array::len(userScopes) = 0
+              OR userScopes = [$digestUserId])`
+        : '';
+      const params = opts.userId
+        ? { ...fence.params, digestUserId: opts.userId }
+        : fence.params;
       const rows = await this.surreal.withCompany(
         opts.companyId,
         async (db) => {
@@ -53,9 +71,10 @@ export class DigestLaneService {
           >(
             `SELECT summary, lastEventAt FROM conversation_digest
               WHERE ${worldGate}
+              ${userGate}
               ORDER BY lastEventAt DESC
               LIMIT ${DIGEST_LIMIT}`,
-            worldParams,
+            params,
           );
           return out ?? [];
         },

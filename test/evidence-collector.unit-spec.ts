@@ -185,6 +185,34 @@ describe('EvidenceCollectorService branches', () => {
     expect(calls).toEqual([{ limit: 6, match: 'assistant' }]);
   });
 
+  it('digest lane threads the caller userId through (0087 — no more hard fail-close)', async () => {
+    const calls: Array<{ companyId: string; userId?: string }> = [];
+    const digestLane = {
+      digestLines: async (o: { companyId: string; userId?: string }) => {
+        calls.push(o);
+        return ['digest line'];
+      },
+    } as unknown as import('../src/synthesize/digest-lane.service').DigestLaneService;
+    const svc = new EvidenceCollectorService(
+      noSearch,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      digestLane,
+    );
+    const out = await svc.collect({
+      ...collectorArgs(profileWith({ digestEvidence: true })),
+      userId: 'user-b',
+    });
+    // Pre-0087 a user-scoped caller was hard fail-closed to []; the
+    // lane now applies the userScopes policy itself in SQL.
+    expect(out.insightLines).toEqual(['digest line']);
+    expect(calls).toEqual([{ companyId: 'c1', userId: 'user-b' }]);
+  });
+
   it('grounding quotes gate on factsAsKeys AND factIds, capped best-first', async () => {
     const seen: string[][] = [];
     const episodeLane = {
@@ -216,5 +244,135 @@ describe('EvidenceCollectorService branches', () => {
     );
     // Cap applies to the BEST evidence facts (input order).
     expect(seen).toEqual([['f1', 'f2']]);
+  });
+});
+
+/**
+ * V11 item 10 — cross-user prompt isolation at the collector seam.
+ * Every lane stub models the DB user fence: user A's content comes
+ * back only to a tenant-global caller (no userId) or to A itself. If
+ * the collector forgets to thread userId into ANY lane call, A's
+ * content leaks into the assembled evidence and the assertions below
+ * catch it in that section.
+ */
+describe('cross-user evidence isolation (V11 item 10)', () => {
+  const A_SECRET = 'A-SECRET: user A rents a flat in Lisbon';
+  const laneCalls: Array<{ lane: string; userId?: string }> = [];
+  const scopedLines = (lane: string, userId: string | undefined): string[] => {
+    laneCalls.push({ lane, userId });
+    return userId === undefined || userId === 'user-a'
+      ? [`[2026-01-01] ${lane}: ${A_SECRET}`]
+      : [];
+  };
+  const scopedMap = (
+    lane: string,
+    userId: string | undefined,
+  ): Map<string, string> => {
+    laneCalls.push({ lane, userId });
+    return userId === undefined || userId === 'user-a'
+      ? new Map([['f1', ` [${lane}: ${A_SECRET}]`]])
+      : new Map();
+  };
+
+  function makeIsolationCollector(): EvidenceCollectorService {
+    const episodeLane = {
+      transcriptLines: async (o: { userId?: string }) =>
+        scopedLines('episode', o.userId),
+      sourceExcerpts: async (o: { userId?: string }) =>
+        scopedLines('excerpt', o.userId),
+      rawWindows: async (o: { userId?: string }) =>
+        scopedLines('raw-window', o.userId),
+      assistantTurns: async (o: { userId?: string }) =>
+        scopedLines('assistant', o.userId),
+      groundingQuotes: async (o: { userId?: string }) =>
+        scopedMap('grounding', o.userId),
+    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    const segmentLane = {
+      transcriptLines: async (o: { userId?: string }) =>
+        scopedLines('segment', o.userId),
+    } as unknown as SegmentLaneService;
+    const insightLane = {
+      insightLines: async (o: { userId?: string }) =>
+        scopedLines('insight', o.userId),
+    } as unknown as import('../src/synthesize/insight-lane.service').InsightLaneService;
+    const updateStory = {
+      previousStories: async (o: { userId?: string }) =>
+        scopedMap('update-story', o.userId),
+    } as unknown as UpdateStoryService;
+    const digestLane = {
+      digestLines: async (o: { userId?: string }) =>
+        scopedLines('digest', o.userId),
+    } as unknown as import('../src/synthesize/digest-lane.service').DigestLaneService;
+    return new EvidenceCollectorService(
+      noSearch,
+      episodeLane,
+      segmentLane,
+      insightLane,
+      undefined,
+      undefined,
+      updateStory,
+      digestLane,
+    );
+  }
+
+  // Every user-fenced lane on at once — the widest prompt surface.
+  const fullProfile = () =>
+    profileWith({
+      verbatimEvidence: 'always',
+      insightEvidence: 'routed',
+      digestEvidence: true,
+      updateStoryRendering: true,
+      factsAsKeys: true,
+      rawWindow: true,
+      assistantLane: true,
+    });
+
+  function isolationArgs(userId?: string) {
+    return {
+      ...collectorArgs(fullProfile()),
+      lane: 'summary' as const,
+      factIds: ['f1'],
+      userId,
+    };
+  }
+
+  const flattenSections = (
+    out: Awaited<ReturnType<EvidenceCollectorService['collect']>>,
+  ): string =>
+    [
+      ...out.transcriptLines,
+      ...out.insightLines,
+      ...(out.instructions ?? []),
+      ...(out.updateStories ? [...out.updateStories.values()] : []),
+      ...(out.groundingQuotes ? [...out.groundingQuotes.values()] : []),
+    ].join('\n');
+
+  it("a tenant-global caller DOES see A's content (the stubs would leak)", async () => {
+    laneCalls.length = 0;
+    const out = await makeIsolationCollector().collect(isolationArgs());
+    expect(flattenSections(out)).toContain('A-SECRET');
+  });
+
+  it("user B's collect surfaces A's content in NO section, every lane user-scoped", async () => {
+    laneCalls.length = 0;
+    const out = await makeIsolationCollector().collect(
+      isolationArgs('user-b'),
+    );
+    expect(flattenSections(out)).not.toContain('A-SECRET');
+    // Not vacuous: every user-fenced lane WAS consulted, and each one
+    // received the caller's scope — no lane call dropped the userId.
+    const lanes = laneCalls.map((c) => c.lane).sort();
+    expect(lanes).toEqual([
+      'assistant',
+      'digest',
+      'episode',
+      'excerpt',
+      'grounding',
+      'insight',
+      'raw-window',
+      'segment',
+      'update-story',
+    ]);
+    expect(laneCalls.every((c) => c.userId === 'user-b')).toBe(true);
   });
 });
