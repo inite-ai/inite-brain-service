@@ -600,3 +600,16 @@ subsumes wd-v2's contract (duplicate-snapshot anti-pattern, see the
 key's constraint); the union pair needs complementary worlds. The 56
 typed SSA worlds derived clean (56/56 ok, ~590 props/world, ~6.3
 min/world, ≈$2).
+
+**Statistical honesty (owner call 2026-08-21, program PARKED):** the
+headline SSA flip count (+14/−6) is exact-binomial p≈0.06 one-sided —
+a strong DIRECTION with a mechanism-coherent 5-arm ladder, NOT a
+confirmed effect (the V8 lesson: an n≈40-56 series carries ±10pp of
+noise; the V4 temporal bank died on re-derive once already). Same for
+tm-pack (+6/−1, p≈0.06). The temporal 2×2 is 2/4 cells: wd-mw2 worlds
+are derived and PAID FOR (133/133 ok) but the two remaining legs
+(~$3) are deliberately not run. The one decision-grade experiment,
+if/when the owner wants it: ONE full-500 shot on a fresh combined
+write-pack derive (typed-atoms + time-pack, new version) vs arm B —
+~$20-25 — which confirms or kills both construction-side effects at
+n=500 in a single paired measurement instead of per-axis dribbles.
