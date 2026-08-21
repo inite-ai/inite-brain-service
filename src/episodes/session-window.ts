@@ -19,6 +19,25 @@ export interface EpisodeRow {
   speaker?: string;
   text: string;
   occurredAt: string | Date;
+  /** Per-user scope of the turn; absent = tenant-global (0087: the
+   *  deriver folds these into conversation_digest.userScopes). */
+  userId?: string;
+}
+
+/**
+ * Pure: the distinct non-null userIds of an episode window, sorted for
+ * a deterministic stamp. [] = fully tenant-global content. The window
+ * deriver folds this into conversation_digest.userScopes (0087) — the
+ * digest lane's fail-closed read policy keys on it.
+ */
+export function distinctUserScopes(episodes: EpisodeRow[]): string[] {
+  return [
+    ...new Set(
+      episodes
+        .map((e) => e.userId)
+        .filter((u): u is string => typeof u === 'string' && u.length > 0),
+    ),
+  ].sort();
 }
 
 /** Pure: split time-ordered episodes into sessions by inactivity gap. */

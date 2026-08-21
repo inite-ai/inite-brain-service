@@ -90,7 +90,10 @@ describe('buildBaseWhere derived-version namespace', () => {
 describe('WindowDeriverService (P3 v1 batch)', () => {
   function makeSvc(
     llm: unknown,
-    opts?: { conversations?: Array<{ conversationId: string; n: number }> },
+    opts?: {
+      conversations?: Array<{ conversationId: string; n: number }>;
+      episodes?: Array<Record<string, unknown>>;
+    },
   ): {
     svc: WindowDeriverService;
     queries: Array<{ sql: string; params?: Record<string, unknown> }>;
@@ -104,7 +107,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
           return [opts?.conversations ?? [{ conversationId: 'conv-1', n: 3 }]];
         if (sql.includes('FROM episode'))
           return [
-            [
+            opts?.episodes ?? [
               { id: 'episode:e0', speaker: 'Melanie', text: 'Do you have pets?', occurredAt: '2023-05-01T10:00:00Z' },
               { id: 'episode:e1', speaker: 'Caroline', text: 'Luna and Oliver! They are so sweet', occurredAt: '2023-05-01T10:01:00Z' },
             ],
@@ -281,6 +284,44 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(write?.params?.conv).toBe('conv-1');
       expect(String(write?.params?.summary).length).toBeGreaterThan(0);
       expect(write?.params?.eventAt).toBe('2023-05-01T10:01:00.000Z');
+      // 0087: a window with no user-scoped turns stamps [] — the
+      // digest is readable by user-scoped callers (tenant-global).
+      expect(write?.params?.userScopes).toEqual([]);
+    } finally {
+      delete process.env.DERIVER_DIGEST;
+    }
+  });
+
+  it('DERIVER_DIGEST stamps userScopes from the folded window (0087)', async () => {
+    const props = {
+      propositions: [
+        {
+          subject: 'Caroline',
+          aspect: 'pets',
+          proposition: "Caroline's cats are named Luna and Oliver.",
+          occurred_on: null,
+          turns: [1],
+        },
+      ],
+    };
+    process.env.DERIVER_DIGEST = '1';
+    try {
+      const { svc, queries } = makeSvc(props, {
+        episodes: [
+          { id: 'episode:e0', speaker: 'Melanie', text: 'Do you have pets?', occurredAt: '2023-05-01T10:00:00Z', userId: 'user-b' },
+          { id: 'episode:e1', speaker: 'Caroline', text: 'Luna and Oliver!', occurredAt: '2023-05-01T10:01:00Z', userId: 'user-a' },
+          { id: 'episode:e2', speaker: 'Caroline', text: 'They are so sweet', occurredAt: '2023-05-01T10:02:00Z', userId: 'user-a' },
+          { id: 'episode:e3', speaker: 'Melanie', text: 'A tenant-global turn', occurredAt: '2023-05-01T10:03:00Z' },
+        ],
+      });
+      await svc.run('co_x');
+      const write = queries.find((q) =>
+        q.sql.includes('CREATE conversation_digest'),
+      );
+      // Distinct, non-null, sorted — the policy metadata the digest
+      // lane's fail-closed read keys on.
+      expect(write?.sql).toContain('userScopes = $userScopes');
+      expect(write?.params?.userScopes).toEqual(['user-a', 'user-b']);
     } finally {
       delete process.env.DERIVER_DIGEST;
     }

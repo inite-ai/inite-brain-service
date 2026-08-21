@@ -249,11 +249,6 @@ export class EvidenceCollectorService {
     userId?: string;
   }): Promise<string[]> {
     if (!opts.profile.digestEvidence || !this.digestLane) return [];
-    // Audit 2026-08-19 P1: digests are TENANT-GLOBAL derived state with
-    // no per-row user/PII fence — a user-scoped request must not read a
-    // narrative folded from other users' conversations. Fail closed
-    // until digests carry per-user policy metadata.
-    if (opts.userId) return [];
     if (
       opts.profile.digestLanes === 'summary_ku' &&
       opts.lane !== 'summary' &&
@@ -262,8 +257,12 @@ export class EvidenceCollectorService {
       return [];
     }
     if (getAbortSignal()?.aborted) return [];
+    // Audit 2026-08-19 P1 → 0087: digests now carry per-user policy
+    // metadata (userScopes) — the lane applies the fail-closed policy
+    // in SQL, so a user-scoped request reads only purely tenant-global
+    // digests and its own single-user digests.
     return this.digestLane
-      .digestLines({ companyId: opts.companyId })
+      .digestLines({ companyId: opts.companyId, userId: opts.userId })
       .then((v) => v ?? []);
   }
 

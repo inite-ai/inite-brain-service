@@ -96,7 +96,12 @@ export {
   segmentSessions,
   type EpisodeRow,
 } from '../episodes/session-window';
-import { segmentSessions, type EpisodeRow } from '../episodes/session-window';
+import {
+  distinctUserScopes,
+  segmentSessions,
+  type EpisodeRow,
+} from '../episodes/session-window';
+import { persistDigest } from './digest-persist';
 
 /** `YYYY-MM-DD HH:MM` (UTC) turn stamp for DERIVER_TURN_HEADERS. */
 export function formatTurnStamp(occurredAt: string): string {
@@ -593,7 +598,9 @@ export class WindowDeriverService {
         this.collectRollupPool({ rollupPool: composePool, resolved, rows, outcomes });
       }
     }
-    await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
+    // 0087: the folded window's distinct user scopes = policy metadata.
+    const userScopes = distinctUserScopes(episodes);
+    await persistDigest({ db, conversationId, version, digest, digestEventAt, userScopes });
     await this.writeCompositionPasses({
       db,
       conversationId,
@@ -794,49 +801,6 @@ export class WindowDeriverService {
     accumulateLanded(rollupPool, rows, { outcomes, meta });
   }
 
-  /**
-   * Persist the digest AFTER the fold loop: replace-per-namespace
-   * (derived state, rebuilt with the conversation on re-derive).
-   * lastIngestAt = fold wall-clock (monotonic filter watermark for a
-   * future incremental path); lastEventAt = max folded occurredAt.
-   */
-  private async persistDigest({
-    db,
-    conversationId,
-    version,
-    digest,
-    digestEventAt,
-  }: {
-    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
-    conversationId: string;
-    version: string;
-    digest: string | null;
-    digestEventAt: Date | null;
-  }): Promise<void> {
-    // Audit 2026-08-19 P1: deriving a (conversation, version) claims the
-    // whole namespace — the OLD digest dies regardless of whether this
-    // run produced a new one (flag now off, or the fold degraded).
-    // Leaving it would serve a narrative inconsistent with the facts
-    // that were just rewritten next to it.
-    await db.query(
-      `DELETE conversation_digest
-        WHERE conversationId = $conv AND derivedVersion = $version`,
-      { conv: conversationId, version },
-    );
-    if (digest === null || !digest.trim() || !digestEventAt) return;
-    await db.query(
-      `CREATE conversation_digest SET
-         conversationId = $conv, derivedVersion = $version,
-         summary = $summary, lastIngestAt = time::now(),
-         lastEventAt = <datetime>$eventAt`,
-      {
-        conv: conversationId,
-        version,
-        summary: digest,
-        eventAt: digestEventAt.toISOString(),
-      },
-    );
-  }
 
   /**
    * V13 A2 aspect rollups: mechanical per-(entity, aspect) list-facts
