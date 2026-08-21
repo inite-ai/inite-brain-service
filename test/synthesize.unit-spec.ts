@@ -298,29 +298,44 @@ describe('SynthesizeService', () => {
   });
 
   it('lenient mode + unsupported verdict still returns the answer with reason', async () => {
-    const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
-    ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya bought a new fridge [f1].',
-          citedFactIds: ['f1'],
-        }),
-        JSON.stringify({
-          verdict: 'unsupported',
-          unsupportedClaims: ['Maya bought a new fridge'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'lenient' }, callerScopes: ['brain:read'] });
-    expect(out.answer).toContain('fridge');
-    expect(out.reason).toBe('verifier_failed');
-    expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
+    // This pins the LEGACY lenient contract, which needs
+    // abstentionCalibration='off' — the default genre's preset is now
+    // 'verifier' (genre-presets.ts), which turns this exact case into
+    // a decline; the decline path has its own pins in
+    // synthesize-verification.unit-spec. Explicit env beats the preset.
+    const saved = process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
+    process.env.RETRIEVAL_ABSTENTION_CALIBRATION = 'off';
+    try {
+      const search = makeSearch([
+        makeHit('cust_a', [
+          { factId: 'f1', predicate: 'name', object: 'Maya' },
+        ]),
+      ]);
+      const { svc } = makeSvc(
+        search,
+        {},
+        [
+          JSON.stringify({
+            answer: 'Maya bought a new fridge [f1].',
+            citedFactIds: ['f1'],
+          }),
+          JSON.stringify({
+            verdict: 'unsupported',
+            unsupportedClaims: ['Maya bought a new fridge'],
+          }),
+        ],
+      );
+      const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'lenient' }, callerScopes: ['brain:read'] });
+      expect(out.answer).toContain('fridge');
+      expect(out.reason).toBe('verifier_failed');
+      expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
+    } finally {
+      if (saved === undefined) {
+        delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
+      } else {
+        process.env.RETRIEVAL_ABSTENTION_CALIBRATION = saved;
+      }
+    }
   });
 
   it('off mode skips verifier — answer returned without verdict', async () => {

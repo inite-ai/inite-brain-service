@@ -87,9 +87,21 @@ describe('the abstention answer', () => {
 });
 
 describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
-  it('defaults off; coverage round-trips; garbage rejects to off', () => {
+  it('genre-preset default; coverage round-trips; garbage rejects to preset', () => {
+    // The default genre (assistant_chat) presets 'verifier' — the V9
+    // verdict-decline win (genre-presets.ts). Explicit env still wins.
     expect(
       resolveRetrievalProfile({} as NodeJS.ProcessEnv).abstentionCalibration,
+    ).toBe('verifier');
+    expect(
+      resolveRetrievalProfile({
+        RETRIEVAL_ABSTENTION_CALIBRATION: 'off',
+      } as NodeJS.ProcessEnv).abstentionCalibration,
+    ).toBe('off');
+    expect(
+      resolveRetrievalProfile({
+        RETRIEVAL_GENRE: 'documents',
+      } as NodeJS.ProcessEnv).abstentionCalibration,
     ).toBe('off');
     expect(
       resolveRetrievalProfile({
@@ -101,11 +113,13 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
         RETRIEVAL_ABSTENTION_CALIBRATION: 'verifier',
       } as NodeJS.ProcessEnv).abstentionCalibration,
     ).toBe('verifier');
+    // An invalid value reads as unset, so it falls back to the genre
+    // preset ('verifier' on the default genre), not to 'off'.
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_ABSTENTION_CALIBRATION: 'always',
       } as NodeJS.ProcessEnv).abstentionCalibration,
-    ).toBe('off');
+    ).toBe('verifier');
   });
 
   it('floors default and parse from env', () => {
@@ -140,8 +154,10 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
     expect(beamco.abstentionCalibration).toBe('coverage');
     expect(beamco.abstentionMinTopScore).toBeCloseTo(0.42);
     expect(beamco.abstentionMinEvidence).toBe(3);
+    // A tenant without an overlay rides the default genre's preset
+    // ('verifier' on assistant_chat — genre-presets.ts).
     expect(resolveRetrievalProfileFor('other', env).abstentionCalibration).toBe(
-      'off',
+      'verifier',
     );
   });
 });

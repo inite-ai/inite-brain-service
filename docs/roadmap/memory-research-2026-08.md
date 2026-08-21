@@ -613,3 +613,84 @@ if/when the owner wants it: ONE full-500 shot on a fresh combined
 write-pack derive (typed-atoms + time-pack, new version) vs arm B —
 ~$20-25 — which confirms or kills both construction-side effects at
 n=500 in a single paired measurement instead of per-axis dribbles.
+
+## 11. Genre presets (built 2026-08-21, branch feat/genre-presets)
+
+The measured genre-dependence of the engine is now a PRESET LAYER
+(`src/search/genre-presets.ts`): each `RetrievalGenre` ships tuned
+defaults for the measured levers, and explicit configuration always
+wins. This is the §6 platform posture made concrete — "per-genre
+configuration, not removal; the segment-lane precedent: genre-dependent
+sign, resolved by profile".
+
+### Precedence contract (strict, resolved per field)
+
+```
+per-company overlay field  >  explicit env key  >  genre preset  >  code default
+```
+
+- A preset value applies ONLY where the corresponding env key is unset.
+  An explicitly SET key — including an explicit `0` on a boolean — is
+  the operator's word and beats the preset in both directions
+  (`presetFlag` checks unset before parsing, because `envFlagEnabled`
+  cannot tell unset from `0`).
+- Legacy keys keep their historical explicitness: the per-lane verbatim
+  flags imply `'always'` only when one of them is ENABLED (their falsy
+  state defers to the preset); `SYNTHESIZE_DATE_CONTEXT` set to ANY
+  value — including the measured LoCoMo pin `=0` — is explicit and
+  beats the preset.
+- When a company overlay changes `genre` itself,
+  `resolveRetrievalProfileFor` resolves the overlay genre FIRST,
+  re-derives the preset-backed base for THAT genre, then applies the
+  remaining overlay fields on top.
+- Preset-INELIGIBLE by design: `genre`, `lanes`, numeric caps/budgets,
+  string knobs (`verifierModel`, `assistantLaneMatch`), and the infra
+  execution modes (`coverageScanMode`/`coverageLexMode`/`scanHnsw*` —
+  per-tenant enable rituals, never genre semantics).
+
+### Preset table (evidence-pinned; inclusion needs a measured on-genre positive and no on-genre negative)
+
+| genre | lever | preset | evidence |
+|---|---|---|---|
+| dialogue | `verbatimEvidence` | `'always'` | Genre law, measured twice (`typed-answer-dispatch-2026-07.md` §3): segment lane **+3.8pp LoCoMo** two-human dialogue; `'always'` = the diary-genre profile (the old lane flags ON) |
+| dialogue | `dateAnchoring` | `'none'` | Date context **−7.1pp on LoCoMo** by gold convention (`typed-answer-dispatch-2026-07.md` §3); "LoCoMo-convention eval profiles must pin =0" (`measure-ladder-2026-08-results.md` E2); armK guard: session-date defaults ARE the LoCoMo answer convention (§5 above) |
+| assistant_chat | `sceneTraces` | `true` | Dual-trace scene anchors **+20.2pp LongMemEval-S** (95% CI +12.1..+29.3; temporal +40pp, KU +25pp, MS +30pp) in the controlled pair (§5 B10 + §7). Read-side render only — byte-identical against worlds derived without `DERIVER_SCENE_TRACE` |
+| assistant_chat | `abstentionCalibration` | `'verifier'` | The V9 verdict-decline win: **+17.5pp** on the abstention row, BEAM first-person assistant chats (`v10-audit-2026-08.md`; "our 'verifier' arm at 0.85 is competitive with anything published"). Zero marginal model calls — the verifier already runs in lenient guardrails; `'answer'` guardrails stay exempt |
+| documents | — | *(empty)* | The axis is unmeasured — "we have NO non-conversational eval axis" (§6). Pure code defaults until a documents-genre eval exists |
+
+The segment-lane law is respected in BOTH directions: `'always'` is
+preset for dialogue only; assistant_chat keeps `shape_conditioned`
+(segment lane −28pp LongMemEval / −18.6pp BEAM, `typed-answer-dispatch-2026-07.md` §3).
+
+### Deliberately left out (evidence says no, or not yet)
+
+- **Digest evidence / digest lanes** — the +5.0 strict is BEAM-measured
+  WITH a recorded conflicting negative on the same benchmark
+  (abstention −7.5, summ nugget −1.9 lane bleed, §5 B7); the
+  `summary_ku` gate that should fix the bleed is built but unmeasured
+  (§2 item 0.4). Also inert without `DERIVER_DIGEST` worlds.
+- **Raw window** — measured NEGATIVE on assistant_chat SSA (23.2/32.1
+  vs 42.9 base, §10); facts-as-anchor cannot reach unextracted gold.
+- **Assistant lane / facts-as-keys (multiworld M3/M4)** — program
+  PARKED for statistical honesty (§10: p≈0.06 direction, not a
+  confirmed effect).
+- **V13 read levers** (`timeFilter`, `dateMath`, `answerConditioning`,
+  `noiseFilter`, `searchLoop`) — built default-off with expectations,
+  not measurements (§5 B3-B8); LoCoMo read-side is explicitly "not
+  worth chasing" (§2: six nulls, ±2.2pp floor).
+- **`temporalMode='overlap_boost'`** — measured +1.6 n.s. only; no
+  recorded positive in the pinned docs.
+- **`verifierModel='gpt-5-mini'`** — direction-positive at n=40, the
+  default-on decision explicitly awaits the n≥120 confirm (§2 item 0.2).
+- **`verbatimEvidence='fused'/'routed'` for dialogue** — LoCoMo +1.4pp
+  sits outside the pinned doc set and next to a pooled −5.0pp with only
+  the verbatim-shaped class winning (validate-2026-08 V6 pairs); the
+  dispatch stays an explicit per-tenant choice.
+
+Unit pins: `test/genre-presets.unit-spec.ts` (precedence matrix +
+full-effective-profile snapshot per genre, so any future preset edit is
+a visible diff). Note the default-genre behavior change this ships:
+`assistant_chat` (the boot default) now resolves
+`abstentionCalibration='verifier'` and `sceneTraces=true` unless env
+says otherwise; `RETRIEVAL_ABSTENTION_CALIBRATION=off` restores the
+legacy lenient contract.
