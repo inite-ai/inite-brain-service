@@ -22,6 +22,8 @@ import {
 } from './verdict';
 import {
   attachDecisionLog,
+  buildSecondaryDto,
+  resolveAnswerFrames,
   resolveAnswerLang,
   resolveCitations,
   resolveLaneDateContext,
@@ -45,13 +47,13 @@ import {
 } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { appendUpdateStories } from './update-story';
+import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
 import { runGenerator } from './generator-client';
 import type { GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
-import type { SearchDto } from '../search/dto/search.dto';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import {
   NOOP_REPORTER,
@@ -218,7 +220,7 @@ export class SynthesizeService {
     const laneProbeHits = await this.runLaneProbe({
       profile,
       lane,
-      query: dto.query,
+      dto,
       companyId,
       callerScopes,
       baseHits: searchResult.results,
@@ -246,7 +248,7 @@ export class SynthesizeService {
     );
 
     const answerMode = guardrails === 'answer';
-    const prepared = this.prepareEvidence(evidence, {
+    const prepareOpts = {
       answerMode,
       explain,
       elapsedAsOf: lane === 'temporal' ? dto.asOf : undefined,
@@ -259,9 +261,15 @@ export class SynthesizeService {
       // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
       // facts whose anchor disagrees with validFrom by day.
       mentionDates: profile.mentionDates,
-    });
+      // V13 dual-trace read side: "(context: …)" scene suffixes.
+      sceneTraces: profile.sceneTraces,
+    };
+    const prepared = this.prepareEvidence(evidence, prepareOpts);
     if ('empty' in prepared) return prepared.empty;
-    const { results, factIndex, factLines } = prepared;
+    // `let`: the V13 search loop may replace the evidence set with the
+    // refined round's union before citations resolve.
+    let { results, factIndex } = prepared;
+    const { factLines } = prepared;
 
     // V9 §4 memory-coverage abstention (strict/lenient only — 'answer'
     // is a caller-level never-abstain contract).
@@ -293,6 +301,9 @@ export class SynthesizeService {
           callerScopes,
           // Same fail-closed user scope the fact read path applies (0055).
           userId: dto.userId,
+          // Audit 2026-08-19 P1: secondary searches inside the collector
+          // (instruction probe) inherit the caller's filter contract.
+          dto,
           factIds: [...factIndex.keys()],
           evidence,
         })
@@ -308,10 +319,17 @@ export class SynthesizeService {
     // superseded an older value carry their history on the SAME lines
     // the generator and the verifier read (prompt-side only; citations
     // and ranking untouched).
-    const promptFactLines =
+    let promptFactLines =
       updateStories && updateStories.size > 0
         ? appendUpdateStories(factLines, updateStories)
         : factLines;
+
+    // V13 answer-side frames, both profile-gated and both pure:
+    // the computed date table (generator and verifier read the same
+    // lines — evidence parity) and the G2 per-shape reading frame.
+    const frames = resolveAnswerFrames({ profile, query: dto.query, results });
+    const shapeInstruction = frames.shapeInstruction;
+    let dateMathLines = frames.dateMathLines;
 
     // Phase 4.C — resolve the answer language. Explicit DTO wins;
     // otherwise we detect from the query (so a Russian question gets
@@ -322,58 +340,37 @@ export class SynthesizeService {
       stage: 'generate',
       message: `LLM grounding answer over ${factIndex.size} facts`,
     });
-    let generated: GeneratorOutput;
-    try {
-      generated = await withSpan(
-        'synthesize.generate',
-        () =>
-          this.limiter.run(() =>
-            this.callGenerator({
-              query: dto.query,
-              factLines: promptFactLines,
-              transcriptLines,
-              insightLines,
-              timelineEvidence,
-              // V10 frame switches — resolved once by the kernel
-              // (evidence-gates.resolvePromptFrames), not inline.
-              ...resolvePromptFrames(profile, timelineEvidence),
-              model,
-              answerLang,
-              neverAbstain: guardrails === 'answer',
-              // Date context (SYNTHESIZE_DATE_CONTEXT): anchor "today"
-              // for the generator so relative/when questions resolve
-              // against the facts' date stamps instead of guessing.
-              // The temporal lane FORCES the anchor from asOf even when
-              // the profile disables anchoring — elapsed annotations are
-              // meaningless without a stated "today".
-              dateContext: resolveLaneDateContext(profile, lane, dto.asOf),
-              lane,
-              // §8 item 3: enumeration scope discipline.
-              enumStrict: profile.enumStrict,
-              // T7: standing instructions in their own section.
-              instructions,
-              // T3: evidence-conditional — fires on write-side COMPETING
-              // facts regardless of what the question looks like.
-              conflicts: detectEvidenceConflicts(results, profile.lanes),
-            }),
-          ),
-        { 'synthesize.facts': factIndex.size },
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Synthesize generator failed: ${(err as Error).message}`,
-      );
-      this.metrics?.countSynthesize('generator_error');
-      return attachDecisionLog(
-        {
-          answer: null,
-          reason: 'generator_error',
-          citations: [],
-          results,
-        },
-        explain ? buildDecisionLog(results, new Set()) : undefined,
-      );
-    }
+    // Generation + the V13 constrained refine round, one seam: a
+    // 'failed' result is the generator_error early-return; otherwise
+    // the tuple is whichever round answered last.
+    const produced = await this.produceAnswer({
+      companyId,
+      callerScopes,
+      dto,
+      profile,
+      lane,
+      model,
+      answerLang,
+      guardrails,
+      explain,
+      evidence,
+      prepareOpts,
+      updateStories,
+      results,
+      factIndex,
+      promptFactLines,
+      dateMathLines,
+      shapeInstruction,
+      collected: {
+        transcriptLines,
+        insightLines,
+        instructions,
+        timelineEvidence,
+      },
+    });
+    if ('failed' in produced) return produced.failed;
+    const { generated } = produced;
+    ({ results, factIndex, promptFactLines, dateMathLines } = produced);
 
     const citations = resolveCitations(
       generated.citedFactIds,
@@ -439,6 +436,9 @@ export class SynthesizeService {
               // V10 §5: topic-coverage audit (relationship-claim
               // strictness + the questionAnswered judgment).
               topicCoverage: profile.verifierTopicCoverage,
+              // V13 date-table parity: the auditor sees the same
+              // computed table the generator saw.
+              dateMathLines,
               // V11 §2 arm (a): the audit may run on a stronger judge
               // than the generator; empty override = same model.
               model: profile.verifierModel || model,
@@ -468,6 +468,206 @@ export class SynthesizeService {
       decisionLog,
       abstention: profile.abstentionCalibration,
     });
+  }
+
+  /**
+   * Round-1 generation plus the V13 refine round behind one seam
+   * (extracted from synthesize() for the function-size gates). A
+   * generator failure returns `{failed}` — the historical
+   * generator_error early-exit, decision log included; otherwise the
+   * returned tuple is round 2 when it ran, round 1 when it did not.
+   */
+  private async produceAnswer(
+    args: Omit<Parameters<SynthesizeService['refineRound']>[0], 'generated'> & {
+      explain: boolean;
+      results: SearchHit[];
+      factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
+      promptFactLines: string[];
+      dateMathLines?: string[];
+    },
+  ): Promise<
+    | { failed: SynthesizeResult }
+    | {
+        results: SearchHit[];
+        factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
+        promptFactLines: string[];
+        dateMathLines?: string[];
+        generated: GeneratorOutput;
+      }
+  > {
+    const { profile, dto, collected } = args;
+    let generated: GeneratorOutput;
+    try {
+      generated = await withSpan(
+        'synthesize.generate',
+        () =>
+          this.limiter.run(() =>
+            this.callGenerator({
+              query: dto.query,
+              factLines: args.promptFactLines,
+              transcriptLines: collected.transcriptLines,
+              insightLines: collected.insightLines,
+              timelineEvidence: collected.timelineEvidence,
+              // V10 frame switches — resolved once by the kernel
+              // (evidence-gates.resolvePromptFrames), not inline.
+              ...resolvePromptFrames(profile, collected.timelineEvidence),
+              model: args.model,
+              answerLang: args.answerLang,
+              neverAbstain: args.guardrails === 'answer',
+              // Date context (SYNTHESIZE_DATE_CONTEXT): anchor "today"
+              // for the generator so relative/when questions resolve
+              // against the facts' date stamps instead of guessing.
+              // The temporal lane FORCES the anchor from asOf even when
+              // the profile disables anchoring — elapsed annotations are
+              // meaningless without a stated "today".
+              dateContext: resolveLaneDateContext(profile, args.lane, dto.asOf),
+              lane: args.lane,
+              // §8 item 3: enumeration scope discipline.
+              enumStrict: profile.enumStrict,
+              // T7: standing instructions in their own section.
+              instructions: collected.instructions,
+              // T3: evidence-conditional — fires on write-side COMPETING
+              // facts regardless of what the question looks like.
+              conflicts: detectEvidenceConflicts(args.results, profile.lanes),
+              dateMathLines: args.dateMathLines,
+              shapeInstruction: args.shapeInstruction,
+              // V13 search loop: round 1 exposes the refine affordance.
+              allowRefine: profile.searchLoop,
+            }),
+          ),
+        { 'synthesize.facts': args.factIndex.size },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Synthesize generator failed: ${(err as Error).message}`,
+      );
+      this.metrics?.countSynthesize('generator_error');
+      return {
+        failed: attachDecisionLog(
+          {
+            answer: null,
+            reason: 'generator_error',
+            citations: [],
+            results: args.results,
+          },
+          args.explain ? buildDecisionLog(args.results, new Set()) : undefined,
+        ),
+      };
+    }
+    const second = await this.refineRound({ ...args, generated });
+    return (
+      second ?? {
+        results: args.results,
+        factIndex: args.factIndex,
+        promptFactLines: args.promptFactLines,
+        dateMathLines: args.dateMathLines,
+        generated,
+      }
+    );
+  }
+
+  /**
+   * V13 constrained search loop — the ONE refine round. Eligibility
+   * gate first (flag on, a usable refined query, not the original
+   * query verbatim), then a second retrieval union-merged over the
+   * round-1 evidence and a forced-answer generation (the round-2 call
+   * carries no refine affordance — the cap is structural). Null on
+   * ineligibility or any failure — the caller keeps the round-1
+   * answer; the loop can only add evidence, never lose an answer.
+   */
+  private async refineRound(args: {
+    companyId: string;
+    callerScopes: string[];
+    dto: SynthesizeDto;
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    model: string;
+    answerLang: string | null;
+    guardrails: SynthesisGuardrails;
+    generated: GeneratorOutput;
+    evidence: SearchHit[];
+    prepareOpts: Parameters<SynthesizeService['prepareEvidence']>[1];
+    updateStories?: Map<string, string>;
+    shapeInstruction?: string;
+    collected: {
+      transcriptLines: string[];
+      insightLines: string[];
+      instructions?: string[];
+      timelineEvidence: boolean;
+    };
+  }): Promise<{
+    results: SearchHit[];
+    factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
+    promptFactLines: string[];
+    dateMathLines?: string[];
+    generated: GeneratorOutput;
+  } | null> {
+    const { profile, dto, collected } = args;
+    const refineQuery = args.generated.refineQuery?.trim();
+    if (!profile.searchLoop || !refineQuery || refineQuery === dto.query) {
+      return null;
+    }
+    try {
+      // Audit 2026-08-19 P1: the refined retrieval inherits the FULL
+      // caller filter contract (anchors, floors, mode, user scope) —
+      // only the query text changes.
+      const probe = await withSpan('synthesize.search_loop', () =>
+        this.search.search(
+          args.companyId,
+          buildSecondaryDto(dto, { query: refineQuery }),
+          args.callerScopes,
+        ),
+      );
+      const union = applyEvidenceUnion(
+        args.evidence,
+        probe.results,
+        profile.extraEvidenceCap,
+      );
+      const prepared = this.prepareEvidence(union, args.prepareOpts);
+      if ('empty' in prepared) return null;
+      const promptFactLines =
+        args.updateStories && args.updateStories.size > 0
+          ? appendUpdateStories(prepared.factLines, args.updateStories)
+          : prepared.factLines;
+      const dateMathLines = profile.dateMath
+        ? buildDateMathLines(prepared.results)
+        : undefined;
+      const generated = await withSpan('synthesize.generate_refined', () =>
+        this.limiter.run(() =>
+          this.callGenerator({
+            query: dto.query,
+            factLines: promptFactLines,
+            transcriptLines: collected.transcriptLines,
+            insightLines: collected.insightLines,
+            timelineEvidence: collected.timelineEvidence,
+            ...resolvePromptFrames(profile, collected.timelineEvidence),
+            model: args.model,
+            answerLang: args.answerLang,
+            neverAbstain: args.guardrails === 'answer',
+            dateContext: resolveLaneDateContext(profile, args.lane, dto.asOf),
+            lane: args.lane,
+            enumStrict: profile.enumStrict,
+            instructions: collected.instructions,
+            conflicts: detectEvidenceConflicts(prepared.results, profile.lanes),
+            dateMathLines,
+            shapeInstruction: args.shapeInstruction,
+          }),
+        ),
+      );
+      this.metrics?.countSynthesize('search_loop_refined');
+      return {
+        results: prepared.results,
+        factIndex: prepared.factIndex,
+        promptFactLines,
+        dateMathLines,
+        generated,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `search-loop refine failed (${(err as Error).message}) — keeping the round-1 answer`,
+      );
+      return null;
+    }
   }
 
   // The verdict/exit matrix lives in verdict.ts (V10.5 audit pass —
@@ -509,24 +709,30 @@ export class SynthesizeService {
   private async runLaneProbe({
     profile,
     lane,
-    query,
+    dto,
     companyId,
     callerScopes,
     baseHits,
   }: {
     profile: RetrievalProfile;
     lane: LaneId | null;
-    query: string;
+    dto: SynthesizeDto;
     companyId: string;
     callerScopes: string[];
     baseHits: SearchHit[];
   }): Promise<SearchHit[]> {
-    const probeDto = laneProbeDto(profile, lane, { query, baseHits });
+    const probeDto = laneProbeDto(profile, lane, { query: dto.query, baseHits });
     if (!probeDto) return [];
     if (getAbortSignal()?.aborted) return [];
     try {
+      // Audit 2026-08-19 P1: the probe inherits the caller's full
+      // filter contract; the lane supplies only its query and limit.
       const probe = await withSpan('synthesize.lane_probe', () =>
-        this.search.search(companyId, probeDto as SearchDto, callerScopes),
+        this.search.search(
+          companyId,
+          buildSecondaryDto(dto, probeDto),
+          callerScopes,
+        ),
       );
       return probe.results;
     } catch (e) {
@@ -550,6 +756,8 @@ export class SynthesizeService {
       markRecency?: boolean;
       /** V12: mention-date suffix on stamped facts (profile.mentionDates). */
       mentionDates?: boolean;
+      /** V13: "(context: …)" scene suffix (profile.sceneTraces). */
+      sceneTraces?: boolean;
     },
   ):
     | { empty: SynthesizeResult }
@@ -561,6 +769,7 @@ export class SynthesizeService {
       chronological,
       markRecency,
       mentionDates,
+      sceneTraces,
     } = opts;
     const guardrail = applyConformalGuardrail(evidence, {
       // 'answer' mode disables the CONFIDENCE floor by design: the whole
@@ -592,6 +801,7 @@ export class SynthesizeService {
       chronological,
       markRecency,
       mentionDates,
+      sceneTraces,
     });
     if (factIndex.size === 0) {
       // Search returned entities but they were stripped to ids by
@@ -670,6 +880,7 @@ export class SynthesizeService {
     insightLines?: string[];
     timelineEvidence?: boolean;
     topicCoverage?: boolean;
+    dateMathLines?: string[];
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

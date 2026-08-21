@@ -80,6 +80,9 @@ export interface VerifyRequest {
    * byte-identical prompt and schema.
    */
   topicCoverage?: boolean;
+  /** V13 (profile.dateMath): the computed date table the generator
+   *  saw — weekday/gap claims grounded in it must not be flagged. */
+  dateMathLines?: string[];
   model: string;
 }
 
@@ -91,6 +94,7 @@ function buildVerifierUserMessage({
   transcriptLines,
   insightLines,
   timelineEvidence,
+  dateMathLines,
 }: {
   query: string;
   answer: string;
@@ -98,6 +102,7 @@ function buildVerifierUserMessage({
   transcriptLines?: string[];
   insightLines?: string[];
   timelineEvidence?: boolean;
+  dateMathLines?: string[];
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {
@@ -109,6 +114,12 @@ function buildVerifierUserMessage({
   if (insightLines && insightLines.length > 0) {
     sections.push(
       `Derived insights (equally valid support):\n` + insightLines.join('\n'),
+    );
+  }
+  if (dateMathLines && dateMathLines.length > 0) {
+    sections.push(
+      `Computed date table (derived in code from the fact date stamps — weekday and gap claims grounded in it are valid support):\n` +
+        dateMathLines.join('\n'),
     );
   }
   return `Query: ${query}\n\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;

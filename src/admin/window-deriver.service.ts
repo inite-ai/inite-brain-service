@@ -47,12 +47,15 @@ export {
 } from './deriver-client';
 import {
   callDeriver,
+  composeCrossSession,
   foldDigest,
+  type ComposedProposition,
   type DerivedProposition,
 } from './deriver-client';
 import {
   accumulateLanded,
   composeAspectRollups,
+  majorityEntityId,
   type RollupMember,
 } from './aspect-rollups';
 
@@ -66,6 +69,9 @@ export interface DeriveRunResult {
    *  `propositions` so volume-parity gates keep comparing pure
    *  extraction volume across flag pairs. */
   rollups?: number;
+  /** Cross-session composed rows (V13 DERIVER_COMPOSE_PASS) — same
+   *  volume-parity reasoning as `rollups`. */
+  composed?: number;
   unresolvedSubjects: number;
   skipped: Array<{ conversationId: string; reason: string }>;
   /**
@@ -90,6 +96,13 @@ export {
   type EpisodeRow,
 } from '../episodes/session-window';
 import { segmentSessions, type EpisodeRow } from '../episodes/session-window';
+
+/** `YYYY-MM-DD HH:MM` (UTC) turn stamp for DERIVER_TURN_HEADERS. */
+export function formatTurnStamp(occurredAt: string): string {
+  const d = new Date(occurredAt);
+  if (Number.isNaN(d.getTime())) return occurredAt.slice(0, 16);
+  return d.toISOString().slice(0, 16).replace('T', ' ');
+}
 
 @Injectable()
 export class WindowDeriverService {
@@ -327,7 +340,32 @@ export class WindowDeriverService {
           `DELETE knowledge_fact WHERE derivedVersion = $version`,
           { version: name },
         );
+        // Audit 2026-08-19 P1: the version's digests die with it — a
+        // reaped world must not keep serving its narrative.
+        await db.query(
+          `DELETE conversation_digest WHERE derivedVersion = $version`,
+          { version: name },
+        );
         deleted[name] = v.n;
+      }
+      // Digests of versions with ZERO remaining facts (fold ran but the
+      // fact write failed, or a version never landed facts) are
+      // unreachable through any keep-set derived from facts — sweep the
+      // orphans by the same keep-set.
+      const [digestVersions] = await db.query<
+        [Array<{ derivedVersion?: string }>]
+      >(
+        `SELECT derivedVersion FROM conversation_digest
+          WHERE derivedVersion IS NOT NONE
+          GROUP BY derivedVersion`,
+      );
+      for (const v of digestVersions ?? []) {
+        const name = String(v.derivedVersion);
+        if (keep.has(name) || name in deleted) continue;
+        await db.query(
+          `DELETE conversation_digest WHERE derivedVersion = $version`,
+          { version: name },
+        );
       }
     });
     // A registry row promises a queryable world — reaped versions lose theirs.
@@ -441,10 +479,23 @@ export class WindowDeriverService {
       .deriveAspectRollups
       ? []
       : null;
+    // V13 compose pass: same landed-row pool shape, separate flag —
+    // the LLM composition and the mechanical rollups are independent
+    // legs and must be measurable apart.
+    const composePool: RollupMember[] | null = resolveExtractionProfile()
+      .deriveComposePass
+      ? []
+      : null;
+    // V13 DERIVER_TURN_HEADERS: each line carries the turn's own
+    // timestamp so occurred_on resolves against the TURN, not the
+    // session's first day. Off = the historical bare render.
+    const turnHeaders = resolveExtractionProfile().deriveTurnHeaders;
     for (const session of segmentSessions(episodes)) {
       const sessionDate = new Date(session[0].occurredAt as string);
-      const transcript = session.map(
-        (e, i) => `[${i}] ${e.speaker ?? 'unknown'}: ${e.text}`,
+      const transcript = session.map((e, i) =>
+        turnHeaders
+          ? `[${i}] (${formatTurnStamp(e.occurredAt as string)}) ${e.speaker ?? 'unknown'}: ${e.text}`
+          : `[${i}] ${e.speaker ?? 'unknown'}: ${e.text}`,
       );
       if (digest !== null) {
         // Degrade, never fail: the version-scoped DELETE already ran —
@@ -491,8 +542,16 @@ export class WindowDeriverService {
         })
         .filter((x): x is { p: DerivedProposition; entityId: string } => !!x);
       if (resolved.length === 0) continue;
+      // V13 scene traces: the trace is part of the ENCODING — it folds
+      // into the embedded text (that is the dual-trace mechanism: the
+      // situational context makes the row findable from situational
+      // questions), while the stored object stays the bare proposition.
       const vectors = await this.embedding.embedMany(
-        resolved.map(({ p }) => p.proposition),
+        resolved.map(({ p }) =>
+          p.scene?.trim()
+            ? `${p.proposition} — ${p.scene.trim()}`
+            : p.proposition,
+        ),
       );
       // ONE write primitive for every producer (S4/0079): the batch
       // routes through fn::resolve_facts with the derivedVersion
@@ -522,14 +581,53 @@ export class WindowDeriverService {
       if (rollupPool) {
         this.collectRollupPool({ rollupPool, resolved, rows, outcomes });
       }
+      if (composePool) {
+        this.collectRollupPool({ rollupPool: composePool, resolved, rows, outcomes });
+      }
     }
     await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
+    await this.writeCompositionPasses({
+      db,
+      conversationId,
+      version,
+      rollupPool,
+      composePool,
+      result,
+    });
+  }
+
+  /** Post-session composition writes (rollups + compose pass), split
+   *  from deriveConversation for the complexity gate. */
+  private async writeCompositionPasses({
+    db,
+    conversationId,
+    version,
+    rollupPool,
+    composePool,
+    result,
+  }: {
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
+    conversationId: string;
+    version: string;
+    rollupPool: RollupMember[] | null;
+    composePool: RollupMember[] | null;
+    result: DeriveRunResult;
+  }): Promise<void> {
     if (rollupPool && rollupPool.length > 0) {
       await this.writeAspectRollups({
         db,
         conversationId,
         version,
         pool: rollupPool,
+        result,
+      });
+    }
+    if (composePool && composePool.length >= 2) {
+      await this.writeComposedFacts({
+        db,
+        conversationId,
+        version,
+        pool: composePool,
         result,
       });
     }
@@ -610,6 +708,13 @@ export class WindowDeriverService {
                 turnIndex: firstTurn,
               }
             : {};
+        // V13 scene trace: same FLEXIBLE-source ride as salience and
+        // the mention stamp — capped so a runaway trace can't bloat
+        // every prompt line it later renders on.
+        const scene =
+          resolveExtractionProfile().deriveSceneTrace && p.scene?.trim()
+            ? { scene: p.scene.trim().slice(0, 200) }
+            : {};
         const source = {
           vertical: 'derived',
           recorder: version,
@@ -619,6 +724,7 @@ export class WindowDeriverService {
             .map((t) => String(session[t].id)),
           ...salience,
           ...mention,
+          ...scene,
         };
         return {
           entityId: subjectEntity,
@@ -697,11 +803,19 @@ export class WindowDeriverService {
     digest: string | null;
     digestEventAt: Date | null;
   }): Promise<void> {
-    if (digest === null || !digest.trim() || !digestEventAt) return;
+    // Audit 2026-08-19 P1: deriving a (conversation, version) claims the
+    // whole namespace — the OLD digest dies regardless of whether this
+    // run produced a new one (flag now off, or the fold degraded).
+    // Leaving it would serve a narrative inconsistent with the facts
+    // that were just rewritten next to it.
     await db.query(
       `DELETE conversation_digest
-        WHERE conversationId = $conv AND derivedVersion = $version;
-       CREATE conversation_digest SET
+        WHERE conversationId = $conv AND derivedVersion = $version`,
+      { conv: conversationId, version },
+    );
+    if (digest === null || !digest.trim() || !digestEventAt) return;
+    await db.query(
+      `CREATE conversation_digest SET
          conversationId = $conv, derivedVersion = $version,
          summary = $summary, lastIngestAt = time::now(),
          lastEventAt = <datetime>$eventAt`,
@@ -782,6 +896,124 @@ export class WindowDeriverService {
         `aspect rollup pass failed (${(e as Error).message}) — atomic facts unaffected`,
       );
     }
+  }
+
+  /**
+   * V13 cross-session composition (DERIVER_COMPOSE_PASS, the PREMem
+   * shape): one LLM call over this conversation's landed atoms emits
+   * multi-atom compositions — the write-time answer to the measured
+   * "every atom exists, no atom states the combination" multi-hop
+   * class. Member indices are validated here (≥2 in-range members);
+   * entity attribution and grounding union come FROM the members, so
+   * a hallucinated member list cannot invent provenance. Failure
+   * degrades to a warning — the atomic facts already landed.
+   */
+  private async writeComposedFacts({
+    db,
+    conversationId,
+    version,
+    pool,
+    result,
+  }: {
+    db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
+    conversationId: string;
+    version: string;
+    pool: RollupMember[];
+    result: DeriveRunResult;
+  }): Promise<void> {
+    try {
+      const raw = await this.composeCrossSession(pool);
+      // Audit 2026-08-19: dedupe member indices ([0,0] must not pass the
+      // two-member floor) and demand two DISTINCT supporting atoms.
+      const compositions = raw
+        .map((c) => ({
+          ...c,
+          members: [
+            ...new Set(
+              c.members.filter(
+                (m) => Number.isInteger(m) && m >= 0 && m < pool.length,
+              ),
+            ),
+          ],
+        }))
+        .filter((c) => c.members.length >= 2 && c.proposition.trim());
+      if (compositions.length === 0) return;
+      const vectors = await this.embedding.embedMany(
+        compositions.map((c) => c.proposition),
+      );
+      const rows = compositions.map((c, i) => {
+        const members = c.members.map((m) => pool[m]);
+        const aspect = c.aspect
+          .toLowerCase()
+          .replace(/[^a-z0-9_]+/g, '_')
+          .slice(0, 40);
+        const occurredMs = c.occurred_on
+          ? Date.parse(`${c.occurred_on}T00:00:00.000Z`)
+          : NaN;
+        const validFrom = Number.isFinite(occurredMs)
+          ? new Date(occurredMs)
+          : new Date(
+              Math.max(...members.map((m) => m.validFrom.getTime())),
+            );
+        const episodeIds = [
+          ...new Set(members.flatMap((m) => m.episodeIds)),
+        ].slice(0, 64);
+        return {
+          entityId: majorityEntityId(members),
+          predicate: aspect || 'other',
+          object: c.proposition,
+          confidence: 0.85,
+          validFrom,
+          source: {
+            vertical: 'derived',
+            recorder: version,
+            conversationId,
+            composed: true,
+            memberCount: members.length,
+            ...(episodeIds.length > 0 ? { episodeIds } : {}),
+          },
+          sourceTrust: sourceTrustFor({
+            vertical: 'derived',
+            recorder: version,
+          }),
+          embedding: vectors[i],
+          derivedVersion: version,
+        };
+      });
+      const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
+        slotSemantics: false,
+      });
+      const landed = outcomes.filter(
+        (o) => o.outcome !== 'SKIPPED' && o.outcome !== 'REJECTED',
+      ).length;
+      // Separate counter — same volume-parity reasoning as rollups.
+      result.composed = (result.composed ?? 0) + landed;
+      this.logger.log(
+        `compose pass: ${landed}/${compositions.length} landed (${conversationId})`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `compose pass failed (${(e as Error).message}) — atomic facts unaffected`,
+      );
+    }
+  }
+
+  private async composeCrossSession(
+    pool: RollupMember[],
+  ): Promise<ComposedProposition[]> {
+    return composeCrossSession(
+      { openai: this.openai, model: this.model, logger: this.logger },
+      {
+        atoms: pool.map((m) => ({
+          // Entity tag so the model never blends different people's
+          // atoms into one composition (audit 2026-08-19).
+          entity: m.entityId.split(':').pop()?.slice(0, 40) ?? m.entityId,
+          predicate: m.predicate,
+          object: m.object,
+          dateIso: m.dated ? m.validFrom.toISOString().slice(0, 10) : null,
+        })),
+      },
+    );
   }
 
   // Thin adapter over the deriver client (V10.5 audit pass) — the

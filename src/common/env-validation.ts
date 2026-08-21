@@ -161,6 +161,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── Verifier model override (V11 §2 arm a) ─────────────────────────
   modelIdFormat(env, 'RETRIEVAL_VERIFIER_MODEL', errors);
 
+  // ── V13 raw-turn window (hybrid substrate read side) ───────────────
+  positiveInt(env, 'RETRIEVAL_RAW_WINDOW_SPAN', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -409,6 +412,7 @@ function validateRetrievalProfileEnv(
     ],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
+    ['RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku']],
   ];
   for (const [name, allowed] of enums) {
     const v = env[name];
@@ -501,6 +505,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V12 §1: per-fact mention anchor (source.mentionedAt/turnIndex from
   // the first grounding turn's occurredAt). Default off.
   'DERIVER_MENTION_STAMP',
+  // V13 structural: per-turn timestamp headers in the deriver
+  // transcript + resolve occurred_on against the turn's own timestamp
+  // (session-date fallback kept). Default off; fresh derivedVersion.
+  'DERIVER_TURN_HEADERS',
   // V12 §3: occurred_on anti-collapse prompt rules (date the EVENT,
   // resolve relative time, null over session-date default). Default
   // off; confirms only on a FRESH derivedVersion.
@@ -511,6 +519,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V13 A2: mechanical per-(entity, aspect) rollup facts at write time
   // (the MH-enumeration lever). Default off; fresh derivedVersion.
   'DERIVER_ASPECT_ROLLUPS',
+  // V13: cross-session LLM composition pass (PREMem shape) — one call
+  // per conversation over landed atoms. Default off; fresh
+  // derivedVersion.
+  'DERIVER_COMPOSE_PASS',
+  // V13: dual-trace encoding — per-proposition scene clause stamped
+  // and folded into the embedding. Default off; fresh derivedVersion.
+  'DERIVER_SCENE_TRACE',
   // V12 §2: rolling per-conversation digest fold (conversation_digest,
   // 0086). Default off.
   'DERIVER_DIGEST',
@@ -545,6 +560,27 @@ const KNOWN_BOOLEAN_FLAGS = [
   // §8 item 3: enumeration scope discipline — only items the facts tie
   // to the asked scope; extras sink strict-judged list answers.
   'RETRIEVAL_ENUM_STRICT',
+  // V13 dual-trace read side: "(context: …)" scene suffix on stamped
+  // fact lines. Default off.
+  'RETRIEVAL_SCENE_TRACES',
+  // V13 hybrid substrate: fact hits expand into bounded raw-turn
+  // windows rendered as transcript evidence. Default off.
+  'RETRIEVAL_RAW_WINDOW',
+  // V13 TSM-shape time-constrained retrieval: code-parsed query period
+  // boosts in-range facts (rank-only, nothing dropped). Default off.
+  'RETRIEVAL_TIME_FILTER',
+  // V13 deterministic date table (weekday + event-to-event gaps) so the
+  // generator never does raw calendar math. Default off.
+  'RETRIEVAL_DATE_MATH',
+  // V13 G2: per-question-shape answer instructions from the code-side
+  // shape detectors. Default off.
+  'RETRIEVAL_ANSWER_CONDITIONING',
+  // V13 LIGHT noise filter: cross-encoder relevance gate on injected
+  // context lines (facts never filtered). Default off.
+  'RETRIEVAL_NOISE_FILTER',
+  // V13 constrained search loop: one structured refine round, then a
+  // forced answer. Default off.
+  'RETRIEVAL_SEARCH_LOOP',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

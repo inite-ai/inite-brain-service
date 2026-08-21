@@ -48,6 +48,14 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   private readonly all: Surreal[] = [];
   private readonly rootIdle: Surreal[] = [];
   private readonly scopedIdle: Surreal[] = [];
+  /**
+   * Scoped-pool connections currently authorized as ROOT (scoped signin
+   * failed at boot or after a migration). Audit 2026-08-19 P1: such a
+   * connection previously stayed root-authorized FOREVER once busy at
+   * resign time — every acquire now retries the scoped signin first and
+   * never hands out a root-authorized conn silently.
+   */
+  private readonly rootFallbackConns = new Set<Surreal>();
   private readonly rootWaiters: Array<(c: Surreal) => void> = [];
   private readonly scopedWaiters: Array<(c: Surreal) => void> = [];
   private namespace!: string;
@@ -221,6 +229,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
               `Falling back to root for this connection until first migration runs.`,
           );
           await conn.signin({ username, password });
+          this.rootFallbackConns.add(conn);
         }
         this.all.push(conn);
         this.scopedIdle.push(conn);
@@ -434,12 +443,36 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private acquireScoped(): Promise<Surreal> {
-    return this.acquireWithTimeout(
+  private async acquireScoped(): Promise<Surreal> {
+    const conn = await this.acquireWithTimeout(
       this.scopedIdle,
       this.scopedWaiters,
       'scoped',
     );
+    // Audit 2026-08-19 P1: a root-fallback conn re-attempts the scoped
+    // signin on EVERY acquire; until it succeeds the conn keeps working
+    // (app-layer fences still apply) but is retried next time — the
+    // fallback is a transient state, never a permanent privilege.
+    if (this.rootFallbackConns.has(conn)) {
+      const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
+      const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
+      if (scopedUser && scopedPass) {
+        try {
+          await conn.signin({
+            username: scopedUser,
+            password: scopedPass,
+            namespace: this.namespace,
+          });
+          this.rootFallbackConns.delete(conn);
+          this.logger.log('Root-fallback scoped conn re-signed as scoped');
+        } catch (e) {
+          this.logger.warn(
+            `Scoped re-signin on acquire failed (conn stays root-authorized this request): ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+    return conn;
   }
 
   private releaseScoped(conn: Surreal): void {
@@ -627,7 +660,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
           password: scopedPass,
           namespace: this.namespace,
         });
+        this.rootFallbackConns.delete(conn);
       } catch (e) {
+        this.rootFallbackConns.add(conn);
         this.logger.warn(
           `Re-signin to scoped failed for an idle conn: ${(e as Error).message}`,
         );

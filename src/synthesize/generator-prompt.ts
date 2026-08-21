@@ -32,6 +32,8 @@ export function buildGeneratorUserMessage({
   instructions,
   conflicts,
   enumStrict,
+  dateMathLines,
+  shapeInstruction,
 }: {
   query: string;
   factLines: string[];
@@ -85,6 +87,17 @@ export function buildGeneratorUserMessage({
    * listing the gold items PLUS thematically adjacent extras.
    */
   enumStrict?: boolean;
+  /**
+   * V13 (profile.dateMath): computed date table — weekday + exact
+   * event-to-event gaps for every dated evidence day, so the model
+   * never does raw calendar arithmetic. Empty/undefined = no section.
+   */
+  dateMathLines?: string[];
+  /**
+   * V13 G2 (profile.answerConditioning): the per-shape reading
+   * instruction from answer-shape.ts; composes with the lane frame.
+   */
+  shapeInstruction?: string;
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
@@ -132,5 +145,9 @@ export function buildGeneratorUserMessage({
     insightLines && insightLines.length > 0
       ? `\n\n${insightHeader}\n${insightLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${langInstruction}`;
+  const dateMathSection =
+    dateMathLines && dateMathLines.length > 0
+      ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
+      : '';
+  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${dateMathSection}${langInstruction}`;
 }

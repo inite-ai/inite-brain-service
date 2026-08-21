@@ -61,8 +61,9 @@ multi-hop there) — conflict/freshness resolution belongs in code, at assembly 
 protocol** vs LIGHT's 0.358 (our anchor); Router-Mem's plain full pipeline hits 43.3 on its
 harness. So 0.40–0.45 looks claimable without exotic machinery. Two lanes are
 protocol-capped, not capability-capped: contradiction resolution (0.006–0.05 for *all*
-systems strict vs 91.4% under a lenient judge — never quote our internal 52–55 next to the
-official 0.03) and event ordering is nearly so (0.16–0.22 for all — but that is Kendall-tau
+systems strict vs 60.6 under the vendor AMB harness — a ≥12× lane inflation; the earlier
+"91.4% lenient CR" marker in this doc was a mis-mapped citation, 91.4 is Hindsight's
+LongMemEval headline. Never quote our internal 52–55 next to the official 0.03) and event ordering is nearly so (0.16–0.22 for all — but that is Kendall-tau
 over event sequences, i.e. exactly what per-turn timestamps would feed). We ported 3 of 4
 LIGHT components; the unported one is **noise filtering** (binary chunk-relevance gate on
 scratchpad content, ~+2pp @100K, growing with scale). Their retrieval-k ablation: k=15
@@ -159,6 +160,43 @@ with nugget-primary temporal targets (derive floor ±0.8pp headline / ±3.5 per-
 
 ## 3. Protocol hygiene for anything we publish
 
+**Ontological grounding rule (2026-08-17).** Without expert-grounded ontology on
+both ends of the pipe, hallucinated synthetics score 90+ on ANY genre — KG,
+documents, or dialogue (measured: the standard lenient judge accepts 62.8% of
+intentionally-wrong topically-adjacent answers; 56% of per-category comparisons
+are noise). The defenses are structural, and this engine already carries them
+as per-tenant configuration, not forks: write-side — closed expert predicate
+vocabulary, fixed aspect ontology, span-grounding, per-proposition turn
+grounding, compose-pass member validation (a hallucinated composition cannot
+invent provenance); read-side — factId citations + verifier-against-evidence;
+eval-side — strict judge + nugget decomposition. **Standing gate for any NEW
+eval axis (including the future documents axis): a judge-calibration probe —
+score a set of intentionally-wrong, topically-adjacent answers and report the
+judge's acceptance rate next to the headline.** An axis without this number is
+not evidence; a 90+ on it is not a result.
+
+**AMB leaderboard forensic (2026-08-19; Exabase M-1 76.9 / Hindsight 73.4 /
+Honcho 63.0 @100K).** The board (agentmemorybenchmark.ai) is owned by Vectorize
+— the vendor of Hindsight, the #2 entry; the #1 entry (Exabase) forked the
+owner's harness and ran Gemini 3 Flash as BOTH answerer and judge; submissions
+are self-run, the judge is unpinned, and the harness README itself admits
+"small changes can swing accuracy scores by double digits". Question set is a
+per-tier regeneration (~400 @100K), not the paper's validated 2,000. Academic
+strict-protocol systems appear only as pasted original-paper numbers next to
+vendor-harness numbers (direct cross-currency conflation); the official BEAM
+project page hosts no leaderboard at all. Currency triangulation (CR-lane
+inflation ≥12×; rubric-shape factor 1.3× measured on our own strict pair):
+lenient(AMB) ≈ 1.5–2.0× strict-nugget, placing all three at ~0.32–0.51
+strict-equivalent — statistically indistinguishable from our measured 0.46,
+likely above only Honcho. The one ablation-backed takeaway in the trio:
+Honcho's dreaming ON/OFF — consolidation helps @100K, off is better ≥500K —
+independently confirming our V9 lifecycle-parity law. Exabase's
+salience-modulated decay (the fovea program's interest): two sentences of
+proprietary prose, zero ablations — not citable as evidence. Meta-rule
+adopted: demand the bare-backbone delta from every vendor claim (Honcho's own
+LoCoMo delta over bare Haiku is +6pp — the honest size of a memory system's
+contribution under a modern backbone).
+
 Any external number must pin: judge model + strictness probe, answer model, category set
 (cat-5 in/out), split, n, and retrieval budget (tokens/query). Three incompatible BEAM score
 families and a 20–40pp vendor-inflation gap on LoCoMo/LME make unpinned numbers
@@ -181,3 +219,322 @@ full-context strict-protocol BEAM numbers at any tier.
 - PRIMETIME — arXiv 2504.16155 (mini-class date arithmetic 14–40%) · TISER — arXiv 2504.05258
 - ReasoningBank — arXiv 2509.25140 · MemOps — arXiv 2607.12893 · MINJA — arXiv 2503.03704
 - Production reverse-engineering — shloked.com (ChatGPT/Claude/Gemini memory architectures)
+
+## 5. V13 build (2026-08-17) — what was built, how to measure it
+
+Everything below is default-off, per-tenant configuration (no eval forks); goldens
+carry the flag budget (engine flags 45→52, retrieval keys 24→32). Unit coverage:
+`time-range.unit-spec`, `v13-answer-frames.unit-spec`, `turn-headers.unit-spec`.
+
+| # | Lever | Flag(s) | Target axis / expectation |
+|---|-------|---------|---------------------------|
+| B1 | Raw-turn window: fact hits expand to surrounding raw turns (facts-as-index) | `RETRIEVAL_RAW_WINDOW` (+`RETRIEVAL_RAW_WINDOW_SPAN`, default 2) | The 63% gold-absent class. First leg: LME SSA (episodic lane's native genre), then LME MS/temporal; LoCoMo pair as sanity. Literature: −22pp fact-only ablation. |
+| B2 | Per-turn timestamp headers in the deriver (event-time grounding) | `DERIVER_TURN_HEADERS` — **fresh derivedVersion required** | BEAM event_ordering (0.0 strict) + temporal nugget; LME temporal. Read with nugget-primary target; derive floor ±0.8pp headline / ±3.5 per-cat. Session-date fallback kept (armK guard). |
+| B3 | Time-constrained retrieval: query-named absolute period boosts in-range facts | `RETRIEVAL_TIME_FILTER` | LME temporal residue (~74 q at 41.7%). Open-ended rows anchor on validFrom as event day; closed intervals overlap honestly; mention stamp rescues. Inert when the query names no absolute period. |
+| B4 | Deterministic date table (weekday + event-to-event gaps, computed in code) | `RETRIEVAL_DATE_MATH` | LoCoMo temporal + LME temporal. PRIMETIME: mini-class raw date math is 14-40%. No "elapsed before today" frame. Verifier sees the same table. |
+| B5 | G2 per-shape answer conditioning (chained / aggregation / verbatim) | `RETRIEVAL_ANSWER_CONDITIONING` | The 22% gold-in-window class, ceiling ≈ +4.9pp LoCoMo (MH 61.3% + OD 43.5% are the shape targets). |
+| B6 | Constrained search loop: ONE structured refine round, then forced answer | `RETRIEVAL_SEARCH_LOOP` | The 22%+15% classes; MemMachine/Letta shape. NOT the E11 free loop (that measured −4.6). Watch `search_loop_refined` counter for fire rate; cost = ≤1 extra search + 1 extra generation per fired question. |
+| B7 | Digest gate-shaping: digest lines only into summary/recency-routed prompts | `RETRIEVAL_DIGEST_LANES=summary_ku` (with `RETRIEVAL_DIGEST_EVIDENCE=1`) | BEAM: keep the +5.0 strict (KU +15) while un-bleeding abstention (−7.5) and summ nugget (−1.9). |
+| B8 | Noise filter: cross-encoder relevance gate on injected context lines | `RETRIEVAL_NOISE_FILTER` | BEAM nugget (+~2pp per LIGHT's ablation at 100K). Needs the local CE (`SEARCH_CROSS_ENCODER_LOCAL_WORKER=0` on the eval stand). Facts and the mention record are never filtered. |
+| B9 | Cross-session composition pass: one LLM call per conversation composes multi-atom facts (PREMem shape) | `DERIVER_COMPOSE_PASS` — **fresh derivedVersion required** | LoCoMo multi-hop (61.3%, largest miss bucket = composed-fact-absent) + LME MS. On-genre published ablation +3-7pp concentrated on multi-hop; the graph research verdict: assemble chains at write time or by read iteration, never by static traversal (edge-expansion NULL doubly confirmed by HippoRAG's own neighbor ablation). Pairs naturally with B2 on the same fresh derive. |
+| B10 | Scene traces: per-fact one-clause encoding context, stamped + folded into the embedding (dual-trace port, arXiv 2604.12948) | `DERIVER_SCENE_TRACE` (write, **fresh derivedVersion**) + `RETRIEVAL_SCENE_TRACES` (read render) | The single largest published effect found in the research pass: +20.2pp LongMemEval-S overall, temporal +40pp, KU +25pp, multi-session +30pp in their controlled pair (single-session +0 — expect gains on cross-session axes). Mechanism = encoding specificity, pure text. Pairs with B2/B9 on the same fresh derive. |
+
+Recommended measurement order (cheap → expensive, banked confirms first):
+
+1. **Tier-0 confirms (unchanged by this build):** LME full-500 on current code
+   (banked ≈ +4.6pp, $15-20, worlds need re-ingest — commands in
+   `next-session-measure-2026-08.md`); verifier=gpt-5-mini at n≥120 on the BEAM
+   abstention block; BEAM k-tuning legs (`SEARCH_SEGMENT_LANE_TOPK`/
+   `SEARCH_EPISODIC_LANE_TOPK` ≈ 15).
+2. **BEAM read pack (cheapest legs, ~$1-2 each, --skip-ingest):** B7, B8, B4 —
+   nugget-primary via `scripts/offline-nugget-score.ts`; per-ability n=40 → ±8pp
+   strict noise, decide on nugget.
+3. **LME SSA leg (B1):** `SEARCH_EPISODIC_LANE_ENABLED=1 SYNTHESIZE_SOURCE_EXCERPTS=1
+   RETRIEVAL_RAW_WINDOW=1` on SSA indices 444-499 (56-world rebuild once); then
+   temporal block 233-365 with B3+B4.
+4. **LoCoMo pair (sanity, $2-3/arm):** ctl vs B1+B4+B5+B6 combined on wd-v3s
+   (`--skip-ingest`, guardrails answer, McNemar via
+   `scripts/eval-analysis/locomo-mcnemar.py`; ±2.2pp floor — only a combined leg
+   has a chance to read).
+5. **B2 derive leg (most expensive, quota-gated):** fresh `wd-v6t` derive on
+   loco-321 with `DERIVER_TURN_HEADERS=1`, then BEAM EO/temporal nugget target
+   (re-segment worlds 11/12/18/19/20 first — they have zero episode_segment rows).
+
+Stand reminders: source `.env` BEFORE exports; registry live-row beats
+`RETRIEVAL_DERIVED_VERSION`; loco-321 = volume `loco321_rocks` on
+`surrealdb/surrealdb:latest` (3.2.1 — 3.1.5 breaks index state) with
+`--restart unless-stopped --memory 4g`; `--resume` accepts a report-synthesized
+checkpoint after any interrupt.
+
+## 6. Follow-up research: graph utilization (2026-08-17)
+
+Question: are we leaving points on the table by not exploiting graph structure
+"NN-style" (PPR, GNN rerankers, projections)? Verdict: **no — for this genre the
+graph-read hypothesis fails the transfer test**, with one productive exception.
+
+- Our edge-expansion NULL is now doubly confirmed: HippoRAG 1's own ablation has
+  "query nodes + neighbors" WORSE than query-nodes-only (R@2 25.4 vs 37.1 on
+  MuSiQue) — unscored k-hop expansion injects noise even on the graph-friendliest
+  benchmarks. Do not build 2-hop variants.
+- Graph storage loses multi-hop on-genre: Mem0 vs Mem0g (same vendor, 10 runs):
+  graph variant −3.96pp multi-hop LoCoMo, 3.2× latency. PPR wins concentrate on
+  entity-chain Wikipedia QA (2Wiki); every third-party read of HippoRAG-family on
+  conversational memory is mid-pack (61.6 LoCoMo / 45.9 LME / 54% single-hop
+  FactConsolidation). GNN rerankers / graph embeddings / G-Retriever: curated-KG
+  genre, no conversational evidence, training burden — not production-viable here.
+- The exception (what the field's on-genre ablations actually credit): assemble
+  chains at **write time** (PREMem composition, +3-7pp ablated, gains on
+  multi-hop — built as B9) or by **read-time iteration** (MRAgent's ablation:
+  iteration > structure; REMem +13.4 reasoning — built as B6 in constrained
+  form). Static path-retrieval + path-rendering has no published on-genre
+  evidence; if we ever test it, that is novel territory.
+- Only PPR variant worth one cheap paired run someday: seed the walk from
+  query-to-TRIPLE matches (HippoRAG 2's +12.5 recall component), not entity
+  nodes. Expectation per transfer evidence: null to small.
+
+Key sources: arXiv 2405.14831 (Table 5), 2502.14802, 2504.19413, 2509.10852
+(PREMem), 2606.06036 (MRAgent), 2604.09666, 2602.13530.
+
+**Genre-conditionality caveat (platform lens, 2026-08-17).** The verdict above
+is conditional on the CONVERSATIONAL genre, because all three of our eval axes
+are conversational — and this engine is a universal memory platform
+(`RetrievalProfile.genre`: dialogue / assistant_chat / documents; doc-ingest
+pipeline, CRM verticals, domain packs). The same literature says graph levers
+DO pay elsewhere: PPR on entity-chain QA over clean KGs, GraphRAG community
+summaries on global-sensemaking over document corpora, and even Mem0g's own
+ablation had the graph WINNING temporal (+2.6) and open-domain (+2.8) while
+losing multi-hop. The platform-correct posture is therefore per-genre
+configuration, not removal — which the α=0 default already implements (the
+segment-lane precedent: genre-dependent sign, resolved by profile, not by
+deletion). **Recorded gap:** we have NO non-conversational eval axis, so
+genre-conditional levers are unmeasurable exactly where they should pay. Work
+item for a future program: a documents-genre axis (GraphRAG-Bench /
+MuSiQue-class over our doc-ingest path) before investing further in — or
+retiring — graph machinery platform-wide.
+
+## 7. Follow-up research: compression/decompression + multimodal (2026-08-17)
+
+Frame: memory IS rate-distortion coding — and the 2026 field now says this
+explicitly (arXiv 2605.10870 decision-centric RD; 2607.08032 RD survey). The
+empirical consensus converges on exactly our architecture: facts→KEYS, topical
+segments→retrieval unit, raw turns→VALUES, distortion measured at decision time.
+
+- **Dual-trace encoding is the single largest published effect found in the
+  whole research pass**: fact + one-clause scene trace of the context it was
+  learned in → +20.2pp LongMemEval-S (95% CI +12.1..+29.3), temporal +40pp,
+  KU +25pp, single-session +0 (arXiv 2604.12948). Pure text; the mechanism is
+  encoding specificity, not imagery — built as B10.
+- High-ratio compression does not survive for memory: LLMLingua-class degrades
+  −47% between 1.5× and 3.4× on extractive QA; 500xCompressor retains 62-73% of
+  capability; ~4× query-aware denoising is the reliable plateau. Soft-token/KV
+  memory (gist, ICAE, cartridges) is model-weight-locked and per-corpus-trained —
+  dead for an append-heavy dialogue store; KV eviction compounds degradation
+  per turn. Text-space substrates (ours) remain the only portable medium.
+- Granularity ladder (SeCom ICLR 2025, cleanest ablation): topical SEGMENT beats
+  turn and session as the retrieval unit — a future knob for our segment
+  composer (WINDOW=4 fixed windows today).
+- Sleep-vs-read split: precompute the index and stable derivations (sleep-time
+  compute ~5× test-compute savings when queries are predictable), reconstruct
+  content from raw at answer time (raw replay beats precomputed fact stores on
+  content fidelity). Recursive summary-of-summaries decay is real but UNMEASURED
+  in the field — a cheap novel in-house measurement if we want one.
+- Multimodal: gains exist only where images carry unverbalized information
+  (Mem-Gallery: naive image accumulation UNDERPERFORMS text-only; DualMem:
+  cross-modal keys retrieve what caption keys miss on incidental visual cues).
+  For LoCoMo specifically, re-captioning BLIP-2 images with a modern VLM is
+  structurally risky: golds were authored against the original captions — an
+  unmeasured lever with asymmetric downside. The transferable insight for a
+  text team is context-binding, i.e. B10.
+
+Key sources: arXiv 2604.12948 (dual-trace), 2502.05589 (SeCom), 2509.21212
+(SGMem), 2605.10870 + 2607.08032 (RD framing), 2504.13171 (sleep-time),
+2506.06266 (cartridges), 2601.03515 (Mem-Gallery), 2606.27499 (DualMem),
+2512.04763 (LoCoMo-V captions 23% vs native vision 81%).
+
+**Rigor audit of §6 (steelman pass, 2026-08-17).** An adversarial re-audit
+against top-venue evidence corrects three things. (1) MRAgent (NUS, ICML 2026
+accepted, code released) is the strongest PRO-graph result on our genre and our
+first pass miscategorized it: LoCoMo 84.21 vs Mem0 68.31, LongMemEval 72.95 vs
+RAG 54.65, token-cheaper than Mem0/A-Mem; its ablation shows structure helping
+MONOTONICALLY (CE<CTE<CTC, ~+5-12pp multi-hop recall) on top of the iteration
+effect its own Theorem 4.1 locates the power in. Missing control: the same
+active loop over a FLAT store. (2) "Fidelity Before Structure" (2601.00821) is
+single-author, not yet peer-reviewed — downgraded from how §6 used it
+(direction corroborated by PKU "Does Memory Need Graphs?" and Salesforce
+ConvoMem). (3) Mem0-vs-Mem0g is vendor-grade on both sides — corroboration
+only, never primary. Narrowed verdict that SURVIVES: no work anywhere shows
+graph structure beating a strong flat substrate (verbatim chunks + hybrid
+retrieval + reranker + adaptive retrieval) at matched adaptivity and budget on
+conversational memory; every big pro-graph win decomposes into iteration,
+genre transfer, or weak baselines; no major lab ships KG-structured
+conversational memory (OpenAI Dreaming V3 = synthesis, no KG).
+
+**The settling experiment (E-graph) — runnable on existing flags, zero new
+code**: a 2×2 on LoCoMo-MH + LME — {edge expansion α=0 / α>0} ×
+{RETRIEVAL_SEARCH_LOOP off / on}, matched budgets. Audit's prediction:
+iteration ≫ one-shot on either substrate; edges add <4pp (below leg
+readability) once iteration is on. If edges add ≥4pp on multi-hop WITH the
+loop enabled, the MRAgent mechanism transfers and an associative-tags build
+(their Cue-Tag-Content shape) enters the next program; otherwise the
+anti-graph verdict is settled with the exact control the literature lacks.
+Key rigor-audit sources: MRAgent 2606.06036 [ICML 2026], MemGAS [ICLR 2026,
+structure <1.5 F1/component], GraphRAG-Bench 2506.05690 [ICLR 2026],
+HippoRAG 2 [ICML 2025], DeepMind LIMIT 2508.21038 [theory], ConvoMem
+2511.10523, "Does Memory Need Graphs?" 2601.01280.
+
+## 8. Foveated memory — the resolution-cascade program (E-fovea, 2026-08-17)
+
+Frame (the platform lens): foveated and uniform are not competing hypotheses but
+LAYERS of one cascade priced by resolution — L0 profile/digest (always-on,
+~free) → L1 fact index (one retrieval) → L2 raw windows at attention points
+(built, `RETRIEVAL_RAW_WINDOW`) → L3 full-transcript escalation (NOT built —
+no path today lifts a whole raw session into a large-context call). Escalation
+triggers already exist (coverage floors, verifier verdicts, search-loop refine
+signal); they currently lead to abstain/re-search, never UP a layer.
+
+External evidence (full payloads in session research): FOVI's inverted-U — at
+matched budget, non-uniform allocation beats uniform; Mastra OM — a plain
+3-rung resolution ladder scores 94.87 LongMemEval vs 60.2 full-context (and is
+prompt-cacheable, 4-10× cheaper); irreversible decay is dead (compression
+−35pp vs raw; super-linear error compounding under repeated summarization —
+RD theorem: reversibility beats scoring tricks; STALE: staleness detection
+needs the raw you'd delete). **Never degrade L0** — policies grade the DEFAULT
+SERVING layer only. The direct "age-graded serving vs uniform at matched token
+budget" ablation is UNPUBLISHED anywhere — E1 below is simultaneously our leg
+and a citable result. Predictive gaze: proven as latency (−62% TTFT, hit-rate
+78%), unproven as accuracy and gated by the sleep-time predictability law —
+E2 carries a hit-rate go/no-go before any accuracy bet. RL memory policies
+(MemAgent ICLR-2026 oral): strong but weights-owner territory — not us.
+
+Internal map (signal inventory, agent pass over the repo): the machinery mostly
+EXISTS and is unconnected —
+- `fact_usage` side table (0053) with `readCount` written-and-never-read;
+  `SEARCH_USAGE_RECORDING_ENABLED` / `SEARCH_USAGE_DECAY_ENABLED` both default
+  off. Flip recording first — the table is empty until then.
+- Write-tier machinery already runs: compaction (hot retention 90d) +
+  episodic→semantic promotion (180d, default off) — keyed `(entity,predicate)`,
+  not conversation; `conversation_digest` IS the per-conversation cold-tier
+  artifact, with `lastIngestAt` documented as the incremental-fold hook.
+- CONFIRMED absent: any age/usage conditioning in evidence-gates/collector; any
+  prefetch before a query (all probes fire inside an in-flight request); any
+  per-conversation budgets (profile is per-tenant, resolved once in the guard);
+  any conversation-open lifecycle host (MCP stateless by construction).
+- Found wrinkle: ranking-time decay uses the seed `policyFor`, not the
+  tenant-aware registry — tenant-added predicates decay at the 60d default
+  regardless of their registry entry (small fix candidate).
+
+Experiments (cheap → expensive), mapped to code seams:
+- **E1 — age-graded serving vs uniform at matched tokens** (read-side only, no
+  re-ingest): recent sessions serve raw windows, mid-age digests, old
+  facts-only vs the uniform mix. Seams: evidence-gates/collector heat argument
+  (digest-lane's `lastEventAt` widened to a heat table); per-conversation
+  budget overlay via the ALS profile re-stamp (the guard's own idiom). Score
+  per age band: LME loader has both dates (`meta` flows to score rows
+  verbatim); LoCoMo needs one derivation (asOf is pinned to last session —
+  the one line that erases age). Expect FOVI's inverted-U.
+- **E2 — prefetch with a predictability gate**: 4a alongside-query probe (one
+  LANE_REGISTRY entry, wideProbe as the template) and/or 4b sleep-time dreams
+  op (PromotionRunner as the reference for a bounded nightly pass). Go/no-go =
+  prefetch hit rate BEFORE any accuracy claim; product metric = TTFT.
+- **E3 — surprise-gated extraction depth** (write-side): high-novelty turns get
+  exhaustive extraction, low-novelty digest-only, at matched extraction spend.
+  Honest risk: LoCoMo golds often live in low-surprise smalltalk — a flat
+  result is a genuine debunk of write-side foveation for this genre.
+- **L3 escalation lane** (build candidate): verifier-unsupported / low-coverage
+  → fetch the full raw session(s) → one large-context generation. Cost is
+  bounded by fire rate; metrics are the cascade's — accuracy vs always-cheap
+  and always-expensive bounds, mean cost/question, per-layer fire rates.
+
+Quick wins independent of the program: flip usage recording on the eval stand
+(data starts accruing for free); the tenant-aware decay fix; promote
+`INSIGHT_TOP_K`/`DIGEST_LIMIT` to profile fields (prereq for per-conversation
+budgets).
+
+## 9. The pointer hypothesis (architectural frame, 2026-08-17)
+
+Statement: cognitive capability over a persistent substrate is bounded less by
+model intelligence than by the GEOMETRY OF ACCESS — the system of pointers that
+decides which part of reality is made computationally available at high
+resolution. Memory (facts → pointer → raw window), vision (periphery → pointer
+→ fixation), reasoning (hypothesis → pointer → evidence → verification) and
+planning (branch → pointer → simulation → commitment) are four surfaces of one
+mechanism. The closed loop — substrate → pointer → observation → resolution →
+prediction → surprise → new pointer — is a perception-action loop over
+persistent reality, not a memory system.
+
+Evidence already on the ledger, re-read through this frame:
+- Eleven fixed-geometry interventions (rerankers, prompt rules, model swaps
+  both directions) = eleven nulls/negatives. Every large measured effect is an
+  access-geometry change: raw-replay (−22pp when absent), dual-trace scene
+  anchors (+20.2 published), date-context (+21pp temporal, our interim), and
+  the router-off decomposition (−5.4pp traced per-question to POINTER
+  machinery: recency markers, preference probe, chronological ordering — same
+  model, same substrate, different addressing).
+- The cleanest external control: oracle retrieval ≈ 92% on LongMemEval with
+  the same model class that memory systems hold at 50-70 — the reasoner was
+  never the binding constraint; the presented world was.
+- The loop exists in embryo: searchLoop's refineQuery IS surprise → new
+  pointer (round-capped). The missing edge is PREDICTION as a read-side
+  control signal (surprise currently exists only at write time).
+
+Falsification battery (all already scheduled):
+- E1 age-graded serving: no inverted-U ⇒ resolution allocation doesn't matter
+  at matched budget — hypothesis weakens materially.
+- Search-loop legs: null on the gold-in-window class ⇒ active addressing adds
+  nothing over one-shot — the loop's value is disproven for this genre.
+- L3 escalation: if the cascade cannot approach full-context accuracy at a
+  fraction of its cost, variable resolution is decorative.
+- E2 prefetch hit-rate: prediction edge unviable if next-need is
+  unpredictable (the sleep-time law's gate).
+- E-graph 2×2: distinguishes pointer LOOP value from pointer FIELD structure.
+
+Guardrails on the frame itself: (i) the scaling path is not refuted — it is
+priced in as the cascade's top layer (full-context beats memory at ≤130K on
+accuracy; pointers decide WHEN to pay for the fully-unfolded picture);
+(ii) physical analogies (pointer states / einselection) are decorative, not
+load-bearing — no engineering constraint follows from them.
+
+## 10. Multiworld — the ontological-projections verdict (2026-08-20)
+
+Measured trigger: the clean LME confirm (arm B, 48.0 full-500, router +6.8pp
+paired) left SSA at 42.9% with "facts do not specify" misses; the SSA
+raw-window legs came back NEGATIVE — bundle (episodic+excerpts+raw-window via
+legacy 'always') 23.2%, raw-window-ONLY 32.1% vs 42.9 base (flips +2/−8).
+Mechanism: raw windows anchor on FACT hits' grounding turns — but SSA's gold
+was never extracted into facts (the base deriver contract is user-fact-shaped),
+so no fact points near the gold turn and the windows inject off-topic verbatim.
+Facts-as-index cannot serve content the index never covered.
+
+Research verdict (ablation-first): **multiplicity pays as multi-VIEW indexing
+and TYPED lanes over ONE substrate — not as N independent stores.** A-grade:
+MemGAS (4 granularities union: F1 20.38 vs best single 14.94, +36% rel, union
+beats single even without the router); LongMemEval design study — facts as
+additional index KEYS +9.4% recall, facts as VALUES (replacement) hurt QA
+except multi-session — our SSA failure is this finding verbatim (MemIR names
+it "provenance-role collapse"); RAPTOR collapsed-tree union across resolutions;
+O-Mem persona world +1.6 F1 at MATCHED token budget (persona also acts as a
+4× retrieval-length filter). The multi-store flagships (MIRIX 6 types,
+Hindsight 4 networks) publish ZERO component ablations. Nobody good pays N×
+derive: Hindsight/MemIR/O-Mem all do ONE extraction pass emitting typed atoms.
+Contrarians hold the bar: Mastra's single observation log hits 94.6 SSA
+because it never projects away role/time/verbatim; Nano-Memory (strong
+retrieval over raw turns) beats MemGAS at half cost.
+
+Program implications (priority order):
+1. **Multi-pin read** — the one true architectural gap: read a SET of
+   (world, budget) pairs with RRF-style union (Hindsight's exact pattern);
+   registry already versions worlds, where-builder pins exactly one.
+2. **Typed single-pass derive** — one deriver pass emitting atoms tagged
+   {fact | assistant_contribution | persona_attr | event} + role + per-turn
+   timestamp (delivers the V13 turn-headers fix as a side effect); worlds =
+   typed lanes over one atom stream, shared episode_indices to L0.
+3. **SSA = role-filtered verbatim lane over L0** (segment granularity +
+   denoising per SeCom), registered as a world in the union — no new derive;
+   raw-window (as built) is the wrong tool for this class and measured so.
+4. **Facts-as-keys**: index L0 segments under extracted fact/time keys so the
+   fact world POINTS AT verbatim evidence instead of replacing it.
+5. Budgets before routers (always-all-worlds + static budget vector; entropy
+   router later); foveation as budgeted drill-down (xMemory), not static
+   per-world resolutions.
+Guard: every multiworld leg must beat BOTH the current fact world AND a
+strong-retrieval-over-L0 baseline at matched tokens.

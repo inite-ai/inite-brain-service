@@ -67,6 +67,19 @@ export interface ExtractionPipelineProfile {
    */
   deriveMentionStamp: boolean;
   /**
+   * DERIVER_TURN_HEADERS (V13 structural, the graphiti reference_time
+   * prompt shape): the transcript renders per-turn timestamp headers —
+   * `[N] (YYYY-MM-DD HH:MM) speaker: text` — instead of the bare
+   * `[N] speaker: text` under one session-date line, plus a system
+   * section telling the deriver to resolve occurred_on against the
+   * TURN's own timestamp. Session-date fallback for undated events is
+   * kept verbatim (the armK lesson: stripping it measured −4.9). The
+   * LLM-returned turns[] already carries episode indices, so mention
+   * stamping is unchanged. Prompt change ⇒ fresh derivedVersion; off →
+   * byte-identical prompt.
+   */
+  deriveTurnHeaders: boolean;
+  /**
    * DERIVER_DATE_RESOLVE (V12 §3, the graphiti anti-collapse port for
    * event dating): a prompt section hardening `occurred_on` — resolve
    * relative time by calendar arithmetic from the session date, date
@@ -95,6 +108,30 @@ export interface ExtractionPipelineProfile {
    * compete in member slots. Fresh derivedVersion required.
    */
   deriveAspectRollups: boolean;
+  /**
+   * DERIVER_COMPOSE_PASS (V13, the PREMem write-time composition
+   * shape): after a conversation's sessions derive, ONE extra LLM call
+   * over its landed atoms emits multi-atom compositions —
+   * accumulations, transformations-with-dates, specifications and
+   * explicitly-supported connections — as ordinary derived rows
+   * (source.composed=true, provenance = union of member grounding).
+   * The measured multi-hop miss class is exactly "every atom exists,
+   * no atom states the combination"; the mechanical rollup (armL)
+   * measured negative, this is the LLM-composed alternative with
+   * on-genre published ablations. Fresh derivedVersion required.
+   */
+  deriveComposePass: boolean;
+  /**
+   * DERIVER_SCENE_TRACE (V13, the dual-trace encoding port — arXiv
+   * 2604.12948, +20.2pp LongMemEval-S in their controlled pair): each
+   * proposition also carries a one-clause `scene` — the concrete
+   * situation it was learned in — stamped as source.scene and folded
+   * into the row's embedding text, so situational questions find facts
+   * the bare proposition text never matches. Read-side rendering is
+   * separately gated (RETRIEVAL_SCENE_TRACES). Schema + prompt change
+   * ⇒ fresh derivedVersion; off = byte-identical call.
+   */
+  deriveSceneTrace: boolean;
   /**
    * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
    * the scratchpad is the load-bearing 100K component, +160% on
@@ -139,9 +176,12 @@ export function resolveExtractionProfile(
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
+    deriveTurnHeaders: envFlagEnabled(env.DERIVER_TURN_HEADERS),
     deriveDateResolve: envFlagEnabled(env.DERIVER_DATE_RESOLVE),
     deriveDateAudit: envFlagEnabled(env.DERIVER_DATE_AUDIT),
     deriveAspectRollups: envFlagEnabled(env.DERIVER_ASPECT_ROLLUPS),
+    deriveComposePass: envFlagEnabled(env.DERIVER_COMPOSE_PASS),
+    deriveSceneTrace: envFlagEnabled(env.DERIVER_SCENE_TRACE),
     deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };

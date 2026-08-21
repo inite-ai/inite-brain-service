@@ -77,11 +77,29 @@ export interface GenerateRequest {
   instructions?: string[];
   /** T3: COMPETING conflict pairs detected in the evidence. */
   conflicts?: Array<{ factIds: string[]; label: string }>;
+  /** V13 (profile.dateMath): computed date table lines. */
+  dateMathLines?: string[];
+  /** V13 G2 (profile.answerConditioning): per-shape reading frame. */
+  shapeInstruction?: string;
+  /**
+   * V13 constrained search loop: expose the ONE-round refine
+   * affordance — the schema gains a nullable `refineQuery` and the
+   * system prompt the matching rule. The second (forced-answer) call
+   * simply omits this, so the cap is structural, not behavioral.
+   */
+  allowRefine?: boolean;
 }
+
+/** V13 refine affordance — appended to either system prompt. */
+const REFINE_ADDENDUM = `
+
+RETRIEVAL REFINEMENT: you may request ONE better retrieval before your answer is final. If the facts do not contain the specific detail the query asks for, set "refineQuery" to a self-contained search query that would find it — name the entity and the missing detail, in different words than the original query. Otherwise set "refineQuery" to null. Fill "answer" with your best grounded attempt either way.`;
 
 export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutput> {
   const { openai, metrics, logger, model, answerLang, neverAbstain } = req;
-  const systemPrompt = neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM;
+  const systemPrompt =
+    (neverAbstain ? GENERATOR_SYSTEM_ANSWER : GENERATOR_SYSTEM) +
+    (req.allowRefine ? REFINE_ADDENDUM : '');
   const user = buildGeneratorUserMessage(req);
   traceArtifact('synthesize.generator_prompt', {
     system: systemPrompt,
@@ -117,8 +135,15 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
                 properties: {
                   answer: { type: 'string' },
                   citedFactIds: { type: 'array', items: { type: 'string' } },
+                  ...(req.allowRefine
+                    ? { refineQuery: { type: ['string', 'null'] } }
+                    : {}),
                 },
-                required: ['answer', 'citedFactIds'],
+                required: [
+                  'answer',
+                  'citedFactIds',
+                  ...(req.allowRefine ? ['refineQuery'] : []),
+                ],
               },
             },
           },

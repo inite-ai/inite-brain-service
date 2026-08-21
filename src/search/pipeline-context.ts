@@ -1,5 +1,6 @@
 import { SearchDto, SearchMode } from './dto/search.dto';
 import type { RetrievalProfile, SearchTuning } from './retrieval-profile';
+import type { QueryTimeRange } from './internals/scoring';
 
 /**
  * Per-request retrieval-pipeline context, shared by the search
@@ -30,4 +31,10 @@ export interface PipelineContext {
    * the environment under the boundary).
    */
   tuning: SearchTuning;
+  /**
+   * V13 time filter: the absolute period the query names, parsed once
+   * per request when profile.timeFilter is on (internals/time-range).
+   * Null/absent → every scoring factor is exactly 1.0.
+   */
+  queryRange?: QueryTimeRange | null;
 }

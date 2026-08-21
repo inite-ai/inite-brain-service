@@ -32,6 +32,12 @@ export interface SearchHit {
      *  first grounding turn, from source.mentionedAt. Absent on
      *  unstamped rows. */
     mentionedAt?: string;
+    /**
+     * V13 scene trace (DERIVER_SCENE_TRACE, source.scene): one clause
+     * of encoding context — the situation the fact was learned in.
+     * Rendered onto fact lines under RETRIEVAL_SCENE_TRACES.
+     */
+    scene?: string;
     /** BM25 match snippet with <em>…</em> around the matched terms, from
      *  search::highlight (SEARCH_HIGHLIGHT_ENABLED). Present only for
      *  lexically-matched facts when the flag is on. */

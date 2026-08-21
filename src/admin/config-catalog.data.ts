@@ -953,6 +953,114 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           '§8 item 3 over-enumeration contract (profile field enumStrict): appends a scope-discipline clause to the enumeration lane frame — include ONLY items the facts tie to the asked scope (person, activity kind, time window); an unsupported extra is as wrong as a missing item. The measured judge-sink class is the gold list plus thematically adjacent extras. Off = the historical exhaustive-only frame, byte-identical.',
       },
       {
+        key: 'DERIVER_TURN_HEADERS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 structural event-time grounding (the graphiti reference_time prompt shape; research brief memory-research-2026-08.md Tier 1.2): the deriver transcript renders per-turn timestamp headers — `[N] (YYYY-MM-DD HH:MM) speaker: text` — instead of bare `[N] speaker: text` under one session-date line, plus a system section resolving occurred_on against the TURN's own timestamp. The session-date fallback for undated events is kept verbatim (armK: stripping it measured −4.9 — session-date defaults are the benchmark answer convention). turns[] already carries episode indices, so mention stamping is unchanged. Prompt change ⇒ fresh derivedVersion; off = byte-identical prompt.",
+      },
+      {
+        key: 'DERIVER_COMPOSE_PASS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V13 cross-session composition (the PREMem write-time shape, EMNLP 2025 Findings 2509.10852; on-genre ablation +3-7pp with gains concentrated on multi-hop): after a conversation derives, ONE extra LLM call over its landed atoms emits multi-atom compositions — accumulations (complete cross-session lists), transformations with both dates, specifications, explicitly-supported connections — written as ordinary derived rows with source.composed=true, provenance = union of member grounding turns, validFrom = occurred_on else newest member. Targets the measured largest multi-hop miss class ("every atom exists, no atom states the combination") where the mechanical rollup (armL) measured negative. Member indices are validated against the atom pool — a hallucinated member list cannot invent provenance. Landed count reported separately (result.composed) for volume-parity gates. Fresh derivedVersion required.',
+      },
+      {
+        key: 'DERIVER_SCENE_TRACE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 dual-trace encoding (arXiv 2604.12948 port; their controlled pair: +20.2pp LongMemEval-S, temporal +40pp, knowledge-update +25pp): every derived proposition also carries `scene` — one clause of the concrete situation it was learned in — stamped as source.scene (FLEXIBLE ride, 200-char cap) and folded into the row's EMBEDDING text (fact + scene is the index entry; the stored object stays the bare proposition). Encoding specificity is the mechanism: situational questions find facts whose bare text never matches them. Read-side rendering separately gated (RETRIEVAL_SCENE_TRACES). Schema + prompt change ⇒ fresh derivedVersion; off = byte-identical call.",
+      },
+      {
+        key: 'RETRIEVAL_SCENE_TRACES',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V13 read side of DERIVER_SCENE_TRACE (profile field sceneTraces): fact lines carry a "(context: …)" suffix from the stamped source.scene, so the generator and verifier see the situational anchor next to the proposition. Unstamped rows render as before; against worlds derived without the stamp the flag is byte-identical off.',
+      },
+      {
+        key: 'RETRIEVAL_RAW_WINDOW',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 hybrid substrate read side (profile field rawWindow; the MemMachine contextualized-matching shape — facts as index, raw turns as content; controlled ablation: fact-only substrates lose −22pp): the top fact hits' grounding turns (source.episodeIds) expand into a bounded window of surrounding raw turns — RETRIEVAL_RAW_WINDOW_SPAN neighbors each side, chronological, deduped — rendered as transcript evidence. Generator and verifier see the same lines (evidence parity). Off = byte-identical; empty against worlds without episode substrate.",
+      },
+      {
+        key: 'RETRIEVAL_RAW_WINDOW_SPAN',
+        category: 'pipeline',
+        defaultValue: '2',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Half-span of the raw-turn window (neighbors each side of a grounding turn) under RETRIEVAL_RAW_WINDOW. Only read on that path.',
+      },
+      {
+        key: 'RETRIEVAL_TIME_FILTER',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 time-constrained retrieval (profile field timeFilter; the TSM shape — temporal filter/rerank over event-time-stamped facts, their ablation: −6pp temporal when removed): when the query names an absolute period (an explicit day, month, year or between-range — code-parsed, no LLM call), facts whose validity/mention anchors overlap the period rank above out-of-period facts at equal fused score. Rank-only multiplicative demotion (floor 0.25, the overlap_boost idiom) — nothing is dropped, raw/episodic evidence untouched. No parseable period in the query = byte-identical ranking.",
+      },
+      {
+        key: 'RETRIEVAL_DATE_MATH',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 deterministic date arithmetic (profile field dateMath; PRIMETIME: mini-class models measure 14-40% on raw date offsets with errors >100 days): a computed date table renders after the fact block — each distinct evidence date with its weekday and the gap to the previous dated line (event-to-event deltas). The measured anti-pattern '[elapsed: N days before today]' (distance-to-today frame, LME temporal diagnosis) is NOT reintroduced — deltas are between evidence dates only. Generator and verifier see the same block. Off = byte-identical.",
+      },
+      {
+        key: 'RETRIEVAL_ANSWER_CONDITIONING',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V13 G2 per-shape answer conditioning (profile field answerConditioning; the discriminator §10 gold-in-window 22% class, ceiling ≈ +4.9pp; Penfield prompt-alone evidence +10.7): a question-shape instruction selected by code-side detectors — chained evidence-first reasoning for why/how/connection shapes, exhaustive facet coverage for aggregation shapes, exact-token verbatim for quote shapes. Composes with (does not replace) the lane frames; armG covered only the date slice of this and measured null. Off = byte-identical prompt.',
+      },
+      {
+        key: 'RETRIEVAL_DIGEST_LANES',
+        category: 'pipeline',
+        defaultValue: 'all',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "V13 digest gate-shaping (profile field digestLanes): which routed lanes the conversation-digest lines render into under RETRIEVAL_DIGEST_EVIDENCE. 'all' = the V12 behavior (every prompt — measured +5.0 strict BEAM but abstention −7.5 and summarization-nugget −1.9 from bleed). 'summary_ku' = only summary- and recency-routed questions (the lanes that took the strict gains). Unrouted questions render no digest under 'summary_ku'.",
+      },
+      {
+        key: 'RETRIEVAL_NOISE_FILTER',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'V13 noise filter (profile field noiseFilter; the unported LIGHT component 4, their ablation: −2.2% at 100K / −8.3% at 10M when removed): injected context lines — transcript excerpts, insight lines, digest lines — are scored against the query by the LOCAL cross-encoder and lines far below the top score are dropped before prompt assembly. The fact block is never filtered; the top lines always survive; cross-encoder disabled = filter inert. Off = byte-identical.',
+      },
+      {
+        key: 'RETRIEVAL_SEARCH_LOOP',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "V13 constrained search loop (profile field searchLoop; the MemMachine/Letta multiple-memory-searches shape — NOT the rejected free agent loop, which measured −4.6 as E11): the generator may return a structured refine request ({refineQuery}) instead of an answer when the evidence does not answer the question; the engine runs ONE extra retrieval with the refined query, merges it through the evidence union, rebuilds the prompt and forces an answer (the refine affordance is absent from the second call's schema — a hard one-round cap). Off = byte-identical single-shot generation.",
+      },
+      {
         key: 'MINICHECK_URL',
         category: 'pipeline',
         defaultValue: 'http://127.0.0.1:11434',

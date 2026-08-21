@@ -253,8 +253,15 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     delete process.env.DERIVER_DIGEST;
     const off = makeSvc(props);
     await off.svc.run('co_x');
+    // Audit 2026-08-19 P1: deriving a (conversation, version) claims the
+    // namespace — the old digest is DELETED even with the flag off (a
+    // stale narrative must not outlive the facts rewritten next to it);
+    // nothing is CREATED.
     expect(
-      off.queries.some((q) => q.sql.includes('conversation_digest')),
+      off.queries.some((q) => q.sql.includes('DELETE conversation_digest')),
+    ).toBe(true);
+    expect(
+      off.queries.some((q) => q.sql.includes('CREATE conversation_digest')),
     ).toBe(false);
 
     process.env.DERIVER_DIGEST = '1';
@@ -265,7 +272,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         q.sql.includes('CREATE conversation_digest'),
       );
       expect(write).toBeDefined();
-      expect(write?.sql).toContain('DELETE conversation_digest');
+      // The DELETE is its own statement now (it must run even when the
+      // fold produces nothing).
+      expect(
+        on.queries.some((q) => q.sql.includes('DELETE conversation_digest')),
+      ).toBe(true);
       expect(write?.params?.version).toBe(WINDOW_DERIVER_VERSION);
       expect(write?.params?.conv).toBe('conv-1');
       expect(String(write?.params?.summary).length).toBeGreaterThan(0);

@@ -28,6 +28,7 @@ import {
 } from './internals/neighbours';
 import { expandViaEdges, buildNeighbourMap } from './internals/edge-expansion';
 import { buildEntityExpansionQuery } from './internals/query-expansion';
+import { parseQueryTimeRange } from './internals/time-range';
 import { applyPprPrior } from './internals/ppr';
 import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { selectFactCentric } from './internals/fact-centric';
@@ -342,6 +343,10 @@ export class SearchService {
       derivedVersion,
       profile,
       tuning,
+      // V13 time filter: parse the query's absolute period ONCE per
+      // request; no parseable period (or flag off) → null → every
+      // scoring factor is exactly 1.0.
+      queryRange: profile.timeFilter ? parseQueryTimeRange(dto.query) : null,
     };
     // Audit W4 #20: only the DB-touching stages run inside the scoped
     // connection; the cross-encoder pass and the external LLM rerank —
@@ -505,6 +510,7 @@ export class SearchService {
         ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
       tuning: ctx.tuning,
       salienceScoring: ctx.profile.salienceScoring,
+      queryRange: ctx.queryRange ?? null,
     });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the
