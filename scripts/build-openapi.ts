@@ -110,6 +110,16 @@ import {
   RebuildProjectionRequestSchema,
   RebuildProjectionResponseSchema,
 } from '../src/contracts/episodes/driver.schema';
+import {
+  FactProvenanceEpisodeSchema,
+  FactProvenanceResponseSchema,
+  FactReadResponseSchema,
+} from '../src/contracts/facts/facts.schema';
+import {
+  ProfileFactSchema,
+  ProfileSectionSchema,
+  UserProfileResponseSchema,
+} from '../src/contracts/users/user-profile.schema';
 
 type Json = Record<string, unknown>;
 
@@ -198,6 +208,14 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   EpisodeSubscriptionsListResponse: EpisodeSubscriptionsListResponseSchema,
   DeleteEpisodeSubscriptionResponse: DeleteEpisodeSubscriptionResponseSchema,
   EpisodesAvailableEvent: EpisodesAvailableEventSchema,
+  // --- fact read + provenance (src/contracts/facts/facts.schema.ts)
+  FactReadResponse: FactReadResponseSchema,
+  FactProvenanceEpisode: FactProvenanceEpisodeSchema,
+  FactProvenanceResponse: FactProvenanceResponseSchema,
+  // --- rolling user profile (src/contracts/users/user-profile.schema.ts)
+  ProfileFact: ProfileFactSchema,
+  ProfileSection: ProfileSectionSchema,
+  UserProfileResponse: UserProfileResponseSchema,
 };
 
 function generateComponentSchemas(): Json {
@@ -1093,6 +1111,92 @@ function driverPaths(): Json {
   };
 }
 
+/**
+ * Memory read surface: fact-by-id + provenance ("show me why I
+ * remember this") and the rolling user profile. Dark behind
+ * default-off flags with 404 (an absent surface is indistinguishable
+ * from a disabled one).
+ */
+function memoryReadPaths(): Json {
+  return {
+    '/v1/facts/{id}': {
+      get: operation({
+        operationId: 'getFact',
+        tag: 'Facts',
+        summary: 'Read one fact by id',
+        description:
+          'The fact itself — what is remembered, where it came from ' +
+          '(vertical/recorder/conversation), its validity instant and ' +
+          'user scope. Every visibility fence (tenant, user scope, row ' +
+          'policy) answers 404 — existence never leaks. 404 until ' +
+          'FACTS_API_ENABLED=1. Source: src/facts/facts.controller.ts.',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
+        responses: {
+          '200': jsonResponse('The fact.', ref('FactReadResponse')),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/facts/{id}/provenance': {
+      get: operation({
+        operationId: 'getFactProvenance',
+        tag: 'Facts',
+        summary: 'Read the grounding episodes behind a fact',
+        description:
+          'The verbatim source turns (`source.episodeIds`) the fact was ' +
+          'derived or ingested from, chronological, text capped ' +
+          'server-side. Callers without `brain:read_pii` never receive ' +
+          'PII-classed episode text. Same 404 fences as ' +
+          'GET /v1/facts/{id}. 404 until FACTS_API_ENABLED=1.',
+        scope: 'brain:read',
+        parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
+        responses: {
+          '200': jsonResponse(
+            'The grounding episodes.',
+            ref('FactProvenanceResponse'),
+          ),
+          ...DRIVER_404,
+        },
+      }),
+    },
+    '/v1/users/{userId}/profile': {
+      get: operation({
+        operationId: 'getUserProfile',
+        tag: 'Users',
+        summary: 'Rolling user profile (deterministic v1)',
+        description:
+          'Query-time assembly of what the platform knows about a user: ' +
+          'active user-scoped facts grouped by aspect (persona-first), ' +
+          'plus `profileText` shaped for direct prompt injection. ' +
+          'Deterministic — no model calls. A user-bound token may only ' +
+          'fetch its own profile (mismatch 403); M2M tokens any. 404 ' +
+          'until USER_PROFILE_API_ENABLED=1. Source: ' +
+          'src/users/user-profile.controller.ts.',
+        scope: 'brain:read',
+        parameters: [
+          pathParam('userId', 'The user whose profile to assemble.'),
+          queryParam('maxFacts', 'Global fact budget (default 60, max 200).', {
+            type: 'integer',
+          }),
+          queryParam(
+            'lang',
+            'Soft locale filter (facts in this language or unmarked).',
+          ),
+        ],
+        responses: {
+          '200': jsonResponse(
+            'The assembled profile.',
+            ref('UserProfileResponse'),
+          ),
+          '400': errorRef('BadRequest'),
+          ...DRIVER_404,
+        },
+      }),
+    },
+  };
+}
+
 function indexerWorkPaths(): Json {
   return {
     '/v1/indexer/work': {
@@ -1334,6 +1438,21 @@ export function buildOpenApiDocument(): Json {
           'watermark, builder identity, and rebuild as the public verb. ' +
           'Flag: PROJECTIONS_API_ENABLED (off → 404).',
       },
+      {
+        name: 'Facts',
+        description:
+          'Fact-level reads: one fact by id and its grounding episodes — ' +
+          'provenance-first memory ("show me why I remember this"). ' +
+          'Flag: FACTS_API_ENABLED (off → 404); fact retraction stays ' +
+          'flag-independent.',
+      },
+      {
+        name: 'Users',
+        description:
+          'Per-user surfaces: the rolling user profile assembled from ' +
+          'user-scoped memory. Flag: USER_PROFILE_API_ENABLED ' +
+          '(off → 404).',
+      },
     ],
     paths: {
       ...registryPaths(),
@@ -1343,6 +1462,7 @@ export function buildOpenApiDocument(): Json {
       ...indexerWorkPaths(),
       ...sourcesPaths(),
       ...driverPaths(),
+      ...memoryReadPaths(),
     },
     webhooks: {
       episodesAvailable: {

@@ -7,7 +7,10 @@
  * wire as a sorted ARRAY (the in-process ReadonlySet would serialize
  * to {}).
  */
-import { RetrievalProfileResponseSchema } from '../src/contracts/admin/retrieval-profile.schema';
+import {
+  RetrievalProfileResponseSchema,
+  RetrievalProfileWireSchema,
+} from '../src/contracts/admin/retrieval-profile.schema';
 import { makeAdminInfraController } from './helpers/admin-controllers';
 import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 
@@ -34,6 +37,17 @@ describe('AdminInfraController.retrievalProfile() — wire contract', () => {
       );
     }
     expect(parsed.data.companyId).toBe('tenant-x');
+  });
+
+  it('covers every RetrievalProfile field — both directions', () => {
+    // A plain z.object silently STRIPS unknown keys, so the safeParse
+    // above cannot catch a profile field the wire schema forgot. This
+    // pins key-set equality: a new profile field without a schema entry
+    // (or a schema entry without a profile field) fails loudly.
+    const out = makeAdminInfraController().retrievalProfile(req('tenant-x'));
+    const wireKeys = Object.keys(RetrievalProfileWireSchema.shape).sort();
+    const actualKeys = Object.keys(out.profile).sort();
+    expect(wireKeys).toEqual(actualKeys);
   });
 
   it('serializes lanes as a sorted array, not a Set', () => {
