@@ -577,3 +577,26 @@ temporal+MS block (the raw-replay −22pp class, same worlds); (3) M2
 fresh mini-derive + M1 union {wd-v2, typed world} vs each alone —
 the multi-pin experiment proper; run the strong-retrieval-over-L0
 contrarian baseline beside every positive before believing it.
+
+### §10 measured (2026-08-21) — the SSA ladder is CLOSED
+
+All legs: SSA block (offset 444, 56 q), config identical to arm B
+except the named lever; paired flips vs the 42.9% arm B base.
+
+| leg | SSA | flips vs base | verdict |
+|---|---|---|---|
+| raw-window bundle (V13) | 23.2 | — | negative (facts-as-anchor can't reach unextracted gold) |
+| raw-window only | 32.1 | +2/−8 | negative |
+| M3 lane v1 (role-filtered BM25) | 46.4 | +2/−0 | small plus, absence-class collapsed (2/30) |
+| M3 v1.1 exchange granularity | 44.6 | +1/−0 (vs v1: +0/−1) | null → reverted; residual = BM25 RANK, not anchor side |
+| **M2 typed world wd-mw1** | **57.1** | **+14/−6** (χ²=2.45) | **the §10 mechanism confirmed: assistant content as EMBEDDED facts (dense retrieval) is the fix** |
+| M2 + M3 lane combo | 55.4 | +12/−5 (vs mw1: +1/−2) | lane subsumed by the typed world — no stack |
+
+Verdict: SSA is a CONSTRUCTION-side class (same law as temporal §1) —
+`DERIVER_TYPED_ATOMS` on the derive closes it; read-side verbatim lanes
+only patch untyped worlds (+3.5) and add nothing over a typed one.
+M1 union of {wd-v2, wd-mw1} is NOT the union experiment — wd-mw1
+subsumes wd-v2's contract (duplicate-snapshot anti-pattern, see the
+key's constraint); the union pair needs complementary worlds. The 56
+typed SSA worlds derived clean (56/56 ok, ~590 props/world, ~6.3
+min/world, ≈$2).
