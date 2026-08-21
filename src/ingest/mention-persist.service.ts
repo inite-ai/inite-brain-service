@@ -177,6 +177,7 @@ export class MentionPersistService {
             source,
             validFrom,
             precomputedEmbedding: factEmbeddings[i],
+            userId: dto.userId,
           }),
         { predicate: f.predicate, entityId: eid },
       );
@@ -257,6 +258,9 @@ export class MentionPersistService {
               ? f.extractionEntropy
               : undefined,
           precomputedEmbedding: factEmbeddings[i],
+          // Audit 2026-08-21 P0: the per-user scope stamps every
+          // extracted fact on the batched path too.
+          userId: dto.userId,
         },
       });
     }
@@ -298,6 +302,8 @@ export class MentionPersistService {
       source: MentionSource;
       validFrom: Date;
       precomputedEmbedding: number[] | undefined;
+      /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
+      userId?: string;
     },
   ): Promise<string | null> {
     const { f } = p;
@@ -314,6 +320,7 @@ export class MentionPersistService {
       source: p.source,
       entropy,
       precomputedEmbedding: p.precomputedEmbedding,
+      userId: p.userId,
     });
     return this.emitFactOutcome(f, result, semantics);
   }

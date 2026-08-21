@@ -56,6 +56,20 @@ export class IngestMentionDto {
   @IsOptional() @IsArray()
   knownEntities?: KnownEntity[];
 
+  /**
+   * Per-user scope (migration 0055; audit 2026-08-21 P0). Stamps the
+   * captured episode turn AND every extracted fact with this end-user —
+   * invisible to other users of the tenant and to requests that don't
+   * assert a userId (fail-closed reads). Caller-asserted for M2M
+   * credentials; a user-bound token pins it to the token's own user
+   * (mismatch = 403) at the service entry. NOTE: entities minted by
+   * mention extraction stay tenant-global (name/type nodes only — the
+   * personal CONTENT lives on the fenced facts and episodes; same model
+   * as a bare-entityId direct fact ingest).
+   */
+  @IsOptional() @IsString() @MaxLength(200)
+  userId?: string;
+
   @IsISO8601()
   emittedAt: string;
 }
