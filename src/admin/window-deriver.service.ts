@@ -6,7 +6,6 @@ import { resolveExtractionProfile } from '../ai/extraction-profile';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
-import { detectLanguage } from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
@@ -27,11 +26,13 @@ import { ReadPinService } from '../episodes/read-pin.service';
  * asymmetry by construction.
  *
  * v1 is a BATCH deriver for A/B measurement: it owns its
- * `derivedVersion` namespace wholesale (delete-by-version per
- * conversation, then create; no fn::resolve_fact), and the read path
- * switches worlds via RETRIEVAL_DERIVED_VERSION. Incremental prod
- * derivation (watermark tasks, diff-emission, version-scoped resolver)
- * is the P3-full follow-up.
+ * `derivedVersion` namespace wholesale and the read path switches
+ * worlds via the registry pin (RETRIEVAL_DERIVED_VERSION as bootstrap).
+ * Since audit 2026-08-19 P1 a run is ATOMIC: it builds the world in
+ * `<version>.staging` under a per-(tenant, version) lease and a clean
+ * run promotes it with one DELETE-then-UPDATE flip per table — see
+ * derive-staging.ts. Incremental prod derivation (watermark tasks,
+ * diff-emission) is the P3-full follow-up.
  */
 export const WINDOW_DERIVER_VERSION = 'wd-v2';
 
@@ -53,11 +54,20 @@ import {
   type DerivedProposition,
 } from './deriver-client';
 import {
-  accumulateLanded,
   composeAspectRollups,
   majorityEntityId,
   type RollupMember,
 } from './aspect-rollups';
+import {
+  STAGING_SUFFIX,
+  acquireDeriveLease,
+  promoteStaging,
+  stagingNamespace,
+  sweepStagingRows,
+  type DeriveNamespace,
+} from './derive-staging';
+import { buildDerivedRows, collectRollupPool } from './derive-row-builder';
+import { LeaderLeaseService } from '../jobs/leader-lease.service';
 
 export type DeriveRunStatus = 'ok' | 'degraded' | 'failed';
 
@@ -119,6 +129,7 @@ export class WindowDeriverService {
     private readonly factResolver: FactResolverService,
     @Optional() private readonly registry?: ProjectionRegistryService,
     @Optional() private readonly readPin?: ReadPinService,
+    @Optional() private readonly leaderLease?: LeaderLeaseService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.model = this.configService.get<string>(
@@ -128,13 +139,13 @@ export class WindowDeriverService {
   }
 
   /**
-   * Derived worlds are FORKS, never in-place rewrites: deriving into the
-   * version readers are currently pinned to (RETRIEVAL_DERIVED_VERSION)
-   * would expose them to a half-built world mid-run — delete-by-version
-   * happens before the new rows land. Derive into a NEW version, then
-   * flip the pin (opts.activate); the old world stays queryable as a
-   * residual until gc() reaps it. opts.force overrides the guard for
-   * deliberate in-place eval workflows.
+   * Derived worlds are FORKS, never in-place rewrites: derive into a
+   * NEW version, then flip the pin (opts.activate); the old world stays
+   * queryable as a residual until gc() reaps it. opts.force overrides
+   * the guard for deliberate eval rewrites of an existing version —
+   * under staging (audit 2026-08-19 P1) even a force run builds in
+   * `<version>.staging` and replaces the old world atomically at the
+   * flip, never in place mid-run.
    */
   async run(
     companyId: string,
@@ -160,6 +171,34 @@ export class WindowDeriverService {
           `to rewrite the live world in place`,
       );
     }
+    // Audit 2026-08-19 P1 (derive non-atomicity): every row lands in the
+    // staging namespace, a clean run promotes it in one flip, and a
+    // per-(tenant, version) lease makes a concurrent derive fail fast
+    // instead of interleaving rows — see derive-staging.ts.
+    const ns = stagingNamespace(version);
+    const lease = await acquireDeriveLease({
+      companyId,
+      version,
+      lease: this.leaderLease,
+      logger: this.logger,
+    });
+    try {
+      return await this.runStaged({ companyId, version, ns, opts, activePin });
+    } finally {
+      await lease.release();
+    }
+  }
+
+  /** The lease-held body of run() — split so the lease acquire/release
+   *  bracket stays visible at a glance in run() itself. */
+  private async runStaged(args: {
+    companyId: string;
+    version: string;
+    ns: DeriveNamespace;
+    opts: { conversationId?: string; activate?: boolean };
+    activePin: string | undefined;
+  }): Promise<DeriveRunResult> {
+    const { companyId, version, ns, opts, activePin } = args;
     const result: DeriveRunResult = {
       conversations: 0,
       sessions: 0,
@@ -171,6 +210,8 @@ export class WindowDeriverService {
     };
     // Registry (driver surface 3): observes the lifecycle, never fails it —
     // every registry write degrades to a warning inside the service.
+    // The row stays 'building' until the FLIP: 'built' must only ever
+    // describe a fully promoted world.
     await this.registry?.begin({
       companyId,
       name: 'facts',
@@ -179,6 +220,9 @@ export class WindowDeriverService {
     });
     try {
       await this.surreal.withCompany(companyId, async (db) => {
+        // Orphaned staging rows of a PRIOR crashed run for this version:
+        // the lease guarantees they have no live owner — sweep first.
+        await sweepStagingRows(db, ns.staging);
         const convs = await this.episodes.conversationCounts(db);
         for (const conv of convs) {
           const conversationId = conv.conversationId;
@@ -188,7 +232,7 @@ export class WindowDeriverService {
             continue;
           }
           try {
-            await this.deriveConversation({ db, conversationId, version, result });
+            await this.deriveConversation({ db, conversationId, ns, result });
             result.conversations += 1;
           } catch (e) {
             result.skipped.push({ conversationId, reason: (e as Error).message });
@@ -200,19 +244,53 @@ export class WindowDeriverService {
       });
     } catch (e) {
       await this.registry?.fail({ companyId, name: 'facts', version });
+      await this.sweepStagingBestEffort(companyId, ns.staging);
       throw e;
     }
-    // A run where every attempted conversation failed produced NOTHING —
-    // marking it built/live would let gc protect a hollow world and let
-    // eval drivers QA an empty substrate as if it were legitimate.
-    if (this.finalizeRunStatus(result) === 'failed') {
+    // Only a CLEAN run is promoted. 'failed' produced nothing; 'degraded'
+    // produced a world with known holes — under atomic-flip semantics
+    // neither touches the final version (it stays byte-identical), the
+    // partial staging world is swept, and the registry marks the attempt
+    // failed. (Pre-staging behavior landed a degraded run's successful
+    // conversations in place and marked the row 'built' — flipping every
+    // reader onto a hole-y world is never what the operator meant.)
+    if (this.finalizeRunStatus(result) !== 'ok') {
       await this.registry?.fail({ companyId, name: 'facts', version });
-      this.logger.error(
-        `derive '${version}' failed for ${companyId}: all ` +
-          `${result.failed} conversation(s) failed — first reason: ` +
-          `${result.skipped[0]?.reason}`,
-      );
+      await this.sweepStagingBestEffort(companyId, ns.staging);
+      if (result.status === 'failed') {
+        this.logger.error(
+          `derive '${version}' failed for ${companyId}: all ` +
+            `${result.failed} conversation(s) failed — first reason: ` +
+            `${result.skipped[0]?.reason}`,
+        );
+      } else {
+        this.logger.warn(
+          `derive '${version}' degraded for ${companyId}: ${result.failed} ` +
+            `conversation(s) failed — final version left untouched, staging ` +
+            `swept${opts.activate ? '; activation refused' : ''} — re-derive ` +
+            `the failures, then re-run`,
+        );
+      }
       return result;
+    }
+    // Atomic flip: staging → final (DELETE final + UPDATE staging, one
+    // BEGIN/COMMIT per table). A run that attempted no conversation has
+    // nothing to promote — flipping would wipe the final world with an
+    // empty staging namespace.
+    if (result.conversations > 0) {
+      try {
+        await this.surreal.withCompany(companyId, (db) =>
+          promoteStaging(db, ns, { conversationId: opts.conversationId }),
+        );
+      } catch (e) {
+        // Facts and digests flip in separate transactions; a failure
+        // here can leave facts promoted with digests still staged. The
+        // registry marks the world failed either way, and staging is
+        // LEFT in place (forensics) — the next run for this version
+        // sweeps it.
+        await this.registry?.fail({ companyId, name: 'facts', version });
+        throw e;
+      }
     }
     await this.maybeActivate({
       companyId,
@@ -236,6 +314,24 @@ export class WindowDeriverService {
     // Readers cache the pin briefly; an activation must land at once.
     if (result.activated) this.readPin?.invalidate(companyId);
     return result;
+  }
+
+  /** Failed/degraded-run staging GC — best-effort by contract: the next
+   *  run for the same version sweeps whatever this pass missed. */
+  private async sweepStagingBestEffort(
+    companyId: string,
+    staging: string,
+  ): Promise<void> {
+    try {
+      await this.surreal.withCompany(companyId, (db) =>
+        sweepStagingRows(db, staging),
+      );
+    } catch (e) {
+      this.logger.warn(
+        `staging sweep for '${staging}' failed (${(e as Error).message}) — ` +
+          `the next derive for this version sweeps it`,
+      );
+    }
   }
 
   /**
@@ -324,6 +420,15 @@ export class WindowDeriverService {
           'intent. Pass keep: [...] explicitly to override.',
       );
     }
+    // A `<v>.staging` namespace belongs to an in-flight (or crashed)
+    // derive of `<v>` — reap it only when its BASE version is reapable,
+    // so gc can never yank the rows out from under a running derive
+    // whose registry row says 'building'. Crash orphans die with their
+    // base or at the start of the next run for that version.
+    const kept = (name: string): boolean =>
+      keep.has(name) ||
+      (name.endsWith(STAGING_SUFFIX) &&
+        keep.has(name.slice(0, -STAGING_SUFFIX.length)));
     const deleted: Record<string, number> = {};
     await this.surreal.withCompany(companyId, async (db) => {
       const [versions] = await db.query<
@@ -335,7 +440,7 @@ export class WindowDeriverService {
       );
       for (const v of versions ?? []) {
         const name = String(v.derivedVersion);
-        if (keep.has(name)) continue;
+        if (kept(name)) continue;
         await db.query(
           `DELETE knowledge_fact WHERE derivedVersion = $version`,
           { version: name },
@@ -361,7 +466,7 @@ export class WindowDeriverService {
       );
       for (const v of digestVersions ?? []) {
         const name = String(v.derivedVersion);
-        if (keep.has(name) || name in deleted) continue;
+        if (kept(name) || name in deleted) continue;
         await db.query(
           `DELETE conversation_digest WHERE derivedVersion = $version`,
           { version: name },
@@ -380,12 +485,12 @@ export class WindowDeriverService {
   private async deriveConversation({
     db,
     conversationId,
-    version,
+    ns,
     result,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
-    version: string;
+    ns: DeriveNamespace;
     result: DeriveRunResult;
   }): Promise<void> {
     const episodes: EpisodeRow[] = await this.episodes.conversationTurns(
@@ -446,8 +551,12 @@ export class WindowDeriverService {
     // re-derived rows would resolve against an empty slot (audit F2).
     // Revive such losers first (the 0014 sentinel shape: validUntil
     // restored from priorValidUntil, no retractedAt was ever set), so
-    // the fresh derive re-arbitrates them normally. Matches 0 rows in
-    // no-lifecycle worlds — safe to run unconditionally.
+    // the fresh derive re-arbitrates them normally. Under staging this
+    // operates on `<version>.staging` — 0 rows on a fresh run (the
+    // start-of-run sweep emptied it); kept for idempotence should a
+    // conversation ever be derived twice within one run. The FINAL
+    // world's revive-before-replace happens at flip time
+    // (promoteStaging, targeted shape).
     await db.query(
       `UPDATE knowledge_fact SET
           status = 'active',
@@ -465,7 +574,7 @@ export class WindowDeriverService {
                AND source.conversationId = $conv);
        DELETE knowledge_fact
         WHERE derivedVersion = $version AND source.conversationId = $conv`,
-      { version, conv: conversationId },
+      { version: ns.staging, conv: conversationId },
     );
 
     // V12 §2 rolling digest: fold sessions chronologically into one
@@ -558,12 +667,12 @@ export class WindowDeriverService {
       // namespace — still one round-trip per session, but the resolver
       // stamps the trust snapshot, locale and status instead of a raw
       // INSERT hand-copying its contract.
-      const rows = this.buildDerivedRows({
+      const rows = buildDerivedRows({
         resolved,
         vectors,
         sessionDate,
         session,
-        version,
+        ns,
         conversationId,
       });
       // V9 §1: value-bearing aspects take the bitemporal_event
@@ -579,17 +688,23 @@ export class WindowDeriverService {
       ).length;
       result.propositions += rows.length - unlandedRows;
       if (rollupPool) {
-        this.collectRollupPool({ rollupPool, resolved, rows, outcomes });
+        collectRollupPool({ rollupPool, resolved, rows, outcomes });
       }
       if (composePool) {
-        this.collectRollupPool({ rollupPool: composePool, resolved, rows, outcomes });
+        collectRollupPool({ rollupPool: composePool, resolved, rows, outcomes });
       }
     }
-    await this.persistDigest({ db, conversationId, version, digest, digestEventAt });
+    await this.persistDigest({
+      db,
+      conversationId,
+      version: ns.staging,
+      digest,
+      digestEventAt,
+    });
     await this.writeCompositionPasses({
       db,
       conversationId,
-      version,
+      ns,
       rollupPool,
       composePool,
       result,
@@ -601,14 +716,14 @@ export class WindowDeriverService {
   private async writeCompositionPasses({
     db,
     conversationId,
-    version,
+    ns,
     rollupPool,
     composePool,
     result,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
-    version: string;
+    ns: DeriveNamespace;
     rollupPool: RollupMember[] | null;
     composePool: RollupMember[] | null;
     result: DeriveRunResult;
@@ -617,7 +732,7 @@ export class WindowDeriverService {
       await this.writeAspectRollups({
         db,
         conversationId,
-        version,
+        ns,
         pool: rollupPool,
         result,
       });
@@ -626,163 +741,13 @@ export class WindowDeriverService {
       await this.writeComposedFacts({
         db,
         conversationId,
-        version,
+        ns,
         pool: composePool,
         result,
       });
     }
   }
 
-
-  /** Row construction for one session's resolved propositions — split
-   *  from deriveConversation for the line-budget gate; behavior is the
-   *  map it used to inline. */
-  private buildDerivedRows({
-    resolved,
-    vectors,
-    sessionDate,
-    session,
-    version,
-    conversationId,
-  }: {
-    resolved: Array<{ p: DerivedProposition; entityId: string }>;
-    vectors: number[][];
-    sessionDate: Date;
-    session: EpisodeRow[];
-    version: string;
-    conversationId: string;
-  }) {
-    return resolved.map(({ p, entityId: subjectEntity }, i) => {
-        const aspect = p.aspect
-          .toLowerCase()
-          .replace(/[^a-z0-9_]+/g, '_')
-          .slice(0, 40);
-        // Regex alone admits impossible calendar dates the LLM sometimes
-        // emits ("2023-02-30") — depending on the engine those parse to
-        // Invalid Date (poisons the write; used to skip the whole
-        // conversation) or silently roll over to another day. Round-trip
-        // check accepts only real dates; anything else falls back to the
-        // session date.
-        const occurred =
-          p.occurred_on && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_on)
-            ? new Date(`${p.occurred_on}T00:00:00.000Z`)
-            : null;
-        const validFrom =
-          occurred &&
-          !Number.isNaN(occurred.getTime()) &&
-          occurred.toISOString().slice(0, 10) === p.occurred_on
-            ? occurred
-            : p.dateCleared
-              ? // Audit-cleared → epoch sentinel (the read path's
-                // "undated"); sessionDate would re-stamp the removed value.
-                new Date(0)
-              : sessionDate;
-        const det = detectLanguage(p.proposition);
-        const lang = det.language !== 'und' ? det.language : undefined;
-        const script = det.language !== 'und' ? det.script : undefined;
-        // V8 §4: salience rides in `source` (object FLEXIBLE, passed
-        // verbatim through fn::resolve_fact's CREATE) — no schema
-        // migration, no resolver-arity change; every read leg already
-        // projects `source`. Only a valid 0-3 integer is stamped;
-        // absent reads as neutral on the scoring side.
-        const salience =
-          resolveExtractionProfile().deriveSalienceStamp &&
-          Number.isInteger(p.salience) &&
-          (p.salience as number) >= 0 &&
-          (p.salience as number) <= 3
-            ? { salience: p.salience }
-            : {};
-        // V12 §1 (graphiti reference_time port): anchor the fact to
-        // the event time of its FIRST grounding turn, with the
-        // within-session ordinal for tie-breaks — mention order
-        // becomes recoverable from facts. Same FLEXIBLE-source ride
-        // as salience: no migration, no resolver-arity change.
-        const firstTurn = p.turns.find((t) => t >= 0 && t < session.length);
-        const mention =
-          resolveExtractionProfile().deriveMentionStamp &&
-          firstTurn !== undefined
-            ? {
-                mentionedAt: new Date(
-                  session[firstTurn].occurredAt as string,
-                ).toISOString(),
-                turnIndex: firstTurn,
-              }
-            : {};
-        // V13 scene trace: same FLEXIBLE-source ride as salience and
-        // the mention stamp — capped so a runaway trace can't bloat
-        // every prompt line it later renders on.
-        const scene =
-          resolveExtractionProfile().deriveSceneTrace && p.scene?.trim()
-            ? { scene: p.scene.trim().slice(0, 200) }
-            : {};
-        const source = {
-          vertical: 'derived',
-          recorder: version,
-          conversationId,
-          episodeIds: p.turns
-            .filter((t) => t >= 0 && t < session.length)
-            .map((t) => String(session[t].id)),
-          ...salience,
-          ...mention,
-          ...scene,
-        };
-        return {
-          entityId: subjectEntity,
-          predicate: aspect || 'other',
-          object: p.proposition,
-          confidence: 0.85,
-          lang,
-          script,
-          validFrom,
-          source,
-          sourceTrust: sourceTrustFor({
-            vertical: 'derived',
-            recorder: version,
-          }),
-          embedding: vectors[i],
-          derivedVersion: version,
-        };
-      });
-  }
-
-  /**
-   * Fold this session's LANDED rows into the conversation rollup pool.
-   * dated = the row carries a REAL event date (not the session
-   * fallback, not the cleared sentinel) — the composer only prints
-   * date stamps for these; episodeIds ride along so the rollup keeps
-   * provenance the excerpt lane can follow.
-   */
-  private collectRollupPool({
-    rollupPool,
-    resolved,
-    rows,
-    outcomes,
-  }: {
-    rollupPool: RollupMember[];
-    resolved: Array<{ p: DerivedProposition }>;
-    rows: Array<{
-      entityId: string;
-      predicate: string;
-      object: string;
-      validFrom: Date;
-      source?: { episodeIds?: unknown };
-    }>;
-    outcomes: Array<{ outcome: string }>;
-  }): void {
-    const meta = resolved.map(({ p }) => {
-      const occ =
-        p.occurred_on && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_on)
-          ? new Date(`${p.occurred_on}T00:00:00.000Z`)
-          : null;
-      return {
-        dated:
-          !!occ &&
-          !Number.isNaN(occ.getTime()) &&
-          occ.toISOString().slice(0, 10) === p.occurred_on,
-      };
-    });
-    accumulateLanded(rollupPool, rows, { outcomes, meta });
-  }
 
   /**
    * Persist the digest AFTER the fold loop: replace-per-namespace
@@ -838,13 +803,13 @@ export class WindowDeriverService {
   private async writeAspectRollups({
     db,
     conversationId,
-    version,
+    ns,
     pool,
     result,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
-    version: string;
+    ns: DeriveNamespace;
     pool: RollupMember[];
     result: DeriveRunResult;
   }): Promise<void> {
@@ -862,7 +827,7 @@ export class WindowDeriverService {
         validFrom: r.validFrom,
         source: {
           vertical: 'derived',
-          recorder: version,
+          recorder: ns.final,
           conversationId,
           rollup: true,
           memberCount: r.memberCount,
@@ -873,10 +838,10 @@ export class WindowDeriverService {
         },
         sourceTrust: sourceTrustFor({
           vertical: 'derived',
-          recorder: version,
+          recorder: ns.final,
         }),
         embedding: vectors[i],
-        derivedVersion: version,
+        derivedVersion: ns.staging,
       }));
       const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
         slotSemantics: false,
@@ -911,13 +876,13 @@ export class WindowDeriverService {
   private async writeComposedFacts({
     db,
     conversationId,
-    version,
+    ns,
     pool,
     result,
   }: {
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> };
     conversationId: string;
-    version: string;
+    ns: DeriveNamespace;
     pool: RollupMember[];
     result: DeriveRunResult;
   }): Promise<void> {
@@ -966,7 +931,7 @@ export class WindowDeriverService {
           validFrom,
           source: {
             vertical: 'derived',
-            recorder: version,
+            recorder: ns.final,
             conversationId,
             composed: true,
             memberCount: members.length,
@@ -974,10 +939,10 @@ export class WindowDeriverService {
           },
           sourceTrust: sourceTrustFor({
             vertical: 'derived',
-            recorder: version,
+            recorder: ns.final,
           }),
           embedding: vectors[i],
-          derivedVersion: version,
+          derivedVersion: ns.staging,
         };
       });
       const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
