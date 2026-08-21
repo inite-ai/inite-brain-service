@@ -1,6 +1,7 @@
 import { SearchDto, SearchMode } from './dto/search.dto';
 import type { RetrievalProfile, SearchTuning } from './retrieval-profile';
 import type { QueryTimeRange } from './internals/scoring';
+import type { ReadPin } from '../episodes/read-pin.service';
 
 /**
  * Per-request retrieval-pipeline context, shared by the search
@@ -19,10 +20,11 @@ export interface PipelineContext {
   mode: SearchMode;
   candidateK: number;
   /**
-   * Derived world this request reads, resolved per tenant from the
-   * projection registry (audit W2 #9). null → legacy namespace.
+   * Derived world(s) this request reads, resolved per tenant from the
+   * projection registry (audit W2 #9). null → legacy namespace; an
+   * array → the multiworld READ union (§10).
    */
-  derivedVersion: string | null;
+  derivedVersion: ReadPin;
   /** Per-tenant retrieval profile, resolved once by the guard. */
   profile: RetrievalProfile;
   /**

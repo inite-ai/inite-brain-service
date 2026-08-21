@@ -1,4 +1,7 @@
-import { ReadPinService } from '../src/episodes/read-pin.service';
+import {
+  ReadPinService,
+  derivedVersionFence,
+} from '../src/episodes/read-pin.service';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { ProjectionRegistryService } from '../src/episodes/projection-registry.service';
 
@@ -125,5 +128,88 @@ describe('buildBaseWhere honours the resolved pin', () => {
     process.env.RETRIEVAL_DERIVED_VERSION = 'env-world';
     const { params } = buildBaseWhere(base);
     expect(params.derivedVersion).toBe('env-world');
+  });
+});
+
+describe('multiworld READ union (§10 — RETRIEVAL_DERIVED_VERSIONS)', () => {
+  const savedSingle = process.env.RETRIEVAL_DERIVED_VERSION;
+  const savedUnion = process.env.RETRIEVAL_DERIVED_VERSIONS;
+  afterEach(() => {
+    if (savedSingle === undefined) delete process.env.RETRIEVAL_DERIVED_VERSION;
+    else process.env.RETRIEVAL_DERIVED_VERSION = savedSingle;
+    if (savedUnion === undefined) delete process.env.RETRIEVAL_DERIVED_VERSIONS;
+    else process.env.RETRIEVAL_DERIVED_VERSIONS = savedUnion;
+  });
+
+  it('bootstrapUnion parses, trims, dedupes; unset/blank → null', () => {
+    delete process.env.RETRIEVAL_DERIVED_VERSIONS;
+    expect(ReadPinService.bootstrapUnion()).toBeNull();
+    process.env.RETRIEVAL_DERIVED_VERSIONS = '  ';
+    expect(ReadPinService.bootstrapUnion()).toBeNull();
+    process.env.RETRIEVAL_DERIVED_VERSIONS = ' wd-a, wd-b ,wd-a,, ';
+    expect(ReadPinService.bootstrapUnion()).toEqual(['wd-a', 'wd-b']);
+  });
+
+  it('resolveRead unions the tenant world in — never displaces it', async () => {
+    process.env.RETRIEVAL_DERIVED_VERSIONS = 'ssa-v1';
+    const svc = new ReadPinService(
+      registryWith([{ name: 'facts', version: 'wd-live', status: 'live' }]),
+    );
+    expect(await svc.resolveRead('co_x')).toEqual(['ssa-v1', 'wd-live']);
+  });
+
+  it('a one-world union that IS the tenant world collapses to the single pin', async () => {
+    process.env.RETRIEVAL_DERIVED_VERSIONS = 'wd-live';
+    const svc = new ReadPinService(
+      registryWith([{ name: 'facts', version: 'wd-live', status: 'live' }]),
+    );
+    expect(await svc.resolveRead('co_x')).toBe('wd-live');
+  });
+
+  it('no union configured → resolveRead is exactly resolve()', async () => {
+    delete process.env.RETRIEVAL_DERIVED_VERSIONS;
+    process.env.RETRIEVAL_DERIVED_VERSION = 'env-world';
+    const svc = new ReadPinService();
+    expect(await svc.resolveRead('co_x')).toBe('env-world');
+  });
+
+  it('derivedVersionFence: union → INSIDE, singleton collapses, empty → IS NONE', () => {
+    expect(derivedVersionFence(['wd-a', 'wd-b'])).toEqual({
+      clause: 'AND derivedVersion INSIDE $derivedVersions',
+      params: { derivedVersions: ['wd-a', 'wd-b'] },
+    });
+    expect(derivedVersionFence(['wd-a'])).toEqual({
+      clause: 'AND derivedVersion = $derivedVersion',
+      params: { derivedVersion: 'wd-a' },
+    });
+    expect(derivedVersionFence([])).toEqual({
+      clause: 'AND derivedVersion IS NONE',
+      params: {},
+    });
+  });
+
+  it('buildBaseWhere serves a union pin through INSIDE', () => {
+    const { sql, params } = buildBaseWhere({
+      dto: {} as never,
+      asOf: null,
+      includeRetracted: false,
+      includeContested: false,
+      derivedVersion: ['wd-a', 'wd-b'],
+    });
+    expect(sql).toContain('derivedVersion INSIDE $derivedVersions');
+    expect(params.derivedVersions).toEqual(['wd-a', 'wd-b']);
+  });
+
+  it('an unresolved caller inherits the env union bootstrap', () => {
+    process.env.RETRIEVAL_DERIVED_VERSION = 'env-world';
+    process.env.RETRIEVAL_DERIVED_VERSIONS = 'ssa-v1';
+    const { sql, params } = buildBaseWhere({
+      dto: {} as never,
+      asOf: null,
+      includeRetracted: false,
+      includeContested: false,
+    });
+    expect(sql).toContain('derivedVersion INSIDE $derivedVersions');
+    expect(params.derivedVersions).toEqual(['ssa-v1', 'env-world']);
   });
 });

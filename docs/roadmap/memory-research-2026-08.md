@@ -538,3 +538,78 @@ Program implications (priority order):
    per-world resolutions.
 Guard: every multiworld leg must beat BOTH the current fact world AND a
 strong-retrieval-over-L0 baseline at matched tokens.
+
+### §10 build (2026-08-20, branch multiworld-build) — all four items, default-off
+
+- **M1 multi-pin read** — `RETRIEVAL_DERIVED_VERSIONS` (comma list):
+  the read path serves the SET of worlds (`derivedVersion INSIDE […]`
+  via the extended `derivedVersionFence`; single-element unions
+  collapse to the equality form — byte-identical off). The tenant's
+  own resolved world (registry live row / `RETRIEVAL_DERIVED_VERSION`)
+  is always unioned IN, never displaced (`ReadPinService.resolveRead`
+  / `bootstrapRead`). Read surfaces ported: fact legs (where-builder),
+  insight leg, digest lane, query-arc. Write/maintenance (derive,
+  dreams, compaction, communities) stay single-world by design.
+  Budgets-per-world deferred until a second fact world exists to
+  measure (fusion arbitrates the union until then).
+- **M2 typed single-pass derive** — `DERIVER_TYPED_ATOMS`: the one
+  extraction pass tags every proposition `kind ∈ {fact,
+  assistant_contribution, persona_attr, event}` (schema enum + prompt
+  section; subsumes DERIVER_ASSISTANT_CONTENT), stamped as
+  `source.kind` (FLEXIBLE ride, off-enum dropped —
+  `TYPED_ATOM_KINDS` is the one vocabulary for prompt, schema and
+  stamp). Fresh derivedVersion required.
+- **M3 assistant verbatim lane** — `RETRIEVAL_ASSISTANT_LANE`
+  (+`_TOPK` 6, +`_MATCH` 'assistant'): BM25 over L0 restricted by
+  case-insensitive speaker SUFFIX (harness speakers are
+  `<slug>__<role>`), own transcript-slot lane, measurable on the
+  default profile. Empty for corpora without the role (LoCoMo inert).
+- **M4 facts-as-keys** — `RETRIEVAL_FACTS_AS_KEYS` (+`_CAP` 8): the
+  top evidence fact lines carry ONE verbatim grounding-turn quote
+  (` [source YYYY-MM-DD speaker: "…"]`, 240-char cap) via the
+  updateStories suffix mechanic (`applyFactSuffixes`) — fact = key,
+  raw turn = content; both prompts read the same lines.
+
+Measure order (cheapest decisive first): (1) SSA leg with M3 on the
+existing wd-v2 worlds (`--skip-ingest`, offset 444, 56 q) vs the 42.9
+armB base — the direct test of the §10 mechanism; (2) M4 on the
+temporal+MS block (the raw-replay −22pp class, same worlds); (3) M2
+fresh mini-derive + M1 union {wd-v2, typed world} vs each alone —
+the multi-pin experiment proper; run the strong-retrieval-over-L0
+contrarian baseline beside every positive before believing it.
+
+### §10 measured (2026-08-21) — the SSA ladder is CLOSED
+
+All legs: SSA block (offset 444, 56 q), config identical to arm B
+except the named lever; paired flips vs the 42.9% arm B base.
+
+| leg | SSA | flips vs base | verdict |
+|---|---|---|---|
+| raw-window bundle (V13) | 23.2 | — | negative (facts-as-anchor can't reach unextracted gold) |
+| raw-window only | 32.1 | +2/−8 | negative |
+| M3 lane v1 (role-filtered BM25) | 46.4 | +2/−0 | small plus, absence-class collapsed (2/30) |
+| M3 v1.1 exchange granularity | 44.6 | +1/−0 (vs v1: +0/−1) | null → reverted; residual = BM25 RANK, not anchor side |
+| **M2 typed world wd-mw1** | **57.1** | **+14/−6** (χ²=2.45) | **the §10 mechanism confirmed: assistant content as EMBEDDED facts (dense retrieval) is the fix** |
+| M2 + M3 lane combo | 55.4 | +12/−5 (vs mw1: +1/−2) | lane subsumed by the typed world — no stack |
+
+Verdict: SSA is a CONSTRUCTION-side class (same law as temporal §1) —
+`DERIVER_TYPED_ATOMS` on the derive closes it; read-side verbatim lanes
+only patch untyped worlds (+3.5) and add nothing over a typed one.
+M1 union of {wd-v2, wd-mw1} is NOT the union experiment — wd-mw1
+subsumes wd-v2's contract (duplicate-snapshot anti-pattern, see the
+key's constraint); the union pair needs complementary worlds. The 56
+typed SSA worlds derived clean (56/56 ok, ~590 props/world, ~6.3
+min/world, ≈$2).
+
+**Statistical honesty (owner call 2026-08-21, program PARKED):** the
+headline SSA flip count (+14/−6) is exact-binomial p≈0.06 one-sided —
+a strong DIRECTION with a mechanism-coherent 5-arm ladder, NOT a
+confirmed effect (the V8 lesson: an n≈40-56 series carries ±10pp of
+noise; the V4 temporal bank died on re-derive once already). Same for
+tm-pack (+6/−1, p≈0.06). The temporal 2×2 is 2/4 cells: wd-mw2 worlds
+are derived and PAID FOR (133/133 ok) but the two remaining legs
+(~$3) are deliberately not run. The one decision-grade experiment,
+if/when the owner wants it: ONE full-500 shot on a fresh combined
+write-pack derive (typed-atoms + time-pack, new version) vs arm B —
+~$20-25 — which confirms or kills both construction-side effects at
+n=500 in a single paired measurement instead of per-axis dribbles.

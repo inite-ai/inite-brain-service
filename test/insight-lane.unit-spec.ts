@@ -137,7 +137,10 @@ describe('buildBaseWhere insight arbitration', () => {
 
 describe('InsightLaneService', () => {
   const embedder = { embed: async () => [1, 0] } as any;
-  const readPin = { resolve: async () => 'wd-v2' } as any;
+  const readPin = {
+    resolve: async () => 'wd-v2',
+    resolveRead: async () => 'wd-v2',
+  } as any;
 
   function surrealWith(rows: unknown[]): any {
     return {

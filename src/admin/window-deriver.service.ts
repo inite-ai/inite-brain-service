@@ -49,6 +49,7 @@ import {
   callDeriver,
   composeCrossSession,
   foldDigest,
+  typedAtomKind,
   type ComposedProposition,
   type DerivedProposition,
 } from './deriver-client';
@@ -149,13 +150,18 @@ export class WindowDeriverService {
     // The guard compares against THIS TENANT's live world (registry),
     // not the pod's env — a pod whose env still said wd-v2 used to pass
     // the guard and delete-by-version the world another pod served.
+    // The PRIMARY pin drives activation/live semantics below — a union
+    // member is being read but is not the registry-live world.
     const activePin =
       (await this.readPin?.resolve(companyId)) ??
       ReadPinService.bootstrapDefault() ??
       undefined;
-    if (version === activePin && !opts.force) {
+    // Audit 2026-08-21 P1: the guard covers the whole READ SET — a
+    // union-served world (RETRIEVAL_DERIVED_VERSIONS) is as live as the
+    // primary pin.
+    if (ReadPinService.readSet(activePin).has(version) && !opts.force) {
       throw new Error(
-        `version '${version}' is the live read pin — derive into a new ` +
+        `version '${version}' is in the live read set — derive into a new ` +
           `version and flip the pin (activate: true), or pass force: true ` +
           `to rewrite the live world in place`,
       );
@@ -298,10 +304,12 @@ export class WindowDeriverService {
     companyId: string,
     opts: { keep?: string[] } = {},
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
-    const activePin =
+    // Audit 2026-08-21 P1: the whole READ SET survives GC — union
+    // worlds are being served even when no registry row says so.
+    const activePins = ReadPinService.readSet(
       (await this.readPin?.resolve(companyId)) ??
-      ReadPinService.bootstrapDefault() ??
-      undefined;
+        ReadPinService.bootstrapDefault(),
+    );
     // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
     // part of the keep-set — the env pin is process-local and may be unset
     // on this pod while another pod serves a live world. live/building/
@@ -315,7 +323,7 @@ export class WindowDeriverService {
       )
       .map((r) => r.version);
     const keep = new Set(
-      [activePin, ...registryKeep, ...(opts.keep ?? [])].filter(Boolean),
+      [...activePins, ...registryKeep, ...(opts.keep ?? [])].filter(Boolean),
     );
     if (keep.size === 0) {
       throw new Error(
@@ -725,6 +733,8 @@ export class WindowDeriverService {
           ...salience,
           ...mention,
           ...scene,
+          // Multiworld §10: on-contract kinds only (off-enum → untyped).
+          ...typedAtomKind(p),
         };
         return {
           entityId: subjectEntity,

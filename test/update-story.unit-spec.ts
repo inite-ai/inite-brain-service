@@ -1,5 +1,5 @@
 import {
-  appendUpdateStories,
+  applyFactSuffixes,
   renderUpdateStory,
 } from '../src/synthesize/update-story';
 import { UpdateStoryService } from '../src/synthesize/update-story.service';
@@ -53,27 +53,38 @@ describe('renderUpdateStory', () => {
   });
 });
 
-describe('appendUpdateStories', () => {
+describe('applyFactSuffixes', () => {
   const lines = [
     '[knowledge_fact:w1] Alex (person) — work: works at Baz (as of 2026-03-01)',
     '[knowledge_fact:o1] Alex (person) — preferences: likes tea (as of 2026-01-01)',
   ];
 
   it('appends the suffix to matching lines only', () => {
-    const out = appendUpdateStories(
-      lines,
+    const out = applyFactSuffixes(lines, [
       new Map([
         ['knowledge_fact:w1', ' [previously: works at Foo — until 2026-03-01]'],
       ]),
-    );
+    ]);
     expect(out[0]).toBe(
       lines[0] + ' [previously: works at Foo — until 2026-03-01]',
     );
     expect(out[1]).toBe(lines[1]);
   });
 
-  it('empty map passes lines through byte-identical', () => {
-    expect(appendUpdateStories(lines, new Map())).toEqual(lines);
+  it('stacks maps in order on the same line (stories then quotes)', () => {
+    const out = applyFactSuffixes(lines, [
+      new Map([['knowledge_fact:w1', ' [previously: works at Foo]']]),
+      new Map([['knowledge_fact:w1', ' [source 2026-02-01 Alex: "joined Baz"]']]),
+    ]);
+    expect(out[0]).toBe(
+      lines[0] +
+        ' [previously: works at Foo]' +
+        ' [source 2026-02-01 Alex: "joined Baz"]',
+    );
+  });
+
+  it('empty and absent maps pass lines through byte-identical', () => {
+    expect(applyFactSuffixes(lines, [new Map(), undefined])).toEqual(lines);
   });
 });
 

@@ -164,6 +164,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // ── V13 raw-turn window (hybrid substrate read side) ───────────────
   positiveInt(env, 'RETRIEVAL_RAW_WINDOW_SPAN', errors);
 
+  // ── Multiworld §10 read-side knobs ─────────────────────────────────
+  positiveInt(env, 'RETRIEVAL_ASSISTANT_LANE_TOPK', errors);
+  positiveInt(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -526,6 +530,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V13: dual-trace encoding — per-proposition scene clause stamped
   // and folded into the embedding. Default off; fresh derivedVersion.
   'DERIVER_SCENE_TRACE',
+  // Multiworld §10: typed single-pass derive — every proposition tagged
+  // kind ∈ {fact, assistant_contribution, persona_attr, event}, stamped
+  // as source.kind. Default off; fresh derivedVersion.
+  'DERIVER_TYPED_ATOMS',
   // V12 §2: rolling per-conversation digest fold (conversation_digest,
   // 0086). Default off.
   'DERIVER_DIGEST',
@@ -566,6 +574,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V13 hybrid substrate: fact hits expand into bounded raw-turn
   // windows rendered as transcript evidence. Default off.
   'RETRIEVAL_RAW_WINDOW',
+  // Multiworld §10: assistant-role verbatim lane over L0 (the SSA
+  // structural fix — the gold class facts never carry). Default off.
+  'RETRIEVAL_ASSISTANT_LANE',
+  // Multiworld §10: facts-as-keys — top evidence fact lines carry one
+  // verbatim grounding quote (fact = key, raw turn = content).
+  // Default off.
+  'RETRIEVAL_FACTS_AS_KEYS',
   // V13 TSM-shape time-constrained retrieval: code-parsed query period
   // boosts in-range facts (rank-only, nothing dropped). Default off.
   'RETRIEVAL_TIME_FILTER',

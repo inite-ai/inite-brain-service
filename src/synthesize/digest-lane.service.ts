@@ -1,6 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import { ReadPinService } from '../episodes/read-pin.service';
+import {
+  ReadPinService,
+  derivedVersionFence,
+} from '../episodes/read-pin.service';
 
 /** Newest digests surfaced per answer — one per conversation; multi-
  *  conversation tenants get the most recently active few. */
@@ -35,12 +38,13 @@ export class DigestLaneService {
   async digestLines(opts: { companyId: string }): Promise<string[]> {
     try {
       const derivedVersion =
-        (await this.readPin?.resolve(opts.companyId)) ??
-        ReadPinService.bootstrapDefault();
-      const worldGate = derivedVersion
-        ? 'derivedVersion = $derivedVersion'
-        : 'derivedVersion IS NONE';
-      const worldParams = derivedVersion ? { derivedVersion } : {};
+        (await this.readPin?.resolveRead(opts.companyId)) ??
+        ReadPinService.bootstrapRead();
+      const fence = derivedVersionFence(derivedVersion);
+      // The fence clause is 'AND'-prefixed for splicing after other
+      // filters; this WHERE has none, so strip the connective.
+      const worldGate = fence.clause.replace(/^AND /, '');
+      const worldParams = fence.params;
       const rows = await this.surreal.withCompany(
         opts.companyId,
         async (db) => {

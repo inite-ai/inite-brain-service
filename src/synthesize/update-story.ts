@@ -63,9 +63,10 @@ export function renderUpdateStory(prevs: readonly PreviousValue[]): string {
 /**
  * Append rendered history suffixes onto the matching fact lines. Lines
  * open with `[<factId>] ` (the buildFactIndex contract); unmatched
- * lines pass through byte-identical.
+ * lines pass through byte-identical. Module-private — external callers
+ * compose through applyFactSuffixes.
  */
-export function appendUpdateStories(
+function appendUpdateStories(
   factLines: readonly string[],
   stories: ReadonlyMap<string, string>,
 ): string[] {
@@ -77,4 +78,22 @@ export function appendUpdateStories(
     const suffix = stories.get(line.slice(1, close));
     return suffix ? line + suffix : line;
   });
+}
+
+/**
+ * Apply a sequence of fact-line suffix maps — update stories (V10 §2),
+ * grounding quotes (multiworld §10 facts-as-keys) — in order. Absent
+ * and empty maps are skipped, so callers pass their profile-gated maps
+ * unconditionally; both prompts read the same augmented lines
+ * (evidence parity by construction).
+ */
+export function applyFactSuffixes(
+  factLines: readonly string[],
+  maps: ReadonlyArray<ReadonlyMap<string, string> | undefined>,
+): string[] {
+  let lines = [...factLines];
+  for (const m of maps) {
+    if (m && m.size > 0) lines = appendUpdateStories(lines, m);
+  }
+  return lines;
 }
