@@ -792,6 +792,101 @@
         ],
         "type": "object"
       },
+      "FactProvenanceEpisode": {
+        "additionalProperties": false,
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "episodeId": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "speaker": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "episodeId",
+          "occurredAt",
+          "text"
+        ],
+        "type": "object"
+      },
+      "FactProvenanceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/FactProvenanceEpisode"
+            },
+            "type": "array"
+          },
+          "factId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "episodes"
+        ],
+        "type": "object"
+      },
+      "FactReadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "derivedVersion": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "recorder": {
+            "type": "string"
+          },
+          "retracted": {
+            "type": "boolean"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "vertical": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "aspect",
+          "statement",
+          "confidence",
+          "validFrom",
+          "retracted"
+        ],
+        "type": "object"
+      },
       "FailWorkRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1474,6 +1569,55 @@
           "message",
           "packId",
           "checkout"
+        ],
+        "type": "object"
+      },
+      "ProfileFact": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "statement",
+          "validFrom",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "ProfileSection": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect": {
+            "type": "string"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileFact"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "aspect",
+          "facts"
         ],
         "type": "object"
       },
@@ -2521,6 +2665,39 @@
         },
         "required": [
           "displayName"
+        ],
+        "type": "object"
+      },
+      "UserProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "factCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "profileText": {
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSection"
+            },
+            "type": "array"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "generatedAt",
+          "factCount",
+          "sections",
+          "profileText"
         ],
         "type": "object"
       },
@@ -3754,6 +3931,90 @@
         ]
       }
     },
+    "/v1/facts/{id}": {
+      "get": {
+        "description": "The fact itself — what is remembered, where it came from (vertical/recorder/conversation), its validity instant and user scope. Every visibility fence (tenant, user scope, row policy) answers 404 — existence never leaks. 404 until FACTS_API_ENABLED=1. Source: src/facts/facts.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getFact",
+        "parameters": [
+          {
+            "description": "Fact record id (`knowledge_fact:…`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactReadResponse"
+                }
+              }
+            },
+            "description": "The fact."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read one fact by id",
+        "tags": [
+          "Facts"
+        ]
+      }
+    },
+    "/v1/facts/{id}/provenance": {
+      "get": {
+        "description": "The verbatim source turns (`source.episodeIds`) the fact was derived or ingested from, chronological, text capped server-side. Callers without `brain:read_pii` never receive PII-classed episode text. Same 404 fences as GET /v1/facts/{id}. 404 until FACTS_API_ENABLED=1.\n\nRequired scope: `brain:read`.",
+        "operationId": "getFactProvenance",
+        "parameters": [
+          {
+            "description": "Fact record id (`knowledge_fact:…`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactProvenanceResponse"
+                }
+              }
+            },
+            "description": "The grounding episodes."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Read the grounding episodes behind a fact",
+        "tags": [
+          "Facts"
+        ]
+      }
+    },
     "/v1/indexer/work": {
       "get": {
         "description": "Pending indexer runs routed to this tenant’s installed external packs. Protocol: docs/indexer-protocol.md. Part of the document pipeline — answers `503 feature_disabled` until `DOCUMENT_INGEST_ENABLED=1`. Source: src/documents/indexer-work.controller.ts.\n\nRequired scope: `indexer:write`.",
@@ -4492,6 +4753,69 @@
           "Sources"
         ]
       }
+    },
+    "/v1/users/{userId}/profile": {
+      "get": {
+        "description": "Query-time assembly of what the platform knows about a user: active user-scoped facts grouped by aspect (persona-first), plus `profileText` shaped for direct prompt injection. Deterministic — no model calls. A user-bound token may only fetch its own profile (mismatch 403); M2M tokens any. 404 until USER_PROFILE_API_ENABLED=1. Source: src/users/user-profile.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getUserProfile",
+        "parameters": [
+          {
+            "description": "The user whose profile to assemble.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Global fact budget (default 60, max 200).",
+            "in": "query",
+            "name": "maxFacts",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Soft locale filter (facts in this language or unmarked).",
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileResponse"
+                }
+              }
+            },
+            "description": "The assembled profile."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Rolling user profile (deterministic v1)",
+        "tags": [
+          "Users"
+        ]
+      }
     }
   },
   "security": [
@@ -4541,6 +4865,14 @@
     {
       "description": "Derived surfaces as first-class records: lifecycle status, watermark, builder identity, and rebuild as the public verb. Flag: PROJECTIONS_API_ENABLED (off → 404).",
       "name": "Projections"
+    },
+    {
+      "description": "Fact-level reads: one fact by id and its grounding episodes — provenance-first memory (\"show me why I remember this\"). Flag: FACTS_API_ENABLED (off → 404); fact retraction stays flag-independent.",
+      "name": "Facts"
+    },
+    {
+      "description": "Per-user surfaces: the rolling user profile assembled from user-scoped memory. Flag: USER_PROFILE_API_ENABLED (off → 404).",
+      "name": "Users"
     }
   ],
   "webhooks": {
