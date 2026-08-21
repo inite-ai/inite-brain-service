@@ -1,6 +1,10 @@
 import { StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
-import { ReadPinService } from '../../episodes/read-pin.service';
+import {
+  ReadPinService,
+  derivedVersionFence,
+  type ReadPin,
+} from '../../episodes/read-pin.service';
 
 /**
  * Compose the WHERE-clause fragment that every leg query shares.
@@ -28,13 +32,15 @@ export interface BuildBaseWhereOptions {
   includeRetracted: boolean;
   includeContested: boolean;
   /**
-   * Derived world this read serves, resolved per TENANT by
-   * ReadPinService (audit W2 #9). null → the legacy namespace.
+   * Derived world(s) this read serves, resolved per TENANT by
+   * ReadPinService (audit W2 #9). null → the legacy namespace; an
+   * array → the multiworld READ union (§10 — typed projections over
+   * one substrate read together, RETRIEVAL_DERIVED_VERSIONS).
    * Undefined means "the caller did not resolve one" and falls back to
    * the env bootstrap default, so pure-function callers and tests keep
    * working; production callers always pass it.
    */
-  derivedVersion?: string | null;
+  derivedVersion?: ReadPin;
   /**
    * Profile temporalMode (audit W4 #17). 'overlap_boost' relaxes the
    * asOf validity closure — near-miss facts survive to scoring, where
@@ -98,22 +104,21 @@ export function buildBaseWhere({
 
   // ── Derived-version namespace (substrate redesign P3 v1) ───────
   // Versioned derivations coexist in one tenant: a batch deriver stamps
-  // its facts with derivedVersion and the read path pins exactly ONE
-  // world. Unset pin → legacy namespace only (field IS NONE), so a
-  // derived batch never leaks into default reads and vice versa.
-  // The pin is per-TENANT and comes from the projection registry
-  // (audit W2 #9); `undefined` here means an unresolved caller, which
-  // falls back to the process bootstrap default.
+  // its facts with derivedVersion and the read path pins ONE world —
+  // or, under the multiworld READ union (§10, RETRIEVAL_DERIVED_VERSIONS),
+  // a SET of worlds whose rows compete in the same legs and fusion.
+  // Unset pin → legacy namespace only (field IS NONE), so a derived
+  // batch never leaks into default reads and vice versa. The pin is
+  // per-TENANT and comes from the projection registry (audit W2 #9);
+  // `undefined` here means an unresolved caller, which falls back to
+  // the process bootstrap default.
   const pin =
     derivedVersion === undefined
-      ? ReadPinService.bootstrapDefault()
+      ? ReadPinService.bootstrapRead()
       : derivedVersion;
-  if (pin) {
-    clauses.push(`AND derivedVersion = $derivedVersion`);
-    params.derivedVersion = pin;
-  } else {
-    clauses.push(`AND derivedVersion IS NONE`);
-  }
+  const fence = derivedVersionFence(pin);
+  clauses.push(fence.clause);
+  Object.assign(params, fence.params);
 
   if (dto.minConfidence !== undefined) {
     clauses.push(`AND confidence >= $minConfidence`);

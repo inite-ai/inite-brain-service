@@ -538,3 +538,42 @@ Program implications (priority order):
    per-world resolutions.
 Guard: every multiworld leg must beat BOTH the current fact world AND a
 strong-retrieval-over-L0 baseline at matched tokens.
+
+### §10 build (2026-08-20, branch multiworld-build) — all four items, default-off
+
+- **M1 multi-pin read** — `RETRIEVAL_DERIVED_VERSIONS` (comma list):
+  the read path serves the SET of worlds (`derivedVersion INSIDE […]`
+  via the extended `derivedVersionFence`; single-element unions
+  collapse to the equality form — byte-identical off). The tenant's
+  own resolved world (registry live row / `RETRIEVAL_DERIVED_VERSION`)
+  is always unioned IN, never displaced (`ReadPinService.resolveRead`
+  / `bootstrapRead`). Read surfaces ported: fact legs (where-builder),
+  insight leg, digest lane, query-arc. Write/maintenance (derive,
+  dreams, compaction, communities) stay single-world by design.
+  Budgets-per-world deferred until a second fact world exists to
+  measure (fusion arbitrates the union until then).
+- **M2 typed single-pass derive** — `DERIVER_TYPED_ATOMS`: the one
+  extraction pass tags every proposition `kind ∈ {fact,
+  assistant_contribution, persona_attr, event}` (schema enum + prompt
+  section; subsumes DERIVER_ASSISTANT_CONTENT), stamped as
+  `source.kind` (FLEXIBLE ride, off-enum dropped —
+  `TYPED_ATOM_KINDS` is the one vocabulary for prompt, schema and
+  stamp). Fresh derivedVersion required.
+- **M3 assistant verbatim lane** — `RETRIEVAL_ASSISTANT_LANE`
+  (+`_TOPK` 6, +`_MATCH` 'assistant'): BM25 over L0 restricted by
+  case-insensitive speaker SUFFIX (harness speakers are
+  `<slug>__<role>`), own transcript-slot lane, measurable on the
+  default profile. Empty for corpora without the role (LoCoMo inert).
+- **M4 facts-as-keys** — `RETRIEVAL_FACTS_AS_KEYS` (+`_CAP` 8): the
+  top evidence fact lines carry ONE verbatim grounding-turn quote
+  (` [source YYYY-MM-DD speaker: "…"]`, 240-char cap) via the
+  updateStories suffix mechanic (`applyFactSuffixes`) — fact = key,
+  raw turn = content; both prompts read the same lines.
+
+Measure order (cheapest decisive first): (1) SSA leg with M3 on the
+existing wd-v2 worlds (`--skip-ingest`, offset 444, 56 q) vs the 42.9
+armB base — the direct test of the §10 mechanism; (2) M4 on the
+temporal+MS block (the raw-replay −22pp class, same worlds); (3) M2
+fresh mini-derive + M1 union {wd-v2, typed world} vs each alone —
+the multi-pin experiment proper; run the strong-retrieval-over-L0
+contrarian baseline beside every positive before believing it.

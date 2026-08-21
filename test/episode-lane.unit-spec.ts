@@ -162,6 +162,158 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
   });
 });
 
+describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', () => {
+  const base = {
+    companyId: 'co_x',
+    query: 'What did you recommend for the rate limiter?',
+    callerScopes: ['brain:read', 'brain:read_pii'],
+    limit: 6,
+    match: 'assistant',
+  };
+
+  it('filters by case-insensitive speaker suffix and renders quotes', async () => {
+    const { svc, queries } = makeLane([
+      {
+        speaker: 'conv_1__assistant',
+        text: 'Use the token bucket',
+        occurredAt: '2023-05-01T10:00:00Z',
+      },
+    ]);
+    const lines = await svc.assistantTurns(base);
+    expect(lines).toEqual([
+      '[2023-05-01] conv_1__assistant: Use the token bucket',
+    ]);
+    expect(queries[0].sql).toContain(
+      "string::ends_with(string::lowercase(speaker), $speakerSuffix)",
+    );
+    expect(queries[0].params.speakerSuffix).toBe('assistant');
+  });
+
+  it('lowercases the configured match before binding', async () => {
+    const { svc, queries } = makeLane([]);
+    await svc.assistantTurns({ ...base, match: 'Assistant' });
+    expect(queries[0].params.speakerSuffix).toBe('assistant');
+  });
+
+  it('keeps the PII fence for callers without brain:read_pii', async () => {
+    const { svc, queries } = makeLane([]);
+    await svc.assistantTurns({ ...base, callerScopes: ['brain:read'] });
+    expect(queries[0].sql).toContain('AND piiClass IS NONE');
+  });
+
+  it('degrades to [] on failure', async () => {
+    const surreal = {
+      withCompany: async () => {
+        throw new Error('down');
+      },
+    } as unknown as SurrealService;
+    const svc = new EpisodeLaneService(
+      surreal,
+      new EpisodeReadStoreService(surreal),
+    );
+    expect(await svc.assistantTurns(base)).toEqual([]);
+  });
+});
+
+describe('EpisodeLaneService.groundingQuotes (multiworld §10 facts-as-keys)', () => {
+  function makeQuoteLane(perQuery: Array<Array<Record<string, unknown>>>): {
+    svc: EpisodeLaneService;
+    queries: Array<{ sql: string; params: Record<string, unknown> }>;
+  } {
+    const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
+    const surreal = {
+      withCompany: async (
+        _co: string,
+        fn: (db: unknown) => Promise<unknown>,
+      ) =>
+        fn({
+          query: async (sql: string, params: Record<string, unknown>) => {
+            queries.push({ sql, params });
+            return [perQuery[queries.length - 1] ?? []];
+          },
+        }),
+    } as unknown as SurrealService;
+    return {
+      svc: new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal)),
+      queries,
+    };
+  }
+
+  const base = {
+    companyId: 'co_x',
+    factIds: ['knowledge_fact:f1', 'knowledge_fact:f2'],
+    callerScopes: ['brain:read', 'brain:read_pii'],
+  };
+
+  it('binds each fact to ITS first grounding turn quote', async () => {
+    const { svc } = makeQuoteLane([
+      [
+        { id: 'knowledge_fact:f1', eps: ['episode:e1', 'episode:e2'] },
+        { id: 'knowledge_fact:f2', eps: ['episode:e3'] },
+      ],
+      [
+        {
+          id: 'episode:e1',
+          speaker: 'Mel',
+          text: 'a cup with a dog face',
+          occurredAt: '2023-05-01T10:00:00Z',
+        },
+        {
+          id: 'episode:e3',
+          speaker: 'Caroline',
+          text: 'moved to Portland',
+          occurredAt: '2023-06-02T10:00:00Z',
+        },
+      ],
+    ]);
+    const map = await svc.groundingQuotes(base);
+    expect(map.get('knowledge_fact:f1')).toBe(
+      ' [source 2023-05-01 Mel: "a cup with a dog face"]',
+    );
+    expect(map.get('knowledge_fact:f2')).toBe(
+      ' [source 2023-06-02 Caroline: "moved to Portland"]',
+    );
+  });
+
+  it('caps runaway turn text and skips fenced-out episodes', async () => {
+    const { svc } = makeQuoteLane([
+      [
+        { id: 'knowledge_fact:f1', eps: ['episode:e1'] },
+        { id: 'knowledge_fact:f2', eps: ['episode:gone'] },
+      ],
+      [
+        {
+          id: 'episode:e1',
+          speaker: 'A',
+          text: 'x'.repeat(500),
+          occurredAt: '2023-05-01T10:00:00Z',
+        },
+        // episode:gone is absent — fenced or deleted.
+      ],
+    ]);
+    const map = await svc.groundingQuotes(base);
+    expect(map.get('knowledge_fact:f1')!.length).toBeLessThan(300);
+    expect(map.get('knowledge_fact:f1')).toContain('…');
+    expect(map.has('knowledge_fact:f2')).toBe(false);
+  });
+
+  it('empty factIds → empty map, zero DB calls; failures degrade', async () => {
+    const { svc, queries } = makeQuoteLane([]);
+    expect((await svc.groundingQuotes({ ...base, factIds: [] })).size).toBe(0);
+    expect(queries).toHaveLength(0);
+    const surreal = {
+      withCompany: async () => {
+        throw new Error('db down');
+      },
+    } as unknown as SurrealService;
+    const broken = new EpisodeLaneService(
+      surreal,
+      new EpisodeReadStoreService(surreal),
+    );
+    expect((await broken.groundingQuotes(base)).size).toBe(0);
+  });
+});
+
 describe('buildGeneratorUserMessage transcript section', () => {
   const base = {
     query: 'q',

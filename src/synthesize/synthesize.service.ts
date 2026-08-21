@@ -46,7 +46,7 @@ import {
   type RetrievalProfile,
 } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
-import { appendUpdateStories } from './update-story';
+import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
 import { runGenerator } from './generator-client';
@@ -292,6 +292,7 @@ export class SynthesizeService {
       instructions,
       timelineEvidence,
       updateStories,
+      groundingQuotes,
     } = this.evidenceCollector
       ? await this.evidenceCollector.collect({
           profile,
@@ -313,16 +314,17 @@ export class SynthesizeService {
           instructions: undefined,
           timelineEvidence: wantsTimelineEvidence(profile, dto.query),
           updateStories: undefined,
+          groundingQuotes: undefined,
         };
 
-    // V10 §2: update-story augmentation — evidence facts that
-    // superseded an older value carry their history on the SAME lines
-    // the generator and the verifier read (prompt-side only; citations
-    // and ranking untouched).
-    let promptFactLines =
-      updateStories && updateStories.size > 0
-        ? appendUpdateStories(factLines, updateStories)
-        : factLines;
+    // V10 §2 update stories + multiworld §10 grounding quotes: both
+    // suffix maps land on the SAME lines the generator and the
+    // verifier read (prompt-side only; citations and ranking
+    // untouched).
+    let promptFactLines = applyFactSuffixes(factLines, [
+      updateStories,
+      groundingQuotes,
+    ]);
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
@@ -356,6 +358,7 @@ export class SynthesizeService {
       evidence,
       prepareOpts,
       updateStories,
+      groundingQuotes,
       results,
       factIndex,
       promptFactLines,
@@ -588,6 +591,9 @@ export class SynthesizeService {
     evidence: SearchHit[];
     prepareOpts: Parameters<SynthesizeService['prepareEvidence']>[1];
     updateStories?: Map<string, string>;
+    /** Multiworld §10 facts-as-keys: quotes for the ROUND-1 top facts —
+     *  refined-in facts stand without quotes (unmatched lines pass). */
+    groundingQuotes?: Map<string, string>;
     shapeInstruction?: string;
     collected: {
       transcriptLines: string[];
@@ -625,10 +631,10 @@ export class SynthesizeService {
       );
       const prepared = this.prepareEvidence(union, args.prepareOpts);
       if ('empty' in prepared) return null;
-      const promptFactLines =
-        args.updateStories && args.updateStories.size > 0
-          ? appendUpdateStories(prepared.factLines, args.updateStories)
-          : prepared.factLines;
+      const promptFactLines = applyFactSuffixes(prepared.factLines, [
+        args.updateStories,
+        args.groundingQuotes,
+      ]);
       const dateMathLines = profile.dateMath
         ? buildDateMathLines(prepared.results)
         : undefined;

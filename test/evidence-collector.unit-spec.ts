@@ -153,4 +153,68 @@ describe('EvidenceCollectorService branches', () => {
     expect(out.instructions).toBeUndefined();
     expect(out.transcriptLines).toEqual([]);
   });
+
+  it('assistant lane gates on its own flag and joins the transcript set', async () => {
+    const calls: Array<{ limit: number; match: string }> = [];
+    const episodeLane = {
+      assistantTurns: async (o: { limit: number; match: string }) => {
+        calls.push({ limit: o.limit, match: o.match });
+        return ['[2023-05-01] conv__assistant: use the token bucket'];
+      },
+    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    const make = () => new EvidenceCollectorService(noSearch, episodeLane);
+
+    const off = await make().collect(
+      collectorArgs(profileWith({ assistantLane: false })),
+    );
+    expect(off.transcriptLines).toEqual([]);
+    expect(calls).toHaveLength(0);
+
+    const on = await make().collect(
+      collectorArgs(
+        profileWith({
+          assistantLane: true,
+          assistantLaneTopK: 6,
+          assistantLaneMatch: 'assistant',
+        }),
+      ),
+    );
+    expect(on.transcriptLines).toEqual([
+      '[2023-05-01] conv__assistant: use the token bucket',
+    ]);
+    expect(calls).toEqual([{ limit: 6, match: 'assistant' }]);
+  });
+
+  it('grounding quotes gate on factsAsKeys AND factIds, capped best-first', async () => {
+    const seen: string[][] = [];
+    const episodeLane = {
+      groundingQuotes: async (o: { factIds: string[] }) => {
+        seen.push(o.factIds);
+        return new Map([['f1', ' [source 2023-05-01 Mel: "dog face"]']]);
+      },
+    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    const make = () => new EvidenceCollectorService(noSearch, episodeLane);
+
+    const off = await make().collect(
+      collectorArgs(profileWith({ factsAsKeys: false })),
+    );
+    expect(off.groundingQuotes).toBeUndefined();
+    expect(seen).toHaveLength(0);
+
+    const empty = await make().collect(
+      collectorArgs(profileWith({ factsAsKeys: true })),
+    );
+    expect(empty.groundingQuotes).toBeUndefined();
+    expect(seen).toHaveLength(0);
+
+    const on = await make().collect({
+      ...collectorArgs(profileWith({ factsAsKeys: true, factsAsKeysCap: 2 })),
+      factIds: ['f1', 'f2', 'f3'],
+    });
+    expect(on.groundingQuotes?.get('f1')).toBe(
+      ' [source 2023-05-01 Mel: "dog face"]',
+    );
+    // Cap applies to the BEST evidence facts (input order).
+    expect(seen).toEqual([['f1', 'f2']]);
+  });
 });

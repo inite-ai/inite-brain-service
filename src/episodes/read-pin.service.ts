@@ -5,6 +5,15 @@ import { ProjectionRegistryService } from './projection-registry.service';
 const CACHE_TTL_MS = 5_000;
 
 /**
+ * A resolved READ pin: one world, a UNION of worlds (multiworld §10 —
+ * typed projections over one substrate are read together), or the
+ * legacy namespace (null). Write/maintenance consumers (deriver,
+ * dreams, compaction, communities) never take the union form — they
+ * operate on exactly one world and keep using `resolve()`.
+ */
+export type ReadPin = string | readonly string[] | null;
+
+/**
  * Which derived world the read path serves, per tenant.
  *
  * Audit W2 (engine-architecture-audit-2026-08.md #9): the pin used to be
@@ -40,6 +49,38 @@ export class ReadPinService {
   }
 
   /**
+   * Multiworld §10: the READ-union bootstrap — RETRIEVAL_DERIVED_VERSIONS
+   * as a comma-separated world list. null when unset/blank, so every
+   * deployment without the key is byte-identical single-pin.
+   */
+  static bootstrapUnion(): string[] | null {
+    const raw = process.env.RETRIEVAL_DERIVED_VERSIONS;
+    if (!raw?.trim()) return null;
+    const pins = [
+      ...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean)),
+    ];
+    return pins.length > 0 ? pins : null;
+  }
+
+  /**
+   * The READ-path pin shape for service-less callers (pure functions,
+   * tests): the union bootstrap when configured — always including the
+   * single-pin bootstrap so the tenant's own world stays readable —
+   * else exactly `bootstrapDefault()`.
+   */
+  static bootstrapRead(): ReadPin {
+    return ReadPinService.composeRead(ReadPinService.bootstrapDefault());
+  }
+
+  /** Fold one resolved single pin into the union bootstrap (if any). */
+  private static composeRead(single: string | null): ReadPin {
+    const union = ReadPinService.bootstrapUnion();
+    if (!union) return single;
+    const pins = single && !union.includes(single) ? [...union, single] : union;
+    return pins.length === 1 ? pins[0] : pins;
+  }
+
+  /**
    * Live derived version for this tenant, or null for the legacy
    * namespace. Registry `live` row wins; otherwise the env bootstrap.
    * Registry failures degrade to the bootstrap rather than emptying a
@@ -68,6 +109,17 @@ export class ReadPinService {
     return version;
   }
 
+  /**
+   * Multiworld §10: the READ-path resolution — the tenant's single
+   * world (registry live row, else env bootstrap) unioned with the
+   * RETRIEVAL_DERIVED_VERSIONS list. No union configured → exactly
+   * `resolve()`, so single-pin deployments are byte-identical. The
+   * union NEVER drops the tenant's own world — extra worlds add to it.
+   */
+  async resolveRead(companyId: string): Promise<ReadPin> {
+    return ReadPinService.composeRead(await this.resolve(companyId));
+  }
+
   /** Drop the cached pin after an activation so readers see it at once. */
   invalidate(companyId: string): void {
     this.cache.delete(companyId);
@@ -78,17 +130,32 @@ export class ReadPinService {
  * The one WHERE-fragment every version-fenced consumer shares (audit W2
  * #10 — compaction was the first port, dreams the second): a resolved
  * pin scopes to that world, no pin scopes to the legacy namespace.
- * Interpolate `clause` into the query and spread `params` into the
- * bindings.
+ * Multiworld §10: a union pin scopes to the SET of worlds (INSIDE) —
+ * a one-element union collapses to the equality form so single-pin
+ * consumers stay byte-identical. Interpolate `clause` into the query
+ * and spread `params` into the bindings.
  */
-export function derivedVersionFence(derivedVersion: string | null): {
+export function derivedVersionFence(derivedVersion: ReadPin): {
   clause: string;
   params: Record<string, unknown>;
 } {
-  return derivedVersion
+  const pin = Array.isArray(derivedVersion)
+    ? derivedVersion.length === 1
+      ? (derivedVersion[0] as string)
+      : derivedVersion.length === 0
+        ? null
+        : [...derivedVersion]
+    : derivedVersion;
+  if (Array.isArray(pin)) {
+    return {
+      clause: 'AND derivedVersion INSIDE $derivedVersions',
+      params: { derivedVersions: pin },
+    };
+  }
+  return pin
     ? {
         clause: 'AND derivedVersion = $derivedVersion',
-        params: { derivedVersion },
+        params: { derivedVersion: pin },
       }
     : { clause: 'AND derivedVersion IS NONE', params: {} };
 }

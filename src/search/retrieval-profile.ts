@@ -410,6 +410,31 @@ export interface RetrievalProfile {
   /** Raw-turn window half-span (turns each side of a grounding turn). */
   rawWindowSpan: number;
   /**
+   * Multiworld §10 assistant verbatim lane: BM25 over L0 restricted to
+   * assistant-role turns, in the transcript slot. The SSA class is
+   * structural — assistant content is never extracted into facts, so
+   * every fact-anchored lane (excerpts, raw windows — the latter
+   * measured 32.1 vs 42.9 base on SSA) misses it; this lane reaches
+   * the gold turn by ROLE, no facts involved. Off = byte-identical.
+   */
+  assistantLane: boolean;
+  /** Assistant-turn quotes per prompt. */
+  assistantLaneTopK: number;
+  /** Case-insensitive speaker SUFFIX identifying the assistant role
+   *  (harness speakers are `<convSlug>__<role>`). */
+  assistantLaneMatch: string;
+  /**
+   * Multiworld §10 facts-as-keys: each top evidence fact line carries
+   * ONE verbatim quote of its first grounding turn — the fact acts as
+   * the index KEY, the raw turn is served content (the LongMemEval
+   * design-study shape: facts as additional keys +9.4% recall; facts
+   * as replacement values hurt). Generator and verifier read the same
+   * augmented lines (evidence parity). Off = byte-identical.
+   */
+  factsAsKeys: boolean;
+  /** Top evidence facts that carry a grounding quote. */
+  factsAsKeysCap: number;
+  /**
    * V13 time-constrained retrieval (TSM shape): when the query names an
    * absolute period (a day, month, year or range — code-parsed, no
    * LLM), facts overlapping the period rank above out-of-period facts
@@ -483,6 +508,16 @@ const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,64}$/;
 function modelIdEnv(env: NodeJS.ProcessEnv, name: string): string {
   const v = (env[name] ?? '').trim();
   return MODEL_ID_RE.test(v) ? v : '';
+}
+
+/** Speaker-suffix shape for the assistant lane (word chars, `_`, `-`);
+ *  anything else — including unset — resolves to the 'assistant'
+ *  default, so a typo narrows to a sane role instead of matching all. */
+const SPEAKER_MATCH_RE = /^[A-Za-z0-9_-]{1,40}$/;
+
+function speakerMatchEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const v = (env[name] ?? '').trim();
+  return SPEAKER_MATCH_RE.test(v) ? v : 'assistant';
 }
 
 function enumEnv<T extends string>(
@@ -601,6 +636,11 @@ export function resolveRetrievalProfile(
       'all',
     rawWindow: envFlagEnabled(env.RETRIEVAL_RAW_WINDOW),
     rawWindowSpan: positiveIntEnv(env, 'RETRIEVAL_RAW_WINDOW_SPAN', 2),
+    assistantLane: envFlagEnabled(env.RETRIEVAL_ASSISTANT_LANE),
+    assistantLaneTopK: positiveIntEnv(env, 'RETRIEVAL_ASSISTANT_LANE_TOPK', 6),
+    assistantLaneMatch: speakerMatchEnv(env, 'RETRIEVAL_ASSISTANT_LANE_MATCH'),
+    factsAsKeys: envFlagEnabled(env.RETRIEVAL_FACTS_AS_KEYS),
+    factsAsKeysCap: positiveIntEnv(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', 8),
     timeFilter: envFlagEnabled(env.RETRIEVAL_TIME_FILTER),
     dateMath: envFlagEnabled(env.RETRIEVAL_DATE_MATH),
     answerConditioning: envFlagEnabled(env.RETRIEVAL_ANSWER_CONDITIONING),
@@ -682,19 +722,25 @@ export function resolveRetrievalProfileFor(
     'scanHnswEf',
     'scanHnswOverfetch',
     'rawWindowSpan',
+    'assistantLaneTopK',
+    'factsAsKeysCap',
   ] as const) {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
       merged[key] = Math.floor(v);
     }
   }
-  // Free-string knob: the verifier model id (empty = inherit) — the
-  // only non-enum string field, validated against the model-id shape.
-  {
-    const v = o.verifierModel;
-    if (typeof v === 'string' && (v === '' || MODEL_ID_RE.test(v))) {
-      merged.verifierModel = v;
-    }
+  // Free-string knobs, each behind its own shape gate (the enum loop
+  // can't host them — their value sets are open).
+  const stringOverlays: ReadonlyArray<
+    ['verifierModel' | 'assistantLaneMatch', (v: string) => boolean]
+  > = [
+    ['verifierModel', (v) => v === '' || MODEL_ID_RE.test(v)],
+    ['assistantLaneMatch', (v) => SPEAKER_MATCH_RE.test(v)],
+  ];
+  for (const [key, ok] of stringOverlays) {
+    const v = o[key];
+    if (typeof v === 'string' && ok(v)) merged[key] = v;
   }
   // Float knobs (coverage score floor lives in (0,1) — flooring would
   // destroy it, so it overlays outside the int loop; 0 is a valid
@@ -724,6 +770,8 @@ export function resolveRetrievalProfileFor(
     'answerConditioning',
     'noiseFilter',
     'searchLoop',
+    'assistantLane',
+    'factsAsKeys',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

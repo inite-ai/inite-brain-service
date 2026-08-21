@@ -1,5 +1,9 @@
 import type { Surreal } from 'surrealdb';
 import type { FactRow } from './types';
+import {
+  derivedVersionFence,
+  type ReadPin,
+} from '../../episodes/read-pin.service';
 
 /**
  * Insight fusion leg (V8 §1 — the qualified insight lane).
@@ -31,11 +35,12 @@ export interface InsightLegOptions {
   callerScopes: string[];
   userId?: string;
   /**
-   * Derived world this read serves (same pin the fact legs apply):
+   * Derived world(s) this read serves (same pin the fact legs apply):
    * a batch-composed aggregate is stamped with its world and must not
-   * leak into legacy reads, nor vice versa.
+   * leak into legacy reads, nor vice versa. An array is the multiworld
+   * READ union (§10).
    */
-  derivedVersion: string | null;
+  derivedVersion: ReadPin;
 }
 
 export interface InsightRow {
@@ -126,10 +131,9 @@ export async function runInsightLegs({
     ? 'AND (userId IS NONE OR userId = $scopeUserId)'
     : 'AND userId IS NONE';
   const userParams = userId ? { scopeUserId: userId } : {};
-  const worldGate = derivedVersion
-    ? 'AND derivedVersion = $derivedVersion'
-    : 'AND derivedVersion IS NONE';
-  const worldParams = derivedVersion ? { derivedVersion } : {};
+  const worldFence = derivedVersionFence(derivedVersion);
+  const worldGate = worldFence.clause;
+  const worldParams = worldFence.params;
   // The inverse of the fact legs' excludeInsightRows arbitration.
   const insightGate = `AND (source.recorder = $insightRecorder
              OR string::starts_with(predicate, 'summary_'))

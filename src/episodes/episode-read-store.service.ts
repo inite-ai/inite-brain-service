@@ -138,18 +138,36 @@ export class EpisodeReadStoreService {
     includePii: boolean;
     /** Scope key of the asking end-user; omitted → tenant-global only. */
     userId?: string;
+    /**
+     * Multiworld §10 role filter (assistant verbatim lane): keep only
+     * turns whose speaker ENDS WITH this suffix, case-insensitive.
+     * Suffix, not equality — eval harness speakers are
+     * `<convSlug>__<role>` while production tenants stamp bare roles.
+     */
+    speakerSuffix?: string;
     db?: EpisodeDb;
   }): Promise<Array<EpisodeQuoteRow & { score?: number }>> {
+    const speakerGate = opts.speakerSuffix
+      ? 'AND string::ends_with(string::lowercase(speaker), $speakerSuffix)'
+      : '';
+    const speakerParams = opts.speakerSuffix
+      ? { speakerSuffix: opts.speakerSuffix.toLowerCase() }
+      : {};
     return this.run(opts.companyId, opts.db, async (db) => {
       const [rows] = await db.query<
         [Array<EpisodeQuoteRow & { score?: number }>]
       >(
         `SELECT speaker, text, occurredAt, search::score(1) AS score
            FROM episode
-          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}
+          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${speakerGate}
           ORDER BY score DESC
           LIMIT $k`,
-        { q: opts.query, k: opts.limit, ...this.userParams(opts.userId) },
+        {
+          q: opts.query,
+          k: opts.limit,
+          ...this.userParams(opts.userId),
+          ...speakerParams,
+        },
       );
       return rows ?? [];
     });

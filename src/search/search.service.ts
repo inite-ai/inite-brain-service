@@ -321,12 +321,13 @@ export class SearchService {
       await this.retrieval.prewarmQueryEmbedding(dto.query);
     }
 
-    // Which derived world this tenant reads — registry first, env
-    // bootstrap as the fallback (audit W2 #9). Resolved BEFORE the
+    // Which derived world(s) this tenant reads — registry first, env
+    // bootstrap as the fallback (audit W2 #9), unioned with the
+    // multiworld read set when configured (§10). Resolved BEFORE the
     // scoped connection so the registry lookup never holds a pool slot.
     const derivedVersion =
-      (await this.readPin?.resolve(companyId)) ??
-      ReadPinService.bootstrapDefault();
+      (await this.readPin?.resolveRead(companyId)) ??
+      ReadPinService.bootstrapRead();
 
     const profile = getActiveRetrievalProfile();
     const tuning = resolveSearchTuning();

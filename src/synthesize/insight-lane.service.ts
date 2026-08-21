@@ -49,8 +49,8 @@ export class InsightLaneService {
     const fetchK = Math.max(INSIGHT_TOP_K * 3, 12);
     try {
       const derivedVersion =
-        (await this.readPin?.resolve(opts.companyId)) ??
-        ReadPinService.bootstrapDefault();
+        (await this.readPin?.resolveRead(opts.companyId)) ??
+        ReadPinService.bootstrapRead();
       const queryVector = await this.embedder.embed(opts.query);
       const fused = await this.surreal.withCompany(
         opts.companyId,

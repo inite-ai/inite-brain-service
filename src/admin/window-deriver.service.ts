@@ -49,6 +49,7 @@ import {
   callDeriver,
   composeCrossSession,
   foldDigest,
+  typedAtomKind,
   type ComposedProposition,
   type DerivedProposition,
 } from './deriver-client';
@@ -725,6 +726,8 @@ export class WindowDeriverService {
           ...salience,
           ...mention,
           ...scene,
+          // Multiworld §10: on-contract kinds only (off-enum → untyped).
+          ...typedAtomKind(p),
         };
         return {
           entityId: subjectEntity,
