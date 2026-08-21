@@ -27,15 +27,40 @@ export function ogImage(opts: { title: string; kicker?: string; kind?: 'brand' |
 
 type Json = Record<string, unknown>
 
+/**
+ * INITE Brain, as an entity anything can point at.
+ *
+ * The node had no `@id` and no parent. inite.ai lists seventeen brands as
+ * `subOrganization`, one of them https://brain.inite.ai/#organization — and
+ * with nothing declaring it, that reference resolved to nothing and Brain read
+ * as a company nobody had heard of that happens to share a word in its name.
+ *
+ * `sameAs` carries the family handles as well as the repository, for the same
+ * reason: they are how a search engine ties this domain to the rest.
+ */
 export function organizationSchema(): Json {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
+    '@id': `${SITE_URL}/#organization`,
     name: ORG.name,
     url: ORG.url,
     logo: ORG.logo,
     description: ORG.description,
-    sameAs: ORG.sameAs,
+    sameAs: [
+      ...ORG.sameAs,
+      'https://inite.ai',
+      'https://www.linkedin.com/company/inite-ai/',
+      'https://t.me/initeai',
+      'https://github.com/inite-ai',
+    ],
+    parentOrganization: {
+      '@type': 'Organization',
+      '@id': 'https://inite.ai/#organization',
+      name: 'INITE',
+      legalName: 'inite LLC',
+      url: 'https://inite.ai',
+    },
   }
 }
 
@@ -46,7 +71,9 @@ export function websiteSchema(): Json {
     name: ORG.name,
     url: SITE_URL,
     inLanguage: ['en', 'ru'],
-    publisher: { '@type': 'Organization', name: ORG.name, url: SITE_URL },
+    // By reference: the full node is emitted once by organizationSchema, and a
+    // second copy here would be free to drift from it.
+    publisher: { '@id': `${SITE_URL}/#organization` },
   }
 }
 
