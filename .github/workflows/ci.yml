@@ -76,6 +76,14 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit
 
+      # Socket suite: the 6 specs that bind real loopback HTTP servers
+      # (.listen(0, '127.0.0.1')) live behind their own *.socket-spec.ts
+      # config so `pnpm test` stays hermetic in sandboxes that forbid
+      # listen(). CI runs them right after the unit suite — coverage is
+      # unchanged, only the partition moved.
+      - name: Socket unit tests (loopback listeners)
+        run: pnpm test:socket
+
       - name: In-process e2e (testcontainers + stubs)
         run: pnpm test:e2e
 
