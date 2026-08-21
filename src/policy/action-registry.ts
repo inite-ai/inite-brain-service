@@ -42,6 +42,15 @@ export const ACTIONS: Record<string, ActionSpec> = {
     title: 'Entity name autocomplete',
   },
   get_competing_facts: { kind: 'read', family: 'mcp_read', title: 'Competing facts' },
+  // Fact read + provenance API (trust surface). Tool-shaped names, not
+  // rest.* — a future get_fact MCP tool reuses the same action, the
+  // convention REST search / entity reads already follow.
+  get_fact: { kind: 'read', family: 'mcp_read', title: 'Get fact' },
+  get_fact_provenance: {
+    kind: 'read',
+    family: 'mcp_read',
+    title: 'Fact provenance (grounding episodes)',
+  },
   summarize_entity: { kind: 'read', family: 'mcp_read', title: 'Summarize entity' },
   detect_contradiction: { kind: 'read', family: 'mcp_read', title: 'Detect contradiction' },
   why: { kind: 'read', family: 'mcp_read', title: 'Code-memory why' },

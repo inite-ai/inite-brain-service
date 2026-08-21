@@ -490,6 +490,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   'SYNTHESIZE_INSTRUCTION_LANE',
   // Raw-substrate driver v1: public episodes read API + NDJSON export.
   'EPISODES_API_ENABLED',
+  // Fact read + provenance API: GET /v1/facts/:id and /:id/provenance
+  // (grounding episodes). The retract write path stays ungated (GDPR).
+  'FACTS_API_ENABLED',
   // Raw-substrate driver v1 surface 3: projections registry API + rebuild verb.
   'PROJECTIONS_API_ENABLED',
   // Raw-substrate driver v1 surface 4: new-episode webhook push (watermark

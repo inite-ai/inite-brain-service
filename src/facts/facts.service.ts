@@ -3,8 +3,10 @@ import { Surreal } from 'surrealdb';
 import { SurrealService, dbMerge } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
+import { pinUserScope } from '../auth/user-scope';
 import {
   makeRowPolicyFilter,
   type PolicyFilterableRow,
@@ -79,6 +81,69 @@ export interface RetractOptions {
   callerScopes?: ReadonlyArray<BrainScope>;
 }
 
+/**
+ * Per-episode text budget of the provenance surface. Mirrors the
+ * assistant-lane practice (ASSISTANT_LINE_CHAR_CAP in
+ * synthesize/episode-lane.service.ts): a turn can be up to 16K chars at
+ * ingest, and provenance is a grounding view, not a transcript export —
+ * 600 chars keeps the evidential sentence(s) intact without letting one
+ * verbose turn dominate the response.
+ */
+const PROVENANCE_TEXT_CHAR_CAP = 600;
+
+/** Wire shape of GET /v1/facts/:id. */
+export interface FactReadResult {
+  factId: string;
+  /** The fact's predicate — what the memory is ABOUT. */
+  aspect: string;
+  /** The fact's object — what is remembered. */
+  statement: string;
+  confidence: number;
+  validFrom: string;
+  /** Per-user scope key (migration 0055); absent = tenant-global. */
+  userId?: string;
+  /** source.kind when the deriver stamped one (typed atoms). */
+  kind?: string;
+  vertical?: string;
+  recorder?: string;
+  conversationId?: string;
+  retracted: boolean;
+  derivedVersion?: string;
+}
+
+export interface FactProvenanceEpisode {
+  episodeId: string;
+  conversationId?: string;
+  speaker?: string;
+  occurredAt: string;
+  /** Verbatim turn text, capped at PROVENANCE_TEXT_CHAR_CAP chars. */
+  text: string;
+}
+
+/** Wire shape of GET /v1/facts/:id/provenance. */
+export interface FactProvenanceResult {
+  factId: string;
+  /** Grounding turns (source.episodeIds), chronological. */
+  episodes: FactProvenanceEpisode[];
+}
+
+interface FactReadOptions {
+  companyId: string;
+  factId: string;
+  scopes: readonly BrainScope[];
+}
+
+/** Row shape loadVisibleFact selects (superset of PolicyFilterableRow). */
+interface FactReadRow extends PolicyFilterableRow {
+  id: unknown;
+  object?: unknown;
+  confidence?: unknown;
+  validFrom?: unknown;
+  retractedAt?: unknown;
+  status?: unknown;
+  derivedVersion?: unknown;
+}
+
 export interface ListCompetingResult {
   entityId: string;
   asOf?: string;
@@ -94,12 +159,174 @@ export interface ListCompetingResult {
 export class FactsService {
   private readonly logger = new Logger(FactsService.name);
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token and cannot be folded into an options object without breaking DI
   constructor(
     private readonly surreal: SurrealService,
+    private readonly episodes: EpisodeReadStoreService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional()
     private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
+
+  /**
+   * GET /v1/facts/:id — the fact as stored, with its source attribution.
+   * Retracted facts still resolve (retracted: true) — "why did I stop
+   * remembering this" is part of the trust story; only visibility fences
+   * turn into 404s.
+   *
+   * Fences (each a 404, never a 403 — a 403 would confirm existence):
+   *  - tenant: withScopedCompany pins the per-tenant database, same as
+   *    retract — a foreign tenant's fact id simply is not present here;
+   *  - user scope (0055): via pinUserScope — a user-bound token reads
+   *    tenant-global facts and its OWN user-scoped facts; M2M reads all;
+   *  - row policy: the registry-backed scope fence + ABAC verdict shared
+   *    with the fact lanes (makeRowPolicyFilter) — an operator
+   *    scope-fenced predicate is absent to callers without the scope.
+   */
+  async getFact(opts: FactReadOptions): Promise<FactReadResult> {
+    return this.surreal.withScopedCompany(
+      opts.companyId,
+      opts.scopes,
+      async (db) => {
+        const fact = await this.loadVisibleFact(db, opts);
+        const source = (fact.source ?? {}) as Record<string, unknown>;
+        const str = (v: unknown): string | undefined =>
+          typeof v === 'string' && v.length > 0 ? v : undefined;
+        const optional = <K extends string>(
+          key: K,
+          value: string | undefined,
+        ): Partial<Record<K, string>> =>
+          value !== undefined ? ({ [key]: value } as Record<K, string>) : {};
+        return {
+          factId: String(fact.id),
+          aspect: fact.predicate,
+          statement: String(fact.object ?? ''),
+          confidence: typeof fact.confidence === 'number' ? fact.confidence : 0,
+          validFrom: toIso(fact.validFrom),
+          ...optional('userId', str(fact.userId)),
+          ...optional('kind', str(source.kind)),
+          ...optional('vertical', str(source.vertical)),
+          ...optional('recorder', str(source.recorder)),
+          ...optional('conversationId', str(source.conversationId)),
+          retracted: Boolean(fact.retractedAt) || fact.status === 'retracted',
+          ...optional('derivedVersion', str(fact.derivedVersion)),
+        };
+      },
+    );
+  }
+
+  /**
+   * GET /v1/facts/:id/provenance — the verbatim turns this fact was
+   * derived from ("show me why I remember this"). Episode ids come from
+   * the fact's own grounding stamp (source.episodeIds — the same stamp
+   * the synthesize lanes read); the rows come from the shared episode
+   * read port, so the PII fence and the fail-closed user gate have ONE
+   * implementation.
+   *
+   * Episode user scope: a user-scoped fact's grounding turns carry that
+   * user's scope — the caller already passed the fact-level gate, so the
+   * fetch is keyed to the FACT's user; a tenant-global fact falls back
+   * to the caller's own pinned scope (M2M → tenant-global turns only).
+   */
+  async getProvenance(opts: FactReadOptions): Promise<FactProvenanceResult> {
+    return this.surreal.withScopedCompany(
+      opts.companyId,
+      opts.scopes,
+      async (db) => {
+        const fact = await this.loadVisibleFact(db, opts);
+        const source = (fact.source ?? {}) as { episodeIds?: unknown };
+        const ids = Array.isArray(source.episodeIds)
+          ? [
+              ...new Set(
+                source.episodeIds
+                  .map(String)
+                  .filter((e) => e.startsWith('episode:')),
+              ),
+            ]
+          : [];
+        if (ids.length === 0) return { factId: String(fact.id), episodes: [] };
+        const rows = await this.episodes.byIds({
+          companyId: opts.companyId,
+          ids,
+          includePii: opts.scopes.includes('brain:read_pii'),
+          userId:
+            typeof fact.userId === 'string' && fact.userId.length > 0
+              ? fact.userId
+              : pinUserScope(undefined),
+          db,
+        });
+        const episodes = rows
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(toIso(a.occurredAt)).getTime() -
+              new Date(toIso(b.occurredAt)).getTime(),
+          )
+          .map(
+            (r): FactProvenanceEpisode => ({
+              episodeId: String(r.id),
+              ...(r.conversationId !== undefined
+                ? { conversationId: r.conversationId }
+                : {}),
+              ...(r.speaker !== undefined ? { speaker: r.speaker } : {}),
+              occurredAt: toIso(r.occurredAt),
+              text:
+                r.text.length > PROVENANCE_TEXT_CHAR_CAP
+                  ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
+                  : r.text,
+            }),
+          );
+        return { factId: String(fact.id), episodes };
+      },
+    );
+  }
+
+  /**
+   * Fetch one fact row and apply every read fence (user scope + row
+   * policy). Shared by getFact and getProvenance so the two endpoints
+   * can never disagree on what "visible" means. Throws NotFound on any
+   * miss — the caller cannot distinguish "absent" from "fenced".
+   */
+  private async loadVisibleFact(
+    db: Surreal,
+    opts: FactReadOptions,
+  ): Promise<FactReadRow> {
+    const ref = this.normalizeFactId(opts.factId);
+    const [rows] = await db.query<[FactReadRow[]]>(
+      `SELECT id, predicate, object, confidence, validFrom, validUntil,
+              recordedAt, retractedAt, status, source, userId,
+              derivedVersion, trustSnapshot, corroboration
+         FROM type::record('knowledge_fact', $rid) LIMIT 1`,
+      { rid: ref.id },
+    );
+    const notFound = () =>
+      new NotFoundException(`Fact ${opts.factId} not found`);
+    const fact = rows?.[0];
+    if (!fact) throw notFound();
+    // User scope (0055): 404, not 403 — don't leak existence.
+    const scopeUserId = pinUserScope(undefined);
+    if (
+      scopeUserId !== undefined &&
+      typeof fact.userId === 'string' &&
+      fact.userId.length > 0 &&
+      fact.userId !== scopeUserId
+    ) {
+      throw notFound();
+    }
+    // Registry-backed row policy (scope fence + ABAC) — same seam as the
+    // audit-fixed fact lanes under src/synthesize/.
+    const rowPolicy = makeRowPolicyFilter({
+      callerScopes: opts.scopes,
+      surface: 'fact_read',
+      policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+        opts.companyId,
+      ),
+    });
+    const visible = rowPolicy.filter(fact);
+    rowPolicy.finish();
+    if (!visible) throw notFound();
+    return fact;
+  }
 
   async retract({
     companyId,
