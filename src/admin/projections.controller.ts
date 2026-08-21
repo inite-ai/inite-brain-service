@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   NotFoundException,
@@ -117,6 +118,11 @@ export class ProjectionsController {
       // The live-pin guard is a caller mistake, not a server fault.
       if ((e as Error).message.includes('live read pin')) {
         throw new BadRequestException((e as Error).message);
+      }
+      // Derive lease conflict (audit 2026-08-19 P1): another run holds
+      // the (tenant, version) — 409, retry after it finishes.
+      if ((e as Error).message.includes('derive already in flight')) {
+        throw new ConflictException((e as Error).message);
       }
       throw e;
     }
