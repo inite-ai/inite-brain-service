@@ -1349,6 +1349,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Raw-substrate driver v1, surface 4 (migration 0077): new-episode webhook push for external projection builders. POST/GET/DELETE /v1/episodes/subscriptions registers HTTPS endpoints (per-subscription HMAC secret returned once); a per-minute dispatcher polls each tenant watermark over recordedAt (deliberately NOT changefeed-driven — 0073 keeps the episode table feed-free for GDPR) and POSTs metadata-only batches (ids/attribution/timestamps, never text) signed X-Brain-Signature: sha256=<hmac>. At-least-once delivery, CAS watermark advance, circuit breaker, auto-deactivate at 100 consecutive failures. Enable on ONE role (worker) in prod. Off (default) → routes 404, dispatcher inert.',
       },
       {
+        key: 'USER_PROFILE_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "Rolling user profile v1 (docs/user-profile-api.md): GET /v1/users/:userId/profile — a deterministic query-time assembly of the active facts visible in one end-user's scope (ingested user-stamped facts + the pinned derived world's typed atoms), grouped by predicate/aspect, persona_attr-first, capped per aspect and globally, rendered as prompt-injectable profileText. No LLM calls. User-bound tokens read only their own profile (403 on mismatch); PII-fenced predicates require brain:read_pii. Off (default) → routes answer 404.",
+      },
+      {
         key: 'SYNTHESIZE_INSTRUCTION_LANE',
         category: 'pipeline',
         defaultValue: '0',

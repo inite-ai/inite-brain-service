@@ -34,6 +34,7 @@ import { RegistryModule } from './registry/registry.module';
 import { SourcesModule } from './sources/sources.module';
 import { DocumentsModule } from './documents/documents.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -107,6 +108,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     SourcesModule,
     DocumentsModule,
     EpisodesModule,
+    UsersModule,
   ],
   controllers: [HealthController],
   providers: [
