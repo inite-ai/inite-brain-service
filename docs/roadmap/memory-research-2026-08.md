@@ -493,3 +493,48 @@ priced in as the cascade's top layer (full-context beats memory at ≤130K on
 accuracy; pointers decide WHEN to pay for the fully-unfolded picture);
 (ii) physical analogies (pointer states / einselection) are decorative, not
 load-bearing — no engineering constraint follows from them.
+
+## 10. Multiworld — the ontological-projections verdict (2026-08-20)
+
+Measured trigger: the clean LME confirm (arm B, 48.0 full-500, router +6.8pp
+paired) left SSA at 42.9% with "facts do not specify" misses; the SSA
+raw-window legs came back NEGATIVE — bundle (episodic+excerpts+raw-window via
+legacy 'always') 23.2%, raw-window-ONLY 32.1% vs 42.9 base (flips +2/−8).
+Mechanism: raw windows anchor on FACT hits' grounding turns — but SSA's gold
+was never extracted into facts (the base deriver contract is user-fact-shaped),
+so no fact points near the gold turn and the windows inject off-topic verbatim.
+Facts-as-index cannot serve content the index never covered.
+
+Research verdict (ablation-first): **multiplicity pays as multi-VIEW indexing
+and TYPED lanes over ONE substrate — not as N independent stores.** A-grade:
+MemGAS (4 granularities union: F1 20.38 vs best single 14.94, +36% rel, union
+beats single even without the router); LongMemEval design study — facts as
+additional index KEYS +9.4% recall, facts as VALUES (replacement) hurt QA
+except multi-session — our SSA failure is this finding verbatim (MemIR names
+it "provenance-role collapse"); RAPTOR collapsed-tree union across resolutions;
+O-Mem persona world +1.6 F1 at MATCHED token budget (persona also acts as a
+4× retrieval-length filter). The multi-store flagships (MIRIX 6 types,
+Hindsight 4 networks) publish ZERO component ablations. Nobody good pays N×
+derive: Hindsight/MemIR/O-Mem all do ONE extraction pass emitting typed atoms.
+Contrarians hold the bar: Mastra's single observation log hits 94.6 SSA
+because it never projects away role/time/verbatim; Nano-Memory (strong
+retrieval over raw turns) beats MemGAS at half cost.
+
+Program implications (priority order):
+1. **Multi-pin read** — the one true architectural gap: read a SET of
+   (world, budget) pairs with RRF-style union (Hindsight's exact pattern);
+   registry already versions worlds, where-builder pins exactly one.
+2. **Typed single-pass derive** — one deriver pass emitting atoms tagged
+   {fact | assistant_contribution | persona_attr | event} + role + per-turn
+   timestamp (delivers the V13 turn-headers fix as a side effect); worlds =
+   typed lanes over one atom stream, shared episode_indices to L0.
+3. **SSA = role-filtered verbatim lane over L0** (segment granularity +
+   denoising per SeCom), registered as a world in the union — no new derive;
+   raw-window (as built) is the wrong tool for this class and measured so.
+4. **Facts-as-keys**: index L0 segments under extracted fact/time keys so the
+   fact world POINTS AT verbatim evidence instead of replacing it.
+5. Budgets before routers (always-all-worlds + static budget vector; entropy
+   router later); foveation as budgeted drill-down (xMemory), not static
+   per-world resolutions.
+Guard: every multiworld leg must beat BOTH the current fact world AND a
+strong-retrieval-over-L0 baseline at matched tokens.
