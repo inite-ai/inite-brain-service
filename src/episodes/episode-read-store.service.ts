@@ -157,7 +157,7 @@ export class EpisodeReadStoreService {
       const [rows] = await db.query<
         [Array<EpisodeQuoteRow & { score?: number }>]
       >(
-        `SELECT speaker, text, occurredAt, search::score(1) AS score
+        `SELECT id, conversationId, speaker, text, occurredAt, search::score(1) AS score
            FROM episode
           WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${speakerGate}
           ORDER BY score DESC
@@ -170,6 +170,40 @@ export class EpisodeReadStoreService {
         },
       );
       return rows ?? [];
+    });
+  }
+
+  /**
+   * First turn by a speaker suffix strictly AFTER a moment of one
+   * conversation — the assistant REPLY of an exchange (multiworld §10
+   * assistant lane, exchange granularity per SeCom). Same fences as
+   * every episode read; null when nothing follows.
+   */
+  async nextTurnBySpeaker(opts: {
+    companyId: string;
+    conversationId: string;
+    afterIso: string;
+    speakerSuffix: string;
+    includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
+    db?: EpisodeDb;
+  }): Promise<EpisodeQuoteRow | null> {
+    return this.run(opts.companyId, opts.db, async (db) => {
+      const [rows] = await db.query<[EpisodeQuoteRow[]]>(
+        `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+          WHERE conversationId = $conv AND occurredAt > $c
+            AND string::ends_with(string::lowercase(speaker), $speakerSuffix)
+            ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}
+          ORDER BY occurredAt ASC, id ASC LIMIT 1`,
+        {
+          conv: opts.conversationId,
+          c: new Date(opts.afterIso),
+          speakerSuffix: opts.speakerSuffix.toLowerCase(),
+          ...this.userParams(opts.userId),
+        },
+      );
+      return rows?.[0] ?? null;
     });
   }
 
