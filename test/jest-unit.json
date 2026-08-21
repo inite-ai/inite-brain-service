@@ -6,6 +6,8 @@
     "customExportConditions": ["node", "node-addons"]
   },
   "testRegex": ".*\\.unit-spec\\.ts$",
+  "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/"],
+  "modulePathIgnorePatterns": ["/.claude/worktrees/"],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },

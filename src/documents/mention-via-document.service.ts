@@ -1,7 +1,8 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import { DocumentIngestService } from './document-ingest.service';
+import { pinUserScope } from '../auth/user-scope';
 
 export interface MentionCompatResult {
   skipped: boolean;
@@ -35,6 +36,16 @@ export class MentionViaDocumentService {
     companyId: string,
     dto: IngestMentionDto,
   ): Promise<MentionCompatResult> {
+    // Audit 2026-08-21 P0, FAIL-CLOSED: the document pipeline does not
+    // carry per-user scope yet — refusing a user-scoped mention beats
+    // silently landing a user's memory tenant-global. M2M tenant-global
+    // traffic (no userId) is unaffected.
+    if (pinUserScope(dto.userId)) {
+      throw new BadRequestException(
+        'INGEST_MENTION_VIA_DOCUMENT does not support user-scoped ' +
+          'mentions yet — retry without the flag or without userId',
+      );
+    }
     if (!dto.text?.trim()) {
       this.metrics?.countIngestMention('skipped');
       return {

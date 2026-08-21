@@ -27,6 +27,11 @@ import type { CoverageScanTuning } from './scan-leg';
 /** Grounding anchors the raw-window lane expands (top evidence order). */
 const RAW_WINDOW_MAX_ANCHORS = 4;
 
+/** Hard bound on assistant-lane quotes regardless of env/override
+ *  (audit 2026-08-21 #7): with the 600-char line cap this bounds the
+ *  section at ~14K chars even under a hostile override. */
+const ASSISTANT_LANE_MAX_TOPK = 24;
+
 /** V13 noise filter: sections at or under this length pass untouched —
  *  filtering a short section risks more than it saves. */
 const NOISE_FILTER_MIN_LINES = 8;
@@ -81,6 +86,14 @@ export interface CollectedEvidence {
    * by the caller to the SAME fact lines both prompts read.
    */
   updateStories?: Map<string, string>;
+  /**
+   * Multiworld §10 facts-as-keys: factId → rendered grounding quote
+   * (" [source YYYY-MM-DD speaker: …]") for the top evidence facts;
+   * undefined when the profile has the lane off or nothing resolves.
+   * Applied by the caller to the SAME fact lines both prompts read —
+   * exactly the updateStories contract.
+   */
+  groundingQuotes?: Map<string, string>;
 }
 
 @Injectable()
@@ -129,12 +142,14 @@ export class EvidenceCollectorService {
       insightLines,
       updateStories,
       digestLines,
+      groundingQuotes,
     ] = await Promise.all([
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
       this.collectInsightLines(opts),
       this.collectUpdateStories(opts),
       this.collectDigestLines(opts),
+      this.collectGroundingQuotes(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -161,7 +176,38 @@ export class EvidenceCollectorService {
       instructions,
       timelineEvidence,
       updateStories,
+      groundingQuotes,
     };
+  }
+
+  /**
+   * Multiworld §10 facts-as-keys — gated on profile.factsAsKeys;
+   * degrades to undefined. Cap applies to the BEST evidence facts
+   * (factIds arrive in evidence order).
+   */
+  private async collectGroundingQuotes({
+    profile,
+    companyId,
+    callerScopes,
+    factIds,
+    userId,
+  }: {
+    profile: RetrievalProfile;
+    companyId: string;
+    callerScopes: string[];
+    factIds: string[];
+    userId?: string;
+  }): Promise<Map<string, string> | undefined> {
+    if (!profile.factsAsKeys || !this.episodeLane) return undefined;
+    if (factIds.length === 0) return undefined;
+    if (getAbortSignal()?.aborted) return undefined;
+    const quotes = await this.episodeLane.groundingQuotes({
+      companyId,
+      factIds: factIds.slice(0, profile.factsAsKeysCap),
+      callerScopes,
+      userId,
+    });
+    return quotes.size > 0 ? quotes : undefined;
   }
 
   /**
@@ -292,8 +338,14 @@ export class EvidenceCollectorService {
     // default does not (they measurably distract on assistant chats);
     // 'fused' retrieves them as scored SearchHits inside search, so
     // appending them here would duplicate the evidence.
-    const [laneLines, sourceLines, segmentLines, scanLines, windowLines] =
-      await Promise.all([
+    const [
+      laneLines,
+      sourceLines,
+      segmentLines,
+      scanLines,
+      windowLines,
+      assistantLines,
+    ] = await Promise.all([
         active
           ? this.episodeLane
               ?.transcriptLines({
@@ -358,10 +410,29 @@ export class EvidenceCollectorService {
               })
               .then((v) => v ?? [])
           : [],
+        // Multiworld §10 assistant lane: role-filtered verbatim over
+        // L0 — same own-flag gating as raw-window, measurable on the
+        // default profile.
+        profile.assistantLane
+          ? this.episodeLane
+              ?.assistantTurns({
+                companyId,
+                query,
+                callerScopes,
+                userId,
+                limit: Math.min(
+                  profile.assistantLaneTopK,
+                  ASSISTANT_LANE_MAX_TOPK,
+                ),
+                match: profile.assistantLaneMatch,
+              })
+              .then((v) => v ?? [])
+          : [],
       ]).then((lanes) => lanes.map((l) => l ?? []));
     return [
       ...new Set([
         ...scanLines,
+        ...assistantLines,
         ...windowLines,
         ...segmentLines,
         ...sourceLines,

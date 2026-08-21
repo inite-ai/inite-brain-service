@@ -395,13 +395,27 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
       const { svc, queries } = makeSvc(oneProp);
       await expect(svc.run('co_x', { version: 'wd-v2' })).rejects.toThrow(
-        'live read pin',
+        'live read set',
       );
       expect(queries).toHaveLength(0);
       // force overrides for deliberate in-place eval rewrites
       const { svc: svc2 } = makeSvc(oneProp);
       const res = await svc2.run('co_x', { version: 'wd-v2', force: true });
       expect(res.propositions).toBe(1);
+    });
+
+    it('refuses to rewrite a multiworld union member without force (audit 2026-08-21)', async () => {
+      process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
+      process.env.RETRIEVAL_DERIVED_VERSIONS = 'wd-extra';
+      try {
+        const { svc, queries } = makeSvc(oneProp);
+        await expect(svc.run('co_x', { version: 'wd-extra' })).rejects.toThrow(
+          'live read set',
+        );
+        expect(queries).toHaveLength(0);
+      } finally {
+        delete process.env.RETRIEVAL_DERIVED_VERSIONS;
+      }
     });
 
     it('activate flips the pin only after a successful run', async () => {

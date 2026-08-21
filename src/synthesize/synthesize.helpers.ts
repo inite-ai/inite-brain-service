@@ -71,6 +71,20 @@ export function buildSecondaryDto(
       ? { requireProvenance: base.requireProvenance }
       : {}),
     ...(base.searchMode ? { searchMode: base.searchMode } : {}),
+    // Audit 2026-08-21 P1: the temporal/language/confidence axes are
+    // retrieval SEMANTICS and must survive into secondary searches too.
+    // outputShape/tokenBudget are deliberately NOT inherited — they
+    // shape the caller's RESPONSE, not what a probe may retrieve.
+    ...(base.includeStale !== undefined
+      ? { includeStale: base.includeStale }
+      : {}),
+    ...(base.confidenceFloor !== undefined
+      ? { confidenceFloor: base.confidenceFloor }
+      : {}),
+    ...(base.queryLang !== undefined ? { queryLang: base.queryLang } : {}),
+    ...(base.disableLangFilter !== undefined
+      ? { disableLangFilter: base.disableLangFilter }
+      : {}),
     query: override.query,
     limit: override.limit ?? base.limit ?? 10,
   } as SearchDto;

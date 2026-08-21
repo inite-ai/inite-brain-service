@@ -989,6 +989,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'V13 read side of DERIVER_SCENE_TRACE (profile field sceneTraces): fact lines carry a "(context: …)" suffix from the stamped source.scene, so the generator and verifier see the situational anchor next to the proposition. Unstamped rows render as before; against worlds derived without the stamp the flag is byte-identical off.',
       },
       {
+        key: 'DERIVER_TYPED_ATOMS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "Multiworld §10 typed single-pass derive: the ONE extraction pass also tags every proposition with kind ∈ {fact, assistant_contribution, persona_attr, event} (schema enum + prompt section; the assistant_contribution rules subsume DERIVER_ASSISTANT_CONTENT), stamped as source.kind (FLEXIBLE ride, no migration; off-enum values dropped). Worlds become TYPED LANES over one atom stream — the ablation-grade multi-view pattern (Hindsight/MemIR/O-Mem), never N× derive. Prompt + schema change ⇒ fresh derivedVersion; off = byte-identical call.",
+      },
+      {
         key: 'RETRIEVAL_RAW_WINDOW',
         category: 'pipeline',
         defaultValue: '0',
@@ -1005,6 +1014,51 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Half-span of the raw-turn window (neighbors each side of a grounding turn) under RETRIEVAL_RAW_WINDOW. Only read on that path.',
+      },
+      {
+        key: 'RETRIEVAL_ASSISTANT_LANE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "Multiworld §10 assistant verbatim lane (profile field assistantLane): BM25 over the L0 episode substrate restricted to turns SPOKEN BY the assistant role (case-insensitive speaker suffix, RETRIEVAL_ASSISTANT_LANE_MATCH), rendered as transcript quotes. The SSA miss class is structural — assistant contributions are never extracted into facts, so fact-anchored lanes (source excerpts, raw windows: 32.1 vs 42.9 base on SSA) cannot reach the gold turn; this lane reaches it by ROLE, no facts involved. Off = byte-identical; empty for corpora without an assistant-role speaker (e.g. LoCoMo personas).",
+      },
+      {
+        key: 'RETRIEVAL_ASSISTANT_LANE_TOPK',
+        category: 'pipeline',
+        defaultValue: '6',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Assistant-turn quotes per prompt under RETRIEVAL_ASSISTANT_LANE. Only read on that path.',
+      },
+      {
+        key: 'RETRIEVAL_ASSISTANT_LANE_MATCH',
+        category: 'pipeline',
+        defaultValue: 'assistant',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Case-insensitive speaker SUFFIX identifying the assistant role under RETRIEVAL_ASSISTANT_LANE (suffix because eval-harness speakers are '<convSlug>__<role>' while production tenants stamp bare role names). Malformed values fall back to 'assistant'.",
+      },
+      {
+        key: 'RETRIEVAL_FACTS_AS_KEYS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Multiworld §10 facts-as-keys (profile field factsAsKeys; the LongMemEval design-study shape — facts as additional index KEYS +9.4% recall, facts as replacement VALUES hurt): each top evidence fact line carries ONE verbatim quote of its first grounding turn (" [source YYYY-MM-DD speaker: …]", 240-char cap) — the fact acts as the key, the raw turn is the served content. Generator and verifier read the same augmented lines (evidence parity). Off = byte-identical.',
+      },
+      {
+        key: 'RETRIEVAL_FACTS_AS_KEYS_CAP',
+        category: 'pipeline',
+        defaultValue: '8',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Top evidence facts that carry a grounding quote under RETRIEVAL_FACTS_AS_KEYS. Only read on that path.',
       },
       {
         key: 'RETRIEVAL_TIME_FILTER',
@@ -1248,6 +1302,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
         description:
           'Derived-namespace pin (substrate P3): read only facts stamped with this derivedVersion (e.g. wd-v2, written by POST /v1/admin/maintenance/derive). Unset = legacy namespace only (facts without a version). Switching the value switches the whole retrieval world atomically.',
+      },
+      {
+        key: 'RETRIEVAL_DERIVED_VERSIONS',
+        category: 'search',
+        defaultValue: null,
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          "Multiworld §10 READ union: comma-separated derivedVersion list — the read path serves the SET of worlds (WHERE derivedVersion INSIDE […]), rows competing in the same legs and fusion. The tenant's own resolved world (registry live row / RETRIEVAL_DERIVED_VERSION) is always INCLUDED in the union, never displaced. Write/maintenance surfaces (derive, dreams, compaction, communities) stay single-world; the derive rewrite guard and GC keep every union member (audit 2026-08-21). CONSTRAINT: union members must be COMPLEMENTARY worlds (typed lanes over one substrate) — unioning two full snapshots of the same contract duplicates semantically-equal rows under different ids (dedup is by record id only) and they eat the shared budget; per-world descriptors/budgets are deferred until the first union pair measures. Unset = single-pin behavior, byte-identical.",
       },
       {
         key: 'SYNTHESIZE_ANSWER_ROUTER_ENABLED',

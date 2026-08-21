@@ -51,6 +51,9 @@ export class EpisodeStoreService {
         text,
         piiClass: classes.length > 0 ? classes : undefined,
         occurredAt: new Date(dto.emittedAt),
+        // Audit 2026-08-21 P0: the per-user scope rides the episode row —
+        // every L0 read surface fences on it (fail-closed, 0055 model).
+        userId: dto.userId,
         lang: lang === 'und' ? undefined : lang,
         source: {
           vertical: dto.contextRef.vertical,

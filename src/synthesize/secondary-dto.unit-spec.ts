@@ -15,6 +15,12 @@ describe('buildSecondaryDto (audit 2026-08-19 P1 — filter inheritance)', () =>
     includeRetracted: true,
     requireProvenance: true,
     searchMode: 'lexical',
+    includeStale: true,
+    confidenceFloor: 0.6,
+    queryLang: 'ru',
+    disableLangFilter: true,
+    outputShape: 'compact',
+    tokenBudget: 900,
   } as unknown as SearchDto;
 
   it('inherits the full caller filter contract, overrides only query/limit', () => {
@@ -31,6 +37,18 @@ describe('buildSecondaryDto (audit 2026-08-19 P1 — filter inheritance)', () =>
     expect(dto.includeRetracted).toBe(true);
     expect(dto.requireProvenance).toBe(true);
     expect(dto.searchMode).toBe('lexical');
+    // Audit 2026-08-21 P1: the temporal/language/confidence axes are
+    // retrieval semantics — inherited.
+    expect(dto.includeStale).toBe(true);
+    expect(dto.confidenceFloor).toBe(0.6);
+    expect(dto.queryLang).toBe('ru');
+    expect(dto.disableLangFilter).toBe(true);
+  });
+
+  it('deliberately does NOT inherit response-shaping fields', () => {
+    const dto = buildSecondaryDto(base, { query: 'refined' });
+    expect(dto.outputShape).toBeUndefined();
+    expect(dto.tokenBudget).toBeUndefined();
   });
 
   it('omits absent fields instead of stamping undefined', () => {

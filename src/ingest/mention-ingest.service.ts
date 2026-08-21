@@ -6,6 +6,7 @@ import { MentionExtractionService } from './mention-extraction.service';
 import { MentionPersistService } from './mention-persist.service';
 import { EpisodeStoreService } from './episode-store.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { pinUserScope } from '../auth/user-scope';
 
 /**
  * The mention ingest path (`ingestMention`): free-text → LLM extraction → fact
@@ -26,6 +27,12 @@ export class MentionIngestService {
   ) {}
 
   async ingestMention(companyId: string, dto: IngestMentionDto) {
+    // Audit 2026-08-21 P0: pin the per-user scope at the entry — a
+    // user-bound token writes ONLY its own user's slice (mismatch 403,
+    // omitted → the token's user); M2M assertions pass through. The
+    // pinned value rides the dto into episode capture and every
+    // extracted fact (same seam as fact-ingest / search / synthesize).
+    dto = { ...dto, userId: pinUserScope(dto.userId) };
     try {
       return await this.run(companyId, dto);
     } catch (err) {

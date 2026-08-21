@@ -449,10 +449,13 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       this.scopedWaiters,
       'scoped',
     );
-    // Audit 2026-08-19 P1: a root-fallback conn re-attempts the scoped
-    // signin on EVERY acquire; until it succeeds the conn keeps working
-    // (app-layer fences still apply) but is retried next time — the
-    // fallback is a transient state, never a permanent privilege.
+    // Audit 2026-08-19 P1 / 2026-08-21 P1: a root-fallback conn
+    // re-attempts the scoped signin on EVERY acquire — and FAILS CLOSED
+    // when it can't. A deployment that configured the scoped pool asked
+    // for a DB-level fence; silently serving the request root-authorized
+    // widens privilege exactly when the caller believes it narrowed.
+    // The conn goes back to the pool (still flagged) for the next
+    // acquire's retry; this request errors instead of degrading.
     if (this.rootFallbackConns.has(conn)) {
       const scopedUser = this.configService.get<string>('SURREALDB_SCOPED_USER');
       const scopedPass = this.configService.get<string>('SURREALDB_SCOPED_PASS');
@@ -466,8 +469,10 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
           this.rootFallbackConns.delete(conn);
           this.logger.log('Root-fallback scoped conn re-signed as scoped');
         } catch (e) {
-          this.logger.warn(
-            `Scoped re-signin on acquire failed (conn stays root-authorized this request): ${(e as Error).message}`,
+          this.releaseScoped(conn);
+          throw new Error(
+            `scoped DB signin unavailable — failing closed rather than ` +
+              `serving the request root-authorized: ${(e as Error).message}`,
           );
         }
       }

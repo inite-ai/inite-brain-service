@@ -42,6 +42,49 @@ ASSISTANT-SIDE CONTRIBUTIONS
 Also emit propositions for substantive content a participant CONTRIBUTED to the other: recommendations made, answers and explanations given, instructions or steps provided, plans proposed. Use aspect "assistance", subject = the CONTRIBUTING participant, and state specifically WHAT was recommended/explained and to whom ("Assistant recommended the token-bucket algorithm to Alex for API rate limiting"). Keep the concrete payload — names, numbers, steps, code identifiers — because a later question will ask "what did you suggest…" and ONLY this proposition will be available to answer it.`;
 
 /**
+ * Multiworld §10 item 2 (DERIVER_TYPED_ATOMS) — the typed single-pass
+ * derive. One extraction pass, typed atom stream: every proposition
+ * carries `kind`, so read-side worlds become TYPED LANES over one
+ * substrate instead of N derive passes (the pattern every ablation-
+ * grade multi-view system uses — Hindsight/MemIR/O-Mem type one pass).
+ * The assistant_contribution rules subsume DERIVER_ASSISTANT_SECTION:
+ * that content class must be EMITTED before it can be tagged.
+ */
+
+/**
+ * The closed kind vocabulary — the response-schema enum AND the row
+ * builder's stamp gate read this one set, so prompt, schema and stamp
+ * can never drift; an off-contract reply value is dropped, never
+ * stored as a surprise lane.
+ */
+export const TYPED_ATOM_KINDS: ReadonlySet<string> = new Set([
+  'fact',
+  'assistant_contribution',
+  'persona_attr',
+  'event',
+]);
+
+/** The row builder's stamp gate (FLEXIBLE-source ride): flag on AND an
+ *  on-contract kind, else the row stays untyped. */
+export function typedAtomKind(p: { kind?: string }): { kind?: string } {
+  return resolveExtractionProfile().deriveTypedAtoms &&
+    p.kind &&
+    TYPED_ATOM_KINDS.has(p.kind)
+    ? { kind: p.kind }
+    : {};
+}
+
+export const DERIVER_TYPED_SECTION = `
+
+ATOM TYPES
+Tag every proposition with "kind" — exactly one of:
+- "fact" — a durable fact about a participant (the default when nothing below applies);
+- "assistant_contribution" — substantive content one participant CONTRIBUTED to the other: a recommendation made, an answer or explanation given, instructions or steps provided, a plan proposed. Subject = the CONTRIBUTING participant; keep the concrete payload — names, numbers, steps, code identifiers — a later "what did you suggest…" question will have ONLY this proposition to answer from;
+- "persona_attr" — a stable trait, preference, identity or self-description of a participant;
+- "event" — something that HAPPENED at a determinable time (occurrences, milestones, incidents).
+When several could apply, prefer assistant_contribution, then event, then persona_attr, then fact.`;
+
+/**
  * V12 §3 event-dating rules (DERIVER_DATE_RESOLVE) — the graphiti
  * anti-collapse port for `occurred_on`. The base contract's one-liner
  * ("when determinable, else null") measures as a session-date
@@ -248,10 +291,12 @@ export function buildDeriverSystem(opts?: {
   dateResolve?: boolean;
   turnHeaders?: boolean;
   sceneTrace?: boolean;
+  typedAtoms?: boolean;
 }): string {
   return (
     DERIVER_SYSTEM +
     (opts?.assistantContent ? DERIVER_ASSISTANT_SECTION : '') +
+    (opts?.typedAtoms ? DERIVER_TYPED_SECTION : '') +
     (opts?.dateResolve ? DERIVER_DATE_SECTION : '') +
     (opts?.turnHeaders ? DERIVER_TURN_TIME_SECTION : '') +
     (opts?.sceneTrace ? DERIVER_SCENE_SECTION : '')
@@ -290,6 +335,9 @@ export interface DerivedProposition {
   /** V13 scene trace (DERIVER_SCENE_TRACE): one clause of encoding
    *  context — the situation in which this was learned. */
   scene?: string | null;
+  /** Multiworld §10 typed atom kind (DERIVER_TYPED_ATOMS); stored as
+   *  source.kind after the row builder validates it against the set. */
+  kind?: string;
   /** V13 date audit: the audit EXPLICITLY cleared a fabricated date —
    *  the row builder must express "undated" (epoch sentinel), never
    *  fall back to the session date it just removed. */
@@ -331,6 +379,7 @@ export async function callDeriver(
         dateResolve: profile.deriveDateResolve,
         turnHeaders: profile.deriveTurnHeaders,
         sceneTrace: profile.deriveSceneTrace,
+        typedAtoms: profile.deriveTypedAtoms,
       }),
     },
     {
@@ -608,7 +657,11 @@ function deriverRequest(
   // off (volume-neutral by construction).
   // V13 scene traces: the `scene` field exists in the schema ONLY
   // under DERIVER_SCENE_TRACE — off keeps the schema byte-identical.
-  const sceneTrace = resolveExtractionProfile().deriveSceneTrace;
+  // Multiworld §10: `kind` exists ONLY under DERIVER_TYPED_ATOMS —
+  // same conditional-schema idiom.
+  const profile = resolveExtractionProfile();
+  const sceneTrace = profile.deriveSceneTrace;
+  const typedAtoms = profile.deriveTypedAtoms;
   return deps.openai.chat.completions.create({
     model: deps.model,
     ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: maxTokens }),
@@ -636,6 +689,14 @@ function deriverRequest(
                   ...(sceneTrace
                     ? { scene: { type: ['string', 'null'] } }
                     : {}),
+                  ...(typedAtoms
+                    ? {
+                        kind: {
+                          type: 'string',
+                          enum: [...TYPED_ATOM_KINDS],
+                        },
+                      }
+                    : {}),
                 },
                 required: [
                   'subject',
@@ -644,6 +705,7 @@ function deriverRequest(
                   'occurred_on',
                   'turns',
                   ...(sceneTrace ? ['scene'] : []),
+                  ...(typedAtoms ? ['kind'] : []),
                 ],
               },
             },

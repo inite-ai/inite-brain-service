@@ -35,6 +35,19 @@ export interface ExtractionPipelineProfile {
   /** Deriver also emits assistant-side contributions ("assistance"). */
   deriveAssistantContent: boolean;
   /**
+   * DERIVER_TYPED_ATOMS (multiworld §10 item 2 — typed single-pass
+   * derive): the ONE extraction pass also tags every proposition with
+   * `kind` ∈ {fact, assistant_contribution, persona_attr, event},
+   * stamped as source.kind (FLEXIBLE ride, no migration). Worlds
+   * become typed lanes over one atom stream — nobody good pays N×
+   * derive (Hindsight/MemIR/O-Mem all type one pass). Subsumes the
+   * DERIVER_ASSISTANT_CONTENT rules (assistant contributions are a
+   * first-class kind here); combining both flags is redundant but
+   * harmless. Prompt + schema change ⇒ fresh derivedVersion; off →
+   * byte-identical call.
+   */
+  deriveTypedAtoms: boolean;
+  /**
    * DERIVER_COMPLETION_PASS (V7 deriver-recall): after the base
    * proposition pass, run a second "what was missed" call that sees the
    * base list and returns ONLY additional propositions; union with
@@ -173,6 +186,7 @@ export function resolveExtractionProfile(
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
+    deriveTypedAtoms: envFlagEnabled(env.DERIVER_TYPED_ATOMS),
     deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
     deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
     deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),

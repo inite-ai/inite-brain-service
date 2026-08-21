@@ -1,7 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { ReadPinService } from '../episodes/read-pin.service';
+import {
+  ReadPinService,
+  derivedVersionFence,
+} from '../episodes/read-pin.service';
 import {
   filterMentions,
   LEX_MATCH_FLOOR,
@@ -110,12 +113,11 @@ export class QueryArcService {
     const k = QueryArcService.SCAN_FETCH_CAP;
     try {
       const derivedVersion =
-        (await this.readPin?.resolve(opts.companyId)) ??
-        ReadPinService.bootstrapDefault();
-      const worldGate = derivedVersion
-        ? 'AND derivedVersion = $derivedVersion'
-        : 'AND derivedVersion IS NONE';
-      const worldParams = derivedVersion ? { derivedVersion } : {};
+        (await this.readPin?.resolveRead(opts.companyId)) ??
+        ReadPinService.bootstrapRead();
+      const fence = derivedVersionFence(derivedVersion);
+      const worldGate = fence.clause;
+      const worldParams = fence.params;
       // The atomic pool: the exact inverse of the insight leg's gate,
       // so stored write-time aggregates/arcs never self-ingest into a
       // query-time arc; lifecycle-closed rows stay out of narratives.

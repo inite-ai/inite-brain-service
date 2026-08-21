@@ -2,7 +2,7 @@ import { resolveExtractionProfile } from '../ai/extraction-profile';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
 import { accumulateLanded, type RollupMember } from './aspect-rollups';
-import type { DerivedProposition } from './deriver-client';
+import { typedAtomKind, type DerivedProposition } from './deriver-client';
 import type { DeriveNamespace } from './derive-staging';
 import type { EpisodeRow } from '../episodes/session-window';
 
@@ -103,6 +103,8 @@ export function buildDerivedRows({
       ...salience,
       ...mention,
       ...scene,
+      // Multiworld §10: on-contract kinds only (off-enum → untyped).
+      ...typedAtomKind(p),
     };
     return {
       entityId: subjectEntity,
