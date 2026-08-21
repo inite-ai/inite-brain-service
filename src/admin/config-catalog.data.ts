@@ -1331,6 +1331,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Raw-substrate driver v1 (docs/roadmap/raw-substrate-driver-2026-08.md): public read API over the L0 episode substrate — GET /v1/episodes (keyset cursor over occurredAt+id, filters conversationId/speaker/since/until) and GET /v1/episodes/export (NDJSON stream, paged internally). Lets any consumer build its own projection without touching SurrealDB. PII fence follows the read-lane precedent: without brain:read_pii only rows with empty piiClass are visible. Off (default) → routes answer 404.',
       },
       {
+        key: 'FACTS_API_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Fact read + provenance API ("show me why I remember this"): GET /v1/facts/:id serves the fact as stored (aspect/statement/confidence/validFrom, source attribution, retracted flag, derivedVersion) and GET /v1/facts/:id/provenance serves its verbatim grounding turns (source.episodeIds via the shared episode read port, text capped at 600 chars). Every miss is a 404 — tenant fence, fail-closed user scope (another user\'s fact is indistinguishable from absent), registry-backed row policy on scope-fenced predicates; episode text respects brain:read_pii. POST /v1/facts/:id/retract is deliberately NOT gated by this flag (write/GDPR path). Off (default) → read routes answer 404.',
+      },
+      {
         key: 'PROJECTIONS_API_ENABLED',
         category: 'pipeline',
         defaultValue: '0',
