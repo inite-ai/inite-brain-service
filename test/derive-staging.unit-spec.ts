@@ -585,6 +585,22 @@ describe('derive lease fencing (isLost)', () => {
     await handle.release();
   });
 
+  it('renew() proves ownership at the flip boundary; a stale pod is fenced', async () => {
+    // Round-4 hardening: the async heartbeat's isLost can be stale for
+    // a pod that slept past the TTL — the synchronous renew cannot.
+    let holderIsUs = true;
+    const handle = await acquireWith(async () => holderIsUs);
+    await expect(handle.renew()).resolves.toBe(true);
+    expect(handle.isLost()).toBe(false);
+    holderIsUs = false; // another pod took the lease while we slept
+    await expect(handle.renew()).resolves.toBe(false);
+    expect(handle.isLost()).toBe(true);
+    // Once fenced, renew never un-fences.
+    holderIsUs = true;
+    await expect(handle.renew()).resolves.toBe(false);
+    await handle.release();
+  });
+
   it('a heartbeat ERROR also sets the fence (fail-closed, round 3)', async () => {
     // Any renewal uncertainty fences promotion — an erroring heartbeat
     // past the TTL is indistinguishable from a lost lease. Per-run
