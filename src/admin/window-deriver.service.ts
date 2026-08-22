@@ -61,8 +61,10 @@ import {
 import {
   STAGING_SUFFIX,
   acquireDeriveLease,
+  newRunToken,
   promoteStaging,
   stagingNamespace,
+  sweepStagingOrphans,
   sweepStagingRows,
   type DeriveLease,
   type DeriveNamespace,
@@ -186,7 +188,10 @@ export class WindowDeriverService {
     // staging namespace, a clean run promotes it in one flip, and a
     // per-(tenant, version) lease makes a concurrent derive fail fast
     // instead of interleaving rows — see derive-staging.ts.
-    const ns = stagingNamespace(version);
+    // Per-run staging token (audit 2026-08-21 P1 round 2): even a
+    // fenced-open lease race cannot interleave two runs' rows — each
+    // run owns a unique `<version>.staging.<token>` namespace.
+    const ns = stagingNamespace(version, newRunToken());
     const lease = await acquireDeriveLease({
       companyId,
       version,
@@ -240,9 +245,11 @@ export class WindowDeriverService {
     });
     try {
       await this.surreal.withCompany(companyId, async (db) => {
-        // Orphaned staging rows of a PRIOR crashed run for this version:
-        // the lease guarantees they have no live owner — sweep first.
-        await sweepStagingRows(db, ns.staging);
+        // Orphaned staging rows of PRIOR crashed runs for this version
+        // (any `<version>.staging*` namespace — per-run tokens make the
+        // exact names unknowable): the lease says they have no live
+        // owner — sweep first.
+        await sweepStagingOrphans(db, version);
         const convs = await this.episodes.conversationCounts(db);
         for (const conv of convs) {
           const conversationId = conv.conversationId;
@@ -711,19 +718,22 @@ export class WindowDeriverService {
         conversationId,
       });
       // Audit 2026-08-21 P0: a proposition grounded in turns of two or
-      // more users fits no single scope — drop it (with its resolved
-      // twin, keeping every downstream array index-aligned) rather
-      // than land it tenant-global.
+      // more users fits no single scope, and one with empty/invalid
+      // grounding (round 2) has no trustworthy scope at all — both are
+      // dropped (with their resolved twins, keeping every downstream
+      // array index-aligned) rather than landed tenant-global.
+      const dropRow = (r: (typeof builtRows)[number]) =>
+        r.crossUserScope || r.groundingInvalid;
       const crossUser = builtRows.filter((r) => r.crossUserScope).length;
-      if (crossUser > 0) {
+      const ungrounded = builtRows.filter((r) => r.groundingInvalid).length;
+      if (crossUser > 0 || ungrounded > 0) {
         this.logger.warn(
-          `derive ${conversationId}: dropped ${crossUser} cross-user-scoped proposition(s)`,
+          `derive ${conversationId}: dropped ${crossUser} cross-user-scoped ` +
+            `and ${ungrounded} invalid-grounding proposition(s)`,
         );
       }
-      const keptResolved = resolved.filter(
-        (_, i) => !builtRows[i].crossUserScope,
-      );
-      const rows = builtRows.filter((r) => !r.crossUserScope);
+      const keptResolved = resolved.filter((_, i) => !dropRow(builtRows[i]));
+      const rows = builtRows.filter((r) => !dropRow(r));
       // V9 §1: value-bearing aspects take the bitemporal_event
       // lifecycle when the profile asks; V9 phase 0: the resolver
       // batch degrades per-row instead of failing the conversation —

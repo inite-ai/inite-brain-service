@@ -331,7 +331,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       {
         key: 'SEARCH_RERANK_TRUST_BAND',
         category: 'search',
-        defaultValue: '0.1',
+        defaultValue: '0',
         runtimeMutable: false,
         isBooleanFlag: false,
         description:
@@ -340,7 +340,10 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           '— trust priors above all, since SEARCH_TRUST_BETA rides the ' +
           'fused score — survives every rerank stage instead of being ' +
           'silently erased by reranker priority (audit 2026-08-21 P1). ' +
-          '0 disables the band and restores absolute reranker priority.',
+          '0 (default) disables the band; a non-zero band reshapes ' +
+          'ranking even without trust, so enable after a benchmark/' +
+          'canary and always alongside SEARCH_TRUST_BETA — 0.1 is the ' +
+          'measured contract the fact-trust e2e pins.',
       },
       {
         key: 'SEARCH_TOKEN_COUNT_OFFLOAD',

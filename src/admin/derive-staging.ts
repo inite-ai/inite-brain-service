@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { runTransaction } from '../db/surreal.service';
 import type { LeaderLeaseService } from '../jobs/leader-lease.service';
@@ -48,12 +48,25 @@ export const STAGING_SUFFIX = '.staging';
 export interface DeriveNamespace {
   /** The version readers pin — untouched until the flip. */
   final: string;
-  /** `<final>.staging` — the only namespace a run writes into. */
+  /** `<final>.staging.<runToken>` — the only namespace THIS run writes
+   *  into. Per-run unique (audit 2026-08-21 P1 round 2): even if the
+   *  lease fails open — heartbeat errors past the TTL, a competing pod
+   *  acquiring — two runs can never interleave rows in one staging
+   *  namespace; each flip promotes an internally consistent world. */
   staging: string;
 }
 
-export function stagingNamespace(version: string): DeriveNamespace {
-  return { final: version, staging: `${version}${STAGING_SUFFIX}` };
+export function stagingNamespace(
+  version: string,
+  runToken?: string,
+): DeriveNamespace {
+  const suffix = runToken ? `${STAGING_SUFFIX}.${runToken}` : STAGING_SUFFIX;
+  return { final: version, staging: `${version}${suffix}` };
+}
+
+/** Short per-run staging token — see DeriveNamespace.staging. */
+export function newRunToken(): string {
+  return randomUUID().slice(0, 8);
 }
 
 /** Narrow query-only view of the scoped connection (same shape the
@@ -98,11 +111,11 @@ export function deriveLeaseName(companyId: string, version: string): string {
 
 export interface DeriveLease {
   name: string;
-  /** True once a heartbeat renewal definitively failed (`tryAcquire`
-   *  returned false) — a competing pod may hold the lease. Promotion
-   *  MUST check this fence before flipping staging → final (audit
-   *  2026-08-21: a lost lease used to be log-only, and the run kept
-   *  going all the way through promotion). */
+  /** True once a heartbeat renewal failed for ANY reason — a
+   *  definitive loss (`tryAcquire` → false: a competing pod holds it)
+   *  or an error (fail-closed, audit 2026-08-21 round 2: an erroring
+   *  heartbeat past the TTL is indistinguishable from a lost lease).
+   *  Promotion MUST check this fence before flipping staging → final. */
   isLost(): boolean;
   /** Idempotent; call in finally. */
   release(): Promise<void>;
@@ -145,7 +158,7 @@ export async function acquireDeriveLease(args: {
             if (!ok) {
               // Cannot safely abort a run mid-LLM-call; mark the fence —
               // promotion checks isLost() and refuses to flip (a
-              // competing pod may be building the same staging).
+              // competing pod may be building the same version).
               lost = true;
               logger.warn(
                 `derive lease '${name}' lost mid-run — a concurrent ` +
@@ -153,13 +166,18 @@ export async function acquireDeriveLease(args: {
               );
             }
           },
-          (e: unknown) =>
-            // Transient heartbeat errors (network blips) do NOT set the
-            // fence — only a definitive "someone else holds it" does;
-            // the lease TTL is the backstop for a truly dead pod.
+          (e: unknown) => {
+            // Fail-closed (audit 2026-08-21 P1 round 2): ANY renewal
+            // uncertainty sets the fence — an erroring heartbeat past
+            // the TTL is indistinguishable from a lost lease. Per-run
+            // staging namespaces keep the data safe either way; the
+            // fence only refuses a flip we can no longer claim to own.
+            lost = true;
             logger.warn(
-              `derive lease heartbeat failed: ${(e as Error).message}`,
-            ),
+              `derive lease heartbeat failed — promotion fenced: ` +
+                `${(e as Error).message}`,
+            );
+          },
         );
       }, LEASE_HEARTBEAT_MS);
       heartbeat.unref?.();
@@ -210,6 +228,32 @@ export async function sweepStagingRows(
     await db.query(`DELETE ${table} WHERE derivedVersion = $version`, {
       version: staging,
     });
+  }
+}
+
+/**
+ * Reap EVERY staging namespace of a version — `<version>.staging` and
+ * all per-run `<version>.staging.<token>` orphans a crashed run
+ * stranded (the run-start GC, under the lease; per-run tokens mean the
+ * exact orphan names are unknowable in advance).
+ */
+export async function sweepStagingOrphans(
+  db: DeriveDb,
+  version: string,
+): Promise<void> {
+  const prefix = `${version}${STAGING_SUFFIX}`;
+  for (const table of STAGED_TABLES) {
+    const [rows] = await db.query<[Array<{ id: unknown }>]>(
+      `SELECT id FROM ${table}
+        WHERE string::starts_with(derivedVersion ?? '', $prefix) LIMIT 1`,
+      { prefix },
+    );
+    if (!rows || rows.length === 0) continue;
+    await db.query(
+      `DELETE ${table}
+        WHERE string::starts_with(derivedVersion ?? '', $prefix)`,
+      { prefix },
+    );
   }
 }
 

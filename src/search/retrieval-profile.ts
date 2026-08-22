@@ -987,18 +987,6 @@ function nonNegativeFloat(env: NodeJS.ProcessEnv, name: string): number {
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-/** Like nonNegativeFloat but with a non-zero default — an explicit `0`
- *  is honored (the knob's documented off switch). */
-function nonNegativeFloatDefault(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  dflt: number,
-): number {
-  const raw = env[name];
-  if (raw === undefined || raw === '') return dflt;
-  const v = Number(raw);
-  return Number.isFinite(v) && v >= 0 ? v : dflt;
-}
 
 /**
  * Penalty multiplier; OFF is 1.0. Returns the value only when it's a
@@ -1031,11 +1019,11 @@ export function resolveSearchTuning(
     crossEncoderWindow: tuningInt(env, 'SEARCH_CROSS_ENCODER_WINDOW', 50),
     factRerankWindow: tuningInt(env, 'SEARCH_FACT_RERANK_WINDOW', 64),
     rerankSkipMargin: nonNegativeFloat(env, 'SEARCH_RERANK_SKIP_MARGIN'),
-    rerankTrustBand: nonNegativeFloatDefault(
-      env,
-      'SEARCH_RERANK_TRUST_BAND',
-      0.1,
-    ),
+    // Default 0 = band off (audit round 3: a non-zero band reshapes
+    // ranking even without a trust experiment — enable after a
+    // benchmark/canary, and always alongside SEARCH_TRUST_BETA, where
+    // 0.1 is the measured contract the fact-trust e2e pins).
+    rerankTrustBand: nonNegativeFloat(env, 'SEARCH_RERANK_TRUST_BAND'),
     stageBudgets: resolveStageBudgets(env),
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
     tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),

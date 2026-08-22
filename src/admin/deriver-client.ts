@@ -685,7 +685,15 @@ function deriverRequest(
                   aspect: { type: 'string' },
                   proposition: { type: 'string' },
                   occurred_on: { type: ['string', 'null'] },
-                  turns: { type: 'array', items: { type: 'integer' } },
+                  // minItems 1 (audit 2026-08-21 P0): an ungrounded
+                  // proposition has no scope evidence — the row builder
+                  // fail-closed-drops it, and the schema refuses it at
+                  // the source.
+                  turns: {
+                    type: 'array',
+                    items: { type: 'integer' },
+                    minItems: 1,
+                  },
                   ...(sceneTrace
                     ? { scene: { type: ['string', 'null'] } }
                     : {}),

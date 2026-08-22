@@ -103,6 +103,12 @@ export function buildDerivedRows({
     const groundingTurns = p.turns.filter(
       (t) => t >= 0 && t < session.length,
     );
+    // Fail-closed (audit 2026-08-21 P0 round 2): a proposition with NO
+    // turns, or with ANY out-of-range index, has unreliable grounding —
+    // its scope cannot be trusted, so the row is dropped rather than
+    // published tenant-global (groundingInvalid; the caller filters).
+    const groundingInvalid =
+      p.turns.length === 0 || groundingTurns.length !== p.turns.length;
     const scopeUsers = [
       ...new Set(
         groundingTurns
@@ -126,6 +132,7 @@ export function buildDerivedRows({
     return {
       userId: scopeUsers.length === 1 ? scopeUsers[0] : undefined,
       crossUserScope: scopeUsers.length > 1,
+      groundingInvalid,
       entityId: subjectEntity,
       predicate: aspect || 'other',
       object: p.proposition,

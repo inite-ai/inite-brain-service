@@ -118,6 +118,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── fact_trust ranking knobs (source-reputation Phase 5) ──────────
   nonNegativeFloat(env, 'SEARCH_TRUST_BETA', errors);
+  nonNegativeFloat(env, 'SEARCH_RERANK_TRUST_BAND', errors);
   nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA', errors);
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);

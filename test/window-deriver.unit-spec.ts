@@ -188,9 +188,12 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // Audit 2026-08-19 P1: in-run writes (and their namespace-claim
     // deletes) live in `<version>.staging`; the final version is only
     // ever touched by the atomic flip at the end of a clean run.
+    // Per-run token (audit round 3): `<version>.staging.<token>`.
     const staging = `${WINDOW_DERIVER_VERSION}.staging`;
-    const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
-    expect(del?.params?.version).toBe(staging);
+    const del = queries.find(
+      (q) => q.sql.includes('DELETE knowledge_fact') && q.params?.version,
+    );
+    expect(String(del?.params?.version).startsWith(`${staging}.`)).toBe(true);
     const flip = queries.find(
       (q) =>
         q.sql.includes('BEGIN TRANSACTION') &&
@@ -200,16 +203,14 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     expect(flip?.sql).toContain(
       'DELETE knowledge_fact WHERE derivedVersion = $final',
     );
-    expect(flip?.params).toMatchObject({
-      final: WINDOW_DERIVER_VERSION,
-      staging,
-    });
+    expect(flip?.params?.final).toBe(WINDOW_DERIVER_VERSION);
+    expect(String(flip?.params?.staging).startsWith(`${staging}.`)).toBe(true);
     // S4/0079: the write goes through the ONE write primitive
     // (fn::resolve_facts via FactResolverService), not a raw INSERT.
     const rows = derived;
     expect(rows).toHaveLength(2);
     expect(rows[0].predicate).toBe('pets');
-    expect(rows[0].derivedVersion).toBe(staging);
+    expect(String(rows[0].derivedVersion).startsWith(`${staging}.`)).toBe(true);
     expect(String(rows[0].object)).toContain('Luna and Oliver');
     const source = rows[0].source as Record<string, unknown>;
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
@@ -299,7 +300,11 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       ).toBe(true);
       // Digest writes stage like fact writes; the digest flip
       // transaction promotes them alongside the facts.
-      expect(write?.params?.version).toBe(`${WINDOW_DERIVER_VERSION}.staging`);
+      expect(
+        String(write?.params?.version).startsWith(
+          `${WINDOW_DERIVER_VERSION}.staging.`,
+        ),
+      ).toBe(true);
       expect(
         on.queries.some(
           (q) =>
