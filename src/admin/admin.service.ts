@@ -3,6 +3,7 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { mapWithLimit } from '../common/parallel';
+import { envFlagEnabled } from '../common/env-validation';
 
 /** Per-tenant fan-out concurrency for admin cross-tenant reads. */
 const TENANT_FANOUT = 4;
@@ -121,6 +122,8 @@ export interface AuditPage {
 @Injectable()
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
+  /** Tenants whose view-read failure has already been logged (log once). */
+  private readonly viewFallbackLogged = new Set<string>();
 
   constructor(
     private readonly apiKeys: ApiKeyService,
@@ -696,6 +699,24 @@ export class AdminService {
     deadLetter24h: number;
     forgotten24h: number;
   }> {
+    // STATS_VIEWS_ENABLED: read the entity/fact counters from the 0088
+    // computed tables (incrementally maintained by SurrealDB on source
+    // writes) instead of re-aggregating live. The 24h moving windows and
+    // the last-20 row reads stay live in both paths. A failing view read
+    // (pre-0088 tenant) logs once per tenant and falls back live.
+    if (envFlagEnabled(process.env.STATS_VIEWS_ENABLED)) {
+      try {
+        return await this.collectTenantFromViews(companyId, dayAgoIso);
+      } catch (err) {
+        if (!this.viewFallbackLogged.has(companyId)) {
+          this.viewFallbackLogged.add(companyId);
+          this.logger.warn(
+            `stats views unavailable for ${companyId} (pre-0088 tenant?), ` +
+              `falling back to live counts: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
     return this.surreal.withCompany(companyId, async (db) => {
       // Batched: counts + last-20 + 24h-window all in one round-trip
       // per tenant. SurrealDB returns one result array per statement
@@ -752,6 +773,71 @@ export class AdminService {
   }
 
   /**
+   * View-backed variant of collectTenant: the three plain counters come
+   * from the 0088 rollup tables (one row fetch each); everything
+   * time-windowed or row-shaped stays identical to the live path.
+   */
+  private async collectTenantFromViews(
+    companyId: string,
+    dayAgoIso: string,
+  ): Promise<{
+    row: AdminTenantRow;
+    deadLetter: AdminDeadLetterRow[];
+    forgotten: AdminForgottenRow[];
+    deadLetter24h: number;
+    forgotten24h: number;
+  }> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const sql = `
+        SELECT n FROM stats_entity_total;
+        SELECT n, status FROM stats_fact_by_status;
+        SELECT id, reason, rejectedAt, payload FROM ingest_dead_letter
+          ORDER BY rejectedAt DESC LIMIT 20;
+        SELECT count() AS c FROM ingest_dead_letter
+          WHERE rejectedAt > type::datetime($dayAgoIso) GROUP ALL;
+        SELECT entityIdHash, reason, forgottenAt, factsDeleted, edgesDeleted
+          FROM forgotten_entity ORDER BY forgottenAt DESC LIMIT 20;
+        SELECT count() AS c FROM forgotten_entity
+          WHERE forgottenAt > type::datetime($dayAgoIso) GROUP ALL;
+      `;
+      const res = (await db.query<any[]>(sql, { dayAgoIso })) as any[];
+
+      const entities = viewCountOf(res[0]);
+      const byStatus = statusCountsOf(res[1]);
+      const deadLetterRows = (res[2] ?? []) as any[];
+      const dl24 = countOf(res[3]);
+      const forgottenRows = (res[4] ?? []) as any[];
+      const fg24 = countOf(res[5]);
+
+      return {
+        row: {
+          companyId,
+          entities,
+          factsActive: byStatus.get('active') ?? 0,
+          factsRetracted: byStatus.get('retracted') ?? 0,
+        },
+        deadLetter: deadLetterRows.map((r) => ({
+          companyId,
+          id: String(r.id),
+          reason: r.reason,
+          rejectedAt: new Date(r.rejectedAt).toISOString(),
+          payload: r.payload ?? {},
+        })),
+        forgotten: forgottenRows.map((r) => ({
+          companyId,
+          entityIdHash: r.entityIdHash,
+          reason: r.reason,
+          forgottenAt: new Date(r.forgottenAt).toISOString(),
+          factsDeleted: r.factsDeleted ?? 0,
+          edgesDeleted: r.edgesDeleted ?? 0,
+        })),
+        deadLetter24h: dl24,
+        forgotten24h: fg24,
+      };
+    });
+  }
+
+  /**
    * Drop a tenant's entire per-tenant database. The caller is responsible
    * for authorising this (the admin API restricts it to ephemeral eval_*
    * tenants) — this just performs the DB-level teardown.
@@ -765,6 +851,25 @@ function countOf(stmtResult: any): number {
   if (!Array.isArray(stmtResult) || stmtResult.length === 0) return 0;
   const first = stmtResult[0];
   return typeof first?.c === 'number' ? first.c : 0;
+}
+
+/** Single-row GROUP ALL view: absent row (empty source) reads as 0. */
+function viewCountOf(stmtResult: any): number {
+  if (!Array.isArray(stmtResult) || stmtResult.length === 0) return 0;
+  const first = stmtResult[0];
+  return typeof first?.n === 'number' ? first.n : 0;
+}
+
+/** GROUP BY status view rows → status → n. Missing groups read as 0. */
+function statusCountsOf(stmtResult: any): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!Array.isArray(stmtResult)) return out;
+  for (const row of stmtResult as Array<{ n?: unknown; status?: unknown }>) {
+    if (typeof row?.status === 'string' && typeof row?.n === 'number') {
+      out.set(row.status, row.n);
+    }
+  }
+  return out;
 }
 
 function sum(xs: number[]): number {

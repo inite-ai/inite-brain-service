@@ -661,6 +661,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // FLAG_VALUES still parses as OFF, i.e. in-thread NLI inference.
   'CHAT_ROUTE_NLI_WORKER',
   'THROTTLE_DISABLED',
+  // 0088 stats views: tenant counter reads come from the incrementally
+  // maintained count() rollup tables instead of live GROUP aggregates.
+  // Off (default) → byte-identical pre-0088 live counting.
+  'STATS_VIEWS_ENABLED',
   'INDEXER_WEBHOOK_PUSH_ENABLED',
   'REINDEX_ON_PACK_INSTALL',
   'DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL',
