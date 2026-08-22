@@ -300,12 +300,13 @@ export class WindowDeriverService {
       }
       return result;
     }
-    // Audit 2026-08-21 (lease fencing): a lease definitively lost
-    // mid-run means a competing pod may be building — or may already
-    // have swept — this very staging namespace. Promoting would flip a
-    // world of unknown provenance; refuse, mark failed, leave staging
-    // for forensics (the next run's sweep reaps it).
-    if (lease.isLost()) {
+    // Audit 2026-08-21 (lease fencing) + round-4 hardening: prove
+    // ownership SYNCHRONOUSLY at the flip boundary — a stale pod that
+    // slept past the TTL still holds isLost=false from its last
+    // heartbeat, but the fresh renew fails and fences it. Per-run
+    // staging already guarantees no data mixing; this closes the
+    // stale-overwrite of a newer pod's promoted world.
+    if (lease.isLost() || !(await lease.renew())) {
       await this.registry?.fail({ companyId, name: 'facts', version });
       this.logger.error(
         `derive '${version}' for ${companyId}: lease lost mid-run — ` +

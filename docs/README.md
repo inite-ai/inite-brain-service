@@ -34,6 +34,8 @@ with one row per document.
 | [Source reputation & trust](source-reputation.md) | Domain-scoped trust, corroboration, feedback loop, trust in ranking. |
 | [ABAC access policies](abac.md) | Per-key policy sets: action gating + row-level read filtering, rollout runbook. |
 | [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers, seed documents. |
+| [Fact provenance API](fact-provenance-api.md) | `GET /v1/facts/:id` + `/provenance` — the fact and the verbatim turns it came from ("show me why I remember this"). Flag-gated, ownership-fenced. |
+| [User profile API](user-profile-api.md) | `GET /v1/users/:userId/profile` — deterministic, prompt-ready assembly of one user's own memory (strict user scope). Flag-gated. |
 | [Eval harness](eval.md) | Production-gate retrieval + lifecycle eval. Load your CRM via JSON or Wikidata. |
 | [LoCoMo benchmark](locomo.md) | Long-term conversational memory eval — apples-to-apples vs Mem0 / Zep / MemGPT. |
 

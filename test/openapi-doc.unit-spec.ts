@@ -70,7 +70,16 @@ describe('docs/openapi.json', () => {
   });
 
   it('matches the committed artifact (regenerate: pnpm openapi:build)', () => {
-    expect(committed).toEqual(built);
+    // info.version is compared normalized: the built document reads
+    // package.json at test time, and a release-please version bump
+    // must not fail main CI until someone regenerates — every OTHER
+    // byte still gates strictly. (The committed version catches up on
+    // the next `pnpm openapi:build`.)
+    const stripVersion = (doc: Json): Json => ({
+      ...doc,
+      info: { ...(doc.info as Json), version: 'NORMALIZED' },
+    });
+    expect(stripVersion(committed)).toEqual(stripVersion(built));
   });
 
   // The landing serves a second copy at brain.inite.ai/openapi.json — the URL
