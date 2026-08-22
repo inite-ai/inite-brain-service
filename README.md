@@ -319,7 +319,7 @@ The hub with per-persona routing lives at [`docs/README.md`](docs/README.md).
 | **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [OpenAPI 3.1 spec](docs/openapi.json) (platform surface, generated) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) · [Fact provenance API](docs/fact-provenance-api.md) · [User profile API](docs/user-profile-api.md) |
 | **Extend it** | [Domain Packs](docs/domain-packs.md) (registry + marketplace + seed documents) · [External indexer protocol](docs/indexer-protocol.md) · [MCP pack tools](docs/mcp-pack-tools.md) · [Listing playbook](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
-| **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
+| **Measure it** | [Eval methodology](docs/eval-methodology.md) (strict-judge protocol + measured judge inflation) · [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
 
 A reader-friendly version of the docs lives at
 **[brain.inite.ai/en/docs](https://brain.inite.ai/en/docs)** (also in Russian).
