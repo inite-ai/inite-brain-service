@@ -1540,6 +1540,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Facet routing (dialogue profile only): a turn containing a list (3+ items) or a proper name also gets a SPECIALIST extraction pass whose only contract is that one thing, unioned with the general pass. Strictly additive recall — the general pass still runs and the union deduplicates. The router is a local heuristic, not an LLM call. Costs one extra extraction call per detected facet. Requires re-ingest.',
       },
       {
+        key: 'STATS_VIEWS_ENABLED',
+        category: 'misc',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'Tenant counter reads (StatsService.overview Usage page, admin dashboard per-tenant counters) come from the 0088 incrementally-maintained count() rollup tables (stats_entity_total / stats_fact_by_status / stats_community_total) instead of live GROUP aggregates. Counts only — SurrealDB incremental view maintenance is exact for count() but has known upstream bugs for median/stddev-class aggregates. The view path bypasses the 30s LRU (the view IS the cache); moving-window counts (facts last 7d, dead-letter/forgotten last 24h) stay live in both paths. A failing view read (pre-0088 tenant) logs once per tenant and falls back to live counting. Off (default) → byte-identical pre-0088 behavior.',
+      },
+      {
         key: 'LIVE_SUBSCRIPTIONS_ENABLED',
         category: 'misc',
         defaultValue: '0',
