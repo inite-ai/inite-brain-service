@@ -356,6 +356,10 @@ export class FactResolverService {
       lang?: string;
       script?: string;
       derivedVersion: string;
+      /** Per-user scope of the grounding turns (audit 2026-08-21 P0) —
+       *  absent = tenant-global. Conflict resolution is scope-local
+       *  (0055: fn::resolve_fact scopes candidates by $user_id). */
+      userId?: string;
     }>,
     opts: { slotSemantics?: boolean } = {},
   ): Promise<ResolveOutcome[]> {
@@ -374,6 +378,7 @@ export class FactResolverService {
       lang: r.lang,
       script: r.script,
       derivedVersion: r.derivedVersion,
+      userId: r.userId,
     }));
     try {
       return (await this.resolveAppendOnlyBatch(

@@ -467,3 +467,121 @@ describe('FACTS_API_ENABLED gate (controller)', () => {
     });
   });
 });
+
+/**
+ * Release blocker (audit 2026-08-21 P0): retract used to mutate with no
+ * ownership fence. These pin the fence matrix — every deny throws
+ * BEFORE any mutation reaches the DB (the stub records queries; a
+ * SELECT is the only shape a denied retract may issue).
+ */
+describe('FactsService.retract() — ownership fence', () => {
+  const WRITE = ['brain:write'] as BrainScope[];
+  const WRITE_ADMIN = ['brain:write', 'brain:admin'] as BrainScope[];
+  const dto = { reason: 'test' } as RetractFactDto;
+
+  const USER_FACT_U2: Row = {
+    id: 'knowledge_fact:f1',
+    predicate: 'preference',
+    object: 'private note',
+    status: 'active',
+    userId: 'u2',
+    source: { vertical: 'dialogue', recorder: 'r' },
+  };
+
+  const onlySelects = (queries: Recorded[]) =>
+    queries.every((q) => q.sql.trimStart().toUpperCase().startsWith('SELECT'));
+
+  it("user-bound token: another user's fact → 404, zero mutations", async () => {
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [USER_FACT_U2] },
+    });
+    await runWithRequestContext(
+      { correlationId: 'test', authUserId: 'u1' },
+      async () => {
+        await expect(
+          svc.retract({
+            companyId: 'co_a',
+            factId: 'f1',
+            dto,
+            callerScopes: WRITE,
+          }),
+        ).rejects.toThrow(NotFoundException);
+      },
+    );
+    expect(onlySelects(queries)).toBe(true);
+  });
+
+  it('user-bound token: tenant-global fact without brain:admin → 403, zero mutations', async () => {
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [{ ...FACT_GLOBAL }] },
+    });
+    await runWithRequestContext(
+      { correlationId: 'test', authUserId: 'u1' },
+      async () => {
+        await expect(
+          svc.retract({
+            companyId: 'co_a',
+            factId: 'f1',
+            dto,
+            callerScopes: WRITE,
+          }),
+        ).rejects.toThrow('requires an M2M token or brain:admin');
+      },
+    );
+    expect(onlySelects(queries)).toBe(true);
+  });
+
+  it('user-bound token: OWN fact passes the fence (mutation reached)', async () => {
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [{ ...USER_FACT_U2, userId: 'u1' }] },
+    });
+    await runWithRequestContext(
+      { correlationId: 'test', authUserId: 'u1' },
+      async () => {
+        // The stub has no dbMerge surface — reaching the mutation step
+        // (past every fence) throws a non-HTTP error, which is the
+        // assertion: the fence did NOT stop an owner.
+        await expect(
+          svc.retract({
+            companyId: 'co_a',
+            factId: 'f1',
+            dto,
+            callerScopes: WRITE,
+          }),
+        ).rejects.not.toThrow(NotFoundException);
+      },
+    );
+  });
+
+  it('user-bound token + brain:admin: tenant-global fact passes the fence', async () => {
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [{ ...FACT_GLOBAL }] },
+    });
+    await runWithRequestContext(
+      { correlationId: 'test', authUserId: 'u1' },
+      async () => {
+        await expect(
+          svc.retract({
+            companyId: 'co_a',
+            factId: 'f1',
+            dto,
+            callerScopes: WRITE_ADMIN,
+          }),
+        ).rejects.not.toThrow(NotFoundException);
+      },
+    );
+  });
+
+  it('scope-fenced predicate → 404 for callers without the scope, zero mutations', async () => {
+    const { svc, queries } = makeStack({
+      factsByCompany: { co_a: [{ ...FACT_GLOBAL }] },
+      policy: {
+        preference: { requiresScope: 'brain:read_pii', piiClass: 'none' },
+      },
+    });
+    await expect(
+      svc.retract({ companyId: 'co_a', factId: 'f1', dto, callerScopes: WRITE }),
+    ).rejects.toThrow(NotFoundException);
+    expect(onlySelects(queries)).toBe(true);
+  });
+});

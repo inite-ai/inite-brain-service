@@ -339,15 +339,58 @@ export class FactsService {
       const now = new Date();
 
       // Verify the fact exists and is currently active. SELECT extra
-      // predicate + source so the admin-scope gate below can read them.
+      // predicate + source so the admin-scope gate below can read them,
+      // and userId for the ownership fence.
       const [existingRows] = await db.query<any[][]>(
-        `SELECT id, status, retractedAt, validFrom, predicate, source
+        `SELECT id, status, retractedAt, validFrom, predicate, source,
+                userId
            FROM type::record('knowledge_fact', $rid) LIMIT 1`,
         { rid: ref.id },
       );
       const existing = (existingRows as any[])?.[0];
       if (!existing) {
         throw new NotFoundException(`Fact ${factId} not found`);
+      }
+
+      // Release blocker (audit 2026-08-21 P0): retract used to mutate
+      // with no ownership fence at all — a user-bound brain:write token
+      // could retract any fact by id. Same semantics as the read path:
+      // another user's fact is a 404 (existence never leaks); a
+      // tenant-global fact is retractable by a user-bound token only
+      // with brain:admin (it IS readable, so 403 leaks nothing new).
+      // In-process legacy callers run outside a request context, where
+      // pinUserScope(undefined) is undefined → unrestricted, as before.
+      const retractUserScope = pinUserScope(undefined);
+      if (retractUserScope !== undefined) {
+        const owner =
+          typeof existing.userId === 'string' && existing.userId.length > 0
+            ? existing.userId
+            : undefined;
+        if (owner !== undefined && owner !== retractUserScope) {
+          throw new NotFoundException(`Fact ${factId} not found`);
+        }
+        if (owner === undefined && !callerScopes?.includes('brain:admin')) {
+          throw new ForbiddenException(
+            'retract of a tenant-global fact requires an M2M token or brain:admin',
+          );
+        }
+      }
+
+      // Registry-backed row policy — a predicate the caller cannot see
+      // is a predicate the caller cannot retract (404, same as read).
+      if (callerScopes) {
+        const rowPolicy = makeRowPolicyFilter({
+          callerScopes,
+          surface: 'fact_read',
+          policyLookup: await this.predicateRegistry?.rowPolicyLookup(
+            companyId,
+          ),
+        });
+        const visible = rowPolicy.filter(existing);
+        rowPolicy.finish();
+        if (!visible) {
+          throw new NotFoundException(`Fact ${factId} not found`);
+        }
       }
 
       // Predicate-class authorization: billing_event / human_declared /

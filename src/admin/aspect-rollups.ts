@@ -156,6 +156,7 @@ export function accumulateLanded(
     object: string;
     validFrom: Date;
     source?: { episodeIds?: unknown };
+    userId?: string;
   }>,
   opts: {
     outcomes: Array<{ outcome: string }>;
@@ -166,6 +167,10 @@ export function accumulateLanded(
   rows.forEach((r, i) => {
     const o = outcomes[i]?.outcome;
     if (o === 'SKIPPED' || o === 'REJECTED') return;
+    // Audit 2026-08-21 P0: user-scoped rows never feed the rollup /
+    // compose pools — those aggregates land tenant-global, which would
+    // launder one user's facts into everyone's view.
+    if (typeof r.userId === 'string' && r.userId.length > 0) return;
     const eps = Array.isArray(r.source?.episodeIds)
       ? (r.source.episodeIds as unknown[]).filter(
           (e): e is string => typeof e === 'string',
