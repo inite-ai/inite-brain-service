@@ -1,7 +1,7 @@
 # Getting started
 
 Zero to a running Brain with one ingested fact — for anyone standing up
-the service for the first time. Brain runs on Node 22 + SurrealDB 3.1.5
+the service for the first time. Brain runs on Node 22 + SurrealDB 3.2.4
 + OpenAI. The fast path is five commands; everything else is in the
 linked docs.
 
