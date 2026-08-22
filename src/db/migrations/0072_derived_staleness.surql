@@ -21,6 +21,12 @@
 -- So this migration marks, and a recompute pass acts. A stale summary keeps
 -- being served in the meantime: it is stale, but it is better than the nothing
 -- that hiding it would leave behind.
+--
+-- SINCE 0089: marking is no longer nightly-only. A DEFINE EVENT on
+-- knowledge_fact (fact_staleness, 0089) calls fn::mark_derived_stale the
+-- moment a LIVE parent's status transitions to 'superseded'/'retracted' —
+-- the changefeed drain below remains as the catch-all backstop (pre-event
+-- history, derived-world parents, REMOVE EVENT windows).
 
 DEFINE FIELD IF NOT EXISTS staleAt ON knowledge_fact TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS staleReason ON knowledge_fact TYPE option<string>;
