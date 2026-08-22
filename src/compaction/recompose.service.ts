@@ -51,6 +51,17 @@ const CONTENT_CHANGED = new Set(['superseded', 'retracted']);
  * has not moved), and needs no edit to a 22-argument stored function whose
  * positional contract is a documented footgun.
  *
+ * SINCE 0089 the drain is the BACKSTOP, not the primary path: the
+ * `fact_staleness` DEFINE EVENT (migration 0089) calls fn::mark_derived_stale
+ * at write time, inside the transaction that flips a live parent to
+ * 'superseded'/'retracted' — dependents are stale within the same write, not
+ * the next morning. The drain stays for what the event cannot see: rows
+ * changed while the event was absent (pre-0089 history, an operator
+ * REMOVE EVENT window) and derived-world parents (the event's
+ * `derivedVersion IS NONE` guard excludes them so derive runs cannot storm
+ * it). Re-marking an already-stale row is free (`staleAt IS NONE` filter),
+ * so the two paths compose without coordination.
+ *
  * No feature flag: a summary that contradicts a corrected fact is a bug, not a
  * configuration.
  */
