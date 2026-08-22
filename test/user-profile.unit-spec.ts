@@ -98,8 +98,12 @@ describe('UserProfileService — SQL contract', () => {
     const svc = makeService({ rows: [], capture, readPin: 'wd-v1' });
     await svc.getProfile({ ...baseOpts });
     const { sql, params } = capture[0];
-    // User scope: fail-closed idiom — global + this user's rows.
-    expect(sql).toContain('(userId IS NONE OR userId = $scopeUserId)');
+    // Audit 2026-08-21: STRICT user scope — tenant-global rows are
+    // knowledge about arbitrary entities, not facts OF this user, and
+    // must never leak into a profile. The user's own derived facts
+    // carry userId by construction (derive-row-builder scope rule).
+    expect(sql).toContain('userId = $scopeUserId');
+    expect(sql).not.toContain('userId IS NONE');
     expect(params?.scopeUserId).toBe('u1');
     // Combined world fence: legacy namespace UNION the pinned world.
     expect(sql).toContain(

@@ -6,6 +6,7 @@ import {
 } from '../src/admin/window-deriver.service';
 import {
   STAGING_SUFFIX,
+  acquireDeriveLease,
   deriveLeaseName,
   promoteStaging,
   stagingNamespace,
@@ -175,17 +176,19 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
       }
     }
     const flips = queries.filter((q) => q.sql.includes('BEGIN TRANSACTION'));
-    expect(flips.length).toBe(2); // knowledge_fact, then conversation_digest
+    // Audit 2026-08-21: facts AND digests flip in ONE transaction — a
+    // committed fact-world can never be narrated by old digests.
+    expect(flips.length).toBe(1);
     expect(flips[0].sql).toContain(
       'DELETE knowledge_fact WHERE derivedVersion = $final',
     );
     expect(flips[0].sql).toContain(
       'UPDATE knowledge_fact SET derivedVersion = $final',
     );
-    expect(flips[1].sql).toContain(
+    expect(flips[0].sql).toContain(
       'DELETE conversation_digest WHERE derivedVersion = $final',
     );
-    expect(flips[1].sql).toContain(
+    expect(flips[0].sql).toContain(
       'UPDATE conversation_digest SET derivedVersion = $final',
     );
     for (const flip of flips) {
@@ -295,7 +298,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     });
     const res = await svc.run('co_x');
     expect(res.status).toBe('ok');
-    expect(events).toEqual(['begin', 'flip', 'flip', 'complete']);
+    expect(events).toEqual(['begin', 'flip', 'complete']);
   });
 
   it('targeted re-derive flips only that conversation and revives its supersede losers', async () => {
@@ -303,7 +306,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     const res = await svc.run('co_x', { conversationId: 'conv-1' });
     expect(res.conversations).toBe(1);
     const flips = queries.filter((q) => q.sql.includes('BEGIN TRANSACTION'));
-    expect(flips.length).toBe(2);
+    expect(flips.length).toBe(1);
     // Conversation-scoped DELETE/UPDATE — a targeted flip must never
     // wipe the other conversations of the final world.
     expect(flips[0].sql).toContain('source.conversationId = $conv');
@@ -314,7 +317,8 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // now runs against the FINAL world at flip time.
     expect(flips[0].sql).toContain("status = 'superseded'");
     expect(flips[0].sql).toContain('supersededBy IN');
-    expect(flips[1].sql).toContain('conversationId = $conv');
+    // Digest slice flips inside the SAME transaction.
+    expect(flips[0].sql).toContain('DELETE conversation_digest');
     expect(flips[0].params?.conv).toBe('conv-1');
   });
 });
@@ -434,23 +438,27 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
     return { queries, db };
   }
 
-  it('full flip: one DELETE-then-UPDATE transaction per table', async () => {
+  it('full flip: facts + digests in ONE DELETE-then-UPDATE transaction', async () => {
     const { db, queries } = mockDb();
     await promoteStaging(db, stagingNamespace('wd-v9'));
-    expect(queries).toHaveLength(2);
-    for (const q of queries) {
-      expect(q.sql).toContain('BEGIN TRANSACTION');
-      expect(q.sql).toContain('COMMIT TRANSACTION');
-      expect(q.params).toMatchObject({
-        final: 'wd-v9',
-        staging: 'wd-v9.staging',
-      });
-      // DELETE of the final world precedes the promoting UPDATE inside
-      // the same transaction — readers see old world or new, never both.
-      expect(q.sql.indexOf('DELETE')).toBeLessThan(q.sql.indexOf('UPDATE'));
-    }
-    expect(queries[0].sql).toContain('knowledge_fact');
-    expect(queries[1].sql).toContain('conversation_digest');
+    // Audit 2026-08-21: one transaction covers BOTH tables — a failure
+    // can never leave a new fact-world narrated by old digests.
+    expect(queries).toHaveLength(1);
+    const q = queries[0];
+    expect(q.sql).toContain('BEGIN TRANSACTION');
+    expect(q.sql).toContain('COMMIT TRANSACTION');
+    expect(q.params).toMatchObject({
+      final: 'wd-v9',
+      staging: 'wd-v9.staging',
+    });
+    // Per table, the DELETE of the final world precedes the promoting
+    // UPDATE — readers see old world or new, never both.
+    expect(q.sql.indexOf('DELETE knowledge_fact')).toBeLessThan(
+      q.sql.indexOf('UPDATE knowledge_fact'),
+    );
+    expect(q.sql.indexOf('DELETE conversation_digest')).toBeLessThan(
+      q.sql.indexOf('UPDATE conversation_digest'),
+    );
   });
 
   it('targeted flip scopes every statement to the conversation', async () => {
@@ -458,7 +466,7 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
     await promoteStaging(db, stagingNamespace('wd-v9'), {
       conversationId: 'conv-7',
     });
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(1);
     expect(queries[0].params?.conv).toBe('conv-7');
     // Revive of cross-conversation supersede losers runs first, inside
     // the same transaction as the replace.
@@ -466,7 +474,10 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
       queries[0].sql.indexOf('DELETE knowledge_fact'),
     );
     expect(queries[0].sql).toContain('source.conversationId = $conv');
-    expect(queries[1].sql).toContain('conversationId = $conv');
+    // Digest slice flips inside the SAME transaction, same scoping.
+    expect(queries[0].sql).toContain(
+      'DELETE conversation_digest\n            WHERE derivedVersion = $final AND conversationId = $conv',
+    );
   });
 
   it('sweep probes before deleting and scopes to the staging namespace', async () => {
@@ -529,5 +540,54 @@ describe('gc staging protection', () => {
     // The in-flight (registry-protected) world keeps its staging rows;
     // the crashed orphan whose base is gone is reaped.
     expect(res.deleted).toEqual({ 'wd-old.staging': 7 });
+  });
+});
+
+/**
+ * Lease fencing (audit 2026-08-21): a heartbeat renewal that
+ * DEFINITIVELY fails (tryAcquire → false: a competing pod holds the
+ * lease) sets the isLost fence promotion checks before flipping.
+ * Transient heartbeat ERRORS (network blips) do not set it — the lease
+ * TTL is the backstop for a truly dead pod.
+ */
+describe('derive lease fencing (isLost)', () => {
+  afterEach(() => jest.useRealTimers());
+
+  async function acquireWith(heartbeat: () => Promise<boolean>) {
+    jest.useFakeTimers();
+    let first = true;
+    const lease = {
+      tryAcquire: async () => {
+        if (first) {
+          first = false;
+          return true;
+        }
+        return heartbeat();
+      },
+      release: async () => undefined,
+    } as unknown as import('../src/jobs/leader-lease.service').LeaderLeaseService;
+    return acquireDeriveLease({
+      companyId: 'co_fence',
+      version: 'wd-fence',
+      lease,
+      logger: { warn: () => undefined },
+    });
+  }
+
+  it('definitive heartbeat loss sets the fence', async () => {
+    const handle = await acquireWith(async () => false);
+    expect(handle.isLost()).toBe(false);
+    await jest.advanceTimersByTimeAsync(200_001);
+    expect(handle.isLost()).toBe(true);
+    await handle.release();
+  });
+
+  it('a transient heartbeat error does NOT set the fence', async () => {
+    const handle = await acquireWith(async () => {
+      throw new Error('network blip');
+    });
+    await jest.advanceTimersByTimeAsync(200_001);
+    expect(handle.isLost()).toBe(false);
+    await handle.release();
   });
 });

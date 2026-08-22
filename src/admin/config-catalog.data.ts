@@ -1180,7 +1180,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         runtimeMutable: true,
         isBooleanFlag: false,
         description:
-          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile ({genre, verbatimEvidence, insightEvidence, timelineEvidence, coverageScanMode, coverageLexMode, dateAnchoring, temporalMode, abstentionCalibration, abstentionMinTopScore, abstentionMinEvidence, factBudget, quotesPerPrompt, sourceExcerptsCap, segmentTopK, segmentRerank, extraEvidenceCap, wideProbe, wideProbeLimit, scanHnswEf, scanHnswOverfetch, entityExpansion, salienceScoring, updateStoryRendering, orderingFrame, verifierTopicCoverage, lanes:[…]}). Resolved once per request in the auth guard.',
+          'Per-tenant retrieval-profile overrides: JSON object mapping companyId → partial profile. Every field of the RetrievalProfile is overridable — the authoritative field list is the wire contract (src/contracts/admin/retrieval-profile.schema.ts, pinned key-for-key against the profile by the contracts gate) rather than a copy here that drifts. Precedence: overlay field > explicit env > genre preset > code default; an overlay `genre` re-derives that genre’s preset base first (see genre-presets.ts). Resolved once per request in the auth guard.',
       },
       {
         key: 'SYNTHESIZE_EXTRA_EVIDENCE_CAP',

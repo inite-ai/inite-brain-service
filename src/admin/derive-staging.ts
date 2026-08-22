@@ -98,6 +98,12 @@ export function deriveLeaseName(companyId: string, version: string): string {
 
 export interface DeriveLease {
   name: string;
+  /** True once a heartbeat renewal definitively failed (`tryAcquire`
+   *  returned false) — a competing pod may hold the lease. Promotion
+   *  MUST check this fence before flipping staging → final (audit
+   *  2026-08-21: a lost lease used to be log-only, and the run kept
+   *  going all the way through promotion). */
+  isLost(): boolean;
   /** Idempotent; call in finally. */
   release(): Promise<void>;
 }
@@ -128,6 +134,7 @@ export async function acquireDeriveLease(args: {
   if (inFlight.has(key)) throw conflict();
   inFlight.add(key);
   let heartbeat: NodeJS.Timeout | undefined;
+  let lost = false;
   try {
     if (lease) {
       const got = await lease.tryAcquire(name, LEASE_TTL_SECONDS);
@@ -136,15 +143,20 @@ export async function acquireDeriveLease(args: {
         void lease.tryAcquire(name, LEASE_TTL_SECONDS).then(
           (ok) => {
             if (!ok) {
-              // Cannot safely abort a run mid-LLM-call; surface loudly —
-              // a competing pod may now start a derive for this pair.
+              // Cannot safely abort a run mid-LLM-call; mark the fence —
+              // promotion checks isLost() and refuses to flip (a
+              // competing pod may be building the same staging).
+              lost = true;
               logger.warn(
                 `derive lease '${name}' lost mid-run — a concurrent ` +
-                  `derive may start on another pod`,
+                  `derive may start on another pod; promotion is fenced`,
               );
             }
           },
           (e: unknown) =>
+            // Transient heartbeat errors (network blips) do NOT set the
+            // fence — only a definitive "someone else holds it" does;
+            // the lease TTL is the backstop for a truly dead pod.
             logger.warn(
               `derive lease heartbeat failed: ${(e as Error).message}`,
             ),
@@ -159,6 +171,7 @@ export async function acquireDeriveLease(args: {
   let released = false;
   return {
     name,
+    isLost: () => lost,
     release: async () => {
       if (released) return;
       released = true;
@@ -219,6 +232,9 @@ export async function promoteStaging(
   opts: { conversationId?: string } = {},
 ): Promise<void> {
   const conv = opts.conversationId;
+  // Audit 2026-08-21: facts and digests flip in ONE transaction — the
+  // old two-transaction shape could commit the fact-world and then fail
+  // the digest flip, leaving a new fact-world narrated by old digests.
   await runTransaction(db as unknown as Surreal, (tx) => {
     tx.bind('final', ns.final).bind('staging', ns.staging);
     if (conv) {
@@ -247,20 +263,6 @@ export async function promoteStaging(
           `UPDATE knowledge_fact SET derivedVersion = $final
             WHERE derivedVersion = $staging AND source.conversationId = $conv`,
         )
-        .add(`RETURN true`);
-    } else {
-      tx.add(`DELETE knowledge_fact WHERE derivedVersion = $final`)
-        .add(
-          `UPDATE knowledge_fact SET derivedVersion = $final
-            WHERE derivedVersion = $staging`,
-        )
-        .add(`RETURN true`);
-    }
-  });
-  await runTransaction(db as unknown as Surreal, (tx) => {
-    tx.bind('final', ns.final).bind('staging', ns.staging);
-    if (conv) {
-      tx.bind('conv', conv)
         .add(
           `DELETE conversation_digest
             WHERE derivedVersion = $final AND conversationId = $conv`,
@@ -271,7 +273,12 @@ export async function promoteStaging(
         )
         .add(`RETURN true`);
     } else {
-      tx.add(`DELETE conversation_digest WHERE derivedVersion = $final`)
+      tx.add(`DELETE knowledge_fact WHERE derivedVersion = $final`)
+        .add(
+          `UPDATE knowledge_fact SET derivedVersion = $final
+            WHERE derivedVersion = $staging`,
+        )
+        .add(`DELETE conversation_digest WHERE derivedVersion = $final`)
         .add(
           `UPDATE conversation_digest SET derivedVersion = $final
             WHERE derivedVersion = $staging`,
