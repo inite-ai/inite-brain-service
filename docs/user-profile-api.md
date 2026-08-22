@@ -24,8 +24,13 @@ a flip needs no restart.
 - User-scope pin (migration 0055 semantics): an M2M credential may fetch
   any user's profile; a user-bound token (auth-service token with
   `org` + `sub`) may fetch only its own — a mismatching `:userId` is 403.
-- Visibility is the fact-lane read contract: tenant-global rows plus the
-  named user's personal rows (`userId IS NONE OR userId = $user`), the
+- Visibility is STRICT user scope (audit 2026-08-21): only the named
+  user's personal rows (`userId = $user`) — a tenant-global row is
+  knowledge about an arbitrary entity, not established to be about this
+  user, and never enters a profile. The user's own derived facts carry
+  `userId` by construction (the deriver's grounding-turn scope rule).
+  Tenant-global rows with an explicit subject/entity binding to the
+  user are the documented v2. The rest of the read contract: the
   pinned derived world unioned with the legacy namespace
   (`derivedVersion IS NONE OR <read-pin fence>`), lifecycle-closed rows
   excluded (retracted / superseded / compacted / corroborating /

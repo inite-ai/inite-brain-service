@@ -181,9 +181,15 @@ export class UserProfileService {
     const worldClause = `(derivedVersion IS NONE OR ${fence.clause.replace(/^AND\s+/, '')})`;
 
     const clauses = [
-      // User scope (0055) — the search where-builder idiom: global +
-      // this user's rows. Derived typed atoms ride the global half.
-      `(userId IS NONE OR userId = $scopeUserId)`,
+      // Audit 2026-08-21: STRICT user scope — a profile asserts facts
+      // OF this user, and a tenant-global row is any knowledge about
+      // any entity in the tenant, not established to be about them.
+      // Derived facts grounded in this user's turns carry userId by
+      // construction (derive-row-builder scope rule), so nothing of
+      // the user's own derived memory is lost by the strict filter.
+      // Global rows return only with an explicit subject/entity
+      // binding — the documented v2.
+      `userId = $scopeUserId`,
       worldClause,
       // Lifecycle "actual now" closure — copied from the search
       // where-builder (incl. the future-dated-supersede gap rule).

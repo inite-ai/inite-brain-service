@@ -64,6 +64,7 @@ import {
   promoteStaging,
   stagingNamespace,
   sweepStagingRows,
+  type DeriveLease,
   type DeriveNamespace,
 } from './derive-staging';
 import { buildDerivedRows, collectRollupPool } from './derive-row-builder';
@@ -193,7 +194,14 @@ export class WindowDeriverService {
       logger: this.logger,
     });
     try {
-      return await this.runStaged({ companyId, version, ns, opts, activePin });
+      return await this.runStaged({
+        companyId,
+        version,
+        ns,
+        opts,
+        activePin,
+        lease,
+      });
     } finally {
       await lease.release();
     }
@@ -207,8 +215,10 @@ export class WindowDeriverService {
     ns: DeriveNamespace;
     opts: { conversationId?: string; activate?: boolean };
     activePin: string | undefined;
+    /** Promotion fence (audit 2026-08-21): checked before the flip. */
+    lease: DeriveLease;
   }): Promise<DeriveRunResult> {
-    const { companyId, version, ns, opts, activePin } = args;
+    const { companyId, version, ns, opts, activePin, lease } = args;
     const result: DeriveRunResult = {
       conversations: 0,
       sessions: 0,
@@ -283,21 +293,34 @@ export class WindowDeriverService {
       }
       return result;
     }
-    // Atomic flip: staging → final (DELETE final + UPDATE staging, one
-    // BEGIN/COMMIT per table). A run that attempted no conversation has
-    // nothing to promote — flipping would wipe the final world with an
-    // empty staging namespace.
+    // Audit 2026-08-21 (lease fencing): a lease definitively lost
+    // mid-run means a competing pod may be building — or may already
+    // have swept — this very staging namespace. Promoting would flip a
+    // world of unknown provenance; refuse, mark failed, leave staging
+    // for forensics (the next run's sweep reaps it).
+    if (lease.isLost()) {
+      await this.registry?.fail({ companyId, name: 'facts', version });
+      this.logger.error(
+        `derive '${version}' for ${companyId}: lease lost mid-run — ` +
+          `promotion fenced; staging left in place, world NOT flipped`,
+      );
+      result.status = 'failed';
+      return result;
+    }
+    // Atomic flip: staging → final (DELETE final + UPDATE staging,
+    // facts + digests in ONE BEGIN/COMMIT). A run that attempted no
+    // conversation has nothing to promote — flipping would wipe the
+    // final world with an empty staging namespace.
     if (result.conversations > 0) {
       try {
         await this.surreal.withCompany(companyId, (db) =>
           promoteStaging(db, ns, { conversationId: opts.conversationId }),
         );
       } catch (e) {
-        // Facts and digests flip in separate transactions; a failure
-        // here can leave facts promoted with digests still staged. The
-        // registry marks the world failed either way, and staging is
-        // LEFT in place (forensics) — the next run for this version
-        // sweeps it.
+        // The single-transaction flip failed whole: final world
+        // untouched, staging intact. The registry marks the world
+        // failed, and staging is LEFT in place (forensics) — the next
+        // run for this version sweeps it.
         await this.registry?.fail({ companyId, name: 'facts', version });
         throw e;
       }
