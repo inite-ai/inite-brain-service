@@ -1,0 +1,42 @@
+-- 0090_remove_dead_server_functions — drop two stored functions that
+-- have had zero callers for their entire recent history. Evidence for
+-- each removal (repo-wide grep over src/, test/, scripts/, docs/ —
+-- node_modules excluded — as of this migration):
+--
+-- 1. fn::find_competing_facts (defined in 0003_server_functions.surql)
+--    Built for the ingestFact conflict-resolution path: fetch the
+--    candidate set server-side, score in JS. That path was superseded
+--    by fn::resolve_fact (0006, revised 0079), which performs its own
+--    candidate scan inside the function — the separate fetch primitive
+--    was never called again. Remaining mentions are comments only:
+--    a historical note in 0006_resolve_fact_fn.surql:115. No
+--    `fn::find_competing_facts(` call site exists anywhere in src/ or
+--    test/.
+--
+-- 2. fn::active_facts_for (defined in 0003_server_functions.surql)
+--    Built for knowledge-artifact compilation. The live artifact path
+--    (ArtifactsService.fetchActiveFacts, src/artifacts/artifacts.service.ts)
+--    deliberately queries inline instead: it needs the per-user scope
+--    fence introduced in 0055, which this stored fn predates and has
+--    no argument for. The JS mirror stays — this migration removes
+--    only the uncalled stored fn. Remaining mentions are comments
+--    only (the mirror's own comment and a test-header history note in
+--    test/artifacts-user-scope.e2e-spec.ts). No `fn::active_facts_for(`
+--    call site exists anywhere in src/ or test/.
+--
+-- Deliberately NOT removed — knowledge_edge.invalidatedAt and its
+-- index edge_invalidated_idx (0059_perf_indexes.surql): the
+-- graph-research 2026-08 note (docs/roadmap/graph-research-2026-08.md)
+-- records the field has no writer, which is still true, but it is NOT
+-- reader-free: the edge fence (src/search/internals/edge-fence.ts)
+-- gates every fenced edge read on `invalidatedAt IS NONE`, the
+-- community builder filters on it twice
+-- (src/communities/community-builder.service.ts), and the entity
+-- relations read both filters on it and projects it to API clients
+-- (src/entities/entities.service.ts). Dropping the field would change
+-- the meaning of those reads the day a writer appears; the actionable
+-- gap is the missing writer (edge invalidation), tracked in the
+-- roadmap doc — not the field.
+
+REMOVE FUNCTION IF EXISTS fn::find_competing_facts;
+REMOVE FUNCTION IF EXISTS fn::active_facts_for;
