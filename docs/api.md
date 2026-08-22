@@ -74,6 +74,9 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/entities/autocomplete?q=` | Entity-name typeahead over the edge-ngram `prefix` fulltext index (word-start match, BM25-ranked via `search::score`). `?limit=` 1–25 (default 10); a query under 2 chars returns empty. Live, tenant-global entities only (merged-away redirects and personal-scoped entities excluded). |
 | `GET /v1/entities/:id` | Entity profile + active facts (PII-gated by scope). `?asOf=` slices world-time; `?recordedAt=` slices transaction-time (what the graph believed at T — a later retract/supersede is ignored). |
 | `GET /v1/entities/:id/timeline` | Bitemporal sweep — `fact.recorded` / `fact.retracted` events on the transaction-time axis. `?since=`/`?until=` page the window; `?recordedAt=` cuts to events known by T. |
+| `GET /v1/facts/:id` | One fact by id: statement, aspect, validity, user scope, provenance coordinates, `retracted` flag. Every visibility fence (tenant, user scope, row policy) answers 404 — existence never leaks. Flag `FACTS_API_ENABLED`. |
+| `GET /v1/facts/:id/provenance` | The verbatim grounding turns behind a fact (`source.episodeIds`), chronological, text capped; PII-classed text needs `brain:read_pii`. Flag `FACTS_API_ENABLED`. |
+| `GET /v1/users/:userId/profile` | Deterministic, prompt-ready profile of one user's OWN memory (strict `userId` scope; persona-first sections + `profileText`). A user-bound token only fetches its own profile; M2M any. Flag `USER_PROFILE_API_ENABLED`. |
 | `GET /v1/entities/:id/connections` | Typed edges + direct neighbours. |
 | `GET /v1/artifacts/:type/:entityId` | Derived artifacts (profile / digest / etc) with manual `recompile` POST. |
 | `GET /v1/sources` | Read-only trust inputs: declared `type`/`authLevel` ⋈ learned reputation, one row per source. Filters `domain` / `type` / `minSamples`, paginated (`limit` ≤ 200 / `offset`). Public projection — operator annotations (`owner`/`note`) stay on the admin surface. |
@@ -104,7 +107,7 @@ All routes 404 until their flag is on.
 
 | Endpoint | Notes |
 |---|---|
-| `POST /v1/facts/:id/retract` | Mark a fact retracted with reason; survives in audit trail. |
+| `POST /v1/facts/:id/retract` | Mark a fact retracted with reason; survives in audit trail. Ownership-fenced: a user-bound token retracts only its own user-scoped facts (another user's → 404); a tenant-global fact needs an M2M token or `brain:admin`; row policy applies. Always available (GDPR path — independent of `FACTS_API_ENABLED`). |
 | `POST /v1/feedback` | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. **Affects the SOURCE's trust for facts ingested AFTER the refit — it does not demote the flagged fact or the existing corpus** (ranking reads each fact's write-time trust snapshot). Also on MCP as `record_feedback`. |
 | `POST /v1/entities/:id/forget` | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained. |
 | `POST /v1/users/:userId/forget` | GDPR erasure of one end-user's memory scope (migration 0055): personal facts (incl. those on shared entities), personal entities + edges + dedup refs, usage/feedback rows, audit mirror. |

@@ -115,8 +115,22 @@ flowchart LR
   then commit). Stored documents can be **re-indexed** when a new pack lands,
   and corroboration is keyed on the *origin document*, so two indexers reading
   the same source never masquerade as independent evidence.
+- **Per-user memory scope, provenance-first.** A fact can belong to one end
+  user, and that scope survives the whole pipeline — episode ingest, derived
+  worlds, retrieval, profiles, retraction (ownership-fenced). Every derived
+  fact keeps pointers to the verbatim turns it came from:
+  `GET /v1/facts/:id/provenance` shows *why the system remembers*, and
+  `GET /v1/users/:id/profile` assembles a deterministic, prompt-ready profile
+  from one user's own memory — no silent fact-mining, nothing you can't
+  inspect or erase.
+- **Versioned derived worlds.** Memory can be re-derived from the raw episode
+  substrate (session-window derivation: the whole conversation as the unit of
+  understanding, not one turn) into a NEW versioned world — built in a
+  per-run staging namespace under a lease and promoted with one atomic flip —
+  while readers stay pinned to the previous world until the swap.
 - **A forget that deletes.** GDPR erasure is a synchronous hard cascade —
   facts, edges, and embeddings gone, only an HMAC tombstone left to prove it.
+  Works at entity scope and at end-user scope (`POST /v1/users/:id/forget`).
 - **Native MCP.** A per-tenant Streamable HTTP endpoint with scope-aware tools.
   Hermes, Claude Desktop, Cursor, Goose, n8n — same URL, no glue code; stdio-only
   harnesses connect via the [`@inite/brain-mcp`](https://www.npmjs.com/package/@inite/brain-mcp) connector.
@@ -302,7 +316,7 @@ The hub with per-persona routing lives at [`docs/README.md`](docs/README.md).
 | | |
 |---|---|
 | **Get going** | [Getting started](docs/getting-started.md) · [Migration guide](docs/migration-guide.md) |
-| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [OpenAPI 3.1 spec](docs/openapi.json) (platform surface, generated) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) |
+| **Understand it** | [Architecture](docs/architecture.md) · [API reference](docs/api.md) · [OpenAPI 3.1 spec](docs/openapi.json) (platform surface, generated) · [Data model](docs/data-model.md) · [Bitemporal semantics](docs/bitemporal-semantics.md) · [Source reputation & trust](docs/source-reputation.md) · [ABAC access policies](docs/abac.md) · [Document pipeline](docs/document-pipeline.md) · [Fact provenance API](docs/fact-provenance-api.md) · [User profile API](docs/user-profile-api.md) |
 | **Extend it** | [Domain Packs](docs/domain-packs.md) (registry + marketplace + seed documents) · [External indexer protocol](docs/indexer-protocol.md) · [MCP pack tools](docs/mcp-pack-tools.md) · [Listing playbook](docs/distribution.md) · [Code memory](docs/roadmap/code-memory-domain.md) |
 | **Run it** | [Operations](docs/operations.md) · [Operator playbook](docs/operator-playbook.md) · [Deploy runbook](docs/DEPLOY.md) |
 | **Measure it** | [Eval harness](docs/eval.md) · [LoCoMo benchmark](docs/locomo.md) |
@@ -343,12 +357,21 @@ counters and pull-only mirroring, marketplace with paid packs, pack-declared
 MCP tools, seed documents), OpenAPI 3.1 platform spec, worker-thread offloads
 + `PROCESS_ROLE` api/worker split, code memory (record *why* a decision was
 made, drift-resistant symbol anchors), eval-gated CI, off-hours
-self-improvement (dreams).
+self-improvement (dreams), the raw episode substrate with versioned derived
+worlds (atomic per-run staged rebuilds, lease-fenced promotion, read pins),
+end-to-end per-user memory scope (episode ingest → derivation → retrieval →
+profile → ownership-fenced retraction), fact-provenance + rolling
+user-profile read APIs, measured genre presets over the retrieval profile,
+and long-horizon conversational memory benchmarks run under a strict judge
+([LoCoMo](docs/locomo.md), LongMemEval, BEAM — protocol in
+[docs/eval-protocol.md](docs/eval-protocol.md)).
 
-Exploring (issues + ideas welcome): extractor span-grounding offload (profile
-first), worker-pool right-sizing as more handlers move to threads, and the
-full paid LoCoMo run with published numbers. Temporal was evaluated and
-deliberately not adopted — the re-evaluation triggers live in
+Exploring (issues + ideas welcome): a non-conversational (document / KG) eval
+axis on the same harness, failure-memory for agents (distill what went wrong
+into reusable strategies), prospective-memory / preference-drift benchmarks,
+extractor span-grounding offload, and worker-pool right-sizing as more
+handlers move to threads. Temporal was evaluated and deliberately not
+adopted — the re-evaluation triggers live in
 [docs/roadmap/platform-gap-2026-07.md](docs/roadmap/platform-gap-2026-07.md).
 Have a use case? Open an issue.
 
