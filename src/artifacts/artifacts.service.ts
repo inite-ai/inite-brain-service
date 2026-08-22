@@ -264,12 +264,13 @@ export class ArtifactsService {
     rid: string,
     scopes: BrainScope[],
   ): Promise<FactRow[]> {
-    // Mirrors fn::active_facts_for (migration 0003) but pins the
+    // Mirrors fn::active_facts_for (migration 0003; removed as dead in
+    // 0090 — this inline query is the live implementation) but pins the
     // tenant-GLOBAL scope: artifacts are a tenant-wide surface with no
     // per-user concept (like graph_retrieve), so a per-user fact
     // (userId != NONE, migration 0055) must never be compiled into a
-    // dossier served to the whole tenant. The stored fn predates 0055 and
-    // has no scope arg, so we query inline instead of extending it.
+    // dossier served to the whole tenant. The stored fn predated 0055 and
+    // had no scope arg, so we queried inline instead of extending it.
     // LIMIT: compile() consumes a bounded slice of the newest facts, but
     // this ran unbounded on the artifact read path — a long-lived entity
     // shipped its entire fact history per cache miss. 500 newest is far

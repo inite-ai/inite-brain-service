@@ -614,6 +614,41 @@ write-pack derive (typed-atoms + time-pack, new version) vs arm B —
 ~$20-25 — which confirms or kills both construction-side effects at
 n=500 in a single paired measurement instead of per-axis dribbles.
 
+### §10 literature update (2026-08-22) — the parked direction gains independent support
+
+Three papers landed on the exact shape the ladder measured:
+
+- **MemIR (arXiv 2605.25869)** names our SSA failure mode outright —
+  **"provenance-role collapse"** — and its fix is a three-way
+  separation of *raw evidence / retrieval cues / truth-bearing
+  claims*: memories that anchor retrieval are not the same objects as
+  memories that answer, and both must keep a pointer to the evidence
+  they came from. That is our typed-atoms design (M2 `kind` tags over
+  one substrate, facts-as-keys pointing at verbatim turns) stated as
+  the paper's central mechanism rather than a passing label.
+- **Eywa (arXiv 2605.30771)** — "**evidence before belief**": raw
+  observations are stored first-class and beliefs are derived views
+  over them, with a **deterministic zero-LLM read path** over the
+  evidence store. That is our episode substrate → derived-worlds
+  architecture (immutable L0, versioned derivations, LLM-free
+  ingest). Their benchmark numbers remain non-comparable (self-run
+  in-house suite — see the eval-protocol caveat); the support here is
+  architectural, not numeric.
+- **ScrubJay-MEM (arXiv 2608.04746)** adds **per-type perishability**:
+  memory types decay on different clocks (preferences drift, events
+  don't, identity facts persist). For us this is a concrete NEXT lever
+  that only exists *because* atoms are typed — type-conditioned
+  temporal decay over the M2 `kind` vocabulary (a principled successor
+  to the fovea program's salience-decay interest, this time with a
+  published mechanism rather than vendor prose).
+
+Frame: the parked SSA 57.1-vs-42.9 direction (p≈0.06, direction not
+effect) now has independent literature support from three unrelated
+groups converging on typed atoms over one evidence substrate. The
+decision bar is unchanged — the recorded next step remains the ONE
+decision-grade full-500 combined write-pack confirm (~$20-25) above;
+the literature moves the prior, not the statistics.
+
 ## 11. Genre presets (built 2026-08-21, branch feat/genre-presets)
 
 The measured genre-dependence of the engine is now a PRESET LAYER

@@ -36,6 +36,12 @@ with one row per document.
 | [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers, seed documents. |
 | [Fact provenance API](fact-provenance-api.md) | `GET /v1/facts/:id` + `/provenance` — the fact and the verbatim turns it came from ("show me why I remember this"). Flag-gated, ownership-fenced. |
 | [User profile API](user-profile-api.md) | `GET /v1/users/:userId/profile` — deterministic, prompt-ready assembly of one user's own memory (strict user scope). Flag-gated. |
+## Measure it
+
+| Doc | Purpose |
+|---|---|
+| [Eval methodology](eval-methodology.md) | The public strict-eval statement: strict-judge protocol, measured judge inflation, lenient-vs-strict conversion factors, our numbers with CIs. |
+| [Eval protocol](eval-protocol.md) | The full three-axis protocol (LoCoMo / LongMemEval / BEAM): harness design and per-axis rules. |
 | [Eval harness](eval.md) | Production-gate retrieval + lifecycle eval. Load your CRM via JSON or Wikidata. |
 | [LoCoMo benchmark](locomo.md) | Long-term conversational memory eval — apples-to-apples vs Mem0 / Zep / MemGPT. |
 

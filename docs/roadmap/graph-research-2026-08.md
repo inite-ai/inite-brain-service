@@ -39,7 +39,13 @@ only by the MCP tool and the admin demo chat); multi-hop edge expansion
 
 **Write-only / rotting fields:** `knowledge_edge.invalidatedAt` has NO
 writer anywhere (edge_invalidated_idx indexes a permanently-NONE
-column); `weight` is hardcoded 1.0 on every automatic path; per-edge
+column). [Update 2026-08-22: still no writer, but no longer
+reader-free — the edge fence (`search/internals/edge-fence.ts`) now
+gates every fenced edge read on `invalidatedAt IS NONE`, the community
+builder filters on it, and the entity relations read filters AND
+projects it. Field + index therefore kept in the 0090 dead-native
+cleanup; the actionable gap remains the missing writer.]
+`weight` is hardcoded 1.0 on every automatic path; per-edge
 extraction confidence is stored into `source` and never read; edge
 `kind` is a free vocabulary with no registry (works_at vs employed_by =
 two distinct edges forever — contrast the fact-predicate registry);
