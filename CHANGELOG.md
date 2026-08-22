@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0](https://github.com/inite-ai/inite-brain-service/compare/v2.0.0...v2.1.0) (2026-08-22)
+
+
+### Features
+
+* **db:** computed views for tenant counters behind STATS_VIEWS_ENABLED ([95cf3bb](https://github.com/inite-ai/inite-brain-service/commit/95cf3bbdd23546194b96a83c5e1cdcf1b80b1bfa))
+* **db:** validate stack on SurrealDB 3.2.4, bump CI/dev pins, add prod cutover runbook ([d5ee2a1](https://github.com/inite-ai/inite-brain-service/commit/d5ee2a16a0760cc9aec42e07cbbc768bbd21f945))
+* **db:** write-time derived-staleness event (0089) — closes the 0072 nightly-drain hole ([9a8bcdf](https://github.com/inite-ai/inite-brain-service/commit/9a8bcdf775ecb5fcd5869159d455ccb1565fc53a))
+* **staleness:** 0089 fact_staleness event — write-time derived-fact marking ([f1b8cab](https://github.com/inite-ai/inite-brain-service/commit/f1b8cab48b4cf9ecac06583aea00b70e22c1a4f7))
+* **stats:** 0088 computed count() views for tenant counters behind STATS_VIEWS_ENABLED ([3bc1187](https://github.com/inite-ai/inite-brain-service/commit/3bc1187a7b5d8383320e515641a9fd3a82842f35))
+
 ## [2.0.0](https://github.com/inite-ai/inite-brain-service/compare/v1.1.0...v2.0.0) (2026-08-22)
 
 
