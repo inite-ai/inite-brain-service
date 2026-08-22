@@ -28,19 +28,16 @@ import type { LeaderLeaseService } from '../jobs/leader-lease.service';
  *      not per-run — re-acquire by the same leaderId succeeds).
  *
  *   3. Atomic flip — after a CLEAN run, promoteStaging() replaces the
- *      final world with the staged one: per table, DELETE the final
- *      version's rows then UPDATE staging rows SET derivedVersion =
- *      final, both inside ONE SurrealDB BEGIN/COMMIT transaction
- *      (runTransaction), so readers of that table see either the old
- *      world or the new one — never empty, never mixed. The flip is
- *      table-by-table (knowledge_fact first, conversation_digest
- *      second): between the two transactions there is a bounded window
- *      where new facts coexist with old digests — facts are the
- *      load-bearing surface, digests auxiliary narrative, hence the
- *      ordering. A failed or degraded run never calls the flip: the
+ *      final world with the staged one: DELETE the final version's
+ *      rows then UPDATE staging rows SET derivedVersion = final, for
+ *      BOTH tables (knowledge_fact and conversation_digest) inside ONE
+ *      SurrealDB BEGIN/COMMIT transaction (runTransaction, audit
+ *      2026-08-21) — readers see either the old world or the new one,
+ *      never empty, never mixed, and never new facts narrated by old
+ *      digests. A failed or degraded run never calls the flip: the
  *      final world stays byte-identical and the staging rows are swept
- *      (best-effort; sweepStagingRows at the start of the next run for
- *      the same version catches what a crash stranded).
+ *      (best-effort; the prefix orphan GC at the start of the next run
+ *      for the same version catches what a crash stranded).
  */
 
 export const STAGING_SUFFIX = '.staging';
@@ -117,6 +114,13 @@ export interface DeriveLease {
    *  heartbeat past the TTL is indistinguishable from a lost lease).
    *  Promotion MUST check this fence before flipping staging → final. */
   isLost(): boolean;
+  /** Fresh SYNCHRONOUS ownership proof, for the moment before the
+   *  flip: re-acquires the lease right now (a held lease renews; a
+   *  stale pod that slept past the TTL while another pod took over
+   *  gets false). Any uncertainty → false and the isLost fence is set.
+   *  Closes the residual stale-isLost window the async heartbeat
+   *  cannot (audit round 4 hardening). */
+  renew(): Promise<boolean>;
   /** Idempotent; call in finally. */
   release(): Promise<void>;
 }
@@ -190,6 +194,22 @@ export async function acquireDeriveLease(args: {
   return {
     name,
     isLost: () => lost,
+    renew: async () => {
+      if (lost || released) return false;
+      if (!lease) return true; // in-process-only guard: nothing to renew
+      try {
+        const ok = await lease.tryAcquire(name, LEASE_TTL_SECONDS);
+        if (!ok) lost = true;
+        return ok;
+      } catch (e) {
+        lost = true;
+        logger.warn(
+          `derive lease renew failed — promotion fenced: ` +
+            `${(e as Error).message}`,
+        );
+        return false;
+      }
+    },
     release: async () => {
       if (released) return;
       released = true;
