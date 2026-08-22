@@ -22,11 +22,17 @@ describe('fact_trust in ranking (Phase 5, SEARCH_TRUST_BETA=1)', () => {
 
   beforeAll(async () => {
     process.env.SEARCH_TRUST_BETA = '1';
+    // The band is part of the trust-ranking contract: without it a
+    // reranker permutation can erase the trust-adjusted order (audit
+    // 2026-08-21 P1). Default is 0 (off) — a trust experiment enables
+    // both knobs together, exactly as this suite does.
+    process.env.SEARCH_RERANK_TRUST_BAND = '0.1';
     f = await createApp({ companyId: 'co_fact_trust_e2e' });
   });
 
   afterAll(async () => {
     delete process.env.SEARCH_TRUST_BETA;
+    delete process.env.SEARCH_RERANK_TRUST_BAND;
     if (f) await f.close();
   });
 

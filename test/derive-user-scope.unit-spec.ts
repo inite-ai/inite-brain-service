@@ -79,6 +79,28 @@ describe('derive user scope (audit 2026-08-21 P0)', () => {
     expect(row.crossUserScope).toBe(true);
   });
 
+  it('empty turns → invalid grounding, never a tenant-global fact (round 3)', () => {
+    const [row] = build([[]]);
+    expect(row.groundingInvalid).toBe(true);
+    expect(row.userId).toBeUndefined();
+  });
+
+  it('a negative index poisons the whole proposition', () => {
+    const [row] = build([[-1, 1]]);
+    expect(row.groundingInvalid).toBe(true);
+  });
+
+  it('an out-of-range index poisons the whole proposition', () => {
+    const [row] = build([[1, 99]]);
+    expect(row.groundingInvalid).toBe(true);
+  });
+
+  it('fully valid grounding stays valid', () => {
+    const [row] = build([[0, 1]]);
+    expect(row.groundingInvalid).toBe(false);
+    expect(row.userId).toBe('user-a');
+  });
+
   it('rollup/compose pools never accept user-scoped rows', () => {
     const rows = build([[1], [0]]);
     const pool: RollupMember[] = [];

@@ -162,7 +162,8 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // (source survives the flip untouched).
     expect(derived.length).toBeGreaterThan(0);
     for (const row of derived) {
-      expect(row.derivedVersion).toBe(STAGING);
+      // Per-run staging token: `<version>.staging.<token>`.
+      expect(String(row.derivedVersion).startsWith(`${STAGING}.`)).toBe(true);
       expect((row.source as Record<string, unknown>).recorder).toBe(
         WINDOW_DERIVER_VERSION,
       );
@@ -172,7 +173,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     for (const q of queries) {
       if (q.sql.includes('BEGIN TRANSACTION')) continue;
       if (q.params && 'version' in q.params) {
-        expect(q.params.version).toBe(STAGING);
+        expect(String(q.params.version).startsWith(STAGING)).toBe(true);
       }
     }
     const flips = queries.filter((q) => q.sql.includes('BEGIN TRANSACTION'));
@@ -192,10 +193,8 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
       'UPDATE conversation_digest SET derivedVersion = $final',
     );
     for (const flip of flips) {
-      expect(flip.params).toMatchObject({
-        final: WINDOW_DERIVER_VERSION,
-        staging: STAGING,
-      });
+      expect(flip.params?.final).toBe(WINDOW_DERIVER_VERSION);
+      expect(String(flip.params?.staging).startsWith(`${STAGING}.`)).toBe(true);
     }
   });
 
@@ -211,7 +210,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     );
     for (const q of queries) {
       if (q.params && 'version' in q.params) {
-        expect(q.params.version).toBe(STAGING);
+        expect(String(q.params.version).startsWith(STAGING)).toBe(true);
       }
     }
     // Best-effort staging GC ran (probe said rows exist → DELETE).
@@ -223,7 +222,8 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
         ),
     );
     expect(sweeps.length).toBeGreaterThan(0);
-    for (const s of sweeps) expect(s.params?.version).toBe(STAGING);
+    for (const s of sweeps)
+      expect(String(s.params?.version).startsWith(`${STAGING}.`)).toBe(true);
   });
 
   it('degraded run: no flip, staging swept, registry fails — never built', async () => {
@@ -271,16 +271,19 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
   it('orphaned staging rows of a crashed prior run are swept at start', async () => {
     const { svc, queries } = makeSvc(ONE_PROP, { stagingRows: true });
     await svc.run('co_x');
+    // Per-run tokens (audit round 3) make orphan names unknowable, so
+    // the run-start GC sweeps by PREFIX across every staging namespace.
     const firstDelete = queries.findIndex(
       (q) =>
-        q.sql.includes('DELETE knowledge_fact WHERE derivedVersion = $version'),
+        q.sql.includes('DELETE knowledge_fact') &&
+        q.sql.includes('string::starts_with'),
     );
     const firstEpisodeRead = queries.findIndex((q) =>
       q.sql.includes('GROUP BY conversationId'),
     );
     expect(firstDelete).toBeGreaterThanOrEqual(0);
     expect(firstDelete).toBeLessThan(firstEpisodeRead);
-    expect(queries[firstDelete].params?.version).toBe(STAGING);
+    expect(queries[firstDelete].params?.prefix).toBe(STAGING);
   });
 
   it("registry becomes 'built' only AFTER the flip transactions", async () => {
@@ -582,12 +585,16 @@ describe('derive lease fencing (isLost)', () => {
     await handle.release();
   });
 
-  it('a transient heartbeat error does NOT set the fence', async () => {
+  it('a heartbeat ERROR also sets the fence (fail-closed, round 3)', async () => {
+    // Any renewal uncertainty fences promotion — an erroring heartbeat
+    // past the TTL is indistinguishable from a lost lease. Per-run
+    // staging namespaces keep the data safe; the fence only refuses a
+    // flip this run can no longer claim to own.
     const handle = await acquireWith(async () => {
       throw new Error('network blip');
     });
     await jest.advanceTimersByTimeAsync(200_001);
-    expect(handle.isLost()).toBe(false);
+    expect(handle.isLost()).toBe(true);
     await handle.release();
   });
 });
