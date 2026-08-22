@@ -4,6 +4,60 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0](https://github.com/inite-ai/inite-brain-service/compare/v1.1.0...v2.0.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deriver:** atomic derive — staging namespace, per-(tenant,version) lease, DELETE-then-UPDATE flip (audit 2026-08-19 P1)
+
+### Features
+
+* **deriver,synthesize:** DERIVER_DATE_RESOLVE + RETRIEVAL_ENUM_STRICT (default-off) ([211db52](https://github.com/inite-ai/inite-brain-service/commit/211db528aaf36f687c58db87d3f6d2c30637010e))
+* **deriver:** DERIVER_ASPECT_ROLLUPS — mechanical per-(entity, aspect) list-facts (default-off) ([0640e21](https://github.com/inite-ai/inite-brain-service/commit/0640e21663bf5a7c9bb4c662dae19db50c3e1cc3))
+* **deriver:** DERIVER_DATE_AUDIT post-pass + reasoning-model call params (default-off) ([0266294](https://github.com/inite-ai/inite-brain-service/commit/02662945a4721c045610adabe9eb383136cd5f6d))
+* **deriver:** DERIVER_DATE_RESOLVE — V12 §3 occurred_on anti-collapse rules (default-off) ([b91c147](https://github.com/inite-ai/inite-brain-service/commit/b91c1471fb6395a06462fbb28af23a075c466178))
+* **deriver:** V13 write-side legs — date audit, aspect rollups, reasoning-model deriver (default-off) ([d64e135](https://github.com/inite-ai/inite-brain-service/commit/d64e135441bddfab88cbc804e98ab4393f87a837))
+* **digest:** per-user policy metadata on conversation_digest (V11 item 10) ([64439ab](https://github.com/inite-ai/inite-brain-service/commit/64439ab66fcfbea37cc5095cee87454bf18d78b3))
+* **facts:** fact read + provenance API behind FACTS_API_ENABLED ([db65006](https://github.com/inite-ai/inite-brain-service/commit/db65006c405239d8ad501de413491616c980582c))
+* **facts:** fact read + provenance API behind FACTS_API_ENABLED ([c4f46fd](https://github.com/inite-ai/inite-brain-service/commit/c4f46fdf817c660f718d96e61aa8db5b0795ec1e))
+* **multiworld:** assistant lane v1.1 — exchange granularity (SeCom retrieval unit) ([74ce256](https://github.com/inite-ai/inite-brain-service/commit/74ce2568b8c4bb1f9b96a7b8f661e02dea6897b9))
+* **multiworld:** typed projections over one substrate — multi-pin read, typed derive, assistant lane, facts-as-keys (all default-off) ([8b22c73](https://github.com/inite-ai/inite-brain-service/commit/8b22c73862940a9f661be4f2fefe0042b28f607f))
+* **multiworld:** typed projections over one substrate (multi-pin read, typed derive, assistant lane, facts-as-keys) ([92ec440](https://github.com/inite-ai/inite-brain-service/commit/92ec440dcddc227a93487055dcad19f9895739d5))
+* **retrieval:** genre preset layer — measured defaults per RETRIEVAL_GENRE ([84e60ae](https://github.com/inite-ai/inite-brain-service/commit/84e60ae1cba8c109d353e5214070443d552f6c57))
+* **search,synthesize:** fact-level cross-encoder rerank + mention-date fact lines (default-off) ([e0208b0](https://github.com/inite-ai/inite-brain-service/commit/e0208b086d190ffc9c291aecfbf71fe57f407622))
+* **search,synthesize:** fact-level cross-encoder rerank + mention-date fact lines (default-off) ([d52cec2](https://github.com/inite-ai/inite-brain-service/commit/d52cec2125b4408c40eefa6e0ad195be158c3e12))
+* **search:** genre preset layer for RetrievalProfile ([4c35b32](https://github.com/inite-ai/inite-brain-service/commit/4c35b32961085f7ed09f8e192c3b1d2475bd0616))
+* **synthesize:** RETRIEVAL_ENUM_STRICT — §8 item 3 enumeration scope discipline (default-off); runner --guardrails override ([b11abc4](https://github.com/inite-ai/inite-brain-service/commit/b11abc4cbb5eba7d6eb081832a9ca86015911333))
+* **users:** rolling user profile API behind USER_PROFILE_API_ENABLED ([dcf5843](https://github.com/inite-ai/inite-brain-service/commit/dcf58433b90a9ef0ef5cbb405a4390abb50b203b))
+* **users:** rolling user profile API v1 (deterministic, no LLM calls) ([c9c94bf](https://github.com/inite-ai/inite-brain-service/commit/c9c94bf601229a55c9fb085351088b51955bd4f1))
+* **v13:** ten default-off levers from the memory research pass — raw-window, event-time grounding, compose pass, scene traces, search loop, and answer-side frames ([ec8f8ff](https://github.com/inite-ai/inite-brain-service/commit/ec8f8ff7cc0730dfa06573738241298ecdd23de1))
+* **v13:** ten default-off memory levers from the research pass ([393cadb](https://github.com/inite-ai/inite-brain-service/commit/393cadb5946e8771cfa29a6c4f2e5322ff7d38fc))
+
+
+### Bug Fixes
+
+* **audit-2026-08-19:** secondary-search filter inheritance, ABAC projections, scoped-pool re-auth, digest lifecycle, V13 edge cases ([208ac72](https://github.com/inite-ai/inite-brain-service/commit/208ac7278b11ad3b7fae476878a037845f6c5e6b))
+* **audit-2026-08-21 P0:** mention ingest carries per-user scope end to end ([40708d3](https://github.com/inite-ai/inite-brain-service/commit/40708d3de95249932467c5d3891ee6eb035bb356))
+* **audit-2026-08-21:** read-set lifecycle guard, scoped fail-closed, secondary DTO axes, lane budget + v1 revert, jest worktree scan ([f2625f8](https://github.com/inite-ai/inite-brain-service/commit/f2625f8f93d260706ab1158524cdb4d84eeec99f))
+* **audit:** per-user digest policy metadata, 0085 lifecycle suite, hermetic unit split ([e8224b6](https://github.com/inite-ai/inite-brain-service/commit/e8224b600b420fa9a91755e27e12006161961618))
+* **contracts:** close the wire-contract tails — full retrieval-profile read-back, facts + user-profile in OpenAPI ([d23604d](https://github.com/inite-ai/inite-brain-service/commit/d23604dfe1f16a4849a1a866301da8823cbc979d))
+* **contracts:** full retrieval-profile read-back + facts/user-profile OpenAPI coverage ([9710942](https://github.com/inite-ai/inite-brain-service/commit/9710942671e18289c8f3ccc378276154c3f3402e))
+* **deriver,search:** fail-closed grounding scope, per-run staging fencing, trust band default off ([5f6a9c3](https://github.com/inite-ai/inite-brain-service/commit/5f6a9c3a8f226bec517d99b1cea30cee1fbe99ea))
+* **deriver,search:** fail-closed grounding scope, per-run staging fencing, trust band default off ([53e4d48](https://github.com/inite-ai/inite-brain-service/commit/53e4d486bfd838e0d0cc0c69bf8eaba0ebd9f46c))
+* **deriver,synthesize:** apply the /code-review 284 findings before the armK/armL runs ([d0b27b5](https://github.com/inite-ai/inite-brain-service/commit/d0b27b5864641f54572c8654f9635a740a1b320c))
+* **deriver,users:** audit importants — lease fencing, single-transaction flip, strict profile scope ([f1ea1df](https://github.com/inite-ai/inite-brain-service/commit/f1ea1df72ee654c48e611458d15ca78c1a932351))
+* **deriver,users:** lease fencing, single-transaction flip, strict profile scope ([fb93ea8](https://github.com/inite-ai/inite-brain-service/commit/fb93ea8200d66d45a462fdd69e009b22934c2632))
+* **deriver:** atomic derive — staging namespace, per-(tenant,version) lease, DELETE-then-UPDATE flip (audit 2026-08-19 P1) ([63b5bc9](https://github.com/inite-ai/inite-brain-service/commit/63b5bc963cf987c0654fa36430dc113717626673))
+* **deriver:** rollup group key separator — a stray NUL byte stood in for the delimiter ([999a38d](https://github.com/inite-ai/inite-brain-service/commit/999a38d58ecc0cfdd3f7e979b04cf68a1615ed0b))
+* **deriver:** staging namespace + leader lease + transactional flip for atomic world builds (audit P1) ([04bfc0f](https://github.com/inite-ai/inite-brain-service/commit/04bfc0fec21334a095b9e15bd1b2fe99c6577796))
+* **landing:** the footer links that pointed nowhere ([2f8ae2d](https://github.com/inite-ai/inite-brain-service/commit/2f8ae2d52ab244cd4253e4adef074a0644441631))
+* **landing:** the footer links that pointed nowhere ([935995b](https://github.com/inite-ai/inite-brain-service/commit/935995badce6764ab69d7d92a792058a59359308))
+* **landing:** the product declared its parent company instead of itself ([90671a9](https://github.com/inite-ai/inite-brain-service/commit/90671a9818f9c5ca455c3856b85dd2cc434e0144))
+* **security,search:** release blockers — derive user scope, retract ownership, rerank trust band ([ae869f6](https://github.com/inite-ai/inite-brain-service/commit/ae869f64bfc10e3bf99c83b4a6f25443f62b0ff6))
+* **security,search:** three release blockers — derive user scope, retract ownership fence, rerank trust band ([e01f0af](https://github.com/inite-ai/inite-brain-service/commit/e01f0afbc3155c0d23c3a368de3e5f0384f3ef7f))
+* **synthesize:** reasoning-model call params for the generator — SYNTHESIZE_MODEL=gpt-5-* no longer reads as 100% generator_error ([fdc1124](https://github.com/inite-ai/inite-brain-service/commit/fdc1124184d3da7b48bd9728125dda86dd55512f))
+
 ## [1.1.0](https://github.com/inite-ai/inite-brain-service/compare/v1.0.0...v1.1.0) (2026-08-15)
 
 
