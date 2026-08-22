@@ -329,6 +329,20 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         isBooleanFlag: false,
       },
       {
+        key: 'SEARCH_RERANK_TRUST_BAND',
+        category: 'search',
+        defaultValue: '0.1',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Fused-score band width the rerank stages (cross-encoder and ' +
+          'LLM) may reorder WITHIN. A fused-score gap wider than the band ' +
+          '— trust priors above all, since SEARCH_TRUST_BETA rides the ' +
+          'fused score — survives every rerank stage instead of being ' +
+          'silently erased by reranker priority (audit 2026-08-21 P1). ' +
+          '0 disables the band and restores absolute reranker priority.',
+      },
+      {
         key: 'SEARCH_TOKEN_COUNT_OFFLOAD',
         category: 'search',
         defaultValue: '1',

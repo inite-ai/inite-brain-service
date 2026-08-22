@@ -91,15 +91,32 @@ export function buildDerivedRows({
       resolveExtractionProfile().deriveSceneTrace && p.scene?.trim()
         ? { scene: p.scene.trim().slice(0, 200) }
         : {};
+    // Release blocker (audit 2026-08-21 P0): the per-user scope of the
+    // grounding turns must survive derivation — an episode ingested
+    // under INGEST_EPISODE_ONLY with a userId used to derive into a
+    // TENANT-GLOBAL fact, visible to every other user. Scope rule, per
+    // proposition: grounded only in global turns → global fact;
+    // grounded in exactly one user's turns (global turns may ride
+    // along) → that user's fact; grounded in turns of TWO OR MORE
+    // users → the row is poisoned for any single scope and must be
+    // dropped (crossUserScope; the caller filters and warns).
+    const groundingTurns = p.turns.filter(
+      (t) => t >= 0 && t < session.length,
+    );
+    const scopeUsers = [
+      ...new Set(
+        groundingTurns
+          .map((t) => session[t].userId)
+          .filter((u): u is string => typeof u === 'string' && u.length > 0),
+      ),
+    ];
     // Provenance (recorder / trust) carries the FINAL version — it
     // survives the flip untouched; only derivedVersion is staged.
     const source = {
       vertical: 'derived',
       recorder: ns.final,
       conversationId,
-      episodeIds: p.turns
-        .filter((t) => t >= 0 && t < session.length)
-        .map((t) => String(session[t].id)),
+      episodeIds: groundingTurns.map((t) => String(session[t].id)),
       ...salience,
       ...mention,
       ...scene,
@@ -107,6 +124,8 @@ export function buildDerivedRows({
       ...typedAtomKind(p),
     };
     return {
+      userId: scopeUsers.length === 1 ? scopeUsers[0] : undefined,
+      crossUserScope: scopeUsers.length > 1,
       entityId: subjectEntity,
       predicate: aspect || 'other',
       object: p.proposition,

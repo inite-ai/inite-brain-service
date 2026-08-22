@@ -954,6 +954,11 @@ export interface SearchTuning {
   /** Fact-pool slice the fact-level rerank pass rescoring can afford. */
   factRerankWindow: number;
   rerankSkipMargin: number;
+  /** Fused-score band width the rerankers may reorder WITHIN. A score
+   *  gap wider than the band (trust priors above all — SEARCH_TRUST_BETA
+   *  rides the fused score) survives every rerank stage; 0 disables and
+   *  restores absolute reranker priority. */
+  rerankTrustBand: number;
   stageBudgets: StageBudgets;
   /** Token-count worker offload (response shaping). */
   tokenCountOffload: boolean;
@@ -980,6 +985,19 @@ function tuningInt(
 function nonNegativeFloat(env: NodeJS.ProcessEnv, name: string): number {
   const v = Number(env[name] ?? 0);
   return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+/** Like nonNegativeFloat but with a non-zero default — an explicit `0`
+ *  is honored (the knob's documented off switch). */
+function nonNegativeFloatDefault(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  dflt: number,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return dflt;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
 /**
@@ -1013,6 +1031,11 @@ export function resolveSearchTuning(
     crossEncoderWindow: tuningInt(env, 'SEARCH_CROSS_ENCODER_WINDOW', 50),
     factRerankWindow: tuningInt(env, 'SEARCH_FACT_RERANK_WINDOW', 64),
     rerankSkipMargin: nonNegativeFloat(env, 'SEARCH_RERANK_SKIP_MARGIN'),
+    rerankTrustBand: nonNegativeFloatDefault(
+      env,
+      'SEARCH_RERANK_TRUST_BAND',
+      0.1,
+    ),
     stageBudgets: resolveStageBudgets(env),
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
     tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),

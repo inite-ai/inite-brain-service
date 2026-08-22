@@ -127,6 +127,17 @@ export class SearchRerankService {
       this.metrics?.countCrossEncoder('skipped_singleton');
     }
 
+    // Release blocker (audit 2026-08-21 P1): the cross-encoder's
+    // permutation used to override fused-score ORDER unconditionally,
+    // erasing every score-side prior — trust (SEARCH_TRUST_BETA) above
+    // all: the beta moved the score but could never move the ranking.
+    // Contract: rerankers refine order only WITHIN a fused-score band;
+    // a gap wider than the band survives every rerank stage.
+    candidatesForRerank = this.applyScoreBandOrder(
+      candidatesForRerank,
+      ctx.tuning?.rerankTrustBand ?? 0,
+    );
+
     const rerankSkipMargin = ctx.tuning?.rerankSkipMargin ?? 0;
     // shouldSkipRerankByMargin compares fused rankScore of top-1 vs top-2.
     // After runCrossEncoder, candidatesForRerank is ordered by cross-encoder
@@ -151,11 +162,14 @@ export class SearchRerankService {
       return candidatesForRerank;
     }
 
-    return this.runLlmRerank({
+    const llmOrdered = await this.runLlmRerank({
       candidatesForRerank,
       ctx,
       neighboursByEntity: neighboursByEntity ?? new Map(),
     });
+    // Same band contract over the LLM reranker's output — no rerank
+    // stage may invert a fused-score gap wider than the band.
+    return this.applyScoreBandOrder(llmOrdered, ctx.tuning?.rerankTrustBand ?? 0);
   }
 
   /**
@@ -208,6 +222,26 @@ export class SearchRerankService {
     );
     this.metrics?.countCrossEncoder(timedOut ? 'fact_error' : 'fact_invoked');
     if (!timedOut) remapWindowScores(rows, perm);
+  }
+
+  /**
+   * The band contract (audit 2026-08-21 P1): reranker output may only
+   * reorder buckets whose fused rankScore falls in the same band —
+   * sort key (band desc, reranker position asc). Deterministic and
+   * transitive (unlike a pairwise margin comparator). Band 0 → no-op.
+   */
+  private applyScoreBandOrder(
+    buckets: EntityBucket[],
+    band: number,
+  ): EntityBucket[] {
+    if (!(band > 0) || buckets.length <= 1) return buckets;
+    const pos = new Map(buckets.map((b, i) => [b.entityId, i] as const));
+    return [...buckets].sort((a, b) => {
+      const bandA = Math.floor(a.rankScore / band);
+      const bandB = Math.floor(b.rankScore / band);
+      if (bandA !== bandB) return bandB - bandA;
+      return (pos.get(a.entityId) ?? 0) - (pos.get(b.entityId) ?? 0);
+    });
   }
 
   // eslint-disable-next-line max-params

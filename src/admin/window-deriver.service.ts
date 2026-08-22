@@ -679,7 +679,7 @@ export class WindowDeriverService {
       // namespace — still one round-trip per session, but the resolver
       // stamps the trust snapshot, locale and status instead of a raw
       // INSERT hand-copying its contract.
-      const rows = buildDerivedRows({
+      const builtRows = buildDerivedRows({
         resolved,
         vectors,
         sessionDate,
@@ -687,6 +687,20 @@ export class WindowDeriverService {
         ns,
         conversationId,
       });
+      // Audit 2026-08-21 P0: a proposition grounded in turns of two or
+      // more users fits no single scope — drop it (with its resolved
+      // twin, keeping every downstream array index-aligned) rather
+      // than land it tenant-global.
+      const crossUser = builtRows.filter((r) => r.crossUserScope).length;
+      if (crossUser > 0) {
+        this.logger.warn(
+          `derive ${conversationId}: dropped ${crossUser} cross-user-scoped proposition(s)`,
+        );
+      }
+      const keptResolved = resolved.filter(
+        (_, i) => !builtRows[i].crossUserScope,
+      );
+      const rows = builtRows.filter((r) => !r.crossUserScope);
       // V9 §1: value-bearing aspects take the bitemporal_event
       // lifecycle when the profile asks; V9 phase 0: the resolver
       // batch degrades per-row instead of failing the conversation —
@@ -700,10 +714,15 @@ export class WindowDeriverService {
       ).length;
       result.propositions += rows.length - unlandedRows;
       if (rollupPool) {
-        collectRollupPool({ rollupPool, resolved, rows, outcomes });
+        collectRollupPool({ rollupPool, resolved: keptResolved, rows, outcomes });
       }
       if (composePool) {
-        collectRollupPool({ rollupPool: composePool, resolved, rows, outcomes });
+        collectRollupPool({
+          rollupPool: composePool,
+          resolved: keptResolved,
+          rows,
+          outcomes,
+        });
       }
     }
     // 0087: the folded window's distinct user scopes = policy metadata.
