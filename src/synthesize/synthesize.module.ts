@@ -13,6 +13,7 @@ import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
+import { L3EscalationService } from './l3-escalation.service';
 
 @Module({
   imports: [SearchModule, EpisodesModule, AnswerCacheModule, StrategyModule],
@@ -27,6 +28,7 @@ import { EvidenceCollectorService } from './evidence-collector.service';
     QueryArcService,
     UpdateStoryService,
     DigestLaneService,
+    L3EscalationService,
   ],
   exports: [SynthesizeService],
 })

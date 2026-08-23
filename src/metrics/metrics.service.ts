@@ -189,6 +189,29 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // L3 escalation outcomes (G2, sota-gap-build-2026-08):
+  //   fired                 — the ladder escalated (anchor present, ran)
+  //   flipped               — escalation changed the verdict fail→pass;
+  //                           the L3 answer was returned. THE canary:
+  //                           near-zero flip rate means the gate is
+  //                           miscalibrated (escalating where raw
+  //                           context cannot help either).
+  //   no_flip               — escalated but the verifier still failed;
+  //                           fell through to the normal abstention path
+  //   skipped_no_anchor     — trigger conditions met but no retrieved
+  //                           fact named a session — abstain, no
+  //                           full-context call burned
+  //   over_budget_degraded  — selected sessions exceeded L3_TOKEN_CAP;
+  //                           degraded to widened L2 windows (still one
+  //                           generation; flipped/no_flip also counted)
+  // The monotone single-shot ladder means at most one 'fired' per query.
+  readonly l3EscalationCount = new Counter({
+    name: 'brain_l3_escalation_total',
+    help: 'L3 confidence-gated escalation outcomes',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
@@ -526,6 +549,17 @@ export class MetricsService implements OnModuleInit {
     outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass',
   ): void {
     this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countL3Escalation(
+    outcome:
+      | 'fired'
+      | 'flipped'
+      | 'no_flip'
+      | 'skipped_no_anchor'
+      | 'over_budget_degraded',
+  ): void {
+    this.l3EscalationCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countRetract(): void {

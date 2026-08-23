@@ -1168,6 +1168,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "V13 constrained search loop (profile field searchLoop; the MemMachine/Letta multiple-memory-searches shape — NOT the rejected free agent loop, which measured −4.6 as E11): the generator may return a structured refine request ({refineQuery}) instead of an answer when the evidence does not answer the question; the engine runs ONE extra retrieval with the refined query, merges it through the evidence union, rebuilds the prompt and forces an answer (the refine affordance is absent from the second call's schema — a hard one-round cap). Off = byte-identical single-shot generation.",
       },
       {
+        key: 'RETRIEVAL_L3_ESCALATION',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'G2 confidence-gated L3 escalation (profile field l3Escalation; sota-gap-build-2026-08 — Self-Route/Self-RAG shape): when the fact-grounded answer fails the verifier (unsupported/partial) or fires abstain-intent AND retrieval coverage is below floor AND (a search-loop refine already ran OR searchLoop is off) AND at least one retrieved fact names a session, the engine escalates UP to ONE full-raw-session large-context generation (top RETRIEVAL_L3_MAX_SESSIONS sessions by fact-hit density, PII/user-fenced), re-runs the SAME verifier, and returns the L3 answer only if the verifier now passes — else it falls through to the normal abstention path. Monotone single-shot ladder (each tier entered at most once, no re-entry); the anchor requirement stops empty-memory queries burning full-context calls. brain_l3_escalation_total{outcome} traces it; the flip rate is the canary. Off = byte-identical (the fact-only verdict stands).',
+      },
+      {
+        key: 'RETRIEVAL_L3_MAX_SESSIONS',
+        category: 'pipeline',
+        defaultValue: '3',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Max full sessions lifted into the L3 large-context prompt under RETRIEVAL_L3_ESCALATION (top-N conversations by fact-hit density; temporal-class questions prefer sessions overlapping the query date window). Only read on that path.',
+      },
+      {
+        key: 'RETRIEVAL_L3_TOKEN_CAP',
+        category: 'pipeline',
+        defaultValue: '60000',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Token cap for the assembled L3 large-context prompt under RETRIEVAL_L3_ESCALATION (estimated from assembled length). Over the cap the lane degrades to widened L2 raw-turn windows around the anchor turns rather than truncating a session mid-way (metric outcome over_budget_degraded). Only read on that path.',
+      },
+      {
         key: 'MINICHECK_URL',
         category: 'pipeline',
         defaultValue: 'http://127.0.0.1:11434',

@@ -117,8 +117,16 @@ export class EpisodeReadStoreService {
       .map((r) => ({ conversationId: String(r.conversationId), n: r.n }));
   }
 
-  /** All turns of one conversation, chronological, bounded. */
-  async conversationTurns(
+  /**
+   * All turns of one conversation, chronological, bounded. UNFENCED —
+   * the internal derivation reads (window deriver / segment composer)
+   * run tenant-wide over the full substrate and MUST see user-scoped
+   * and PII turns to derive facts for every user; applying the read
+   * fences here would silently drop those turns from derivation. The
+   * PII/user-fenced whole-session read for the synthesis read path is
+   * `conversationTurns()` below (G2 L3 escalation lane).
+   */
+  async conversationTurnsRaw(
     db: EpisodeDb,
     conversationId: string,
   ): Promise<EpisodeTurnRow[]> {
@@ -128,6 +136,42 @@ export class EpisodeReadStoreService {
       { conv: conversationId },
     );
     return rows ?? [];
+  }
+
+  /**
+   * G2 L3 escalation: ALL turns of ONE conversation, chronological,
+   * PII- and user-fenced with the SAME gates `windowAround` uses, and
+   * bounded by a turn cap. Where `windowAround` reads a bounded span
+   * around an anchor moment, this is the whole-session variant the
+   * full-raw-context escalation lifts when the extracted facts failed
+   * to ground an answer. A conversation the fences hide returns only
+   * the turns the caller may see (fail-closed, exactly like the fact
+   * read path).
+   */
+  async conversationTurns(opts: {
+    companyId: string;
+    conversationId: string;
+    includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string;
+    db?: EpisodeDb;
+    /** Turn cap for this read; clamped to the hard CONVERSATION_TURNS_CAP. */
+    cap?: number;
+  }): Promise<EpisodeTurnRow[]> {
+    const cap =
+      opts.cap && opts.cap > 0
+        ? Math.min(Math.floor(opts.cap), CONVERSATION_TURNS_CAP)
+        : CONVERSATION_TURNS_CAP;
+    return this.run(opts.companyId, opts.db, async (db) => {
+      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`;
+      const [rows] = await db.query<[EpisodeTurnRow[]]>(
+        `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
+          WHERE conversationId = $conv ${gates}
+          ORDER BY occurredAt ASC, id ASC LIMIT ${cap}`,
+        { conv: opts.conversationId, ...this.userParams(opts.userId) },
+      );
+      return rows ?? [];
+    });
   }
 
   /** BM25 top-k over verbatim turns, best-score first, PII-fenced. */
