@@ -112,7 +112,7 @@ export function registerCodeMemoryReadTools(opts: {
       const decisions = await deps.codeSearch.recall({
         companyId,
         query: args.query,
-        limit: args.limit,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
         scopes,
       });
       const out = { query: args.query, found: decisions.length, decisions };
@@ -172,7 +172,7 @@ export function registerCodeMemoryWriteTools(opts: {
         predicate: codeMemoryPredicateId(args.kind),
         object: args.text,
         validFrom: args.validFrom ?? new Date().toISOString(),
-        confidence: args.confidence,
+        ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
         source: {
           vertical: CODE_VERTICAL,
           recorder: 'code_memory',

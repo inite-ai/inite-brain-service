@@ -80,7 +80,6 @@ describe('canonicalDerivedPin', () => {
 describe('computeCacheKey', () => {
   const base = {
     companyId: 'co_a',
-    userId: undefined as string | undefined,
     profileHash: 'ph1',
     model: 'gpt-4o-mini',
     derivedVersionPin: null,
@@ -378,7 +377,6 @@ describe('AnswerCacheService.admit — admission rules', () => {
   const ctx: AnswerCacheStoreContext = {
     key: 'a'.repeat(64),
     companyId: 'co_test',
-    userId: undefined,
     profileHash: 'ph',
     model: 'gpt-4o-mini',
     normalizedQuery: 'what tier is acme',

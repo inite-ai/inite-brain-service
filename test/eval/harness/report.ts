@@ -11,16 +11,16 @@ import { EvalScore, EvalWorld } from './types';
 export interface GroupAccuracy {
   group: string;
   n: number;
-  judgeAccuracy?: number;
+  judgeAccuracy?: number | undefined;
 }
 
 export interface AxisReport {
   n: number;
-  judgeAccuracy?: number;
+  judgeAccuracy?: number | undefined;
   judgedN: number;
   byGroup: GroupAccuracy[];
-  abstention: { n: number; abstainedRate?: number };
-  avgPromptTokens?: number;
+  abstention: { n: number; abstainedRate?: number | undefined };
+  avgPromptTokens?: number | undefined;
   errored: number;
   /**
    * BEAM official-protocol aggregate (--nugget-judge): mean nugget

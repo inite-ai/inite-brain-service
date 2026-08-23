@@ -286,10 +286,10 @@ export interface ProcedureRecord {
   trigger: string;
   action: string;
   priority: number;
-  decayHalfLifeDays?: number;
+  decayHalfLifeDays?: number | undefined;
   source: Record<string, unknown>;
   createdAt: string;
-  retiredAt?: string;
+  retiredAt?: string | undefined;
 }
 
 export interface MatchedProcedure extends ProcedureRecord {

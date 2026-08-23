@@ -133,9 +133,11 @@ export class MarketplaceAdminController {
       companyId: req.brainAuth.companyId,
       profile: {
         displayName: body?.displayName,
-        url: body?.url,
-        bio: body?.bio,
-        contactEmail: body?.contactEmail,
+        ...(body?.url !== undefined ? { url: body.url } : {}),
+        ...(body?.bio !== undefined ? { bio: body.bio } : {}),
+        ...(body?.contactEmail !== undefined
+          ? { contactEmail: body.contactEmail }
+          : {}),
       },
     });
   }
@@ -183,9 +185,9 @@ export class MarketplaceAdminController {
         companyId: req.brainAuth.companyId,
         priceCode: meta.priceCode,
         packId,
-        successUrl: body?.successUrl,
-        errorUrl: body?.errorUrl,
-        idempotencyKey,
+        ...(body?.successUrl !== undefined ? { successUrl: body.successUrl } : {}),
+        ...(body?.errorUrl !== undefined ? { errorUrl: body.errorUrl } : {}),
+        ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       })
       .catch((e) => this.rethrowBilling(e));
   }

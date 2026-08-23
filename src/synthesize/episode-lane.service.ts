@@ -106,7 +106,7 @@ export class EpisodeLaneService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Quotes per prompt (profile.quotesPerPrompt). */
     limit: number;
   }): Promise<string[]> {
@@ -116,7 +116,7 @@ export class EpisodeLaneService {
         query: opts.query,
         limit: opts.limit,
         includePii: opts.callerScopes.includes('brain:read_pii'),
-        userId: opts.userId,
+        ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       });
       return renderQuoteLines(rows);
     } catch (e) {
@@ -156,7 +156,7 @@ export class EpisodeLaneService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Quotes per prompt (profile.assistantLaneTopK). */
     limit: number;
     /** Speaker suffix identifying the role (profile.assistantLaneMatch). */
@@ -168,7 +168,7 @@ export class EpisodeLaneService {
         query: opts.query,
         limit: opts.limit,
         includePii: opts.callerScopes.includes('brain:read_pii'),
-        userId: opts.userId,
+        ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
         speakerSuffix: opts.match,
       });
       return renderQuoteLines(
@@ -204,7 +204,7 @@ export class EpisodeLaneService {
     factIds: string[];
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Excerpts per prompt (profile.sourceExcerptsCap). */
     cap: number;
   }): Promise<string[]> {
@@ -221,7 +221,7 @@ export class EpisodeLaneService {
           companyId: opts.companyId,
           ids: episodeIds,
           includePii: opts.callerScopes.includes('brain:read_pii'),
-          userId: opts.userId,
+          ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
           db,
         });
         return renderQuoteLines(rows);
@@ -250,7 +250,7 @@ export class EpisodeLaneService {
     factIds: string[];
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Grounding anchors to expand (top evidence order). */
     anchors: number;
     /** Neighbor turns each side of an anchor (profile.rawWindowSpan). */
@@ -269,7 +269,7 @@ export class EpisodeLaneService {
           companyId: opts.companyId,
           ids: anchorIds,
           includePii,
-          userId: opts.userId,
+          ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
           db,
         });
         const windows = await Promise.all(
@@ -282,7 +282,7 @@ export class EpisodeLaneService {
                 centerIso: new Date(r.occurredAt as string).toISOString(),
                 span: opts.span,
                 includePii,
-                userId: opts.userId,
+                ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
                 db,
               }),
             ),
@@ -322,7 +322,7 @@ export class EpisodeLaneService {
     factIds: string[];
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<Map<string, string>> {
     if (opts.factIds.length === 0) return new Map();
     try {
@@ -347,7 +347,7 @@ export class EpisodeLaneService {
           companyId: opts.companyId,
           ids: [...new Set(anchorByFact.values())],
           includePii: opts.callerScopes.includes('brain:read_pii'),
-          userId: opts.userId,
+          ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
           db,
         });
         const rowById = new Map(rows.map((r) => [String(r.id), r]));

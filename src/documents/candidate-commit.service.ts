@@ -34,8 +34,8 @@ interface StatusUpdate {
   id: string;
   kind: CandidateKind;
   status: 'committed' | 'merged' | 'rejected';
-  statusReason?: string;
-  commitRef?: string;
+  statusReason?: string | undefined;
+  commitRef?: string | undefined;
 }
 
 /**

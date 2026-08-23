@@ -12,9 +12,9 @@ function makeSvc(opts: {
   llm: unknown;
 }): {
   svc: AggregateComposerService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });

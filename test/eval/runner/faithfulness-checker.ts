@@ -115,7 +115,7 @@ export class FaithfulnessChecker {
             scenarioId: scenario.id,
             query: e.query,
             answer: refused ? null : answer,
-            reason: res.reason,
+            ...(res.reason !== undefined ? { reason: res.reason } : {}),
             faithfulness: null,
             totalClaims: 0,
             passed: refused,
@@ -123,7 +123,9 @@ export class FaithfulnessChecker {
             refused,
             faithfulnessFloor: floor,
             answerLangDetected: diag.answerLangDetected,
-            answerLangCorrect: diag.answerLangCorrect,
+            ...(diag.answerLangCorrect !== undefined
+              ? { answerLangCorrect: diag.answerLangCorrect }
+              : {}),
             decisionLogCitationCount: diag.decisionLogCitationCount,
             avgExtractionEntropy: diag.avgExtractionEntropy,
           });
@@ -138,13 +140,15 @@ export class FaithfulnessChecker {
             scenarioId: scenario.id,
             query: e.query,
             answer: null,
-            reason: res.reason,
+            ...(res.reason !== undefined ? { reason: res.reason } : {}),
             faithfulness: null,
             totalClaims: 0,
             passed: !!e.allowEmptyAnswer,
             faithfulnessFloor: floor,
             answerLangDetected: diag.answerLangDetected,
-            answerLangCorrect: diag.answerLangCorrect,
+            ...(diag.answerLangCorrect !== undefined
+              ? { answerLangCorrect: diag.answerLangCorrect }
+              : {}),
             decisionLogCitationCount: diag.decisionLogCitationCount,
             avgExtractionEntropy: diag.avgExtractionEntropy,
           });
@@ -228,7 +232,9 @@ export class FaithfulnessChecker {
           passed,
           faithfulnessFloor: floor,
           answerLangDetected: diag.answerLangDetected,
-          answerLangCorrect: diag.answerLangCorrect,
+          ...(diag.answerLangCorrect !== undefined
+            ? { answerLangCorrect: diag.answerLangCorrect }
+            : {}),
           decisionLogCitationCount: diag.decisionLogCitationCount,
           avgExtractionEntropy: diag.avgExtractionEntropy,
         });

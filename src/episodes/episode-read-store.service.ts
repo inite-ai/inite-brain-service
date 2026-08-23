@@ -245,8 +245,8 @@ export class EpisodeReadStoreService {
     ids: string[];
     includePii: boolean;
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
-    db?: EpisodeDb;
+    userId?: string | undefined;
+    db?: EpisodeDb | undefined;
   }): Promise<EpisodeQuoteRow[]> {
     if (opts.ids.length === 0) return [];
     return this.run(opts.companyId, opts.db, async (db) => {
@@ -368,13 +368,13 @@ export class EpisodeReadStoreService {
     companyId: string;
     includePii: boolean;
     limit: number;
-    conversationId?: string;
-    speaker?: string;
-    sinceIso?: string;
-    untilIso?: string;
+    conversationId?: string | undefined;
+    speaker?: string | undefined;
+    sinceIso?: string | undefined;
+    untilIso?: string | undefined;
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
-    after?: { occurredAtIso: string; id: string };
+    userId?: string | undefined;
+    after?: { occurredAtIso: string; id: string } | undefined;
   }): Promise<EpisodePageRow[]> {
     return this.run(opts.companyId, undefined, async (db) => {
       const where: string[] = [];

@@ -121,7 +121,7 @@ export class AggregateComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number; version?: string } = {},
+    opts: { entities?: number | undefined; version?: string | undefined } = {},
   ): Promise<AggregateRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },

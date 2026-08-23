@@ -74,7 +74,7 @@ export interface DecisionCandidate {
   /** Optional file:line provenance. */
   location?: string;
   validFrom: string;
-  confidence?: number;
+  confidence?: number | undefined;
 }
 
 /** Layer 1 — cheap admit/reject gate. Swap the heuristic impl for a trained

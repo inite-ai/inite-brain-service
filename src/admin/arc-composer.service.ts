@@ -158,7 +158,7 @@ export class ArcComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number; version?: string } = {},
+    opts: { entities?: number | undefined; version?: string | undefined } = {},
   ): Promise<ArcRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },

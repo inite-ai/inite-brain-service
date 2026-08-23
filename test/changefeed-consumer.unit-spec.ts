@@ -12,7 +12,7 @@
  */
 import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
 
-type Captured = { sql: string; params?: Record<string, unknown> };
+type Captured = { sql: string; params?: Record<string, unknown> | undefined };
 
 function mkSurreal(opts: {
   cursors?: Record<string, number>;

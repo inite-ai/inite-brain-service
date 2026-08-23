@@ -28,7 +28,7 @@ import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 import { runWithRequestContext } from '../src/common/request-context';
 
 type Row = Record<string, unknown>;
-type Capture = { sql: string; params?: Record<string, unknown> };
+type Capture = { sql: string; params?: Record<string, unknown> | undefined };
 
 function makeService(opts: {
   rows: Row[];

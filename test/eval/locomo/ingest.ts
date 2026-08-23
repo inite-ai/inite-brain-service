@@ -37,7 +37,7 @@ export interface IngestSink {
      * Optional tenant pin — defaults to the api-key's companyId. Kept
      * on the interface so a future admin-key sink can route per-call.
      */
-    companyId?: string;
+    companyId?: string | undefined;
     entityId: string;
     name: string;
     validFrom: string;
@@ -45,7 +45,7 @@ export interface IngestSink {
 
   /** Stream one conversation turn into brain's NLU extractor. */
   ingestMention(input: {
-    companyId?: string;
+    companyId?: string | undefined;
     speakerEntityId: string;
     /** Speaker display name — drives first-person coreference in the extractor. */
     speakerName: string;
@@ -53,7 +53,7 @@ export interface IngestSink {
      * The addressed participant (the other speaker in 2-party dialogue) —
      * drives second-person ("you") coreference. Omitted when ambiguous.
      */
-    addressee?: { entityId: string; name: string };
+    addressee?: { entityId: string; name: string } | undefined;
     text: string;
     validFrom: string;
     sourceMessageId: string;
@@ -71,7 +71,7 @@ export interface IngestPlan {
   mentions: Array<{
     speakerEntityId: string;
     speakerName: string;
-    addressee?: { entityId: string; name: string };
+    addressee?: { entityId: string; name: string } | undefined;
     text: string;
     validFrom: string;
     sourceMessageId: string;

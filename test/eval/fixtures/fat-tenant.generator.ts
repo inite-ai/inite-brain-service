@@ -157,8 +157,8 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
   const forgottenCustomers: Array<{
     id: string;
     fullName: string;
-    complaintObject?: string;
-    paymentObject?: string;
+    complaintObject?: string | undefined;
+    paymentObject?: string | undefined;
   }> = [];
   // Track retracted complaints so memory assertions can verify the
   // object string disappears from default search.
@@ -618,7 +618,7 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
         setup,
         queries,
         memoryAssertions,
-        miaTests: miaTests.length > 0 ? miaTests : undefined,
+        ...(miaTests.length > 0 ? { miaTests } : {}),
       },
     ],
     stats: {

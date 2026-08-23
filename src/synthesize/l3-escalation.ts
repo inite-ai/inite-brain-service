@@ -25,7 +25,7 @@ export interface L3TriggerInput {
   l3Escalation: boolean;
   verdict: VerifierOutput['verdict'];
   /** V10 §5 topic-coverage judgment, when the audit produced it. */
-  questionAnswered?: boolean;
+  questionAnswered?: boolean | undefined;
   /** Coverage floor result over the retrieved evidence (below floor →
    *  covered=false, the escalation-eligible state). */
   covered: boolean;
@@ -90,7 +90,7 @@ export function verifierPasses(
 export interface L3SessionAnchor {
   conversationId: string;
   score: number;
-  atMs?: number;
+  atMs?: number | undefined;
 }
 
 /** [from, to) window the query named, for temporal-overlap preference. */

@@ -135,7 +135,7 @@ type LeaseLogger = { warn(message: string): void };
 export async function acquireDeriveLease(args: {
   companyId: string;
   version: string;
-  lease?: LeaderLeaseService;
+  lease?: LeaderLeaseService | undefined;
   logger: LeaseLogger;
 }): Promise<DeriveLease> {
   const { companyId, version, lease, logger } = args;
@@ -293,7 +293,7 @@ export async function sweepStagingOrphans(
 export async function promoteStaging(
   db: DeriveDb,
   ns: DeriveNamespace,
-  opts: { conversationId?: string } = {},
+  opts: { conversationId?: string | undefined } = {},
 ): Promise<void> {
   const conv = opts.conversationId;
   // Audit 2026-08-21: facts and digests flip in ONE transaction — the

@@ -10,7 +10,7 @@ import { JobClaimService } from '../src/jobs/job-claim.service';
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function mkDbScript(steps: Array<(call: QueryCall) => unknown[] | Error>) {
@@ -291,8 +291,10 @@ describe('JobClaimService', () => {
     // atomic statement — so no concurrent reaper can read-then-write the same
     // expired row. The service is now a thin caller: pass the knobs, return
     // the counts. We assert the wiring (fn name + params + result mapping).
-    let captured: { sql: string; params?: Record<string, unknown> } | null =
-      null;
+    let captured: {
+      sql: string;
+      params?: Record<string, unknown> | undefined;
+    } | null = null;
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         captured = { sql, params };

@@ -91,7 +91,7 @@ export function makeRowPolicyFilter(opts: {
    * sees the static code-side seed (the pre-registry behaviour, kept as
    * the fallback for callers with no tenant in hand).
    */
-  policyLookup?: PredicatePolicyLookup;
+  policyLookup?: PredicatePolicyLookup | undefined;
 }): RowPolicyFilter {
   const ctx = opts.policy !== undefined ? opts.policy : getPolicyContext();
   const scopes = opts.callerScopes;

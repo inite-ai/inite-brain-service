@@ -35,11 +35,11 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
 export class JwksService implements OnModuleInit {
   private readonly logger = new Logger(JwksService.name);
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-  private issuer?: string;
+  private issuer?: string | undefined;
   private audience?: string;
   private algorithms: string[] = ['RS256'];
   /** Canonical deployment URL — matches RFC 9396 grant `locations`. */
-  private publicUrl?: string;
+  private publicUrl?: string | undefined;
 
   constructor(
     private readonly configService: ConfigService,
@@ -101,8 +101,8 @@ export class JwksService implements OnModuleInit {
     let payload: JWTPayload;
     try {
       ({ payload } = await jwtVerify(token, this.jwks, {
-        issuer: this.issuer,
-        audience: this.audience,
+        ...(this.issuer !== undefined ? { issuer: this.issuer } : {}),
+        ...(this.audience !== undefined ? { audience: this.audience } : {}),
         algorithms: this.algorithms,
       }));
     } catch (e) {

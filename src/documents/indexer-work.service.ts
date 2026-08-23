@@ -65,10 +65,10 @@ export class IndexerWorkService {
 
   async listWork(p: {
     companyId: string;
-    packId?: string;
-    limit?: number;
+    packId?: string | undefined;
+    limit?: number | undefined;
     /** Per-pack binding of the calling key; absent = unrestricted. */
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<IndexerWorkListResponse> {
     const externalPacks = boundPacks(
       await this.externalPackIds(p.companyId),
@@ -111,7 +111,7 @@ export class IndexerWorkService {
   async claim(p: {
     companyId: string;
     runId: string;
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<ClaimWorkResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     assertKeyBoundToPack(p.keyPackIds, run.packId);
@@ -180,7 +180,7 @@ export class IndexerWorkService {
   async content(p: {
     companyId: string;
     runId: string;
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<WorkContentResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     if (run.status !== 'pending' && run.status !== 'running') {
@@ -215,8 +215,8 @@ export class IndexerWorkService {
     companyId: string;
     runId: string;
     claimToken: string;
-    error?: string;
-    permanent?: boolean;
+    error?: string | undefined;
+    permanent?: boolean | undefined;
   }): Promise<FailWorkResponse> {
     // Default RELEASE: back to 'pending' so the next poll rediscovers the
     // work (beats squatting on the claim until the lease expires).

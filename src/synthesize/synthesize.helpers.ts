@@ -27,7 +27,7 @@ export function resolveAnswerFrames(args: {
   profile: RetrievalProfile;
   query: string;
   results: SearchHit[];
-}): { dateMathLines?: string[]; shapeInstruction?: string } {
+}): { dateMathLines?: string[] | undefined; shapeInstruction?: string | undefined } {
   const shape = args.profile.answerConditioning
     ? detectAnswerShape(args.query)
     : null;

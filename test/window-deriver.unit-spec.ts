@@ -96,10 +96,10 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     },
   ): {
     svc: WindowDeriverService;
-    queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+    queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
     derived: Array<Record<string, unknown>>;
   } {
-    const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+    const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         queries.push({ sql, params });
@@ -478,8 +478,10 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
 
     it('gc reaps residual versions but never the pin, keeps, or legacy', async () => {
       process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v3';
-      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
-        [];
+      const queries: Array<{
+        sql: string;
+        params?: Record<string, unknown> | undefined;
+      }> = [];
       const db = {
         query: async (sql: string, params?: Record<string, unknown>) => {
           queries.push({ sql, params });
@@ -549,8 +551,10 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
 
     it('gc keep-set includes registry live/building/built worlds even with no pin', async () => {
       delete process.env.RETRIEVAL_DERIVED_VERSION;
-      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
-        [];
+      const queries: Array<{
+        sql: string;
+        params?: Record<string, unknown> | undefined;
+      }> = [];
       const db = {
         query: async (sql: string, params?: Record<string, unknown>) => {
           queries.push({ sql, params });

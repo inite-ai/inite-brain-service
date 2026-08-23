@@ -100,8 +100,9 @@ export class SsfReceiverService implements OnModuleInit, OnModuleDestroy {
   async applySet(jti: string, setJwt: string): Promise<void> {
     if (!this.jwks) return;
     try {
+      const issuer = this.config.get<string>('AUTH_SERVICE_ISSUER');
       const { payload } = await jwtVerify(setJwt, this.jwks, {
-        issuer: this.config.get<string>('AUTH_SERVICE_ISSUER'),
+        ...(issuer !== undefined ? { issuer } : {}),
       });
       const claims = payload as SetClaims;
       const subject = claims.sub_id?.sub;

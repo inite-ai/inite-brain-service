@@ -32,7 +32,7 @@ export interface PassFact {
    * person's pass as agreement. Optional so single-entity callers and
    * older fixtures keep working.
    */
-  entity?: string | number;
+  entity?: string | number | undefined;
 }
 
 /**

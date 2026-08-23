@@ -36,7 +36,7 @@ export interface MultiHopResult {
   /** Set when synthesize=true was requested. */
   synthesis?: {
     answer: string | null;
-    reason?: SynthesisReason;
+    reason?: SynthesisReason | undefined;
     citations: Citation[];
     /** Generator-call token cost (context-minimization accounting). */
     tokenUsage?: { promptTokens: number; completionTokens: number };

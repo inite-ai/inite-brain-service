@@ -24,8 +24,8 @@ interface CapturedRequest {
     properties: Record<string, unknown>;
     required: string[];
   };
-  temperature?: number;
-  maxCompletionTokens?: number;
+  temperature?: number | undefined;
+  maxCompletionTokens?: number | undefined;
 }
 
 function mockOpenAi(response: Record<string, unknown>, captured: CapturedRequest[]) {

@@ -27,7 +27,7 @@ function hit(entityId: string, facts: Array<{ factId: string; calibrated?: numbe
       validFrom: '2026-01-01',
       status: 'active',
       score: 0.5,
-      breakdown: f.calibrated !== undefined ? makeBreakdown(f.calibrated) : undefined,
+      ...(f.calibrated !== undefined ? { breakdown: makeBreakdown(f.calibrated) } : {}),
     })),
     score: 0.5,
   };

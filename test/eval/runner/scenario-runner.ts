@@ -59,7 +59,7 @@ export class ScenarioRunner {
       vertical: scenario.vertical,
       queryResults,
       extractionResults: extractions,
-      identityMergeResult: identityMerge,
+      ...(identityMerge !== undefined ? { identityMergeResult: identityMerge } : {}),
       memoryAssertionResults,
       miaTestResults,
       synthesizeOutcomes,

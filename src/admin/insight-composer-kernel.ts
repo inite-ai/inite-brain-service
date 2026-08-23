@@ -70,7 +70,7 @@ export interface InsightComposerSpec<P> {
       entityId: StringRecordId;
       facts: FactRowLite[];
       vector: number[];
-      version?: string;
+      version?: string | undefined;
     },
   ): Record<string, unknown>;
 }
@@ -100,7 +100,11 @@ type QueryDb = {
 export async function runInsightComposer<P>(
   deps: KernelDeps,
   spec: InsightComposerSpec<P>,
-  opts: { companyId: string; entities?: number; version?: string },
+  opts: {
+    companyId: string;
+    entities?: number | undefined;
+    version?: string | undefined;
+  },
 ): Promise<ComposerRunResult> {
   const { companyId } = opts;
   const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
@@ -146,7 +150,7 @@ async function composeEntity<P>(
   ctx: {
     spec: InsightComposerSpec<P>;
     entityId: string;
-    version?: string;
+    version?: string | undefined;
     versionClause: string;
   },
 ): Promise<number> {

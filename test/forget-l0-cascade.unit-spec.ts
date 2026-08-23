@@ -11,7 +11,7 @@ import type { ConfigService } from '@nestjs/config';
  */
 interface Recorded {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function makeDb(rowsFor: (sql: string) => unknown[]): {

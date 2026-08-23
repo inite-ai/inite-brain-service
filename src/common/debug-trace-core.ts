@@ -13,16 +13,16 @@ import type { Request, Response, NextFunction } from 'express';
 
 export interface DebugSpan {
   id: string;
-  parentId?: string;
+  parentId?: string | undefined;
   name: string;
   startedAt: number;
   durationMs?: number;
-  attributes?: Record<string, unknown>;
+  attributes?: Record<string, unknown> | undefined;
   error?: string;
 }
 
 export interface DebugArtifact {
-  spanId?: string;
+  spanId?: string | undefined;
   name: string;
   ts: number;
   value: unknown;
@@ -48,7 +48,7 @@ export interface DebugTraceSnapshot {
   path: string;
   status: number;
   durationMs: number;
-  companyId?: string;
+  companyId?: string | undefined;
   spans: DebugSpan[];
   artifacts: DebugArtifact[];
   /** Set when the underlying handler threw. */

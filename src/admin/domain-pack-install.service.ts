@@ -154,7 +154,10 @@ export class DomainPackInstallService {
   async install(
     companyId: string,
     manifest: DomainPackManifest,
-    opts: { expectedChecksum?: string; acceptMcpTools?: boolean } = {},
+    opts: {
+      expectedChecksum?: string | undefined;
+      acceptMcpTools?: boolean | undefined;
+    } = {},
   ): Promise<{
     packId: string;
     version: string;
@@ -328,7 +331,7 @@ export class DomainPackInstallService {
     newIds: string[];
     mint: {
       wantsWebhook: boolean;
-      mintedInstallId?: string;
+      mintedInstallId?: string | undefined;
       mcpChecksum: string | null;
       mcpSet: string;
     };

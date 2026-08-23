@@ -66,7 +66,7 @@ export interface CompetingFactRecord {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
   source?: unknown;
 }
@@ -202,7 +202,7 @@ interface FactReadRow extends PolicyFilterableRow {
 
 export interface ListCompetingResult {
   entityId: string;
-  asOf?: string;
+  asOf?: string | undefined;
   /**
    * Groups, one per (entityId, predicate). Within a group, every fact
    * was placed at status='competing' by the conflict resolver and is
@@ -793,7 +793,7 @@ export class FactsService {
       object: string;
       confidence: number;
       validFrom: string;
-      validUntil?: string;
+      validUntil?: string | undefined;
       recordedAt: string;
       status: string;
     }>;

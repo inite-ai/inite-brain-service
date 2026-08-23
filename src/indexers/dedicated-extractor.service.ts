@@ -45,7 +45,7 @@ export class DedicatedExtractorService {
     text: string;
     companyId: string;
     packId: string;
-    options?: DedicatedRunOptions;
+    options?: DedicatedRunOptions | undefined;
   }): Promise<ExtractionResult> {
     const { value: trimmed } = clampLlmInputText(p.text, 'mentionText');
     if (!trimmed) return { entities: [], facts: [], edges: [] };
@@ -82,7 +82,10 @@ export class DedicatedExtractorService {
       trimmed,
       companyId: p.companyId,
       snapshot,
-      overrides: { model: p.options?.model, scPasses },
+      overrides: {
+        ...(p.options?.model !== undefined ? { model: p.options.model } : {}),
+        scPasses,
+      },
     });
     if (!result) {
       // Transient LLM failure — same no-cache contract as the union path.

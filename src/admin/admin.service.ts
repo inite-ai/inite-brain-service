@@ -77,12 +77,12 @@ export interface AuditEventRow {
 }
 
 export interface AuditQuery {
-  companyId?: string;
-  source?: string;
-  op?: string;
-  since?: string;
-  before?: string;
-  limit?: number;
+  companyId?: string | undefined;
+  source?: string | undefined;
+  op?: string | undefined;
+  since?: string | undefined;
+  before?: string | undefined;
+  limit?: number | undefined;
 }
 
 export interface CostBucket {
@@ -440,9 +440,9 @@ export class AdminService {
    * page; the overview already shows last 20.
    */
   async listDeadLetter(filter: {
-    companyId?: string;
-    reason?: string;
-    limit?: number;
+    companyId?: string | undefined;
+    reason?: string | undefined;
+    limit?: number | undefined;
   }): Promise<AdminDeadLetterRow[]> {
     const tenants = filter.companyId
       ? [filter.companyId]
@@ -516,10 +516,10 @@ export class AdminService {
    * page; also drives the GDPR export endpoint.
    */
   async listForgotten(filter: {
-    companyId?: string;
-    reason?: string;
-    since?: string;
-    limit?: number;
+    companyId?: string | undefined;
+    reason?: string | undefined;
+    since?: string | undefined;
+    limit?: number | undefined;
   }): Promise<AdminForgottenRow[]> {
     const tenants = filter.companyId
       ? [filter.companyId]

@@ -21,7 +21,7 @@ export interface WriteToolDeps {
   documents?: DocumentIngestService;
   feedback?: FeedbackService;
   /** G9 write-anomaly counter — record_fact fires the `mcp` origin path. */
-  metrics?: MetricsService;
+  metrics?: MetricsService | undefined;
 }
 
 export interface AdminToolDeps {
@@ -53,9 +53,9 @@ export function registerWriteTools({
   deps: WriteToolDeps;
   scopes: BrainScope[];
   /** Caller key hash — actor identity for record_feedback's one-vote fence. */
-  actorKeyHash?: string;
+  actorKeyHash?: string | undefined;
   /** Acting client (agent) identity — stamped into fact provenance. */
-  actorId?: string;
+  actorId?: string | undefined;
 }): void {
   // The recorder names WHICH agent wrote the fact (token act/client_id),
   // not just that "an MCP agent" did — feeds per-agent trust and audits.
@@ -97,9 +97,9 @@ export function registerWriteTools({
         predicate: args.predicate,
         object: args.object,
         validFrom: args.validFrom,
-        validUntil: args.validUntil,
-        confidence: args.confidence,
-        userId: args.userId,
+        ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+        ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         source: { vertical: args.sourceVertical, recorder },
       });
       return {
@@ -146,7 +146,7 @@ export function registerWriteTools({
         from: args.from,
         to: args.to,
         kind: args.kind,
-        weight: args.weight,
+        ...(args.weight !== undefined ? { weight: args.weight } : {}),
         source: { vertical: args.sourceVertical },
       });
       return {
@@ -183,12 +183,20 @@ export function registerWriteTools({
       // the HTTP path in facts.controller.ts. Omitting it would skip
       // the check entirely (FactsService treats undefined as a legacy
       // in-process caller).
+      const retractedBy = args.retractedBy
+        ? {
+            source: args.retractedBy.source,
+            ...(args.retractedBy.userId !== undefined
+              ? { userId: args.retractedBy.userId }
+              : {}),
+          }
+        : ({ source: 'system' } as const);
       const out = await deps.facts.retract({
         companyId,
         factId: args.factId,
         dto: {
           reason: args.reason,
-          retractedBy: args.retractedBy ?? { source: 'system' },
+          retractedBy,
         },
         callerScopes: scopes,
       });
@@ -223,8 +231,10 @@ export function registerWriteTools({
       const out = await deps.procedural.record(companyId, {
         trigger: args.trigger,
         action: args.action,
-        priority: args.priority,
-        decayHalfLifeDays: args.decayHalfLifeDays,
+        ...(args.priority !== undefined ? { priority: args.priority } : {}),
+        ...(args.decayHalfLifeDays !== undefined
+          ? { decayHalfLifeDays: args.decayHalfLifeDays }
+          : {}),
         source: { kind: args.sourceKind ?? 'operator' },
       });
       return {
@@ -274,7 +284,7 @@ function registerFeedbackTool({
   server: McpServer;
   companyId: string;
   deps: WriteToolDeps;
-  actorKeyHash?: string;
+  actorKeyHash?: string | undefined;
 }): void {
   if (!deps.feedback) return;
   const feedback = deps.feedback;
@@ -295,7 +305,7 @@ function registerFeedbackTool({
         companyId,
         factId: args.factId,
         verdict: args.verdict,
-        reason: args.reason,
+        ...(args.reason !== undefined ? { reason: args.reason } : {}),
         actor: actorKeyHash ?? `mcp:${companyId}`,
       });
       return {
@@ -421,11 +431,13 @@ function registerIngestDocumentTool({
       const out = await documents.ingestDocument(companyId, {
         kind: args.kind,
         text: args.text,
-        title: args.title,
-        originUri: args.originUri,
+        ...(args.title !== undefined ? { title: args.title } : {}),
+        ...(args.originUri !== undefined ? { originUri: args.originUri } : {}),
         occurredAt: args.occurredAt,
         contextRef: { vertical: args.vertical, recorder },
-        storeContent: args.storeContent,
+        ...(args.storeContent !== undefined
+          ? { storeContent: args.storeContent }
+          : {}),
         indexers: args.indexers ?? 'general',
         mode: 'sync',
       });

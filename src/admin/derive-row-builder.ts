@@ -14,6 +14,24 @@ import type { EpisodeRow } from '../episodes/session-window';
  * functions of (propositions, session, namespace) — no service state.
  */
 
+/**
+ * exactOptionalPropertyTypes-safe scope fields: present only when defined.
+ * Downstream resolveAppendOnlyBatch (fact-resolver) already treats an absent
+ * key identically to an explicit undefined value (`if (c.lang !== undefined)
+ * f.lang = c.lang`, same for script/userId), so omitting is behavior-neutral.
+ */
+function derivedScopeFields(
+  lang: string | undefined,
+  script: string | undefined,
+  userId: string | undefined,
+): { lang?: string; script?: string; userId?: string } {
+  return {
+    ...(lang !== undefined ? { lang } : {}),
+    ...(script !== undefined ? { script } : {}),
+    ...(userId !== undefined ? { userId } : {}),
+  };
+}
+
 /** Row construction for one session's resolved propositions. */
 export function buildDerivedRows({
   resolved,
@@ -144,16 +162,14 @@ export function buildDerivedRows({
       // Multiworld §10: on-contract kinds only (off-enum → untyped).
       ...typedAtomKind(p),
     };
+    const scopeUserId = scopeUsers.length === 1 ? scopeUsers[0] : undefined;
     return {
-      userId: scopeUsers.length === 1 ? scopeUsers[0] : undefined,
       crossUserScope: scopeUsers.length > 1,
       groundingInvalid,
       entityId: subjectEntity,
       predicate: aspect || 'other',
       object: p.proposition,
       confidence: 0.85,
-      lang,
-      script,
       validFrom,
       source,
       sourceTrust: sourceTrustFor({
@@ -162,6 +178,7 @@ export function buildDerivedRows({
       }),
       embedding: vectors[i]!, // vectors is 1:1 with resolved ⇒ in-bounds
       derivedVersion: ns.staging,
+      ...derivedScopeFields(lang, script, scopeUserId),
     };
   });
 }

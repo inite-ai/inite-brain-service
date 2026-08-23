@@ -147,7 +147,7 @@ export class ScenarioRunnerService {
         setupSummary,
         queryResults,
         memoryAssertionResults,
-        identityMergeResult,
+        ...(identityMergeResult !== undefined ? { identityMergeResult } : {}),
         ...(scenario.synthesizeQueries?.length
           ? {
               synthesizeSkipped: {

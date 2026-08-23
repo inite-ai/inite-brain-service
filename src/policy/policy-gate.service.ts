@@ -87,7 +87,7 @@ export class PolicyGateService {
     ctx: PolicyContext;
     action: string;
     kind: ActionKind;
-    requestId?: string;
+    requestId?: string | undefined;
   }): void {
     const evaluation = evaluateAction(ctx, action, kind);
     const denies = evaluation.verdicts.filter((v) => v.verdict === 'deny');

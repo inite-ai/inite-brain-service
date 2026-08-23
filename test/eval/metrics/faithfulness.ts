@@ -41,7 +41,7 @@ export interface FaithfulnessInput {
   answer: string;
   sourceFacts: FaithfulnessSourceFact[];
   /** Default OPENAI_CHAT_MODEL or 'gpt-4o-mini'. */
-  model?: string;
+  model?: string | undefined;
 }
 
 export interface FaithfulnessClaim {

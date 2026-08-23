@@ -14,10 +14,10 @@ export function validateEdges(
   clauses: string[],
 ): {
   edges: ExtractedEdge[];
-  dropped: Array<{ kind?: string; reason: string }>;
+  dropped: Array<{ kind?: string | undefined; reason: string }>;
 } {
   const edges: ExtractedEdge[] = [];
-  const dropped: Array<{ kind?: string; reason: string }> = [];
+  const dropped: Array<{ kind?: string | undefined; reason: string }> = [];
   const rawEdges =
     typeof parsed === 'object' && parsed !== null
       ? (parsed as Record<string, unknown>).edges

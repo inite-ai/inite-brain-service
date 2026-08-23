@@ -518,7 +518,7 @@ export class SynthesizeService {
     results: SearchHit[];
     factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
     promptFactLines: string[];
-    dateMathLines?: string[];
+    dateMathLines?: string[] | undefined;
     guardrails: SynthesisGuardrails;
     explain: boolean;
   }): Promise<SynthesizeResult | null> {
@@ -614,7 +614,7 @@ export class SynthesizeService {
       results: SearchHit[];
       factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
       promptFactLines: string[];
-      dateMathLines?: string[];
+      dateMathLines?: string[] | undefined;
     },
   ): Promise<
     | { failed: SynthesizeResult }
@@ -622,7 +622,7 @@ export class SynthesizeService {
         results: SearchHit[];
         factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
         promptFactLines: string[];
-        dateMathLines?: string[];
+        dateMathLines?: string[] | undefined;
         generated: GeneratorOutput;
         /** Whether the one search-loop refine round actually ran (the
          *  G2 L3 trigger requires a refine to precede escalation when
@@ -727,24 +727,24 @@ export class SynthesizeService {
     generated: GeneratorOutput;
     evidence: SearchHit[];
     prepareOpts: Parameters<SynthesizeService['prepareEvidence']>[1];
-    updateStories?: Map<string, string>;
+    updateStories?: Map<string, string> | undefined;
     /** Multiworld §10 facts-as-keys: quotes for the ROUND-1 top facts —
      *  refined-in facts stand without quotes (unmatched lines pass). */
-    groundingQuotes?: Map<string, string>;
-    shapeInstruction?: string;
+    groundingQuotes?: Map<string, string> | undefined;
+    shapeInstruction?: string | undefined;
     collected: {
       transcriptLines: string[];
       insightLines: string[];
-      instructions?: string[];
+      instructions?: string[] | undefined;
       timelineEvidence: boolean;
       /** G4 advisory notes — generator-only (parity exception). */
-      strategyNotes?: string[];
+      strategyNotes?: string[] | undefined;
     };
   }): Promise<{
     results: SearchHit[];
     factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
     promptFactLines: string[];
-    dateMathLines?: string[];
+    dateMathLines?: string[] | undefined;
     generated: GeneratorOutput;
   } | null> {
     const { profile, dto, collected } = args;
@@ -895,15 +895,15 @@ export class SynthesizeService {
       answerMode: boolean;
       explain: boolean;
       /** T1 temporal lane: asOf for precomputed [elapsed] annotations. */
-      elapsedAsOf?: string;
+      elapsedAsOf?: string | undefined;
       /** T2 enumeration lane: chronological fact-line ordering. */
-      chronological?: boolean;
+      chronological?: boolean | undefined;
       /** T5: mark the newest fact of multi-statement slots. */
-      markRecency?: boolean;
+      markRecency?: boolean | undefined;
       /** V12: mention-date suffix on stamped facts (profile.mentionDates). */
-      mentionDates?: boolean;
+      mentionDates?: boolean | undefined;
       /** V13: "(context: …)" scene suffix (profile.sceneTraces). */
-      sceneTraces?: boolean;
+      sceneTraces?: boolean | undefined;
     },
   ):
     | { empty: SynthesizeResult }
@@ -1022,11 +1022,11 @@ export class SynthesizeService {
     query: string;
     answer: string;
     factLines: string[];
-    transcriptLines?: string[];
-    insightLines?: string[];
-    timelineEvidence?: boolean;
-    topicCoverage?: boolean;
-    dateMathLines?: string[];
+    transcriptLines?: string[] | undefined;
+    insightLines?: string[] | undefined;
+    timelineEvidence?: boolean | undefined;
+    topicCoverage?: boolean | undefined;
+    dateMathLines?: string[] | undefined;
     model: string;
   }): Promise<VerifierOutput> {
     return runVerifier({

@@ -111,15 +111,15 @@ export class ExtractorLlmService {
   async callLlm(args: {
     trimmed: string;
     systemPrompt: string;
-    temperature?: number;
-    model?: string;
+    temperature?: number | undefined;
+    model?: string | undefined;
     /**
      * Per-turn speaker framing prepended to the user message (see
      * buildConversationContext). Grounding still runs against `trimmed`
      * alone, so the prefix drives coreference without polluting valueSpan
      * containment. Empty/absent → byte-identical to the pre-coreference call.
      */
-    contextPrefix?: string;
+    contextPrefix?: string | undefined;
   }): Promise<unknown> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;

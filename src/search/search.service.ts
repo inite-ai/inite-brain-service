@@ -653,10 +653,12 @@ export class SearchService {
     baseWhere: { sql: string; params: Record<string, unknown> };
     ctx: PipelineContext;
     rowFilterFn: (row: FactRow) => boolean;
-    prefetchedNeighbours?: Map<
-      string,
-      { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
-    >;
+    prefetchedNeighbours?:
+      | Map<
+          string,
+          { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+        >
+      | undefined;
   }): Promise<void> {
     if (byEntity.size < 1) return;
     await withSpan(

@@ -201,7 +201,7 @@ export class MentionPersistService {
    * guarded (INSERTED_HISTORICAL); bitemporal is not.
    */
   private factValidFrom(
-    f: { predicate: string; clause?: string },
+    f: { predicate: string; clause?: string | undefined },
     dto: IngestMentionDto,
     eventTimeOn: boolean,
   ): Date {
@@ -297,16 +297,16 @@ export class MentionPersistService {
       entityId: string;
       f: {
         predicate: string;
-        predicateAlias?: string;
+        predicateAlias?: string | undefined;
         object: string;
         confidence: number;
-        extractionEntropy?: number;
+        extractionEntropy?: number | undefined;
       };
       source: MentionSource;
       validFrom: Date;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
-      userId?: string;
+      userId?: string | undefined;
     },
   ): Promise<string | null> {
     const { f } = p;

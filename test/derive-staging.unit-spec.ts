@@ -46,7 +46,7 @@ const ONE_PROP = {
 
 interface Recorded {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function makeSvc(

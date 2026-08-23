@@ -59,7 +59,7 @@ export class UpdateStoryService {
     factIds: string[];
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<Map<string, string>> {
     if (opts.factIds.length === 0) return new Map();
     const piiGate = opts.callerScopes.includes('brain:read_pii')

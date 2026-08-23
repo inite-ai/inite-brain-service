@@ -70,7 +70,7 @@ export interface ArcBeat {
   /** ISO-ish validFrom string; first 10 chars are the day stamp. */
   validFrom: string;
   /** Cosine similarity vs the topic embedding (dense leg). */
-  sim?: number;
+  sim?: number | undefined;
   /** BM25 hit on the topic phrase (lexical leg). */
   lex?: number;
 }

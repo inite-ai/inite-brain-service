@@ -52,7 +52,11 @@ export function isAbstention(prediction: string): boolean {
 /** Agents may return a bare answer string or an answer with token cost. */
 export type AgentAnswer =
   | string
-  | { answer: string; promptTokens?: number; completionTokens?: number };
+  | {
+      answer: string;
+      promptTokens?: number | undefined;
+      completionTokens?: number | undefined;
+    };
 
 export interface QaAgent {
   /** companyId is the per-sample brain tenant the conversation lives in. */
@@ -76,7 +80,7 @@ export interface QuestionScore {
   adversarial: number;
   /** True when the agent declined to answer. For cat5 this is correctness. */
   abstained: boolean;
-  errored?: string;
+  errored?: string | undefined;
   /** LLM-judge verdict (--judge). undefined when judge off or errored. */
   judgeCorrect?: boolean;
   /** Judge error message — recorded, never fails the run. */
@@ -128,7 +132,7 @@ export interface RunReport {
   generatedAt: string;
   totalQuestions: number;
   /** Per-question generator token accounting, when agents report usage. */
-  tokens?: TokenSummary;
+  tokens?: TokenSummary | undefined;
   /**
    * Headline metrics over the ANSWERABLE categories (1-4) only.
    * `n` is the count of cat1-4 questions, not the grand total — this is
@@ -335,6 +339,7 @@ async function scoreQuestion(
   let completionTokens: number | undefined;
   let errored: string | undefined;
   try {
+    const latestSessionDate = conv.sessions[conv.sessions.length - 1]?.dateTime;
     const raw = await withTimeout(
       agent.answer({
         companyId,
@@ -343,7 +348,7 @@ async function scoreQuestion(
         // temporal questions the agent can derive one from the wording.
         // We surface the latest session timestamp so the natural
         // "default = actual now" cursor is up-to-date.
-        asOf: conv.sessions[conv.sessions.length - 1]?.dateTime,
+        ...(latestSessionDate !== undefined ? { asOf: latestSessionDate } : {}),
       }),
       timeoutMs,
     );

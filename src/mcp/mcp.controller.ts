@@ -11,6 +11,7 @@ import {
 import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { POLICY_ACTION_EXEMPT } from '../policy/policy-gate.service';
@@ -91,16 +92,25 @@ export class McpController {
       actorId: auth.actorId,
       mcpGrantedActions: auth.mcpGrantedActions,
     });
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless
-    });
+    // Stateless mode: omitting sessionIdGenerator entirely reads the same
+    // as an explicit `undefined` (the SDK just stores whatever the key
+    // holds — absent and `undefined` are indistinguishable at that read),
+    // and exactOptionalPropertyTypes forbids writing the literal undefined.
+    const transport = new StreamableHTTPServerTransport({});
 
     res.on('close', () => {
       transport.close().catch(() => {});
       server.close().catch(() => {});
     });
 
-    await server.connect(transport);
+    // Bridge a self-inconsistency in @modelcontextprotocol/sdk's own .d.ts
+    // that surfaces under exactOptionalPropertyTypes: the Transport interface
+    // declares `onclose?/onerror?/onmessage?: () => void` (optional) while
+    // StreamableHTTPServerTransport implements them as accessors typed
+    // `(() => void) | undefined`, so the concrete class no longer structurally
+    // satisfies its own interface. The runtime value genuinely is a valid
+    // Transport; this asserts the SDK's own contract, not our types.
+    await server.connect(transport as Transport);
     await transport.handleRequest(req, res, req.body);
   }
 }

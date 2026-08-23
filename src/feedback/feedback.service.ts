@@ -41,7 +41,7 @@ export class FeedbackService {
     companyId: string;
     factId: string;
     verdict: FeedbackVerdict;
-    reason?: string;
+    reason?: string | undefined;
     actor: string;
   }): Promise<RecordFeedbackResult> {
     return this.surreal.withCompany(p.companyId, async (db) => {

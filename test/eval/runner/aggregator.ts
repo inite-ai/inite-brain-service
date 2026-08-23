@@ -197,7 +197,7 @@ export class Aggregator {
       {
         name: 'faithfulness:pass-rate',
         value: synthPassRate,
-        threshold: synthOutcomes.length > 0 ? 0.8 : undefined,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.8 } : {}),
         n: synthOutcomes.length,
       },
       // Pure diagnostic count (no threshold) — gate semantics are
@@ -241,7 +241,7 @@ export class Aggregator {
             ? null
             : synthOutcomes.filter((o) => o.faithfulnessFloor > 0).length /
               synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.95 } : {}),
         n: synthOutcomes.length,
       },
       {
@@ -255,7 +255,7 @@ export class Aggregator {
             : 1 -
               synthOutcomes.filter((o) => o.answer === null).length /
                 synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.7 : undefined,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.7 } : {}),
         n: synthOutcomes.length,
       },
       {
@@ -267,7 +267,7 @@ export class Aggregator {
           synthOutcomes.length === 0
             ? null
             : 1 - synthVerifierFailures / synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.95 } : {}),
         n: synthOutcomes.length,
       },
       // ── Hallucination resistance (false-premise / expectRefusal) ──────
@@ -279,7 +279,7 @@ export class Aggregator {
       {
         name: 'hallucination-resistance:refusal-rate',
         value: synthRefusalRate,
-        threshold: refusalOutcomes.length > 0 ? 0.8 : undefined,
+        ...(refusalOutcomes.length > 0 ? { threshold: 0.8 } : {}),
         n: refusalOutcomes.length,
       },
       {
@@ -357,7 +357,7 @@ function phase4Metrics(
     {
       name: 'answer-language-correctness',
       value: langGated.length === 0 ? null : langCorrect / langGated.length,
-      threshold: langGated.length > 0 ? 0.95 : undefined,
+      ...(langGated.length > 0 ? { threshold: 0.95 } : {}),
       n: langGated.length,
     },
     {
@@ -366,7 +366,7 @@ function phase4Metrics(
         synthWithAnswer.length === 0
           ? null
           : citedAnswers / synthWithAnswer.length,
-      threshold: synthWithAnswer.length > 0 ? 0.8 : undefined,
+      ...(synthWithAnswer.length > 0 ? { threshold: 0.8 } : {}),
       n: synthWithAnswer.length,
     },
     {

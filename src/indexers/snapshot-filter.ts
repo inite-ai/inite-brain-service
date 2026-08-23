@@ -20,7 +20,7 @@ import type {
 
 export function filterSnapshotForPack(
   full: PredicateSnapshot,
-  opts: { packId: string; includeCorePredicates?: boolean },
+  opts: { packId: string; includeCorePredicates?: boolean | undefined },
 ): PredicateSnapshot {
   const includeCore = opts.includeCorePredicates !== false;
   const prefix = opts.packId + PACK_NAMESPACE_SEP;

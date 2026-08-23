@@ -24,7 +24,7 @@ export interface BaseWhereOptions {
    * facts that haven't been backfilled — keeping them visible
    * avoids regressing recall while the corpus catches up).
    */
-  langFilter?: string;
+  langFilter?: string | undefined;
 }
 
 export interface BuildBaseWhereOptions {

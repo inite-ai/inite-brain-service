@@ -56,10 +56,10 @@ export class OperatorActionService {
   }
 
   async list(filter: {
-    actor?: string;
-    pathPrefix?: string;
-    since?: string;
-    limit?: number;
+    actor?: string | undefined;
+    pathPrefix?: string | undefined;
+    since?: string | undefined;
+    limit?: number | undefined;
   }): Promise<OperatorActionRow[]> {
     if (!this.surreal || !this.apiKeys) return [];
     const tenants = filter.actor

@@ -22,7 +22,7 @@ function stubOpenAi(replies: string[]): {
 } {
   let i = 0;
   const create = jest.fn(async () => ({
-    choices: [{ message: { content: replies[i++] } }],
+    choices: [{ message: { content: replies[i++] ?? null } }],
   }));
   return { client: { chat: { completions: { create } } }, create };
 }

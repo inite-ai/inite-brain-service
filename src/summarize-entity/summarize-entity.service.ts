@@ -222,13 +222,13 @@ export interface SummarizeResult {
   summary: string;
   factsConsidered: number;
   style: SummarizeStyle;
-  asOf?: string;
+  asOf?: string | undefined;
   /**
    * Event-time the summary reflects — the max validFrom across the facts
    * considered (graphiti-style event-time watermark). Lets the caller
    * reason about "as of when", independent of when it was computed.
    */
-  asOfValid?: string;
+  asOfValid?: string | undefined;
   /** True when this exact (entityId, asOf, style) was served from the LRU. */
   cached: boolean;
 }

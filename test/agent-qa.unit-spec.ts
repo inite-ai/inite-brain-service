@@ -175,8 +175,10 @@ describe('AgentQaService', () => {
     it('timeline tool renders chronological facts of the pinned world', async () => {
       process.env.AGENT_QA_TOOLS_V2 = '1';
       process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
-      const queries: Array<{ sql: string; params?: Record<string, unknown> }> =
-        [];
+      const queries: Array<{
+        sql: string;
+        params?: Record<string, unknown> | undefined;
+      }> = [];
       const surreal = {
         withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
           fn({

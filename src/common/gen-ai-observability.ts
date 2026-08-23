@@ -97,8 +97,8 @@ export async function withGenAiCall<R extends OpenAiLikeResponse | unknown>(
           kind: spec.kind,
           outcome: 'ok',
           durationSeconds: elapsed,
-          promptTokens,
-          completionTokens,
+          ...(promptTokens !== undefined ? { promptTokens } : {}),
+          ...(completionTokens !== undefined ? { completionTokens } : {}),
         });
         return res;
       } catch (err) {

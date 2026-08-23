@@ -66,7 +66,7 @@ describe('rrfFuse', () => {
 
 describe('SegmentComposerService', () => {
   it('windows sessions, embeds, and writes segments idempotently', async () => {
-    const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+    const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         queries.push({ sql, params });

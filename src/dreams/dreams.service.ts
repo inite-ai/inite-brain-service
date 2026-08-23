@@ -362,10 +362,12 @@ export class DreamsService implements OnModuleInit {
   }: {
     companyId: string;
     operations: DreamsOperation[];
-    triggered?: {
-      triggeredBy?: 'cron' | 'manual' | 'startup';
-      triggeredByActor?: string;
-    };
+    triggered?:
+      | {
+          triggeredBy?: 'cron' | 'manual' | 'startup';
+          triggeredByActor?: string;
+        }
+      | undefined;
     opts?: { skipJobRowLifecycle?: boolean; abortSignal?: AbortSignal };
   }): Promise<DreamsTenantStats> {
     const t0 = Date.now();
@@ -445,7 +447,7 @@ export class DreamsService implements OnModuleInit {
     opSet: Set<DreamsOperation>;
     stats: DreamsTenantStats;
     jobRow: JobRunRow | null;
-    signal?: AbortSignal;
+    signal?: AbortSignal | undefined;
   }): Promise<void> {
     const { db, companyId, opSet, stats, jobRow, signal } = args;
     // Audit W2 #10: dreams used to be version-BLIND — dedup drew identity

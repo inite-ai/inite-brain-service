@@ -20,8 +20,8 @@ export interface CandidateRow {
   kind: CandidateKind;
   confidence: number;
   status: string;
-  statusReason?: string;
-  commitRef?: string;
+  statusReason?: string | undefined;
+  commitRef?: string | undefined;
   // A heterogeneous JSON blob whose shape differs by `kind`
   // (entity / fact / relation). Each consumer narrows the fields it
   // reads (candidate-merge.ts guards predicate/object as strings; the
@@ -85,8 +85,8 @@ export interface RunRow {
   packVersion: string;
   status: string;
   external: boolean;
-  claimToken?: string;
-  createdAt?: Date;
+  claimToken?: string | undefined;
+  createdAt?: Date | undefined;
 }
 
 /**
@@ -127,8 +127,8 @@ export class CandidateStoreService {
       docId: string;
       packId: string;
       packVersion: string;
-      model?: string;
-      registryVersionHash?: string;
+      model?: string | undefined;
+      registryVersionHash?: string | undefined;
       /** Run belongs to an external (out-of-process) indexer — 0062. */
       external?: boolean;
     },
@@ -569,8 +569,8 @@ export class CandidateStoreService {
     updates: Array<{
       id: string;
       status: string;
-      statusReason?: string;
-      commitRef?: string;
+      statusReason?: string | undefined;
+      commitRef?: string | undefined;
     }>,
   ): Promise<void> {
     if (!updates.length) return;

@@ -44,8 +44,10 @@ export function registerProceduralReadTools(
       const out = await deps.procedural.match(companyId, {
         callerScopes: scopes,
         query: args.query,
-        limit: args.limit,
-        minSimilarity: args.minSimilarity,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.minSimilarity !== undefined
+          ? { minSimilarity: args.minSimilarity }
+          : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -69,8 +71,10 @@ export function registerProceduralReadTools(
     async (args) => {
       const out = await deps.procedural.list(companyId, {
         callerScopes: scopes,
-        limit: args.limit,
-        includeRetired: args.includeRetired,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.includeRetired !== undefined
+          ? { includeRetired: args.includeRetired }
+          : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

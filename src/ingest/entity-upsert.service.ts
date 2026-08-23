@@ -114,7 +114,7 @@ export class EntityUpsertService {
     incomingFacts = [],
   }: {
     db: Surreal;
-    e: { name: string; type: string; canonical?: string };
+    e: { name: string; type: string; canonical?: string | undefined };
     hint: { vertical: string; id: string; role?: string } | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];

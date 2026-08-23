@@ -53,7 +53,7 @@ export interface JobRunRow {
   error?: { message: string; name?: string; stack?: string } | null;
   cancelRequested: boolean;
   /** Phase J/K claim fields — populated when status='running'. */
-  attempts?: number;
+  attempts?: number | undefined;
   claimedBy?: string | null;
   claimedAt?: string | null;
   leaseUntil?: string | null;
@@ -211,7 +211,7 @@ export class JobRunService {
     jobType: JobType;
     companyId: string;
     triggeredBy: 'cron' | 'manual' | 'startup';
-    triggeredByActor?: string;
+    triggeredByActor?: string | undefined;
     initialProgress?: JobProgress;
   }): Promise<JobRunRow> {
     const runId = randomUUID();

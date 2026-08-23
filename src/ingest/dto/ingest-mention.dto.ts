@@ -68,7 +68,7 @@ export class IngestMentionDto {
    * as a bare-entityId direct fact ingest).
    */
   @IsOptional() @IsString() @MaxLength(200)
-  userId?: string;
+  userId?: string | undefined;
 
   @IsISO8601()
   emittedAt!: string;

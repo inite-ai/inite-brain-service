@@ -165,10 +165,12 @@ export interface ExpandViaEdgesOptions {
    * served from it; only the uncovered seeds hit the DB — saving the separate
    * round-trip for everything the vector KNN already surfaced.
    */
-  prefetchedNeighbours?: Map<
-    string,
-    { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
-  >;
+  prefetchedNeighbours?:
+    | Map<
+        string,
+        { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
+      >
+    | undefined;
 }
 
 /**

@@ -70,7 +70,7 @@ export interface FactRow {
   // parser's `ORDER BY` resolver and silently returns rows in
   // record-id order instead of by score.
   simScore?: number;
-  bm25Score?: number;
+  bm25Score?: number | undefined;
   /** BM25 match snippet from search::highlight, set by the lexical leg when
    *  SEARCH_HIGHLIGHT_ENABLED is on. Absent on vector-only rows. */
   highlight?: string;

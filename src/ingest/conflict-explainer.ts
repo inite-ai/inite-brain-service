@@ -85,8 +85,8 @@ export interface ResolverConflictPayload {
   outcome: ConflictOutcome;
   factId: string;
   bestOpponentId: string;
-  supersededFactIds?: string[];
-  competingFactIds?: string[];
+  supersededFactIds?: string[] | undefined;
+  competingFactIds?: string[] | undefined;
   scoreBreakdown: ConflictScoreBreakdown;
   dominantDimension: ConflictDimension;
   slotDelta: ConflictSlotDelta;

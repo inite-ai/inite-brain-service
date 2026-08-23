@@ -37,7 +37,7 @@ export interface StrategyEvidence extends Record<string, unknown> {
   runIds?: string[];
   nSupport?: number;
   nContradict?: number;
-  lastValidatedAt?: string;
+  lastValidatedAt?: string | undefined;
 }
 
 export interface StrategyItem {
@@ -216,7 +216,7 @@ export class StrategyMemoryService {
 
   async list(
     companyId: string,
-    args: { status?: StrategyStatus; limit?: number } = {},
+    args: { status?: StrategyStatus | undefined; limit?: number | undefined } = {},
   ): Promise<StrategyItem[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const filter = args.status
@@ -265,7 +265,11 @@ export class StrategyMemoryService {
   async mergeUpdate(
     companyId: string,
     strategyIdRaw: string,
-    patch: { strategy?: string; situation?: string; evidence: StrategyEvidence },
+    patch: {
+      strategy?: string | undefined;
+      situation?: string | undefined;
+      evidence: StrategyEvidence;
+    },
   ): Promise<StrategyItem> {
     return this.surreal.withCompany(companyId, async (db) => {
       const tail = idTail(strategyIdRaw);

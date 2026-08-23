@@ -44,7 +44,7 @@ export class InsightLaneService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<string[]> {
     const fetchK = Math.max(INSIGHT_TOP_K * 3, 12);
     try {
@@ -61,7 +61,7 @@ export class InsightLaneService {
             queryVector,
             fetchK,
             callerScopes: opts.callerScopes,
-            userId: opts.userId,
+            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
             derivedVersion,
           });
           return fuse(vectorRows, lexicalRows, 'hybrid');

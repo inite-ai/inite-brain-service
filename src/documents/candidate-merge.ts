@@ -19,7 +19,7 @@ export interface MergedEntity {
   key: string;
   name: string;
   type: string;
-  canonical?: string;
+  canonical?: string | undefined;
   /** Leader first; the rest fold to status 'merged'. */
   candidateIds: string[];
 }
@@ -39,8 +39,8 @@ export interface MergedFact {
   object: string;
   /** max across contributors */
   confidence: number;
-  entropy?: number;
-  clause?: string;
+  entropy?: number | undefined;
+  clause?: string | undefined;
   /** Leader's indexer — becomes the committed fact's source.recorder. */
   recorder: string;
   leaderId: string;
@@ -101,7 +101,7 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
   const items: Array<{
     row: CandidateRow;
     name: string;
-    canonical?: string;
+    canonical?: string | undefined;
     nameKey: string;
   }> = [];
   // Pass 1: register aliases and union each candidate's own aliases.

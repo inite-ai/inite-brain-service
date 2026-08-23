@@ -95,7 +95,7 @@ export class QueryArcService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
     scan?: CoverageScanTuning;
     /** Lexical-leg shape (V11 A2); omitted → the legacy phrase matcher. */

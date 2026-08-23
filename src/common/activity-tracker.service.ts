@@ -4,7 +4,7 @@ export interface InFlightRequest {
   id: string;
   method: string;
   path: string;
-  companyId?: string;
+  companyId?: string | undefined;
   startedAtMs: number;
 }
 

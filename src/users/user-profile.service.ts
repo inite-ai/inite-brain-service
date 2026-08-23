@@ -168,7 +168,7 @@ export class UserProfileService {
     userId: string;
     callerScopes: readonly string[];
     maxFacts: number;
-    lang?: string;
+    lang?: string | undefined;
   }): Promise<UserProfileWire> {
     const { companyId, userId, callerScopes, maxFacts, lang } = opts;
     const derivedVersion =

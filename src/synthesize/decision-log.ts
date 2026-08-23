@@ -41,7 +41,7 @@ export interface DecisionLogEntry {
   /** True iff the synthesizer's generator emitted [fid:...] for this fact. */
   picked: boolean;
   /** Populated only when `picked === false`. Deterministic, template-derived. */
-  rejectReason?: DecisionRejectReason;
+  rejectReason?: DecisionRejectReason | undefined;
   /** All multiplicative score components that placed the fact. */
   scoreBreakdown: ScoreBreakdown;
 }

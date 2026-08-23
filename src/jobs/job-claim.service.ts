@@ -50,7 +50,7 @@ export interface JobClaim {
    * span as a child of the producer, so trace viewers stitch the
    * full publish→queue→process waterfall together.
    */
-  traceparent?: string;
+  traceparent?: string | undefined;
 }
 
 /**

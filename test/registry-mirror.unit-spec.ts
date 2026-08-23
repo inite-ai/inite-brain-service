@@ -128,11 +128,13 @@ function runSync(args: {
 }) {
   return syncRegistryMirror({
     upstreamBase: args.upstreamBase ?? BASE,
-    token: args.token,
     local: args.local.port,
     logger: args.logger.logger,
     fetchImpl: args.upstream.fetchImpl,
-    maxVersionsPerRun: args.maxVersionsPerRun,
+    ...(args.token !== undefined ? { token: args.token } : {}),
+    ...(args.maxVersionsPerRun !== undefined
+      ? { maxVersionsPerRun: args.maxVersionsPerRun }
+      : {}),
   });
 }
 

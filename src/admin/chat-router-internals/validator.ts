@@ -317,7 +317,7 @@ function collectTemporalAnchors({
   message: string;
   normalizedInput: string;
   report: ValidationReport;
-}): { asOf?: TemporalAnchor; validFrom?: TemporalAnchor } {
+}): { asOf?: TemporalAnchor | undefined; validFrom?: TemporalAnchor | undefined } {
   let asOf: TemporalAnchor | undefined;
   if (parsed.intent === 'ask' && parsed.asOf) {
     const span = validateSpan(message, normalizedInput, parsed.asOf.anchorSpan);

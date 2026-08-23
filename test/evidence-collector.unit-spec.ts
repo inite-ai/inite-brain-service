@@ -338,7 +338,7 @@ describe('EvidenceCollectorService branches', () => {
  */
 describe('cross-user evidence isolation (V11 item 10)', () => {
   const A_SECRET = 'A-SECRET: user A rents a flat in Lisbon';
-  const laneCalls: Array<{ lane: string; userId?: string }> = [];
+  const laneCalls: Array<{ lane: string; userId?: string | undefined }> = [];
   const scopedLines = (lane: string, userId: string | undefined): string[] => {
     laneCalls.push({ lane, userId });
     return userId === undefined || userId === 'user-a'
@@ -413,7 +413,7 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
       ...collectorArgs(fullProfile()),
       lane: 'summary' as const,
       factIds: ['f1'],
-      userId,
+      ...(userId !== undefined ? { userId } : {}),
     };
   }
 
