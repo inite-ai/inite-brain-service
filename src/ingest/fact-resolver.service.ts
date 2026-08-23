@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import { retryOnUniqueViolation } from '../db/surreal.service';
+import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
@@ -260,6 +261,52 @@ export class FactResolverService {
   }
 
   /**
+   * G6 scope-tag stamp (step 1): mirror the per-user scope onto the
+   * row's `scope` column so new personal facts carry ['user:<id>'] the
+   * way the 0093 backfill set it for existing rows — the forward half of
+   * the backfill invariant. The fact CREATE itself lives inside the
+   * audit-hardened `fn::resolve_fact`, which stamps `userId`; rather than
+   * reopen that function we mirror the derived scope in a targeted
+   * follow-up UPDATE on the row(s) it returned. No-op for tenant-global
+   * writes (userId undefined → the field DEFAULT [] already holds), so
+   * the benchmark/eval path (which never stamps a userId) is untouched.
+   *
+   * STAMPING ONLY — never authorization, and best-effort. The read fence
+   * is composed with AND alongside the binding userId filter, so a fact
+   * left at scope=[] by a failed stamp is still correctly fenced by
+   * userId; the scope column can never OPEN access it lacks. A failure
+   * therefore warns instead of failing the ingest.
+   */
+  private async stampFactScope(
+    db: {
+      query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
+    },
+    items: Array<{ userId?: string; factId: unknown }>,
+  ): Promise<void> {
+    const byUser = new Map<string, StringRecordId[]>();
+    for (const it of items) {
+      if (!it.userId || it.factId === undefined || it.factId === null) continue;
+      const tail = idTailOf(String(it.factId));
+      const ids = byUser.get(it.userId) ?? [];
+      ids.push(new StringRecordId(`knowledge_fact:${tail}`));
+      byUser.set(it.userId, ids);
+    }
+    if (byUser.size === 0) return;
+    try {
+      for (const [userId, ids] of byUser) {
+        await db.query(
+          `UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`,
+          { scope: scopeForUser(userId), ids },
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `scope-tag stamp failed (non-fatal, userId scope still fences): ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Resolve a set of append_only facts in ONE round-trip via the stored
    * `fn::resolve_facts` (migration 0071), which maps `fn::resolve_fact` over the
    * array server-side and returns the results in order. Safe without the resolve
@@ -316,7 +363,12 @@ export class FactResolverService {
       `RETURN fn::resolve_facts($facts, $cfg)`,
       { facts, cfg },
     );
-    return (rows as any[]) ?? [];
+    const out = (rows as any[]) ?? [];
+    await this.stampFactScope(
+      db,
+      prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
+    );
+    return out;
   }
 
   /**
@@ -428,7 +480,7 @@ export class FactResolverService {
    * entity+predicate — retry sees the racing committer's row and
    * supersedes/competes on the second attempt.
    */
-  private resolveFactCall(
+  private async resolveFactCall(
     db: Surreal,
     p: {
       companyId: string;
@@ -462,9 +514,9 @@ export class FactResolverService {
     // canon serialize onto the same slot — their candidate sets are the
     // same rows now that resolution keys on `predicateAlias ?? predicate`.
     const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicateAlias ?? p.predicate}`;
-    return this.resolveLock.run(lockKey, () =>
+    const r = await this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
-        const [r] = await db.query<[any]>(
+        const [row] = await db.query<[any]>(
           `RETURN fn::resolve_fact(
             type::record('knowledge_entity', $eid),
             $predicate, $object, $object_meta, $embedding,
@@ -503,9 +555,14 @@ export class FactResolverService {
             derived_version: p.derivedVersion,
           },
         );
-        return r;
+        return row;
       }),
     );
+    // G6 step 1: mirror the userId scope onto the new row's scope column.
+    // Outside the retry closure so a stamp hiccup never re-runs the
+    // resolver (which would double-create the fact).
+    await this.stampFactScope(db, [{ userId: p.userId, factId: r?.factId }]);
+    return r;
   }
 
   private cfgNum(key: string, fallback: number): number {

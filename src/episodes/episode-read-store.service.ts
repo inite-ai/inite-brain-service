@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { scopeFenceSql } from '../auth/scope-visibility';
 
 /**
  * Read port over the L0 episode substrate (raw-substrate driver v1,
@@ -90,6 +91,20 @@ export class EpisodeReadStoreService {
     return userId ? { scopeUserId: userId } : {};
   }
 
+  /**
+   * G6 scope-tag fence (SCOPE_TAGS_ENABLED, default off). An ADDED
+   * AND-condition mirroring userGate against the `scope` column, or an
+   * empty fragment when the flag is off (userGate stays the sole
+   * enforcement). Defense-in-depth — composed with AND, never replacing
+   * userGate, so it can only narrow, never open. See scope-visibility.ts.
+   */
+  private scopeGate(userId: string | undefined): {
+    clause: string;
+    params: Record<string, unknown>;
+  } {
+    return scopeFenceSql(userId);
+  }
+
   private async run<T>(
     companyId: string,
     db: EpisodeDb | undefined,
@@ -163,12 +178,17 @@ export class EpisodeReadStoreService {
         ? Math.min(Math.floor(opts.cap), CONVERSATION_TURNS_CAP)
         : CONVERSATION_TURNS_CAP;
     return this.run(opts.companyId, opts.db, async (db) => {
-      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`;
+      const scope = this.scopeGate(opts.userId);
+      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause}`;
       const [rows] = await db.query<[EpisodeTurnRow[]]>(
         `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
           WHERE conversationId = $conv ${gates}
           ORDER BY occurredAt ASC, id ASC LIMIT ${cap}`,
-        { conv: opts.conversationId, ...this.userParams(opts.userId) },
+        {
+          conv: opts.conversationId,
+          ...this.userParams(opts.userId),
+          ...scope.params,
+        },
       );
       return rows ?? [];
     });
@@ -198,18 +218,20 @@ export class EpisodeReadStoreService {
       ? { speakerSuffix: opts.speakerSuffix.toLowerCase() }
       : {};
     return this.run(opts.companyId, opts.db, async (db) => {
+      const scope = this.scopeGate(opts.userId);
       const [rows] = await db.query<
         [Array<EpisodeQuoteRow & { score?: number }>]
       >(
         `SELECT id, conversationId, speaker, text, occurredAt, search::score(1) AS score
            FROM episode
-          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${speakerGate}
+          WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
           ORDER BY score DESC
           LIMIT $k`,
         {
           q: opts.query,
           k: opts.limit,
           ...this.userParams(opts.userId),
+          ...scope.params,
           ...speakerParams,
         },
       );
@@ -228,12 +250,14 @@ export class EpisodeReadStoreService {
   }): Promise<EpisodeQuoteRow[]> {
     if (opts.ids.length === 0) return [];
     return this.run(opts.companyId, opts.db, async (db) => {
+      const scope = this.scopeGate(opts.userId);
       const [rows] = await db.query<[EpisodeQuoteRow[]]>(
         `SELECT id, conversationId, speaker, text, occurredAt FROM episode
-          WHERE id INSIDE $ids ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`,
+          WHERE id INSIDE $ids ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause}`,
         {
           ids: opts.ids.map((id) => new StringRecordId(id)),
           ...this.userParams(opts.userId),
+          ...scope.params,
         },
       );
       return rows ?? [];
@@ -258,11 +282,13 @@ export class EpisodeReadStoreService {
     db?: EpisodeDb;
   }): Promise<EpisodeQuoteRow[]> {
     return this.run(opts.companyId, opts.db, async (db) => {
-      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)}`;
+      const scope = this.scopeGate(opts.userId);
+      const gates = `${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause}`;
       const params = {
         conv: opts.conversationId,
         c: new Date(opts.centerIso),
         ...this.userParams(opts.userId),
+        ...scope.params,
       };
       const [before, after] = await Promise.all([
         db
@@ -383,6 +409,14 @@ export class EpisodeReadStoreService {
         params.scopeUserId = opts.userId;
       } else {
         where.push('userId IS NONE');
+      }
+      // G6 scope-tag fence (SCOPE_TAGS_ENABLED) — ADDED alongside the
+      // userId fence, inert when off. The scopeFenceSql clause carries a
+      // leading `AND `; strip it since this builder joins with ` AND `.
+      const scope = scopeFenceSql(opts.userId);
+      if (scope.clause) {
+        where.push(scope.clause.replace(/^AND\s+/, ''));
+        Object.assign(params, scope.params);
       }
       const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
       const [rows] = await db.query<[EpisodePageRow[]]>(
