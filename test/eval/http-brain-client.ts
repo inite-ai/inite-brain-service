@@ -105,7 +105,7 @@ export class HttpBrainClient {
       const res = await f(`${opts.baseUrl}${path}`, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');

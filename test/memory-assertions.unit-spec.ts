@@ -34,7 +34,7 @@ describe('MemoryAssertionsChecker', () => {
       description: '',
       setup: [],
       queries: [],
-      memoryAssertions: assertions,
+      ...(assertions !== undefined ? { memoryAssertions: assertions } : {}),
     };
   }
 

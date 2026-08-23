@@ -265,24 +265,24 @@ export class McpService {
        * actor) fence. Falls back to a per-tenant sentinel for callers
        * that don't thread it (unit fixtures).
        */
-      actorKeyHash?: string;
+      actorKeyHash?: string | undefined;
       /**
        * Resolved ABAC context from ApiKeyGuard; undefined = no
        * policies attached, tool surface identical to pre-ABAC.
        */
-      policy?: PolicyContext;
+      policy?: PolicyContext | undefined;
       /**
        * Per-pack key binding (ApiKeyRecord.packIds): a bound key sees
        * only its packs' declared tools; absent = every consented pack.
        */
-      packIds?: string[];
+      packIds?: string[] | undefined;
       /** Acting client (agent) identity — provenance attribution. */
-      actorId?: string;
+      actorId?: string | undefined;
       /**
        * RFC 9396 inite_mcp_resource grant (ApiKeyRecord.mcpGrantedActions):
        * undefined = gate inactive; [] = granted nothing (all tools removed).
        */
-      mcpGrantedActions?: string[];
+      mcpGrantedActions?: string[] | undefined;
     },
   ): Promise<McpServer> {
     const actorKeyHash = caller?.actorKeyHash;

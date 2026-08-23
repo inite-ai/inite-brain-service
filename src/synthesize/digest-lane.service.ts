@@ -41,7 +41,7 @@ export class DigestLaneService {
     companyId: string;
     /** Scope key of the asking end-user; omitted → tenant-global
      *  caller, no user gate (M2M reads the whole tenant today). */
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<string[]> {
     try {
       const derivedVersion =

@@ -62,7 +62,7 @@ export class MentionScanService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** V10 §3: collapse near-duplicate aspect mentions (orderingFrame). */
     dedupeAspects?: boolean;
     /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */

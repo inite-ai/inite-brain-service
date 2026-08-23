@@ -98,7 +98,7 @@ export class IngestFactDto {
    * asserts the user.
    */
   @IsOptional() @IsString() @MaxLength(200)
-  userId?: string;
+  userId?: string | undefined;
 
   @IsOptional() @IsObject()
   metadata?: Record<string, unknown>;

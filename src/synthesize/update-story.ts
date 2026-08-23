@@ -29,7 +29,7 @@ export interface PreviousValue {
   object: string;
   /** When the old value stopped being current (loser validUntil =
    *  winner validFrom under the resolver contract). */
-  validUntil?: string;
+  validUntil?: string | undefined;
 }
 
 function toDay(value?: string): string | undefined {

@@ -61,7 +61,7 @@ export class AdminAggregatesController {
   private validate(
     req: AuthenticatedRequest,
     body: { tenant?: string; version?: string },
-  ): { tenant: string; version?: string } {
+  ): { tenant: string; version?: string | undefined } {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
     if (
       tenant !== req.brainAuth.companyId &&

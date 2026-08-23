@@ -44,7 +44,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerRunResult[]> {
     const results: IndexerRunResult[] = [
       await this.runs.runGeneral(p),
@@ -118,7 +118,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerBinding[]> {
     return this.selectRouted(p, 'dedicated');
   }
@@ -128,7 +128,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerBinding[]> {
     return this.selectRouted(p, 'external');
   }
@@ -143,7 +143,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerRunResult[]> {
     if (
       !p.doc.hasContent &&
@@ -192,7 +192,7 @@ export class IndexerDispatchService {
       companyId: string;
       doc: StoredDocument;
       chunks: DocumentChunk[];
-      indexers?: IndexerSelection;
+      indexers?: IndexerSelection | undefined;
     },
     mode: 'dedicated' | 'external',
   ): Promise<IndexerBinding[]> {

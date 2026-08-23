@@ -30,7 +30,7 @@ export interface StoredDocument {
   chunkCount: number;
   hasContent: boolean;
   vertical: string;
-  recorder?: string;
+  recorder?: string | undefined;
   occurredAt: Date;
   status: string;
   /**
@@ -177,7 +177,7 @@ export class DocumentStoreService {
    */
   async listReindexable(
     companyId: string,
-    p: { afterId?: string; limit: number },
+    p: { afterId?: string | undefined; limit: number },
   ): Promise<StoredDocument[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const rows = await queryRows<Record<string, unknown>>(

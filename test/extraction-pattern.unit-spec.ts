@@ -6,7 +6,7 @@
 import { ExtractionPatternService } from '../src/ai/extraction-pattern.service';
 
 type Surreal = {
-  query: jest.Mock<Promise<unknown>, [string, Record<string, unknown>?]>;
+  query: jest.Mock<Promise<unknown>, [string, (Record<string, unknown> | undefined)?]>;
 };
 
 interface MockedSurrealService {

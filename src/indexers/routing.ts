@@ -14,9 +14,9 @@ export interface IndexerBinding {
   packVersion: string;
   mode: 'virtual' | 'dedicated' | 'external';
   description: string;
-  relevance?: IndexerRelevance;
-  dedicated?: IndexerDescriptor['dedicated'];
-  external?: IndexerDescriptor['external'];
+  relevance?: IndexerRelevance | undefined;
+  dedicated?: IndexerDescriptor['dedicated'] | undefined;
+  external?: IndexerDescriptor['external'] | undefined;
 }
 
 export interface RoutingInput {
@@ -24,7 +24,7 @@ export interface RoutingInput {
   /** Document head (first few KB) — the cheap trigger surface. */
   head: string;
   /** Explicit per-request indexer selection (L0). */
-  requested?: string[];
+  requested?: string[] | undefined;
 }
 
 export interface RuleRoutingResult {

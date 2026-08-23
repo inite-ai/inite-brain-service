@@ -41,15 +41,15 @@ export interface EntityProfile {
    * Callers should treat the entity as a redirect — fetch `mergedInto`
    * to get the survivor's profile. Both fields are absent on live entities.
    */
-  mergedAt?: string;
-  mergedInto?: string;
+  mergedAt?: string | undefined;
+  mergedInto?: string | undefined;
   facts: Array<{
     factId: string;
     predicate: string;
     object: string;
     confidence: number;
     validFrom: string;
-    validUntil?: string;
+    validUntil?: string | undefined;
     status: string;
   }>;
 }
@@ -79,7 +79,7 @@ export interface GetProfileOptions {
   entityIdRaw: string;
   asOfRaw: string | undefined;
   /** Transaction-time cutoff — replay what the graph believed at T. */
-  recordedAtRaw?: string;
+  recordedAtRaw?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -100,7 +100,7 @@ export interface GetTimelineOptions {
    * events with recordedAt <= T, retraction events with retractedAt <= T.
    * Distinct from `until`, which is an audit paging window over rows.
    */
-  recordedAtRaw?: string;
+  recordedAtRaw?: string | undefined;
   scopes: BrainScope[];
 }
 
@@ -109,7 +109,7 @@ export interface GetConnectionsOptions {
   entityIdRaw: string;
   kind: string | undefined;
   scopes?: BrainScope[];
-  asOf?: string;
+  asOf?: string | undefined;
 }
 
 export interface ForgetOptions {
@@ -122,7 +122,7 @@ export interface ForgetOptions {
 export interface AutocompleteOptions {
   companyId: string;
   q: string;
-  limit?: number;
+  limit?: number | undefined;
   scopes: BrainScope[];
 }
 
@@ -208,7 +208,7 @@ export interface TimelineRetractedEvent {
   factId: string;
   retractedBy: unknown;
   reason: unknown;
-  supersededBy?: string;
+  supersededBy?: string | undefined;
 }
 
 export type TimelineEvent = TimelineRecordedEvent | TimelineRetractedEvent;
@@ -227,7 +227,7 @@ export interface ConnectionEdge {
   weight: number;
   source: unknown;
   createdAt: string;
-  neighbour?: ConnectionNeighbour;
+  neighbour?: ConnectionNeighbour | undefined;
   direction: 'outbound' | 'inbound';
 }
 

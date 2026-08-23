@@ -100,10 +100,11 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
   const predicates = tool.query.predicates?.length
     ? tool.query.predicates.map((l) => composePredicateId(binding.packId, l))
     : [...binding.namespacedPredicates];
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,
@@ -114,7 +115,7 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
         limit: z.number().int().min(1).max(20).optional(),
       },
     },
-    async (args: { query: string; limit?: number }) => {
+    async (args: { query: string; limit?: number | undefined }) => {
       const limit = Math.min(args.limit ?? tool.query.defaultLimit ?? 10, 20);
       const out = await deps.search.search(
         companyId,
@@ -122,7 +123,9 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
           query: args.query,
           limit,
           predicates,
-          minConfidence: tool.query.minConfidence,
+          ...(tool.query.minConfidence !== undefined
+            ? { minConfidence: tool.query.minConfidence }
+            : {}),
         },
         scopes,
       );
@@ -140,10 +143,11 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
   // the enum makes any predicate OUTSIDE the declared set a schema
   // error before the handler runs.
   const locals = tool.query.predicates as [string, ...string[]];
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,
@@ -161,11 +165,15 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
         limit: z.number().int().min(1).max(50).optional(),
       },
     },
-    async (args: { predicate: string; entity?: string; limit?: number }) => {
+    async (args: {
+      predicate: string;
+      entity?: string | undefined;
+      limit?: number | undefined;
+    }) => {
       const out = await deps.facts.listByPredicate({
         companyId,
         predicate: composePredicateId(binding.packId, args.predicate),
-        entityIdRaw: args.entity,
+        ...(args.entity !== undefined ? { entityIdRaw: args.entity } : {}),
         limit: Math.min(args.limit ?? tool.query.defaultLimit ?? 10, 50),
         scopes,
       });
@@ -192,10 +200,11 @@ function registerExternalTool(ctx: ExternalToolContext): void {
   // Only declared params are forwarded — the SDK's schema parse strips
   // extras, but the handler is also called directly in unit fixtures.
   const declared = new Set((tool.params ?? []).map((p) => p.name));
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,

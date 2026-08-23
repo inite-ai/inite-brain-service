@@ -10,8 +10,8 @@ export interface PolicyDecisionRow {
   mode: 'report_only' | 'enforce';
   action?: string;
   policySet?: string;
-  ruleId?: string;
-  requestId?: string;
+  ruleId?: string | undefined;
+  requestId?: string | undefined;
   rowCounts?: { total: number; denied: number };
   sampleFactIds?: string[];
   samplePredicates?: string[];

@@ -175,13 +175,15 @@ export class AdminController {
     @Query('maxFacts') maxFacts?: string,
   ): Promise<ReindexRunResponse> {
     const parsedMaxFacts = maxFacts ? parseInt(maxFacts, 10) : undefined;
+    const reindexTenant = tenant?.trim() || undefined;
+    const reindexMaxFacts =
+      parsedMaxFacts !== undefined && Number.isFinite(parsedMaxFacts)
+        ? parsedMaxFacts
+        : undefined;
     return (await this.reindex.run({
-      tenant: tenant?.trim() || undefined,
+      ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
       dryRun: dryRun === 'true',
-      maxFacts:
-        parsedMaxFacts !== undefined && Number.isFinite(parsedMaxFacts)
-          ? parsedMaxFacts
-          : undefined,
+      ...(reindexMaxFacts !== undefined ? { maxFacts: reindexMaxFacts } : {}),
     })) satisfies ReindexRunResponse;
   }
 

@@ -15,7 +15,7 @@ import { SchemaMigrator } from '../src/db/migrator.service';
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function makeFakeConn(initiallyApplied: string[] = []) {

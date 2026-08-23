@@ -36,9 +36,9 @@ export interface ConfigEntry {
   /** Whether the knob is a true boolean ("0"|"1" / "true"|"false") so the UI can render a toggle. */
   isBooleanFlag: boolean;
   /** Hint for the operator. Tiny, not a full doc. */
-  description?: string;
+  description?: string | undefined;
   /** Whether the current value exposes a secret (API key, etc) — masked in the UI. */
-  secret?: boolean;
+  secret?: boolean | undefined;
 }
 
 /**

@@ -14,9 +14,9 @@ import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
  */
 function recorder(): {
   surreal: SurrealService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const surreal = {
     withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({
@@ -108,7 +108,7 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
 
   function makeLane(): {
     svc: SegmentLaneService;
-    queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+    queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
   } {
     const { surreal, queries } = recorder();
     const embedder = {

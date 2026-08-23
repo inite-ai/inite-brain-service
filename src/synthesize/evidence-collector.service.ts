@@ -76,7 +76,7 @@ export interface CollectedEvidence {
   /** Derived-insight lines (V8 §1), own budget slot. */
   insightLines: string[];
   /** T7 standing instructions; undefined = section omitted. */
-  instructions?: string[];
+  instructions?: string[] | undefined;
   /**
    * V8 §2 / V9 §2: the transcript section is the MENTION RECORD for
    * this query — computed once here so the generator and verifier
@@ -89,7 +89,7 @@ export interface CollectedEvidence {
    * when the profile has the lane off or nothing has history. Applied
    * by the caller to the SAME fact lines both prompts read.
    */
-  updateStories?: Map<string, string>;
+  updateStories?: Map<string, string> | undefined;
   /**
    * Multiworld §10 facts-as-keys: factId → rendered grounding quote
    * (" [source YYYY-MM-DD speaker: …]") for the top evidence facts;
@@ -97,7 +97,7 @@ export interface CollectedEvidence {
    * Applied by the caller to the SAME fact lines both prompts read —
    * exactly the updateStories contract.
    */
-  groundingQuotes?: Map<string, string>;
+  groundingQuotes?: Map<string, string> | undefined;
   /**
    * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
    * the separate strategy_memory store; undefined when the lane is off
@@ -114,7 +114,7 @@ export interface CollectedEvidence {
    * evidence. (Mirrored in verifier.ts where the invariant is
    * documented.)
    */
-  strategyNotes?: string[];
+  strategyNotes?: string[] | undefined;
 }
 
 @Injectable()
@@ -149,7 +149,7 @@ export class EvidenceCollectorService {
     companyId: string;
     query: string;
     callerScopes: string[];
-    userId?: string;
+    userId?: string | undefined;
     /** The caller's full request — secondary searches (instruction
      *  probe) inherit its filter contract (audit 2026-08-19 P1). */
     dto?: SearchDto;
@@ -257,7 +257,7 @@ export class EvidenceCollectorService {
     companyId: string;
     callerScopes: string[];
     factIds: string[];
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<Map<string, string> | undefined> {
     if (!profile.factsAsKeys || !this.episodeLane) return undefined;
     if (factIds.length === 0) return undefined;
@@ -307,7 +307,7 @@ export class EvidenceCollectorService {
     profile: RetrievalProfile;
     lane: LaneId | null;
     companyId: string;
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<string[]> {
     if (!opts.profile.digestEvidence || !this.digestLane) return [];
     if (
@@ -342,7 +342,7 @@ export class EvidenceCollectorService {
     companyId: string;
     callerScopes: string[];
     factIds: string[];
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<Map<string, string> | undefined> {
     if (!profile.updateStoryRendering || !this.updateStory) return undefined;
     if (factIds.length === 0) return undefined;
@@ -377,7 +377,7 @@ export class EvidenceCollectorService {
       query: string;
       callerScopes: string[];
       factIds: string[];
-      userId?: string;
+      userId?: string | undefined;
     },
     timelineActive: boolean,
   ): Promise<string[]> {
@@ -511,7 +511,7 @@ export class EvidenceCollectorService {
     companyId: string;
     query: string;
     callerScopes: string[];
-    userId?: string;
+    userId?: string | undefined;
   }): Promise<string[]> {
     const { profile, lane, companyId, query, callerScopes, userId } = opts;
     if (!wantsInsightEvidence(profile, lane)) return [];

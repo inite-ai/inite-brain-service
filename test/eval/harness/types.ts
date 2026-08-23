@@ -69,7 +69,7 @@ export interface EvalScore {
   prediction: string;
   isAbstention: boolean;
   abstained: boolean;
-  promptTokens?: number;
+  promptTokens?: number | undefined;
   errored?: string;
   judgeCorrect?: boolean;
   [meta: string]: unknown;

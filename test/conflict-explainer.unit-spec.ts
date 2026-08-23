@@ -61,7 +61,6 @@ describe('buildConflictExplanation', () => {
     const e = buildConflictExplanation(
       makePayload({
         outcome: 'COMPETING',
-        supersededFactIds: undefined,
         competingFactIds: ['fact:old', 'fact:older'],
       }),
     );
@@ -100,7 +99,6 @@ describe('buildConflictExplanation', () => {
     const e = buildConflictExplanation(
       makePayload({
         outcome: 'COMPETING',
-        supersededFactIds: undefined,
         competingFactIds: ['fact:old'],
       }),
     );

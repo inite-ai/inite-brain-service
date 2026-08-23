@@ -8,9 +8,9 @@ import { envFlagEnabled } from '../common/env-validation';
 
 export interface MentionSource {
   vertical: string;
-  eventId?: string;
-  conversationId?: string;
-  messageId?: string;
+  eventId?: string | undefined;
+  conversationId?: string | undefined;
+  messageId?: string | undefined;
   recorder: string;
 }
 
@@ -60,7 +60,12 @@ export class MentionExtractionService {
     const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
     const context =
       speaker?.name || addressee?.name
-        ? { speakerName: speaker?.name, addresseeName: addressee?.name }
+        ? {
+            ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
+            ...(addressee?.name !== undefined
+              ? { addresseeName: addressee.name }
+              : {}),
+          }
         : undefined;
 
     const extraction = await traceSpan('ingest.nlu.extract', () =>

@@ -103,7 +103,7 @@ export function canonicalDerivedPin(pin: ReadPin): string {
 export interface AnswerCacheKeyInput {
   companyId: string;
   /** Pinned end-user scope; undefined = tenant-global (M2M). */
-  userId?: string;
+  userId?: string | undefined;
   profileHash: string;
   model: string;
   derivedVersionPin: ReadPin;
@@ -135,7 +135,7 @@ function sha256(text: string): string {
 export interface AnswerCacheStoreContext {
   key: string;
   companyId: string;
-  userId?: string;
+  userId?: string | undefined;
   profileHash: string;
   model: string;
   normalizedQuery: string;

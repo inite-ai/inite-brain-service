@@ -127,7 +127,7 @@ export function toRowView(
     source?: unknown;
     trustSnapshot?: PolicyRowView['trustSnapshot'];
     corroboration?: PolicyRowView['corroboration'];
-    userId?: string | null;
+    userId?: string | null | undefined;
   },
   piiClassOf: (predicate: string) => string,
 ): PolicyRowView {

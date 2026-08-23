@@ -530,7 +530,7 @@ export function detectEvidenceConflicts(
   if (!lanes.has('contradiction')) return [];
   const bySlot = new Map<
     string,
-    Array<{ factId: string; object: string; status?: string }>
+    Array<{ factId: string; object: string; status?: string | undefined }>
   >();
   for (const r of results) {
     for (const f of r.facts) {

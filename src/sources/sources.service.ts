@@ -64,7 +64,7 @@ export class SourcesService {
    *  each summary (public /v1/sources?domain= projection). */
   async list(
     companyId: string,
-    opts?: { domain?: string },
+    opts?: { domain?: string | undefined },
   ): Promise<SourceSummary[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const declaredRows = await queryRows<DeclaredRow>(

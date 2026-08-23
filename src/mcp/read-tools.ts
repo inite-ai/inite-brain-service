@@ -137,11 +137,13 @@ function registerSearchTools({
         companyId,
         {
           query: args.query,
-          limit: args.limit,
-          predicates: args.predicates,
-          asOf: args.asOf,
-          minConfidence: args.minConfidence,
-          userId: args.userId,
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
+          ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+          ...(args.minConfidence !== undefined
+            ? { minConfidence: args.minConfidence }
+            : {}),
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         scopes,
       );
@@ -199,13 +201,15 @@ function registerSearchTools({
         companyId,
         dto: {
           query: args.query,
-          maxHops: args.maxHops,
-          synthesize: args.synthesize,
-          synthesisGuardrails: args.synthesisGuardrails,
-          asOf: args.asOf,
-          predicates: args.predicates,
-          limit: args.limit,
-          userId: args.userId,
+          ...(args.maxHops !== undefined ? { maxHops: args.maxHops } : {}),
+          ...(args.synthesize !== undefined ? { synthesize: args.synthesize } : {}),
+          ...(args.synthesisGuardrails !== undefined
+            ? { synthesisGuardrails: args.synthesisGuardrails }
+            : {}),
+          ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+          ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         callerScopes: scopes,
         onProgress: reporter,
@@ -254,12 +258,16 @@ function registerSearchTools({
         companyId,
         dto: {
           query: args.query,
-          limit: args.limit,
-          predicates: args.predicates,
-          asOf: args.asOf,
-          minConfidence: args.minConfidence,
-          synthesisGuardrails: args.synthesisGuardrails,
-          userId: args.userId,
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
+          ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+          ...(args.minConfidence !== undefined
+            ? { minConfidence: args.minConfidence }
+            : {}),
+          ...(args.synthesisGuardrails !== undefined
+            ? { synthesisGuardrails: args.synthesisGuardrails }
+            : {}),
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         callerScopes: scopes,
         onProgress: reporter,
@@ -271,6 +279,16 @@ function registerSearchTools({
     },
   );
 
+  registerMemoryDiffTool({ server, companyId, scopes, deps });
+}
+
+// Split out of registerSearchTools for the max-lines-per-function gate.
+function registerMemoryDiffTool({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
   // ── memory_diff ───────────────────────────────────────────────────
   server.registerTool(
     'memory_diff',
@@ -297,8 +315,8 @@ function registerSearchTools({
         {
           from: args.from,
           to: args.to,
-          entityIds: args.entityIds,
-          predicates: args.predicates,
+          ...(args.entityIds !== undefined ? { entityIds: args.entityIds } : {}),
+          ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
         },
         scopes,
       );
@@ -465,7 +483,11 @@ function registerEntityReadTools({
       }
       const out = await deps.summarizer.summarize(
         companyId,
-        { entityId: args.entityId, asOf: args.asOf, styleHint: args.styleHint },
+        {
+          entityId: args.entityId,
+          ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+          ...(args.styleHint !== undefined ? { styleHint: args.styleHint } : {}),
+        },
         scopes,
       );
       return {
@@ -502,8 +524,8 @@ function registerEntityReadTools({
     },
     async (args) => {
       const out = await deps.facts.listCompeting(companyId, args.entityId, {
-        predicate: args.predicate,
-        asOf: args.asOf,
+        ...(args.predicate !== undefined ? { predicate: args.predicate } : {}),
+        ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
         callerScopes: scopes,
       });
       return {
@@ -596,10 +618,10 @@ function registerDetectContradictionTool({
           predicate: args.predicate,
           object: args.object,
           validFrom: args.validFrom,
-          validUntil: args.validUntil,
-          confidence: args.confidence,
+          ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+          ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
           source: { vertical: args.sourceVertical },
-          userId: args.userId,
+          ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         scopes,
       );

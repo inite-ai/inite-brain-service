@@ -71,7 +71,7 @@ function buildWithPolicy(policy?: PolicyContext): Promise<McpServer> {
   );
   return svc.buildServer('co_test', ['brain:read', 'brain:write', 'brain:admin'], {
     actorKeyHash: 'sha256:test',
-    policy,
+    ...(policy !== undefined ? { policy } : {}),
   });
 }
 

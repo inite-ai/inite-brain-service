@@ -58,7 +58,7 @@ interface Subscriber {
   id: string;
   callerScopes: readonly string[];
   sink: (event: LiveEvent) => void;
-  policyLookup?: PredicatePolicyLookup;
+  policyLookup?: PredicatePolicyLookup | undefined;
   /** Bounded outbox depth; overflow → resync signal, never unbounded memory. */
   queued: number;
 }

@@ -555,9 +555,12 @@ describe('T7 instruction lane', () => {
     expect(msg).toContain(STANDING_INSTRUCTIONS_INSTRUCTION.trim());
     expect(msg).toContain('- always format code with syntax highlighting');
     for (const instructions of [undefined, [] as string[]]) {
-      expect(buildGeneratorUserMessage({ ...base, instructions })).toBe(
-        buildGeneratorUserMessage(base),
-      );
+      expect(
+        buildGeneratorUserMessage({
+          ...base,
+          ...(instructions !== undefined ? { instructions } : {}),
+        }),
+      ).toBe(buildGeneratorUserMessage(base));
     }
   });
 });
@@ -588,9 +591,12 @@ describe('G4 strategy lane — fenced ADVISORY prompt section', () => {
 
   it('absent/empty notes → byte-identical prompt (no residue)', () => {
     for (const strategyNotes of [undefined, [] as string[]]) {
-      expect(buildGeneratorUserMessage({ ...base, strategyNotes })).toBe(
-        buildGeneratorUserMessage(base),
-      );
+      expect(
+        buildGeneratorUserMessage({
+          ...base,
+          ...(strategyNotes !== undefined ? { strategyNotes } : {}),
+        }),
+      ).toBe(buildGeneratorUserMessage(base));
     }
     expect(buildGeneratorUserMessage(base)).not.toContain('ADVISORY');
   });

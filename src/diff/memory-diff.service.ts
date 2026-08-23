@@ -145,7 +145,7 @@ export class MemoryDiffService {
       const createdFacts: FactRef[] = createdClipped
         .filter((r) => rowFilter.filter(r))
         .map(rowToFactRef);
-      const retracted: Array<FactRef & { supersededBy?: string }> =
+      const retracted: Array<FactRef & { supersededBy?: string | undefined }> =
         retractedClipped
         .filter((r) => rowFilter.filter(r))
         .map((r) => ({
@@ -386,16 +386,16 @@ export interface FactRef {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
-  retractedAt?: string;
+  retractedAt?: string | undefined;
 }
 
 export interface ChangedFact {
   factId: string;
   replacedBy: string;
   before: FactRef;
-  after?: FactRef;
+  after?: FactRef | undefined;
 }
 
 export interface EntityRef {
@@ -409,7 +409,7 @@ export interface EntityRef {
 export interface ForgottenRef {
   entityIdHash: string;
   reason: string;
-  requestId?: string;
+  requestId?: string | undefined;
   forgottenAt: string;
 }
 

@@ -14,9 +14,9 @@ import type { PipelineContext } from '../src/search/pipeline-context';
  */
 function recordingDb(perQuery: Record<string, unknown[]>): {
   db: Pick<Surreal, 'query'>;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });

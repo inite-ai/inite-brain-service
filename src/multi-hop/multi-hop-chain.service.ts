@@ -319,7 +319,7 @@ export class MultiHopChainService {
             companyId,
             entityIds: priorEntityIds,
             callerScopes,
-            userId: dto.userId,
+            ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
           });
         } catch (err) {
           this.logger.warn(
@@ -328,33 +328,47 @@ export class MultiHopChainService {
         }
       }
     }
-    const hopDto = {
-      ...dto,
-      query: hop.subQuery,
-      // The planner emits an empty/null predicates list when it
-      // can't disambiguate; honour that as "no filter" rather than
-      // an empty INSIDE clause that would match nothing.
-      predicates: hop.predicates && hop.predicates.length > 0
+    // The planner emits an empty/null predicates list when it can't
+    // disambiguate; honour that as "no filter" rather than an empty
+    // INSIDE clause that would match nothing.
+    const predicatesOverride =
+      hop.predicates && hop.predicates.length > 0
         ? hop.predicates
-        : dto.predicates,
-      // The planner is an LLM: a malformed hop.asOf ("2023-04",
-      // "three months in") became an Invalid Date param and 500'd the
-      // whole request (live LME-500 finding, q 0ddfec37). Unparseable
-      // planner dates degrade to the caller's asOf, never to an error.
-      asOf:
-        hop.asOf && !Number.isNaN(Date.parse(hop.asOf))
-          ? hop.asOf
-          : dto.asOf,
+        : dto.predicates;
+    // The planner is an LLM: a malformed hop.asOf ("2023-04", "three
+    // months in") became an Invalid Date param and 500'd the whole
+    // request (live LME-500 finding, q 0ddfec37). Unparseable planner
+    // dates degrade to the caller's asOf, never to an error.
+    const asOfOverride =
+      hop.asOf && !Number.isNaN(Date.parse(hop.asOf)) ? hop.asOf : dto.asOf;
+    // Base spread minus the keys we recompute below: predicates/asOf/
+    // entityIds get their overridden value (or stay ABSENT, matching
+    // SearchDto's optional contract) instead of the caller's raw one,
+    // and the multi-hop-specific keys never belong on a SearchDto —
+    // dropping them here (rather than setting `undefined`) is what
+    // actually keeps them from tripping the SearchDto whitelist when
+    // re-validated downstream.
+    const {
+      predicates: _droppedPredicates,
+      asOf: _droppedAsOf,
+      entityIds: _droppedEntityIds,
+      maxHops: _droppedMaxHops,
+      synthesize: _droppedSynthesize,
+      synthesisGuardrails: _droppedSynthesisGuardrails,
+      synthesisModel: _droppedSynthesisModel,
+      ...dtoRest
+    } = dto;
+    const hopDto = {
+      ...dtoRest,
+      query: hop.subQuery,
+      ...(predicatesOverride !== undefined
+        ? { predicates: predicatesOverride }
+        : {}),
+      ...(asOfOverride !== undefined ? { asOf: asOfOverride } : {}),
       // Anchor only when explicitly requested — for 'intersect' /
       // 'union' the search runs unconstrained and combination
       // happens after the fact.
-      entityIds: anchorIds,
-      // Drop multi-hop-specific keys so they don't accidentally trip
-      // the SearchDto whitelist when re-validated downstream.
-      maxHops: undefined,
-      synthesize: undefined,
-      synthesisGuardrails: undefined,
-      synthesisModel: undefined,
+      ...(anchorIds !== undefined ? { entityIds: anchorIds } : {}),
     };
     const out = await this.search.search(companyId, hopDto, callerScopes);
     return { hits: out.results };

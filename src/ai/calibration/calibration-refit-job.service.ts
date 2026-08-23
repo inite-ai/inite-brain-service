@@ -14,7 +14,7 @@ export interface RunTrackedOptions {
   jobType: JobType;
   /** DistributedLeaseGuard key — distinct from jobType. */
   guardKey: string;
-  trigger?: RefitTrigger;
+  trigger?: RefitTrigger | undefined;
   /** The actual refit, given a per-tenant progress callback. */
   fn: (onProgress: RefitProgress) => Promise<RefitOutcome>;
 }
@@ -58,7 +58,9 @@ export class CalibrationRefitJobService {
           jobType: opts.jobType,
           companyId: hostTenant,
           triggeredBy: opts.trigger?.triggeredBy ?? 'cron',
-          triggeredByActor: opts.trigger?.triggeredByActor,
+          ...(opts.trigger?.triggeredByActor !== undefined
+            ? { triggeredByActor: opts.trigger.triggeredByActor }
+            : {}),
         });
       } catch (e) {
         this.logger.warn(

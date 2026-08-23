@@ -87,13 +87,13 @@ export class PackRegistryService {
    *  stores it. Idempotent for an identical republish. */
   async publish(input: {
     manifest: DomainPackManifest;
-    publishedBy?: string;
-    keywords?: string[];
-    expectedChecksum?: string;
+    publishedBy?: string | undefined;
+    keywords?: string[] | undefined;
+    expectedChecksum?: string | undefined;
     /** Set by the pull-only mirror (RegistryMirrorService): the upstream
      *  base URL the version was pulled from. Never set on operator
      *  publishes — the field is what fences mirrored yanks off local rows. */
-    origin?: string;
+    origin?: string | undefined;
   }): Promise<PublishPackResponse> {
     const { manifest } = input;
     if (!manifest || typeof manifest !== 'object') {
@@ -199,11 +199,11 @@ export class PackRegistryService {
    *  filtered by free-text q / publisher / tag. Packs with only yanked versions
    *  are omitted (nothing installable). */
   async list(filter: {
-    q?: string;
-    publisher?: string;
-    tag?: string;
-    limit?: number;
-    offset?: number;
+    q?: string | undefined;
+    publisher?: string | undefined;
+    tag?: string | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
   }): Promise<RegistryPackSummary[]> {
     // Manifest-less projection: the summary needs none of the (potentially
     // large) manifest JSON, and this path serves the public UI on every hit.
@@ -293,7 +293,7 @@ export class PackRegistryService {
    *  exists, and 402/503 for an unpurchased/unverifiable paid pack. */
   async resolveForInstall(args: {
     packId: string;
-    version?: string;
+    version?: string | undefined;
     /** The installing tenant — the paid-pack gate's entitlement subject. */
     companyId: string;
   }): Promise<{ manifest: DomainPackManifest; checksum: string }> {
@@ -356,7 +356,7 @@ export class PackRegistryService {
     packId: string;
     version: string;
     yanked: boolean;
-    reason?: string;
+    reason?: string | undefined;
   }): Promise<YankPackResponse> {
     const { packId, version, yanked, reason } = args;
     return this.surreal.withAdminDb(async (db) => {

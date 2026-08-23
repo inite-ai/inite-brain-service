@@ -36,7 +36,7 @@ export interface SegmentLegOptions {
   /** Candidates per leg (the lane idiom: max(topK*3, 12)). */
   fetchK: number;
   callerScopes: string[];
-  userId?: string;
+  userId?: string | undefined;
   mode: 'hybrid' | 'vector' | 'lexical';
 }
 

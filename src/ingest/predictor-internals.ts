@@ -61,7 +61,7 @@ export interface PredictResolveArgs {
    * record_fact. Omitted = tenant-global only (fail-closed), which is
    * the wrong opponent set for user-scoped candidates.
    */
-  userId?: string;
+  userId?: string | undefined;
 }
 
 export interface OpposingFact {
@@ -70,7 +70,7 @@ export interface OpposingFact {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
 }
 

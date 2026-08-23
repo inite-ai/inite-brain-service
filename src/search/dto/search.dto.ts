@@ -55,7 +55,7 @@ export class SearchDto {
    * every other request field.
    */
   @IsOptional() @IsString() @MaxLength(200)
-  userId?: string;
+  userId?: string | undefined;
 
   @IsOptional() @IsNumber() @Min(0) @Max(1)
   minConfidence?: number;

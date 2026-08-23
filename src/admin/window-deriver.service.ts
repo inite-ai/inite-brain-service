@@ -159,7 +159,7 @@ export class WindowDeriverService {
     companyId: string,
     opts: {
       version?: string;
-      conversationId?: string;
+      conversationId?: string | undefined;
       activate?: boolean;
       force?: boolean;
     } = {},
@@ -218,7 +218,7 @@ export class WindowDeriverService {
     companyId: string;
     version: string;
     ns: DeriveNamespace;
-    opts: { conversationId?: string; activate?: boolean };
+    opts: { conversationId?: string | undefined; activate?: boolean };
     activePin: string | undefined;
     /** Promotion fence (audit 2026-08-21): checked before the flip. */
     lease: DeriveLease;

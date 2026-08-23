@@ -205,8 +205,8 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
         predicate,
         object,
         validFrom,
-        validUntil,
-        confidence,
+        ...(validUntil !== undefined ? { validUntil } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
         source,
         ...(tag ? { tag } : {}),
       });
@@ -277,9 +277,9 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
     queries: Array.isArray(obj.queries)
       ? (obj.queries as QueryExpectation[])
       : [],
-    memoryAssertions: Array.isArray(obj.memoryAssertions)
-      ? (obj.memoryAssertions as MemoryAssertion[])
-      : undefined,
+    ...(Array.isArray(obj.memoryAssertions)
+      ? { memoryAssertions: obj.memoryAssertions as MemoryAssertion[] }
+      : {}),
   };
 
   return {

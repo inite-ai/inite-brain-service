@@ -17,7 +17,7 @@ import { Type } from 'class-transformer';
  */
 export interface DocumentContextRef {
   vertical: string;
-  recorder?: string;
+  recorder?: string | undefined;
 }
 
 /** Static hard cap on document text; DOC_MAX_CHARS (env) may lower it. */

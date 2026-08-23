@@ -84,7 +84,7 @@ export class ExternalCandidatesService {
     docId: string;
     dto: SubmitCandidatesDto;
     /** Per-pack binding of the calling key; absent = unrestricted. */
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<ExternalSubmissionResult> {
     const { companyId, docId, dto } = p;
     // G9 write-anomaly signal (one increment per external submission —

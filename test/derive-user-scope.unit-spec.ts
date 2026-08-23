@@ -134,7 +134,10 @@ describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
   ) {
     return buildDerivedRows({
       resolved: [
-        { p: { ...prop(turns), quotes }, entityId: 'knowledge_entity:alice' },
+        {
+          p: { ...prop(turns), ...(quotes !== undefined ? { quotes } : {}) },
+          entityId: 'knowledge_entity:alice',
+        },
       ],
       vectors: [[1, 0]],
       sessionDate: new Date('2026-08-01T00:00:00Z'),

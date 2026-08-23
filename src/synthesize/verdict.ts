@@ -22,8 +22,8 @@ import type {
  */
 
 export interface VerdictDeps {
-  metrics?: Pick<MetricsService, 'countSynthesize'>;
-  logger?: { debug(message: string): void };
+  metrics?: Pick<MetricsService, 'countSynthesize'> | undefined;
+  logger?: { debug(message: string): void } | undefined;
 }
 
 /**
@@ -47,13 +47,13 @@ export function finalizeVerdict(
     abstention,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
-    questionAnswered?: boolean;
+    questionAnswered?: boolean | undefined;
     answer: string;
     citations: Citation[];
     results: SynthesizeResult['results'];
     guardrails: SynthesisGuardrails;
-    decisionLog?: DecisionLogEntry[];
-    abstention?: RetrievalProfile['abstentionCalibration'];
+    decisionLog?: DecisionLogEntry[] | undefined;
+    abstention?: RetrievalProfile['abstentionCalibration'] | undefined;
   },
 ): SynthesizeResult {
   if (verdict === 'supported') {
@@ -138,7 +138,7 @@ export function unverifiedReturn(
     generated: GeneratorOutput;
     citations: Citation[];
     results: SearchHit[];
-    decisionLog?: DecisionLogEntry[];
+    decisionLog?: DecisionLogEntry[] | undefined;
   },
 ): SynthesizeResult | null {
   if (

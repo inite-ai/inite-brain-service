@@ -21,7 +21,7 @@ export class SetupApplier {
 
   async apply(scenario: Scenario): Promise<{
     extractions: ExtractionResult[];
-    identityMerge?: IdentityMergeResult;
+    identityMerge?: IdentityMergeResult | undefined;
   }> {
     const extractions: ExtractionResult[] = [];
     // Tag → factId map. Lets retract steps reference an earlier

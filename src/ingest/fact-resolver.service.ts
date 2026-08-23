@@ -102,24 +102,24 @@ export class FactResolverService {
        * so coinages of one canon dedup/corroborate. Omit when the
        * predicate is already canonical.
        */
-      predicateAlias?: string;
+      predicateAlias?: string | undefined;
       /** The string form stored in `object` and used for locale detection. */
       object: string;
-      objectMeta?: object;
+      objectMeta?: object | undefined;
       /** Exact text to embed; defaults to `${predicate}: ${object}`. */
-      embeddingText?: string;
+      embeddingText?: string | undefined;
       /** When supplied, skips the embed round-trip (batched mention path). */
-      precomputedEmbedding?: number[];
+      precomputedEmbedding?: number[] | undefined;
       confidence: number;
       validFrom: Date;
-      validUntil?: Date;
+      validUntil?: Date | undefined;
       source: unknown;
-      entropy?: number;
+      entropy?: number | undefined;
       /** Per-user scope (migration 0055); undefined = tenant-global. */
-      userId?: string;
+      userId?: string | undefined;
       /** Derived-world namespace (0074/0079); undefined = live world. */
-      derivedVersion?: string;
-      recordOutcomeMetric?: boolean;
+      derivedVersion?: string | undefined;
+      recordOutcomeMetric?: boolean | undefined;
     },
   ): Promise<{ result: ResolveOutcome; semantics: string }> {
     // Read policy from the per-tenant registry. Pre-warm the snapshot so the
@@ -287,7 +287,7 @@ export class FactResolverService {
     db: {
       query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
     },
-    items: Array<{ userId?: string; factId: unknown }>,
+    items: Array<{ userId?: string | undefined; factId: unknown }>,
   ): Promise<void> {
     const byUser = new Map<string, StringRecordId[]>();
     for (const it of items) {
@@ -492,21 +492,21 @@ export class FactResolverService {
       companyId: string;
       entityId: string;
       predicate: string;
-      predicateAlias?: string;
+      predicateAlias?: string | undefined;
       object: string;
-      objectMeta?: object;
+      objectMeta?: object | undefined;
       embedding: number[];
       confidence: number;
       validFrom: Date;
-      validUntil?: Date;
+      validUntil?: Date | undefined;
       source: unknown;
       sourceTrust: number;
       semantics: string;
-      lang?: string;
-      script?: string;
-      entropy?: number;
-      userId?: string;
-      derivedVersion?: string;
+      lang?: string | undefined;
+      script?: string | undefined;
+      entropy?: number | undefined;
+      userId?: string | undefined;
+      derivedVersion?: string | undefined;
     },
   ): Promise<ResolveOutcome> {
     // Serialize resolves on the same (company, entity, predicate). Under

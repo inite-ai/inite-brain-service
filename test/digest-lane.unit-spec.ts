@@ -16,7 +16,7 @@ import {
 
 function makeLane(
   rows: Array<Record<string, unknown>>,
-  capture?: Array<{ sql: string; params?: Record<string, unknown> }>,
+  capture?: Array<{ sql: string; params?: Record<string, unknown> | undefined }>,
 ): DigestLaneService {
   const surreal = {
     withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
@@ -32,7 +32,7 @@ function makeLane(
 
 describe('DigestLaneService', () => {
   it('renders dated digest blocks newest-first with the world gate', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> =
       [];
     const lane = makeLane(
       [
@@ -101,7 +101,7 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
    *  or exactly [$digestUserId]. Keeps the matrix behavioral while the
    *  SQL-shape assertions below pin the clause itself. */
   function makePolicyLane(
-    capture: Array<{ sql: string; params?: Record<string, unknown> }>,
+    capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }>,
   ): DigestLaneService {
     const surreal = {
       withCompany: async (
@@ -132,7 +132,7 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
     lines.map((l) => l.split('\n')[1]);
 
   it('tenant-global caller (no userId) sees every digest, no user gate', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> =
       [];
     const lines = await makePolicyLane(capture).digestLines({
       companyId: 'c1',
@@ -149,7 +149,7 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
   });
 
   it('user-scoped caller sees global + own only; other-user and mixed-scope excluded', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> =
       [];
     const lines = await makePolicyLane(capture).digestLines({
       companyId: 'c1',

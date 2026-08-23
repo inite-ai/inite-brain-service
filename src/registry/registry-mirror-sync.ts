@@ -63,7 +63,7 @@ export interface MirrorSyncOptions {
   /** Upstream base URL (scheme + host [+ port]), no trailing slash. */
   upstreamBase: string;
   /** Optional bearer for the upstream's /v1/registry reads. */
-  token?: string;
+  token?: string | undefined;
   local: MirrorLocalRegistry;
   logger: MirrorLogger;
   /** Injectable for tests; defaults to global fetch. */
@@ -73,7 +73,7 @@ export interface MirrorSyncOptions {
   /** Manifest-fetch budget per run (default 200). */
   maxVersionsPerRun?: number;
   /** Outer cancellation (job lease loss / shutdown). */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 export interface MirrorSyncSummary {
@@ -108,12 +108,12 @@ interface UpstreamVersionRow {
 
 interface SyncCtx {
   base: string;
-  token?: string;
+  token?: string | undefined;
   local: MirrorLocalRegistry;
   logger: MirrorLogger;
   fetchImpl: typeof fetch;
   timeoutMs: number;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /** Remaining manifest fetches this run. */
   budget: number;
   maxVersions: number;

@@ -40,12 +40,12 @@ export function buildGeneratorUserMessage({
   query: string;
   factLines: string[];
   /** Episodic-lane quotes (P2) — separate typed section after the facts. */
-  transcriptLines?: string[];
+  transcriptLines?: string[] | undefined;
   /**
    * Derived insights (V8 §1) — aggregates and summaries in their own
    * separately-budgeted section, so they never displace fact lines.
    */
-  insightLines?: string[];
+  insightLines?: string[] | undefined;
   /**
    * V8 §2: the transcript excerpts were collected as TIMELINE evidence
    * for an ordering-shaped question — flag them as the mention record
@@ -53,14 +53,14 @@ export function buildGeneratorUserMessage({
    * sequence, not from fact date stamps (event-time extraction
    * collapses a session's mentions onto one date).
    */
-  timelineEvidence?: boolean;
+  timelineEvidence?: boolean | undefined;
   /**
    * V10 §3: the ordering frame replaces the (enumeration) lane frame —
    * short aspect labels in the mention record's order, honor the
    * requested N. Set only when the mention record fired AND the
    * profile opted in (orderingFrame && timelineEvidence).
    */
-  orderingFrame?: boolean;
+  orderingFrame?: boolean | undefined;
   /**
    * V10 §2b: date-arbitrating conflict frame — different-day conflict
    * pairs commit to the latest value and note the earlier as
@@ -68,38 +68,38 @@ export function buildGeneratorUserMessage({
    * profile.updateStoryRendering; off = the blanket hedge frame,
    * byte-identical.
    */
-  dateArbitratedConflicts?: boolean;
+  dateArbitratedConflicts?: boolean | undefined;
   /**
    * V10 §4: the insight lines are a query-time TOPIC RECORD (dated
    * atomic beats assembled for the asked topic) rather than stored
    * summaries — the header must say what the section is.
    */
-  arcInsights?: boolean;
+  arcInsights?: boolean | undefined;
   answerLang: string | null;
-  dateContext?: string;
+  dateContext?: string | undefined;
   /** T1 typed dispatch: lane-specific answer instruction. */
-  lane?: LaneId | null;
+  lane?: LaneId | null | undefined;
   /** T7: standing user instructions rendered as their own section. */
-  instructions?: string[];
+  instructions?: string[] | undefined;
   /** T3: write-side COMPETING conflict pairs present in the evidence. */
-  conflicts?: Array<{ factIds: string[]; label: string }>;
+  conflicts?: Array<{ factIds: string[]; label: string }> | undefined;
   /**
    * §8 item 3 (profile.enumStrict): scope discipline appended to the
    * enumeration lane frame — the measured judge-sink class is answers
    * listing the gold items PLUS thematically adjacent extras.
    */
-  enumStrict?: boolean;
+  enumStrict?: boolean | undefined;
   /**
    * V13 (profile.dateMath): computed date table — weekday + exact
    * event-to-event gaps for every dated evidence day, so the model
    * never does raw calendar arithmetic. Empty/undefined = no section.
    */
-  dateMathLines?: string[];
+  dateMathLines?: string[] | undefined;
   /**
    * V13 G2 (profile.answerConditioning): the per-shape reading
    * instruction from answer-shape.ts; composes with the lane frame.
    */
-  shapeInstruction?: string;
+  shapeInstruction?: string | undefined;
   /**
    * G4 strategy lane: advisory notes rendered as a clearly fenced
    * section at the END of the message — guidance, not evidence.
@@ -107,7 +107,7 @@ export function buildGeneratorUserMessage({
    * documented parity exception; see CollectedEvidence.strategyNotes
    * and verifier.ts). Empty/undefined = no section, byte-identical.
    */
-  strategyNotes?: string[];
+  strategyNotes?: string[] | undefined;
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`

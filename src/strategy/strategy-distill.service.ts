@@ -99,8 +99,8 @@ interface DistilledItemShape {
 export interface MergeDecision {
   action: 'ADD' | 'UPDATE' | 'NOOP';
   targetId?: string;
-  strategy?: string;
-  situation?: string;
+  strategy?: string | undefined;
+  situation?: string | undefined;
 }
 
 /**

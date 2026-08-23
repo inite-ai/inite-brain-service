@@ -72,30 +72,30 @@ Two additional rules for this audit:
 
 export interface VerifyRequest {
   openai: OpenAI;
-  metrics?: MetricsService;
+  metrics?: MetricsService | undefined;
   query: string;
   answer: string;
   factLines: string[];
   /** Verbatim source turns the generator was allowed to answer from. */
-  transcriptLines?: string[];
+  transcriptLines?: string[] | undefined;
   /** Derived insights (V8 §1) the generator was allowed to answer from. */
-  insightLines?: string[];
+  insightLines?: string[] | undefined;
   /**
    * V8 §2 / V9 §2: the transcript excerpts were collected as the
    * MENTION RECORD for an ordering question — label them so the auditor
    * treats excerpt sequence as valid support for order claims (the
    * generator was explicitly told to prefer it over fact date stamps).
    */
-  timelineEvidence?: boolean;
+  timelineEvidence?: boolean | undefined;
   /**
    * V10 §5: enable the topic-coverage audit — relationship-claim
    * strictness plus the `questionAnswered` judgment. Off =
    * byte-identical prompt and schema.
    */
-  topicCoverage?: boolean;
+  topicCoverage?: boolean | undefined;
   /** V13 (profile.dateMath): the computed date table the generator
    *  saw — weekday/gap claims grounded in it must not be flagged. */
-  dateMathLines?: string[];
+  dateMathLines?: string[] | undefined;
   model: string;
 }
 
@@ -112,10 +112,10 @@ function buildVerifierUserMessage({
   query: string;
   answer: string;
   factLines: string[];
-  transcriptLines?: string[];
-  insightLines?: string[];
-  timelineEvidence?: boolean;
-  dateMathLines?: string[];
+  transcriptLines?: string[] | undefined;
+  insightLines?: string[] | undefined;
+  timelineEvidence?: boolean | undefined;
+  dateMathLines?: string[] | undefined;
 }): string {
   const sections = [`Source facts:\n${factLines.join('\n')}`];
   if (transcriptLines && transcriptLines.length > 0) {

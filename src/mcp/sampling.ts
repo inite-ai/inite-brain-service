@@ -28,7 +28,7 @@ export interface SamplingSummarizeResult {
   factsConsidered: number;
   sampledBy: 'client_llm' | 'local_template';
   modelUsed?: string;
-  asOf?: string;
+  asOf?: string | undefined;
 }
 
 export interface SummarizeViaClientSamplingOptions {
@@ -119,7 +119,7 @@ async function fallback({
 }): Promise<SamplingSummarizeResult> {
   const out = await summarizer.summarize(
     companyId,
-    { entityId, asOf, styleHint: 'neutral' },
+    { entityId, ...(asOf !== undefined ? { asOf } : {}), styleHint: 'neutral' },
     scopes,
   );
   return {

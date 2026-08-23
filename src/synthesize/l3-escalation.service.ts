@@ -80,7 +80,7 @@ export interface L3EscalateInput {
   /** The fact lines the verifier already saw (evidence parity). */
   factLines: string[];
   answerLang: string | null;
-  dateMathLines?: string[];
+  dateMathLines?: string[] | undefined;
 }
 
 /** A flipped L3 answer to finalise; null = fall through to abstention. */
@@ -204,10 +204,10 @@ export class L3EscalationService {
    */
   private async resolveAnchors(
     input: L3EscalateInput,
-    fences: { includePii: boolean; userId?: string },
+    fences: { includePii: boolean; userId?: string | undefined },
   ): Promise<{
     anchors: L3SessionAnchor[];
-    episodeById: Map<string, { conversationId: string; atMs?: number }>;
+    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
   }> {
     const factScore = new Map<string, number>();
     for (const hit of input.results) {
@@ -252,11 +252,11 @@ export class L3EscalationService {
       companyId: input.companyId,
       ids: [...allEpisodeIds],
       includePii: fences.includePii,
-      userId: fences.userId,
+      ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
     const episodeById = new Map<
       string,
-      { conversationId: string; atMs?: number }
+      { conversationId: string; atMs?: number | undefined }
     >();
     for (const r of episodeRows) {
       if (!r.conversationId) continue;
@@ -295,9 +295,9 @@ export class L3EscalationService {
     input: L3EscalateInput,
     args: {
       sessionIds: string[];
-      episodeById: Map<string, { conversationId: string; atMs?: number }>;
+      episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
       includePii: boolean;
-      userId?: string;
+      userId?: string | undefined;
     },
   ): Promise<L3Context> {
     const sessions = await Promise.all(
@@ -307,7 +307,7 @@ export class L3EscalationService {
             companyId: input.companyId,
             conversationId,
             includePii: args.includePii,
-            userId: args.userId,
+            ...(args.userId !== undefined ? { userId: args.userId } : {}),
           })
           .then((turns) => ({ conversationId, turns })),
       ),
@@ -333,7 +333,7 @@ export class L3EscalationService {
               centerIso: new Date(v.atMs).toISOString(),
               span,
               includePii: args.includePii,
-              userId: args.userId,
+              ...(args.userId !== undefined ? { userId: args.userId } : {}),
             }),
       ),
     );

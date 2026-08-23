@@ -86,7 +86,7 @@ export function applyVerdicts(
 
 function parseVerdicts(
   raw: string,
-): Array<{ keep?: boolean; confidence?: number }> | null {
+): Array<{ keep?: boolean | undefined; confidence?: number | undefined }> | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
   const body = fenced?.[1] ?? raw;
   const start = body.search(/[[{]/);

@@ -105,15 +105,20 @@ export class AdminJobsController {
     @Query('limit') limit?: string,
   ): Promise<JobsListResponse> {
     const parsedLimit = limit ? parseInt(limit, 10) : undefined;
+    const jobTypeVal = (jobType?.trim() as JobType) || undefined;
+    const statusVal = (status?.trim() as JobStatus) || undefined;
+    const sinceVal = since?.trim() || undefined;
+    const companyIdVal = companyId?.trim() || undefined;
+    const limitVal =
+      parsedLimit !== undefined && Number.isFinite(parsedLimit)
+        ? parsedLimit
+        : undefined;
     const rows = await this.jobs.list({
-      jobType: (jobType?.trim() as JobType) || undefined,
-      status: (status?.trim() as JobStatus) || undefined,
-      since: since?.trim() || undefined,
-      companyId: companyId?.trim() || undefined,
-      limit:
-        parsedLimit !== undefined && Number.isFinite(parsedLimit)
-          ? parsedLimit
-          : undefined,
+      ...(jobTypeVal !== undefined ? { jobType: jobTypeVal } : {}),
+      ...(statusVal !== undefined ? { status: statusVal } : {}),
+      ...(sinceVal !== undefined ? { since: sinceVal } : {}),
+      ...(companyIdVal !== undefined ? { companyId: companyIdVal } : {}),
+      ...(limitVal !== undefined ? { limit: limitVal } : {}),
     });
     return { jobs: rows } satisfies JobsListResponse;
   }
@@ -355,10 +360,11 @@ export class AdminJobsController {
     });
     void (async () => {
       try {
+        const reindexTenant = body.tenant?.trim() || undefined;
         const result = await this.reindex.run({
-          tenant: body.tenant?.trim() || undefined,
+          ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
           dryRun: body.dryRun === true,
-          maxFacts: body.maxFacts ?? undefined,
+          ...(body.maxFacts !== undefined ? { maxFacts: body.maxFacts } : {}),
         });
         await this.jobs.finish(row, {
           status: 'succeeded',

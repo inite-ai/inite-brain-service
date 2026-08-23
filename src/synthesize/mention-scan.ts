@@ -123,7 +123,7 @@ export interface ScanRow {
   text: string;
   occurredAt: number;
   /** Cosine similarity vs the topic embedding (dense leg). */
-  sim?: number;
+  sim?: number | undefined;
   /** BM25 hit on the topic phrase (lexical leg). */
   lex?: number;
 }

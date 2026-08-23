@@ -36,21 +36,21 @@ export function buildFactIndex(
      * precomputed [elapsed: …] suffix, so interval arithmetic happens
      * here — in code — and never in the generator.
      */
-    elapsedAsOf?: string;
+    elapsedAsOf?: string | undefined;
     /**
      * Enumeration lane (T2): render fact lines in chronological
      * validFrom order (undated last, otherwise stable) so exhaustive
      * list answers read off an ordered timeline. Sorting happens here —
      * in code — never by the generator.
      */
-    chronological?: boolean;
+    chronological?: boolean | undefined;
     /**
      * T5 update arbitration: on slots (entity+predicate) holding ≥2
      * dated, disagreeing statements, tag the max(validFrom) one with
      * "[most recent for this slot]" — knowledge-update misses answer
      * STALE values; the marker makes recency selection a read-off.
      */
-    markRecency?: boolean;
+    markRecency?: boolean | undefined;
     /**
      * V12 mention anchoring (profile.mentionDates): append
      * "(mentioned YYYY-MM-DD)" when the DERIVER_MENTION_STAMP anchor
@@ -59,13 +59,13 @@ export function buildFactIndex(
      * only the (possibly collapsed) validity date. Unstamped facts and
      * same-day anchors render nothing.
      */
-    mentionDates?: boolean;
+    mentionDates?: boolean | undefined;
     /**
      * V13 scene traces (profile.sceneTraces): append "(context: …)"
      * from the deriver-stamped source.scene — the situational anchor
      * the dual-trace encoding wrote. Unstamped facts render nothing.
      */
-    sceneTraces?: boolean;
+    sceneTraces?: boolean | undefined;
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
@@ -118,9 +118,9 @@ export function buildFactIndex(
 function factLineSuffixes(
   f: SearchHit['facts'][number],
   opts?: {
-    elapsedAsOf?: string;
-    mentionDates?: boolean;
-    sceneTraces?: boolean;
+    elapsedAsOf?: string | undefined;
+    mentionDates?: boolean | undefined;
+    sceneTraces?: boolean | undefined;
   },
 ): string {
   const elapsed = opts?.elapsedAsOf

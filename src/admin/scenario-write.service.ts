@@ -24,8 +24,8 @@ export class ScenarioWriteService {
       predicate: step.predicate,
       object: step.object,
       validFrom: step.validFrom,
-      validUntil: step.validUntil,
-      confidence: step.confidence,
+      ...(step.validUntil !== undefined ? { validUntil: step.validUntil } : {}),
+      ...(step.confidence !== undefined ? { confidence: step.confidence } : {}),
       source: step.source,
     });
     return res.factId ?? null;
@@ -35,7 +35,9 @@ export class ScenarioWriteService {
     await this.ingest.ingestMention(companyId, {
       text: step.text,
       contextRef: step.contextRef,
-      knownEntities: step.knownEntities,
+      ...(step.knownEntities !== undefined
+        ? { knownEntities: step.knownEntities }
+        : {}),
       emittedAt: step.emittedAt,
     });
   }

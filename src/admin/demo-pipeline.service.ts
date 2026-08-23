@@ -27,7 +27,7 @@ export class DemoPipelineService {
 
   async ingestMention(
     tenant: string,
-    body: { text: string; vertical?: string },
+    body: { text: string; vertical?: string | undefined },
   ) {
     return this.ingest.ingestMention(tenant, {
       text: body.text,
@@ -38,12 +38,20 @@ export class DemoPipelineService {
 
   async runSearch(
     tenant: string,
-    body: { query: string; limit?: number; asOf?: string },
+    body: {
+      query: string;
+      limit?: number | undefined;
+      asOf?: string | undefined;
+    },
     scopes: readonly BrainScope[],
   ) {
     return this.search.search(
       tenant,
-      { query: body.query, limit: body.limit ?? 5, asOf: body.asOf },
+      {
+        query: body.query,
+        limit: body.limit ?? 5,
+        ...(body.asOf !== undefined ? { asOf: body.asOf } : {}),
+      },
       [...scopes],
     );
   }
@@ -137,7 +145,7 @@ export class DemoPipelineService {
     });
     const search = await this.search.search(
       tenant,
-      { query: queryText, limit: 5, asOf },
+      { query: queryText, limit: 5, ...(asOf !== undefined ? { asOf } : {}) },
       [...scopes],
     );
     return {

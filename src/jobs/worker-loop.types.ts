@@ -36,7 +36,7 @@ export interface RegisteredHandler {
    * exports `run(input): Promise<output>`.
    */
   cpuBound?: boolean;
-  workerModule?: string;
+  workerModule?: string | undefined;
 }
 
 /** Leader/lifecycle control surface the poller reads on each cycle. */

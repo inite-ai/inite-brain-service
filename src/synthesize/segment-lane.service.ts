@@ -46,7 +46,7 @@ export class SegmentLaneService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Segments per prompt (profile.segmentTopK). */
     topK: number;
     /** Listwise-rerank the fused pool (profile.segmentRerank). */

@@ -9,9 +9,9 @@ function makeService(opts: {
   meta?: Array<Record<string, unknown>>;
 }): {
   svc: EpisodeSubscriptionService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const surreal = {
     withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({

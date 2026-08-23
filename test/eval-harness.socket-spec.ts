@@ -143,7 +143,7 @@ describe('runWorlds', () => {
 
   interface RecordedCall {
     url: string;
-    tenant?: string;
+    tenant?: string | undefined;
     body: Record<string, any>;
   }
 

@@ -35,7 +35,7 @@ export interface IndexerRunSpec {
   packVersion: string;
   executionMode: IndexerExecutionMode;
   model: string;
-  registryVersionHash?: string;
+  registryVersionHash?: string | undefined;
   /** The actual extraction — union or pack-scoped dedicated. */
   extract: (chunkText: string) => Promise<ExtractionResult>;
   /**
@@ -43,7 +43,7 @@ export interface IndexerRunSpec {
    * deploy finalizes the run 'failed' instead of orphaning it 'running';
    * createRun then reopens it on the retry. Absent on the sync HTTP path.
    */
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }
 
 /**

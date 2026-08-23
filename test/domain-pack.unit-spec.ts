@@ -218,7 +218,7 @@ describe('validateSeedDocuments (via validatePack)', () => {
         pack({
           seedDocuments: [
             seed({
-              meta: { nested: { deep: true } } as unknown as PackSeedDocument['meta'],
+              meta: { nested: { deep: true } } as unknown as NonNullable<PackSeedDocument['meta']>,
             }),
           ],
         }),

@@ -52,7 +52,7 @@ export class CommunityService {
     args: {
       query: string;
       limit?: number;
-      minSimilarity?: number;
+      minSimilarity?: number | undefined;
       callerScopes?: readonly string[];
     },
   ): Promise<ScoredCommunity[]> {

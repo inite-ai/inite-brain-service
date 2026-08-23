@@ -16,7 +16,7 @@ import { JobDispatcherService } from '../src/jobs/job-dispatcher.service';
 
 describe('Jobs OTel handoff — wire contract', () => {
   it('enqueue includes traceparent: $traceparent in the CREATE statement when the propagator injects one', async () => {
-    const captured: { sql: string; params?: Record<string, unknown> }[] = [];
+    const captured: { sql: string; params?: Record<string, unknown> | undefined }[] = [];
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         captured.push({ sql, params });

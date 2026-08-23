@@ -119,7 +119,7 @@ export class CalibrationRefitRunnerService {
       version: number;
       sampleCount: number;
       bins: number;
-      createdAt?: string;
+      createdAt?: string | undefined;
     }>
   > {
     const tenants = this.apiKeys.knownCompanyIds();

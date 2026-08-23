@@ -30,7 +30,7 @@ export interface RequestContext {
    * their OpenAI / fetch calls so a cancelled request stops burning
    * tokens. Undefined for background contexts (cron, startup).
    */
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
   /**
    * ABAC policy context for the authenticated key, stamped by
    * ApiKeyGuard after credential + action gating. Read surfaces pick

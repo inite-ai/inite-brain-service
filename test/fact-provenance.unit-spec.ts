@@ -22,7 +22,7 @@ import type { RetractFactDto } from '../src/facts/dto/retract.dto';
 
 interface Recorded {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 type Row = Record<string, unknown>;

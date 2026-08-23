@@ -37,7 +37,7 @@ function stubEmbedder(vectors: Record<string, number[]>): EmbedderService {
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 /** Surreal stub: withCompany hands out a db whose query is scripted. */

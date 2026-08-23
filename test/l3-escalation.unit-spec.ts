@@ -35,7 +35,6 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
   const base = {
     l3Escalation: true,
     verdict: 'unsupported' as VerifierOutput['verdict'],
-    questionAnswered: undefined,
     covered: false,
     refineAttempted: false,
     searchLoop: false,
@@ -288,7 +287,6 @@ function baseInput(openai: OpenAI, profile: RetrievalProfile) {
     factIndex: factIndexOf(),
     factLines: [`[${FACT_ID}] tier (topic) — tier: sapphire`],
     answerLang: null,
-    dateMathLines: undefined,
   };
 }
 

@@ -25,7 +25,7 @@ class StubConfig {
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 interface CandidateRow {

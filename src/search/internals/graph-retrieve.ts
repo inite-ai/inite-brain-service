@@ -24,7 +24,7 @@ export interface GraphEntity {
   entityId: string;
   type: string;
   canonicalName: string;
-  externalRefs?: Record<string, string>;
+  externalRefs?: Record<string, string> | undefined;
 }
 
 export interface GraphFactRow {
@@ -67,7 +67,7 @@ export interface GraphRetrieveHit {
     object: string;
     confidence: number;
     validFrom: string;
-    validUntil?: string;
+    validUntil?: string | undefined;
     status: string;
     score: number;
     breakdown?: ScoreBreakdown;

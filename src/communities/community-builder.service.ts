@@ -491,7 +491,7 @@ export class CommunityBuilderService {
         predicate: f.predicate,
         object: f.object,
         validFrom: toIso(f.validFrom),
-        validUntil: f.validUntil ? toIso(f.validUntil) : undefined,
+        ...(f.validUntil ? { validUntil: toIso(f.validUntil) } : {}),
         confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
       }));
     return { label, summaryInput };

@@ -114,7 +114,7 @@ function compileCondition(cond: MatchCondition): CompiledCondition {
 function compileSourceRule(rule: {
   id: string;
   effect: 'allow' | 'deny';
-  match?: MatchCondition[];
+  match?: MatchCondition[] | undefined;
 }): CompiledSourceRule {
   return {
     id: rule.id,
@@ -126,7 +126,7 @@ function compileSourceRule(rule: {
 function compileActionRule(rule: {
   id: string;
   effect: 'allow' | 'deny';
-  actions?: string[];
+  actions?: string[] | undefined;
 }): CompiledActionRule {
   const names = new Set<string>();
   const macros = new Set<PolicyMacro>();

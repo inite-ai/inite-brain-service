@@ -88,8 +88,8 @@ export class ExtractorRunnerService {
     trimmed: string;
     companyId: string;
     snapshot: Snapshot;
-    overrides?: RunOverrides;
-    context?: ConversationContext;
+    overrides?: RunOverrides | undefined;
+    context?: ConversationContext | undefined;
   }): Promise<ExtractionResult | null> {
     const { trimmed, companyId, snapshot, overrides, context } = args;
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
@@ -159,9 +159,9 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
-    contextPrefix?: string;
-    context?: ConversationContext;
-    overrides?: RunOverrides;
+    contextPrefix?: string | undefined;
+    context?: ConversationContext | undefined;
+    overrides?: RunOverrides | undefined;
   }): Promise<ExtractionResult | null> {
     const N = args.overrides?.scPasses ?? this.llm.scPasses;
     // Even temperature spread across [0.1, 0.7].
@@ -240,9 +240,9 @@ export class ExtractorRunnerService {
     snapshot: Snapshot;
     systemPrompt: string;
     facets: Facet[];
-    contextPrefix?: string;
-    context?: ConversationContext;
-    overrides?: RunOverrides;
+    contextPrefix?: string | undefined;
+    context?: ConversationContext | undefined;
+    overrides?: RunOverrides | undefined;
   }): Promise<ExtractionResult | null> {
     const prompts = [
       args.systemPrompt,
@@ -302,7 +302,7 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     rawJson: unknown;
-    context?: ConversationContext;
+    context?: ConversationContext | undefined;
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, snapshot, rawJson, context } = args;
 

@@ -10,7 +10,7 @@ export interface FactToSummarize {
   predicate: string;
   object: string;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   confidence: number;
 }
 

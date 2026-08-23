@@ -141,7 +141,7 @@ export interface AgentQaInput {
   companyId: string;
   question: string;
   callerScopes: string[];
-  asOf?: string;
+  asOf?: string | undefined;
 }
 
 export interface AgentQaResult {
@@ -351,7 +351,7 @@ export class AgentQaService {
     input: AgentQaInput;
     name: string;
     query: string;
-    mask?: Set<string>;
+    mask?: Set<string> | undefined;
   }): Promise<string> {
     if (name === 'timeline') return this.runTimeline(input, query);
     if (name === 'grep_episodes') return this.runGrep(input, query);

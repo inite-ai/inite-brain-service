@@ -46,7 +46,7 @@ export class ScenarioEvalService {
           {
             query: expectation.query,
             limit: 10,
-            asOf: expectation.asOf,
+            ...(expectation.asOf !== undefined ? { asOf: expectation.asOf } : {}),
             ...(expectation.predicates ? { predicates: expectation.predicates } : {}),
           },
           callerScopes,
@@ -58,10 +58,10 @@ export class ScenarioEvalService {
         totalMs: captured.trace.totalMs,
         spans: captured.trace.spans.map((s) => ({
           id: s.id,
-          parentId: s.parentId,
           name: s.name,
           startedAt: s.startedAt,
-          durationMs: s.durationMs,
+          ...(s.parentId !== undefined ? { parentId: s.parentId } : {}),
+          ...(s.durationMs !== undefined ? { durationMs: s.durationMs } : {}),
           ...(s.error ? { error: s.error } : {}),
         })),
       };
@@ -110,7 +110,7 @@ export class ScenarioEvalService {
       rankOfExpected,
       topEntityRef,
       factPredicateMatched,
-      asOf: expectation.asOf,
+      ...(expectation.asOf !== undefined ? { asOf: expectation.asOf } : {}),
       durationMs: Date.now() - t0,
       hitCount: hits.length,
       topHits: hits.slice(0, 3).map((h) => ({
@@ -155,7 +155,7 @@ export class ScenarioEvalService {
       description: a.description,
       kind: a.kind,
       passed,
-      detail,
+      ...(detail !== undefined ? { detail } : {}),
       durationMs: Date.now() - t0,
     });
 
@@ -169,7 +169,7 @@ export class ScenarioEvalService {
         {
           query: a.query,
           limit: 20,
-          asOf: a.asOf,
+          ...(a.asOf !== undefined ? { asOf: a.asOf } : {}),
           includeRetracted: a.includeRetracted ?? false,
         },
         ['brain:read', 'brain:read_pii'],

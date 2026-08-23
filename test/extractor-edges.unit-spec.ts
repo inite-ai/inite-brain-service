@@ -28,9 +28,9 @@ function parseEdges(
   raw: unknown,
   entityCount: number,
   clauses: string[],
-): { edges: ParsedEdge[]; dropped: Array<{ reason: string; kind?: string }> } {
+): { edges: ParsedEdge[]; dropped: Array<{ reason: string; kind?: string | undefined }> } {
   const edges: ParsedEdge[] = [];
-  const dropped: Array<{ reason: string; kind?: string }> = [];
+  const dropped: Array<{ reason: string; kind?: string | undefined }> = [];
   if (!Array.isArray(raw)) return { edges, dropped };
   for (const e of raw as RawEdge[]) {
     if (!e || typeof e !== 'object') continue;

@@ -15,8 +15,8 @@ import {
 /** Who is asking: credential hash + claim-carried set names + acting client. */
 export interface PolicySubject {
   keyHash: string;
-  claimNames?: readonly string[];
-  actorId?: string;
+  claimNames?: readonly string[] | undefined;
+  actorId?: string | undefined;
 }
 
 /** Raw access_policy row: name is stringified, document is compiled. */
