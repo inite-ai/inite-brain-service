@@ -14,5 +14,22 @@
   "testTimeout": 30000,
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1"
+  },
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/**/*.worker.ts",
+    "!src/main.ts",
+    "!src/**/*.module.ts",
+    "!src/**/dto/*.ts",
+    "!src/db/migrations/**",
+    "!src/**/*.d.ts"
+  ],
+  "coverageThreshold": {
+    "global": {
+      "statements": 52,
+      "branches": 40,
+      "functions": 45,
+      "lines": 52
+    }
   }
 }
