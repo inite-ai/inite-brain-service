@@ -134,8 +134,17 @@ async function bootstrap() {
     clearTimeout(t);
     process.exit(0);
   };
-  process.on('SIGTERM', onTerm);
-  process.on('SIGINT', onTerm);
+  // process.on's listener type is (...args) => void, but onTerm is async.
+  // Wrap it so a rejection (e.g. shutdownTracing throwing) is logged and
+  // forces exit instead of surfacing as an unhandledRejection mid-shutdown.
+  const onTermListener = () => {
+    void onTerm().catch((err) => {
+      logger.error(`Shutdown handler failed: ${(err as Error).message}`);
+      process.exit(1);
+    });
+  };
+  process.on('SIGTERM', onTermListener);
+  process.on('SIGINT', onTermListener);
 }
 
 bootstrap().catch((err) => {

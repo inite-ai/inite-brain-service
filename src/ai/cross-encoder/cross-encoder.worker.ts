@@ -108,7 +108,7 @@ async function score(p: {
   return scores;
 }
 
-parentPort.on('message', async (msg: Inbound) => {
+const onMessage = async (msg: Inbound): Promise<void> => {
   try {
     if (msg.kind === 'warmup') {
       await warmup(msg.payload);
@@ -123,4 +123,16 @@ parentPort.on('message', async (msg: Inbound) => {
   } catch (e) {
     reply({ id: msg.id, ok: false, error: (e as Error).message });
   }
+};
+
+// The message listener is void-returning and each message is handled
+// independently, so the async work runs detached. onMessage already reports
+// business failures to the parent via reply(); the .catch guards only a
+// catastrophic reply()/port failure from becoming an unhandledRejection.
+parentPort.on('message', (msg: Inbound) => {
+  void onMessage(msg).catch((err) => {
+    console.error(
+      `cross-encoder worker handler crashed: ${(err as Error).message}`,
+    );
+  });
 });

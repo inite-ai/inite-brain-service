@@ -189,7 +189,10 @@ export class ExtractorRunnerService {
       ),
     );
     const results = await Promise.all(
-      rawJsons.map((rj) =>
+      // async wrapper: every slot resolves to a Promise (the failed-pass
+      // slots to a resolved null) so Promise.all receives an all-thenable
+      // iterable — same result array, positions preserved.
+      rawJsons.map(async (rj) =>
         rj
           ? this.assembleResult({
               companyId: args.companyId,
@@ -266,7 +269,10 @@ export class ExtractorRunnerService {
       ),
     );
     const results = await Promise.all(
-      rawJsons.map((rj) =>
+      // async wrapper: every slot resolves to a Promise (the failed-pass
+      // slots to a resolved null) so Promise.all receives an all-thenable
+      // iterable — same result array, positions preserved.
+      rawJsons.map(async (rj) =>
         rj
           ? this.assembleResult({
               companyId: args.companyId,
