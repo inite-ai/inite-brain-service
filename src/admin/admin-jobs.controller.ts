@@ -599,10 +599,11 @@ export class AdminJobsController {
   @Get('changefeed/state')
   @RequireScopes('brain:admin')
   async changefeedState(): Promise<ChangefeedStateResponse> {
-    const [stats, cursors] = await Promise.all([
-      this.changefeed.stats(),
-      this.changefeed.cursorState(),
-    ]);
+    // stats() is synchronous (a plain snapshot getter); only cursorState() is
+    // async — so read stats() directly and await the one Promise rather than
+    // wrapping a non-Thenable in Promise.all.
+    const stats = this.changefeed.stats();
+    const cursors = await this.changefeed.cursorState();
     // sources is readonly string[] on the service to keep callers from
     // mutating the constant; on the wire it's just an array.
     return {

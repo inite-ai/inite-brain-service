@@ -79,9 +79,19 @@ export default tseslint.config(
       sourceType: 'module',
       globals: { ...globals.node, ...globals.jest },
       parserOptions: {
-        // Avoid type-aware linting for now (slow on a Nest app, and we lint
-        // both src/ and test/ which would need separate tsconfigs).
-        project: false,
+        // Type-aware linting is ON: the promise-safety rules
+        // (no-floating-promises / no-misused-promises / await-thenable)
+        // need the type-checker.
+        //
+        // We use the explicit `project` array rather than the newer
+        // `projectService: true`. projectService resolves each file to its
+        // NEAREST tsconfig.json — which for test/ files is the root
+        // tsconfig.json, and that config *excludes* test/. The service then
+        // refuses every spec with "not found by the project service". The
+        // two-config array below is the documented fallback: tsconfig.json
+        // covers src/, tsconfig.spec.json covers src/ + test/.
+        project: ['./tsconfig.json', './tsconfig.spec.json'],
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     settings: {
@@ -97,6 +107,16 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-empty-object-type': 'off',
       'prefer-const': 'warn',
+
+      // ── Promise-safety (type-aware) ───────────────────────────────
+      // An unawaited async call is a real bug class: fire-and-forget DB
+      // writes, unhandled rejections that crash the process on an
+      // unrelated tick. These need the type-checker (projectService,
+      // above). `require-await` is deliberately NOT enabled — it flags
+      // intentionally-async interface impls and is too noisy.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
       'prettier/prettier': 'off', // formatting handled by `pnpm format`, not lint
 
       // ── Clean architecture / DRY hard gates ───────────────────────
@@ -155,6 +175,25 @@ export default tseslint.config(
       'sonarjs/cognitive-complexity': 'off',
       'sonarjs/no-identical-functions': 'off',
       'sonarjs/no-duplicated-branches': 'off',
+    },
+  },
+  {
+    // The two real-e2e specs below genuinely exercise the `@inite/knowledge`
+    // SDK that lives in the sibling ../inite-shared repo, which is NOT
+    // checked out in the build-test gate. tsconfig.spec.json therefore
+    // *excludes* them (see its comment), so the type-aware parser has no
+    // program for them — `project` would throw "not found by the project".
+    // Drop them to a non-type-aware parse and switch the type-aware rules
+    // off here (they can't run without a program). Everything else still
+    // lints. This mirrors the tsconfig.spec.json exclusion 1:1.
+    files: ['test/brain.real-e2e-spec.ts', 'test/dreams.real-e2e-spec.ts'],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
+      '@typescript-eslint/await-thenable': 'off',
     },
   },
 );

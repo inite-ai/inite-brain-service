@@ -56,7 +56,7 @@ if (!parentPort) {
 
 const port = parentPort;
 
-port.on('message', async (msg: Inbound) => {
+const onMessage = async (msg: Inbound): Promise<void> => {
   if (msg.kind === 'shutdown') {
     port.postMessage({ id: msg.id, ok: true, result: null } satisfies Outbound);
     // Let the parent close the worker cleanly via worker.terminate().
@@ -86,6 +86,16 @@ port.on('message', async (msg: Inbound) => {
       name: err.name,
     } satisfies Outbound);
   }
+};
+
+// The message listener is void-returning and each request is independent, so
+// the async work runs detached. onMessage reports run failures back to the
+// parent via postMessage; the .catch guards only a catastrophic postMessage
+// failure (e.g. the shutdown ack) from becoming an unhandledRejection.
+port.on('message', (msg: Inbound) => {
+  void onMessage(msg).catch((err) => {
+    console.error(`job worker handler crashed: ${(err as Error).message}`);
+  });
 });
 
 // Boot ack — parent waits on this before considering the worker
