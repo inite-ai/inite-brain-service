@@ -494,12 +494,22 @@ export class SearchService {
       });
     }
 
-    // 2b. Usage enrichment (opt-in) — attach lastReadAt so decay counts
-    // from the most recent retrieval instead of only recordedAt. Soft-
-    // fails inside; rows injected later (edge expansion) stay
-    // unenriched — supplementary context, not primary relevance.
-    if (ctx.tuning.usageDecay) {
-      await enrichWithUsage(db, this.logger, filtered);
+    // 2b. Usage enrichment (opt-in) — one batched fact_usage lookup that
+    // feeds two decoupled consumers: lastReadAt (SEARCH_USAGE_DECAY_ENABLED)
+    // restarts the decay clock, readCount (SEARCH_USAGE_RANKING_ENABLED, G8)
+    // feeds the usage ranking factor. Soft-fails inside; rows injected
+    // later (edge expansion) stay unenriched — supplementary context, not
+    // primary relevance.
+    if (ctx.tuning.usageDecay || ctx.tuning.usageRanking) {
+      await enrichWithUsage({
+        db,
+        logger: this.logger,
+        rows: filtered,
+        attach: {
+          lastReadAt: ctx.tuning.usageDecay,
+          readCount: ctx.tuning.usageRanking,
+        },
+      });
     }
 
     // 4. Scoring + per-entity bucketing with diversity-aware degree boost.

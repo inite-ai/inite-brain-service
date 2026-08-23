@@ -93,6 +93,73 @@ export interface ScoreRowsOptions {
    * they are unaffected; off → factor exactly 1.0 → byte-identical.
    */
   salienceScoring?: boolean;
+  /**
+   * G8 trace-derived ranking (Spectron "eight signals" — prior
+   * retrieval success feeding ranking). β scales the row's
+   * fact_usage.readCount into ranking via a saturating squash
+   * (`× (1 + β·squash(readCount))`), EXACTLY mirroring the trustFactor
+   * shape. A few reads help, a hot fact saturates and never dominates.
+   * The readCount reaches the scorer only when SEARCH_USAGE_RANKING_ENABLED
+   * attached it (enrichWithUsage); β defaults 0 → factor exactly 1.0 →
+   * byte-identical ranking, and a fact search never surfaced (readCount
+   * absent/0) is unaffected at ANY β.
+   */
+  usageBeta?: number;
+  /**
+   * G8 saturation constant: the readCount at which the squash reaches
+   * ~1.0 (so the boost ceiling is `1 + usageBeta`). log1p-shaped, so
+   * early reads move the factor most and it flattens past saturation.
+   * Defaults to USAGE_SATURATION_DEFAULT.
+   */
+  usageSaturation?: number;
+}
+
+/**
+ * Default readCount at which the usage squash saturates (~1.0). A read
+ * count of a few dozen is "well-used" for a single fact; beyond it the
+ * boost is capped. Matches the SEARCH_USAGE_SATURATION catalog default.
+ */
+const USAGE_SATURATION_DEFAULT = 20;
+
+/**
+ * Saturating transform of a raw readCount into [0, 1]. log1p-shaped so a
+ * few reads move it the most and it flattens toward the ceiling: at
+ * readCount === saturation it is ~1.0, and it is clamped so an
+ * arbitrarily hot fact never pushes the usage factor past `1 + β`.
+ * readCount ≤ 0 → 0 (usageFactor exactly 1.0).
+ */
+function usageSquash(readCount: number, saturation: number): number {
+  if (!(readCount > 0)) return 0;
+  const sat = saturation > 0 ? saturation : USAGE_SATURATION_DEFAULT;
+  const s = Math.log1p(readCount) / Math.log1p(sat);
+  return s > 1 ? 1 : s;
+}
+
+/**
+ * G8 usage factor for one row, plus its conditional breakdown fragment.
+ * Returns the multiplier applied to finalScore and the `usage` breakdown
+ * entry (empty object when the factor is exactly 1.0, so unaffected rows
+ * stay byte-identical). Kept out of the scoreRows map to hold that
+ * arrow's cyclomatic complexity under the seam budget.
+ */
+function usageFactorFor(
+  row: { readCount?: number },
+  usageBeta: number,
+  usageSaturation: number,
+): {
+  usageFactor: number;
+  usageBreakdown: { usage: { readCount: number; usageFactor: number } } | object;
+} {
+  const readCount =
+    typeof row.readCount === 'number' && row.readCount > 0 ? row.readCount : 0;
+  const usageFactor =
+    usageBeta > 0 && readCount > 0
+      ? 1 + usageBeta * usageSquash(readCount, usageSaturation)
+      : 1;
+  return {
+    usageFactor,
+    usageBreakdown: usageFactor !== 1 ? { usage: { readCount, usageFactor } } : {},
+  };
 }
 
 /**
@@ -194,6 +261,8 @@ export function scoreRows({
   temporalAnchor = null,
   queryRange = null,
   salienceScoring = false,
+  usageBeta = 0,
+  usageSaturation = USAGE_SATURATION_DEFAULT,
 }: ScoreRowsOptions): ScoredRow[] {
   const salienceFactorFor = (source: unknown): number => {
     if (!salienceScoring) return 1;
@@ -274,6 +343,16 @@ export function scoreRows({
       : 1;
     const timeRange = queryRange ? timeRangeFactor(row, queryRange) : 1;
     const salienceFactor = salienceFactorFor(row.source);
+    // G8 trace-derived usage factor: `1 + β·squash(readCount)`, the same
+    // multiplicative shape as trustFactor. readCount only reaches the
+    // scorer when SEARCH_USAGE_RANKING_ENABLED attached it; β > 0 is the
+    // strength gate. Either off, or a fact search never surfaced → 1.0 →
+    // byte-identical ranking.
+    const { usageFactor, usageBreakdown } = usageFactorFor(
+      row,
+      usageBeta,
+      usageSaturation,
+    );
     const finalScore =
       row.fusedScore *
       decay *
@@ -284,7 +363,8 @@ export function scoreRows({
       authorityFactor *
       temporalOverlap *
       timeRange *
-      salienceFactor;
+      salienceFactor *
+      usageFactor;
     return {
       row,
       score: finalScore,
@@ -297,6 +377,7 @@ export function scoreRows({
         ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
         ...(timeRange !== 1 ? { timeRange } : {}),
         ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
+        ...usageBreakdown,
         factTrust,
         finalScore,
         stages: row.stages ?? [],

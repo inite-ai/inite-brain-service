@@ -123,6 +123,12 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_AUTHORITY_DELTA', errors);
   nonNegativeFloat(env, 'SYNTHESIZE_MIN_FACT_TRUST', errors);
 
+  // ── G8 trace-derived usage ranking (migration 0053) ────────────────
+  // β = strength (0 = off); saturation = readCount at which the boost tops
+  // out. A typo would silently parseInt→NaN / fall back to the default.
+  nonNegativeFloat(env, 'SEARCH_USAGE_BETA', errors);
+  positiveInt(env, 'SEARCH_USAGE_SATURATION', errors);
+
   // ── Retrieval fact-shaping (chatter demotion) ──────────────────────
   // Penalty is read with a (0,1] clamp; nonNegativeFloat only guards the
   // "is a number" contract here (≥1 is accepted and means "no penalty").
@@ -484,6 +490,9 @@ const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
 const KNOWN_BOOLEAN_FLAGS = [
   'SEARCH_USAGE_RECORDING_ENABLED',
   'SEARCH_USAGE_DECAY_ENABLED',
+  // G8 trace-derived ranking: read fact_usage.readCount into the usage
+  // ranking factor (needs recording ON first for data).
+  'SEARCH_USAGE_RANKING_ENABLED',
   // Phase A read-path (typed-memory roadmap): the generator gets an
   // anchored "today" for date arithmetic.
   'SYNTHESIZE_DATE_CONTEXT',

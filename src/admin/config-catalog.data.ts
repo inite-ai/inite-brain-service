@@ -728,6 +728,33 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Count recency decay from lastReadAt, not only recordedAt (needs recording on for data).',
       },
       {
+        key: 'SEARCH_USAGE_RANKING_ENABLED',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'G8 trace-derived ranking (Spectron "eight signals"): fold fact_usage.readCount into ranking as a bounded, saturating multiplier (× (1 + SEARCH_USAGE_BETA·squash(readCount))). ORDERING DEPENDENCY: enable SEARCH_USAGE_RECORDING_ENABLED first, or readCount never accrues and the signal is inert. Also needs SEARCH_USAGE_BETA > 0 (default 0 = no effect even when on).',
+      },
+      {
+        key: 'SEARCH_USAGE_BETA',
+        category: 'search',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'Strength of the G8 usage ranking factor: usageFactor = 1 + β·squash(readCount), same multiplicative shape as SEARCH_TRUST_BETA. 0 (default) = off (factor 1.0, byte-identical ranking). Only takes effect with SEARCH_USAGE_RANKING_ENABLED on and recording having accrued reads. Start small, e.g. 0.1.',
+      },
+      {
+        key: 'SEARCH_USAGE_SATURATION',
+        category: 'search',
+        defaultValue: '20',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'readCount at which the G8 usage squash saturates (~1.0), so the boost ceiling is 1 + SEARCH_USAGE_BETA. log1p-shaped: early reads move the factor most, a hot fact never dominates. Positive integer; default 20.',
+      },
+      {
         key: 'SEARCH_EDGE_EXPANSION_TOP_SEEDS',
         category: 'search',
         defaultValue: '3',
