@@ -8,6 +8,11 @@ import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
 import {
+  principalScopeTags,
+  scopeTagsEnabled,
+  visibleUnderScope,
+} from '../auth/scope-visibility';
+import {
   makeRowPolicyFilter,
   type PolicyFilterableRow,
 } from '../policy/row-filter';
@@ -191,6 +196,8 @@ interface FactReadRow extends PolicyFilterableRow {
   retractedAt?: unknown;
   status?: unknown;
   derivedVersion?: unknown;
+  /** Scope-tag AND-set (migration 0093); absent/empty = tenant-global. */
+  scope?: unknown;
 }
 
 export interface ListCompetingResult {
@@ -358,7 +365,7 @@ export class FactsService {
     const ref = this.normalizeFactId(opts.factId);
     const [rows] = await db.query<[FactReadRow[]]>(
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
-              recordedAt, retractedAt, status, source, userId,
+              recordedAt, retractedAt, status, source, userId, scope,
               derivedVersion, trustSnapshot, corroboration
          FROM type::record('knowledge_fact', $rid) LIMIT 1`,
       { rid: ref.id },
@@ -376,6 +383,19 @@ export class FactsService {
       fact.userId !== scopeUserId
     ) {
       throw notFound();
+    }
+    // G6 scope-tag fence (SCOPE_TAGS_ENABLED) — ADDED alongside the
+    // userId ownership check above, never replacing it. Composed as an
+    // extra AND, it can only narrow visibility; a row hidden here (an
+    // unparseable or non-matching scope tag) is a 404 exactly like the
+    // userId miss. Inert when the flag is off. See scope-visibility.ts.
+    if (scopeTagsEnabled()) {
+      const recordScope = Array.isArray(fact.scope)
+        ? (fact.scope as unknown[]).map((t) => String(t))
+        : [];
+      if (!visibleUnderScope(recordScope, principalScopeTags())) {
+        throw notFound();
+      }
     }
     // Registry-backed row policy (scope fence + ABAC) — same seam as the
     // audit-fixed fact lanes under src/synthesize/.

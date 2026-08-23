@@ -4,6 +4,7 @@ import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
+import { scopeForUser } from '../auth/scope-tags';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
 
@@ -64,6 +65,9 @@ export class EpisodeStoreService {
         // Audit 2026-08-21 P0: the per-user scope rides the episode row —
         // every L0 read surface fences on it (fail-closed, 0055 model).
         userId: dto.userId,
+        // G6 step 1: mirror it as a scope tag (0093) so the scope fence
+        // and the userId fence stay in lockstep going forward.
+        scope: scopeForUser(dto.userId),
         lang: lang === 'und' ? undefined : lang,
         source: {
           vertical: dto.contextRef.vertical,

@@ -591,6 +591,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'DB-level PERMISSIONS PII fence (0057). Inert for the system-user pool — the app-layer JS filter is the enforcing gate.',
       },
       {
+        key: 'SCOPE_TAGS_ENABLED',
+        category: 'auth',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. Steps 3-5 (ABAC widen / share-up staging / revocation tokens) are a follow-up.',
+      },
+      {
         key: 'SOURCE_META_STRICT',
         category: 'pipeline',
         defaultValue: '0',

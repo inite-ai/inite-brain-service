@@ -5,6 +5,7 @@ import {
   derivedVersionFence,
   type ReadPin,
 } from '../../episodes/read-pin.service';
+import { scopeFenceSql } from '../../auth/scope-visibility';
 
 /**
  * Compose the WHERE-clause fragment that every leg query shares.
@@ -100,6 +101,18 @@ export function buildBaseWhere({
     params.scopeUserId = dto.userId;
   } else {
     clauses.push(`AND userId IS NONE`);
+  }
+
+  // ── Scope-tag fence (G6, SCOPE_TAGS_ENABLED) — FAIL-CLOSED ─────
+  // An ADDED AND-condition mirroring the userId filter above against
+  // the `scope` column, inert when the flag is off (userId stays the
+  // sole enforcement). Composed with AND, it can only narrow — never
+  // open — what userId filtering returns; for single-tag data the two
+  // fences keep provably identical row sets. See scope-visibility.ts.
+  const scope = scopeFenceSql(dto.userId);
+  if (scope.clause) {
+    clauses.push(scope.clause);
+    Object.assign(params, scope.params);
   }
 
   // ── Derived-version namespace (substrate redesign P3 v1) ───────

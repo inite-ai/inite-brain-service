@@ -702,6 +702,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // maintained count() rollup tables instead of live GROUP aggregates.
   // Off (default) → byte-identical pre-0088 live counting.
   'STATS_VIEWS_ENABLED',
+  // G6 scope-tag fence (0093): the scope-tag visibility evaluator runs
+  // as an ADDITIONAL AND-fence alongside the untouched 0055 userId
+  // filter. Off (default) → the scope column is written but never read;
+  // enforcement is byte-identical pre-0093.
+  'SCOPE_TAGS_ENABLED',
   'INDEXER_WEBHOOK_PUSH_ENABLED',
   'REINDEX_ON_PACK_INSTALL',
   'DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL',

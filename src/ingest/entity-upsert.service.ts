@@ -8,6 +8,7 @@ import {
 import { EntityResolverService } from './entity-resolver.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey } from './ingest-utils';
+import { scopeForUser } from '../auth/scope-tags';
 
 /**
  * Entity-resolution slice of the ingest pipeline: turn a caller-supplied
@@ -62,7 +63,10 @@ export class EntityUpsertService {
       type: 'other',
       canonicalName: ref.id,
       externalRefs: { [refKey]: ref.id },
-      ...(userId ? { userId } : {}),
+      // G6 step 1: mirror the per-user scope as a scope tag (0093) next
+      // to the userId stamp. The named-entity path stays tenant-global
+      // (no userId → the scope field DEFAULT [] holds).
+      ...(userId ? { userId, scope: scopeForUser(userId) } : {}),
     }));
   }
 
