@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SearchModule } from '../search/search.module';
 import { EpisodesModule } from '../episodes/episodes.module';
+import { AnswerCacheModule } from '../answer-cache/answer-cache.module';
 import { SynthesizeController } from './synthesize.controller';
 import { SynthesizeService } from './synthesize.service';
 import { EpisodeLaneService } from './episode-lane.service';
@@ -13,7 +14,7 @@ import { DigestLaneService } from './digest-lane.service';
 import { EvidenceCollectorService } from './evidence-collector.service';
 
 @Module({
-  imports: [SearchModule, EpisodesModule],
+  imports: [SearchModule, EpisodesModule, AnswerCacheModule],
   controllers: [SynthesizeController],
   providers: [
     SynthesizeService,

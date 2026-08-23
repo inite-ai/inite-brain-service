@@ -1420,6 +1420,24 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Hit limit for the T6/T2 wide-probe second retrieval (SYNTHESIZE_LANE_WIDE_PROBE).',
       },
       {
+        key: 'SYNTHESIZE_ANSWER_CACHE',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          "G1 answer-reuse cache (docs/roadmap/sota-gap-build-2026-08.md): EXACT normalized-match serving of verified grounded answers (answer_cache, migration 0091) — no embeddings in v1, zero false-hit surface by construction. Key = SHA256 over tenant|user|resolved-profile+knobs hash|model|prompt version|derived-world read pin|normalized query; any lever difference is a different key. Admission is write-through from synthesize ONLY on a verifier-supported, cited answer (abstentions/partial/zero-citation answers are never cached). Serving is CHECK-ON-READ gated: the cited facts are re-read through the same user-scope and row-policy fences as the fact read path, and the entry serves only while every cited fact is still active and inside its validity window — any failure invalidates the entry with a cause (brain_answer_cache_total{outcome='rejected_stale'}) and falls through to fresh synthesis. explain:true requests bypass. Off (default) → byte-identical synthesize path.",
+      },
+      {
+        key: 'SYNTHESIZE_ANSWER_CACHE_TTL_HOURS',
+        category: 'pipeline',
+        defaultValue: '24',
+        runtimeMutable: true,
+        isBooleanFlag: false,
+        description:
+          'TTL backstop for SYNTHESIZE_ANSWER_CACHE entries, in hours (positive integer, default 24). An expired entry is a plain miss and is overwritten in place by the next admission; check-on-read remains the correctness backbone — the TTL only bounds how long an entry whose facts never change keeps serving without a fresh synthesis.',
+      },
+      {
         key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
         category: 'auth',
         defaultValue: '0',

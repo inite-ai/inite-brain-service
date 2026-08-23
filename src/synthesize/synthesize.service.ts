@@ -56,6 +56,10 @@ import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import {
+  AnswerCacheService,
+  type AnswerCacheBeginResult,
+} from '../answer-cache/answer-cache.service';
+import {
   NOOP_REPORTER,
   type ProgressReporter,
 } from '../mcp/progress-reporter';
@@ -132,6 +136,7 @@ export class SynthesizeService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly evidenceCollector?: EvidenceCollectorService,
+    @Optional() private readonly answerCache?: AnswerCacheService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -205,6 +210,13 @@ export class SynthesizeService {
       dto.synthesisGuardrails ?? this.defaultGuardrails;
     const model = dto.synthesisModel ?? this.defaultModel;
     const explain = dto.explain === true;
+
+    // G1 answer cache (SYNTHESIZE_ANSWER_CACHE): exact-key serve with
+    // check-on-read fact-lifecycle gating, BEFORE retrieval; a miss
+    // carries the key context to the admit hook (finalizeAndAdmit).
+    const cacheArgs = { companyId, dto, callerScopes, profile, model, guardrails };
+    const cache = await this.answerCache?.begin(cacheArgs);
+    if (cache?.hit) return cache.hit;
 
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
@@ -461,9 +473,7 @@ export class SynthesizeService {
       });
     }
 
-    return this.finalizeVerdict({
-      verdict: verdict.verdict,
-      questionAnswered: verdict.questionAnswered,
+    return this.finalizeAndAdmit(cache, verdict, {
       answer: generated.answer,
       citations,
       results,
@@ -471,6 +481,33 @@ export class SynthesizeService {
       decisionLog,
       abstention: profile.abstentionCalibration,
     });
+  }
+
+  /**
+   * Verdict exit + G1 write-through admission, one seam (extracted
+   * from synthesize() for the function-size gates). Only a
+   * verifier-supported grounded answer reaches the cache — admit()
+   * re-checks verdict/answer/reason/citations and no-ops otherwise,
+   * so abstentions, unverified returns, low_coverage and partial
+   * verdicts are never cached.
+   */
+  private async finalizeAndAdmit(
+    cache: AnswerCacheBeginResult | undefined,
+    verdict: VerifierOutput,
+    args: Omit<
+      Parameters<typeof finalizeVerdict>[1],
+      'verdict' | 'questionAnswered'
+    >,
+  ): Promise<SynthesizeResult> {
+    const final = this.finalizeVerdict({
+      verdict: verdict.verdict,
+      questionAnswered: verdict.questionAnswered,
+      ...args,
+    });
+    if (cache?.ctx) {
+      await this.answerCache?.admit(cache.ctx, final, verdict.verdict);
+    }
+    return final;
   }
 
   /**

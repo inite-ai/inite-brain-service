@@ -137,6 +137,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   positiveInt(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', errors);
 
+  // ── G1 answer cache (fact-lifecycle-gated answer reuse) ────────────
+  positiveInt(env, 'SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', errors);
+
   // ── Agent-in-loop QA ───────────────────────────────────────────────
   positiveInt(env, 'AGENT_QA_MAX_ROUNDS', errors);
   positiveInt(env, 'AGENT_QA_SEARCH_LIMIT', errors);
@@ -489,6 +492,9 @@ const KNOWN_BOOLEAN_FLAGS = [
   // instruction-following questions are deliberately neutral, so no
   // lexical route can fire; injection must not be relevance-gated.
   'SYNTHESIZE_INSTRUCTION_LANE',
+  // G1 answer cache: exact-normalized-match answer reuse gated by
+  // check-on-read over the cited facts' lifecycle state. Default off.
+  'SYNTHESIZE_ANSWER_CACHE',
   // Raw-substrate driver v1: public episodes read API + NDJSON export.
   'EPISODES_API_ENABLED',
   // Fact read + provenance API: GET /v1/facts/:id and /:id/provenance
