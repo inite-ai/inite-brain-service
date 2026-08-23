@@ -45,6 +45,14 @@ export interface SynthesizeResult {
    * silently (facts, segments, unions) show up here first.
    */
   tokenUsage?: TokenUsage;
+  /**
+   * G1 answer cache: true when this result was served from the
+   * fact-lifecycle-gated answer cache (SYNTHESIZE_ANSWER_CACHE) —
+   * citations were re-validated against the live fact rows at serve
+   * time; `results` is empty because retrieval never ran. Absent on
+   * every freshly synthesized answer.
+   */
+  cached?: boolean;
 }
 
 /** The generator call's parsed output (strict-JSON schema shape). */

@@ -156,6 +156,21 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Answer-cache decisions (G1, sota-gap-build-2026-08):
+  //   hit            — exact-key match, check-on-read passed, served
+  //   miss           — no entry / expired / invalidated / cache error
+  //   rejected_stale — check-on-read failed; entry invalidated with a
+  //                    cause. The HEADLINE metric: its rate by cause is
+  //                    exactly how much staleness the fact link caught.
+  //   stored         — verified grounded answer admitted (write-through)
+  //   bypass         — cache on but request ineligible (explain/empty)
+  readonly answerCacheCount = new Counter({
+    name: 'brain_answer_cache_total',
+    help: 'Answer-cache decisions by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
@@ -475,6 +490,12 @@ export class MetricsService implements OnModuleInit {
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countAnswerCache(
+    outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass',
+  ): void {
+    this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countRetract(): void {
