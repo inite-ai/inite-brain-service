@@ -248,7 +248,8 @@ export type LaneId =
   | 'preference'
   | 'recency'
   | 'summary'
-  | 'instruction';
+  | 'instruction'
+  | 'strategy';
 
 export const ALL_LANES: readonly LaneId[] = [
   'temporal',
@@ -258,6 +259,7 @@ export const ALL_LANES: readonly LaneId[] = [
   'recency',
   'summary',
   'instruction',
+  'strategy',
 ];
 
 export interface RetrievalProfile {
@@ -610,6 +612,12 @@ function resolveForGenre(
     for (const lane of ALL_LANES) {
       if (lane === 'instruction') {
         if (envFlagEnabled(env.SYNTHESIZE_INSTRUCTION_LANE)) lanes.add(lane);
+      } else if (lane === 'strategy') {
+        // G4 strategy-memory lane: own master flag (the instruction-
+        // lane idiom); the read-side serving switch
+        // (STRATEGY_RETRIEVAL_ENABLED) gates separately inside
+        // StrategyMemoryService — lane membership alone serves nothing.
+        if (envFlagEnabled(env.STRATEGY_MEMORY_ENABLED)) lanes.add(lane);
       } else {
         lanes.add(lane);
       }

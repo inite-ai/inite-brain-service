@@ -1702,6 +1702,43 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
         description:
           'Promote old corroborated append_only fact groups into a durable summary. Bounded by COMPACTION_PROMOTION_MAX_GROUPS per run.',
       },
+      // ── Strategy-memory lane (G4) ────────────────────────────
+      {
+        key: 'STRATEGY_MEMORY_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          "Strategy-memory lane master switch (migration 0092, ReasoningBank shape): a SEPARATE strategy_memory store of distilled how-to-answer lessons — advice, never evidence, structurally isolated from every fact lane. On → the 'strategy' lane joins the profile lane set (requires the answer router), the /v1/admin/strategy endpoints answer, and the lifecycle cron may run. Serving additionally requires STRATEGY_RETRIEVAL_ENABLED. Off (default) → endpoints 404, lane absent, cron inert.",
+      },
+      {
+        key: 'STRATEGY_RETRIEVAL_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Read-side serving switch of the strategy-memory lane: on (with the master flag) the evidence collector retrieves k=1 (hard cap 2) active strategy items above STRATEGY_SIMILARITY_FLOOR and renders them as a fenced ADVISORY section for the GENERATOR ONLY — the verifier never sees them (documented parity exception: guidance, not evidence). Off (default) → distill/list/curate still work, nothing is served.',
+      },
+      {
+        key: 'STRATEGY_SIMILARITY_FLOOR',
+        category: 'pipeline',
+        defaultValue: '0.4',
+        runtimeMutable: false,
+        isBooleanFlag: false,
+        description:
+          'Cosine-similarity floor for strategy-memory serving: the k=1 retrieval returns nothing when the best active item scores below this (an irrelevant best-match must serve no advice). JS-side brute cosine over the small curated table — no HNSW.',
+      },
+      {
+        key: 'STRATEGY_DISTILL_CRON_ENABLED',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: false,
+        isBooleanFlag: true,
+        description:
+          'Nightly strategy-memory lifecycle sweep at 03:52 UTC (G7 host slot, requires STRATEGY_MEMORY_ENABLED): auto-deprecates items whose evidence.nContradict ≥ 2 or that went 90 days without validation (Memp/ExpeL lifecycle). Distillation itself stays operator-invoked via POST /v1/admin/strategy/distill in v1.',
+      },
       // ── Jobs ─────────────────────────────────────────────────
       {
         key: 'JOBS_QUEUE_MODE',

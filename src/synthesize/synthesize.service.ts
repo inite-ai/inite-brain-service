@@ -55,6 +55,7 @@ import { runVerifier, type VerifierOutput } from './verifier';
 import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import { EvidenceCollectorService } from './evidence-collector.service';
+import type { CollectedEvidence } from './evidence-collector.service';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -305,6 +306,7 @@ export class SynthesizeService {
       timelineEvidence,
       updateStories,
       groundingQuotes,
+      strategyNotes,
     } = this.evidenceCollector
       ? await this.evidenceCollector.collect({
           profile,
@@ -320,14 +322,7 @@ export class SynthesizeService {
           factIds: [...factIndex.keys()],
           evidence,
         })
-      : {
-          transcriptLines: [],
-          insightLines: [],
-          instructions: undefined,
-          timelineEvidence: wantsTimelineEvidence(profile, dto.query),
-          updateStories: undefined,
-          groundingQuotes: undefined,
-        };
+      : this.emptyCollected(profile, dto.query);
 
     // V10 §2 update stories + multiworld §10 grounding quotes: both
     // suffix maps land on the SAME lines the generator and the
@@ -381,6 +376,7 @@ export class SynthesizeService {
         insightLines,
         instructions,
         timelineEvidence,
+        strategyNotes,
       },
     });
     if ('failed' in produced) return produced.failed;
@@ -454,6 +450,11 @@ export class SynthesizeService {
               // V13 date-table parity: the auditor sees the same
               // computed table the generator saw.
               dateMathLines,
+              // G4 strategyNotes are DELIBERATELY absent — the one
+              // documented exception to the W5 #22 parity invariant:
+              // advisory strategy notes are guidance, not evidence,
+              // and must never make an unsupported claim verify as
+              // supported (see verifier.ts + CollectedEvidence).
               // V11 §2 arm (a): the audit may run on a stronger judge
               // than the generator; empty override = same model.
               model: profile.verifierModel || model,
@@ -508,6 +509,26 @@ export class SynthesizeService {
       await this.answerCache?.admit(cache.ctx, final, verdict.verdict);
     }
     return final;
+  }
+
+  /**
+   * Collector-absent fallback (unit fixtures, trimmed deployments):
+   * empty sections; only the timeline gate is still computed, exactly
+   * as the collector would.
+   */
+  private emptyCollected(
+    profile: RetrievalProfile,
+    query: string,
+  ): CollectedEvidence {
+    return {
+      transcriptLines: [],
+      insightLines: [],
+      instructions: undefined,
+      timelineEvidence: wantsTimelineEvidence(profile, query),
+      updateStories: undefined,
+      groundingQuotes: undefined,
+      strategyNotes: undefined,
+    };
   }
 
   /**
@@ -571,6 +592,10 @@ export class SynthesizeService {
               conflicts: detectEvidenceConflicts(args.results, profile.lanes),
               dateMathLines: args.dateMathLines,
               shapeInstruction: args.shapeInstruction,
+              // G4 strategy lane: advisory notes, GENERATOR-ONLY — the
+              // documented exception to the W5 #22 evidence-parity
+              // invariant (advice, not evidence; see verifier.ts).
+              strategyNotes: collected.strategyNotes,
               // V13 search loop: round 1 exposes the refine affordance.
               allowRefine: profile.searchLoop,
             }),
@@ -637,6 +662,8 @@ export class SynthesizeService {
       insightLines: string[];
       instructions?: string[];
       timelineEvidence: boolean;
+      /** G4 advisory notes — generator-only (parity exception). */
+      strategyNotes?: string[];
     };
   }): Promise<{
     results: SearchHit[];
@@ -694,6 +721,7 @@ export class SynthesizeService {
             conflicts: detectEvidenceConflicts(prepared.results, profile.lanes),
             dateMathLines,
             shapeInstruction: args.shapeInstruction,
+            strategyNotes: collected.strategyNotes,
           }),
         ),
       );
