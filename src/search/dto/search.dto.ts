@@ -21,7 +21,7 @@ export class SearchDto {
   // a body shape that bypasses this DTO.
   @IsString()
   @MaxLength(8_000)
-  query: string;
+  query!: string;
 
   @IsOptional() @IsNumber() @Min(1) @Max(100)
   limit?: number;

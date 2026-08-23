@@ -62,21 +62,21 @@ export interface FactSource {
 
 export class IngestFactDto {
   @IsObject()
-  entityRef: EntityRef;
+  entityRef!: EntityRef;
 
   @IsString()
   @MaxLength(256)
-  predicate: string;
+  predicate!: string;
 
   // Object is a single fact value (price, address, name…); 2 KB covers
   // any realistic structured value. Anything longer is almost certainly
   // a misuse of the fact model — open prose belongs in mention text.
   @IsString()
   @MaxLength(2_000)
-  object: string;
+  object!: string;
 
   @IsISO8601()
-  validFrom: string;
+  validFrom!: string;
 
   @IsOptional() @IsISO8601() validUntil?: string;
 
@@ -84,7 +84,7 @@ export class IngestFactDto {
   confidence?: number;
 
   @IsObject()
-  source: FactSource;
+  source!: FactSource;
 
   /**
    * Per-user scope (migration 0055). Stamps the fact — and, for a

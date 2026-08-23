@@ -40,7 +40,7 @@ export class SubmitCandidatesDto {
   /** The pack id this indexer is registered as (indexer.mode 'external'). */
   @IsString()
   @MaxLength(64)
-  indexerId: string;
+  indexerId!: string;
 
   /** Optional claim of the pack version; must match the installed one. */
   @IsOptional()
@@ -64,10 +64,10 @@ export class SubmitCandidatesDto {
   claimToken?: string;
 
   @IsArray()
-  entities: SubmittedEntity[];
+  entities!: SubmittedEntity[];
 
   @IsArray()
-  facts: SubmittedFact[];
+  facts!: SubmittedFact[];
 
   @IsOptional()
   @IsArray()

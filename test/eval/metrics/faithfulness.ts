@@ -80,7 +80,13 @@ export interface FaithfulnessScore {
 export interface OpenAiLike {
   chat: {
     completions: {
-      create: (args: unknown) => Promise<{
+      // Declared with method syntax (not an arrow property) so the
+      // parameter is checked bivariantly under strictFunctionTypes:
+      // the real OpenAI SDK's narrowly-typed `create` param must stay
+      // assignable to this deliberately-loose `unknown` seam, and a
+      // unit-test stub must satisfy it too. A property-position arrow
+      // would force strict contravariance and reject the real SDK.
+      create(args: unknown): Promise<{
         choices?: Array<{ message?: { content?: string | null } }>;
       }>;
     };

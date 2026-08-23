@@ -48,10 +48,10 @@ export class IngestMentionDto {
   // ExtractorService is the defence-in-depth backstop.
   @IsString()
   @MaxLength(16_000)
-  text: string;
+  text!: string;
 
   @IsObject()
-  contextRef: MentionContextRef;
+  contextRef!: MentionContextRef;
 
   @IsOptional() @IsArray()
   knownEntities?: KnownEntity[];
@@ -71,5 +71,5 @@ export class IngestMentionDto {
   userId?: string;
 
   @IsISO8601()
-  emittedAt: string;
+  emittedAt!: string;
 }

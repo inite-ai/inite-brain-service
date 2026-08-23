@@ -137,7 +137,7 @@ export class McpService {
    */
   private wrapToolErrors(server: McpServer): void {
     const raw = server.registerTool.bind(server);
-    (server as McpServer & { registerTool: unknown }).registerTool = (
+    (server as unknown as { registerTool: unknown }).registerTool = (
       name: string,
       config: unknown,
       handler: (...args: unknown[]) => unknown,
@@ -173,7 +173,7 @@ export class McpService {
     kinds?: ReadonlyMap<string, ActionKind>,
   ): void {
     const raw = server.registerTool.bind(server);
-    (server as McpServer & { registerTool: unknown }).registerTool = (
+    (server as unknown as { registerTool: unknown }).registerTool = (
       name: string,
       config: unknown,
       handler: (...args: unknown[]) => unknown,
@@ -214,7 +214,7 @@ export class McpService {
       return kind !== undefined && grantSet.has(kind);
     };
     const raw = server.registerTool.bind(server);
-    (server as McpServer & { registerTool: unknown }).registerTool = (
+    (server as unknown as { registerTool: unknown }).registerTool = (
       name: string,
       config: unknown,
       handler: (...args: unknown[]) => unknown,
