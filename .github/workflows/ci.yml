@@ -81,7 +81,7 @@ jobs:
       # coverage — the e2e suite carries additional real path coverage
       # that isn't collected here.
       - name: Unit tests (+ coverage ratchet)
-        run: pnpm test:unit -- --coverage
+        run: pnpm test:unit:cov
 
       # Socket suite: the 6 specs that bind real loopback HTTP servers
       # (.listen(0, '127.0.0.1')) live behind their own *.socket-spec.ts

@@ -26,6 +26,7 @@
     "lint:ci": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
     "test": "jest --config ./test/jest-unit.json",
     "test:unit": "jest --config ./test/jest-unit.json",
+    "test:unit:cov": "jest --config ./test/jest-unit.json --coverage",
     "test:socket": "jest --config ./test/jest-socket.json",
     "test:watch": "jest --config ./test/jest-unit.json --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
