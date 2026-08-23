@@ -33,6 +33,22 @@ export const FactProvenanceEpisodeSchema = z.object({
   occurredAt: z.string(),
   /** Verbatim turn text, capped server-side. */
   text: z.string(),
+  /**
+   * G3 char-span grounding quote (DERIVER_SPANS worlds only). Offsets
+   * are Unicode CODE POINTS over the NFC-normalized FULL stored episode
+   * text — not UTF-16 units, and not the capped `text` field (see
+   * textTruncated). Optional → backward-compatible.
+   */
+  span: z
+    .object({
+      start: z.number(),
+      end: z.number(),
+      exact: z.string(),
+    })
+    .optional(),
+  /** Present with `span`: true when `text` was truncated by the server
+   *  cap — span offsets reference the FULL stored text. */
+  textTruncated: z.boolean().optional(),
 });
 
 export const FactProvenanceResponseSchema = z.object({

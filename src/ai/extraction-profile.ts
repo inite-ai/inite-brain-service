@@ -146,6 +146,18 @@ export interface ExtractionPipelineProfile {
    */
   deriveSceneTrace: boolean;
   /**
+   * DERIVER_SPANS (G3, sota-gap-build-2026-08): the deriver also emits
+   * per-grounding-turn verbatim `quotes` (schema + prompt section) and
+   * the row builder verifies each quote mechanically against the STORED
+   * episode text, stamping W3C-style char spans (code points over NFC)
+   * as source.charSpans (FLEXIBLE ride, no migration). Unverifiable
+   * quotes drop silently — spans are optional enrichment, the fact
+   * always lands. Read side: GET /v1/facts/:id/provenance attaches
+   * span + textTruncated per episode. Prompt + schema change ⇒ fresh
+   * derivedVersion; off = byte-identical call.
+   */
+  deriveSpans: boolean;
+  /**
    * DERIVER_DIGEST (V12 §2, the graphiti saga port; LIGHT ablation:
    * the scratchpad is the load-bearing 100K component, +160% on
    * summarization): the deriver ALSO folds each session
@@ -196,6 +208,7 @@ export function resolveExtractionProfile(
     deriveAspectRollups: envFlagEnabled(env.DERIVER_ASPECT_ROLLUPS),
     deriveComposePass: envFlagEnabled(env.DERIVER_COMPOSE_PASS),
     deriveSceneTrace: envFlagEnabled(env.DERIVER_SCENE_TRACE),
+    deriveSpans: envFlagEnabled(env.DERIVER_SPANS),
     deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
     deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
   };

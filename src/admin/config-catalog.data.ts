@@ -1015,6 +1015,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           "Multiworld §10 typed single-pass derive: the ONE extraction pass also tags every proposition with kind ∈ {fact, assistant_contribution, persona_attr, event} (schema enum + prompt section; the assistant_contribution rules subsume DERIVER_ASSISTANT_CONTENT), stamped as source.kind (FLEXIBLE ride, no migration; off-enum values dropped). Worlds become TYPED LANES over one atom stream — the ablation-grade multi-view pattern (Hindsight/MemIR/O-Mem), never N× derive. Prompt + schema change ⇒ fresh derivedVersion; off = byte-identical call.",
       },
       {
+        key: 'DERIVER_SPANS',
+        category: 'pipeline',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'G3 char-span provenance (sota-gap-build-2026-08): the deriver also emits per-grounding-turn verbatim `quotes` (parallel to `turns`; schema + prompt section — the LLM cannot emit reliable offsets, so it quotes and the server anchors). The row builder verifies each quote mechanically against the STORED (PII-redacted) episode text and stamps W3C-annotation-style spans {episodeId, start, end, exact, prefix, suffix} — offsets in Unicode code points over NFC — as source.charSpans (FLEXIBLE ride, no migration). Unverifiable/ambiguous quotes drop silently; the fact always lands. Read side: GET /v1/facts/:id/provenance attaches span {start, end, exact} + textTruncated per grounding episode (offsets reference the FULL stored text, not the 600-char capped view). Prompt + schema change ⇒ fresh derivedVersion; off = byte-identical call.',
+      },
+      {
         key: 'RETRIEVAL_RAW_WINDOW',
         category: 'pipeline',
         defaultValue: '0',
