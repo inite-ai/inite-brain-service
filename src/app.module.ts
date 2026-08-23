@@ -35,6 +35,7 @@ import { SourcesModule } from './sources/sources.module';
 import { DocumentsModule } from './documents/documents.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { UsersModule } from './users/users.module';
+import { StrategyModule } from './strategy/strategy.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { UsersModule } from './users/users.module';
     DocumentsModule,
     EpisodesModule,
     UsersModule,
+    StrategyModule,
   ],
   controllers: [HealthController],
   providers: [

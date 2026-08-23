@@ -17,6 +17,19 @@ import type { MetricsService } from '../metrics/metrics.service';
  * answers, and every other mode shipped quoted L0 content with zero
  * faithfulness scoring. Whatever the generator may answer from, the
  * verifier must judge against.
+ *
+ * ONE deliberate exception (G4 strategy lane): the generator's fenced
+ * ADVISORY strategy notes are NOT part of this bundle. They are
+ * guidance about HOW to answer (question-class strategies distilled
+ * from post-mortems), not evidence about the user — the parity
+ * invariant exists so the auditor can judge every claim SOURCE the
+ * generator had; a strategy note is not a claim source, and handing
+ * it to the auditor as evidence would let an unsupported claim verify
+ * as "supported" merely because an advisory note mentioned its topic.
+ * The generator frame forbids answering FROM the notes
+ * (STRATEGY_ADVISORY_INSTRUCTION), and this asymmetry is the
+ * enforcement: a note-derived claim has no supporting evidence here
+ * and fails the audit. See CollectedEvidence.strategyNotes.
  */
 export interface VerifierOutput {
   verdict: 'supported' | 'partial' | 'unsupported';

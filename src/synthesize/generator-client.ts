@@ -82,6 +82,11 @@ export interface GenerateRequest {
   /** V13 G2 (profile.answerConditioning): per-shape reading frame. */
   shapeInstruction?: string;
   /**
+   * G4 strategy lane: fenced advisory notes — GENERATOR-ONLY, the
+   * documented verifier-parity exception (advice, not evidence).
+   */
+  strategyNotes?: string[];
+  /**
    * V13 constrained search loop: expose the ONE-round refine
    * affordance — the schema gains a nullable `refineQuery` and the
    * system prompt the matching rule. The second (forced-answer) call

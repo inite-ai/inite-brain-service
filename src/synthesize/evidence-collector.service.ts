@@ -15,6 +15,10 @@ import {
   wantsVerbatimEvidence,
 } from './evidence-gates';
 import { CrossEncoderService } from '../ai/cross-encoder.service';
+import {
+  StrategyMemoryService,
+  renderStrategyNote,
+} from '../strategy/strategy-memory.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
@@ -94,6 +98,23 @@ export interface CollectedEvidence {
    * exactly the updateStories contract.
    */
   groundingQuotes?: Map<string, string>;
+  /**
+   * G4 strategy lane: rendered advisory notes (k≤2, default 1) from
+   * the separate strategy_memory store; undefined when the lane is off
+   * the profile or read-side serving is disabled.
+   *
+   * DELIBERATE EXCEPTION to the evidence-parity invariant (audit W5
+   * #22 — "whatever the generator sees the verifier must see"): these
+   * notes go to the GENERATOR only, in a fenced ADVISORY section, and
+   * are NEVER handed to the verifier as evidence. They are advice
+   * about HOW to answer, not support for WHAT is answered — presenting
+   * them as evidence would let an unsupported claim verify as
+   * supported just because a strategy note mentioned its topic. The
+   * parity invariant covers evidence; advisory guidance is not
+   * evidence. (Mirrored in verifier.ts where the invariant is
+   * documented.)
+   */
+  strategyNotes?: string[];
 }
 
 @Injectable()
@@ -114,6 +135,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly updateStory?: UpdateStoryService,
     @Optional() private readonly digestLane?: DigestLaneService,
     @Optional() private readonly crossEncoder?: CrossEncoderService,
+    @Optional() private readonly strategyMemory?: StrategyMemoryService,
   ) {}
 
   /**
@@ -143,6 +165,7 @@ export class EvidenceCollectorService {
       updateStories,
       digestLines,
       groundingQuotes,
+      strategyNotes,
     ] = await Promise.all([
       this.collectStandingInstructions(opts),
       this.collectTranscriptLines(opts, timelineEvidence),
@@ -150,6 +173,7 @@ export class EvidenceCollectorService {
       this.collectUpdateStories(opts),
       this.collectDigestLines(opts),
       this.collectGroundingQuotes(opts),
+      this.collectStrategyNotes(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -177,7 +201,44 @@ export class EvidenceCollectorService {
       timelineEvidence,
       updateStories,
       groundingQuotes,
+      strategyNotes,
     };
+  }
+
+  /**
+   * G4 strategy lane — gated on profile lane membership AND the
+   * service's own read-side flag (this service reads no env; the
+   * flags live behind StrategyMemoryService, which returns [] when
+   * serving is off). Advisory-only output: see the strategyNotes
+   * parity-exception note on CollectedEvidence. Degrades to undefined
+   * on any failure — advice must never fail an answer.
+   */
+  private async collectStrategyNotes({
+    profile,
+    companyId,
+    query,
+  }: {
+    profile: RetrievalProfile;
+    companyId: string;
+    query: string;
+  }): Promise<string[] | undefined> {
+    if (!profile.lanes.has('strategy') || !this.strategyMemory) {
+      return undefined;
+    }
+    if (!this.strategyMemory.isRetrievalEnabled()) return undefined;
+    if (getAbortSignal()?.aborted) return undefined;
+    try {
+      const items = await withSpan('synthesize.strategy_notes', () =>
+        this.strategyMemory!.retrieve(companyId, query),
+      );
+      if (items.length === 0) return undefined;
+      return items.map(renderStrategyNote);
+    } catch (e) {
+      this.logger.warn(
+        `strategy notes failed (companyId=${companyId}): ${(e as Error).message}`,
+      );
+      return undefined;
+    }
   }
 
   /**

@@ -213,6 +213,87 @@ describe('EvidenceCollectorService branches', () => {
     expect(calls).toEqual([{ companyId: 'c1', userId: 'user-b' }]);
   });
 
+  it('strategy notes gate on lane membership AND the read-side flag', async () => {
+    const calls: string[] = [];
+    const makeStrategy = (retrievalOn: boolean) =>
+      ({
+        isRetrievalEnabled: () => retrievalOn,
+        retrieve: async (_companyId: string, query: string) => {
+          calls.push(query);
+          return [
+            {
+              strategyId: 'strategy_memory:s1',
+              title: 'check temporal shape',
+              situation: 'temporal questions',
+              strategy: 'Compute from the date table.',
+              polarity: 'do',
+              similarity: 0.9,
+            },
+          ];
+        },
+      }) as unknown as import('../src/strategy/strategy-memory.service').StrategyMemoryService;
+    const make = (retrievalOn: boolean) =>
+      new EvidenceCollectorService(
+        noSearch,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        makeStrategy(retrievalOn),
+      );
+
+    // Lane off the profile → no call, undefined.
+    const laneOff = await make(true).collect(collectorArgs(profileWith({})));
+    expect(laneOff.strategyNotes).toBeUndefined();
+    expect(calls).toHaveLength(0);
+
+    // Lane on, read-side flag off → no call, undefined.
+    const laneOnProfile = profileWith({});
+    (laneOnProfile as { lanes: ReadonlySet<string> }).lanes = new Set([
+      'strategy',
+    ]);
+    const servingOff = await make(false).collect(collectorArgs(laneOnProfile));
+    expect(servingOff.strategyNotes).toBeUndefined();
+    expect(calls).toHaveLength(0);
+
+    // Lane on + serving on → rendered advisory notes.
+    const on = await make(true).collect(collectorArgs(laneOnProfile));
+    expect(on.strategyNotes).toEqual([
+      '[DO] check temporal shape — applies when: temporal questions. Compute from the date table.',
+    ]);
+    expect(calls).toEqual([ORDER_QUERY]);
+  });
+
+  it('a strategy retrieval failure degrades to no advisory section', async () => {
+    const strategy = {
+      isRetrievalEnabled: () => true,
+      retrieve: async () => {
+        throw new Error('strategy store down');
+      },
+    } as unknown as import('../src/strategy/strategy-memory.service').StrategyMemoryService;
+    const svc = new EvidenceCollectorService(
+      noSearch,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      strategy,
+    );
+    const profile = profileWith({});
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['strategy']);
+    const out = await svc.collect(collectorArgs(profile));
+    expect(out.strategyNotes).toBeUndefined();
+    expect(out.transcriptLines).toEqual([]);
+  });
+
   it('grounding quotes gate on factsAsKeys AND factIds, capped best-first', async () => {
     const seen: string[][] = [];
     const episodeLane = {

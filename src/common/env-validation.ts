@@ -128,6 +128,11 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // "is a number" contract here (≥1 is accepted and means "no penalty").
   nonNegativeFloat(env, 'SEARCH_CHATTER_PENALTY', errors);
 
+  // ── G4 strategy-memory lane ────────────────────────────────────────
+  // Serving similarity floor (default 0.4); a typo would silently fall
+  // back to the default in the constructor-captured read.
+  nonNegativeFloat(env, 'STRATEGY_SIMILARITY_FLOOR', errors);
+
   // ── Phase A read-path (typed-memory roadmap 2026-07) ───────────────
   positiveInt(env, 'SEARCH_FACT_CENTRIC_BUDGET', errors);
   positiveInt(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', errors);
@@ -694,6 +699,12 @@ const KNOWN_BOOLEAN_FLAGS = [
   // Dev/test only — permits http + loopback endpoints (disables the
   // egress guard's SSRF fence for pack tool calls).
   'MCP_PACK_TOOLS_ALLOW_HTTP',
+  // G4 strategy-memory lane (0092): master switch (lane + admin
+  // endpoints + cron), read-side serving switch, and the nightly
+  // lifecycle-sweep cron. All default off.
+  'STRATEGY_MEMORY_ENABLED',
+  'STRATEGY_RETRIEVAL_ENABLED',
+  'STRATEGY_DISTILL_CRON_ENABLED',
 ];
 
 /**

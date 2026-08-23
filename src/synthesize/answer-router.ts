@@ -241,6 +241,23 @@ export const STANDING_INSTRUCTIONS_INSTRUCTION =
   'trigger does not match.\n';
 
 /**
+ * G4 strategy-memory lane frame (ReasoningBank shape,
+ * docs/roadmap/sota-gap-build-2026-08.md). Renders ahead of the fenced
+ * ADVISORY section: the notes are distilled how-to-answer lessons —
+ * guidance about approach, never evidence about the user. The frame
+ * makes the applicability check explicit (a strategy for the wrong
+ * question class must be ignored, not obeyed) and forbids citing them.
+ */
+export const STRATEGY_ADVISORY_INSTRUCTION =
+  'Advisory strategy notes follow (distilled lessons from previous ' +
+  'answers): they are guidance about HOW to approach an answer, NOT ' +
+  'evidence about the user. Before using a note, explicitly assess ' +
+  'whether its stated situation applies to THIS question — ignore it ' +
+  'when it does not. Never cite a strategy note, never treat it as a ' +
+  'fact, and never let it introduce claims the retrieved evidence ' +
+  'does not support.\n';
+
+/**
  * T4: deterministic second retrieval probe that pulls the user's stored
  * preferences into evidence — recommendation queries rarely surface
  * them by similarity (the query is about hotels, not about tastes).
@@ -355,6 +372,10 @@ export const LANE_REGISTRY: readonly Lane[] = [
   { id: 'contradiction', instruction: CONTRADICTION_NOTE_INSTRUCTION },
   { id: 'recency' },
   { id: 'instruction', instruction: STANDING_INSTRUCTIONS_INSTRUCTION },
+  // G4 strategy lane: advisory, never routed (no detect) — the notes
+  // ride their own fenced prompt section, k≤2 (default 1) from the
+  // separate strategy_memory store.
+  { id: 'strategy', instruction: STRATEGY_ADVISORY_INSTRUCTION },
 ];
 
 const LANE_BY_ID = new Map(LANE_REGISTRY.map((l) => [l.id, l]));

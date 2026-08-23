@@ -4,6 +4,7 @@ import {
   CONTRADICTION_DATE_ARBITRATION_INSTRUCTION,
   ORDERING_LANE_INSTRUCTION,
   STANDING_INSTRUCTIONS_INSTRUCTION,
+  STRATEGY_ADVISORY_INSTRUCTION,
   ENUM_STRICT_CLAUSE,
   laneInstructionFor,
   type LaneId,
@@ -34,6 +35,7 @@ export function buildGeneratorUserMessage({
   enumStrict,
   dateMathLines,
   shapeInstruction,
+  strategyNotes,
 }: {
   query: string;
   factLines: string[];
@@ -98,6 +100,14 @@ export function buildGeneratorUserMessage({
    * instruction from answer-shape.ts; composes with the lane frame.
    */
   shapeInstruction?: string;
+  /**
+   * G4 strategy lane: advisory notes rendered as a clearly fenced
+   * section at the END of the message — guidance, not evidence.
+   * GENERATOR-ONLY by design: the verifier never sees these (the
+   * documented parity exception; see CollectedEvidence.strategyNotes
+   * and verifier.ts). Empty/undefined = no section, byte-identical.
+   */
+  strategyNotes?: string[];
 }): string {
   const langInstruction = answerLang
     ? `\n\nLanguage policy: write your answer in ${answerLang} (ISO 639-1). Keep citation spans in their original language.`
@@ -149,5 +159,19 @@ export function buildGeneratorUserMessage({
     dateMathLines && dateMathLines.length > 0
       ? `\n\nDate table (computed from the fact date stamps — trust it over your own arithmetic; gaps are between EVIDENCE dates, not from today):\n${dateMathLines.join('\n')}`
       : '';
-  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${dateMathSection}${langInstruction}`;
+  return `Query: ${query}\n${dateInstruction}${shapeInstruction ?? ''}${laneInstruction}${instructionSection}${conflictSection}\nRetrieved facts:\n${factLines.join('\n')}${transcriptSection}${insightSection}${dateMathSection}${renderStrategySection(strategyNotes)}${langInstruction}`;
+}
+
+/**
+ * G4 advisory section — hard-fenced so the model cannot mistake advice
+ * for evidence; rendered after every evidence section. Empty input =
+ * empty string (byte-identical prompt without the lane).
+ */
+function renderStrategySection(strategyNotes?: string[]): string {
+  if (!strategyNotes || strategyNotes.length === 0) return '';
+  const notes = strategyNotes.map((n) => `- ${n}`).join('\n');
+  return (
+    `\n\n=== ADVISORY STRATEGY NOTES (guidance, not evidence — never cite) ===\n` +
+    `${STRATEGY_ADVISORY_INSTRUCTION}${notes}\n=== END ADVISORY STRATEGY NOTES ===`
+  );
 }

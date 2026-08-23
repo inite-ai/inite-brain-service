@@ -12,6 +12,7 @@ import {
   buildWideProbeQuery,
   extractStandingInstructions,
   STANDING_INSTRUCTIONS_INSTRUCTION,
+  STRATEGY_ADVISORY_INSTRUCTION,
   formatElapsed,
   detectVerbatimShape,
   TEMPORAL_LANE_INSTRUCTION,
@@ -558,6 +559,66 @@ describe('T7 instruction lane', () => {
         buildGeneratorUserMessage(base),
       );
     }
+  });
+});
+
+describe('G4 strategy lane — fenced ADVISORY prompt section', () => {
+  const base = {
+    query: 'How many weeks ago did I attend the sale?',
+    factLines: ['[knowledge_fact:x] u — attended: sale (as of 2022-11-17)'],
+    answerLang: null as string | null,
+  };
+  const note =
+    '[DO] compute-then-answer — applies when: temporal questions. Use the date table.';
+
+  it('renders the notes inside a hard fence with the applicability frame', () => {
+    const msg = buildGeneratorUserMessage({ ...base, strategyNotes: [note] });
+    expect(msg).toContain(
+      '=== ADVISORY STRATEGY NOTES (guidance, not evidence — never cite) ===',
+    );
+    expect(msg).toContain('=== END ADVISORY STRATEGY NOTES ===');
+    expect(msg).toContain(STRATEGY_ADVISORY_INSTRUCTION.trim());
+    expect(msg).toContain(`- ${note}`);
+    // The section renders AFTER the evidence sections — advice never
+    // interleaves with the fact list.
+    expect(msg.indexOf('Retrieved facts:')).toBeLessThan(
+      msg.indexOf('=== ADVISORY STRATEGY NOTES'),
+    );
+  });
+
+  it('absent/empty notes → byte-identical prompt (no residue)', () => {
+    for (const strategyNotes of [undefined, [] as string[]]) {
+      expect(buildGeneratorUserMessage({ ...base, strategyNotes })).toBe(
+        buildGeneratorUserMessage(base),
+      );
+    }
+    expect(buildGeneratorUserMessage(base)).not.toContain('ADVISORY');
+  });
+});
+
+describe('G4 strategy lane — profile membership gating', () => {
+  it('joins the lane set only under router + STRATEGY_MEMORY_ENABLED', () => {
+    const routerOnly = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+    } as NodeJS.ProcessEnv);
+    expect(routerOnly.lanes.has('strategy')).toBe(false);
+    const flagOnly = resolveRetrievalProfile({
+      STRATEGY_MEMORY_ENABLED: '1',
+    } as NodeJS.ProcessEnv);
+    expect(flagOnly.lanes.size).toBe(0);
+    const both = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      STRATEGY_MEMORY_ENABLED: '1',
+    } as NodeJS.ProcessEnv);
+    expect(both.lanes.has('strategy')).toBe(true);
+  });
+
+  it('the strategy lane is advisory-only: no detect, never routed', () => {
+    const entry = LANE_REGISTRY.find((l) => l.id === 'strategy');
+    expect(entry).toBeDefined();
+    expect(entry?.detect).toBeUndefined();
+    expect(entry?.instruction).toBe(STRATEGY_ADVISORY_INSTRUCTION);
+    expect(entry?.probe).toBeUndefined();
   });
 });
 
