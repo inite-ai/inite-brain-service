@@ -77,6 +77,24 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Write-anomaly counter (G9, docs/roadmap/sota-gap-build-2026-08.md).
+  // One series per ingest surface — a memory-injection attack (MINJA-
+  // style query-to-belief poisoning, PoisonedRAG doc floods, MCP direct-
+  // write abuse) shows up here as a burst/rate anomaly on one path
+  // BEFORE any of it reaches retrieval. The alert rules (burst-rate,
+  // per-tenant z-score) live ops-side (Alloy/Grafana), out of repo
+  // scope — this counter is only the signal they consume.
+  //   path: mention | fact | document | candidate | mcp
+  // Labels are bounded (5 surfaces); no companyId label (unbounded
+  // cardinality — per-tenant bursts are cut from log lines, same rule
+  // as every other domain counter here).
+  readonly ingestWrites = new Counter({
+    name: 'brain_ingest_writes_total',
+    help: 'Ingest write attempts by surface (write-anomaly / burst detection)',
+    labelNames: ['path'] as const,
+    registers: [this.registry],
+  });
+
   readonly searchDuration = new Histogram({
     name: 'brain_search_duration_seconds',
     help: 'Search latency in seconds',
@@ -416,6 +434,18 @@ export class MetricsService implements OnModuleInit {
 
   countIngestMention(result: string): void {
     this.ingestMentions.inc({ result } as LabelValues<'result'>);
+  }
+
+  /**
+   * Record one ingest write attempt on a surface (G9 write-anomaly
+   * signal). `mcp` is an ORIGIN overlay — an MCP record_fact fires both
+   * `mcp` (here) and `fact` (in FactIngestService), so sum-across-labels
+   * is not meaningful; query per-path for burst detection.
+   */
+  countIngestWrite(
+    path: 'mention' | 'fact' | 'document' | 'candidate' | 'mcp',
+  ): void {
+    this.ingestWrites.inc({ path } as LabelValues<'path'>);
   }
 
   observeSearchDuration(seconds: number): void {

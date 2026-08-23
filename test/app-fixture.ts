@@ -40,6 +40,13 @@ export async function createApp(opts: {
     scopes: string[];
     policies?: string[];
     packIds?: string[];
+    /**
+     * End-user identity for a USER-BOUND token (ApiKeyRecord.userId).
+     * The guard stamps it into ALS as authUserId, so pinUserScope()
+     * fences this key to one user's slice — the seam the per-user
+     * scope + retract-ownership suites need to exercise.
+     */
+    userId?: string;
   }>;
 } = {}): Promise<AppFixture> {
   const companyId = opts.companyId ?? `co_test_${Date.now()}_${randomUUID().slice(0, 6)}`;
@@ -59,6 +66,7 @@ export async function createApp(opts: {
       scopes: k.scopes,
       ...(k.policies ? { policies: k.policies } : {}),
       ...(k.packIds ? { packIds: k.packIds } : {}),
+      ...(k.userId ? { userId: k.userId } : {}),
     })),
   ]);
   // Bypass real OpenAI calls.

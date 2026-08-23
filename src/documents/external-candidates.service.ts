@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { IndexerRouterService } from '../indexers/indexer-router.service';
 import { normalizeEntityType } from '../ai/extractor-internals/grounding';
@@ -10,6 +11,8 @@ import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { sanitizeIngestText } from '../common/text-sanitizer';
+import { MetricsService } from '../metrics/metrics.service';
 import type {
   CandidateBatch,
   CandidateEntity,
@@ -73,6 +76,7 @@ export class ExternalCandidatesService {
     private readonly candidates: CandidateStoreService,
     private readonly router: IndexerRouterService,
     private readonly work: IndexerWorkService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   async submit(p: {
@@ -83,6 +87,9 @@ export class ExternalCandidatesService {
     keyPackIds?: string[];
   }): Promise<ExternalSubmissionResult> {
     const { companyId, docId, dto } = p;
+    // G9 write-anomaly signal (one increment per external submission —
+    // the PoisonedRAG / AgentPoison flood surface).
+    this.metrics?.countIngestWrite('candidate');
     const doc = await this.store.getById(companyId, docId);
     if (!doc) throw new NotFoundException('document not found');
 
@@ -197,13 +204,22 @@ export class ExternalCandidatesService {
     ungrounded: boolean;
   }> {
     const { dto, doc } = p;
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // de-obfuscate submitted names/objects. The stored document text this
+    // batch re-grounds against was itself sanitized at ingest (when the
+    // flag was on), so both sides of the grounding comparison see the
+    // same text. Flag off → submitted fields flow through verbatim.
+    const clean = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE);
     const entities: CandidateEntity[] = dto.entities.map((e, i) => ({
       entityIndex: i,
-      name: e.name,
+      name: clean ? sanitizeIngestText(e.name) : e.name,
       type: normalizeEntityType(e.type),
-      canonical: e.canonical,
+      canonical: clean ? sanitizeIngestText(e.canonical) : e.canonical,
     }));
-    const facts: CandidateFact[] = dto.facts.map(toFact);
+    const facts: CandidateFact[] = dto.facts.map((f) => {
+      const fact = toFact(f);
+      return clean ? { ...fact, object: sanitizeIngestText(fact.object) } : fact;
+    });
     const relations: CandidateRelation[] = (dto.relations ?? []).map(toRelation);
 
     const provenance = {

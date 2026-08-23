@@ -33,6 +33,10 @@ export class MentionIngestService {
     // pinned value rides the dto into episode capture and every
     // extracted fact (same seam as fact-ingest / search / synthesize).
     dto = { ...dto, userId: pinUserScope(dto.userId) };
+    // G9 write-anomaly signal: one increment per mention write attempt,
+    // fired at the surface entry (before extraction can fail) so a
+    // poisoning burst is visible as a rate spike on the `mention` path.
+    this.metrics?.countIngestWrite('mention');
     try {
       return await this.run(companyId, dto);
     } catch (err) {

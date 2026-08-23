@@ -12,6 +12,7 @@ import {
   isUniqueViolation,
 } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
@@ -92,8 +93,19 @@ export class DocumentStoreService {
         );
       }
     }
-    const text = redactPii(dto.text).trim();
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // strip bidi/zero-width/control chars from the document body BEFORE
+    // redaction, hashing, and chunking — so stored chunks (and the spans
+    // external indexers later re-ground against them) see de-obfuscated
+    // text. Layout is preserved, so chunk boundaries are unaffected. Flag
+    // off → dto.text flows through verbatim (byte-identical, hash stable).
+    const rawText = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)
+      ? sanitizeIngestText(dto.text)
+      : dto.text;
+    const text = redactPii(rawText).trim();
     const contentHash = sha256Hex(text);
+    // G9 write-anomaly signal (one increment per document body stored).
+    this.metrics?.countIngestWrite('document');
     const chunks = chunkDocument(text, {
       targetChars: envInt('DOC_CHUNK_TARGET_CHARS', 12_000),
     });

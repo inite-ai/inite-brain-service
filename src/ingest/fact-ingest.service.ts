@@ -1,6 +1,13 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
+import { sanitizeIngestText } from '../common/text-sanitizer';
+import { MetricsService } from '../metrics/metrics.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestOutcome, IngestResult } from './ingest-result';
@@ -25,10 +32,14 @@ import { getRequestContext } from '../common/request-context';
 export class FactIngestService {
   private readonly logger = new Logger(FactIngestService.name);
 
+  // Fourth dep is the optional write-anomaly counter (G9); @Optional so
+  // positionally-constructed unit tests stay three-argument.
+  // eslint-disable-next-line max-params
   constructor(
     private readonly surreal: SurrealService,
     private readonly entities: EntityUpsertService,
     private readonly factResolver: FactResolverService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   async ingestFact(companyId: string, dto: IngestFactDto): Promise<IngestResult> {
@@ -36,6 +47,21 @@ export class FactIngestService {
     // caller-asserted userId is pinned to the token's end-user (403 on
     // mismatch, default when omitted). M2M credentials pass through.
     dto = { ...dto, userId: pinUserScope(dto.userId) };
+    // G9 write-anomaly signal (fired once per direct fact write).
+    this.metrics?.countIngestWrite('fact');
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // strip bidi/zero-width/control chars from the free-text fields a
+    // direct fact carries (predicate + string object). Flag off →
+    // byte-identical (dto untouched). Grounding for direct ingest is
+    // caller-asserted, so this only de-obfuscates what gets stored and
+    // embedded, never changes acceptance.
+    if (envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)) {
+      dto = {
+        ...dto,
+        predicate: sanitizeIngestText(dto.predicate),
+        object: sanitizeIngestText(dto.object),
+      };
+    }
     // Reject an inverted or zero-width validity interval up front. Both are
     // nonsensical bitemporally — a fact valid until before (or exactly at)
     // it became valid covers no instant — and would otherwise corrupt
