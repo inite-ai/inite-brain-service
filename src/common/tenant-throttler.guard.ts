@@ -33,7 +33,9 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
    * THROTTLE_DISABLED=1 (set only by the test fixture) skips throttling
    * entirely. Never set in production.
    */
-  protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
+  protected override async shouldSkip(
+    context: ExecutionContext,
+  ): Promise<boolean> {
     // Inert in production even if the flag leaks into a deploy env —
     // validateEnv also hard-errors on it at boot. Defense in depth: a
     // stray THROTTLE_DISABLED must never silently drop the expensive
@@ -47,7 +49,9 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
     return super.shouldSkip(context);
   }
 
-  protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+  protected override async handleRequest(
+    requestProps: ThrottlerRequest,
+  ): Promise<boolean> {
     const req = requestProps.context.switchToHttp().getRequest();
     const tracker = await this.getTracker(req);
     const multiplier = tierMultiplier(tracker);
@@ -60,7 +64,9 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
     return super.handleRequest(requestProps);
   }
 
-  protected async getTracker(req: Record<string, unknown>): Promise<string> {
+  protected override async getTracker(
+    req: Record<string, unknown>,
+  ): Promise<string> {
     const headers = (req.headers as Record<string, string> | undefined) ?? {};
     const auth = headers.authorization;
     if (auth && auth.toLowerCase().startsWith('bearer ')) {

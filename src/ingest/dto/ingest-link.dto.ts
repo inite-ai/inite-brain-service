@@ -20,17 +20,17 @@ export interface LinkSource {
 
 export class IngestLinkDto {
   @IsObject()
-  from: LinkRef;
+  from!: LinkRef;
 
   @IsObject()
-  to: LinkRef;
+  to!: LinkRef;
 
   @IsString()
-  kind: string;
+  kind!: string;
 
   @IsOptional() @IsNumber() @Min(0) @Max(1)
   weight?: number;
 
   @IsObject()
-  source: LinkSource;
+  source!: LinkSource;
 }

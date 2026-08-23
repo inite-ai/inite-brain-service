@@ -7,8 +7,8 @@ export interface RetractedBy {
 
 export class RetractFactDto {
   @IsString()
-  reason: string;
+  reason!: string;
 
   @IsObject()
-  retractedBy: RetractedBy;
+  retractedBy!: RetractedBy;
 }

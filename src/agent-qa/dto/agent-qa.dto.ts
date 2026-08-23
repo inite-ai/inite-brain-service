@@ -9,7 +9,7 @@ import { IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
 export class AgentQaDto {
   @IsString()
   @MaxLength(2_000)
-  query: string;
+  query!: string;
 
   @IsOptional()
   @IsISO8601()

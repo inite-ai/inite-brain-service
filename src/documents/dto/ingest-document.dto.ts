@@ -36,7 +36,7 @@ export class IngestDocumentDto {
    */
   @IsString()
   @MaxLength(64)
-  kind: string;
+  kind!: string;
 
   // Normalized document text. 512K ≈ 32 extractor chunks — large enough
   // for any realistic meeting transcript / contract, small enough that a
@@ -44,7 +44,7 @@ export class IngestDocumentDto {
   // split into multiple documents.
   @IsString()
   @MaxLength(DOC_TEXT_HARD_CAP)
-  text: string;
+  text!: string;
 
   /** Pointer back to the raw container (URL, path, message id…). */
   @IsOptional()
@@ -63,10 +63,10 @@ export class IngestDocumentDto {
 
   /** The document's own timestamp — becomes the facts' validFrom. */
   @IsISO8601()
-  occurredAt: string;
+  occurredAt!: string;
 
   @IsObject()
-  contextRef: DocumentContextRef;
+  contextRef!: DocumentContextRef;
 
   /**
    * Store the normalized text (chunks) server-side. `false` keeps only
