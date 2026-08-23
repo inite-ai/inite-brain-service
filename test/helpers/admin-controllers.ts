@@ -48,9 +48,7 @@ export interface AdminInfraControllerDeps {
   liveSnapshot?: unknown;
 }
 
-export function makeAdminInfraController(
-  d: AdminInfraControllerDeps = {},
-): AdminInfraController {
+export function makeAdminInfraController(d: AdminInfraControllerDeps = {}): AdminInfraController {
   return new AdminInfraController(
     as(d.adminInfra ?? u),
     as(d.healthComponents ?? u),

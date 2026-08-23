@@ -73,10 +73,7 @@ export class PublicSourcesController {
     @Req() req: AuthenticatedRequest,
     @Param('sourceKey') sourceKey: string,
   ): Promise<PublicSourceDetailResponse> {
-    const detail = await this.sources.detail(
-      req.brainAuth.companyId,
-      sourceKey,
-    );
+    const detail = await this.sources.detail(req.brainAuth.companyId, sourceKey);
     // The admin detail never 404s (it answers empty shells); the public
     // surface should not leak "known vs unknown" ambiguity — a source
     // with neither a declared row nor learned trust does not exist.
@@ -94,13 +91,8 @@ function parseListQuery(query: {
   limit?: string;
   offset?: string;
 }): PublicListFilter {
-  if (
-    query.type !== undefined &&
-    !SOURCE_TYPES.includes(query.type as SourceType)
-  ) {
-    throw new BadRequestException(
-      `type must be one of ${SOURCE_TYPES.join('|')}`,
-    );
+  if (query.type !== undefined && !SOURCE_TYPES.includes(query.type as SourceType)) {
+    throw new BadRequestException(`type must be one of ${SOURCE_TYPES.join('|')}`);
   }
   return {
     ...(query.domain !== undefined ? { domain: query.domain } : {}),
@@ -112,10 +104,7 @@ function parseListQuery(query: {
       query.limit !== undefined ? parseIntStrict('limit', query.limit, 1) : 50,
       PUBLIC_LIST_MAX_LIMIT,
     ),
-    offset:
-      query.offset !== undefined
-        ? parseIntStrict('offset', query.offset, 0)
-        : 0,
+    offset: query.offset !== undefined ? parseIntStrict('offset', query.offset, 0) : 0,
   };
 }
 

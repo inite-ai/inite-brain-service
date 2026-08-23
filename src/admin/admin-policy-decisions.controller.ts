@@ -37,9 +37,7 @@ export class AdminPolicyDecisionsController {
       ...(q.decision ? { decision: q.decision } : {}),
       ...(q.kind ? { kind: q.kind } : {}),
       ...(q.action ? { action: q.action } : {}),
-      ...(parsedLimit !== undefined && Number.isFinite(parsedLimit)
-        ? { limit: parsedLimit }
-        : {}),
+      ...(parsedLimit !== undefined && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
       ...(q.before ? { before: q.before } : {}),
     })) satisfies PolicyDecisionsResponse;
   }

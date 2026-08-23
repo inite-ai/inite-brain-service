@@ -16,11 +16,7 @@ import type {
   WorkContentResponse,
 } from '../contracts/indexer/indexer-work.schema';
 import { DocumentStoreService } from './document-store.service';
-import {
-  CandidateStoreService,
-  staleRunMs,
-  type RunRow,
-} from './candidate-store.service';
+import { CandidateStoreService, staleRunMs, type RunRow } from './candidate-store.service';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -70,10 +66,7 @@ export class IndexerWorkService {
     /** Per-pack binding of the calling key; absent = unrestricted. */
     keyPackIds?: string[] | undefined;
   }): Promise<IndexerWorkListResponse> {
-    const externalPacks = boundPacks(
-      await this.externalPackIds(p.companyId),
-      p.keyPackIds,
-    );
+    const externalPacks = boundPacks(await this.externalPackIds(p.companyId), p.keyPackIds);
     if (p.packId !== undefined) {
       assertKeyBoundToPack(p.keyPackIds, p.packId);
       this.assertExternalPack(externalPacks, p.packId);
@@ -115,10 +108,7 @@ export class IndexerWorkService {
   }): Promise<ClaimWorkResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     assertKeyBoundToPack(p.keyPackIds, run.packId);
-    this.assertExternalPack(
-      await this.externalPackIds(p.companyId),
-      run.packId,
-    );
+    this.assertExternalPack(await this.externalPackIds(p.companyId), run.packId);
     const token = randomUUID();
     const claimed = await this.surreal.withCompany(p.companyId, async (db) => {
       // CAS: claimable = 'pending' (fresh work), 'failed' (reopenable —
@@ -142,9 +132,7 @@ export class IndexerWorkService {
       return rows[0] ?? null;
     });
     if (!claimed) {
-      throw new ConflictException(
-        'work item is already claimed or completed',
-      );
+      throw new ConflictException('work item is already claimed or completed');
     }
     return {
       runId: run.runId,
@@ -189,10 +177,7 @@ export class IndexerWorkService {
       );
     }
     assertKeyBoundToPack(p.keyPackIds, run.packId);
-    this.assertExternalPack(
-      await this.externalPackIds(p.companyId),
-      run.packId,
-    );
+    this.assertExternalPack(await this.externalPackIds(p.companyId), run.packId);
     const doc = await this.store.getById(p.companyId, run.docId);
     if (!doc) throw new NotFoundException('document not found');
     if (!doc.hasContent) {
@@ -271,10 +256,7 @@ export class IndexerWorkService {
     return run;
   }
 
-  private async getExternalRun(
-    companyId: string,
-    runId: string,
-  ): Promise<RunRow> {
+  private async getExternalRun(companyId: string, runId: string): Promise<RunRow> {
     const run = await this.candidates.getRun(companyId, runId);
     // A non-external run is invisible on this surface — same 404 as a
     // missing one, so the endpoint doesn't oracle the internal ledger.
@@ -286,25 +268,18 @@ export class IndexerWorkService {
 
   private async externalPackIds(companyId: string): Promise<Set<string>> {
     const bindings = await this.router.bindingsFor(companyId);
-    return new Set(
-      bindings.filter((b) => b.mode === 'external').map((b) => b.indexerId),
-    );
+    return new Set(bindings.filter((b) => b.mode === 'external').map((b) => b.indexerId));
   }
 
   private assertExternalPack(externalPacks: Set<string>, packId: string): void {
     if (!externalPacks.has(packId)) {
-      throw new NotFoundException(
-        `indexer pack "${packId}" is not installed for this tenant`,
-      );
+      throw new NotFoundException(`indexer pack "${packId}" is not installed for this tenant`);
     }
   }
 }
 
 /** Intersect the tenant's external packs with a key's binding (0 = all). */
-function boundPacks(
-  externalPacks: Set<string>,
-  keyPackIds?: string[],
-): Set<string> {
+function boundPacks(externalPacks: Set<string>, keyPackIds?: string[]): Set<string> {
   if (!keyPackIds || keyPackIds.length === 0) return externalPacks;
   return new Set([...externalPacks].filter((id) => keyPackIds.includes(id)));
 }
@@ -314,14 +289,9 @@ function boundPacks(
  * invisibility — the packs of one's own tenant are not a secret, and a
  * clear 403 beats operators chasing phantom 404s.
  */
-export function assertKeyBoundToPack(
-  keyPackIds: string[] | undefined,
-  packId: string,
-): void {
+export function assertKeyBoundToPack(keyPackIds: string[] | undefined, packId: string): void {
   if (keyPackIds && keyPackIds.length > 0 && !keyPackIds.includes(packId)) {
-    throw new ForbiddenException(
-      `this key is not bound to indexer pack "${packId}"`,
-    );
+    throw new ForbiddenException(`this key is not bound to indexer pack "${packId}"`);
   }
 }
 

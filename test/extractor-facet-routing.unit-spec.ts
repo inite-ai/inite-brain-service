@@ -21,9 +21,7 @@ describe('facet router', () => {
   describe('enumeration detection', () => {
     it('fires on a three-item list, the shape that loses items', () => {
       expect(hasEnumeration('we do pottery, camping, and painting')).toBe(true);
-      expect(
-        hasEnumeration("I've read The Hobbit, Dune and most of Discworld"),
-      ).toBe(true);
+      expect(hasEnumeration("I've read The Hobbit, Dune and most of Discworld")).toBe(true);
     });
 
     it('does not fire on two items — those already survive', () => {
@@ -57,9 +55,10 @@ describe('facet router', () => {
   });
 
   it('can return both facets for a turn that has both shapes', () => {
-    expect(
-      detectFacets('I read The Hobbit, Dune, and Discworld last year'),
-    ).toEqual(['enumeration', 'entity']);
+    expect(detectFacets('I read The Hobbit, Dune, and Discworld last year')).toEqual([
+      'enumeration',
+      'entity',
+    ]);
   });
 
   describe('facet prompts', () => {
@@ -76,9 +75,7 @@ describe('facet router', () => {
     });
 
     it('degrades an unknown facet to the plain dialogue prompt', () => {
-      expect(buildFacetSystemPrompt('nonsense')).toBe(
-        buildFacetSystemPrompt('nonsense'),
-      );
+      expect(buildFacetSystemPrompt('nonsense')).toBe(buildFacetSystemPrompt('nonsense'));
       expect(buildFacetSystemPrompt('nonsense')).not.toContain('THIS PASS');
     });
   });
@@ -166,10 +163,7 @@ describe('mergeExtractions', () => {
         ],
       ),
     ]);
-    expect(merged.facts.map((f) => f.object).sort()).toEqual([
-      'Dune',
-      'The Hobbit',
-    ]);
+    expect(merged.facts.map((f) => f.object).sort()).toEqual(['Dune', 'The Hobbit']);
   });
 
   it('omits self-consistency stats across facets — different jobs, not re-rolls', () => {

@@ -18,9 +18,7 @@ import { BrainScope } from '../auth/api-key.types';
  * and is idempotent — passing an already-prefixed id does not double it.
  */
 export function normalizeEntityId(raw: string): { id: string; full: string } {
-  const id = raw.startsWith('knowledge_entity:')
-    ? raw.slice('knowledge_entity:'.length)
-    : raw;
+  const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
   return { id, full: `knowledge_entity:${id}` };
 }
 

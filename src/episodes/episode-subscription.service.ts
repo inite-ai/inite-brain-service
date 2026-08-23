@@ -105,9 +105,7 @@ export class EpisodeSubscriptionService {
   /** Registered endpoints, secrets never included. */
   async list(companyId: string): Promise<EpisodeSubscriptionRow[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<EpisodeSubscriptionRow & { id: unknown }>]
-      >(
+      const [rows] = await db.query<[Array<EpisodeSubscriptionRow & { id: unknown }>]>(
         `SELECT id, url, active, watermark, failureCount, createdAt
            FROM episode_subscription ORDER BY createdAt ASC`,
       );
@@ -117,10 +115,9 @@ export class EpisodeSubscriptionService {
 
   async remove(companyId: string, id: string): Promise<boolean> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[Array<{ id: unknown }>]>(
-        `DELETE $id RETURN BEFORE`,
-        { id: new StringRecordId(id) },
-      );
+      const [rows] = await db.query<[Array<{ id: unknown }>]>(`DELETE $id RETURN BEFORE`, {
+        id: new StringRecordId(id),
+      });
       return (rows ?? []).length > 0;
     });
   }

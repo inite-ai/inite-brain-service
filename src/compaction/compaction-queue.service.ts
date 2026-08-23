@@ -2,11 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import type { JobType } from '../jobs/job-run.service';
-import {
-  WorkerLoopService,
-  type JobContext,
-  type JobHandler,
-} from '../jobs/worker-loop.service';
+import { WorkerLoopService, type JobContext, type JobHandler } from '../jobs/worker-loop.service';
 
 /**
  * CompactionQueueService — the queue/dispatch plumbing for compaction.
@@ -71,9 +67,7 @@ export class CompactionQueueService {
         });
         if (created) enqueued++;
       } catch (e) {
-        this.logger.warn(
-          `enqueue ${jobType} for ${companyId} failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`enqueue ${jobType} for ${companyId} failed: ${(e as Error).message}`);
       }
     }
     this.logger.log(

@@ -8,12 +8,7 @@
  * → hidden) and the tenant-wide (M2M) sees-all behavior that the
  * flag-on parity property rests on.
  */
-import {
-  KNOWN_NAMESPACES,
-  parseTag,
-  scopeForUser,
-  userTag,
-} from '../src/auth/scope-tags';
+import { KNOWN_NAMESPACES, parseTag, scopeForUser, userTag } from '../src/auth/scope-tags';
 import {
   TENANT_WIDE,
   principalScopeTags,
@@ -111,17 +106,14 @@ describe('visibleUnderScope — evaluator truth table', () => {
 
 describe('principalScopeTags — request-context derivation', () => {
   it('a user-bound token → ["user:<authUserId>"]', () => {
-    const tags = runWithRequestContext(
-      { correlationId: 'c1', authUserId: 'user_a' },
-      () => principalScopeTags(),
+    const tags = runWithRequestContext({ correlationId: 'c1', authUserId: 'user_a' }, () =>
+      principalScopeTags(),
     );
     expect(tags).toEqual(['user:user_a']);
   });
 
   it('an M2M credential (no authUserId) → TENANT_WIDE', () => {
-    const tags = runWithRequestContext({ correlationId: 'c2' }, () =>
-      principalScopeTags(),
-    );
+    const tags = runWithRequestContext({ correlationId: 'c2' }, () => principalScopeTags());
     expect(tags).toBe(TENANT_WIDE);
   });
 

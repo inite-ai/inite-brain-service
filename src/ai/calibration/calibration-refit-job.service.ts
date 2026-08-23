@@ -39,9 +39,7 @@ export class CalibrationRefitJobService {
   /** Run the refit under the lease + job-run tracking; returns the count. */
   async runTracked(opts: RunTrackedOptions): Promise<number> {
     const exec = () => this.runWithJobRow(opts);
-    const guarded = this.guard
-      ? await this.guard.run(opts.guardKey, exec)
-      : await exec();
+    const guarded = this.guard ? await this.guard.run(opts.guardKey, exec) : await exec();
     if (guarded === null) {
       this.logger.warn(`${opts.jobType} skipped — already in flight`);
       return 0;
@@ -63,9 +61,7 @@ export class CalibrationRefitJobService {
             : {}),
         });
       } catch (e) {
-        this.logger.warn(
-          `${opts.jobType} job_run start failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`${opts.jobType} job_run start failed: ${(e as Error).message}`);
       }
     }
     try {

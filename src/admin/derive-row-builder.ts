@@ -119,15 +119,12 @@ export function buildDerivedRows({
     // along) → that user's fact; grounded in turns of TWO OR MORE
     // users → the row is poisoned for any single scope and must be
     // dropped (crossUserScope; the caller filters and warns).
-    const groundingTurns = p.turns.filter(
-      (t) => t >= 0 && t < session.length,
-    );
+    const groundingTurns = p.turns.filter((t) => t >= 0 && t < session.length);
     // Fail-closed (audit 2026-08-21 P0 round 2): a proposition with NO
     // turns, or with ANY out-of-range index, has unreliable grounding —
     // its scope cannot be trusted, so the row is dropped rather than
     // published tenant-global (groundingInvalid; the caller filters).
-    const groundingInvalid =
-      p.turns.length === 0 || groundingTurns.length !== p.turns.length;
+    const groundingInvalid = p.turns.length === 0 || groundingTurns.length !== p.turns.length;
     const scopeUsers = [
       ...new Set(
         groundingTurns
@@ -214,9 +211,7 @@ export function collectRollupPool({
         : null;
     return {
       dated:
-        !!occ &&
-        !Number.isNaN(occ.getTime()) &&
-        occ.toISOString().slice(0, 10) === p.occurred_on,
+        !!occ && !Number.isNaN(occ.getTime()) && occ.toISOString().slice(0, 10) === p.occurred_on,
     };
   });
   accumulateLanded(rollupPool, rows, { outcomes, meta });

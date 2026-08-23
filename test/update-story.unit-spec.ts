@@ -1,7 +1,4 @@
-import {
-  applyFactSuffixes,
-  renderUpdateStory,
-} from '../src/synthesize/update-story';
+import { applyFactSuffixes, renderUpdateStory } from '../src/synthesize/update-story';
 import { UpdateStoryService } from '../src/synthesize/update-story.service';
 import { buildGeneratorUserMessage } from '../src/synthesize/generator-prompt';
 import type { SurrealService } from '../src/db/surreal.service';
@@ -61,13 +58,9 @@ describe('applyFactSuffixes', () => {
 
   it('appends the suffix to matching lines only', () => {
     const out = applyFactSuffixes(lines, [
-      new Map([
-        ['knowledge_fact:w1', ' [previously: works at Foo — until 2026-03-01]'],
-      ]),
+      new Map([['knowledge_fact:w1', ' [previously: works at Foo — until 2026-03-01]']]),
     ]);
-    expect(out[0]).toBe(
-      lines[0] + ' [previously: works at Foo — until 2026-03-01]',
-    );
+    expect(out[0]).toBe(lines[0] + ' [previously: works at Foo — until 2026-03-01]');
     expect(out[1]).toBe(lines[1]);
   });
 
@@ -77,9 +70,7 @@ describe('applyFactSuffixes', () => {
       new Map([['knowledge_fact:w1', ' [source 2026-02-01 Alex: "joined Baz"]']]),
     ]);
     expect(out[0]).toBe(
-      lines[0] +
-        ' [previously: works at Foo]' +
-        ' [source 2026-02-01 Alex: "joined Baz"]',
+      lines[0] + ' [previously: works at Foo]' + ' [source 2026-02-01 Alex: "joined Baz"]',
     );
   });
 
@@ -95,10 +86,7 @@ describe('UpdateStoryService', () => {
     registry?: PredicateRegistryService,
   ): UpdateStoryService {
     const surreal = {
-      withCompany: async (
-        _c: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
+      withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
           query: async (sql: string, params: { winners: string[] }) => {
             capture?.push(sql);
@@ -145,11 +133,10 @@ describe('UpdateStoryService', () => {
     // predicate than the policy-filtered winner (slot arbitration is
     // cosine-keyed), so the history line runs its own row-policy check.
     const registry = {
-      rowPolicyLookup:
-        async () => (p: string) =>
-          p === 'internal_only'
-            ? { requiresScope: 'sec:internal', piiClass: 'none' }
-            : { piiClass: 'none' },
+      rowPolicyLookup: async () => (p: string) =>
+        p === 'internal_only'
+          ? { requiresScope: 'sec:internal', piiClass: 'none' }
+          : { piiClass: 'none' },
     } as unknown as PredicateRegistryService;
     const byWinner = {
       'knowledge_fact:w1': [
@@ -169,21 +156,17 @@ describe('UpdateStoryService', () => {
         },
       ],
     };
-    const without = await makeService(byWinner, undefined, registry)
-      .previousStories({
-        companyId: 'c1',
-        factIds: ['knowledge_fact:w1'],
-        callerScopes: [],
-      });
-    expect(without.get('knowledge_fact:w1')).toBe(
-      ' [previously: works at Foo — until 2026-03-01]',
-    );
-    const withScope = await makeService(byWinner, undefined, registry)
-      .previousStories({
-        companyId: 'c1',
-        factIds: ['knowledge_fact:w1'],
-        callerScopes: ['sec:internal'],
-      });
+    const without = await makeService(byWinner, undefined, registry).previousStories({
+      companyId: 'c1',
+      factIds: ['knowledge_fact:w1'],
+      callerScopes: [],
+    });
+    expect(without.get('knowledge_fact:w1')).toBe(' [previously: works at Foo — until 2026-03-01]');
+    const withScope = await makeService(byWinner, undefined, registry).previousStories({
+      companyId: 'c1',
+      factIds: ['knowledge_fact:w1'],
+      callerScopes: ['sec:internal'],
+    });
     expect(withScope.get('knowledge_fact:w1')).toBe(
       ' [previously: works at Foo — until 2026-03-01; earlier: secret prior value — until 2026-02-01]',
     );
@@ -240,9 +223,7 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
       '[knowledge_fact:b] Alex (person) — work: response ~250ms (as of 2024-04-25)',
     ],
     answerLang: null,
-    conflicts: [
-      { factIds: ['knowledge_fact:a', 'knowledge_fact:b'], label: 'work' },
-    ],
+    conflicts: [{ factIds: ['knowledge_fact:a', 'knowledge_fact:b'], label: 'work' }],
   };
 
   it('on — pair-classifying frame: denial hedge + value commit-latest', () => {
@@ -251,7 +232,7 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
       dateArbitratedConflicts: true,
     });
     expect(msg).toContain('DENIAL conflict');
-    expect(msg).toContain("contradictory information");
+    expect(msg).toContain('contradictory information');
     expect(msg).toContain('VALUE update');
     expect(msg).toContain('previously');
     expect(msg).not.toContain('do NOT silently pick a side');
@@ -275,9 +256,7 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
 
 describe('RETRIEVAL_UPDATE_STORY profile point', () => {
   it('defaults off; env enables; overlays per tenant', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).updateStoryRendering,
-    ).toBe(false);
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).updateStoryRendering).toBe(false);
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_UPDATE_STORY: '1',
@@ -288,11 +267,7 @@ describe('RETRIEVAL_UPDATE_STORY profile point', () => {
         beamco: { updateStoryRendering: true },
       }),
     } as NodeJS.ProcessEnv;
-    expect(
-      resolveRetrievalProfileFor('beamco', env).updateStoryRendering,
-    ).toBe(true);
-    expect(
-      resolveRetrievalProfileFor('other', env).updateStoryRendering,
-    ).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).updateStoryRendering).toBe(true);
+    expect(resolveRetrievalProfileFor('other', env).updateStoryRendering).toBe(false);
   });
 });

@@ -23,10 +23,7 @@ import { createApp } from './app-fixture';
 import { IngestService } from '../src/ingest/ingest.service';
 import { EntitiesService } from '../src/entities/entities.service';
 import type { BrainScope } from '../src/auth/api-key.types';
-import {
-  codeMemoryPredicateId,
-  type CodeMemoryKind,
-} from '../src/ai/domain-packs';
+import { codeMemoryPredicateId, type CodeMemoryKind } from '../src/ai/domain-packs';
 
 describe('code-memory Phase 0 — record_decision → why round-trip', () => {
   let f: AppFixture;
@@ -46,10 +43,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
       scopes: READ,
     });
   };
-  const activeOf = (
-    profile: Awaited<ReturnType<typeof recall>>,
-    kind: CodeMemoryKind,
-  ) =>
+  const activeOf = (profile: Awaited<ReturnType<typeof recall>>, kind: CodeMemoryKind) =>
     (profile?.facts ?? []).filter(
       (x) => x.predicate === codeMemoryPredicateId(kind) && x.status === 'active',
     );

@@ -24,39 +24,47 @@ export const DocumentContextRefSchema = z.object({
 
 /** Mirror of IngestDocumentDto — runtime cap DOC_TEXT_HARD_CAP = 512_000. */
 export const IngestDocumentRequestSchema = z.object({
-  kind: z.string().max(64).describe(
-    'Container kind the connector normalized from (pdf/markdown/email/…). ' +
-      'Open string — provenance metadata only.',
-  ),
+  kind: z
+    .string()
+    .max(64)
+    .describe(
+      'Container kind the connector normalized from (pdf/markdown/email/…). ' +
+        'Open string — provenance metadata only.',
+    ),
   text: z
     .string()
     .max(512_000)
     .describe('Normalized document text (DOC_MAX_CHARS may lower the cap).'),
-  originUri: z.string().max(512).optional().describe(
-    'Pointer back to the raw container (URL, path, message id…).',
-  ),
+  originUri: z
+    .string()
+    .max(512)
+    .optional()
+    .describe('Pointer back to the raw container (URL, path, message id…).'),
   title: z.string().max(512).optional(),
-  meta: z.record(z.string(), z.unknown()).optional().describe(
-    "Operator-supplied metadata, projected onto derived facts' source.meta.",
-  ),
+  meta: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("Operator-supplied metadata, projected onto derived facts' source.meta."),
   occurredAt: z.string().meta({
     format: 'date-time',
     description: "ISO 8601 — becomes the derived facts' validFrom.",
   }),
   contextRef: DocumentContextRefSchema,
-  storeContent: z.boolean().optional().describe(
-    'Store the normalized chunks server-side. false keeps only ' +
-      'contentHash + metadata (no re-index, no span re-validation).',
-  ),
+  storeContent: z
+    .boolean()
+    .optional()
+    .describe(
+      'Store the normalized chunks server-side. false keeps only ' +
+        'contentHash + metadata (no re-index, no span re-validation).',
+    ),
   indexers: z
     .union([z.literal('general'), z.literal('auto'), z.array(z.string())])
     .optional()
-    .describe(
-      "'general' (union pass), 'auto' (router-selected), or explicit pack ids.",
-    ),
-  mode: z.enum(['sync', 'async']).optional().describe(
-    "'async' requires DOCUMENT_MULTI_INDEXER_ENABLED and storeContent.",
-  ),
+    .describe("'general' (union pass), 'auto' (router-selected), or explicit pack ids."),
+  mode: z
+    .enum(['sync', 'async'])
+    .optional()
+    .describe("'async' requires DOCUMENT_MULTI_INDEXER_ENABLED and storeContent."),
 });
 
 /** Shared commit tally (CommitResult['counts']). */
@@ -73,9 +81,7 @@ export const IngestDocumentSyncResponseSchema = z.object({
   deduplicated: z.boolean(),
   chunkCount: z.number().int().nonnegative(),
   mode: z.literal('sync'),
-  runs: z.array(
-    z.object({ runId: z.string(), packId: z.string(), status: z.string() }),
-  ),
+  runs: z.array(z.object({ runId: z.string(), packId: z.string(), status: z.string() })),
   committed: z.object({
     entityIds: z.array(z.string()),
     factIds: z.array(z.string()),
@@ -145,10 +151,12 @@ export const CandidateSchema = z.object({
   status: z.string(),
   statusReason: z.string().optional(),
   commitRef: z.string().optional(),
-  payload: z.record(z.string(), z.unknown()).describe(
-    'Extraction payload. `object`/`clause` of scope-gated fact candidates ' +
-      'are redacted for callers without the required predicate scope.',
-  ),
+  payload: z
+    .record(z.string(), z.unknown())
+    .describe(
+      'Extraction payload. `object`/`clause` of scope-gated fact candidates ' +
+        'are redacted for callers without the required predicate scope.',
+    ),
 });
 
 export const DocumentCandidatesResponseSchema = z.object({
@@ -166,9 +174,7 @@ export const SubmittedEntitySchema = z.object({
 /** Mirror of SubmittedFact — entityIndex is LOCAL to this batch. */
 export const SubmittedFactSchema = z.object({
   entityIndex: z.number().int().nonnegative(),
-  predicate: z
-    .string()
-    .describe('Must be namespaced `<indexerId>__*` or a core predicate.'),
+  predicate: z.string().describe('Must be namespaced `<indexerId>__*` or a core predicate.'),
   object: z.string(),
   confidence: z.number().optional(),
   clause: z.string().optional(),
@@ -189,13 +195,19 @@ export const SubmitCandidatesRequestSchema = z.object({
     .string()
     .max(64)
     .describe("The pack id this indexer is registered as (mode 'external')."),
-  packVersion: z.string().max(32).optional().describe(
-    'Optional claim of the pack version; must match the installed one.',
-  ),
-  runId: z.string().max(128).optional().describe(
-    'A claimed work item this submission fulfils. Provided together with ' +
-      'claimToken or not at all (claimless flow opens its own run).',
-  ),
+  packVersion: z
+    .string()
+    .max(32)
+    .optional()
+    .describe('Optional claim of the pack version; must match the installed one.'),
+  runId: z
+    .string()
+    .max(128)
+    .optional()
+    .describe(
+      'A claimed work item this submission fulfils. Provided together with ' +
+        'claimToken or not at all (claimless flow opens its own run).',
+    ),
   claimToken: z.string().max(64).optional(),
   entities: z.array(SubmittedEntitySchema),
   facts: z.array(SubmittedFactSchema),
@@ -225,9 +237,9 @@ export const SubmitCandidatesResponseSchema = z.object({
     relations: z.number().int().nonnegative(),
   }),
   dropped: z.array(GroundingDropSchema),
-  ungrounded: z.boolean().describe(
-    'true when the document has no stored content — spans unverifiable.',
-  ),
+  ungrounded: z
+    .boolean()
+    .describe('true when the document has no stored content — spans unverifiable.'),
   commit: z
     .object({
       deferred: z.boolean(),
@@ -246,31 +258,26 @@ export const HeartbeatWorkRequestSchema = z.object({
 /** Mirror of FailWorkDto (src/documents/dto/fail-work.dto.ts). */
 export const FailWorkRequestSchema = z.object({
   claimToken: z.string().max(64),
-  error: z.string().max(2_000).optional().describe(
-    'Optional diagnostic recorded on the run row (truncated server-side).',
-  ),
-  permanent: z.boolean().optional().describe(
-    "Default (false/absent) RELEASES the item back to 'pending'; true " +
-      "marks the run 'failed' — no longer offered, still claimable by runId.",
-  ),
+  error: z
+    .string()
+    .max(2_000)
+    .optional()
+    .describe('Optional diagnostic recorded on the run row (truncated server-side).'),
+  permanent: z
+    .boolean()
+    .optional()
+    .describe(
+      "Default (false/absent) RELEASES the item back to 'pending'; true " +
+        "marks the run 'failed' — no longer offered, still claimable by runId.",
+    ),
 });
 
 export type HeartbeatWorkRequest = z.infer<typeof HeartbeatWorkRequestSchema>;
 export type FailWorkRequest = z.infer<typeof FailWorkRequestSchema>;
 export type IngestDocumentRequest = z.infer<typeof IngestDocumentRequestSchema>;
-export type IngestDocumentSyncResponse = z.infer<
-  typeof IngestDocumentSyncResponseSchema
->;
-export type IngestDocumentAsyncResponse = z.infer<
-  typeof IngestDocumentAsyncResponseSchema
->;
+export type IngestDocumentSyncResponse = z.infer<typeof IngestDocumentSyncResponseSchema>;
+export type IngestDocumentAsyncResponse = z.infer<typeof IngestDocumentAsyncResponseSchema>;
 export type DocumentResponse = z.infer<typeof DocumentResponseSchema>;
-export type DocumentCandidatesResponse = z.infer<
-  typeof DocumentCandidatesResponseSchema
->;
-export type SubmitCandidatesRequest = z.infer<
-  typeof SubmitCandidatesRequestSchema
->;
-export type SubmitCandidatesResponse = z.infer<
-  typeof SubmitCandidatesResponseSchema
->;
+export type DocumentCandidatesResponse = z.infer<typeof DocumentCandidatesResponseSchema>;
+export type SubmitCandidatesRequest = z.infer<typeof SubmitCandidatesRequestSchema>;
+export type SubmitCandidatesResponse = z.infer<typeof SubmitCandidatesResponseSchema>;

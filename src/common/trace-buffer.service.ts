@@ -1,11 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Subject } from 'rxjs';
-import type {
-  DebugTraceSnapshot,
-  DebugSpan,
-  DebugArtifact,
-} from './debug-trace-core';
+import type { DebugTraceSnapshot, DebugSpan, DebugArtifact } from './debug-trace-core';
 import { SurrealService, queryFirst } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 
@@ -79,22 +75,15 @@ export class TraceBufferService {
     @Optional() private readonly surreal?: SurrealService,
   ) {
     this.persistEnabled =
-      envFlagEnabled(this.config?.get<string>('DEBUG_TRACE_PERSIST')) &&
-      !!this.surreal;
-    const cap = parseInt(
-      this.config?.get<string>('DEBUG_TRACE_DB_CAPACITY', '1000') ?? '1000',
-      10,
-    );
+      envFlagEnabled(this.config?.get<string>('DEBUG_TRACE_PERSIST')) && !!this.surreal;
+    const cap = parseInt(this.config?.get<string>('DEBUG_TRACE_DB_CAPACITY', '1000') ?? '1000', 10);
     this.dbCapacity = Number.isFinite(cap) && cap > 0 ? cap : 1000;
     const byteCap = parseInt(
-      this.config?.get<string>(
-        'DEBUG_TRACE_MEM_BYTE_BUDGET',
+      this.config?.get<string>('DEBUG_TRACE_MEM_BYTE_BUDGET', String(64 * 1024 * 1024)) ??
         String(64 * 1024 * 1024),
-      ) ?? String(64 * 1024 * 1024),
       10,
     );
-    this.byteBudget =
-      Number.isFinite(byteCap) && byteCap > 0 ? byteCap : 64 * 1024 * 1024;
+    this.byteBudget = Number.isFinite(byteCap) && byteCap > 0 ? byteCap : 64 * 1024 * 1024;
   }
 
   add(snapshot: DebugTraceSnapshot): void {
@@ -142,19 +131,12 @@ export class TraceBufferService {
    * (auto-refresh) and a per-call DB hit would tax the tenant DB.
    * Operators looking at older traces use the explicit `get`.
    */
-  list(
-    companyId?: string,
-  ): Array<Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>> {
-    const rows = companyId
-      ? this.buffer.filter((s) => s.companyId === companyId)
-      : this.buffer;
+  list(companyId?: string): Array<Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>> {
+    const rows = companyId ? this.buffer.filter((s) => s.companyId === companyId) : this.buffer;
     return rows.map(({ spans: _s, artifacts: _a, ...rest }) => rest);
   }
 
-  async get(
-    requestId: string,
-    companyId?: string,
-  ): Promise<DebugTraceSnapshot | undefined> {
+  async get(requestId: string, companyId?: string): Promise<DebugTraceSnapshot | undefined> {
     const hit = this.buffer.find((s) => s.requestId === requestId);
     if (hit) {
       if (companyId && hit.companyId && hit.companyId !== companyId) {
@@ -188,9 +170,7 @@ export class TraceBufferService {
         } as DebugTraceSnapshot;
       });
     } catch (e) {
-      this.logger.warn(
-        `debug_trace get fallback failed (${requestId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`debug_trace get fallback failed (${requestId}): ${(e as Error).message}`);
       return undefined;
     }
   }
@@ -262,8 +242,7 @@ function estimateSnapshotBytes(s: DebugTraceSnapshot): number {
     if (typeof v === 'string') {
       artifactBytes += v.length;
     } else if (v && typeof v === 'object') {
-      artifactBytes +=
-        Object.keys(v as Record<string, unknown>).length * 64 + 64;
+      artifactBytes += Object.keys(v as Record<string, unknown>).length * 64 + 64;
     } else {
       artifactBytes += 32;
     }

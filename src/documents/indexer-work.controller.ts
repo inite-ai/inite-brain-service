@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
@@ -80,10 +71,7 @@ export class IndexerWorkController {
   @Get('work/:runId/content')
   @RequireScopes('indexer:write')
   @PolicyAction('rest.indexer.content')
-  async content(
-    @Req() req: AuthenticatedRequest,
-    @Param('runId') runId: string,
-  ) {
+  async content(@Req() req: AuthenticatedRequest, @Param('runId') runId: string) {
     assertDocumentIngestEnabled();
     return this.work.content({
       companyId: req.brainAuth.companyId,

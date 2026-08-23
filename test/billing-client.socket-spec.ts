@@ -148,18 +148,12 @@ describe('BillingClientService', () => {
   describe('hasEntitlement + cache', () => {
     it('answers from the entitlements listing and caches per company', async () => {
       entitlements.co_a = [{ key: 'domain_pack:x' }];
-      expect(
-        await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' }),
-      ).toBe(true);
-      expect(
-        await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:y' }),
-      ).toBe(false);
+      expect(await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' })).toBe(true);
+      expect(await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:y' })).toBe(false);
       // Second lookup for the same company hit the cache, not the wire.
       expect(seen).toHaveLength(1);
       // A different company is its own cache entry.
-      expect(
-        await client.hasEntitlement({ companyId: 'co_b', key: 'domain_pack:x' }),
-      ).toBe(false);
+      expect(await client.hasEntitlement({ companyId: 'co_b', key: 'domain_pack:x' })).toBe(false);
       expect(seen).toHaveLength(2);
     });
 
@@ -167,9 +161,7 @@ describe('BillingClientService', () => {
       await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' });
       client.clearEntitlementCache();
       entitlements.co_a = [{ key: 'domain_pack:x' }];
-      expect(
-        await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' }),
-      ).toBe(true);
+      expect(await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' })).toBe(true);
       expect(seen).toHaveLength(2);
     });
 
@@ -212,12 +204,10 @@ describe('BillingClientService', () => {
 
     it('4xx → BillingRequestError immediately (no retry), status carried', async () => {
       failWithStatus = 403;
-      const err = await client
-        .hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' })
-        .then(
-          () => null,
-          (e) => e as BillingRequestError,
-        );
+      const err = await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' }).then(
+        () => null,
+        (e) => e as BillingRequestError,
+      );
       expect(err).toBeInstanceOf(BillingRequestError);
       expect(err!.status).toBe(403);
       expect(seen).toHaveLength(1);
@@ -238,9 +228,7 @@ describe('BillingClientService', () => {
         (r) => r.method === 'POST' && r.url === '/v1/service/catalog/products',
       );
       expect(creates).toHaveLength(0);
-      const price = seen.find(
-        (r) => r.method === 'POST' && r.url === '/v1/service/catalog/prices',
-      );
+      const price = seen.find((r) => r.method === 'POST' && r.url === '/v1/service/catalog/prices');
       expect(price?.body).toMatchObject({
         code: priceCode,
         productId: 'prod_existing',

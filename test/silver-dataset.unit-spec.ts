@@ -36,9 +36,7 @@ function candidate(over: Partial<DecisionCandidate> = {}): DecisionCandidate {
 
 describe('commitText', () => {
   it('joins message + PR body (no diff)', () => {
-    expect(commitText(commit({ sha: 'a', message: 'msg', prBody: 'body' }))).toBe(
-      'msg\n\nbody',
-    );
+    expect(commitText(commit({ sha: 'a', message: 'msg', prBody: 'body' }))).toBe('msg\n\nbody');
   });
   it('is just the message when there is no PR body', () => {
     expect(commitText(commit({ sha: 'a', message: 'msg' }))).toBe('msg');

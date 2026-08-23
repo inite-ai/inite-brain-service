@@ -38,8 +38,7 @@ type Inbound =
   | { id: number; kind: 'extract'; payload: { text: string } };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('local-ner.worker must be run as a worker_thread');

@@ -57,9 +57,7 @@ import { EntityJudgeService } from './entity-judge.service';
           // ONNX inference runs in a worker_thread by default so it never
           // blocks the main event loop; SEARCH_CROSS_ENCODER_LOCAL_WORKER=0
           // keeps the in-thread path (benchmarks / constrained envs).
-          useWorker: envFlagNotDisabled(
-            config.get<string>('SEARCH_CROSS_ENCODER_LOCAL_WORKER'),
-          ),
+          useWorker: envFlagNotDisabled(config.get<string>('SEARCH_CROSS_ENCODER_LOCAL_WORKER')),
           scoreTimeoutMs: parseInt(
             config.get<string>('SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS', '2000'),
             10,

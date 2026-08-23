@@ -1,7 +1,4 @@
-import {
-  MultiHopService,
-  MultiHopResult,
-} from '../src/multi-hop/multi-hop.service';
+import { MultiHopService, MultiHopResult } from '../src/multi-hop/multi-hop.service';
 import { MultiHopChainService } from '../src/multi-hop/multi-hop-chain.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type {
@@ -53,9 +50,7 @@ describe('MultiHopService', () => {
         i++;
         return { results: out };
       },
-      expandEntityIdsViaEdges: async (opts: {
-        entityIds: string[];
-      }): Promise<string[]> => {
+      expandEntityIdsViaEdges: async (opts: { entityIds: string[] }): Promise<string[]> => {
         expandCalls.push(opts.entityIds);
         return expandedIds ?? opts.entityIds;
       },
@@ -63,9 +58,7 @@ describe('MultiHopService', () => {
     return { svc, calls, expandCalls };
   }
 
-  function makePlanner(
-    plan: MultiHopPlan | null,
-  ): MultiHopPlannerService {
+  function makePlanner(plan: MultiHopPlan | null): MultiHopPlannerService {
     return {
       plan: async () => plan,
     } as unknown as MultiHopPlannerService;
@@ -84,9 +77,7 @@ describe('MultiHopService', () => {
   const scopes = ['brain:read'];
 
   it('falls back to single-shot search when planner returns null', async () => {
-    const { svc: search, calls } = makeSearch([
-      [hit('e1'), hit('e2')],
-    ]);
+    const { svc: search, calls } = makeSearch([[hit('e1'), hit('e2')]]);
     const svc = makeSvc(search, makePlanner(null));
     const out = await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     expect(out.isMultiHop).toBe(false);
@@ -185,9 +176,7 @@ describe('MultiHopService', () => {
       callerScopes: scopes,
     });
     expect(out.isMultiHop).toBe(true);
-    expect((calls[0] as { asOf?: string }).asOf).toBe(
-      '2023-05-20T00:00:00.000Z',
-    );
+    expect((calls[0] as { asOf?: string }).asOf).toBe('2023-05-20T00:00:00.000Z');
     expect((calls[1] as { asOf?: string }).asOf).toBe('2023-04-15');
   });
 
@@ -339,10 +328,7 @@ describe('MultiHopService', () => {
       asOf: '2026-04-01T00:00:00Z',
       rationale: null,
     };
-    const svc = makeSvc(
-      search,
-      makePlanner({ isMultiHop: false, hops: [hop] }),
-    );
+    const svc = makeSvc(search, makePlanner({ isMultiHop: false, hops: [hop] }));
     await svc.run({ companyId: 'co_x', dto: baseDto, callerScopes: scopes });
     const dto = calls[0] as { predicates?: string[]; asOf?: string };
     expect(dto.predicates).toEqual(['tier', 'status']);
@@ -358,10 +344,7 @@ describe('MultiHopService', () => {
       asOf: null,
       rationale: null,
     };
-    const svc = makeSvc(
-      search,
-      makePlanner({ isMultiHop: false, hops: [hop] }),
-    );
+    const svc = makeSvc(search, makePlanner({ isMultiHop: false, hops: [hop] }));
     await svc.run({
       companyId: 'co_x',
       dto: { ...baseDto, predicates: ['inherited'] },
@@ -391,10 +374,7 @@ describe('MultiHopService', () => {
       [hit('e1')],
       [hit('e1')],
     ]);
-    const svc = makeSvc(
-      search.svc,
-      makePlanner({ isMultiHop: true, hops: seven }),
-    );
+    const svc = makeSvc(search.svc, makePlanner({ isMultiHop: true, hops: seven }));
     const out = await svc.run({
       companyId: 'co_x',
       dto: { ...baseDto, maxHops: 5 },
@@ -408,10 +388,7 @@ describe('MultiHopService', () => {
   });
 
   it('runs synthesizer on the final set when synthesize=true', async () => {
-    const { svc: search } = makeSearch([
-      [hit('e1'), hit('e2')],
-      [hit('e2')],
-    ]);
+    const { svc: search } = makeSearch([[hit('e1'), hit('e2')], [hit('e2')]]);
     const synth = {
       synthesize: async ({ dto }: { dto: { entityIds?: string[] } }) => ({
         answer: 'final',
@@ -467,7 +444,13 @@ describe('MultiHopService', () => {
       makePlanner({
         isMultiHop: false,
         hops: [
-          { subQuery: 'refined', combination: 'seed', predicates: ['name'], asOf: null, rationale: null },
+          {
+            subQuery: 'refined',
+            combination: 'seed',
+            predicates: ['name'],
+            asOf: null,
+            rationale: null,
+          },
         ],
       }),
       synth,
@@ -547,10 +530,11 @@ describe('MultiHopService', () => {
       process.env[ENV_KEY] = '1';
       // Hop 1 returns {e1}. expandEntityIdsViaEdges → {e1, n_a, n_b}.
       // Hop 2 returns {n_a} which IS in the expanded anchor set.
-      const { svc: search, calls, expandCalls } = makeSearch(
-        [[hit('e1')], [hit('n_a')]],
-        ['e1', 'n_a', 'n_b'],
-      );
+      const {
+        svc: search,
+        calls,
+        expandCalls,
+      } = makeSearch([[hit('e1')], [hit('n_a')]], ['e1', 'n_a', 'n_b']);
       const plan: MultiHopPlan = {
         isMultiHop: true,
         hops: [
@@ -584,7 +568,11 @@ describe('MultiHopService', () => {
 
     it('default OFF: anchor stays as bare prior set, no expansion call', async () => {
       // ENV_KEY intentionally not set.
-      const { svc: search, calls, expandCalls } = makeSearch(
+      const {
+        svc: search,
+        calls,
+        expandCalls,
+      } = makeSearch(
         [[hit('e1'), hit('e2')], [hit('e2')]],
         ['e1', 'e2', 'n_x'], // would be the expanded set if asked
       );
@@ -618,12 +606,11 @@ describe('MultiHopService', () => {
       process.env[ENV_KEY] = '1';
       const { svc: search, calls } = makeSearch([[hit('e1')], [hit('e1')]]);
       // Patch the throwing expansion onto the stub.
-      (search as unknown as {
-        expandEntityIdsViaEdges: (
-          c: string,
-          ids: string[],
-        ) => Promise<string[]>;
-      }).expandEntityIdsViaEdges = async () => {
+      (
+        search as unknown as {
+          expandEntityIdsViaEdges: (c: string, ids: string[]) => Promise<string[]>;
+        }
+      ).expandEntityIdsViaEdges = async () => {
         throw new Error('boom');
       };
       const plan: MultiHopPlan = {

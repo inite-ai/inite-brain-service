@@ -50,8 +50,7 @@ function walk(dir: string): string[] {
 function currentEngineFlags(): Set<string> {
   const keys = new Set<string>();
   const files = walk(SRC).filter(
-    (f) =>
-      !f.endsWith('config-catalog.data.ts') && !f.endsWith('env-validation.ts'),
+    (f) => !f.endsWith('config-catalog.data.ts') && !f.endsWith('env-validation.ts'),
   );
   const parserRead =
     /envFlag(?:Enabled|NotDisabled)\(\s*(?:process\.env\.|this\.configService\.get<string>\(.)([A-Z][A-Z0-9_]+)/g;
@@ -90,15 +89,10 @@ describe('flag budget (engine-behavior boolean flags)', () => {
 
   it('the RETRIEVAL_ carve-out is bounded by its own golden', () => {
     const goldenKeys = JSON.parse(
-      readFileSync(
-        join(__dirname, 'golden', 'retrieval-profile-keys.golden.json'),
-        'utf8',
-      ),
+      readFileSync(join(__dirname, 'golden', 'retrieval-profile-keys.golden.json'), 'utf8'),
     ) as string[];
     expect(goldenKeys).toEqual([...new Set(goldenKeys)].sort());
-    const current = CONFIG_CATALOG.filter((e) =>
-      e.key.startsWith('RETRIEVAL_'),
-    )
+    const current = CONFIG_CATALOG.filter((e) => e.key.startsWith('RETRIEVAL_'))
       .map((e) => e.key)
       .sort();
     const additions = current.filter((k) => !goldenKeys.includes(k));

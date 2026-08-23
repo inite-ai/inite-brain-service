@@ -26,14 +26,21 @@ describe('SOTA e2e — SurrealDB-native features', () => {
 
   // ─── Hybrid search modes ───────────────────────────────────────────
   describe('Hybrid search modes', () => {
-    const seed = async (entityRef: { vertical: string; id: string }, predicate: string, object: string) => {
-      const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef,
-        predicate,
-        object,
-        validFrom: new Date('2026-04-15').toISOString(),
-        source: { vertical: entityRef.vertical, messageId: `m_${entityRef.id}` },
-      });
+    const seed = async (
+      entityRef: { vertical: string; id: string },
+      predicate: string,
+      object: string,
+    ) => {
+      const r = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef,
+          predicate,
+          object,
+          validFrom: new Date('2026-04-15').toISOString(),
+          source: { vertical: entityRef.vertical, messageId: `m_${entityRef.id}` },
+        });
       expect(r.status).toBe(201);
       return r.body.factId as string;
     };
@@ -62,10 +69,11 @@ describe('SOTA e2e — SurrealDB-native features', () => {
     });
 
     it('vector mode finds semantic paraphrase even with no token overlap', async () => {
-      const res = await f.http
-        .post('/v1/search')
-        .set(auth())
-        .send({ query: 'considering relocation to another property', searchMode: 'vector', limit: 3 });
+      const res = await f.http.post('/v1/search').set(auth()).send({
+        query: 'considering relocation to another property',
+        searchMode: 'vector',
+        limit: 3,
+      });
       expect(res.status).toBe(201);
       expect(res.body.results.length).toBeGreaterThan(0);
       expect(res.body.results[0].canonicalName).toBe('sota_beta');
@@ -100,10 +108,11 @@ describe('SOTA e2e — SurrealDB-native features', () => {
         .post('/v1/search')
         .set(auth())
         .send({ query: 'considering relocation to another property', limit: 3 });
-      const b = await f.http
-        .post('/v1/search')
-        .set(auth())
-        .send({ query: 'considering relocation to another property', searchMode: 'hybrid', limit: 3 });
+      const b = await f.http.post('/v1/search').set(auth()).send({
+        query: 'considering relocation to another property',
+        searchMode: 'hybrid',
+        limit: 3,
+      });
       expect(a.status).toBe(201);
       expect(b.status).toBe(201);
       expect(a.body.results.map((r: any) => r.entityId)).toEqual(
@@ -120,23 +129,29 @@ describe('SOTA e2e — SurrealDB-native features', () => {
 
     beforeAll(async () => {
       // tier='gold' valid from 2026-04-01
-      const r1 = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'bitemp_cust' },
-        predicate: 'tier',
-        object: 'gold',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent', messageId: 'b_1' },
-      });
+      const r1 = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'bitemp_cust' },
+          predicate: 'tier',
+          object: 'gold',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent', messageId: 'b_1' },
+        });
       expect(r1.body.outcome).toBe('INSERTED');
 
       // tier='platinum' valid from 2026-05-01 (bitemporal — may compete or supersede)
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'bitemp_cust' },
-        predicate: 'tier',
-        object: 'platinum',
-        validFrom: new Date('2026-05-01').toISOString(),
-        source: { vertical: 'rent', messageId: 'b_2' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'bitemp_cust' },
+          predicate: 'tier',
+          object: 'platinum',
+          validFrom: new Date('2026-05-01').toISOString(),
+          source: { vertical: 'rent', messageId: 'b_2' },
+        });
 
       // The /v1/entities path expects a Surreal record id, not the
       // vertical.id pair. Resolve it via search.
@@ -150,11 +165,11 @@ describe('SOTA e2e — SurrealDB-native features', () => {
     });
 
     it('current state (no asOf) shows tier facts', async () => {
-      const ent = await f.http
-        .get(`/v1/entities/${encodeURIComponent(entityId)}`)
-        .set(auth());
+      const ent = await f.http.get(`/v1/entities/${encodeURIComponent(entityId)}`).set(auth());
       expect(ent.status).toBe(200);
-      const tiers = ent.body.facts.filter((x: any) => x.predicate === 'tier').map((x: any) => x.object);
+      const tiers = ent.body.facts
+        .filter((x: any) => x.predicate === 'tier')
+        .map((x: any) => x.object);
       // gold may or may not be present depending on whether platinum
       // superseded it (similarity-dependent for bitemporal predicates),
       // but at least one tier value must be visible in the active set.
@@ -168,7 +183,9 @@ describe('SOTA e2e — SurrealDB-native features', () => {
         .get(`/v1/entities/${encodeURIComponent(entityId)}?asOf=${encodeURIComponent(future)}`)
         .set(auth());
       expect(ent.status).toBe(200);
-      const tiers = ent.body.facts.filter((x: any) => x.predicate === 'tier').map((x: any) => x.object);
+      const tiers = ent.body.facts
+        .filter((x: any) => x.predicate === 'tier')
+        .map((x: any) => x.object);
       expect(tiers.length).toBeGreaterThan(0);
     });
 
@@ -177,7 +194,9 @@ describe('SOTA e2e — SurrealDB-native features', () => {
       // past pre-dates brain's knowledge of the fact and the bitemporal
       // filter (recordedAt <= asOf) excludes it entirely.
       const ent = await f.http
-        .get(`/v1/entities/${encodeURIComponent(entityId)}?asOf=${encodeURIComponent('2024-01-01T00:00:00.000Z')}`)
+        .get(
+          `/v1/entities/${encodeURIComponent(entityId)}?asOf=${encodeURIComponent('2024-01-01T00:00:00.000Z')}`,
+        )
         .set(auth());
       expect(ent.status).toBe(200);
       expect(ent.body.facts.length).toBe(0);
@@ -196,13 +215,16 @@ describe('SOTA e2e — SurrealDB-native features', () => {
       // FANOUT entities all with the same externalRef.
       const results = await Promise.all(
         Array.from({ length: FANOUT }, (_, i) =>
-          f.http.post('/v1/ingest/fact').set(auth()).send({
-            entityRef: ref,
-            predicate: 'said',
-            object: `concurrent message ${i}`,
-            validFrom: new Date().toISOString(),
-            source: { vertical: 'shop', messageId: `race_${i}` },
-          }),
+          f.http
+            .post('/v1/ingest/fact')
+            .set(auth())
+            .send({
+              entityRef: ref,
+              predicate: 'said',
+              object: `concurrent message ${i}`,
+              validFrom: new Date().toISOString(),
+              source: { vertical: 'shop', messageId: `race_${i}` },
+            }),
         ),
       );
       for (const r of results) expect(r.status).toBe(201);
@@ -249,20 +271,26 @@ describe('SOTA e2e — SurrealDB-native features', () => {
     let firstEdgeId: string;
 
     beforeAll(async () => {
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'cross', id: 'edge_a' },
-        predicate: 'name',
-        object: 'EdgeA',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'cross' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'cross', id: 'edge_b' },
-        predicate: 'name',
-        object: 'EdgeB',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'cross' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'cross', id: 'edge_a' },
+          predicate: 'name',
+          object: 'EdgeA',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'cross' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'cross', id: 'edge_b' },
+          predicate: 'name',
+          object: 'EdgeB',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'cross' },
+        });
 
       // Resolve the real surreal record ids via search. Entity canonicalName
       // defaults to the externalRef.id (e.g. 'edge_a'), NOT the fact's
@@ -283,13 +311,16 @@ describe('SOTA e2e — SurrealDB-native features', () => {
 
     it('first ingestLink creates the edge, repeats are idempotent', async () => {
       const link = (i: number) =>
-        f.http.post('/v1/ingest/link').set(auth()).send({
-          from: { vertical: 'cross', id: 'edge_a' },
-          to: { vertical: 'cross', id: 'edge_b' },
-          kind: 'related_to',
-          weight: 0.7,
-          source: { vertical: 'cross', eventId: `evt_${i}` },
-        });
+        f.http
+          .post('/v1/ingest/link')
+          .set(auth())
+          .send({
+            from: { vertical: 'cross', id: 'edge_a' },
+            to: { vertical: 'cross', id: 'edge_b' },
+            kind: 'related_to',
+            weight: 0.7,
+            source: { vertical: 'cross', eventId: `evt_${i}` },
+          });
       const first = await link(1);
       expect(first.status).toBe(201);
       firstEdgeId = first.body.edgeId as string;
@@ -304,13 +335,16 @@ describe('SOTA e2e — SurrealDB-native features', () => {
     });
 
     it('different kind between same endpoints creates a separate edge', async () => {
-      const a = await f.http.post('/v1/ingest/link').set(auth()).send({
-        from: { vertical: 'cross', id: 'edge_a' },
-        to: { vertical: 'cross', id: 'edge_b' },
-        kind: 'mentioned_with',
-        weight: 0.3,
-        source: { vertical: 'cross' },
-      });
+      const a = await f.http
+        .post('/v1/ingest/link')
+        .set(auth())
+        .send({
+          from: { vertical: 'cross', id: 'edge_a' },
+          to: { vertical: 'cross', id: 'edge_b' },
+          kind: 'mentioned_with',
+          weight: 0.3,
+          source: { vertical: 'cross' },
+        });
       expect(a.status).toBe(201);
 
       const conn = await f.http
@@ -367,52 +401,73 @@ describe('SOTA e2e — SurrealDB-native features', () => {
   // ─── Conflict resolution outcomes ──────────────────────────────────
   describe('Conflict outcomes (INSERTED / SUPERSEDED / COMPETING / REJECTED)', () => {
     const seedTier = async (id: string, object: string, when: string) =>
-      (await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id },
-        predicate: 'tier',
-        object,
-        validFrom: when,
-        source: { vertical: 'rent', eventId: 'billing.tier_change' },
-        confidence: 0.9,
-      })).body;
+      (
+        await f.http
+          .post('/v1/ingest/fact')
+          .set(auth())
+          .send({
+            entityRef: { vertical: 'rent', id },
+            predicate: 'tier',
+            object,
+            validFrom: when,
+            source: { vertical: 'rent', eventId: 'billing.tier_change' },
+            confidence: 0.9,
+          })
+      ).body;
 
     it('append_only never produces SUPERSEDED', async () => {
-      const a = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'conflict_append' },
-        predicate: 'said',
-        object: 'first message',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent', messageId: 'cm1' },
-      });
-      const b = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'conflict_append' },
-        predicate: 'said',
-        object: 'second message',
-        validFrom: new Date('2026-04-02').toISOString(),
-        source: { vertical: 'rent', messageId: 'cm2' },
-      });
+      const a = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'conflict_append' },
+          predicate: 'said',
+          object: 'first message',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent', messageId: 'cm1' },
+        });
+      const b = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'conflict_append' },
+          predicate: 'said',
+          object: 'second message',
+          validFrom: new Date('2026-04-02').toISOString(),
+          source: { vertical: 'rent', messageId: 'cm2' },
+        });
       expect(a.body.outcome).toBe('INSERTED');
       expect(b.body.outcome).toBe('INSERTED');
       expect(b.body.supersededFactIds).toBeUndefined();
     });
 
     it('single_active SUPERSEDES on every replacement', async () => {
-      const a = await seedTier('conflict_single_active_test', 'gold', new Date('2026-04-01').toISOString());
+      const a = await seedTier(
+        'conflict_single_active_test',
+        'gold',
+        new Date('2026-04-01').toISOString(),
+      );
       // `name` is single_active; use that for clearer single-active semantics.
-      const r1 = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'conflict_name' },
-        predicate: 'name',
-        object: 'OldName',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent', eventId: 'auth.name_set' },
-      });
-      const r2 = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'conflict_name' },
-        predicate: 'name',
-        object: 'NewName',
-        validFrom: new Date('2026-04-15').toISOString(),
-        source: { vertical: 'rent', eventId: 'auth.name_change' },
-      });
+      const r1 = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'conflict_name' },
+          predicate: 'name',
+          object: 'OldName',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent', eventId: 'auth.name_set' },
+        });
+      const r2 = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'conflict_name' },
+          predicate: 'name',
+          object: 'NewName',
+          validFrom: new Date('2026-04-15').toISOString(),
+          source: { vertical: 'rent', eventId: 'auth.name_change' },
+        });
       expect(r1.body.outcome).toBe('INSERTED');
       expect(r2.body.outcome).toBe('SUPERSEDED');
       expect(r2.body.supersededFactIds?.length).toBeGreaterThan(0);
@@ -422,15 +477,18 @@ describe('SOTA e2e — SurrealDB-native features', () => {
     it('REJECTED below score threshold for bitemporal predicates', async () => {
       // Bitemporal `intent` with very low confidence + low source trust
       // should drop below the reject threshold and route to dead-letter.
-      const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'conflict_lowscore' },
-        predicate: 'intent',
-        object: 'maybe wants to renew',
-        validFrom: new Date('2026-04-01').toISOString(),
-        // No eventId/messageId → default low source trust (0.5)
-        source: { vertical: 'rent' },
-        confidence: 0.05,
-      });
+      const r = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'conflict_lowscore' },
+          predicate: 'intent',
+          object: 'maybe wants to renew',
+          validFrom: new Date('2026-04-01').toISOString(),
+          // No eventId/messageId → default low source trust (0.5)
+          source: { vertical: 'rent' },
+          confidence: 0.05,
+        });
       expect(r.status).toBe(201);
       // With confidence 0.05 + default source trust 0.5 + recency ~1 + no
       // authority, the weighted score should fall below 0.30.
@@ -448,20 +506,26 @@ describe('SOTA e2e — SurrealDB-native features', () => {
       const t = await createApp();
       try {
         const tAuth = () => ({ Authorization: `Bearer ${t.apiKey}` });
-        await t.http.post('/v1/ingest/fact').set(tAuth()).send({
-          entityRef: { vertical: 'shop', id: 'forget_target' },
-          predicate: 'name',
-          object: 'Forget Me',
-          validFrom: new Date().toISOString(),
-          source: { vertical: 'shop' },
-        });
-        await t.http.post('/v1/ingest/fact').set(tAuth()).send({
-          entityRef: { vertical: 'shop', id: 'forget_target' },
-          predicate: 'said',
-          object: 'private message',
-          validFrom: new Date().toISOString(),
-          source: { vertical: 'shop', messageId: 'fm1' },
-        });
+        await t.http
+          .post('/v1/ingest/fact')
+          .set(tAuth())
+          .send({
+            entityRef: { vertical: 'shop', id: 'forget_target' },
+            predicate: 'name',
+            object: 'Forget Me',
+            validFrom: new Date().toISOString(),
+            source: { vertical: 'shop' },
+          });
+        await t.http
+          .post('/v1/ingest/fact')
+          .set(tAuth())
+          .send({
+            entityRef: { vertical: 'shop', id: 'forget_target' },
+            predicate: 'said',
+            object: 'private message',
+            validFrom: new Date().toISOString(),
+            source: { vertical: 'shop', messageId: 'fm1' },
+          });
 
         // Resolve via search → entityId
         const s = await t.http
@@ -480,9 +544,7 @@ describe('SOTA e2e — SurrealDB-native features', () => {
         expect(forget.body.entityIdHash).toMatch(/^hmac:/);
 
         // Entity gone — profile 404s.
-        const after = await t.http
-          .get(`/v1/entities/${encodeURIComponent(entityId)}`)
-          .set(tAuth());
+        const after = await t.http.get(`/v1/entities/${encodeURIComponent(entityId)}`).set(tAuth());
         expect(after.status).toBe(404);
       } finally {
         await t.close();

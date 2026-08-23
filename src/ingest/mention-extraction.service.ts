@@ -62,9 +62,7 @@ export class MentionExtractionService {
       speaker?.name || addressee?.name
         ? {
             ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
-            ...(addressee?.name !== undefined
-              ? { addresseeName: addressee.name }
-              : {}),
+            ...(addressee?.name !== undefined ? { addresseeName: addressee.name } : {}),
           }
         : undefined;
 
@@ -103,9 +101,7 @@ export class MentionExtractionService {
         ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
         : '';
     const factTexts = extraction.facts.map((f: { predicate: string; object: string }) =>
-      ctxStamp
-        ? `${ctxStamp} — ${f.predicate}: ${f.object}`
-        : `${f.predicate}: ${f.object}`,
+      ctxStamp ? `${ctxStamp} — ${f.predicate}: ${f.object}` : `${f.predicate}: ${f.object}`,
     );
     let factEmbeddings: number[][];
     try {

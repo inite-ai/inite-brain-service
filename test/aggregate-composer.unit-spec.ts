@@ -25,12 +25,10 @@ function makeSvc(opts: {
     },
   };
   const surreal = {
-    withCompany: async (_co: string, fn: (d: unknown) => Promise<unknown>) =>
-      fn(db),
+    withCompany: async (_co: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
   } as unknown as SurrealService;
   const config = {
-    get: (key: string, dflt?: string) =>
-      key === 'OPENAI_API_KEY' ? 'sk-test' : dflt,
+    get: (key: string, dflt?: string) => (key === 'OPENAI_API_KEY' ? 'sk-test' : dflt),
     getOrThrow: (key: string) => {
       if (key === 'OPENAI_API_KEY') return 'sk-test';
       throw new Error(`missing ${key}`);
@@ -44,9 +42,7 @@ function makeSvc(opts: {
     chat: {
       completions: {
         create: async () => ({
-          choices: [
-            { message: { content: JSON.stringify(opts.llm) } },
-          ],
+          choices: [{ message: { content: JSON.stringify(opts.llm) } }],
         }),
       },
     },
@@ -69,8 +65,16 @@ describe('AggregateComposerService (Lane C v1)', () => {
       facts: FACTS,
       llm: {
         aggregates: [
-          { aspect: 'Pets!', proposition: "Melanie's pets: cat Bailey and a dog.", members: [0, 1] },
-          { aspect: 'activities', proposition: "Melanie's activities: pottery, hiking, camping.", members: [2, 3, 4] },
+          {
+            aspect: 'Pets!',
+            proposition: "Melanie's pets: cat Bailey and a dog.",
+            members: [0, 1],
+          },
+          {
+            aspect: 'activities',
+            proposition: "Melanie's activities: pottery, hiking, camping.",
+            members: [2, 3, 4],
+          },
         ],
       },
     });
@@ -104,9 +108,7 @@ describe('AggregateComposerService (Lane C v1)', () => {
     });
     const res = await svc.run('co_x');
     expect(res.aggregatesWritten).toBe(0);
-    expect(
-      queries.some((q) => q.sql.includes('INSERT INTO knowledge_fact')),
-    ).toBe(false);
+    expect(queries.some((q) => q.sql.includes('INSERT INTO knowledge_fact'))).toBe(false);
   });
 
   it('skips entities with too few facts without calling the LLM', async () => {
@@ -139,9 +141,7 @@ describe('AggregateComposerService (Lane C v1)', () => {
     const tops = queries.find((q) => q.sql.includes('GROUP BY entityId'));
     expect(tops?.sql).toContain('derivedVersion = $version');
     expect(tops?.params?.version).toBe('wd-v2');
-    const swap = queries.find((q) =>
-      q.sql.includes('INSERT INTO knowledge_fact'),
-    );
+    const swap = queries.find((q) => q.sql.includes('INSERT INTO knowledge_fact'));
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows[0]!.derivedVersion).toBe('wd-v2');
     const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact'));
@@ -176,8 +176,6 @@ describe('AggregateComposerService (Lane C v1)', () => {
     };
     const res = await svc.run('co_x');
     expect(res.entities).toBe(0);
-    expect(res.skipped).toEqual([
-      { entityId: 'knowledge_entity:mel', reason: 'llm down' },
-    ]);
+    expect(res.skipped).toEqual([{ entityId: 'knowledge_entity:mel', reason: 'llm down' }]);
   });
 });

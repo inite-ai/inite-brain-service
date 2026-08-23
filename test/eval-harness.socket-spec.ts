@@ -10,10 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { parseFlags } from '../test/eval/harness/flags';
 import { runPool } from '../test/eval/harness/pool';
-import {
-  buildAxisReport,
-  estimateHaystackTokens,
-} from '../test/eval/harness/report';
+import { buildAxisReport, estimateHaystackTokens } from '../test/eval/harness/report';
 import {
   runWorlds,
   speakerEntityName,
@@ -37,11 +34,12 @@ describe('parseFlags', () => {
   } as const;
 
   it('parses each type over defaults', () => {
-    const args = parseFlags(
-      ['--name', 'x', '--n', '7', '--on', '--list', 'a,b'],
-      spec,
-      { name: '', n: 1, on: false, list: [] as string[] },
-    );
+    const args = parseFlags(['--name', 'x', '--n', '7', '--on', '--list', 'a,b'], spec, {
+      name: '',
+      n: 1,
+      on: false,
+      list: [] as string[],
+    });
     expect(args).toEqual({ name: 'x', n: 7, on: true, list: ['a', 'b'] });
   });
 
@@ -100,9 +98,7 @@ describe('buildAxisReport', () => {
 describe('driver helpers', () => {
   it('mirrors the deriver speaker slug (suffix after ":", "-"→"_")', () => {
     expect(speakerEntityName('beam:100k-1', 'user')).toBe('100k_1__user');
-    expect(speakerEntityName('lme:abc_def', 'assistant')).toBe(
-      'abc_def__assistant',
-    );
+    expect(speakerEntityName('lme:abc_def', 'assistant')).toBe('abc_def__assistant');
   });
 
   it('schedules turns 30s apart, jumping past the gap per chunk', () => {
@@ -162,9 +158,7 @@ describe('runWorlds', () => {
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
-        const body = chunks.length
-          ? JSON.parse(Buffer.concat(chunks).toString('utf-8'))
-          : {};
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf-8')) : {};
         calls.push({
           url: req.url ?? '',
           tenant: req.headers['x-brain-tenant'] as string | undefined,
@@ -264,10 +258,7 @@ describe('runWorlds', () => {
   });
 
   it('skips fully checkpointed worlds without any HTTP calls', async () => {
-    const ckpt = path.join(
-      await fs.mkdtemp(path.join(os.tmpdir(), 'harness-')),
-      'run.jsonl',
-    );
+    const ckpt = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'harness-')), 'run.jsonl');
     await appendCheckpoint(ckpt, {
       questionId: 'q-1',
       group: 'temporal-reasoning',

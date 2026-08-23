@@ -1,19 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SearchService } from '../search/search.service';
 import { policyFor } from '../ingest/conflict-resolver';
-import {
-  getAbortSignal,
-  getCorrelationId,
-  runWithRequestContext,
-} from '../common/request-context';
+import { getAbortSignal, getCorrelationId, runWithRequestContext } from '../common/request-context';
 import { ACTIONS } from './action-registry';
 import { compilePolicySet } from './policy-compile';
-import {
-  evaluateAction,
-  evaluateRow,
-  sourceRuleMatches,
-  toRowView,
-} from './policy-engine';
+import { evaluateAction, evaluateRow, sourceRuleMatches, toRowView } from './policy-engine';
 import { PolicyStoreService } from './policy-store.service';
 import {
   CompiledPolicySet,
@@ -90,10 +81,7 @@ export class PolicySimulationService {
     private readonly store: PolicyStoreService,
   ) {}
 
-  async resolveSubject(
-    companyId: string,
-    subject: SimulationSubject,
-  ): Promise<PolicyContext> {
+  async resolveSubject(companyId: string, subject: SimulationSubject): Promise<PolicyContext> {
     const sets: CompiledPolicySet[] = [];
     if (subject.inline !== undefined) {
       const parsed = PolicyDocumentSchema.safeParse(subject.inline);
@@ -115,9 +103,7 @@ export class PolicySimulationService {
       if (compiled) sets.push(compiled);
     }
     if (sets.length === 0) {
-      throw new BadRequestException(
-        'Simulation subject resolves to zero enabled policy sets',
-      );
+      throw new BadRequestException('Simulation subject resolves to zero enabled policy sets');
     }
     return {
       companyId,
@@ -155,9 +141,7 @@ export class PolicySimulationService {
         ),
     );
 
-    const flat = results.flatMap((hit) =>
-      (hit.facts ?? []).map((fact) => ({ hit, fact })),
-    );
+    const flat = results.flatMap((hit) => (hit.facts ?? []).map((fact) => ({ hit, fact })));
     const views = await this.store.loadFactViews(
       companyId,
       flat.map(({ fact }) => fact.factId),
@@ -166,7 +150,10 @@ export class PolicySimulationService {
     const rows: SimulateSearchResult['rows'] = flat.map(({ hit, fact }) => {
       const view = views.get(fact.factId);
       const evaluation = view
-        ? evaluateRow(ctx, toRowView(view, (p) => policyFor(p).piiClass))
+        ? evaluateRow(
+            ctx,
+            toRowView(view, (p) => policyFor(p).piiClass),
+          )
         : { decision: 'allow' as PolicyDecision, verdicts: [] as SetVerdict[] };
       const src = (view?.source ?? {}) as Record<string, unknown>;
       return {
@@ -230,7 +217,11 @@ export class PolicySimulationService {
   ): Promise<{
     matched: number;
     sampled: number;
-    sample: Array<{ factId: string; predicate: string; source: { vertical?: string; recorder?: string } }>;
+    sample: Array<{
+      factId: string;
+      predicate: string;
+      source: { vertical?: string; recorder?: string };
+    }>;
   }> {
     const doc = PolicyDocumentSchema.safeParse({
       name: 'preview-probe',
@@ -259,7 +250,11 @@ export class PolicySimulationService {
 
     const views = await this.store.sampleFactViews(companyId, PREVIEW_SAMPLE_LIMIT);
     let matched = 0;
-    const sample: Array<{ factId: string; predicate: string; source: { vertical?: string; recorder?: string } }> = [];
+    const sample: Array<{
+      factId: string;
+      predicate: string;
+      source: { vertical?: string; recorder?: string };
+    }> = [];
     for (const view of views) {
       const rowView = toRowView(view, (p) => policyFor(p).piiClass);
       if (!sourceRuleMatches(compiledRule, rowView)) continue;
@@ -279,14 +274,9 @@ export class PolicySimulationService {
     return { matched, sampled: views.length, sample };
   }
 
-  private compile(
-    doc: PolicyDocument,
-    modeOverride?: 'enforce',
-  ): CompiledPolicySet | null {
+  private compile(doc: PolicyDocument, modeOverride?: 'enforce'): CompiledPolicySet | null {
     return compilePolicySet(
-      modeOverride && doc.mode !== 'disabled'
-        ? { ...doc, mode: modeOverride }
-        : doc,
+      modeOverride && doc.mode !== 'disabled' ? { ...doc, mode: modeOverride } : doc,
     );
   }
 

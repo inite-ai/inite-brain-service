@@ -4,16 +4,8 @@ import type { Surreal } from 'surrealdb';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { ReadPinService } from '../episodes/read-pin.service';
-import {
-  ConcatSummaryGenerator,
-  FactToSummarize,
-  SummaryGenerator,
-} from './summary-generator';
-import {
-  CandidateFactRow,
-  CompactionStats,
-  SUMMARY_GENERATOR,
-} from './compaction.types';
+import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
+import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
 
 /**
@@ -45,15 +37,11 @@ export class CompactionRunnerService {
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
     @Optional() private readonly readPin?: ReadPinService,
   ) {
-    this.hotRetentionDays = parseInt(
-      config.get<string>('COMPACTION_HOT_RETENTION_DAYS', '90'),
-      10,
-    );
+    this.hotRetentionDays = parseInt(config.get<string>('COMPACTION_HOT_RETENTION_DAYS', '90'), 10);
     if (!Number.isFinite(this.hotRetentionDays) || this.hotRetentionDays < 1) {
       throw new Error('COMPACTION_HOT_RETENTION_DAYS must be a positive integer');
     }
-    this.summariesEnabled =
-      envFlagEnabled(config.get<string>('COMPACTION_SUMMARIES'));
+    this.summariesEnabled = envFlagEnabled(config.get<string>('COMPACTION_SUMMARIES'));
     this.summaryGenerator = injectedGenerator ?? new ConcatSummaryGenerator();
     this.logger.log(
       `Compaction config: retention=${this.hotRetentionDays}d, summaries=${this.summariesEnabled}, generator=${this.summaryGenerator.constructor.name}`,
@@ -72,9 +60,7 @@ export class CompactionRunnerService {
         const stats = await this.compactCompany(companyId);
         results.push(stats);
       } catch (e) {
-        this.logger.error(
-          `Compaction failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.error(`Compaction failed for ${companyId}: ${(e as Error).message}`);
       }
     }
     const total = results.reduce((acc, r) => acc + r.factsCompacted, 0);
@@ -98,9 +84,7 @@ export class CompactionRunnerService {
     // fails to PARSE it ("Unexpected token `a parameter`"), which made
     // every compaction pass throw (and log-and-skip) since the 3.1.5
     // upgrade. Caught by the promotion e2e reusing the same idiom.
-    const cutoff = new Date(
-      Date.now() - this.hotRetentionDays * 24 * 60 * 60 * 1000,
-    );
+    const cutoff = new Date(Date.now() - this.hotRetentionDays * 24 * 60 * 60 * 1000);
 
     // Audit W2 #10: compaction used to be version-BLIND. Under a pinned
     // derived world it flipped that world's facts to status='compacted'
@@ -109,8 +93,7 @@ export class CompactionRunnerService {
     // A world is self-contained: compact inside the live one, stamp the
     // summary with the same version.
     const derivedVersion =
-      (await this.readPin?.resolve(companyId)) ??
-      ReadPinService.bootstrapDefault();
+      (await this.readPin?.resolve(companyId)) ?? ReadPinService.bootstrapDefault();
     const versionClause = derivedVersion
       ? 'AND derivedVersion = $derivedVersion'
       : 'AND derivedVersion IS NONE';
@@ -141,11 +124,7 @@ export class CompactionRunnerService {
       // Step 2: optional summary rollup
       let summariesCreated = 0;
       if (this.summariesEnabled) {
-        summariesCreated = await this.createSummaries(
-          db,
-          candidates,
-          derivedVersion,
-        );
+        summariesCreated = await this.createSummaries(db, candidates, derivedVersion);
       }
 
       // Step 3: mark + drop embeddings on the originals. Record-id params,
@@ -196,21 +175,22 @@ export class CompactionRunnerService {
     let created = 0;
     for (const [, group] of groups) {
       if (group.length < 2) continue;
-      const sorted = [...group].sort((a, b) =>
-        a.validFrom < b.validFrom ? -1 : 1,
-      );
+      const sorted = [...group].sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1));
       // The SDK returns datetime columns as Date objects; FactToSummarize
       // (and the concat generator's `.slice`) expect ISO strings — without
       // the normalisation every summary rollup threw a TypeError.
       const summaryText = await this.summaryGenerator.generate(
-        sorted.map((g) => ({
-          factId: String(g.id),
-          predicate: g.predicate,
-          object: g.object,
-          validFrom: isoOf(g.validFrom),
-          validUntil: g.validUntil ? isoOf(g.validUntil) : undefined,
-          confidence: g.confidence,
-        }) satisfies FactToSummarize),
+        sorted.map(
+          (g) =>
+            ({
+              factId: String(g.id),
+              predicate: g.predicate,
+              object: g.object,
+              validFrom: isoOf(g.validFrom),
+              validUntil: g.validUntil ? isoOf(g.validUntil) : undefined,
+              confidence: g.confidence,
+            }) satisfies FactToSummarize,
+        ),
       );
       if (!summaryText) continue;
 
@@ -219,8 +199,7 @@ export class CompactionRunnerService {
       const last = sorted[sorted.length - 1]!;
       const earliest = first.validFrom;
       const latest = last.validUntil ?? last.validFrom;
-      const meanConfidence =
-        sorted.reduce((acc, g) => acc + g.confidence, 0) / sorted.length;
+      const meanConfidence = sorted.reduce((acc, g) => acc + g.confidence, 0) / sorted.length;
 
       await dbCreate(db, 'knowledge_fact', {
         entityId: first.entityId,

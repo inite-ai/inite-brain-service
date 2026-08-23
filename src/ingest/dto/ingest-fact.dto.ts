@@ -33,14 +33,7 @@ export interface EntityRef {
  * class-validator can't nest into the opaque source object.
  */
 export interface SourceEvidence {
-  kind:
-    | 'event'
-    | 'message'
-    | 'conversation'
-    | 'url'
-    | 'document'
-    | 'commit'
-    | 'other';
+  kind: 'event' | 'message' | 'conversation' | 'url' | 'document' | 'commit' | 'other';
   /** The pointer itself — id, URL, path, sha… ≤512 chars. */
   ref: string;
   note?: string;
@@ -80,7 +73,10 @@ export class IngestFactDto {
 
   @IsOptional() @IsISO8601() validUntil?: string;
 
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
   confidence?: number;
 
   @IsObject()
@@ -97,10 +93,13 @@ export class IngestFactDto {
    * timeline. The caller — a trusted backend holding the tenant key —
    * asserts the user.
    */
-  @IsOptional() @IsString() @MaxLength(200)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   userId?: string | undefined;
 
-  @IsOptional() @IsObject()
+  @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 
   /**

@@ -1,13 +1,7 @@
 /**
  * Code-memory Phase 3 — eval metrics (pure).
  */
-import {
-  mean,
-  precision,
-  recall,
-  recallAtK,
-  summarize,
-} from '../src/code-memory/eval/metrics';
+import { mean, precision, recall, recallAtK, summarize } from '../src/code-memory/eval/metrics';
 
 describe('code-memory eval metrics', () => {
   it('recall = fraction of expected retrieved', () => {

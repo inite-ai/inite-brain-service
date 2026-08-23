@@ -32,18 +32,13 @@ export class PolicyKeysService {
       this.store.listBindings(companyId),
       this.store.list(companyId),
     ]);
-    const bindingBySubject = new Map(
-      bindings.map((b) => [b.subject, b.policyNames]),
-    );
+    const bindingBySubject = new Map(bindings.map((b) => [b.subject, b.policyNames]));
     const modeByName = new Map(sets.map((s) => [s.name, s.mode]));
 
     return records.map((r) => {
       const subject = `key:${r.keyHash}`;
       const names = [
-        ...new Set([
-          ...(bindingBySubject.get(subject) ?? []),
-          ...(r.policyNames ?? []),
-        ]),
+        ...new Set([...(bindingBySubject.get(subject) ?? []), ...(r.policyNames ?? [])]),
       ].slice(0, MAX_SETS_PER_KEY);
       return {
         keyId: keyIdOf(r.keyHash),

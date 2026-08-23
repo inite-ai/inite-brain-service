@@ -1,9 +1,4 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { OperatorActionService } from './operator-action.service';
@@ -39,10 +34,8 @@ export class OperatorActionInterceptor implements NestInterceptor {
     const startedAt = Date.now();
     return next.handle().pipe(
       tap({
-        next: () =>
-          this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
-        error: () =>
-          this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
+        next: () => this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
+        error: () => this.maybeRecord({ req, res, path, isAdminRoute, isSelf, startedAt }),
       }),
     );
   }
@@ -94,9 +87,7 @@ function isUnsafeKey(k: string): boolean {
 // one Object.fromEntries call: request-controlled keys become own data
 // properties only — never a dynamic write that could reach a setter or an
 // inherited Object member.
-function summariseQuery(
-  q: Record<string, unknown> | undefined,
-): Record<string, string> | null {
+function summariseQuery(q: Record<string, unknown> | undefined): Record<string, string> | null {
   if (!q || Object.keys(q).length === 0) return null;
   const entries: Array<[string, string]> = [];
   for (const [k, v] of Object.entries(q)) {
@@ -117,9 +108,7 @@ function summariseValue(v: unknown): unknown {
   return truncate(String(v));
 }
 
-function summariseBody(
-  body: unknown,
-): Record<string, unknown> | null {
+function summariseBody(body: unknown): Record<string, unknown> | null {
   if (!body || typeof body !== 'object') return null;
   const entries: Array<[string, unknown]> = [];
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {

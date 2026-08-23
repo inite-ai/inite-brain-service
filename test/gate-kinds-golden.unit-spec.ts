@@ -101,6 +101,8 @@ describe('multi-label kinds heads', () => {
       { epochs: 20, seed: 7 },
     );
     expect(v1.version).toBe(1);
-    expect(new TrainedDecisionClassifier(v1).classifyKinds(goldenCommit(GATE_GOLDEN[0]!))).toEqual([]);
+    expect(new TrainedDecisionClassifier(v1).classifyKinds(goldenCommit(GATE_GOLDEN[0]!))).toEqual(
+      [],
+    );
   });
 });

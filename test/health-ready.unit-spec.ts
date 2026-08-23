@@ -16,13 +16,7 @@ import { HealthService } from '../src/common/health.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 
 describe('HealthController', () => {
-  function mk({
-    db,
-    embedderReady,
-  }: {
-    db: boolean;
-    embedderReady: boolean;
-  }) {
+  function mk({ db, embedderReady }: { db: boolean; embedderReady: boolean }) {
     const surreal = { ping: async () => db } as any;
     const embedder = { isReady: () => embedderReady } as any;
     return new HealthController(new HealthService(surreal, embedder));

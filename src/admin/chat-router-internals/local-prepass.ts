@@ -61,10 +61,7 @@ type MentionMatch = {
   span: { text: string; start: number; end: number };
 };
 
-export function extractMentionsLocally(
-  message: string,
-  knownNames: string[],
-): MentionMatch[] {
+export function extractMentionsLocally(message: string, knownNames: string[]): MentionMatch[] {
   if (knownNames.length === 0) return [];
   const lowerMessage = message.toLowerCase();
   const accepted: MentionMatch[] = [];
@@ -157,16 +154,9 @@ function matchFirstTokenForm({
   }
 }
 
-function firstTokenCollides(
-  firstToken: string,
-  canonical: string,
-  knownNames: string[],
-): boolean {
+function firstTokenCollides(firstToken: string, canonical: string, knownNames: string[]): boolean {
   const prefix = firstToken.toLowerCase() + ' ';
-  return knownNames.some(
-    (other) =>
-      other !== canonical && other.toLowerCase().startsWith(prefix),
-  );
+  return knownNames.some((other) => other !== canonical && other.toLowerCase().startsWith(prefix));
 }
 
 /** Word-boundary check so "Mariana" isn't matched as "Maria". */

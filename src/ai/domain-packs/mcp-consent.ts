@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './checksum';
-import type {
-  DomainPackManifest,
-  PackExternalToolSpec,
-} from './manifest';
+import type { DomainPackManifest, PackExternalToolSpec } from './manifest';
 
 /**
  * Install-time consent for pack-declared MCP tools (docs/mcp-pack-tools.md).
@@ -26,18 +23,12 @@ export function mcpToolsChecksum(manifest: DomainPackManifest): string | null {
   if (!Array.isArray(manifest.mcpTools) || manifest.mcpTools.length === 0) {
     return null;
   }
-  return createHash('sha256')
-    .update(canonicalJson(manifest.mcpTools))
-    .digest('hex');
+  return createHash('sha256').update(canonicalJson(manifest.mcpTools)).digest('hex');
 }
 
 /** The manifest's external mcpTools (empty array when none declared). */
-export function externalMcpTools(
-  manifest: DomainPackManifest,
-): PackExternalToolSpec[] {
-  return (manifest.mcpTools ?? []).filter(
-    (t): t is PackExternalToolSpec => t.kind === 'external',
-  );
+export function externalMcpTools(manifest: DomainPackManifest): PackExternalToolSpec[] {
+  return (manifest.mcpTools ?? []).filter((t): t is PackExternalToolSpec => t.kind === 'external');
 }
 
 /**

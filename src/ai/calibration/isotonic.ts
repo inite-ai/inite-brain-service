@@ -53,10 +53,7 @@ export interface CalibrationMap {
  *   - empty input → identity map (a single bucket [0, 1] → 1).
  *   - all-same-correctness input → constant map at that value.
  */
-export function fitIsotonic(
-  pairs: readonly CalibrationPair[],
-  binCount = 10,
-): CalibrationMap {
+export function fitIsotonic(pairs: readonly CalibrationPair[], binCount = 10): CalibrationMap {
   if (pairs.length === 0) {
     return { thresholds: [1], values: [1], sampleCount: 0 };
   }
@@ -96,7 +93,7 @@ export function fitIsotonic(
 
   // 3. PAV: collapse adjacent violators (mean[k] > mean[k+1]) by
   // weighted-merging until non-decreasing.
-  for (let i = 0; i < populated.length - 1; ) {
+  for (let i = 0; i < populated.length - 1;) {
     // i < populated.length - 1 ⇒ both i and i+1 are in-bounds.
     const a = populated[i]!;
     const b = populated[i + 1]!;

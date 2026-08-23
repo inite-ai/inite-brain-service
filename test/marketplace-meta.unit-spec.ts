@@ -69,10 +69,7 @@ describe('mergeMarketplaceMeta', () => {
   });
 
   it('does not stamp false/empty state (unfeatured free row = clean wire)', () => {
-    const [merged] = mergeMarketplaceMeta(
-      [summary()],
-      new Map([['fintech', meta()]]),
-    );
+    const [merged] = mergeMarketplaceMeta([summary()], new Map([['fintech', meta()]]));
     expect('featured' in merged!).toBe(false);
     expect('paid' in merged!).toBe(false);
     expect('displayPrice' in merged!).toBe(false);

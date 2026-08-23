@@ -54,9 +54,7 @@ export class SegmentLaneService {
   }): Promise<string[]> {
     const topK = opts.topK;
     const fetchK = Math.max(topK * 3, 12);
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
+    const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
     // Fail-closed user scope (0055, audit W1 #14): segments inherit the
     // window's userId only when it is unanimous, so an unscoped read must
     // stay tenant-global rather than serve another user's window.
@@ -66,29 +64,26 @@ export class SegmentLaneService {
     const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
     try {
       const queryVector = await this.embedder.embed(opts.query);
-      const fused = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const [dense] = await db.query<[SegmentRow[]]>(
-            `SELECT id, text, occurredAt,
+      const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [dense] = await db.query<[SegmentRow[]]>(
+          `SELECT id, text, occurredAt,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM episode_segment
               WHERE embedding != NONE ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { q: queryVector, k: fetchK, ...userParams },
-          );
-          const [bm25] = await db.query<[SegmentRow[]]>(
-            `SELECT id, text, occurredAt, search::score(1) AS score
+          { q: queryVector, k: fetchK, ...userParams },
+        );
+        const [bm25] = await db.query<[SegmentRow[]]>(
+          `SELECT id, text, occurredAt, search::score(1) AS score
                FROM episode_segment
               WHERE text @1@ $q ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { q: opts.query, k: fetchK, ...userParams },
-          );
-          return rrfFuse([dense ?? [], bm25 ?? []]);
-        },
-      );
+          { q: opts.query, k: fetchK, ...userParams },
+        );
+        return rrfFuse([dense ?? [], bm25 ?? []]);
+      });
       if (fused.length === 0) return [];
       const kept = await this.maybeRerank(opts.query, fused, {
         topK,
@@ -98,8 +93,7 @@ export class SegmentLaneService {
         .slice()
         .sort(
           (a, b) =>
-            new Date(a.occurredAt as string).getTime() -
-            new Date(b.occurredAt as string).getTime(),
+            new Date(a.occurredAt as string).getTime() - new Date(b.occurredAt as string).getTime(),
         )
         .map((s) => s.text);
     } catch (e) {
@@ -151,7 +145,5 @@ export function rrfFuse(lists: SegmentRow[][], k = 60): SegmentRow[] {
       else scores.set(id, { row, score: add });
     });
   }
-  return [...scores.values()]
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.row);
+  return [...scores.values()].sort((a, b) => b.score - a.score).map((x) => x.row);
 }

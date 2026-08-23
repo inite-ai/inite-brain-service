@@ -5,20 +5,14 @@
  */
 import { extractPredicateHintsLocally } from '../src/admin/chat-router.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
-import type {
-  PredicateSnapshot,
-  PredicateDefinition,
-} from '../src/ai/predicate-registry.service';
+import type { PredicateSnapshot, PredicateDefinition } from '../src/ai/predicate-registry.service';
 
 function vec(values: number[]): number[] {
   return values;
 }
 
 /** Embeds the message to a fixed vector — tests inject mappings per-case. */
-function mkEmbedder(
-  map: Map<string, number[]>,
-  fail = false,
-): EmbedderService {
+function mkEmbedder(map: Map<string, number[]>, fail = false): EmbedderService {
   return {
     embed: async (text: string) => {
       if (fail) throw new Error('boom');
@@ -29,9 +23,7 @@ function mkEmbedder(
   } as unknown as EmbedderService;
 }
 
-function mkSnapshot(
-  embeddings: Record<string, number[]>,
-): PredicateSnapshot {
+function mkSnapshot(embeddings: Record<string, number[]>): PredicateSnapshot {
   const active: PredicateDefinition[] = Object.keys(embeddings).map((id) => ({
     predicateId: id,
     displayLabel: id,
@@ -131,9 +123,7 @@ describe('extractPredicateHintsLocally', () => {
       email: vec([0, 1]),
     });
     // Query at 45° → cosine ≈ 0.707 with each axis
-    const emb = mkEmbedder(
-      new Map([['x', vec([Math.SQRT1_2, Math.SQRT1_2])]]),
-    );
+    const emb = mkEmbedder(new Map([['x', vec([Math.SQRT1_2, Math.SQRT1_2])]]));
     const tightHints = await extractPredicateHintsLocally({
       message: 'x',
       snapshot: snap,
@@ -149,10 +139,7 @@ describe('extractPredicateHintsLocally', () => {
       threshold: 0.5,
       maxHints: 3,
     });
-    expect(loose.map((h) => h.predicateId).sort()).toEqual([
-      'address',
-      'email',
-    ]);
+    expect(loose.map((h) => h.predicateId).sort()).toEqual(['address', 'email']);
   });
 
   it('returns triggerSpan covering the whole message', async () => {

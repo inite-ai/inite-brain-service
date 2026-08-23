@@ -47,9 +47,7 @@ function mockOpenAi(response: Record<string, unknown>, captured: CapturedRequest
             maxCompletionTokens: req.max_completion_tokens,
           });
           return {
-            choices: [
-              { message: { content: JSON.stringify(response) }, finish_reason: 'stop' },
-            ],
+            choices: [{ message: { content: JSON.stringify(response) }, finish_reason: 'stop' }],
           };
         },
       },
@@ -69,10 +67,7 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     const captured: CapturedRequest[] = [];
     const out = await runVerifier({
       ...BASE_REQ,
-      openai: mockOpenAi(
-        { verdict: 'supported', unsupportedClaims: [] },
-        captured,
-      ),
+      openai: mockOpenAi({ verdict: 'supported', unsupportedClaims: [] }, captured),
     });
     expect(out.verdict).toBe('supported');
     expect(out.questionAnswered).toBeUndefined();
@@ -107,10 +102,7 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     await runVerifier({
       ...BASE_REQ,
       model: 'gpt-5-mini',
-      openai: mockOpenAi(
-        { verdict: 'supported', unsupportedClaims: [] },
-        captured,
-      ),
+      openai: mockOpenAi({ verdict: 'supported', unsupportedClaims: [] }, captured),
     });
     expect(captured[0]!.temperature).toBeUndefined();
     expect(captured[0]!.maxCompletionTokens).toBe(2048);
@@ -118,10 +110,7 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     const classic: CapturedRequest[] = [];
     await runVerifier({
       ...BASE_REQ,
-      openai: mockOpenAi(
-        { verdict: 'supported', unsupportedClaims: [] },
-        classic,
-      ),
+      openai: mockOpenAi({ verdict: 'supported', unsupportedClaims: [] }, classic),
     });
     expect(classic[0]!.temperature).toBe(0);
     expect(classic[0]!.maxCompletionTokens).toBe(256);
@@ -161,9 +150,7 @@ describe('finalizeVerdict consumes questionAnswered (V10 §5)', () => {
   }) => { answer: string | null; reason?: string };
 
   const finalize = (svc: SynthesizeService): Finalize =>
-    (
-      svc as unknown as { finalizeVerdict: Finalize }
-    ).finalizeVerdict.bind(svc);
+    (svc as unknown as { finalizeVerdict: Finalize }).finalizeVerdict.bind(svc);
 
   const base = {
     answer: 'fabricated causal chain',
@@ -288,18 +275,14 @@ describe('coverageAbstention guardrails matrix (V9 §4)', () => {
   }) => { answer: string | null; reason?: string } | null;
 
   const coverage = (svc: SynthesizeService): Coverage =>
-    (
-      svc as unknown as { coverageAbstention: Coverage }
-    ).coverageAbstention.bind(svc);
+    (svc as unknown as { coverageAbstention: Coverage }).coverageAbstention.bind(svc);
 
   const failingProfile = {
     abstentionCalibration: 'coverage',
     abstentionMinTopScore: 0.5,
     abstentionMinEvidence: 2,
   };
-  const thinResults = [
-    { facts: [{ factId: 'f1', object: 'x', score: 0.1 }] },
-  ];
+  const thinResults = [{ facts: [{ factId: 'f1', object: 'x', score: 0.1 }] }];
 
   it('declines below the floor in strict and lenient', () => {
     for (const guardrails of ['strict', 'lenient']) {
@@ -343,9 +326,7 @@ describe('coverageAbstention guardrails matrix (V9 §4)', () => {
 
 describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {
   it('defaults off; env enables; overlays per tenant', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierTopicCoverage,
-    ).toBe(false);
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierTopicCoverage).toBe(false);
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_VERIFIER_TOPIC_COVERAGE: '1',
@@ -356,20 +337,14 @@ describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {
         beamco: { verifierTopicCoverage: true },
       }),
     } as NodeJS.ProcessEnv;
-    expect(
-      resolveRetrievalProfileFor('beamco', env).verifierTopicCoverage,
-    ).toBe(true);
-    expect(
-      resolveRetrievalProfileFor('other', env).verifierTopicCoverage,
-    ).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).verifierTopicCoverage).toBe(true);
+    expect(resolveRetrievalProfileFor('other', env).verifierTopicCoverage).toBe(false);
   });
 });
 
 describe('RETRIEVAL_VERIFIER_MODEL profile point (V11 §2 arm a)', () => {
   it("defaults to '' (inherit the synthesis model)", () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierModel).toBe(
-      '',
-    );
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierModel).toBe('');
   });
 
   it('accepts a plain model id and rejects malformed values', () => {
@@ -395,13 +370,9 @@ describe('RETRIEVAL_VERIFIER_MODEL profile point (V11 §2 arm a)', () => {
         badco: { verifierModel: 'nope nope' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).verifierModel).toBe(
-      'gpt-5-mini',
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).verifierModel).toBe('gpt-5-mini');
     expect(resolveRetrievalProfileFor('plainco', env).verifierModel).toBe('');
     // Malformed overlay value is ignored — the boot default stands.
-    expect(resolveRetrievalProfileFor('badco', env).verifierModel).toBe(
-      'gpt-4o-mini',
-    );
+    expect(resolveRetrievalProfileFor('badco', env).verifierModel).toBe('gpt-4o-mini');
   });
 });

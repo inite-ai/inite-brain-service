@@ -1,15 +1,8 @@
 import { bucketByEntity, scoreRows } from '../src/search/internals/scoring';
 import { assembleHits } from '../src/search/internals/response-builder';
-import type {
-  ScoredRow,
-  FactRow,
-  FusedRow,
-  EntityBucket,
-} from '../src/search/internals/types';
+import type { ScoredRow, FactRow, FusedRow, EntityBucket } from '../src/search/internals/types';
 
-function fact(
-  partial: Partial<FactRow> & { predicate: string; object: string },
-): FactRow {
+function fact(partial: Partial<FactRow> & { predicate: string; object: string }): FactRow {
   return {
     id: `fact:${partial.predicate}:${partial.object}`,
     entityId: 'knowledge_entity:e1',
@@ -84,10 +77,7 @@ describe('assembleHits requireProvenance', () => {
       fact({ predicate: 'role', object: 'eng', source: { eventId: 'x' } }),
       1.0,
     );
-    const noSrc = scored(
-      fact({ predicate: 'hobby', object: 'chess', source: null }),
-      0.8,
-    );
+    const noSrc = scored(fact({ predicate: 'hobby', object: 'chess', source: null }), 0.8);
     const hits = assembleHits({
       topEntities: [bucket([withSrc, noSrc])],
       entityTypes: undefined,
@@ -100,10 +90,7 @@ describe('assembleHits requireProvenance', () => {
   });
 
   it('drops an entity whose every fact lacks provenance', () => {
-    const noSrc = scored(
-      fact({ predicate: 'hobby', object: 'chess', source: {} }),
-      0.8,
-    );
+    const noSrc = scored(fact({ predicate: 'hobby', object: 'chess', source: {} }), 0.8);
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
       entityTypes: undefined,
@@ -113,10 +100,7 @@ describe('assembleHits requireProvenance', () => {
   });
 
   it('is a no-op when requireProvenance is false', () => {
-    const noSrc = scored(
-      fact({ predicate: 'hobby', object: 'chess', source: null }),
-      0.8,
-    );
+    const noSrc = scored(fact({ predicate: 'hobby', object: 'chess', source: null }), 0.8);
     const hits = assembleHits({
       topEntities: [bucket([noSrc])],
       entityTypes: undefined,
@@ -198,5 +182,4 @@ describe('assembleHits fact-window shaping', () => {
     });
     expect(wide[0]!.facts).toHaveLength(10);
   });
-
 });

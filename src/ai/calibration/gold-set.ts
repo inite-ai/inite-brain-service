@@ -30,11 +30,7 @@
 
 import type { CalibrationPair } from './isotonic';
 
-function rep(
-  rawConfidence: number,
-  total: number,
-  correctFraction: number,
-): CalibrationPair[] {
+function rep(rawConfidence: number, total: number, correctFraction: number): CalibrationPair[] {
   const correctCount = Math.round(total * correctFraction);
   const out: CalibrationPair[] = [];
   for (let i = 0; i < total; i++) {
@@ -60,5 +56,5 @@ export const BOOTSTRAP_GOLD_SET: CalibrationPair[] = [
   ...rep(0.75, 20, 0.55), //  ~11/20  (raw - 0.20)
   ...rep(0.85, 20, 0.65), //  ~13/20
   // Severe overconfidence — high-emit, modest truth
-  ...rep(0.95, 20, 0.70), //  ~14/20
+  ...rep(0.95, 20, 0.7), //  ~14/20
 ];

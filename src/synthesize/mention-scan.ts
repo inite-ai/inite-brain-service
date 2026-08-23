@@ -148,9 +148,7 @@ export const LEX_MATCH_FLOOR = 1e-6;
 export function filterMentions(rows: ScanRow[]): ScanRow[] {
   const topSim = rows.reduce((m, r) => Math.max(m, r.sim ?? 0), 0);
   const denseFloor = Math.max(SCAN_ABS_SIM_FLOOR, topSim * SCAN_RELATIVE_SIM);
-  return rows.filter(
-    (r) => (r.lex ?? 0) > 0 || (r.sim !== undefined && r.sim >= denseFloor),
-  );
+  return rows.filter((r) => (r.lex ?? 0) > 0 || (r.sim !== undefined && r.sim >= denseFloor));
 }
 
 /**
@@ -159,18 +157,13 @@ export function filterMentions(rows: ScanRow[]): ScanRow[] {
  * strength first, similarity second. Output is chronological by
  * construction.
  */
-export function bestMentionPerSession(
-  rows: ScanRow[],
-  gapMs: number = SESSION_GAP_MS,
-): ScanRow[] {
+export function bestMentionPerSession(rows: ScanRow[], gapMs: number = SESSION_GAP_MS): ScanRow[] {
   const sorted = [...rows].sort((a, b) => a.occurredAt - b.occurredAt);
   const out: ScanRow[] = [];
   let best: ScanRow | null = null;
   let lastAt = Number.NEGATIVE_INFINITY;
   const better = (a: ScanRow, b: ScanRow): boolean =>
-    (a.lex ?? 0) !== (b.lex ?? 0)
-      ? (a.lex ?? 0) > (b.lex ?? 0)
-      : (a.sim ?? 0) > (b.sim ?? 0);
+    (a.lex ?? 0) !== (b.lex ?? 0) ? (a.lex ?? 0) > (b.lex ?? 0) : (a.sim ?? 0) > (b.sim ?? 0);
   for (const r of sorted) {
     if (best && r.occurredAt - lastAt > gapMs) {
       out.push(best);

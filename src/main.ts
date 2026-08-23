@@ -46,10 +46,7 @@ async function bootstrap() {
   const procLog = new Logger('Process');
   process.on('unhandledRejection', (reason) => {
     const e = reason as Error;
-    procLog.error(
-      `unhandledRejection: ${e?.message ?? reason}`,
-      e?.stack,
-    );
+    procLog.error(`unhandledRejection: ${e?.message ?? reason}`, e?.stack);
   });
   process.on('uncaughtExceptionMonitor', (err) => {
     procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
@@ -73,19 +70,21 @@ async function bootstrap() {
   // inline scripts; everything else is JSON. Enforce a CSP that allows that
   // one page's inline styles, pins scripts/objects to same-origin/none, and
   // forbids framing. (Leaving CSP off entirely is what CodeQL flagged.)
-  app.use(helmet({
-    contentSecurityPolicy: {
-      useDefaults: true,
-      directives: {
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'none'"],
-        frameAncestors: ["'none'"],
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
       },
-    },
-    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-  }));
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    }),
+  );
 
   // correlationIdMiddleware runs FIRST so the ALS store is set before
   // any other middleware (request-logger, debug-trace) reads it. The
@@ -148,7 +147,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-   
   console.error(err.message ?? err);
   process.exit(1);
 });

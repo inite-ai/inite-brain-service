@@ -13,10 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
-import {
-  PolicyStoreService,
-  StoredPolicySet,
-} from '../policy/policy-store.service';
+import { PolicyStoreService, StoredPolicySet } from '../policy/policy-store.service';
 import { compilePolicySet } from '../policy/policy-compile';
 import {
   evaluateAction,
@@ -61,11 +58,7 @@ export class AdminPoliciesController {
     @Req() req: AuthenticatedRequest,
     @Body() body: unknown,
   ): Promise<PolicySetResponse> {
-    const created = await this.store.create(
-      req.brainAuth.companyId,
-      body,
-      actorOf(req),
-    );
+    const created = await this.store.create(req.brainAuth.companyId, body, actorOf(req));
     return { policySet: toWire(created) } satisfies PolicySetResponse;
   }
 
@@ -116,9 +109,7 @@ export class AdminPoliciesController {
 
   @Get('bindings/all')
   @RequireScopes('brain:admin')
-  async bindings(
-    @Req() req: AuthenticatedRequest,
-  ): Promise<PolicyBindingsResponse> {
+  async bindings(@Req() req: AuthenticatedRequest): Promise<PolicyBindingsResponse> {
     const bindings = await this.store.listBindings(req.brainAuth.companyId);
     return { bindings } satisfies PolicyBindingsResponse;
   }
@@ -138,11 +129,10 @@ export class AdminPoliciesController {
     if (attach.length === 0 && detach.length === 0) {
       throw new BadRequestException('Nothing to do: attach and detach are empty');
     }
-    const updated = await this.store.updateAttachments(
-      req.brainAuth.companyId,
-      name,
-      { attach, detach },
-    );
+    const updated = await this.store.updateAttachments(req.brainAuth.companyId, name, {
+      attach,
+      detach,
+    });
     return { policySet: toWire(updated) } satisfies PolicySetResponse;
   }
 
@@ -217,10 +207,7 @@ export class AdminPoliciesController {
       };
     }
     if (body.factId) {
-      const row = await this.store.loadFactForExplain(
-        companyId,
-        String(body.factId),
-      );
+      const row = await this.store.loadFactForExplain(companyId, String(body.factId));
       const view = toRowView(row, (p) => policyFor(p).piiClass);
       out.row = {
         factId: String(body.factId),
@@ -230,17 +217,14 @@ export class AdminPoliciesController {
           predicate: view.predicate,
           piiClass: view.piiClass,
           source: (view.source as Record<string, unknown>) ?? null,
-          trustSnapshot:
-            (view.trustSnapshot as Record<string, unknown>) ?? null,
-          corroboration:
-            (view.corroboration as Record<string, unknown>) ?? null,
+          trustSnapshot: (view.trustSnapshot as Record<string, unknown>) ?? null,
+          corroboration: (view.corroboration as Record<string, unknown>) ?? null,
           userId: view.userId ?? null,
         },
       };
     }
     return out;
   }
-
 }
 
 function actorOf(req: AuthenticatedRequest): string {

@@ -1,7 +1,6 @@
 import { GenericContainer, Wait, StartedTestContainer } from 'testcontainers';
 
 declare global {
-   
   var __SURREAL_CONTAINER__: StartedTestContainer | undefined;
 }
 

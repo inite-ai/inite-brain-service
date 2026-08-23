@@ -30,9 +30,7 @@ describe('code-memory Phase 2b — anchor re-validation service', () => {
       asOfRaw: undefined,
       scopes: SCOPES,
     });
-    return (profile?.facts ?? []).filter((x) =>
-      x.predicate.startsWith('code_memory__'),
-    );
+    return (profile?.facts ?? []).filter((x) => x.predicate.startsWith('code_memory__'));
   };
 
   beforeAll(async () => {

@@ -127,9 +127,7 @@ describe('ProjectionsController gating', () => {
     delete process.env.PROJECTIONS_API_ENABLED;
     const c = makeController();
     await expect(c.list(req)).rejects.toThrow(NotFoundException);
-    await expect(c.rebuild(req, 'facts', {})).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(c.rebuild(req, 'facts', {})).rejects.toThrow(NotFoundException);
   });
 
   it('flag on → list returns rows + read pin; unknown name → 400', async () => {
@@ -139,9 +137,7 @@ describe('ProjectionsController gating', () => {
     expect(out.projections).toEqual([]);
     // The pin comes from the per-tenant resolver, not the pod's env.
     expect(out.readPin).toBe('wd-v2');
-    await expect(c.rebuild(req, 'segments', {})).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(c.rebuild(req, 'segments', {})).rejects.toThrow(BadRequestException);
     await expect(c.rebuild(req, 'facts', { version: 'BAD VERSION' })).rejects.toThrow(
       BadRequestException,
     );

@@ -19,14 +19,7 @@
  * everyone reports through-agent numbers in their papers.
  */
 import type { NormalizedConversation, LocomoQuestion } from './types';
-import {
-  tokenF1,
-  exactMatch,
-  rougeL,
-  bleu1,
-  adversarialScore,
-  isRefusal,
-} from './metrics';
+import { tokenF1, exactMatch, rougeL, bleu1, adversarialScore, isRefusal } from './metrics';
 import type { LlmJudge } from './judge';
 import { runPool } from '../harness/pool';
 import { loadCheckpoint, appendCheckpoint } from '../checkpoint';
@@ -60,11 +53,7 @@ export type AgentAnswer =
 
 export interface QaAgent {
   /** companyId is the per-sample brain tenant the conversation lives in. */
-  answer(input: {
-    companyId: string;
-    question: string;
-    asOf?: string;
-  }): Promise<AgentAnswer>;
+  answer(input: { companyId: string; question: string; asOf?: string }): Promise<AgentAnswer>;
 }
 
 export interface QuestionScore {
@@ -205,9 +194,7 @@ export async function runLocomo(
   } = {},
 ): Promise<RunReport> {
   const grand = conversations.reduce((a, c) => a + c.qa.length, 0);
-  const total = options.maxQuestions
-    ? Math.min(options.maxQuestions, grand)
-    : grand;
+  const total = options.maxQuestions ? Math.min(options.maxQuestions, grand) : grand;
 
   // Flatten to an ordered work list so a bounded pool can run questions
   // concurrently. maxQuestions caps in load order, matching the serial path.
@@ -227,10 +214,7 @@ export async function runLocomo(
     }
   }
 
-  const restored = await loadCheckpoint<QuestionScore>(
-    options.resume,
-    scoreKey,
-  );
+  const restored = await loadCheckpoint<QuestionScore>(options.resume, scoreKey);
   const scores: QuestionScore[] = new Array(work.length);
   let done = 0;
 
@@ -245,22 +229,13 @@ export async function runLocomo(
       options.onProgress?.(done, total);
       return;
     }
-    const score = await scoreQuestion(
-      agent,
-      companyId,
-      conv,
-      q,
-      options.perQuestionTimeoutMs,
-    );
+    const score = await scoreQuestion(agent, companyId, conv, q, options.perQuestionTimeoutMs);
     if (options.judge) await applyJudge(options.judge, score);
     scores[idx] = score;
     // A row is checkpointed only when complete for this run's config:
     // never on an errored answer, and — with the judge on — never on a
     // failed grade, so a resume retries instead of freezing the gap.
-    if (
-      !score.errored &&
-      (!options.judge || score.judgeCorrect !== undefined)
-    ) {
+    if (!score.errored && (!options.judge || score.judgeCorrect !== undefined)) {
       await appendCheckpoint(options.resume, score);
     }
     done += 1;
@@ -270,11 +245,7 @@ export async function runLocomo(
 }
 
 /** Content-addressed checkpoint key — stable across dataset slices. */
-function scoreKey(s: {
-  sampleId: string;
-  category: number;
-  question: string;
-}): string {
+function scoreKey(s: { sampleId: string; category: number; question: string }): string {
   return `${s.sampleId}::${s.category}::${s.question}`;
 }
 
@@ -391,26 +362,18 @@ async function scoreQuestion(
 }
 
 /** Aggregate per-question usage into the run-level token summary. */
-export function summarizeTokens(
-  scores: QuestionScore[],
-): TokenSummary | undefined {
+export function summarizeTokens(scores: QuestionScore[]): TokenSummary | undefined {
   const reported = scores.filter((s) => s.promptTokens !== undefined);
   if (reported.length === 0) return undefined;
-  const prompts = reported
-    .map((s) => s.promptTokens as number)
-    .sort((a, b) => a - b);
+  const prompts = reported.map((s) => s.promptTokens as number).sort((a, b) => a - b);
   const sum = prompts.reduce((a, b) => a + b, 0);
   return {
     reportedN: reported.length,
     avgPromptTokens: Math.round(sum / reported.length),
-    p90PromptTokens: prompts[Math.min(
-      prompts.length - 1,
-      Math.floor(prompts.length * 0.9),
-    )]!,
+    p90PromptTokens: prompts[Math.min(prompts.length - 1, Math.floor(prompts.length * 0.9))]!,
     maxPromptTokens: prompts[prompts.length - 1]!,
     avgCompletionTokens: Math.round(
-      reported.reduce((a, s) => a + (s.completionTokens ?? 0), 0) /
-        reported.length,
+      reported.reduce((a, s) => a + (s.completionTokens ?? 0), 0) / reported.length,
     ),
     totalPromptTokens: sum,
   };
@@ -440,9 +403,7 @@ function summarize(scores: QuestionScore[]): RunReport {
     byCategory.set(s.category, arr);
   }
   const perCategory: CategorySummary[] = [];
-  for (const [category, arr] of [...byCategory.entries()].sort(
-    (a, b) => a[0] - b[0],
-  )) {
+  for (const [category, arr] of [...byCategory.entries()].sort((a, b) => a[0] - b[0])) {
     perCategory.push({
       category,
       n: arr.length,

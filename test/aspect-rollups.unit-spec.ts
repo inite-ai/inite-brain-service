@@ -1,7 +1,4 @@
-import {
-  composeAspectRollups,
-  type RollupMember,
-} from '../src/admin/aspect-rollups';
+import { composeAspectRollups, type RollupMember } from '../src/admin/aspect-rollups';
 
 /**
  * V13 A2 mechanical rollup composition — the write-time lever for the
@@ -76,7 +73,9 @@ describe('composeAspectRollups', () => {
       m(
         'e1',
         'events',
-        `Attended long event number ${i} with a fairly verbose description that eats characters. `.repeat(2),
+        `Attended long event number ${i} with a fairly verbose description that eats characters. `.repeat(
+          2,
+        ),
         `2023-05-${String((i % 28) + 1).padStart(2, '0')}`,
       ),
     );
@@ -97,7 +96,6 @@ describe('composeAspectRollups', () => {
     expect(composeAspectRollups(members, { charCap: 600 })).toHaveLength(0);
   });
 });
-
 
 describe('composeAspectRollups V13 review fixes', () => {
   it('undated members render without an asserted date stamp', () => {

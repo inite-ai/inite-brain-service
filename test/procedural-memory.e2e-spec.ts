@@ -98,11 +98,9 @@ describe('ProceduralMemoryService — record / match / list / retire', () => {
 
   it('retire on already-retired or unknown row throws NotFound', async () => {
     const svc = f.app.get(ProceduralMemoryService);
-    await expect(
-      svc.retire(f.companyId, recordedId),
-    ).rejects.toThrow(/not found/i);
-    await expect(
-      svc.retire(f.companyId, 'procedural_memory:does_not_exist'),
-    ).rejects.toThrow(/not found/i);
+    await expect(svc.retire(f.companyId, recordedId)).rejects.toThrow(/not found/i);
+    await expect(svc.retire(f.companyId, 'procedural_memory:does_not_exist')).rejects.toThrow(
+      /not found/i,
+    );
   });
 });

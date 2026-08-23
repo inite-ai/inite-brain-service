@@ -27,14 +27,10 @@ export type { JobContext, JobHandler } from './worker-loop.types';
  * up. Cadence/enabled flags read from the environment.
  */
 @Injectable()
-export class WorkerLoopService
-  implements OnModuleInit, BeforeApplicationShutdown
-{
+export class WorkerLoopService implements OnModuleInit, BeforeApplicationShutdown {
   private readonly logger = new Logger(WorkerLoopService.name);
   private readonly handlers = new Map<JobType, RegisteredHandler>();
-  private readonly enabled = envFlagNotDisabled(
-    process.env.WORKER_LOOP_ENABLED,
-  );
+  private readonly enabled = envFlagNotDisabled(process.env.WORKER_LOOP_ENABLED);
   private readonly leaseRenewIntervalMs = parseInt(
     process.env.WORKER_LOOP_LEASE_RENEW_MS ?? '30000',
     10,
@@ -69,9 +65,7 @@ export class WorkerLoopService
       this.logger.warn(`Re-registering handler for ${jobType}`);
     }
     if (opts?.cpuBound && !opts.workerModule) {
-      throw new Error(
-        `register(${jobType}): cpuBound=true requires workerModule`,
-      );
+      throw new Error(`register(${jobType}): cpuBound=true requires workerModule`);
     }
     this.handlers.set(jobType, {
       jobType,
@@ -156,9 +150,7 @@ export class WorkerLoopService
         }
         this.isLeader = got;
       } catch (e) {
-        this.logger.warn(
-          `worker_loop lease acquire failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`worker_loop lease acquire failed: ${(e as Error).message}`);
         this.isLeader = false;
       }
     }
@@ -168,18 +160,14 @@ export class WorkerLoopService
       const control: PollControl = {
         isLeader: () => this.isLeader,
         signal: this.abortController.signal,
-        onInFlight: (jobType, inFlight) =>
-          this.metrics?.setWorkerJobsInFlight(jobType, inFlight),
+        onInFlight: (jobType, inFlight) => this.metrics?.setWorkerJobsInFlight(jobType, inFlight),
       };
       for (const reg of this.handlers.values()) {
         void this.poller.runLoop(reg, control);
       }
     }
     if (!this.abortController.signal.aborted) {
-      this.leaseTimer = setTimeout(
-        () => void this.tryBecomeLeader(),
-        this.leaseRenewIntervalMs,
-      );
+      this.leaseTimer = setTimeout(() => void this.tryBecomeLeader(), this.leaseRenewIntervalMs);
     }
   }
 }

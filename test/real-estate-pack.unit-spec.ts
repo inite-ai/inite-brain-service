@@ -69,9 +69,7 @@ describe('real-estate pack', () => {
     // (`pnpm pack:install --file ...`); it is generated from REAL_ESTATE_PACK.
     // If this fails, regenerate the JSON from the TS constant.
     const jsonPath = join(__dirname, '..', 'packs', 'real-estate.pack.json');
-    const fromJson = JSON.parse(
-      readFileSync(jsonPath, 'utf8'),
-    ) as DomainPackManifest;
+    const fromJson = JSON.parse(readFileSync(jsonPath, 'utf8')) as DomainPackManifest;
     expect(fromJson).toEqual(REAL_ESTATE_PACK);
     // Same content ⇒ same checksum ⇒ install --verify round-trips.
     expect(packChecksum(fromJson)).toBe(packChecksum(REAL_ESTATE_PACK));

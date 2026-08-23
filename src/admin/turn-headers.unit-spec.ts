@@ -9,9 +9,7 @@ import { scoreRows } from '../search/internals/scoring';
 
 describe('DERIVER_TURN_HEADERS (V13 event-time grounding)', () => {
   it('system prompt gains the turn-timestamp section only under the flag', () => {
-    expect(buildDeriverSystem({ turnHeaders: true })).toContain(
-      'TURN TIMESTAMPS',
-    );
+    expect(buildDeriverSystem({ turnHeaders: true })).toContain('TURN TIMESTAMPS');
     expect(buildDeriverSystem({})).not.toContain('TURN TIMESTAMPS');
     expect(buildDeriverSystem()).toBe(buildDeriverSystem({ turnHeaders: false }));
   });
@@ -33,9 +31,7 @@ describe('DERIVER_TURN_HEADERS (V13 event-time grounding)', () => {
   });
 
   it('formats turn stamps as YYYY-MM-DD HH:MM (UTC)', () => {
-    expect(formatTurnStamp('2023-05-07T14:30:45.000Z')).toBe(
-      '2023-05-07 14:30',
-    );
+    expect(formatTurnStamp('2023-05-07T14:30:45.000Z')).toBe('2023-05-07 14:30');
     expect(formatTurnStamp('not-a-date!')).toBe('not-a-date!');
   });
 });
@@ -61,10 +57,7 @@ describe('scoreRows queryRange factor (V13 RETRIEVAL_TIME_FILTER)', () => {
 
   it('demotes out-of-period facts and leaves in-period facts intact', () => {
     const scoredPair = scoreRows({
-      rows: [
-        row('2023-05-04T00:00:00.000Z'),
-        row('2022-11-04T00:00:00.000Z'),
-      ],
+      rows: [row('2023-05-04T00:00:00.000Z'), row('2022-11-04T00:00:00.000Z')],
       now,
       queryRange: range,
     });

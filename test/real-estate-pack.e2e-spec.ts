@@ -50,28 +50,19 @@ describe('real_estate pack — extractionProfile consumption (e2e)', () => {
 
   it('carries only builtin profiles before the pack is installed', async () => {
     const snap = await registry.getSnapshot(f.companyId);
-    expect(snap.extractionProfiles.some((p) => p.packId === 'real_estate')).toBe(
-      false,
-    );
+    expect(snap.extractionProfiles.some((p) => p.packId === 'real_estate')).toBe(false);
     // The base extractor prompt does NOT mention the real-estate domain yet.
-    expect(llm.composeSystemPrompt(snap)).not.toContain(
-      'real_estate__zoned_as',
-    );
+    expect(llm.composeSystemPrompt(snap)).not.toContain('real_estate__zoned_as');
   });
 
   it('installs the real_estate pack and surfaces its profile on the snapshot', async () => {
-    const r = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: REAL_ESTATE_PACK });
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: REAL_ESTATE_PACK });
     expect([200, 201]).toContain(r.status);
     expect(r.body.packId).toBe('real_estate');
     expect(r.body.predicatesSeeded).toBe(REAL_ESTATE_PACK.predicates.length);
 
     const snap = await registry.getSnapshot(f.companyId);
-    const profile = snap.extractionProfiles.find(
-      (p) => p.packId === 'real_estate',
-    );
+    const profile = snap.extractionProfiles.find((p) => p.packId === 'real_estate');
     expect(profile).toBeDefined();
     expect(profile!.profile.guidance).toContain('real_estate__zoned_as');
     expect(profile!.profile.fewShot!.length).toBeGreaterThan(0);
@@ -90,15 +81,11 @@ describe('real_estate pack — extractionProfile consumption (e2e)', () => {
   });
 
   it('uninstalling the pack removes its profile from the snapshot', async () => {
-    const del = await f.http
-      .delete('/v1/admin/packs/real_estate')
-      .set(auth());
+    const del = await f.http.delete('/v1/admin/packs/real_estate').set(auth());
     expect(del.status).toBe(200);
 
     const snap = await registry.getSnapshot(f.companyId);
-    expect(snap.extractionProfiles.some((p) => p.packId === 'real_estate')).toBe(
-      false,
-    );
+    expect(snap.extractionProfiles.some((p) => p.packId === 'real_estate')).toBe(false);
     // Deprecated predicates drop out of the active vocabulary too.
     expect(llm.composeSystemPrompt(snap)).not.toContain('[pack: real_estate]');
   });

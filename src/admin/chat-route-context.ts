@@ -24,9 +24,7 @@ export interface RouteContext {
   localMentions: ReturnType<typeof extractMentionsLocally>;
   localHints: Awaited<ReturnType<typeof extractPredicateHintsLocally>>;
   localCollapses: ReturnType<typeof extractCollapseEditsLocally>;
-  collapseSnapshot:
-    | { patterns: Map<string, { pattern: string; replacement: string }> }
-    | null;
+  collapseSnapshot: { patterns: Map<string, { pattern: string; replacement: string }> } | null;
   localIntent: Awaited<ReturnType<IntentClassifierService['classify']>>;
 }
 

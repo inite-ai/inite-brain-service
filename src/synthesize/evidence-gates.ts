@@ -1,8 +1,5 @@
 import type { RetrievalProfile, LaneId } from '../search/retrieval-profile';
-import {
-  resolveVerbatimMode,
-  detectVerbatimShape,
-} from '../search/verbatim-routing';
+import { resolveVerbatimMode, detectVerbatimShape } from '../search/verbatim-routing';
 import { detectOrderingShape } from './answer-router';
 
 /**
@@ -22,10 +19,7 @@ import { detectOrderingShape } from './answer-router';
  * SearchHits from the retrieval-side fusion leg (audit W4 #18), so the
  * appendix segment lane deliberately does NOT run.
  */
-export function wantsVerbatimEvidence(
-  profile: RetrievalProfile,
-  query: string,
-): boolean {
+export function wantsVerbatimEvidence(profile: RetrievalProfile, query: string): boolean {
   // 'routed' resolves per query (never to 'always'/'off'), so both of
   // its regimes take the shape-conditioned quote gate below — same as
   // 'fused'. Branch on the RESOLVED mode by invariant (answer-router).
@@ -45,10 +39,7 @@ export function wantsVerbatimEvidence(
  * generalized — every evidence class pays on its own question class
  * and drowns others; dispatch is the mechanism, not always-on.
  */
-export function wantsInsightEvidence(
-  profile: RetrievalProfile,
-  lane: LaneId | null,
-): boolean {
+export function wantsInsightEvidence(profile: RetrievalProfile, lane: LaneId | null): boolean {
   if (profile.insightEvidence === 'off') return false;
   return lane === 'summary' || lane === 'enumeration';
 }
@@ -64,14 +55,8 @@ export function wantsInsightEvidence(
  * but the record is built by the mention-scan lane (coverage-first
  * topic scan, one line per session) instead of the top-K appendix.
  */
-export function wantsTimelineEvidence(
-  profile: RetrievalProfile,
-  query: string,
-): boolean {
-  if (
-    profile.timelineEvidence !== 'routed' &&
-    profile.timelineEvidence !== 'scan'
-  ) {
+export function wantsTimelineEvidence(profile: RetrievalProfile, query: string): boolean {
+  if (profile.timelineEvidence !== 'routed' && profile.timelineEvidence !== 'scan') {
     return false;
   }
   if (!detectOrderingShape(query)) return false;

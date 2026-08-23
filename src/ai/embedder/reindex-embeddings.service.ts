@@ -51,9 +51,7 @@ export class ReindexEmbeddingsService {
     const started = Date.now();
     const dryRun = opts.dryRun === true;
     const maxFacts = opts.maxFacts ?? Number.MAX_SAFE_INTEGER;
-    const tenants = opts.tenant
-      ? [opts.tenant]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.knownCompanyIds();
 
     let factsScanned = 0;
     let factsUpdated = 0;
@@ -67,9 +65,7 @@ export class ReindexEmbeddingsService {
         factsUpdated += tenantResult.factsUpdated;
         if (factsScanned >= maxFacts) break;
       } catch (e) {
-        this.logger.warn(
-          `reindex failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`reindex failed for ${companyId}: ${(e as Error).message}`);
       }
     }
 

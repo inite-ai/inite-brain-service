@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationShutdown,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
@@ -82,10 +77,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
   private lastRespawnAt = 0;
 
   constructor(config: ConfigService) {
-    this.poolSize = parseInt(
-      config.get<string>('JOB_WORKER_POOL_SIZE', '2') ?? '2',
-      10,
-    );
+    this.poolSize = parseInt(config.get<string>('JOB_WORKER_POOL_SIZE', '2') ?? '2', 10);
     this.callTimeoutMs = parseInt(
       config.get<string>('JOB_WORKER_CALL_TIMEOUT_MS', '120000') ?? '120000',
       10,
@@ -108,14 +100,10 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
         this.workers.push(w);
         this.idle.push(w);
       } catch (e) {
-        this.logger.warn(
-          `Failed to spawn pool worker ${i}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`Failed to spawn pool worker ${i}: ${(e as Error).message}`);
       }
     }
-    this.logger.log(
-      `Job worker pool ready — size=${this.workers.length}/${this.poolSize}`,
-    );
+    this.logger.log(`Job worker pool ready — size=${this.workers.length}/${this.poolSize}`);
   }
 
   async onApplicationShutdown(): Promise<void> {
@@ -187,9 +175,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
               'terminating worker',
           );
           w.worker.terminate().catch(() => undefined);
-          reject(
-            new Error(`worker call timed out after ${this.callTimeoutMs}ms`),
-          );
+          reject(new Error(`worker call timed out after ${this.callTimeoutMs}ms`));
         }, this.callTimeoutMs);
         w.worker.postMessage({ id, kind: 'run', modulePath, input });
       });
@@ -226,8 +212,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
         if (i >= 0) this.waiters.splice(i, 1);
         reject(
           new Error(
-            `worker acquire timed out after ${parkTimeoutMs}ms — ` +
-              'pool exhausted/degraded',
+            `worker acquire timed out after ${parkTimeoutMs}ms — ` + 'pool exhausted/degraded',
           ),
         );
       }, parkTimeoutMs);
@@ -362,9 +347,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
       // timeout. If some workers are still alive, their release() can still
       // serve waiters, so leave them parked.
       if (this.workers.length === 0) {
-        this.rejectAllWaiters(
-          new Error('worker pool permanently degraded — all workers dead'),
-        );
+        this.rejectAllWaiters(new Error('worker pool permanently degraded — all workers dead'));
       }
       return;
     }
@@ -381,9 +364,7 @@ export class JobWorkerPool implements OnModuleInit, OnApplicationShutdown {
           }
           this.workers.push(w);
           this.release(w); // hand to a waiter, else return to idle
-          this.logger.log(
-            `Respawned pool worker — size=${this.workers.length}/${this.poolSize}`,
-          );
+          this.logger.log(`Respawned pool worker — size=${this.workers.length}/${this.poolSize}`);
         })
         .catch((e) => {
           this.logger.warn(`Worker respawn failed: ${(e as Error).message}`);

@@ -67,10 +67,7 @@ describe('user-forget purges edge audit_event rows', () => {
 
     expect(await countAudit()).toBe(1);
 
-    const forget = await f.http
-      .post('/v1/users/user_x/forget')
-      .set(auth())
-      .send({});
+    const forget = await f.http.post('/v1/users/user_x/forget').set(auth()).send({});
     expect([200, 201]).toContain(forget.status);
     expect(forget.body.edgesDeleted).toBeGreaterThanOrEqual(1);
 

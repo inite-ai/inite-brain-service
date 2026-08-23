@@ -29,10 +29,7 @@ export class ReindexEngineService {
     private readonly embedder: EmbedderService,
     config: ConfigService,
   ) {
-    this.batchSize = parseInt(
-      config.get<string>('REINDEX_BATCH_SIZE', '200'),
-      10,
-    );
+    this.batchSize = parseInt(config.get<string>('REINDEX_BATCH_SIZE', '200'), 10);
   }
 
   /**
@@ -96,9 +93,7 @@ export class ReindexEngineService {
               });
               factsUpdated += 1;
             } catch (e) {
-              this.logger.warn(
-                `reindex row update failed (${companyId}): ${(e as Error).message}`,
-              );
+              this.logger.warn(`reindex row update failed (${companyId}): ${(e as Error).message}`);
             }
           }
         }

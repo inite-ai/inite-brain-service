@@ -1,10 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import {
   SurrealService,
@@ -73,10 +68,7 @@ export class DocumentStoreService {
    * form (hash shifts only when the redactor itself changes — per-deploy,
    * acceptable).
    */
-  async createOrGet(
-    companyId: string,
-    dto: IngestDocumentDto,
-  ): Promise<CreateDocumentResult> {
+  async createOrGet(companyId: string, dto: IngestDocumentDto): Promise<CreateDocumentResult> {
     // Meta becomes ABAC-matchable `source.meta` on every derived fact
     // (commit-writer projection), so it must be operator vocabulary.
     // Default: sanitize-and-warn; SOURCE_META_STRICT=1 rejects instead —
@@ -210,16 +202,12 @@ export class DocumentStoreService {
     });
   }
 
-  async setStatus(p: {
-    companyId: string;
-    docId: string;
-    status: string;
-  }): Promise<void> {
+  async setStatus(p: { companyId: string; docId: string; status: string }): Promise<void> {
     await this.surreal.withCompany(p.companyId, async (db) => {
-      await db.query(
-        `UPDATE type::record('source_document', $id) SET status = $status`,
-        { id: idTailOf(p.docId), status: p.status },
-      );
+      await db.query(`UPDATE type::record('source_document', $id) SET status = $status`, {
+        id: idTailOf(p.docId),
+        status: p.status,
+      });
     });
   }
 
@@ -236,10 +224,9 @@ export class DocumentStoreService {
         { id: idTailOf(docId) },
       );
       if (!existing) return false;
-      await db.query(
-        `DELETE source_chunk WHERE docId = type::record('source_document', $id)`,
-        { id: idTailOf(docId) },
-      );
+      await db.query(`DELETE source_chunk WHERE docId = type::record('source_document', $id)`, {
+        id: idTailOf(docId),
+      });
       await db.query(
         `UPDATE type::record('source_document', $id)
            SET status = 'purged', hasContent = false`,
@@ -247,18 +234,13 @@ export class DocumentStoreService {
       );
       const flagged = await markFactsProvenancePurged(db, docId);
       if (flagged > 0) {
-        this.logger.log(
-          `purge ${docId}: flagged ${flagged} facts provenancePurged`,
-        );
+        this.logger.log(`purge ${docId}: flagged ${flagged} facts provenancePurged`);
       }
       return true;
     });
   }
 
-  private async byContentHash(
-    db: Surreal,
-    contentHash: string,
-  ): Promise<StoredDocument | null> {
+  private async byContentHash(db: Surreal, contentHash: string): Promise<StoredDocument | null> {
     const row = await queryFirst<Record<string, unknown>>(
       db,
       `SELECT * FROM source_document WHERE contentHash = $h LIMIT 1`,

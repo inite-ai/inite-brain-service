@@ -16,11 +16,7 @@ import { filter, map } from 'rxjs/operators';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
-import {
-  JobRunService,
-  JobStatus,
-  JobType,
-} from '../jobs/job-run.service';
+import { JobRunService, JobStatus, JobType } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { WorkerLoopService } from '../jobs/worker-loop.service';
@@ -33,17 +29,11 @@ import { ApiKeyService } from '../auth/api-key.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpCode } from '@nestjs/common';
 import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.service';
-import {
-  ScenarioRunnerService,
-  ScenarioRunOutcome,
-} from './scenario-runner.service';
+import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
 import type { LeasesResponse } from '../contracts/admin/leases.schema';
 import type { SchedulerResponse } from '../contracts/admin/scheduler.schema';
 import type { ChangefeedStateResponse } from '../contracts/admin/changefeed-state.schema';
-import type {
-  JobsListResponse,
-  JobRow,
-} from '../contracts/admin/jobs.schema';
+import type { JobsListResponse, JobRow } from '../contracts/admin/jobs.schema';
 import type { DreamsSummaryResponse } from '../contracts/admin/dreams-summary.schema';
 import type { DreamsEmitsResponse } from '../contracts/admin/dreams-emits.schema';
 import type {
@@ -110,9 +100,7 @@ export class AdminJobsController {
     const sinceVal = since?.trim() || undefined;
     const companyIdVal = companyId?.trim() || undefined;
     const limitVal =
-      parsedLimit !== undefined && Number.isFinite(parsedLimit)
-        ? parsedLimit
-        : undefined;
+      parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined;
     const rows = await this.jobs.list({
       ...(jobTypeVal !== undefined ? { jobType: jobTypeVal } : {}),
       ...(statusVal !== undefined ? { status: statusVal } : {}),
@@ -125,10 +113,7 @@ export class AdminJobsController {
 
   @Get('jobs/:runId')
   @RequireScopes('brain:admin')
-  async getJob(
-    @Req() req: AuthenticatedRequest,
-    @Param('runId') runId: string,
-  ): Promise<JobRow> {
+  async getJob(@Req() req: AuthenticatedRequest, @Param('runId') runId: string): Promise<JobRow> {
     // Try caller's company first; admins may also query across tenants
     // via the explicit companyId query string on /jobs list endpoint.
     const row = await this.jobs.get(runId, req.brainAuth.companyId);
@@ -201,8 +186,7 @@ export class AdminJobsController {
             const d =
               n instanceof Date
                 ? n
-                : typeof (n as { toJSDate?: () => Date }).toJSDate ===
-                    'function'
+                : typeof (n as { toJSDate?: () => Date }).toJSDate === 'function'
                   ? (n as { toJSDate: () => Date }).toJSDate()
                   : null;
             return d ? d.toISOString() : null;
@@ -244,14 +228,10 @@ export class AdminJobsController {
     @Body() body: { operations?: ('dedup' | 'resolve' | 'summarize')[] } = {},
   ): AcceptedDreamsResponse {
     void this.dreams
-      .runForTenant(
-        req.brainAuth.companyId,
-        body.operations ?? ['dedup', 'resolve'],
-        {
-          triggeredBy: 'manual',
-          triggeredByActor: req.brainAuth.companyId,
-        },
-      )
+      .runForTenant(req.brainAuth.companyId, body.operations ?? ['dedup', 'resolve'], {
+        triggeredBy: 'manual',
+        triggeredByActor: req.brainAuth.companyId,
+      })
       .catch(() => {
         /* DreamsService writes its own job_run row + logs */
       });
@@ -306,9 +286,7 @@ export class AdminJobsController {
   @Post('maintenance/calibration-refit')
   @HttpCode(202)
   @RequireScopes('brain:admin')
-  triggerCalibrationRefit(
-    @Req() req: AuthenticatedRequest,
-  ): AcceptedCalibrationRefitResponse {
+  triggerCalibrationRefit(@Req() req: AuthenticatedRequest): AcceptedCalibrationRefitResponse {
     const trigger = {
       triggeredBy: 'manual' as const,
       triggeredByActor: req.brainAuth.companyId,
@@ -339,9 +317,7 @@ export class AdminJobsController {
     const tenants = this.apiKeys.knownCompanyIds();
     const tenantFilter = body.tenant?.trim();
     if (tenantFilter && !tenants.includes(tenantFilter)) {
-      throw new BadRequestException(
-        `Unknown tenant '${tenantFilter}' — not a registered tenant`,
-      );
+      throw new BadRequestException(`Unknown tenant '${tenantFilter}' — not a registered tenant`);
     }
     const hostTenant = tenantFilter || tenants[0];
     if (!hostTenant) {
@@ -485,9 +461,7 @@ export class AdminJobsController {
     @Param('runId') runId: string,
     @Query('companyId') companyIdQ?: string,
   ): Promise<DreamsEmitsResponse> {
-    const tenants = companyIdQ
-      ? [companyIdQ]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = companyIdQ ? [companyIdQ] : this.apiKeys.knownCompanyIds();
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
       try {
@@ -572,10 +546,8 @@ export class AdminJobsController {
       this.claim.listActiveClaims(this.apiKeys.knownCompanyIds()),
     ]);
     const now = Date.now();
-    const queueMode =
-      (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') as
-        | 'enqueue'
-        | 'inline';
+    const queueMode = (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') as
+      'enqueue' | 'inline';
     return {
       generatedAt: new Date(now).toISOString(),
       podIdentity: this.claim.identity(),

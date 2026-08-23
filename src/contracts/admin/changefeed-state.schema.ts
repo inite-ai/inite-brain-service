@@ -14,9 +14,7 @@ const ChangefeedStatsSchema = z.object({
   lastPendingRemaining: z.number(),
   totalConsumed: z.number(),
   tickCount: z.number(),
-  lastError: z
-    .object({ message: z.string(), ts: z.string() })
-    .nullable(),
+  lastError: z.object({ message: z.string(), ts: z.string() }).nullable(),
   sources: z.array(z.string()),
   perBatchLimit: z.number(),
 });
@@ -32,8 +30,6 @@ export const ChangefeedStateResponseSchema = z.object({
   cursors: z.array(ChangefeedCursorSchema),
 });
 
-export type ChangefeedStateResponse = z.infer<
-  typeof ChangefeedStateResponseSchema
->;
+export type ChangefeedStateResponse = z.infer<typeof ChangefeedStateResponseSchema>;
 export type ChangefeedStats = z.infer<typeof ChangefeedStatsSchema>;
 export type ChangefeedCursor = z.infer<typeof ChangefeedCursorSchema>;

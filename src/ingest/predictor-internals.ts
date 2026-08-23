@@ -10,12 +10,7 @@
 // 0006-era subset — otherwise detect_contradiction reports the wrong
 // outcome for corroboration and backdated ingests.
 export type IngestOutcome =
-  | 'INSERTED'
-  | 'INSERTED_HISTORICAL'
-  | 'CORROBORATED'
-  | 'SUPERSEDED'
-  | 'COMPETING'
-  | 'REJECTED';
+  'INSERTED' | 'INSERTED_HISTORICAL' | 'CORROBORATED' | 'SUPERSEDED' | 'COMPETING' | 'REJECTED';
 
 /**
  * JS mirror of `fn::origin_key_of` (migration 0050) composed with
@@ -34,15 +29,12 @@ export function originKeyOf(source: unknown): string {
   };
   if (s.originKey != null && s.originKey !== '') return String(s.originKey);
   if (s.vertical == null || s.vertical === '') return 'system_seed';
-  const recorder =
-    s.recorder == null || s.recorder === '' ? '_' : String(s.recorder);
+  const recorder = s.recorder == null || s.recorder === '' ? '_' : String(s.recorder);
   return `${String(s.vertical)}:${recorder}`;
 }
 
 export interface PredictResolveArgs {
-  entityRef:
-    | { vertical: string; id: string }
-    | { entityId: string };
+  entityRef: { vertical: string; id: string } | { entityId: string };
   predicate: string;
   object: string;
   validFrom: string;

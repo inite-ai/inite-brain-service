@@ -59,9 +59,7 @@ export class MemoryDiffService {
     // test/abac-db-fence.e2e-spec.ts), so the scoped pool alone leaks —
     // the JS filter (requiresScope PII gate + ABAC row rules) is the only
     // working gate. Rows the caller may not see never enter the result.
-    const policyLookup = await this.predicateRegistry?.rowPolicyLookup(
-      companyId,
-    );
+    const policyLookup = await this.predicateRegistry?.rowPolicyLookup(companyId);
     return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const scoping = buildScoping(args);
       const rowFilter = makeRowPolicyFilter({
@@ -145,8 +143,7 @@ export class MemoryDiffService {
       const createdFacts: FactRef[] = createdClipped
         .filter((r) => rowFilter.filter(r))
         .map(rowToFactRef);
-      const retracted: Array<FactRef & { supersededBy?: string | undefined }> =
-        retractedClipped
+      const retracted: Array<FactRef & { supersededBy?: string | undefined }> = retractedClipped
         .filter((r) => rowFilter.filter(r))
         .map((r) => ({
           ...rowToFactRef(r),
@@ -222,18 +219,15 @@ export class MemoryDiffService {
       // would let callers double-spend.
       const netCreated = createdFacts.filter((c) => !supersedeeIds.has(c.factId));
 
-      const newEntities: EntityRef[] = newEntityClipped.map(
-        (r) => ({
-          entityId: String(r.id),
-          type: r.type ? String(r.type) : 'unknown',
-          canonicalName: r.canonicalName ? String(r.canonicalName) : '',
-          externalRefs: r.externalRefs ?? {},
-          createdAt: toIso(r.createdAt),
-        }),
-      );
+      const newEntities: EntityRef[] = newEntityClipped.map((r) => ({
+        entityId: String(r.id),
+        type: r.type ? String(r.type) : 'unknown',
+        canonicalName: r.canonicalName ? String(r.canonicalName) : '',
+        externalRefs: r.externalRefs ?? {},
+        createdAt: toIso(r.createdAt),
+      }));
 
-      const forgottenEntities: ForgottenRef[] = forgottenClipped.map(
-        (r) => ({
+      const forgottenEntities: ForgottenRef[] = forgottenClipped.map((r) => ({
         entityIdHash: String(r.entityIdHash),
         reason: String(r.reason),
         requestId: r.requestId ? String(r.requestId) : undefined,
@@ -328,9 +322,7 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
     // fired when a caller actually passed entityIds.
     params.entityIds = args.entityIds.map(
       (id) =>
-        new StringRecordId(
-          id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
-        ),
+        new StringRecordId(id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`),
     );
     factParts.push(`entityId INSIDE $entityIds`);
     entityParts.push(`id INSIDE $entityIds`);
@@ -343,8 +335,7 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
 
   return {
     factClause: factParts.length > 0 ? `AND ${factParts.join(' AND ')}` : '',
-    entityClause:
-      entityParts.length > 0 ? `AND ${entityParts.join(' AND ')}` : '',
+    entityClause: entityParts.length > 0 ? `AND ${entityParts.join(' AND ')}` : '',
     params,
   };
 }

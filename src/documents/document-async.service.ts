@@ -60,25 +60,18 @@ export class DocumentAsyncService implements OnModuleInit {
       // can take minutes. 10-minute lease, 3 attempts.
       { ttlSeconds: 600, maxAttempts: 3 },
     );
-    this.workerLoop.register(
-      'commit_document',
-      (ctx) => this.handleCommitJob(ctx),
-      { ttlSeconds: 600, maxAttempts: 3 },
-    );
+    this.workerLoop.register('commit_document', (ctx) => this.handleCommitJob(ctx), {
+      ttlSeconds: 600,
+      maxAttempts: 3,
+    });
   }
 
   /** Create the document, then fan indexer runs out onto the queue. */
-  async ingestAsync(
-    companyId: string,
-    dto: IngestDocumentDto,
-  ): Promise<DocumentAsyncResponse> {
+  async ingestAsync(companyId: string, dto: IngestDocumentDto): Promise<DocumentAsyncResponse> {
     if (!this.claim) {
       throw new Error('async ingest unavailable: job queue not wired');
     }
-    const { doc, chunks, deduplicated } = await this.store.createOrGet(
-      companyId,
-      dto,
-    );
+    const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto);
     const dedicated = await this.dispatch.selectDedicated({
       companyId,
       doc,
@@ -138,9 +131,7 @@ export class DocumentAsyncService implements OnModuleInit {
     };
   }
 
-  private async handleIndexJob(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async handleIndexJob(ctx: JobContext): Promise<Record<string, unknown>> {
     const docId = String(ctx.payload?.docId ?? '');
     const packId = String(ctx.payload?.packId ?? '');
     const doc = await this.store.getById(ctx.companyId, docId);
@@ -168,9 +159,7 @@ export class DocumentAsyncService implements OnModuleInit {
     return { packId, status };
   }
 
-  private async handleCommitJob(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async handleCommitJob(ctx: JobContext): Promise<Record<string, unknown>> {
     const docId = String(ctx.payload?.docId ?? '');
     const doc = await this.store.getById(ctx.companyId, docId);
     if (!doc) return { skipped: 'missing_document' };
@@ -202,9 +191,7 @@ export class DocumentAsyncService implements OnModuleInit {
         payload: { docId: p.docId },
       });
     } catch (e) {
-      this.logger.warn(
-        `enqueue commit_document failed for ${p.docId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`enqueue commit_document failed for ${p.docId}: ${(e as Error).message}`);
     }
   }
 
@@ -213,8 +200,6 @@ export class DocumentAsyncService implements OnModuleInit {
     doc: StoredDocument,
     status: string,
   ): Promise<void> {
-    await this.store
-      .setStatus({ companyId, docId: doc.id, status })
-      .catch(() => undefined);
+    await this.store.setStatus({ companyId, docId: doc.id, status }).catch(() => undefined);
   }
 }

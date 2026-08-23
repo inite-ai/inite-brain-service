@@ -26,12 +26,15 @@ describe('artifacts respect per-user scope', () => {
   });
 
   const ingest = async (body: Record<string, unknown>) => {
-    const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-      ...body,
-    });
+    const r = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+        ...body,
+      });
     expect([200, 201]).toContain(r.status);
     return r.body;
   };
@@ -82,10 +85,7 @@ describe('artifacts respect per-user scope', () => {
     });
     expect(beforeCount).toBeGreaterThanOrEqual(1);
 
-    const forget = await f.http
-      .post('/v1/users/user_art/forget')
-      .set(auth())
-      .send({});
+    const forget = await f.http.post('/v1/users/user_art/forget').set(auth()).send({});
     expect([200, 201]).toContain(forget.status);
 
     const afterCount = await surreal.withCompany(f.companyId, async (db) => {

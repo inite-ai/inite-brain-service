@@ -58,11 +58,10 @@ export class RegistryMirrorService implements OnModuleInit {
     // Feature off (no upstream configured) → nothing registered, the
     // worker loop never polls for registry_mirror rows.
     if (!this.upstreamUrl() || !this.workerLoop) return;
-    this.workerLoop.register(
-      'registry_mirror',
-      (ctx) => this.executeFromQueue(ctx),
-      { ttlSeconds: 600, maxAttempts: 2 },
-    );
+    this.workerLoop.register('registry_mirror', (ctx) => this.executeFromQueue(ctx), {
+      ttlSeconds: 600,
+      maxAttempts: 2,
+    });
   }
 
   /** Hourly at :26 UTC — the interval-bucketed dedup key collapses ticks
@@ -88,15 +87,11 @@ export class RegistryMirrorService implements OnModuleInit {
         dedupKey,
       });
       if (created) {
-        this.logger.log(
-          `registry_mirror enqueued (${dedupKey}, upstream ${upstream})`,
-        );
+        this.logger.log(`registry_mirror enqueued (${dedupKey}, upstream ${upstream})`);
       }
       return { enqueued: created };
     } catch (e) {
-      this.logger.warn(
-        `enqueue registry_mirror failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`enqueue registry_mirror failed: ${(e as Error).message}`);
       return { enqueued: false };
     }
   }
@@ -120,9 +115,7 @@ export class RegistryMirrorService implements OnModuleInit {
     });
   }
 
-  private async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const summary = await this.sync(ctx.abortSignal);
     return { ...summary };
   }

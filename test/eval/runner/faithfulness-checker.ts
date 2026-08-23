@@ -53,8 +53,7 @@ function extractDiagnostics(
       }
     }
   }
-  const avgExtractionEntropy =
-    entropyCount === 0 ? null : entropySum / entropyCount;
+  const avgExtractionEntropy = entropyCount === 0 ? null : entropySum / entropyCount;
 
   return {
     answerLangDetected,
@@ -109,8 +108,7 @@ export class FaithfulnessChecker {
         // fabricated answer is wrong regardless of internal consistency.
         if (e.expectRefusal) {
           const SENTINEL = "I don't have grounded evidence for that.";
-          const refused =
-            !answer || !answer.trim() || answer.trim() === SENTINEL;
+          const refused = !answer || !answer.trim() || answer.trim() === SENTINEL;
           outcomes.push({
             scenarioId: scenario.id,
             query: e.query,
@@ -168,13 +166,12 @@ export class FaithfulnessChecker {
           predicate: c.predicate,
           object: c.object,
         }));
-        const fromResults: FaithfulnessSourceFact[] = (res.results ?? []).flatMap(
-          (r) =>
-            (r.facts ?? []).map((f) => ({
-              factId: f.factId,
-              predicate: f.predicate,
-              object: f.object,
-            })),
+        const fromResults: FaithfulnessSourceFact[] = (res.results ?? []).flatMap((r) =>
+          (r.facts ?? []).map((f) => ({
+            factId: f.factId,
+            predicate: f.predicate,
+            object: f.object,
+          })),
         );
         // Merge: citations first (explicit), then any result-fact not
         // already in citations. Dedup by factId.
@@ -193,29 +190,21 @@ export class FaithfulnessChecker {
         });
 
         const passed =
-          score.faithfulness !== null &&
-          score.faithfulness >= floor &&
-          !score.verifierFailure;
+          score.faithfulness !== null && score.faithfulness >= floor && !score.verifierFailure;
 
         // Diagnostic dump on failure — answer + citations + per-claim
         // verdicts. Default-on (LLM-driven verifier is hard to debug
         // without it); silenceable via FAITHFULNESS_DEBUG=0.
-        if (
-          !passed &&
-          score.faithfulness !== null &&
-          process.env.FAITHFULNESS_DEBUG !== '0'
-        ) {
-           
+        if (!passed && score.faithfulness !== null && process.env.FAITHFULNESS_DEBUG !== '0') {
           console.log(
             `[faithfulness-debug] ${scenario.id} q="${e.query}" score=${score.faithfulness.toFixed(2)} ` +
               `claims=${score.totalClaims} answer="${answer.slice(0, 200)}"`,
           );
-           
+
           console.log(
             `[faithfulness-debug] sourceFacts: ${sourceFacts.map((f) => `[${f.factId.slice(-8)}] ${f.predicate}=${f.object.slice(0, 60)}`).join(' | ')}`,
           );
           for (const c of score.claims) {
-             
             console.log(`[faithfulness-debug]   ${c.verdict.padEnd(14)} :: ${c.claim}`);
           }
         }
@@ -226,9 +215,7 @@ export class FaithfulnessChecker {
           answer,
           faithfulness: score.faithfulness,
           totalClaims: score.totalClaims,
-          ...(score.verifierFailure
-            ? { verifierFailureKind: score.verifierFailure.kind }
-            : {}),
+          ...(score.verifierFailure ? { verifierFailureKind: score.verifierFailure.kind } : {}),
           passed,
           faithfulnessFloor: floor,
           answerLangDetected: diag.answerLangDetected,

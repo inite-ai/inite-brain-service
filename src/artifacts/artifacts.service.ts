@@ -499,10 +499,7 @@ export class ArtifactsService {
   }
 
   private normalizeEntityId(raw: string): { id: string; full: string } {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
+    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return { id, full: `knowledge_entity:${id}` };
   }
 }
-

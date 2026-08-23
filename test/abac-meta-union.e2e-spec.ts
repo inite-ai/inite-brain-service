@@ -33,7 +33,7 @@ describe('ABAC meta union + backfill + temporal windows', () => {
   const auth = (key?: string) => ({ Authorization: `Bearer ${key ?? f.apiKey}` });
 
   const ingestDoc = (text: string, meta: Record<string, unknown>, script: any) => {
-    f.extractor.setScript(script)
+    f.extractor.setScript(script);
     return f.http
       .post('/v1/ingest/document')
       .set(auth())
@@ -51,15 +51,10 @@ describe('ABAC meta union + backfill + temporal windows', () => {
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     process.env.POLICY_META_UNION_ENABLED = '1';
     f = await createApp({
-      extraKeys: [
-        { scopes: ['brain:read', 'brain:write'], policies: ['no-pii-meta'] },
-      ],
+      extraKeys: [{ scopes: ['brain:read', 'brain:write'], policies: ['no-pii-meta'] }],
     });
     restrictedKey = f.extraApiKeys[0]!;
-    const created = await f.http
-      .post('/v1/admin/policy-sets')
-      .set(auth())
-      .send(NO_PII_META);
+    const created = await f.http.post('/v1/admin/policy-sets').set(auth()).send(NO_PII_META);
     expect(created.status).toBe(201);
   });
 
@@ -98,17 +93,11 @@ describe('ABAC meta union + backfill + temporal windows', () => {
       );
     });
 
-    const first = await f.http
-      .post('/v1/admin/policy-sets/backfill-meta')
-      .set(auth())
-      .send({});
+    const first = await f.http.post('/v1/admin/policy-sets/backfill-meta').set(auth()).send({});
     expect(first.status).toBe(201);
     expect(first.body.factsUpdated).toBeGreaterThanOrEqual(1);
 
-    const second = await f.http
-      .post('/v1/admin/policy-sets/backfill-meta')
-      .set(auth())
-      .send({});
+    const second = await f.http.post('/v1/admin/policy-sets/backfill-meta').set(auth()).send({});
     expect(second.body.factsUpdated).toBe(0); // idempotent
 
     const explain = await f.http
@@ -144,9 +133,7 @@ describe('ABAC meta union + backfill + temporal windows', () => {
       { data_class: 'pii' },
       {
         entities: [{ name: 'Orion Ltd', type: 'customer' }],
-        facts: [
-          { entityIndex: 0, predicate: 'tier', object: 'office in Berlin', confidence: 0.9 },
-        ],
+        facts: [{ entityIndex: 0, predicate: 'tier', object: 'office in Berlin', confidence: 0.9 }],
         edges: [],
       },
     );
@@ -175,10 +162,7 @@ describe('ABAC meta union + backfill + temporal windows', () => {
     expect(objects).not.toContain('office in Berlin');
 
     // The unrestricted admin key still sees it.
-    const full = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({ query: 'office in Berlin' });
+    const full = await f.http.post('/v1/search').set(auth()).send({ query: 'office in Berlin' });
     expect(
       full.body.results.flatMap((h: any) => (h.facts ?? []).map((x: any) => x.object)),
     ).toContain('office in Berlin');

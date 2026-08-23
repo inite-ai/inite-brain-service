@@ -44,9 +44,7 @@ describe('AdminController.cost() — wire contract', () => {
   it('matches CostResponseSchema', async () => {
     const parsed = CostResponseSchema.safeParse(await makeController().cost());
     if (!parsed.success) {
-      throw new Error(
-        `cost drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`cost drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

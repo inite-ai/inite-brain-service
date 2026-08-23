@@ -132,10 +132,7 @@ describe('JobClaimService — real Surreal end-to-end', () => {
 
     // Flip cancelRequested via the operator path (UPDATE on job_run).
     await surreal.withCompany(TENANT, async (db) => {
-      await db.query(
-        `UPDATE job_run SET cancelRequested = true WHERE runId = $r`,
-        { r: runId },
-      );
+      await db.query(`UPDATE job_run SET cancelRequested = true WHERE runId = $r`, { r: runId });
     });
     const r2 = await claim.renew({
       companyId: TENANT,
@@ -220,10 +217,10 @@ describe('JobClaimService — real Surreal end-to-end', () => {
 
     // Force the lease into the past.
     await surreal.withCompany(TENANT, async (db) => {
-      await db.query(
-        `UPDATE type::record($rid) SET leaseUntil = type::datetime($t)`,
-        { rid: claimed!.recordId, t: new Date(Date.now() - 60_000).toISOString() },
-      );
+      await db.query(`UPDATE type::record($rid) SET leaseUntil = type::datetime($t)`, {
+        rid: claimed!.recordId,
+        t: new Date(Date.now() - 60_000).toISOString(),
+      });
     });
 
     const out = await claim.reapZombies({

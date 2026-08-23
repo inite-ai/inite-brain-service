@@ -9,18 +9,21 @@ import type { Scenario } from '../src/eval/types';
  * regressions without paying the spawn cost.
  */
 describe('MemoryAssertionsChecker', () => {
-  function stubClient(searchResponses: Array<{
-    results: Array<{
-      entityId: string;
-      canonicalName: string;
-      externalRefs: Record<string, string>;
-      facts: Array<{ object: string }>;
-    }>;
-  }>): BrainClient {
+  function stubClient(
+    searchResponses: Array<{
+      results: Array<{
+        entityId: string;
+        canonicalName: string;
+        externalRefs: Record<string, string>;
+        facts: Array<{ object: string }>;
+      }>;
+    }>,
+  ): BrainClient {
     let i = 0;
     return {
       search: async () => {
-        const r = searchResponses[i] ?? searchResponses[searchResponses.length - 1] ?? { results: [] };
+        const r = searchResponses[i] ??
+          searchResponses[searchResponses.length - 1] ?? { results: [] };
         i++;
         return r;
       },
@@ -239,9 +242,7 @@ describe('MemoryAssertionsChecker', () => {
 
   it('returns empty list when scenario has no memory assertions', async () => {
     const client = stubClient([]);
-    const out = await new MemoryAssertionsChecker(client).check(
-      scen(undefined),
-    );
+    const out = await new MemoryAssertionsChecker(client).check(scen(undefined));
     expect(out).toEqual([]);
   });
 

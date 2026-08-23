@@ -38,12 +38,9 @@ export class TenantClient {
         lastErr = e as Error;
         const m = /^HTTP (\d{3}) /.exec(lastErr.message);
         const status = m ? parseInt(m[1]!, 10) : undefined;
-        const retryable =
-          status === undefined || status === 429 || status >= 500;
+        const retryable = status === undefined || status === 429 || status >= 500;
         if (!retryable || attempt === RETRIES) throw lastErr;
-        await new Promise((r) =>
-          setTimeout(r, BACKOFF_MS * Math.pow(3, attempt - 1)),
-        );
+        await new Promise((r) => setTimeout(r, BACKOFF_MS * Math.pow(3, attempt - 1)));
       }
     }
     throw lastErr ?? new Error('unreachable');
@@ -62,9 +59,7 @@ export class TenantClient {
             Authorization: `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json',
             'X-Brain-Tenant': this.tenant,
-            ...(payload !== undefined
-              ? { 'Content-Length': Buffer.byteLength(payload) }
-              : {}),
+            ...(payload !== undefined ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
           },
         },
         (res) => {
@@ -74,29 +69,19 @@ export class TenantClient {
             const text = Buffer.concat(chunks).toString('utf-8');
             const status = res.statusCode ?? 0;
             if (status < 200 || status >= 300) {
-              reject(
-                new Error(
-                  `HTTP ${status} ${method} ${path}: ${text.slice(0, 300)}`,
-                ),
-              );
+              reject(new Error(`HTTP ${status} ${method} ${path}: ${text.slice(0, 300)}`));
               return;
             }
             try {
               resolve(JSON.parse(text) as T);
             } catch {
-              reject(
-                new Error(
-                  `non-JSON response ${method} ${path}: ${text.slice(0, 120)}`,
-                ),
-              );
+              reject(new Error(`non-JSON response ${method} ${path}: ${text.slice(0, 120)}`));
             }
           });
         },
       );
       req.setTimeout(0); // long admin calls: no response deadline
-      req.on('error', (e) =>
-        reject(new Error(`${method} ${path}: ${(e as Error).message}`)),
-      );
+      req.on('error', (e) => reject(new Error(`${method} ${path}: ${(e as Error).message}`)));
       if (payload !== undefined) req.write(payload);
       req.end();
     });

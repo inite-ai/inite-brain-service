@@ -1,9 +1,5 @@
 import type { PredicateDefinition } from '../predicate-registry-internals/types';
-import {
-  composePredicateId,
-  type DomainPackManifest,
-  type PackPredicate,
-} from './manifest';
+import { composePredicateId, type DomainPackManifest, type PackPredicate } from './manifest';
 
 /**
  * Upgrade diff for the runtime pack-install path. `seedMissingPredicates` only
@@ -53,12 +49,8 @@ export function diffPackUpgrade(
   prior: DomainPackManifest | undefined,
   next: DomainPackManifest,
 ): PackUpgradeDiff {
-  const priorByLocal = new Map(
-    (prior?.predicates ?? []).map((p) => [p.localId, p]),
-  );
-  const nextByLocal = new Map(
-    (next.predicates ?? []).map((p) => [p.localId, p]),
-  );
+  const priorByLocal = new Map((prior?.predicates ?? []).map((p) => [p.localId, p]));
+  const nextByLocal = new Map((next.predicates ?? []).map((p) => [p.localId, p]));
 
   const changed: PredicateDefinition[] = [];
   for (const [localId, np] of nextByLocal) {

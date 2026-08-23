@@ -4,15 +4,8 @@
  * (a fresh `pnpm pack:init` output passes `pnpm pack:validate` unedited), and
  * the id gate must refuse malformed + reserved builtin/first-party ids.
  */
-import {
-  makePackSkeleton,
-  RESERVED_PACK_IDS,
-} from '../scripts/init-pack';
-import {
-  assembleSeed,
-  validatePack,
-  DomainPackError,
-} from '../src/ai/domain-packs';
+import { makePackSkeleton, RESERVED_PACK_IDS } from '../scripts/init-pack';
+import { assembleSeed, validatePack, DomainPackError } from '../src/ai/domain-packs';
 import { CORE_PREDICATES } from '../src/ai/predicate-registry-internals/core-seed';
 
 describe('pack:init skeleton', () => {
@@ -27,13 +20,9 @@ describe('pack:init skeleton', () => {
     const skeleton = makePackSkeleton('my_test_pack');
     expect(() => assembleSeed(CORE_PREDICATES, [skeleton])).not.toThrow();
     const merged = assembleSeed(CORE_PREDICATES, [skeleton]);
-    expect(
-      merged.some((p) => p.predicateId === 'my_test_pack__example_predicate'),
-    ).toBe(true);
+    expect(merged.some((p) => p.predicateId === 'my_test_pack__example_predicate')).toBe(true);
     // Pack predicates are stamped createdBy:'system' by the assembler.
-    const composed = merged.find(
-      (p) => p.predicateId === 'my_test_pack__example_predicate',
-    );
+    const composed = merged.find((p) => p.predicateId === 'my_test_pack__example_predicate');
     expect(composed?.createdBy).toBe('system');
   });
 
@@ -55,10 +44,7 @@ describe('pack:init skeleton', () => {
     // a plain valid manifest; a real opt-in uses a top-level `indexer` field.
     expect(skeleton['// indexer']).toBeDefined();
     expect((skeleton as { indexer?: unknown }).indexer).toBeUndefined();
-    const modes = skeleton['// indexer'] as Record<
-      string,
-      { mode?: string } | string
-    >;
+    const modes = skeleton['// indexer'] as Record<string, { mode?: string } | string>;
     expect((modes.virtual as { mode?: string }).mode).toBe('virtual');
     expect((modes.dedicated as { mode?: string }).mode).toBe('dedicated');
     expect((modes.external as { mode?: string }).mode).toBe('external');

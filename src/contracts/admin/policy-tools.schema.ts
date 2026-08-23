@@ -139,12 +139,8 @@ export const PolicyDecisionsStatsResponseSchema = z.object({
     }),
   ),
   topDeniedActions: z.array(z.object({ action: z.string(), count: z.number() })),
-  topRules: z.array(
-    z.object({ policySet: z.string(), ruleId: z.string(), count: z.number() }),
-  ),
-  byKey: z.array(
-    z.object({ keyId: z.string(), deny: z.number(), wouldDeny: z.number() }),
-  ),
+  topRules: z.array(z.object({ policySet: z.string(), ruleId: z.string(), count: z.number() })),
+  byKey: z.array(z.object({ keyId: z.string(), deny: z.number(), wouldDeny: z.number() })),
   reportOnlySets: z.array(
     z.object({
       name: z.string(),
@@ -172,7 +168,5 @@ export type SimulateSearchResponse = z.infer<typeof SimulateSearchResponseSchema
 export type SimulateActionsResponse = z.infer<typeof SimulateActionsResponseSchema>;
 export type PreviewRuleResponse = z.infer<typeof PreviewRuleResponseSchema>;
 export type PolicyDecisionsResponse = z.infer<typeof PolicyDecisionsResponseSchema>;
-export type PolicyDecisionsStatsResponse = z.infer<
-  typeof PolicyDecisionsStatsResponseSchema
->;
+export type PolicyDecisionsStatsResponse = z.infer<typeof PolicyDecisionsStatsResponseSchema>;
 export type AdminKeysResponse = z.infer<typeof AdminKeysResponseSchema>;

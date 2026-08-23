@@ -107,9 +107,7 @@ describe('TrainedDecisionClassifier', () => {
 
   it('round-trips through JSON (fromJson gives identical predictions)', () => {
     const model = trainGate(dataset(), { epochs: 20, seed: 3 });
-    const restored = TrainedDecisionClassifier.fromJson(
-      JSON.parse(JSON.stringify(model)),
-    );
+    const restored = TrainedDecisionClassifier.fromJson(JSON.parse(JSON.stringify(model)));
     const c = commit('feat: gateway so that facts resolve through one path');
     const before = predictProba(model, featurize(c.message, parseCommitSignals(c), model.config));
     const after = restored.classify(c);
@@ -117,9 +115,7 @@ describe('TrainedDecisionClassifier', () => {
   });
 
   it('rejects an invalid model JSON', () => {
-    expect(() => TrainedDecisionClassifier.fromJson({ version: 2 })).toThrow(
-      /invalid gate model/,
-    );
+    expect(() => TrainedDecisionClassifier.fromJson({ version: 2 })).toThrow(/invalid gate model/);
     expect(() =>
       TrainedDecisionClassifier.fromJson({ version: 1, bias: 0 } as Partial<GateModel>),
     ).toThrow(/invalid gate model/);

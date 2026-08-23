@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  IsObject,
-  IsISO8601,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsISO8601, MaxLength } from 'class-validator';
 
 export interface MentionContextRef {
   vertical: string;
@@ -53,7 +46,8 @@ export class IngestMentionDto {
   @IsObject()
   contextRef!: MentionContextRef;
 
-  @IsOptional() @IsArray()
+  @IsOptional()
+  @IsArray()
   knownEntities?: KnownEntity[];
 
   /**
@@ -67,7 +61,9 @@ export class IngestMentionDto {
    * personal CONTENT lives on the fenced facts and episodes; same model
    * as a bare-entityId direct fact ingest).
    */
-  @IsOptional() @IsString() @MaxLength(200)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   userId?: string | undefined;
 
   @IsISO8601()

@@ -55,9 +55,7 @@ export interface ProvenanceOptions {
   gitExec?: GitExec;
 }
 
-export async function collectRunProvenance(
-  opts: ProvenanceOptions,
-): Promise<RunProvenance> {
+export async function collectRunProvenance(opts: ProvenanceOptions): Promise<RunProvenance> {
   const base = gitDescriptor(opts.gitExec);
   const doFetch = opts.fetchImpl ?? fetch;
   try {

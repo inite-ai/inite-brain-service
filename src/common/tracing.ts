@@ -47,8 +47,7 @@ export function initTracing(): void {
   if (!envFlagEnabled(process.env.OTEL_ENABLED)) return;
   if (sdk) return;
 
-  const serviceName =
-    process.env.OTEL_SERVICE_NAME ?? 'inite-brain-service';
+  const serviceName = process.env.OTEL_SERVICE_NAME ?? 'inite-brain-service';
 
   sdk = new NodeSDK({
     resource: resourceFromAttributes({

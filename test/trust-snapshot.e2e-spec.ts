@@ -22,10 +22,9 @@ describe('trust snapshot + conflict trace + evidence (Phase 1)', () => {
   const factRow = async (factId: string) => {
     const surreal = f.app.get(SurrealService);
     return surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<any[][]>(
-        `SELECT * FROM type::record('knowledge_fact', $rid)`,
-        { rid: factId.split(':')[1] },
-      );
+      const [rows] = await db.query<any[][]>(`SELECT * FROM type::record('knowledge_fact', $rid)`, {
+        rid: factId.split(':')[1],
+      });
       return (rows as any[])?.[0];
     });
   };
@@ -39,15 +38,18 @@ describe('trust snapshot + conflict trace + evidence (Phase 1)', () => {
   });
 
   it('stamps trustSnapshot on an INSERTED fact', async () => {
-    const res = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'trust_snap_customer' },
-      predicate: 'status',
-      object: 'active',
-      validFrom: '2026-01-01T00:00:00Z',
-      // billing.* eventId → declared trust 0.95 in the static tier table.
-      source: { vertical: 'rent', eventId: 'billing.subscription_started' },
-      confidence: 0.9,
-    });
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'trust_snap_customer' },
+        predicate: 'status',
+        object: 'active',
+        validFrom: '2026-01-01T00:00:00Z',
+        // billing.* eventId → declared trust 0.95 in the static tier table.
+        source: { vertical: 'rent', eventId: 'billing.subscription_started' },
+        confidence: 0.9,
+      });
     expect(res.body.outcome).toBe('INSERTED');
 
     const row = await factRow(res.body.factId);
@@ -65,25 +67,31 @@ describe('trust snapshot + conflict trace + evidence (Phase 1)', () => {
 
   it('persists conflictTrace on a supersede winner, matching the explain payload', async () => {
     const entityRef = { vertical: 'rent', id: 'trust_trace_customer' };
-    const first = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef,
-      predicate: 'status',
-      object: 'trial',
-      validFrom: '2026-01-01T00:00:00Z',
-      source: { vertical: 'rent', eventId: 'auth.signup' },
-      confidence: 0.8,
-    });
+    const first = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef,
+        predicate: 'status',
+        object: 'trial',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: { vertical: 'rent', eventId: 'auth.signup' },
+        confidence: 0.8,
+      });
     expect(first.body.outcome).toBe('INSERTED');
 
-    const second = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef,
-      predicate: 'status',
-      object: 'premium',
-      validFrom: '2026-03-01T00:00:00Z',
-      source: { vertical: 'rent', eventId: 'billing.tier_upgraded' },
-      confidence: 0.9,
-      explain: true,
-    });
+    const second = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef,
+        predicate: 'status',
+        object: 'premium',
+        validFrom: '2026-03-01T00:00:00Z',
+        source: { vertical: 'rent', eventId: 'billing.tier_upgraded' },
+        confidence: 0.9,
+        explain: true,
+      });
     expect(second.body.outcome).toBe('SUPERSEDED');
     const explanation = second.body.conflictExplanation;
     expect(explanation).toBeDefined();
@@ -91,12 +99,8 @@ describe('trust snapshot + conflict trace + evidence (Phase 1)', () => {
     const row = await factRow(second.body.factId);
     expect(row.conflictTrace).toBeDefined();
     // The stored trace is the same decision the explain path narrated.
-    expect(row.conflictTrace.scoreBreakdown).toEqual(
-      explanation.scoreBreakdown,
-    );
-    expect(row.conflictTrace.dominantDimension).toBe(
-      explanation.dominantDimension,
-    );
+    expect(row.conflictTrace.scoreBreakdown).toEqual(explanation.scoreBreakdown);
+    expect(row.conflictTrace.dominantDimension).toBe(explanation.dominantDimension);
     expect(row.conflictTrace.slotDelta).toEqual(explanation.slotDelta);
     expect(String(row.conflictTrace.bestOpponentId)).toBe(first.body.factId);
     expect(row.conflictTrace.decidedAt).toBeDefined();
@@ -114,29 +118,35 @@ describe('trust snapshot + conflict trace + evidence (Phase 1)', () => {
       { kind: 'url', ref: 'https://docs.example.com/policy#42' },
       { kind: 'commit', ref: 'deadbeef', note: 'where the rule landed' },
     ];
-    const ok = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'trust_evidence_customer' },
-      predicate: 'preference',
-      object: 'prefers email contact',
-      validFrom: '2026-01-01T00:00:00Z',
-      source: { vertical: 'rent', recorder: 'ops_bot', evidence },
-      confidence: 0.9,
-    });
+    const ok = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'trust_evidence_customer' },
+        predicate: 'preference',
+        object: 'prefers email contact',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: { vertical: 'rent', recorder: 'ops_bot', evidence },
+        confidence: 0.9,
+      });
     expect(ok.status).toBe(201);
     const row = await factRow(ok.body.factId);
     expect(row.source.evidence).toEqual(evidence);
     expect(row.trustSnapshot.sourceKey).toBe('rent:ops_bot');
 
-    const bad = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'trust_evidence_customer' },
-      predicate: 'preference',
-      object: 'prefers sms contact',
-      validFrom: '2026-01-01T00:00:00Z',
-      source: {
-        vertical: 'rent',
-        evidence: [{ kind: 'rumor', ref: 'heard it somewhere' }],
-      },
-    });
+    const bad = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'trust_evidence_customer' },
+        predicate: 'preference',
+        object: 'prefers sms contact',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: {
+          vertical: 'rent',
+          evidence: [{ kind: 'rumor', ref: 'heard it somewhere' }],
+        },
+      });
     expect(bad.status).toBe(400);
     expect(JSON.stringify(bad.body)).toMatch(/kind must be one of/);
   });

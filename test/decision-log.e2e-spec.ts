@@ -21,22 +21,28 @@ describe('Phase 1 e2e — DecisionLog via /v1/synthesize', () => {
     f = await createApp();
     // Seed two facts on the same entity so DecisionLog has both a
     // picked and a rejected row to attribute.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'decision_log_tenant' },
-      predicate: 'status',
-      object: 'engineer',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-      confidence: 0.9,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'decision_log_tenant' },
-      predicate: 'tier',
-      object: 'gold',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'billing.tier_change' },
-      confidence: 0.9,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'decision_log_tenant' },
+        predicate: 'status',
+        object: 'engineer',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+        confidence: 0.9,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'decision_log_tenant' },
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'billing.tier_change' },
+        confidence: 0.9,
+      });
   });
 
   afterAll(async () => {

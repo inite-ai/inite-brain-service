@@ -81,9 +81,7 @@ export class EpisodeReadStoreService {
    * every L0 surface, so personal verbatim leaked to any brain:read key.
    */
   private userGate(userId: string | undefined): string {
-    return userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
+    return userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
   }
 
   /** Param bag companion to userGate (empty when unscoped). */
@@ -111,18 +109,12 @@ export class EpisodeReadStoreService {
     fn: (db: EpisodeDb) => Promise<T>,
   ): Promise<T> {
     if (db) return fn(db);
-    return this.surreal.withCompany(companyId, (scoped) =>
-      fn(scoped as unknown as EpisodeDb),
-    );
+    return this.surreal.withCompany(companyId, (scoped) => fn(scoped as unknown as EpisodeDb));
   }
 
   /** Conversations present in the substrate, with turn counts. */
-  async conversationCounts(
-    db: EpisodeDb,
-  ): Promise<Array<{ conversationId: string; n: number }>> {
-    const [rows] = await db.query<
-      [Array<{ conversationId?: string; n: number }>]
-    >(
+  async conversationCounts(db: EpisodeDb): Promise<Array<{ conversationId: string; n: number }>> {
+    const [rows] = await db.query<[Array<{ conversationId?: string; n: number }>]>(
       `SELECT conversationId, count() AS n FROM episode
         WHERE conversationId IS NOT NONE
         GROUP BY conversationId`,
@@ -141,10 +133,7 @@ export class EpisodeReadStoreService {
    * PII/user-fenced whole-session read for the synthesis read path is
    * `conversationTurns()` below (G2 L3 escalation lane).
    */
-  async conversationTurnsRaw(
-    db: EpisodeDb,
-    conversationId: string,
-  ): Promise<EpisodeTurnRow[]> {
+  async conversationTurnsRaw(db: EpisodeDb, conversationId: string): Promise<EpisodeTurnRow[]> {
     const [rows] = await db.query<[EpisodeTurnRow[]]>(
       `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
         WHERE conversationId = $conv ORDER BY occurredAt ASC LIMIT ${CONVERSATION_TURNS_CAP}`,
@@ -219,9 +208,7 @@ export class EpisodeReadStoreService {
       : {};
     return this.run(opts.companyId, opts.db, async (db) => {
       const scope = this.scopeGate(opts.userId);
-      const [rows] = await db.query<
-        [Array<EpisodeQuoteRow & { score?: number }>]
-      >(
+      const [rows] = await db.query<[Array<EpisodeQuoteRow & { score?: number }>]>(
         `SELECT id, conversationId, speaker, text, occurredAt, search::score(1) AS score
            FROM episode
           WHERE text @1@ $q ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
@@ -320,11 +307,7 @@ export class EpisodeReadStoreService {
    * Ordered by recordedAt (ingest time, monotone) — occurredAt can be
    * backdated and would leak rows past the watermark.
    */
-  async metaSince(opts: {
-    companyId: string;
-    sinceIso: string;
-    limit: number;
-  }): Promise<
+  async metaSince(opts: { companyId: string; sinceIso: string; limit: number }): Promise<
     Array<{
       id: unknown;
       conversationId?: string;
@@ -396,9 +379,7 @@ export class EpisodeReadStoreService {
         params.until = new Date(opts.untilIso);
       }
       if (opts.after) {
-        where.push(
-          '(occurredAt > $afterT OR (occurredAt = $afterT AND id > $afterId))',
-        );
+        where.push('(occurredAt > $afterT OR (occurredAt = $afterT AND id > $afterId))');
         params.afterT = new Date(opts.after.occurredAtIso);
         params.afterId = new StringRecordId(opts.after.id);
       }

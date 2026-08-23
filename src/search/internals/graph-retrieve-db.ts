@@ -98,10 +98,7 @@ export async function resolveSeedEntities(
  * Returns FULL entity ids (with the table prefix `knowledge_entity:`)
  * so they round-trip through the next query's WHERE INSIDE clause.
  */
-export async function fetchOneHopNeighbourIds(
-  db: Surreal,
-  seedIds: string[],
-): Promise<string[]> {
+export async function fetchOneHopNeighbourIds(db: Surreal, seedIds: string[]): Promise<string[]> {
   if (seedIds.length === 0) return [];
   const rids = seedIds.map((s) => new StringRecordId(s));
   // Tenant-global surface (seeds and facts already filter userId IS
@@ -151,10 +148,7 @@ export async function fetchOneHopNeighbourIds(
  * Fetch entity records for a list of ids. Used to hydrate neighbour
  * data once we know which ids the seed-walk surfaced.
  */
-export async function fetchEntitiesByIds(
-  db: Surreal,
-  ids: string[],
-): Promise<GraphEntity[]> {
+export async function fetchEntitiesByIds(db: Surreal, ids: string[]): Promise<GraphEntity[]> {
   if (ids.length === 0) return [];
   const rids = ids.map((s) => new StringRecordId(s));
   const [rows] = await db.query<

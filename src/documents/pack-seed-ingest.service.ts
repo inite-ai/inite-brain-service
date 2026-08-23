@@ -95,10 +95,7 @@ export class PackSeedIngestService implements OnModuleInit {
         throw new Error('aborted');
       }
       try {
-        const r = await this.ingest.ingestDocument(
-          companyId,
-          this.seedDto(seed, p),
-        );
+        const r = await this.ingest.ingestDocument(companyId, this.seedDto(seed, p));
         if (r.deduplicated) result.deduplicated++;
         else result.ingested++;
       } catch (err) {
@@ -179,17 +176,11 @@ export class PackSeedIngestService implements OnModuleInit {
     };
   }
 
-  private async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const packId = String(ctx.payload?.packId ?? '');
     const packVersion = String(ctx.payload?.packVersion ?? '');
     if (!packId) return { skipped: 'missing_packId' };
-    const result = await this.runForPack(
-      ctx.companyId,
-      { packId, packVersion },
-      ctx.abortSignal,
-    );
+    const result = await this.runForPack(ctx.companyId, { packId, packVersion }, ctx.abortSignal);
     return { ...result };
   }
 }

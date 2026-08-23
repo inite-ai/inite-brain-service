@@ -79,10 +79,7 @@ describe('scoreRows — fact_trust factors', () => {
 
   it('gamma rewards corroboration, capped at 3', () => {
     const [three, ten] = scoreRows({
-      rows: [
-        row({ corroboration: { count: 3 } }),
-        row({ corroboration: { count: 10 } }),
-      ],
+      rows: [row({ corroboration: { count: 3 } }), row({ corroboration: { count: 10 } })],
       now: NOW,
       corroborationGamma: 0.1,
     });

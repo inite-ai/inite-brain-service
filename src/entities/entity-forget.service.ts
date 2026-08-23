@@ -31,8 +31,7 @@ export class EntityForgetService {
     // Used to hash forgotten entity ids in the tombstone. If unset, derive
     // a per-process default — safe enough for 0.1.0 walking skeleton, but
     // production deployments MUST set this so tombstones survive restart.
-    this.forgetHmacKey =
-      this.configService.get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
+    this.forgetHmacKey = this.configService.get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
   }
 
   async forget({
@@ -149,10 +148,7 @@ export class EntityForgetService {
          WHERE in = type::record('knowledge_entity', $rid) OR out = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      await db.query(
-        `DELETE type::record('knowledge_entity', $rid)`,
-        { rid: ref.id },
-      );
+      await db.query(`DELETE type::record('knowledge_entity', $rid)`, { rid: ref.id });
 
       // Purge the materialised audit_event mirror for every deleted
       // record (entity + its facts + edges). recordId IN [...] matches
@@ -176,10 +172,9 @@ export class EntityForgetService {
       // dream_emit: subject/object hold the entity/fact ids the dreams
       // resolver linked or superseded — purge any referencing the
       // forgotten records (carries fact-derived `detail`).
-      await db.query(
-        `DELETE dream_emit WHERE subject IN $ids OR object IN $ids`,
-        { ids: recordIds },
-      );
+      await db.query(`DELETE dream_emit WHERE subject IN $ids OR object IN $ids`, {
+        ids: recordIds,
+      });
 
       // debug_trace: per-request blobs (artifacts) can carry the subject's
       // raw fact text / queries when DEBUG_TRACE_PERSIST is on. Not
@@ -216,9 +211,7 @@ export class EntityForgetService {
 
       const entityIdHash =
         'hmac:' +
-        createHmac('sha256', this.forgetHmacKey)
-          .update(`${companyId}/${ref.full}`)
-          .digest('hex');
+        createHmac('sha256', this.forgetHmacKey).update(`${companyId}/${ref.full}`).digest('hex');
 
       const forgottenAt = new Date();
       await dbCreate(db, 'forgotten_entity', {
@@ -238,11 +231,11 @@ export class EntityForgetService {
 
       this.logger.warn(
         `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
-        `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
-        `auditEventsDeleted=${auditEventsDeleted} ` +
-        `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
-        `reason=${dto.reason} ` +
-        `by=${actorKeyHash ?? 'unknown'}`,
+          `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
+          `auditEventsDeleted=${auditEventsDeleted} ` +
+          `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
+          `reason=${dto.reason} ` +
+          `by=${actorKeyHash ?? 'unknown'}`,
       );
 
       return {
@@ -269,9 +262,7 @@ export class EntityForgetService {
         );
       }
     } catch (e) {
-      this.logger.warn(
-        `embedder cache eviction after forget failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`embedder cache eviction after forget failed: ${(e as Error).message}`);
     }
 
     return result;

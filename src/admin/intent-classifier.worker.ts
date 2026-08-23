@@ -39,8 +39,7 @@ type Inbound =
     };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('intent-classifier.worker must be run as a worker_thread');
@@ -66,10 +65,7 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
     // Honour the env explicitly so the operator's cache mount actually works.
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) t.env.cacheDir = cacheDir;
-    classifier = (await t.pipeline(
-      'zero-shot-classification',
-      cfg.modelId,
-    )) as ZeroShotPipeline;
+    classifier = (await t.pipeline('zero-shot-classification', cfg.modelId)) as ZeroShotPipeline;
   })();
   return warmupPromise;
 }
@@ -109,8 +105,6 @@ const onMessage = async (msg: Inbound): Promise<void> => {
 // catastrophic reply()/port failure from becoming an unhandledRejection.
 parentPort.on('message', (msg: Inbound) => {
   void onMessage(msg).catch((err) => {
-    console.error(
-      `intent-classifier worker handler crashed: ${(err as Error).message}`,
-    );
+    console.error(`intent-classifier worker handler crashed: ${(err as Error).message}`);
   });
 });

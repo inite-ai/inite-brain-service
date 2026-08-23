@@ -18,13 +18,7 @@ describe('external candidates (e2e)', () => {
 
   beforeAll(async () => {
     f = await createApp({
-      scopes: [
-        'brain:read',
-        'brain:write',
-        'brain:admin',
-        'brain:read_pii',
-        'indexer:write',
-      ],
+      scopes: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii', 'indexer:write'],
     });
     process.env.DOCUMENT_INGEST_ENABLED = '1';
   });
@@ -38,13 +32,16 @@ describe('external candidates (e2e)', () => {
     // Empty extraction: the document exists purely as a Source for the
     // external indexer to read.
     f.extractor.setScript({ entities: [], facts: [], edges: [] });
-    const r = await f.http.post('/v1/ingest/document').set(auth()).send({
-      kind: 'markdown',
-      text,
-      occurredAt: '2026-07-01T10:00:00.000Z',
-      contextRef: { vertical: 'ext_e2e' },
-      ...extra,
-    });
+    const r = await f.http
+      .post('/v1/ingest/document')
+      .set(auth())
+      .send({
+        kind: 'markdown',
+        text,
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        contextRef: { vertical: 'ext_e2e' },
+        ...extra,
+      });
     expect(r.status).toBe(201);
     return r.body.documentId as string;
   }
@@ -212,9 +209,7 @@ describe('external candidates (e2e)', () => {
       const cands = await f.http
         .get(`/v1/documents/${encodeURIComponent(docId)}/candidates`)
         .set(auth());
-      const fact = cands.body.candidates.find(
-        (c: { kind: string }) => c.kind === 'fact',
-      );
+      const fact = cands.body.candidates.find((c: { kind: string }) => c.kind === 'fact');
       expect(fact.payload.ungrounded).toBe(true);
     } finally {
       delete process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL;

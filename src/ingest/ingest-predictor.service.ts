@@ -110,10 +110,7 @@ export class IngestPredictionService {
           reasoning:
             'No existing entity matches the ref; fact would be created against a new entity.',
           opposingFacts: [],
-          predicatePolicy: this.predicateRegistry.policyFor(
-            companyId,
-            args.predicate,
-          ),
+          predicatePolicy: this.predicateRegistry.policyFor(companyId, args.predicate),
         };
       }
 
@@ -129,10 +126,7 @@ export class IngestPredictionService {
           `predictResolve: registry getSnapshot failed for ${companyId}: ${(e as Error).message}; using seed policy`,
         );
       }
-      const policy = this.predicateRegistry.policyFor(
-        companyId,
-        args.predicate,
-      );
+      const policy = this.predicateRegistry.policyFor(companyId, args.predicate);
       const isBitemporal = policy.semantics === 'bitemporal';
 
       const candEmbedding = isBitemporal
@@ -167,9 +161,7 @@ export class IngestPredictionService {
       const priorById = new Map(priors.map((p) => [String(p.id), p]));
       const gate = (list: OpposingFact[]): OpposingFact[] =>
         list.filter((o) =>
-          rowFilter.filter(
-            (priorById.get(o.factId) as never) ?? { predicate: o.predicate },
-          ),
+          rowFilter.filter((priorById.get(o.factId) as never) ?? { predicate: o.predicate }),
         );
 
       const candidateScore = this.scoring.scoreCandidate(args);
@@ -190,8 +182,7 @@ export class IngestPredictionService {
       ) {
         return {
           wouldOutcome: 'REJECTED',
-          reasoning:
-            `bitemporal predicate, candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
+          reasoning: `bitemporal predicate, candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
           opposingFacts: gate(priors.map(rowToOpposingFact)),
           predicatePolicy: policy,
         };
@@ -204,8 +195,7 @@ export class IngestPredictionService {
       if (policy.semantics === 'append_only') {
         const appendOrigin = originKeyOf(args.source);
         const appendCorroborator = priors.find(
-          (c) =>
-            c.object === args.object && originKeyOf(c.source) !== appendOrigin,
+          (c) => c.object === args.object && originKeyOf(c.source) !== appendOrigin,
         );
         if (appendCorroborator) {
           return {
@@ -228,9 +218,7 @@ export class IngestPredictionService {
       // single_active it is ALL active priors; for bitemporal it is the
       // interval-overlapping priors that also clear the cosine threshold.
       let competing: PriorRow[];
-      let bitemporalAbove:
-        | ReturnType<PredictScoringService['scoreBitemporal']>
-        | undefined;
+      let bitemporalAbove: ReturnType<PredictScoringService['scoreBitemporal']> | undefined;
       if (policy.semantics === 'single_active') {
         competing = priors;
       } else {

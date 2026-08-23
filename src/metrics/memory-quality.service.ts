@@ -65,9 +65,7 @@ export class MemoryQualityService {
         this.mergeInto(snapshot, await this.collectTenant(companyId));
       } catch (e) {
         failed++;
-        this.logger.warn(
-          `memory-quality for ${companyId} failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`memory-quality for ${companyId} failed: ${(e as Error).message}`);
       }
     }
     this.metrics.setMemoryQuality(snapshot);
@@ -80,16 +78,13 @@ export class MemoryQualityService {
     return snapshot;
   }
 
-  private async collectTenant(
-    companyId: string,
-  ): Promise<MemoryQualitySnapshot> {
+  private async collectTenant(companyId: string): Promise<MemoryQualitySnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
       const factsByStatus: Record<string, number> = {};
-      const [statusRows] = await db.query<
-        [Array<{ status: string; n: number }>]
-      >(`SELECT status, count() AS n FROM knowledge_fact GROUP BY status`);
-      for (const r of (statusRows as Array<{ status: string; n: number }>) ??
-        []) {
+      const [statusRows] = await db.query<[Array<{ status: string; n: number }>]>(
+        `SELECT status, count() AS n FROM knowledge_fact GROUP BY status`,
+      );
+      for (const r of (statusRows as Array<{ status: string; n: number }>) ?? []) {
         factsByStatus[r.status] = r.n;
       }
 
@@ -112,14 +107,8 @@ export class MemoryQualityService {
       const ladder = `(IF trustSnapshot.learnedTrust != NONE AND trustSnapshot.learnedTrust != 0.5
            THEN trustSnapshot.learnedTrust
            ELSE trustSnapshot.declaredTrust ?? 0.5 END)`;
-      const low = await this.countWhere(
-        db,
-        `status = 'active' AND ${ladder} < 0.4`,
-      );
-      const high = await this.countWhere(
-        db,
-        `status = 'active' AND ${ladder} > 0.6`,
-      );
+      const low = await this.countWhere(db, `status = 'active' AND ${ladder} < 0.4`);
+      const high = await this.countWhere(db, `status = 'active' AND ${ladder} > 0.6`);
       const active = factsByStatus['active'] ?? 0;
       const trustBands = {
         low,
@@ -177,10 +166,7 @@ export class MemoryQualityService {
     return (rows as Array<{ n: number }>)?.[0]?.n ?? 0;
   }
 
-  private mergeInto(
-    acc: MemoryQualitySnapshot,
-    tenant: MemoryQualitySnapshot,
-  ): void {
+  private mergeInto(acc: MemoryQualitySnapshot, tenant: MemoryQualitySnapshot): void {
     for (const status of FACT_STATUSES) {
       const n = tenant.factsByStatus[status];
       if (n) acc.factsByStatus[status] = (acc.factsByStatus[status] ?? 0) + n;

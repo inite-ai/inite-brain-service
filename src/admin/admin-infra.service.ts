@@ -49,9 +49,7 @@ export class AdminInfraService {
           return rows.map((r) => r.migrationId).sort();
         });
         const appliedSet = new Set(applied);
-        const pending = manifest
-          .filter((m) => !appliedSet.has(m.id))
-          .map((m) => m.id);
+        const pending = manifest.filter((m) => !appliedSet.has(m.id)).map((m) => m.id);
         perTenant.push({ companyId, applied, pending });
       } catch (e) {
         perTenant.push({

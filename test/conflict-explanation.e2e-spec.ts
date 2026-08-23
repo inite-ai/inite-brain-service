@@ -25,21 +25,21 @@ describe('Phase 2 — conflict explanation', () => {
     if (f) await f.close();
   });
 
-  const ingestTier = async (
-    object: string,
-    when: string,
-    confidence: number,
-    explain = false,
-  ) =>
-    (await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'explain_tenant' },
-      predicate: 'tier',
-      object,
-      validFrom: when,
-      source: { vertical: 'rent', eventId: 'billing.tier_change' },
-      confidence,
-      explain,
-    })).body;
+  const ingestTier = async (object: string, when: string, confidence: number, explain = false) =>
+    (
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'explain_tenant' },
+          predicate: 'tier',
+          object,
+          validFrom: when,
+          source: { vertical: 'rent', eventId: 'billing.tier_change' },
+          confidence,
+          explain,
+        })
+    ).body;
 
   it('does NOT include conflictExplanation by default (back-compat)', async () => {
     const first = await ingestTier('standard', '2026-01-01', 0.7);
@@ -58,13 +58,9 @@ describe('Phase 2 — conflict explanation', () => {
     expect(ce.outcome).toBe('SUPERSEDED');
     expect(ce.winnerFactId).toBe(upgrade.factId);
     expect(ce.bestOpponentFactId).toBeTruthy();
-    expect(['confidence', 'source_trust', 'recency', 'authority']).toContain(
-      ce.dominantDimension,
-    );
+    expect(['confidence', 'source_trust', 'recency', 'authority']).toContain(ce.dominantDimension);
 
-    expect(ce.scoreBreakdown.winner.total).toBeGreaterThan(
-      ce.scoreBreakdown.loser.total,
-    );
+    expect(ce.scoreBreakdown.winner.total).toBeGreaterThan(ce.scoreBreakdown.loser.total);
     expect(ce.scoreBreakdown.margin).toBeGreaterThan(0);
 
     expect(typeof ce.narrativeBullet).toBe('string');

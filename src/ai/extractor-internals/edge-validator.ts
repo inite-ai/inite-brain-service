@@ -28,8 +28,7 @@ export function validateEdges(
     if (!e || typeof e !== 'object') continue;
     const from = Number(e.fromEntityIndex);
     const to = Number(e.toEntityIndex);
-    const kind =
-      typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
+    const kind = typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
     if (
       !Number.isInteger(from) ||
       !Number.isInteger(to) ||
@@ -57,13 +56,9 @@ export function validateEdges(
         ? (e.clauseIndex as number)
         : undefined;
     const clauseText =
-      clauseIndex !== undefined && clauseIndex < clauses.length
-        ? clauses[clauseIndex]
-        : undefined;
+      clauseIndex !== undefined && clauseIndex < clauses.length ? clauses[clauseIndex] : undefined;
     const confidence =
-      typeof e.confidence === 'number'
-        ? Math.max(0, Math.min(1, e.confidence))
-        : 0.7;
+      typeof e.confidence === 'number' ? Math.max(0, Math.min(1, e.confidence)) : 0.7;
     edges.push({
       fromEntityIndex: from,
       toEntityIndex: to,

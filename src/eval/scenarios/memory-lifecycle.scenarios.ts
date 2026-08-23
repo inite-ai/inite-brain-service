@@ -128,8 +128,7 @@ export const memoryLifecycleScenarios: Scenario[] = [
     ],
     memoryAssertions: [
       {
-        description:
-          'retracted complaint object does not surface in default search',
+        description: 'retracted complaint object does not surface in default search',
         kind: 'search_object_absent',
         query: 'memlcunique appliance malfunction',
         expectedRefAbsent: `${verticals}.retract-tenant`,
@@ -213,15 +212,13 @@ export const memoryLifecycleScenarios: Scenario[] = [
         expectedRefAbsent: `${verticals}.forget-subject`,
       },
       {
-        description:
-          'forgotten subject no longer surfaces on a complaint-content query',
+        description: 'forgotten subject no longer surfaces on a complaint-content query',
         kind: 'no_search_match',
         query: 'memlcforgetkw distinctive complaint pattern',
         expectedRefAbsent: `${verticals}.forget-subject`,
       },
       {
-        description:
-          'forgotten subject no longer surfaces on an interaction query',
+        description: 'forgotten subject no longer surfaces on an interaction query',
         kind: 'no_search_match',
         query: 'memlcforgetkw event attendance',
         expectedRefAbsent: `${verticals}.forget-subject`,
@@ -281,8 +278,7 @@ export const memoryLifecycleScenarios: Scenario[] = [
         objectSubstring: 'active',
       },
       {
-        description:
-          'retracted churn does NOT surface alongside active in default search',
+        description: 'retracted churn does NOT surface alongside active in default search',
         kind: 'search_object_absent',
         query: 'Memlc Cycle Customer status',
         expectedRefAbsent: `${verticals}.cycle-customer`,

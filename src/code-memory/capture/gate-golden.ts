@@ -93,14 +93,12 @@ export const GATE_GOLDEN: GoldenCase[] = [
   },
   // reason in the SUBJECT only — the body-scanning heuristic tends to miss these
   {
-    message:
-      'fix: acquire the pool lock before migrating because concurrent boots race the schema',
+    message: 'fix: acquire the pool lock before migrating because concurrent boots race the schema',
     label: 1,
     kinds: ['because', 'invariant'],
   },
   {
-    message:
-      'chore: pin the docker digest — a floating tag silently changed the base image',
+    message: 'chore: pin the docker digest — a floating tag silently changed the base image',
     label: 1,
     kinds: ['gotcha', 'because'],
   },
@@ -117,8 +115,7 @@ export const GATE_GOLDEN: GoldenCase[] = [
     kinds: ['invariant'],
   },
   {
-    message:
-      'perf: memoize the embedder to avoid N sequential round-trips on cold tenants',
+    message: 'perf: memoize the embedder to avoid N sequential round-trips on cold tenants',
     label: 1,
     kinds: ['decided', 'because'],
   },
@@ -200,8 +197,7 @@ function prf(preds: number[], labels: number[]): GateEvalMetrics {
   }
   const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
   const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
-  const f1 =
-    precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
   return {
     n: labels.length,
     accuracy: labels.length ? correct / labels.length : 0,
@@ -224,7 +220,10 @@ export function evaluateModelOnGolden(
       ? 1
       : 0,
   );
-  return prf(preds, golden.map((c) => c.label));
+  return prf(
+    preds,
+    golden.map((c) => c.label),
+  );
 }
 
 /** Score any DecisionClassifier (heuristic / trained / hybrid) on the golden. */
@@ -232,15 +231,14 @@ export function evaluateClassifierOnGolden(
   classifier: DecisionClassifier,
   golden: GoldenCase[] = GATE_GOLDEN,
 ): GateEvalMetrics {
-  const preds = golden.map((c) =>
-    classifier.classify(goldenCommit(c)).likelyDecision ? 1 : 0,
+  const preds = golden.map((c) => (classifier.classify(goldenCommit(c)).likelyDecision ? 1 : 0));
+  return prf(
+    preds,
+    golden.map((c) => c.label),
   );
-  return prf(preds, golden.map((c) => c.label));
 }
 
 /** Score the deterministic heuristic against the golden set (the baseline). */
-export function evaluateHeuristicOnGolden(
-  golden: GoldenCase[] = GATE_GOLDEN,
-): GateEvalMetrics {
+export function evaluateHeuristicOnGolden(golden: GoldenCase[] = GATE_GOLDEN): GateEvalMetrics {
   return evaluateClassifierOnGolden(new HeuristicDecisionClassifier(), golden);
 }

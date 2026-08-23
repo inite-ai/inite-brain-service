@@ -90,14 +90,9 @@ export class ChangefeedConsumerService {
         try {
           const r = await this.drain.consumeForTenant(companyId);
           pendingThisTick += r.pendingRemaining;
-          consumedThisTick += Object.values(r.consumed).reduce(
-            (a, b) => a + b,
-            0,
-          );
+          consumedThisTick += Object.values(r.consumed).reduce((a, b) => a + b, 0);
         } catch (err) {
-          this.logger.warn(
-            `[changefeed] tenant=${companyId} failed: ${(err as Error).message}`,
-          );
+          this.logger.warn(`[changefeed] tenant=${companyId} failed: ${(err as Error).message}`);
           this.lastError = {
             message: (err as Error).message,
             ts: new Date().toISOString(),
@@ -191,12 +186,9 @@ export class ChangefeedConsumerService {
    * `changefeed_state` cursor per tenant + source. Cheap read; admin
    * operators use it to spot tenants stuck behind a slow batch.
    */
-  async cursorState(): Promise<
-    Array<{ companyId: string; source: string; cursor: number }>
-  > {
+  async cursorState(): Promise<Array<{ companyId: string; source: string; cursor: number }>> {
     if (!this.drain.enabled) return [];
-    const out: Array<{ companyId: string; source: string; cursor: number }> =
-      [];
+    const out: Array<{ companyId: string; source: string; cursor: number }> = [];
     for (const companyId of this.apiKeys.knownCompanyIds()) {
       try {
         const rows = await this.drain.cursorStateForTenant(companyId);

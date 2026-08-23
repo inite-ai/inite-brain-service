@@ -11,10 +11,7 @@
  * numbers, run `pnpm bench:router` — that runs isolated.
  */
 import type { ConfigService } from '@nestjs/config';
-import {
-  classifyIntentLocally,
-  shouldSkipLLM,
-} from '../src/admin/chat-router.service';
+import { classifyIntentLocally, shouldSkipLLM } from '../src/admin/chat-router.service';
 import { ChatRouterCacheService } from '../src/admin/chat-router-cache.service';
 import {
   extractCollapseEditsLocally,
@@ -38,9 +35,7 @@ const span = { text: 'q', start: 0, end: 1 };
 
 describe('Hybrid router perf gate', () => {
   it('classifyIntentLocally — under 50µs/call avg', () => {
-    const t = timeMicroseconds(() =>
-      classifyIntentLocally('where Maria lives?'),
-    );
+    const t = timeMicroseconds(() => classifyIntentLocally('where Maria lives?'));
     expect(t).toBeLessThan(50);
   });
 
@@ -95,9 +90,7 @@ describe('Hybrid router perf gate', () => {
         intentConfidence: 0.95,
         intentConfidenceFloor: 0.85,
         localMentions: [{ canonical: 'Maria', span }],
-        localHints: [
-          { predicateId: 'address', similarity: 0.6, triggerSpan: span },
-        ],
+        localHints: [{ predicateId: 'address', similarity: 0.6, triggerSpan: span }],
         localCollapses: [],
       }),
     );
@@ -111,9 +104,7 @@ describe('Hybrid router perf gate', () => {
   it('combined local path stays under 2000µs end-to-end avg', () => {
     const cache = new ChatRouterCacheService(cfg());
     const snap: CollapseSnapshot = {
-      patterns: new Map([
-        ['moved to', { pattern: 'moved to', replacement: 'lives in' }],
-      ]),
+      patterns: new Map([['moved to', { pattern: 'moved to', replacement: 'lives in' }]]),
     };
     const t = timeMicroseconds(() => {
       const intent = classifyIntentLocally('where Maria lives?');
@@ -126,22 +117,17 @@ describe('Hybrid router perf gate', () => {
         now: new Date('2026-06-14T10:00:00Z'),
       });
       cache.get(key);
-      const collapses = extractCollapseEditsLocally(
-        'where Maria lives?',
-        snap,
-      );
+      const collapses = extractCollapseEditsLocally('where Maria lives?', snap);
       shouldSkipLLM({
         intent: intent.intent,
         intentConfidence: intent.confidence,
         intentConfidenceFloor: 0.85,
         localMentions: [{ canonical: 'Maria Petrov', span }],
-        localHints: [
-          { predicateId: 'address', similarity: 0.6, triggerSpan: span },
-        ],
+        localHints: [{ predicateId: 'address', similarity: 0.6, triggerSpan: span }],
         localCollapses: collapses,
       });
     });
-     
+
     console.log(`Combined local path: ${t.toFixed(2)}µs/call`);
     expect(t).toBeLessThan(2000);
   });

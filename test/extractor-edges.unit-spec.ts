@@ -36,8 +36,7 @@ function parseEdges(
     if (!e || typeof e !== 'object') continue;
     const from = Number(e.fromEntityIndex);
     const to = Number(e.toEntityIndex);
-    const kind =
-      typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
+    const kind = typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
     if (
       !Number.isInteger(from) ||
       !Number.isInteger(to) ||
@@ -65,13 +64,9 @@ function parseEdges(
         ? (e.clauseIndex as number)
         : undefined;
     const clauseText =
-      clauseIndex !== undefined && clauseIndex < clauses.length
-        ? clauses[clauseIndex]
-        : undefined;
+      clauseIndex !== undefined && clauseIndex < clauses.length ? clauses[clauseIndex] : undefined;
     const confidence =
-      typeof e.confidence === 'number'
-        ? Math.max(0, Math.min(1, e.confidence))
-        : 0.7;
+      typeof e.confidence === 'number' ? Math.max(0, Math.min(1, e.confidence)) : 0.7;
     edges.push({
       fromEntityIndex: from,
       toEntityIndex: to,
@@ -110,9 +105,7 @@ describe('Extractor edge parsing — bounds + dedup', () => {
       clauses,
     );
     expect(edges).toEqual([]);
-    expect(dropped).toEqual([
-      { kind: 'works_at', reason: 'entity_index_out_of_bounds' },
-    ]);
+    expect(dropped).toEqual([{ kind: 'works_at', reason: 'entity_index_out_of_bounds' }]);
   });
 
   it('drops self-edge', () => {
@@ -137,7 +130,15 @@ describe('Extractor edge parsing — bounds + dedup', () => {
 
   it('normalizes kind to lowercase + trims', () => {
     const { edges } = parseEdges(
-      [{ fromEntityIndex: 0, toEntityIndex: 1, kind: '  WORKS_AT  ', clauseIndex: 0, confidence: 0.9 }],
+      [
+        {
+          fromEntityIndex: 0,
+          toEntityIndex: 1,
+          kind: '  WORKS_AT  ',
+          clauseIndex: 0,
+          confidence: 0.9,
+        },
+      ],
       2,
       clauses,
     );
@@ -160,7 +161,15 @@ describe('Extractor edge parsing — bounds + dedup', () => {
 
   it('omits clause when clauseIndex out of bounds', () => {
     const { edges } = parseEdges(
-      [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'works_at', clauseIndex: 99, confidence: 0.9 }],
+      [
+        {
+          fromEntityIndex: 0,
+          toEntityIndex: 1,
+          kind: 'works_at',
+          clauseIndex: 99,
+          confidence: 0.9,
+        },
+      ],
       2,
       clauses,
     );
@@ -176,7 +185,13 @@ describe('Extractor edge parsing — bounds + dedup', () => {
     const { edges } = parseEdges(
       [
         { fromEntityIndex: 0, toEntityIndex: 1, kind: 'works_at', clauseIndex: 0, confidence: 0.9 },
-        { fromEntityIndex: 0, toEntityIndex: 2, kind: 'lives_at', clauseIndex: 1, confidence: 0.85 },
+        {
+          fromEntityIndex: 0,
+          toEntityIndex: 2,
+          kind: 'lives_at',
+          clauseIndex: 1,
+          confidence: 0.85,
+        },
       ],
       3,
       clauses,

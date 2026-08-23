@@ -21,10 +21,7 @@ import type { CommitInput, DecisionCandidate } from './types';
 
 export interface DecisionVerifier {
   /** Return the kept candidates (dropped = judged false), confidence calibrated. */
-  rescore(
-    commit: CommitInput,
-    candidates: DecisionCandidate[],
-  ): Promise<DecisionCandidate[]>;
+  rescore(commit: CommitInput, candidates: DecisionCandidate[]): Promise<DecisionCandidate[]>;
 }
 
 export class LlmDecisionVerifier implements DecisionVerifier {
@@ -50,12 +47,8 @@ Reject (keep=false) an item that just paraphrases the change ("decided to add X"
 
 Return STRICT JSON: {"verdicts":[{"keep":true,"confidence":0.0}]} — EXACTLY one entry per item, in the SAME ORDER. confidence is 0..1, your certainty the item is a genuine "why".`;
 
-  const body = commit.prBody
-    ? `${commit.message}\n\nPR body:\n${commit.prBody}`
-    : commit.message;
-  const items = candidates
-    .map((c, i) => `${i}. [${c.kind}] ${c.text}`)
-    .join('\n');
+  const body = commit.prBody ? `${commit.message}\n\nPR body:\n${commit.prBody}` : commit.message;
+  const items = candidates.map((c, i) => `${i}. [${c.kind}] ${c.text}`).join('\n');
   const user = `Commit:\n${body}\n\nItems to review:\n${items}`;
   return { system, user };
 }
@@ -63,10 +56,7 @@ Return STRICT JSON: {"verdicts":[{"keep":true,"confidence":0.0}]} — EXACTLY on
 /** Apply the judge's verdicts to the candidates. Drops keep=false; calibrates
  *  confidence from the verdict. Fail-open: on any mismatch/parse failure the
  *  original candidates are returned unchanged. */
-export function applyVerdicts(
-  candidates: DecisionCandidate[],
-  raw: string,
-): DecisionCandidate[] {
+export function applyVerdicts(candidates: DecisionCandidate[], raw: string): DecisionCandidate[] {
   const verdicts = parseVerdicts(raw);
   // A judge that returned the wrong count is untrustworthy for alignment —
   // keep the raw candidates rather than drop by a misaligned index.

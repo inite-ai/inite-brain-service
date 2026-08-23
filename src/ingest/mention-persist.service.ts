@@ -90,15 +90,13 @@ export class MentionPersistService {
   ): KnownEntity | undefined {
     if (
       speaker &&
-      (isFirstPersonSelfReference(e.name) ||
-        matchesParticipantName(e.name, speaker.name))
+      (isFirstPersonSelfReference(e.name) || matchesParticipantName(e.name, speaker.name))
     ) {
       return speaker;
     }
     if (
       addressee &&
-      (isSecondPersonReference(e.name) ||
-        matchesParticipantName(e.name, addressee.name))
+      (isSecondPersonReference(e.name) || matchesParticipantName(e.name, addressee.name))
     ) {
       return addressee;
     }
@@ -158,9 +156,7 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
-    const eventTimeOn = envFlagEnabled(
-      process.env.INGEST_EVENT_TIME_EXTRACTION,
-    );
+    const eventTimeOn = envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION);
     if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
       return this.persistFactsBatched(db, p, eventTimeOn);
     }
@@ -255,10 +251,7 @@ export class MentionPersistService {
           confidence: f.confidence,
           validFrom: this.factValidFrom(f, dto, eventTimeOn),
           source,
-          entropy:
-            typeof f.extractionEntropy === 'number'
-              ? f.extractionEntropy
-              : undefined,
+          entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],
           // Audit 2026-08-21 P0: the per-user scope stamps every
           // extracted fact on the batched path too.
@@ -270,7 +263,11 @@ export class MentionPersistService {
 
     const resolved = await traceSpan(
       'ingest.facts.batch',
-      () => this.factResolver.resolveMany(db, specs.map((s) => s.input)),
+      () =>
+        this.factResolver.resolveMany(
+          db,
+          specs.map((s) => s.input),
+        ),
       { facts: specs.length },
     );
     const factIds: string[] = [];
@@ -310,8 +307,7 @@ export class MentionPersistService {
     },
   ): Promise<string | null> {
     const { f } = p;
-    const entropy =
-      typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined;
+    const entropy = typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined;
     const { result, semantics } = await this.factResolver.resolve(db, {
       companyId: p.companyId,
       entityId: p.entityId,
@@ -428,8 +424,7 @@ export class MentionPersistService {
     // same (from,to,kind) twice, which the per-edge loop would resolve to
     // the same id twice. One entry keeps the RELATE batch collision-free.
     const seen = new Set<string>();
-    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> =
-      [];
+    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> = [];
     for (const e of extraction.edges) {
       const from = entityIds[e.fromEntityIndex];
       const to = entityIds[e.toEntityIndex];

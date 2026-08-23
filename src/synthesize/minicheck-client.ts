@@ -26,9 +26,7 @@ export interface MiniCheckRequest {
 }
 
 /** True = the claim is consistent with the document (grounded). */
-export async function miniCheckConsistent(
-  req: MiniCheckRequest,
-): Promise<boolean> {
+export async function miniCheckConsistent(req: MiniCheckRequest): Promise<boolean> {
   const doFetch = req.fetchImpl ?? fetch;
   const res = await doFetch(`${req.baseUrl}/api/generate`, {
     method: 'POST',

@@ -58,9 +58,7 @@ export function splitFeatured(packs: RegistryPackSummary[]): {
 } {
   const featured = packs.filter((p) => p.featured === true);
   // ISO 8601 strings sort lexicographically; missing featuredAt sinks last.
-  featured.sort((a, b) =>
-    (b.featuredAt ?? '').localeCompare(a.featuredAt ?? ''),
-  );
+  featured.sort((a, b) => (b.featuredAt ?? '').localeCompare(a.featuredAt ?? ''));
   return { featured, rest: packs.filter((p) => p.featured !== true) };
 }
 

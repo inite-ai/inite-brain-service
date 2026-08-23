@@ -47,9 +47,7 @@ export class PackToolProxyService {
     const endpoint = tool.endpoint;
     const latched = this.breaker.get(endpoint);
     if (latched && Date.now() < latched.until) {
-      throw upstreamError(
-        'external tool endpoint is temporarily unavailable (circuit open)',
-      );
+      throw upstreamError('external tool endpoint is temporarily unavailable (circuit open)');
     }
     if (!binding.webhookSecret || !binding.installId) {
       // Pre-0068 install rows lack the identity/secret pair; an
@@ -77,9 +75,7 @@ export class PackToolProxyService {
       ts: new Date().toISOString(),
       args: opts.args,
     });
-    const signature = createHmac('sha256', binding.webhookSecret)
-      .update(payload)
-      .digest('hex');
+    const signature = createHmac('sha256', binding.webhookSecret).update(payload).digest('hex');
     const timeoutMs = Math.min(tool.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
     const text = await this.deliver({ endpoint, payload, signature, timeoutMs });
     return this.shapeResponse(endpoint, text);
@@ -119,16 +115,12 @@ export class PackToolProxyService {
       }
       if (res.status !== 200) {
         this.recordFailure(opts.endpoint);
-        throw upstreamError(
-          `external tool endpoint answered HTTP ${res.status}`,
-        );
+        throw upstreamError(`external tool endpoint answered HTTP ${res.status}`);
       }
       const text = await readCapped(res, MAX_RESPONSE_BYTES);
       if (text === null) {
         this.recordFailure(opts.endpoint);
-        throw upstreamError(
-          `external tool response exceeded ${MAX_RESPONSE_BYTES / 1024} KB`,
-        );
+        throw upstreamError(`external tool response exceeded ${MAX_RESPONSE_BYTES / 1024} KB`);
       }
       return text;
     } finally {
@@ -156,9 +148,7 @@ export class PackToolProxyService {
         body.error === undefined
           ? 'response carries no content field'
           : sanitizePackText(
-              typeof body.error === 'string'
-                ? body.error
-                : JSON.stringify(body.error),
+              typeof body.error === 'string' ? body.error : JSON.stringify(body.error),
               500,
             );
       throw upstreamError(`external tool returned an error: ${detail}`);

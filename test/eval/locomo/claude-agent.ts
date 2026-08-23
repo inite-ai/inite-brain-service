@@ -96,10 +96,7 @@ export async function createClaudeMcpAgent(opts: {
       const messages: Array<Anthropic.MessageParam> = [
         {
           role: 'user',
-          content:
-            asOf !== undefined
-              ? `Question (as of ${asOf}): ${question}`
-              : question,
+          content: asOf !== undefined ? `Question (as of ${asOf}): ${question}` : question,
         },
       ];
 

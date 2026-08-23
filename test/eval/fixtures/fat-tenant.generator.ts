@@ -27,7 +27,7 @@ const ISO = (d: string) => new Date(d).toISOString();
 function mulberry32(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
-    s = (s + 0x6D2B79F5) >>> 0;
+    s = (s + 0x6d2b79f5) >>> 0;
     let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -36,42 +36,115 @@ function mulberry32(seed: number): () => number {
 }
 
 const FIRST_NAMES = [
-  'Maria', 'Maria', 'Maria', // intentional repeats — shared-firstname adversarial
-  'James', 'James',
-  'Anna', 'Anna',
-  'Liam', 'Sophia', 'Mateo', 'Aiko', 'Priya', 'Rohit', 'Yuki', 'Zara',
-  'Noah', 'Ethan', 'Olivia', 'Mia', 'Ava', 'Sara', 'Lucas', 'Eva',
-  'Carlos', 'Diego', 'Lina', 'Elena', 'Ravi', 'Hassan', 'Layla',
-  'Klaus', 'Greta', 'Hans', 'Ingrid',
+  'Maria',
+  'Maria',
+  'Maria', // intentional repeats — shared-firstname adversarial
+  'James',
+  'James',
+  'Anna',
+  'Anna',
+  'Liam',
+  'Sophia',
+  'Mateo',
+  'Aiko',
+  'Priya',
+  'Rohit',
+  'Yuki',
+  'Zara',
+  'Noah',
+  'Ethan',
+  'Olivia',
+  'Mia',
+  'Ava',
+  'Sara',
+  'Lucas',
+  'Eva',
+  'Carlos',
+  'Diego',
+  'Lina',
+  'Elena',
+  'Ravi',
+  'Hassan',
+  'Layla',
+  'Klaus',
+  'Greta',
+  'Hans',
+  'Ingrid',
 ];
 
 const LAST_NAMES = [
-  'Schmidt', 'Müller', 'Berg', 'Park', 'Kim', 'Tanaka', 'Volkov',
-  'Rossi', 'Khan', 'Singh', 'Petrova', 'Nakamura', 'Ng', 'Reyes',
-  'Chen', 'Wong', 'Holm', 'Andersen', 'Kowalski', 'Novak', 'Cohen',
-  'Garcia', 'Martin', 'Costa', 'Silva', 'Ferraro', 'Okafor', 'Mensah',
+  'Schmidt',
+  'Müller',
+  'Berg',
+  'Park',
+  'Kim',
+  'Tanaka',
+  'Volkov',
+  'Rossi',
+  'Khan',
+  'Singh',
+  'Petrova',
+  'Nakamura',
+  'Ng',
+  'Reyes',
+  'Chen',
+  'Wong',
+  'Holm',
+  'Andersen',
+  'Kowalski',
+  'Novak',
+  'Cohen',
+  'Garcia',
+  'Martin',
+  'Costa',
+  'Silva',
+  'Ferraro',
+  'Okafor',
+  'Mensah',
 ];
 
 const PROJECT_NAMES = [
-  'Phoenix', 'Atlas', 'Helix', 'Nimbus', 'Orion', 'Pulse', 'Quartz',
-  'Vector', 'Zenith', 'Hydra', 'Ember', 'Frost', 'Compass', 'Beacon',
+  'Phoenix',
+  'Atlas',
+  'Helix',
+  'Nimbus',
+  'Orion',
+  'Pulse',
+  'Quartz',
+  'Vector',
+  'Zenith',
+  'Hydra',
+  'Ember',
+  'Frost',
+  'Compass',
+  'Beacon',
 ];
 
 const APPLIANCE_TOPICS = [
-  'broken washing machine', 'dishwasher leak', 'fridge not cooling',
-  'oven won\'t heat', 'air conditioner rattling', 'water heater failure',
+  'broken washing machine',
+  'dishwasher leak',
+  'fridge not cooling',
+  "oven won't heat",
+  'air conditioner rattling',
+  'water heater failure',
 ];
 const NOISE_TOPICS = [
-  'late-night noise from upstairs', 'loud music from neighbours',
-  'construction noise during work hours', 'barking dog next door',
+  'late-night noise from upstairs',
+  'loud music from neighbours',
+  'construction noise during work hours',
+  'barking dog next door',
 ];
 const PARKING_TOPICS = [
-  'parking spot taken by visitors', 'electric vehicle charger broken',
-  'parking gate not opening', 'visitor parking abuse',
+  'parking spot taken by visitors',
+  'electric vehicle charger broken',
+  'parking gate not opening',
+  'visitor parking abuse',
 ];
 const PAYMENT_TOPICS = [
-  'rent payment declined', 'card expired and payment failed',
-  'auto-pay not configured', 'invoice missing line items',
+  'rent payment declined',
+  'card expired and payment failed',
+  'auto-pay not configured',
+  'invoice missing line items',
 ];
 
 export interface FatTenantOpts {
@@ -165,7 +238,12 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
   const retractedComplaints: Array<{ id: string; object: string }> = [];
   // Track temporal-tier customers so memory assertions can verify
   // the latest tier surfaces and the older ones do not.
-  const temporalTierCustomers: Array<{ id: string; fullName: string; finalTier: string; staleTier: string }> = [];
+  const temporalTierCustomers: Array<{
+    id: string;
+    fullName: string;
+    finalTier: string;
+    staleTier: string;
+  }> = [];
 
   // Customers — name + tier + a small pool of complaints/interactions.
   for (let i = 0; i < customerCount; i++) {
@@ -275,11 +353,7 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
     let firstComplaintObject: string | undefined;
     for (let c = 0; c < complaints; c++) {
       const topicPool =
-        rand() < 0.4
-          ? APPLIANCE_TOPICS
-          : rand() < 0.7
-            ? NOISE_TOPICS
-            : PARKING_TOPICS;
+        rand() < 0.4 ? APPLIANCE_TOPICS : rand() < 0.7 ? NOISE_TOPICS : PARKING_TOPICS;
       const obj = pick(topicPool);
       if (!firstComplaintObject) firstComplaintObject = obj;
       // A small slice of complaints are retracted post-ingest.
@@ -587,10 +661,7 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
     // dataset can't have.
     const controlNames: string[] = [];
     let attempts = 0;
-    while (
-      controlNames.length < forgottenForMia.length &&
-      attempts < forgottenForMia.length * 10
-    ) {
+    while (controlNames.length < forgottenForMia.length && attempts < forgottenForMia.length * 10) {
       attempts++;
       const candidate = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)} Mia${attempts}`;
       if (!usedNames.has(candidate)) {
@@ -613,8 +684,7 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
       {
         id: 'fat-tenant.mid-scale',
         vertical: 'cross',
-        description:
-          `Fat-tenant fixture: ~${customerCount} customers + ${staffCount} staff + ${projectCount} projects, ~${factCount} facts. ${temporalTierCount} temporal-tier customers, ${competingStatusCount} competing-status, ${retractedComplaintCount} retracted complaints, ${forgottenCustomerCount} forgotten. Tests retrieval AND memory-lifecycle correctness at the scale where graph-aware techniques start to pay off.`,
+        description: `Fat-tenant fixture: ~${customerCount} customers + ${staffCount} staff + ${projectCount} projects, ~${factCount} facts. ${temporalTierCount} temporal-tier customers, ${competingStatusCount} competing-status, ${retractedComplaintCount} retracted complaints, ${forgottenCustomerCount} forgotten. Tests retrieval AND memory-lifecycle correctness at the scale where graph-aware techniques start to pay off.`,
         setup,
         queries,
         memoryAssertions,

@@ -13,10 +13,7 @@
  *
  * Pure module — unit-testable without a DB.
  */
-import {
-  isGroundedSpan,
-  normalizeForGrounding,
-} from '../ai/extractor-internals/grounding';
+import { isGroundedSpan, normalizeForGrounding } from '../ai/extractor-internals/grounding';
 import type {
   CandidateEntity,
   CandidateFact,

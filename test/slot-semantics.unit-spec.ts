@@ -91,29 +91,24 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
     const svc = makeResolver();
     const calls: Array<Record<string, unknown>> = [];
     const db = {
-      query: async <T,>(_sql: string, params?: Record<string, unknown>) => {
+      query: async <T>(_sql: string, params?: Record<string, unknown>) => {
         calls.push(params ?? {});
         const facts = params?.facts as unknown[];
         return [facts.map(() => ({ outcome: 'INSERTED' }))] as unknown as T;
       },
     };
-    await svc.resolveDerivedBatch(
-      db,
-      [derivedRow('work'), derivedRow('events')],
-      { slotSemantics: true },
-    );
+    await svc.resolveDerivedBatch(db, [derivedRow('work'), derivedRow('events')], {
+      slotSemantics: true,
+    });
     const facts = calls[0]!.facts as Array<{ semantics: string }>;
-    expect(facts.map((f) => f.semantics)).toEqual([
-      'bitemporal_event',
-      'append_only',
-    ]);
+    expect(facts.map((f) => f.semantics)).toEqual(['bitemporal_event', 'append_only']);
   });
 
   it('default (no opts) stays append_only for every aspect', async () => {
     const svc = makeResolver();
     const calls: Array<Record<string, unknown>> = [];
     const db = {
-      query: async <T,>(_sql: string, params?: Record<string, unknown>) => {
+      query: async <T>(_sql: string, params?: Record<string, unknown>) => {
         calls.push(params ?? {});
         const facts = params?.facts as unknown[];
         return [facts.map(() => ({ outcome: 'INSERTED' }))] as unknown as T;
@@ -128,7 +123,7 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
     const svc = makeResolver();
     let call = 0;
     const db = {
-      query: async <T,>(_sql: string, params?: Record<string, unknown>) => {
+      query: async <T>(_sql: string, params?: Record<string, unknown>) => {
         call += 1;
         const facts = params?.facts as Array<{ object: string }>;
         if (facts.length > 1) {
@@ -146,11 +141,7 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
       derivedRow('plans', 'good-2'),
     ]);
     expect(call).toBe(4); // 1 failed batch + 3 per-row retries
-    expect(out.map((o) => o.outcome)).toEqual([
-      'INSERTED',
-      'SKIPPED',
-      'INSERTED',
-    ]);
+    expect(out.map((o) => o.outcome)).toEqual(['INSERTED', 'SKIPPED', 'INSERTED']);
     expect(out[1]!.reason).toContain('UPDATE statement using value: NONE');
   });
 });
@@ -165,9 +156,7 @@ describe('migration 0083 (the stored-fn side)', () => {
     expect(sql).toContain('IF $new = NONE OR $new.id = NONE');
     expect(sql).toContain("'create_returned_none'");
     // The fence must sit BEFORE the first $new.id dereference.
-    expect(sql.indexOf('IF $new = NONE')).toBeLessThan(
-      sql.indexOf('UPDATE $new.id'),
-    );
+    expect(sql.indexOf('IF $new = NONE')).toBeLessThan(sql.indexOf('UPDATE $new.id'));
   });
 
   it('bitemporal_event: event-time recency + later-validFrom-wins supersede', () => {
@@ -193,9 +182,7 @@ describe('migration 0083 (the stored-fn side)', () => {
 
 describe('DERIVER_SLOT_SEMANTICS flag plumbing', () => {
   it('resolves through the extraction profile, default off', () => {
-    expect(
-      resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSlotSemantics,
-    ).toBe(false);
+    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSlotSemantics).toBe(false);
     expect(
       resolveExtractionProfile({
         DERIVER_SLOT_SEMANTICS: '1',
@@ -206,10 +193,7 @@ describe('DERIVER_SLOT_SEMANTICS flag plumbing', () => {
 
 describe('migration 0084 (day-granular supersede + slot cosine gate)', () => {
   const sql = readFileSync(
-    join(
-      __dirname,
-      '../src/db/migrations/0084_slot_supersede_day_granularity.surql',
-    ),
+    join(__dirname, '../src/db/migrations/0084_slot_supersede_day_granularity.surql'),
     'utf-8',
   );
 
@@ -226,9 +210,7 @@ describe('migration 0084 (day-granular supersede + slot cosine gate)', () => {
   });
 
   it('the backdated guard is day-granular for bitemporal_event only', () => {
-    expect(sql).toContain(
-      'WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)',
-    );
+    expect(sql).toContain('WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)');
     // single_active keeps the raw comparison.
     expect(sql).toContain('WHERE validFrom > $valid_from');
   });
@@ -249,25 +231,18 @@ describe('migration 0084 (day-granular supersede + slot cosine gate)', () => {
   it('carries the 0083 fence and event-time recency forward', () => {
     expect(sql).toContain('IF $new = NONE OR $new.id = NONE');
     expect(sql).toContain("'create_returned_none'");
-    expect(sql).toContain(
-      "IF $semantics = 'bitemporal_event' THEN validFrom ELSE recordedAt END",
-    );
+    expect(sql).toContain("IF $semantics = 'bitemporal_event' THEN validFrom ELSE recordedAt END");
   });
 });
 
 describe('migration 0085 (pairwise closure + competing re-admission)', () => {
   const sql = readFileSync(
-    join(
-      __dirname,
-      '../src/db/migrations/0085_slot_supersede_pairwise_closure.surql',
-    ),
+    join(__dirname, '../src/db/migrations/0085_slot_supersede_pairwise_closure.surql'),
     'utf-8',
   );
 
   it('F1: supersede closes only strictly-earlier-day members', () => {
-    expect(sql).toContain(
-      'WHERE time::floor(validFrom, 1d) < time::floor($valid_from, 1d)',
-    );
+    expect(sql).toContain('WHERE time::floor(validFrom, 1d) < time::floor($valid_from, 1d)');
     // The pool-wide loser walk is gone; the loop runs over $losers.
     expect(sql).toContain('FOR $loser IN $losers');
     expect(sql).not.toContain('FOR $loser IN $competing');
@@ -283,9 +258,7 @@ describe('migration 0085 (pairwise closure + competing re-admission)', () => {
     // (which masked the strictly-older row when best_opp was the
     // same-day peer) is gone, and so is the dead margin path for this
     // semantics (0084 declared it unreachable for batch-derived rows).
-    expect(sql).toContain(
-      "($semantics = 'bitemporal_event' AND array::len($losers) > 0)",
-    );
+    expect(sql).toContain("($semantics = 'bitemporal_event' AND array::len($losers) > 0)");
     expect(sql).toContain(
       "($semantics != 'bitemporal_event' AND $new_score >= $best_opp_score + $margin_for_supersede)",
     );
@@ -295,9 +268,7 @@ describe('migration 0085 (pairwise closure + competing re-admission)', () => {
   });
 
   it('F3: bitemporal_event re-admits competing rows to the pool', () => {
-    expect(sql).toContain(
-      "OR (status = 'competing' AND $semantics = 'bitemporal_event')",
-    );
+    expect(sql).toContain("OR (status = 'competing' AND $semantics = 'bitemporal_event')");
   });
 
   it('keeps the 0084 signature — no mapper redefinition', () => {
@@ -307,18 +278,13 @@ describe('migration 0085 (pairwise closure + competing re-admission)', () => {
 
   it('carries the 0083 fence and the day-granular backdated guard forward', () => {
     expect(sql).toContain('IF $new = NONE OR $new.id = NONE');
-    expect(sql).toContain(
-      'WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)',
-    );
+    expect(sql).toContain('WHERE time::floor(validFrom, 1d) > time::floor($valid_from, 1d)');
   });
 });
 
 describe('window-deriver targeted re-derive (audit F2)', () => {
   it('revives cross-conversation losers before the scoped delete', () => {
-    const src = readFileSync(
-      join(__dirname, '../src/admin/window-deriver.service.ts'),
-      'utf-8',
-    );
+    const src = readFileSync(join(__dirname, '../src/admin/window-deriver.service.ts'), 'utf-8');
     expect(src).toContain('validUntil = priorValidUntil');
     expect(src).toContain('supersededBy IN (');
     expect(src).toContain('source.conversationId != $conv');
@@ -334,14 +300,9 @@ describe('window-deriver targeted re-derive (audit F2)', () => {
 
 describe('DERIVER_SLOT_SIMILARITY plumbing', () => {
   it('both resolver call sites pass the slot threshold', () => {
-    const src = readFileSync(
-      join(__dirname, '../src/ingest/fact-resolver.service.ts'),
-      'utf-8',
-    );
+    const src = readFileSync(join(__dirname, '../src/ingest/fact-resolver.service.ts'), 'utf-8');
     // Batch cfg key (fn::resolve_facts maps it positionally).
-    expect(src).toContain(
-      'slot_similarity: this.conflict.slotSimilarityThreshold',
-    );
+    expect(src).toContain('slot_similarity: this.conflict.slotSimilarityThreshold');
     // Inline 25-arg call.
     expect(src).toContain('$predicate_alias, $slot_similarity');
     expect(src).toContain("this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9)");

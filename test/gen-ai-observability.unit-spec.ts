@@ -44,7 +44,12 @@ describe('withGenAiCall', () => {
   it('folds embed response.usage.total_tokens into promptTokens', async () => {
     const m = new FakeMetrics();
     await withGenAiCall(
-      { kind: 'embed', spanName: 'gen_ai.embed.test', system: 'openai', model: 'text-embedding-3-small' },
+      {
+        kind: 'embed',
+        spanName: 'gen_ai.embed.test',
+        system: 'openai',
+        model: 'text-embedding-3-small',
+      },
       m as any,
       async () => ({ usage: { total_tokens: 7 } }),
     );

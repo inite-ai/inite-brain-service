@@ -355,4 +355,3 @@ VALUE  one anti-pattern per fact (multi-valued)`,
   // (src/ai/domain-packs/code-memory.pack.ts), namespaced code_memory__*, and
   // merged into the bootstrap seed via SEED_PREDICATES.
 ];
-

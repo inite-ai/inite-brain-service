@@ -41,18 +41,14 @@ export class ExtractorLlmService {
     @Optional() private readonly metrics?: MetricsService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
-    this.model = this.configService.get<string>(
-      'OPENAI_CHAT_MODEL',
-      'gpt-4o-mini',
-    );
+    this.model = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
     // The static EXTRACTION_SYSTEM_PROMPT override is no longer the
     // source of truth for vocabulary — that's the registry. The env
     // var stays as an escape hatch for operators who want to fully
     // replace the prompt header (everything before the dynamically-
     // rendered predicate cards).
     this.systemPromptHeader =
-      this.configService.get<string>('EXTRACTION_SYSTEM_PROMPT') ??
-      EXTRACTION_PROMPT_HEADER;
+      this.configService.get<string>('EXTRACTION_SYSTEM_PROMPT') ?? EXTRACTION_PROMPT_HEADER;
     this.limiter = new Semaphore(
       parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
     );
@@ -84,8 +80,7 @@ export class ExtractorLlmService {
         ? buildSystemPrompt(snapshot.active, {
             objectNormalization: this.objectNormalizationActive(),
           })
-        : this.systemPromptHeader +
-          snapshot.active.map(renderPredicateCard).join('\n');
+        : this.systemPromptHeader + snapshot.active.map(renderPredicateCard).join('\n');
     return base + renderExtractionProfiles(snapshot.extractionProfiles ?? []);
   }
 

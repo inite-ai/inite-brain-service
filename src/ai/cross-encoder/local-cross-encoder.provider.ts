@@ -77,9 +77,7 @@ export class LocalCrossEncoderProvider {
   }
 
   isReady(): boolean {
-    return this.useWorker
-      ? this.workerReady
-      : this.tokenizer !== null && this.model !== null;
+    return this.useWorker ? this.workerReady : this.tokenizer !== null && this.model !== null;
   }
 
   /** Load (or await the in-flight load of) the model. Idempotent; a failed
@@ -88,10 +86,7 @@ export class LocalCrossEncoderProvider {
     if (this.isReady()) return;
     if (this.warmupPromise) return this.warmupPromise;
     if (Date.now() < this.failedUntil) return;
-    this.warmupPromise = (this.useWorker
-      ? this.warmupWorker()
-      : this.warmupInThread()
-    )
+    this.warmupPromise = (this.useWorker ? this.warmupWorker() : this.warmupInThread())
       .catch((e) => {
         this.failedUntil = Date.now() + FAIL_RETRY_MS;
         this.logger.warn(
@@ -109,11 +104,7 @@ export class LocalCrossEncoderProvider {
    * array on any failure so the caller falls back to the identity permutation.
    * `deadlineMs` bounds the worker's scoring loop (unscored docs sink).
    */
-  async score(
-    query: string,
-    documents: string[],
-    deadlineMs?: number,
-  ): Promise<number[]> {
+  async score(query: string, documents: string[], deadlineMs?: number): Promise<number[]> {
     if (Date.now() < this.failedUntil) return [];
     if (!this.isReady()) await this.warmup();
     if (!this.isReady()) return [];
@@ -152,19 +143,15 @@ export class LocalCrossEncoderProvider {
       env: { cacheDir?: string };
       AutoTokenizer: { from_pretrained: (id: string) => Promise<Tokenizer> };
       AutoModelForSequenceClassification: {
-        from_pretrained: (
-          id: string,
-          opts?: { quantized?: boolean },
-        ) => Promise<SeqClassModel>;
+        from_pretrained: (id: string, opts?: { quantized?: boolean }) => Promise<SeqClassModel>;
       };
     };
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) t.env.cacheDir = cacheDir;
     this.tokenizer = await t.AutoTokenizer.from_pretrained(this.modelId);
-    this.model = await t.AutoModelForSequenceClassification.from_pretrained(
-      this.modelId,
-      { quantized: true },
-    );
+    this.model = await t.AutoModelForSequenceClassification.from_pretrained(this.modelId, {
+      quantized: true,
+    });
   }
 
   private async warmupWorker(): Promise<void> {
@@ -223,10 +210,7 @@ export class LocalCrossEncoderProvider {
     const id = this.nextReqId++;
     // Warmup loads ~279MB from disk/network; a score call is bounded by its
     // own deadline plus slack so a wedged worker can't pend forever.
-    const timeoutMs =
-      kind === 'warmup'
-        ? WORKER_WARMUP_TIMEOUT_MS
-        : this.scoreTimeoutMs + 2_000;
+    const timeoutMs = kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : this.scoreTimeoutMs + 2_000;
     return new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) {
@@ -265,11 +249,8 @@ export class LocalCrossEncoderProvider {
   ): Promise<number[]> {
     const model = this.model as SeqClassModel;
     const tokenizer = this.tokenizer as Tokenizer;
-    const deadline =
-      deadlineMs && deadlineMs > 0 ? Date.now() + deadlineMs : undefined;
-    const scores: number[] = new Array(documents.length).fill(
-      Number.NEGATIVE_INFINITY,
-    );
+    const deadline = deadlineMs && deadlineMs > 0 ? Date.now() + deadlineMs : undefined;
+    const scores: number[] = new Array(documents.length).fill(Number.NEGATIVE_INFINITY);
     for (const [i, doc] of documents.entries()) {
       if (deadline !== undefined && Date.now() > deadline) break;
       const inputs = await tokenizer(query, {

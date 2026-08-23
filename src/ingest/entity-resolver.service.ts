@@ -56,8 +56,7 @@ export class EntityResolverService {
     private readonly embedder: EmbedderService,
     private readonly judge: EntityJudgeService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
+    this.enabled = envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
     this.cosineFloor = parseFloat(
       this.config.get<string>('INGEST_INLINE_RESOLUTION_COSINE_FLOOR', '0.85'),
     );
@@ -72,13 +71,8 @@ export class EntityResolverService {
     // so the nearest neighbours are predominantly name facts — but that's
     // an empirical property, so this is gated and eval-verified before
     // enable (a missed candidate here creates a DUPLICATE entity).
-    this.hnswEnabled = envFlagEnabled(
-      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW'),
-    );
-    this.hnswEf = positiveIntCfg(
-      this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_EF'),
-      100,
-    );
+    this.hnswEnabled = envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW'));
+    this.hnswEf = positiveIntCfg(this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_EF'), 100);
     this.hnswOverfetch = positiveIntCfg(
       this.config.get<string>('INGEST_INLINE_RESOLUTION_HNSW_OVERFETCH'),
       8,
@@ -111,9 +105,7 @@ export class EntityResolverService {
 
       const existingFacts = await this.judge.fetchTopFacts(db, candidate.entityId);
       const incoming =
-        incomingFacts.length > 0
-          ? incomingFacts.map((f) => `- ${f}`).join('\n')
-          : '(no facts)';
+        incomingFacts.length > 0 ? incomingFacts.map((f) => `- ${f}`).join('\n') : '(no facts)';
       const verdict = await this.judge.judge(existingFacts, incoming, {
         cosine: candidate.cosine,
       });
@@ -176,9 +168,7 @@ export class EntityResolverService {
     db: Surreal,
     q: number[],
   ): Promise<Array<{ entityId: unknown; etype: string; sim: number }>> {
-    const [rows] = await db.query<
-      [Array<{ entityId: unknown; etype: string; sim: number }>]
-    >(
+    const [rows] = await db.query<[Array<{ entityId: unknown; etype: string; sim: number }>]>(
       `SELECT entityId, entityId.type AS etype,
               vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_fact
@@ -213,9 +203,7 @@ export class EntityResolverService {
     // fresh cosine next to the KNN operator drops the planner off the
     // KnnScan (V11 audit A4). sim = 1 − cosine distance, so the caller's
     // cosineFloor comparison keeps exact sim semantics.
-    const [rows] = await db.query<
-      [Array<{ entityId: unknown; etype: string; dist: number }>]
-    >(
+    const [rows] = await db.query<[Array<{ entityId: unknown; etype: string; dist: number }>]>(
       `SELECT entityId, entityId.type AS etype,
               vector::distance::knn() AS dist
          FROM knowledge_fact
@@ -229,12 +217,12 @@ export class EntityResolverService {
          LIMIT $k`,
       { q, k: this.candidateK },
     );
-    return (
-      (rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? []
-    ).map(({ dist, ...rest }) => ({
-      ...rest,
-      sim: typeof dist === 'number' ? 1 - dist : 0,
-    }));
+    return ((rows as Array<{ entityId: unknown; etype: string; dist: number }>) ?? []).map(
+      ({ dist, ...rest }) => ({
+        ...rest,
+        sim: typeof dist === 'number' ? 1 - dist : 0,
+      }),
+    );
   }
 }
 

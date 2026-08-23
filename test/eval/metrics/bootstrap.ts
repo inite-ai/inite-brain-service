@@ -44,10 +44,7 @@ export interface BootstrapOptions {
  * always sample-mean (the only one this harness uses); other
  * statistics can be added when needed.
  */
-export function bootstrapMeanCI(
-  values: number[],
-  opts: BootstrapOptions = {},
-): BootstrapCI {
+export function bootstrapMeanCI(values: number[], opts: BootstrapOptions = {}): BootstrapCI {
   const B = opts.B ?? 1000;
   const level = opts.level ?? 0.95;
   const seed = opts.seed ?? 42;

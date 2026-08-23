@@ -82,9 +82,7 @@ describe('scoreRows — G8 usage ranking factor', () => {
     const few = rankedReads[0]!;
     const many = rankedReads[1]!;
     expect(many.score).toBeGreaterThan(few.score);
-    expect(many.breakdown.usage!.usageFactor).toBeGreaterThan(
-      few.breakdown.usage!.usageFactor,
-    );
+    expect(many.breakdown.usage!.usageFactor).toBeGreaterThan(few.breakdown.usage!.usageFactor);
   });
 
   it('saturation caps the boost: usageFactor never exceeds 1 + beta', () => {

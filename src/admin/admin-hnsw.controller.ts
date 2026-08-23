@@ -1,18 +1,8 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
-import {
-  HnswMaintenanceService,
-  HnswMaintenanceResult,
-} from './hnsw-maintenance.service';
+import { HnswMaintenanceService, HnswMaintenanceResult } from './hnsw-maintenance.service';
 
 /**
  * Synchronous by design (unlike the 202-job maintenance triggers):
@@ -39,13 +29,8 @@ export class AdminHnswController {
       throw new BadRequestException(`action must be 'create' or 'drop'`);
     }
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (
-      tenant !== req.brainAuth.companyId &&
-      !this.apiKeys.knownCompanyIds().includes(tenant)
-    ) {
-      throw new BadRequestException(
-        `Unknown tenant '${tenant}' — not a registered tenant`,
-      );
+    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
+      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
     }
     return this.hnsw.apply(tenant, action);
   }

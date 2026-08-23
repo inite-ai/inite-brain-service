@@ -42,8 +42,7 @@ function resolveTenantOverride(
 }
 
 const REQUIRED_SCOPES_KEY = 'requiredScopes';
-export const RequireScopes = (...scopes: BrainScope[]) =>
-  SetMetadata(REQUIRED_SCOPES_KEY, scopes);
+export const RequireScopes = (...scopes: BrainScope[]) => SetMetadata(REQUIRED_SCOPES_KEY, scopes);
 
 /**
  * 401 with RFC 9728 discovery: WWW-Authenticate names the protected-
@@ -132,8 +131,7 @@ export class ApiKeyGuard implements CanActivate {
       const store = getRequestContext();
       if (store) {
         store.policy = policy;
-        store.recordPolicyRows = (summary) =>
-          this.policyGate.recordRowSummary(policy, summary);
+        store.recordPolicyRows = (summary) => this.policyGate.recordRowSummary(policy, summary);
       } else {
         // Deliberately loud: without the correlation middleware's ALS
         // store the row-level gate is inactive (action gate above still

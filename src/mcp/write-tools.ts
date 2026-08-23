@@ -132,13 +132,11 @@ export function registerWriteTools({
           z.object({ vertical: z.string(), id: z.string() }),
           z.object({ entityId: z.string() }),
         ]),
-        kind: z.string().describe(
-          'Edge type (identity_of | paid_for | mentioned_in | worked_with | …)',
-        ),
-        weight: z.number().min(0).max(1).optional(),
-        sourceVertical: z
+        kind: z
           .string()
-          .describe('Vertical attributed as source (e.g. "rent")'),
+          .describe('Edge type (identity_of | paid_for | mentioned_in | worked_with | …)'),
+        weight: z.number().min(0).max(1).optional(),
+        sourceVertical: z.string().describe('Vertical attributed as source (e.g. "rent")'),
       },
     },
     async (args) => {
@@ -186,9 +184,7 @@ export function registerWriteTools({
       const retractedBy = args.retractedBy
         ? {
             source: args.retractedBy.source,
-            ...(args.retractedBy.userId !== undefined
-              ? { userId: args.retractedBy.userId }
-              : {}),
+            ...(args.retractedBy.userId !== undefined ? { userId: args.retractedBy.userId } : {}),
           }
         : ({ source: 'system' } as const);
       const out = await deps.facts.retract({
@@ -215,7 +211,7 @@ export function registerWriteTools({
     {
       title: 'Record a procedural memory (behaviour rule)',
       description:
-        "Record a 'how to' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. \"user asks about pricing\"); action = the behaviour to apply (e.g. \"mention they're on platinum tier; they get 20% off\"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.",
+        'Record a \'how to\' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. "user asks about pricing"); action = the behaviour to apply (e.g. "mention they\'re on platinum tier; they get 20% off"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.',
       inputSchema: {
         trigger: z.string().min(1),
         action: z.string().min(1),
@@ -250,11 +246,9 @@ export function registerWriteTools({
     {
       title: 'Soft-retire a procedural memory entry',
       description:
-        "Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.",
+        'Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.',
       inputSchema: {
-        procedureId: z
-          .string()
-          .describe('procedural_memory:<tail> or just the tail'),
+        procedureId: z.string().describe('procedural_memory:<tail> or just the tail'),
       },
     },
     async (args) => {
@@ -328,9 +322,7 @@ export function registerAdminTools(
       description:
         'Hard delete one entity and ALL of its facts, edges, and embeddings; an HMAC-hashed tombstone stays in `forgotten_entity` for proof-of-erasure. THIS IS DESTRUCTIVE AND IRREVERSIBLE. Use only when responding to a GDPR Art. 17 right-to-erasure request or operator-grade cleanup. Reason + requestId are required for the audit trail.',
       inputSchema: {
-        entityId: z
-          .string()
-          .describe('Brain entity id (knowledge_entity:...) or short id'),
+        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         reason: z
           .enum(['gdpr_request', 'tenant_offboarding', 'operator_request'])
           .describe(
@@ -385,20 +377,10 @@ function registerIngestDocumentTool({
       description:
         "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Prefer this over record_fact for anything longer than one claim.",
       inputSchema: {
-        kind: z
-          .string()
-          .max(64)
-          .describe('Container kind: chat | email | markdown | pdf | …'),
-        text: z
-          .string()
-          .max(DOC_TEXT_HARD_CAP)
-          .describe('Normalized document text'),
+        kind: z.string().max(64).describe('Container kind: chat | email | markdown | pdf | …'),
+        text: z.string().max(DOC_TEXT_HARD_CAP).describe('Normalized document text'),
         title: z.string().max(512).optional(),
-        originUri: z
-          .string()
-          .max(512)
-          .optional()
-          .describe('Pointer back to the raw container'),
+        originUri: z.string().max(512).optional().describe('Pointer back to the raw container'),
         occurredAt: z
           .string()
           .datetime()
@@ -424,9 +406,7 @@ function registerIngestDocumentTool({
         // BadRequestException (not plain Error): the McpService error
         // wrapper masks unexpected errors but passes 4xx through — this
         // message is deliberately client-facing.
-        throw new BadRequestException(
-          `text exceeds DOC_MAX_CHARS (${docMaxChars()})`,
-        );
+        throw new BadRequestException(`text exceeds DOC_MAX_CHARS (${docMaxChars()})`);
       }
       const out = await documents.ingestDocument(companyId, {
         kind: args.kind,
@@ -435,9 +415,7 @@ function registerIngestDocumentTool({
         ...(args.originUri !== undefined ? { originUri: args.originUri } : {}),
         occurredAt: args.occurredAt,
         contextRef: { vertical: args.vertical, recorder },
-        ...(args.storeContent !== undefined
-          ? { storeContent: args.storeContent }
-          : {}),
+        ...(args.storeContent !== undefined ? { storeContent: args.storeContent } : {}),
         indexers: args.indexers ?? 'general',
         mode: 'sync',
       });

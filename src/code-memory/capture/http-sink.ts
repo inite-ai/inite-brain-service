@@ -38,8 +38,7 @@ export class HttpDecisionSink implements DecisionSink {
       timeoutMs?: number;
     },
   ) {
-    this.fetchImpl =
-      opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.fetchImpl = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -49,9 +48,7 @@ export class HttpDecisionSink implements DecisionSink {
       predicate: codeMemoryPredicateId(candidate.kind),
       object: candidate.text,
       validFrom: candidate.validFrom,
-      ...(candidate.confidence !== undefined
-        ? { confidence: candidate.confidence }
-        : {}),
+      ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}),
       source: {
         vertical: CODE_VERTICAL,
         recorder: 'code_memory_capture',

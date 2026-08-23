@@ -132,9 +132,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
   });
 
   it('registers forget_entity only with brain:admin', async () => {
-    const names = toolNames(
-      await buildWithScopes(['brain:read', 'brain:write', 'brain:admin']),
-    );
+    const names = toolNames(await buildWithScopes(['brain:read', 'brain:write', 'brain:admin']));
     expect(names).toContain('forget_entity');
   });
 
@@ -212,10 +210,7 @@ describe('retract_fact — caller scopes reach FactsService', () => {
   // would 403. Pin that the tool forwards the caller's scopes.
   it('forwards the MCP caller scope set to facts.retract', async () => {
     const captured: unknown[] = [];
-    const handlers: Record<
-      string,
-      (args: Record<string, unknown>) => Promise<unknown>
-    > = {};
+    const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
     const fakeServer = {
       registerTool: (
         name: string,
@@ -247,8 +242,6 @@ describe('retract_fact — caller scopes reach FactsService', () => {
     await handlers['retract_fact']!({ factId: 'x', reason: 'test' });
 
     expect(captured).toHaveLength(1);
-    expect((captured[0] as { callerScopes?: unknown }).callerScopes).toEqual(
-      scopes,
-    );
+    expect((captured[0] as { callerScopes?: unknown }).callerScopes).toEqual(scopes);
   });
 });

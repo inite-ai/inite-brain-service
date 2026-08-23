@@ -2,10 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import type OpenAI from 'openai';
-import {
-  chatCallParams,
-  createOpenAiClientOrThrow,
-} from '../ai/openai-client';
+import { chatCallParams, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { ApiKeyService } from '../auth/api-key.service';
 import { envFlagEnabled } from '../common/env-validation';
 import {
@@ -129,9 +126,7 @@ export function parseMergeDecision(
       action: 'UPDATE',
       targetId,
       strategy:
-        typeof parsed.strategy === 'string' && parsed.strategy.trim()
-          ? parsed.strategy
-          : undefined,
+        typeof parsed.strategy === 'string' && parsed.strategy.trim() ? parsed.strategy : undefined,
       situation:
         typeof parsed.situation === 'string' && parsed.situation.trim()
           ? parsed.situation
@@ -146,17 +141,14 @@ export function mergeEvidence(
   existing: StrategyEvidence,
   incoming: StrategyEvidence,
 ): StrategyEvidence {
-  const runIds = [
-    ...new Set([...(existing.runIds ?? []), ...(incoming.runIds ?? [])]),
-  ];
+  const runIds = [...new Set([...(existing.runIds ?? []), ...(incoming.runIds ?? [])])];
   return {
     ...existing,
     ...incoming,
     ...(runIds.length > 0 ? { runIds } : {}),
     nSupport: (existing.nSupport ?? 0) + (incoming.nSupport ?? 0),
     nContradict: (existing.nContradict ?? 0) + (incoming.nContradict ?? 0),
-    lastValidatedAt:
-      incoming.lastValidatedAt ?? existing.lastValidatedAt ?? undefined,
+    lastValidatedAt: incoming.lastValidatedAt ?? existing.lastValidatedAt ?? undefined,
   };
 }
 
@@ -175,9 +167,7 @@ export class StrategyDistillService {
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
-    this.cronEnabled = envFlagEnabled(
-      config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'),
-    );
+    this.cronEnabled = envFlagEnabled(config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'));
   }
 
   /**
@@ -249,9 +239,7 @@ export class StrategyDistillService {
           stats.deprecated += swept.deprecated;
         } catch (e) {
           stats.failed++;
-          this.logger.warn(
-            `strategy sweep for ${companyId} failed: ${(e as Error).message}`,
-          );
+          this.logger.warn(`strategy sweep for ${companyId} failed: ${(e as Error).message}`);
         }
       }
       return stats;
@@ -260,9 +248,7 @@ export class StrategyDistillService {
     }
   }
 
-  private async proposeItems(
-    postMortems: PostMortem[],
-  ): Promise<DistilledItemShape[]> {
+  private async proposeItems(postMortems: PostMortem[]): Promise<DistilledItemShape[]> {
     const user = postMortems
       .map(
         (pm, i) =>
@@ -373,9 +359,7 @@ export class StrategyDistillService {
         evidence,
       });
     } catch (e) {
-      this.logger.warn(
-        `strategy ADD skipped (title '${item.title}'): ${(e as Error).message}`,
-      );
+      this.logger.warn(`strategy ADD skipped (title '${item.title}'): ${(e as Error).message}`);
       return null;
     }
   }
@@ -386,9 +370,7 @@ export class StrategyDistillService {
   ): Promise<MergeDecision> {
     const user =
       `NEW item:\n${renderMergeItem(item)}\n\nEXISTING items:\n` +
-      neighbors
-        .map((n) => `id: ${n.strategyId}\n${renderMergeItem(n)}`)
-        .join('\n---\n');
+      neighbors.map((n) => `id: ${n.strategyId}\n${renderMergeItem(n)}`).join('\n---\n');
     const res = await this.openai.chat.completions.create({
       model: this.model,
       messages: [

@@ -37,8 +37,6 @@ export function ndcgAtK(results: QueryResult[], k: number): number | null {
  */
 export function ndcgAtKVector(results: QueryResult[], k: number): number[] {
   return results.map((r) =>
-    r.rankOfExpected > 0 && r.rankOfExpected <= k
-      ? 1 / Math.log2(r.rankOfExpected + 1)
-      : 0,
+    r.rankOfExpected > 0 && r.rankOfExpected <= k ? 1 / Math.log2(r.rankOfExpected + 1) : 0,
   );
 }

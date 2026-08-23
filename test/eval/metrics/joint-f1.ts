@@ -85,16 +85,12 @@ export interface JointF1Aggregate {
  *     empty gold set), F1=0. EM=0 because the sets aren't equal.
  *     The harmonic mean still collapses to 0; this matches HotpotQA.
  */
-export function jointF1(
-  p: JointF1Predicted,
-  e: JointF1Expected,
-): JointF1Score {
+export function jointF1(p: JointF1Predicted, e: JointF1Expected): JointF1Score {
   const a = setMetrics(p.answerEntityRefs, e.answerEntityRefs);
   const s = setMetrics(p.supportingFactIds, e.supportingFactIds);
   const jointP = a.precision * s.precision;
   const jointR = a.recall * s.recall;
-  const jointF1 =
-    jointP + jointR > 0 ? (2 * jointP * jointR) / (jointP + jointR) : 0;
+  const jointF1 = jointP + jointR > 0 ? (2 * jointP * jointR) / (jointP + jointR) : 0;
   return {
     answerEM: a.em,
     answerPrecision: a.precision,
@@ -155,9 +151,7 @@ function setMetrics(predicted: string[], expected: string[]): SetMetrics {
   for (const x of predSet) if (expSet.has(x)) intersection++;
   const precision = intersection / predSet.size;
   const recall = intersection / expSet.size;
-  const f1 =
-    precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
-  const em =
-    predSet.size === expSet.size && intersection === predSet.size ? 1 : 0;
+  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+  const em = predSet.size === expSet.size && intersection === predSet.size ? 1 : 0;
   return { precision, recall, f1, em };
 }

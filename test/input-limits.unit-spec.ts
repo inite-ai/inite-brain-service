@@ -1,7 +1,4 @@
-import {
-  LLM_INPUT_LIMITS,
-  clampLlmInputText,
-} from '../src/common/input-limits';
+import { LLM_INPUT_LIMITS, clampLlmInputText } from '../src/common/input-limits';
 
 describe('clampLlmInputText', () => {
   it('trims whitespace and reports not-truncated for short input', () => {
@@ -17,9 +14,7 @@ describe('clampLlmInputText', () => {
   });
 
   it('truncates at the configured ceiling for each kind', () => {
-    for (const kind of Object.keys(LLM_INPUT_LIMITS) as Array<
-      keyof typeof LLM_INPUT_LIMITS
-    >) {
+    for (const kind of Object.keys(LLM_INPUT_LIMITS) as Array<keyof typeof LLM_INPUT_LIMITS>) {
       const limit = LLM_INPUT_LIMITS[kind];
       const oversize = 'x'.repeat(limit + 50);
       const out = clampLlmInputText(oversize, kind);

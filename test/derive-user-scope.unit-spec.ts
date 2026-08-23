@@ -128,10 +128,7 @@ describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
     else process.env.DERIVER_SPANS = OLD;
   });
 
-  function buildQuoted(
-    turns: number[],
-    quotes: Array<string | null> | undefined,
-  ) {
+  function buildQuoted(turns: number[], quotes: Array<string | null> | undefined) {
     return buildDerivedRows({
       resolved: [
         {
@@ -175,9 +172,7 @@ describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
     process.env.DERIVER_SPANS = '1';
     const row = buildQuoted([0, 1], [null, 'tenant-global'])[0]!;
     expect(row.source.charSpans).toHaveLength(1);
-    expect((row.source.charSpans as Array<{ episodeId: string }>)[0]!.episodeId).toBe(
-      'episode:g1',
-    );
+    expect((row.source.charSpans as Array<{ episodeId: string }>)[0]!.episodeId).toBe('episode:g1');
   });
 
   it('flag off: quotes are ignored — source shape is byte-identical', () => {

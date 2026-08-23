@@ -91,8 +91,7 @@ export function sourceTrustFor(source: {
   recorder?: string;
 }): number {
   if (source.eventId?.startsWith('billing.')) return SOURCE_TRUST.billing_event;
-  if (source.eventId?.startsWith('incidents.'))
-    return SOURCE_TRUST.incidents_event;
+  if (source.eventId?.startsWith('incidents.')) return SOURCE_TRUST.incidents_event;
   if (source.eventId?.startsWith('auth.')) return SOURCE_TRUST.auth_event;
   if (source.messageId) return SOURCE_TRUST.inbox_extraction;
   return SOURCE_TRUST.default;
@@ -135,13 +134,9 @@ export function evidenceValidationError(evidence: unknown): string | null {
     if (typeof ref !== 'string' || ref.length === 0 || ref.length > EVIDENCE_MAX_REF) {
       return `source.evidence[${i}].ref must be a non-empty string of at most ${EVIDENCE_MAX_REF} chars`;
     }
-    if (
-      note !== undefined &&
-      (typeof note !== 'string' || note.length > EVIDENCE_MAX_NOTE)
-    ) {
+    if (note !== undefined && (typeof note !== 'string' || note.length > EVIDENCE_MAX_NOTE)) {
       return `source.evidence[${i}].note must be a string of at most ${EVIDENCE_MAX_NOTE} chars`;
     }
   }
   return null;
 }
-

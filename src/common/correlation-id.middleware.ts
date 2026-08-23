@@ -28,9 +28,9 @@ export function correlationIdMiddleware() {
     // plain-string log lines (request-logger, exception filter) and
     // reflected into the response body/header, so an un-sanitized
     // `\n[forged log line]` would be log injection.
-    const correlationId = (
-      headerVal ? String(headerVal).replace(/[\r\n\x00-\x1f\x7f]/g, '') : ''
-    ).slice(0, 128) || randomUUID();
+    const correlationId =
+      (headerVal ? String(headerVal).replace(/[\r\n\x00-\x1f\x7f]/g, '') : '').slice(0, 128) ||
+      randomUUID();
     res.setHeader('x-request-id', correlationId);
     // Bind an AbortController to the underlying socket. The controller
     // fires when the request closes BEFORE the response finishes —
@@ -56,9 +56,6 @@ export function correlationIdMiddleware() {
         if (!res.writableFinished) controller.abort();
       });
     }
-    runWithRequestContext(
-      { correlationId, abortSignal: controller.signal },
-      () => next(),
-    );
+    runWithRequestContext({ correlationId, abortSignal: controller.signal }, () => next());
   };
 }

@@ -152,8 +152,7 @@ describe('AgentQaService', () => {
           completions: {
             create: async (req: any) => {
               // Capture tool results fed back into the transcript.
-              for (const m of req.messages)
-                if (m.role === 'tool') toolMsgs.push(m.content);
+              for (const m of req.messages) if (m.role === 'tool') toolMsgs.push(m.content);
               const replies = [searchCall('t1'), searchCall('t2'), finalReply];
               return replies[Math.min(i++, 2)];
             },
@@ -186,20 +185,23 @@ describe('AgentQaService', () => {
               queries.push({ sql, params });
               return [
                 [
-                  { predicate: 'activities', object: 'later hike', validFrom: '2023-08-01T00:00:00Z' },
-                  { predicate: 'activities', object: 'first hike', validFrom: '2023-02-01T00:00:00Z' },
+                  {
+                    predicate: 'activities',
+                    object: 'later hike',
+                    validFrom: '2023-08-01T00:00:00Z',
+                  },
+                  {
+                    predicate: 'activities',
+                    object: 'first hike',
+                    validFrom: '2023-02-01T00:00:00Z',
+                  },
                 ],
               ];
             },
           }),
       };
       const embedder = { embed: async () => [1, 0] };
-      const svc = new AgentQaService(
-        search([]),
-        cfg(),
-        surreal as never,
-        embedder as never,
-      );
+      const svc = new AgentQaService(search([]), cfg(), surreal as never, embedder as never);
       const timelineCall = {
         choices: [
           {
@@ -226,8 +228,7 @@ describe('AgentQaService', () => {
         chat: {
           completions: {
             create: async (req: any) => {
-              for (const m of req.messages)
-                if (m.role === 'tool') toolMsgs.push(m.content);
+              for (const m of req.messages) if (m.role === 'tool') toolMsgs.push(m.content);
               return [timelineCall, finalReply][Math.min(i++, 1)];
             },
           },
@@ -242,9 +243,7 @@ describe('AgentQaService', () => {
       expect(queries[0]!.params?.dv).toBe('wd-v2');
       const rendered = toolMsgs.find((m) => m.includes('hike'));
       // Chronological: first hike before later hike.
-      expect(rendered!.indexOf('first hike')).toBeLessThan(
-        rendered!.indexOf('later hike'),
-      );
+      expect(rendered!.indexOf('first hike')).toBeLessThan(rendered!.indexOf('later hike'));
     });
 
     it('grep tool searches transcript BM25 with PII gate', async () => {
@@ -256,7 +255,13 @@ describe('AgentQaService', () => {
             query: async (sql: string) => {
               queries.push({ sql });
               return [
-                [{ speaker: 'Mel', text: 'Matt Patterson sang', occurredAt: '2023-06-01T00:00:00Z' }],
+                [
+                  {
+                    speaker: 'Mel',
+                    text: 'Matt Patterson sang',
+                    occurredAt: '2023-06-01T00:00:00Z',
+                  },
+                ],
               ];
             },
           }),
@@ -295,8 +300,7 @@ describe('AgentQaService', () => {
         chat: {
           completions: {
             create: async (req: any) => {
-              for (const m of req.messages)
-                if (m.role === 'tool') toolMsgs.push(m.content);
+              for (const m of req.messages) if (m.role === 'tool') toolMsgs.push(m.content);
               return [grepCall, finalReply][Math.min(i++, 1)];
             },
           },
@@ -309,9 +313,7 @@ describe('AgentQaService', () => {
       });
       expect(queries[0]!.sql).toContain('@1@');
       expect(queries[0]!.sql).toContain('piiClass IS NONE');
-      expect(toolMsgs.some((m) => m.includes('Matt Patterson sang'))).toBe(
-        true,
-      );
+      expect(toolMsgs.some((m) => m.includes('Matt Patterson sang'))).toBe(true);
     });
 
     it('escalate mode keeps a confident cited one-shot answer (no loop)', async () => {
@@ -324,13 +326,7 @@ describe('AgentQaService', () => {
           },
         }),
       };
-      const svc = new AgentQaService(
-        search([]),
-        cfg(),
-        undefined,
-        undefined,
-        multiHop as never,
-      );
+      const svc = new AgentQaService(search([]), cfg(), undefined, undefined, multiHop as never);
       let llmCalls = 0;
       (svc as any).openai = {
         chat: {
@@ -361,13 +357,7 @@ describe('AgentQaService', () => {
         { answer: null, citations: [] },
       ]) {
         const multiHop = { run: async () => ({ synthesis }) };
-        const svc = new AgentQaService(
-          search([]),
-          cfg(),
-          undefined,
-          undefined,
-          multiHop as never,
-        );
+        const svc = new AgentQaService(search([]), cfg(), undefined, undefined, multiHop as never);
         (svc as any).openai = stubOpenAi([finalReply]).client;
         const out = await svc.answer({
           companyId: 'co_x',

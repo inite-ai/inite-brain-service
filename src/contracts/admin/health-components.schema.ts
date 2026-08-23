@@ -18,7 +18,5 @@ export const HealthComponentsResponseSchema = z.object({
   components: z.array(ComponentSchema),
 });
 
-export type HealthComponentsResponse = z.infer<
-  typeof HealthComponentsResponseSchema
->;
+export type HealthComponentsResponse = z.infer<typeof HealthComponentsResponseSchema>;
 export type HealthComponent = z.infer<typeof ComponentSchema>;

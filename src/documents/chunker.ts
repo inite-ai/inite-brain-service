@@ -37,19 +37,13 @@ const DEFAULT_OVERLAP = 400;
 /** Don't snap to a boundary that would leave the chunk pathologically short. */
 const MIN_CUT_RATIO = 0.5;
 
-export function chunkDocument(
-  text: string,
-  opts: ChunkOptions = {},
-): DocumentChunk[] {
+export function chunkDocument(text: string, opts: ChunkOptions = {}): DocumentChunk[] {
   const maxChars = Math.min(
     opts.maxChars ?? LLM_INPUT_LIMITS.mentionText,
     LLM_INPUT_LIMITS.mentionText,
   );
   const targetChars = Math.min(opts.targetChars ?? DEFAULT_TARGET, maxChars);
-  const overlapChars = Math.min(
-    opts.overlapChars ?? DEFAULT_OVERLAP,
-    Math.floor(targetChars / 4),
-  );
+  const overlapChars = Math.min(opts.overlapChars ?? DEFAULT_OVERLAP, Math.floor(targetChars / 4));
 
   if (text.length <= maxChars) {
     if (!text.length) return [];

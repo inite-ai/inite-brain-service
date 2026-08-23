@@ -19,9 +19,7 @@ export interface JobContext {
   workerId: string;
 }
 
-export type JobHandler = (
-  ctx: JobContext,
-) => Promise<Record<string, unknown> | void>;
+export type JobHandler = (ctx: JobContext) => Promise<Record<string, unknown> | void>;
 
 export interface RegisteredHandler {
   jobType: JobType;

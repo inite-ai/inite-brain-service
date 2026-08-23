@@ -74,9 +74,7 @@ export async function withStageBudget<T>({
   try {
     const winner = await Promise.race([fn().then((v) => ({ ok: v })), timeout]);
     if ('__timedOut' in winner) {
-      logger?.warn(
-        `Search stage '${stage}' exceeded ${budgetMs}ms budget — falling back`,
-      );
+      logger?.warn(`Search stage '${stage}' exceeded ${budgetMs}ms budget — falling back`);
       onFallback?.();
       return fallback;
     }

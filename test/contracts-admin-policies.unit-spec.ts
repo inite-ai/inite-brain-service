@@ -41,19 +41,23 @@ function makeController(): AdminPoliciesController {
     list: async () => [STORED],
     get: async () => STORED,
     listBindings: async () => [
-      { subject: 'key:sha256:1234', policyNames: ['support-reader'], updatedAt: '2026-07-09T01:00:00Z' },
+      {
+        subject: 'key:sha256:1234',
+        policyNames: ['support-reader'],
+        updatedAt: '2026-07-09T01:00:00Z',
+      },
     ],
   } as unknown as PolicyStoreService;
   return new AdminPoliciesController(store);
 }
 
-const req = { brainAuth: { companyId: 'tenant-a', keyHash: 'sha256:admin' } } as AuthenticatedRequest;
+const req = {
+  brainAuth: { companyId: 'tenant-a', keyHash: 'sha256:admin' },
+} as AuthenticatedRequest;
 
 describe('AdminPoliciesController — wire contracts', () => {
   it('list() matches PolicySetsListResponseSchema', async () => {
-    const parsed = PolicySetsListResponseSchema.safeParse(
-      await makeController().list(req),
-    );
+    const parsed = PolicySetsListResponseSchema.safeParse(await makeController().list(req));
     if (!parsed.success) {
       throw new Error(`policy-sets list drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
@@ -69,9 +73,7 @@ describe('AdminPoliciesController — wire contracts', () => {
   });
 
   it('bindings() matches PolicyBindingsResponseSchema', async () => {
-    const parsed = PolicyBindingsResponseSchema.safeParse(
-      await makeController().bindings(req),
-    );
+    const parsed = PolicyBindingsResponseSchema.safeParse(await makeController().bindings(req));
     if (!parsed.success) {
       throw new Error(`policy bindings drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }

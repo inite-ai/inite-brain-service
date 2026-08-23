@@ -1,8 +1,5 @@
 import type { Surreal } from 'surrealdb';
-import {
-  runInsightLegs,
-  INSIGHT_TOP_K,
-} from '../src/search/internals/insight-leg';
+import { runInsightLegs, INSIGHT_TOP_K } from '../src/search/internals/insight-leg';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import { InsightLaneService } from '../src/synthesize/insight-lane.service';
 import {
@@ -185,9 +182,7 @@ describe('InsightLaneService', () => {
 
 describe('RETRIEVAL_INSIGHT_EVIDENCE profile point', () => {
   it('defaults off; routed round-trips; garbage rejects to off', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).insightEvidence,
-    ).toBe('off');
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).insightEvidence).toBe('off');
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_INSIGHT_EVIDENCE: 'routed',
@@ -206,12 +201,8 @@ describe('RETRIEVAL_INSIGHT_EVIDENCE profile point', () => {
         beamco: { insightEvidence: 'routed' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe(
-      'routed',
-    );
-    expect(resolveRetrievalProfileFor('other', env).insightEvidence).toBe(
-      'off',
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe('routed');
+    expect(resolveRetrievalProfileFor('other', env).insightEvidence).toBe('off');
   });
 });
 
@@ -235,8 +226,6 @@ describe('generator prompt insight section', () => {
       insightLines: ['- big picture (as of 2023-05-01)'],
     });
     expect(msg).toContain('Derived insights');
-    expect(msg.indexOf('Transcript excerpts')).toBeLessThan(
-      msg.indexOf('Derived insights'),
-    );
+    expect(msg.indexOf('Transcript excerpts')).toBeLessThan(msg.indexOf('Derived insights'));
   });
 });

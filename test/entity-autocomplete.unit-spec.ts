@@ -20,11 +20,8 @@ describe('EntitiesService.autocomplete', () => {
       },
     };
     const withScopedCompany = jest.fn(
-      async (
-        _companyId: string,
-        _scopes: BrainScope[],
-        fn: (db: unknown) => Promise<unknown>,
-      ) => fn(db),
+      async (_companyId: string, _scopes: BrainScope[], fn: (db: unknown) => Promise<unknown>) =>
+        fn(db),
     );
     const surreal = { withScopedCompany } as never;
     const svc = new EntitiesService(

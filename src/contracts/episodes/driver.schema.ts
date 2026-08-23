@@ -33,13 +33,7 @@ export const EpisodesListResponseSchema = z.object({
 });
 export type EpisodesListResponse = z.infer<typeof EpisodesListResponseSchema>;
 
-export const PROJECTION_STATUSES = [
-  'building',
-  'built',
-  'live',
-  'residual',
-  'failed',
-] as const;
+export const PROJECTION_STATUSES = ['building', 'built', 'live', 'residual', 'failed'] as const;
 
 /** One derived-surface version (projection registry row). */
 export const ProjectionRowSchema = z.object({
@@ -60,9 +54,7 @@ export const ProjectionsListResponseSchema = z.object({
   /** The process-local live read pin (RETRIEVAL_DERIVED_VERSION). */
   readPin: z.string().nullable(),
 });
-export type ProjectionsListResponse = z.infer<
-  typeof ProjectionsListResponseSchema
->;
+export type ProjectionsListResponse = z.infer<typeof ProjectionsListResponseSchema>;
 
 export const RebuildProjectionRequestSchema = z.object({
   /** Short kebab-case world tag; defaults to the builder's current version. */
@@ -74,18 +66,14 @@ export const RebuildProjectionRequestSchema = z.object({
   /** Allow rewriting the currently pinned world in place (eval only). */
   force: z.boolean().optional(),
 });
-export type RebuildProjectionRequest = z.infer<
-  typeof RebuildProjectionRequestSchema
->;
+export type RebuildProjectionRequest = z.infer<typeof RebuildProjectionRequestSchema>;
 
 export const RebuildProjectionResponseSchema = z.object({
   conversations: z.number().int(),
   sessions: z.number().int(),
   propositions: z.number().int(),
   unresolvedSubjects: z.number().int(),
-  skipped: z.array(
-    z.object({ conversationId: z.string(), reason: z.string() }),
-  ),
+  skipped: z.array(z.object({ conversationId: z.string(), reason: z.string() })),
   /**
    * 'ok' — clean run; 'degraded' — some conversations failed (reasons in
    * skipped). A run where every attempted conversation failed never
@@ -96,9 +84,7 @@ export const RebuildProjectionResponseSchema = z.object({
   activated: z.boolean().optional(),
   previousVersion: z.string().nullable().optional(),
 });
-export type RebuildProjectionResponse = z.infer<
-  typeof RebuildProjectionResponseSchema
->;
+export type RebuildProjectionResponse = z.infer<typeof RebuildProjectionResponseSchema>;
 
 export const CreateEpisodeSubscriptionRequestSchema = z.object({
   /** Absolute http(s) endpoint that will receive signed pushes. */
@@ -128,9 +114,7 @@ export const EpisodeSubscriptionRowSchema = z.object({
   failureCount: z.number().int(),
   createdAt: z.string(),
 });
-export type EpisodeSubscriptionRowWire = z.infer<
-  typeof EpisodeSubscriptionRowSchema
->;
+export type EpisodeSubscriptionRowWire = z.infer<typeof EpisodeSubscriptionRowSchema>;
 
 export const EpisodeSubscriptionsListResponseSchema = z.object({
   subscriptions: z.array(EpisodeSubscriptionRowSchema),
@@ -168,6 +152,4 @@ export const EpisodesAvailableEventSchema = z.object({
   watermark: z.string(),
   ts: z.string(),
 });
-export type EpisodesAvailableEventWire = z.infer<
-  typeof EpisodesAvailableEventSchema
->;
+export type EpisodesAvailableEventWire = z.infer<typeof EpisodesAvailableEventSchema>;

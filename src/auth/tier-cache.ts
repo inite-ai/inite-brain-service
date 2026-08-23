@@ -21,8 +21,7 @@ const MAX_ENTRIES = 10_000;
 
 const tiers = new Map<string, number>();
 
-let parsedMultipliers: { src: string | undefined; map: Record<string, number> } | null =
-  null;
+let parsedMultipliers: { src: string | undefined; map: Record<string, number> } | null = null;
 
 function multiplierMap(): Record<string, number> {
   const src = process.env.THROTTLE_TIER_MULTIPLIERS;
@@ -56,10 +55,7 @@ export function tokenTrackerKey(token: string): string {
 /** Record the verified tier for a credential (post-authentication). */
 export function recordTier(trackerKey: string, entitlements?: string[]): void {
   const map = multiplierMap();
-  const multiplier = Math.max(
-    1,
-    ...(entitlements ?? []).map((e) => map[e] ?? 1),
-  );
+  const multiplier = Math.max(1, ...(entitlements ?? []).map((e) => map[e] ?? 1));
   if (multiplier <= 1) {
     tiers.delete(trackerKey);
     return;

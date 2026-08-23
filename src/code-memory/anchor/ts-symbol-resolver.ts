@@ -85,8 +85,7 @@ export function listSymbols(source: string, fileName = 'file.ts'): SymbolSpan[] 
   const spans: SymbolSpan[] = [];
   const stack: string[] = [];
 
-  const lineOf = (pos: number): number =>
-    sf.getLineAndCharacterOfPosition(pos).line + 1;
+  const lineOf = (pos: number): number => sf.getLineAndCharacterOfPosition(pos).line + 1;
 
   const visit = (node: ts.Node): void => {
     const decl = declaredName(node);
@@ -113,11 +112,7 @@ export function listSymbols(source: string, fileName = 'file.ts'): SymbolSpan[] 
  * or null if the line sits outside any named declaration. Used at capture time
  * to map a changed line to its enclosing symbol.
  */
-export function enclosingSymbol(
-  source: string,
-  line: number,
-  fileName = 'file.ts',
-): string | null {
+export function enclosingSymbol(source: string, line: number, fileName = 'file.ts'): string | null {
   let best: SymbolSpan | null = null;
   for (const s of listSymbols(source, fileName)) {
     if (line < s.startLine || line > s.endLine) continue;
@@ -129,10 +124,6 @@ export function enclosingSymbol(
 }
 
 /** Whether a symbol path still exists in the given source (drift check). */
-export function symbolExists(
-  source: string,
-  symbolPath: string,
-  fileName = 'file.ts',
-): boolean {
+export function symbolExists(source: string, symbolPath: string, fileName = 'file.ts'): boolean {
   return listSymbols(source, fileName).some((s) => s.symbolPath === symbolPath);
 }

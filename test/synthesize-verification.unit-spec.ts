@@ -35,9 +35,7 @@ function makeService(opts: {
   (svc as unknown as { openai: unknown }).openai = {
     chat: {
       completions: {
-        create: async (req: {
-          messages: Array<{ role: string; content: string }>;
-        }) => {
+        create: async (req: { messages: Array<{ role: string; content: string }> }) => {
           opts.captured.push({
             system: req.messages[0]!.content,
             user: req.messages[1]!.content,
@@ -51,9 +49,7 @@ function makeService(opts: {
                     ? JSON.stringify({ verdict: 'supported' })
                     : opts.generatorContent,
                 },
-                finish_reason: isVerifier
-                  ? 'stop'
-                  : (opts.generatorFinish ?? 'stop'),
+                finish_reason: isVerifier ? 'stop' : (opts.generatorFinish ?? 'stop'),
               },
             ],
           };
@@ -200,10 +196,7 @@ describe('answer mode keeps the source-trust floor (W5 #26)', () => {
     const prepare = (answerMode: boolean): unknown =>
       (
         svc as unknown as {
-          prepareEvidence(
-            hits: unknown,
-            opts: Record<string, unknown>,
-          ): unknown;
+          prepareEvidence(hits: unknown, opts: Record<string, unknown>): unknown;
         }
       ).prepareEvidence(HITS, { answerMode, explain: false });
     expect(prepare(true)).toBeDefined();

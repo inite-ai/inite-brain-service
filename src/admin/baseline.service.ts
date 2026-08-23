@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { promises as fs } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import type { ScenarioRunOutcome } from './scenario-runner.service';
@@ -36,9 +31,7 @@ const TOLERANCE = 0.03; // 3 percentage points — matches scripts/eval-baseline
 @Injectable()
 export class BaselineService {
   private readonly logger = new Logger(BaselineService.name);
-  private readonly dir = resolve(
-    process.env.BRAIN_BASELINES_DIR ?? './var/admin/baselines',
-  );
+  private readonly dir = resolve(process.env.BRAIN_BASELINES_DIR ?? './var/admin/baselines');
 
   async ensureDir(): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true });
@@ -94,18 +87,13 @@ export class BaselineService {
       savedAt: new Date().toISOString(),
       outcomes,
     };
-    await fs.writeFile(
-      target,
-      JSON.stringify(payload, null, 2),
-      'utf-8',
-    );
+    await fs.writeFile(target, JSON.stringify(payload, null, 2), 'utf-8');
     return {
       name: safe,
       savedAt: payload.savedAt,
       scenarios: outcomes.length,
       meanRecallAt1: outcomes.length
-        ? outcomes.reduce((a, o) => a + (o.metrics?.recallAt1 ?? 0), 0) /
-          outcomes.length
+        ? outcomes.reduce((a, o) => a + (o.metrics?.recallAt1 ?? 0), 0) / outcomes.length
         : 0,
     };
   }

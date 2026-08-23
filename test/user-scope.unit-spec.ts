@@ -23,21 +23,15 @@ describe('pinUserScope', () => {
   });
 
   it('defaults an omitted userId to the token end-user', () => {
-    runWithRequestContext(
-      { correlationId: 't2', authUserId: 'did:key:z6MkUser' },
-      () => {
-        expect(pinUserScope(undefined)).toBe('did:key:z6MkUser');
-      },
-    );
+    runWithRequestContext({ correlationId: 't2', authUserId: 'did:key:z6MkUser' }, () => {
+      expect(pinUserScope(undefined)).toBe('did:key:z6MkUser');
+    });
   });
 
   it('accepts a matching assertion and rejects a mismatching one (403)', () => {
-    runWithRequestContext(
-      { correlationId: 't3', authUserId: 'did:key:z6MkUser' },
-      () => {
-        expect(pinUserScope('did:key:z6MkUser')).toBe('did:key:z6MkUser');
-        expect(() => pinUserScope('did:key:z6MkOther')).toThrow(ForbiddenException);
-      },
-    );
+    runWithRequestContext({ correlationId: 't3', authUserId: 'did:key:z6MkUser' }, () => {
+      expect(pinUserScope('did:key:z6MkUser')).toBe('did:key:z6MkUser');
+      expect(() => pinUserScope('did:key:z6MkOther')).toThrow(ForbiddenException);
+    });
   });
 });

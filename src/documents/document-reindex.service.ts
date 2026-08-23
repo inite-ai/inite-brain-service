@@ -81,9 +81,7 @@ export class DocumentReindexService implements OnModuleInit {
     return { enqueued: created };
   }
 
-  private async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const packId = String(ctx.payload?.packId ?? '');
     const packVersion = String(ctx.payload?.packVersion ?? '');
     const cursor = ctx.payload?.cursor ? String(ctx.payload.cursor) : undefined;

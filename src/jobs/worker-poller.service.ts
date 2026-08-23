@@ -57,10 +57,7 @@ function readIntEnv(name: string): number | undefined {
 @Injectable()
 export class WorkerPollerService {
   private readonly logger = new Logger(WorkerPollerService.name);
-  private readonly pollIntervalMs = parseInt(
-    process.env.WORKER_LOOP_POLL_MS ?? '1000',
-    10,
-  );
+  private readonly pollIntervalMs = parseInt(process.env.WORKER_LOOP_POLL_MS ?? '1000', 10);
   private readonly emptyPollBackoffMs = parseInt(
     process.env.WORKER_LOOP_EMPTY_BACKOFF_MS ?? '5000',
     10,
@@ -117,10 +114,7 @@ export class WorkerPollerService {
   }
 
   /** The original one-at-a-time loop: claim → await dispatch → sleep. */
-  private async runLoopSerial(
-    reg: RegisteredHandler,
-    control: PollControl,
-  ): Promise<void> {
+  private async runLoopSerial(reg: RegisteredHandler, control: PollControl): Promise<void> {
     this.logger.log(`Poll loop started for jobType=${reg.jobType}`);
     while (!control.signal.aborted) {
       if (!control.isLeader()) {
@@ -130,10 +124,7 @@ export class WorkerPollerService {
       }
       let claimed: JobClaim | null = null;
       try {
-        const tenants = this.sampleByFairness(
-          reg.jobType,
-          this.apiKeys?.knownCompanyIds() ?? [],
-        );
+        const tenants = this.sampleByFairness(reg.jobType, this.apiKeys?.knownCompanyIds() ?? []);
         for (const companyId of tenants) {
           if (control.signal.aborted || !control.isLeader()) break;
           claimed = await this.claim!.claimNext({
@@ -147,9 +138,7 @@ export class WorkerPollerService {
           }
         }
       } catch (e) {
-        this.logger.warn(
-          `claim cycle (${reg.jobType}) failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`claim cycle (${reg.jobType}) failed: ${(e as Error).message}`);
       }
       if (claimed) {
         await withSpan('jobs.dispatch', () =>
@@ -193,10 +182,7 @@ export class WorkerPollerService {
         // All slots busy — wake on the first finished dispatch or the
         // poll tick (the tick matters for the global cap: a slot may
         // free up in ANOTHER jobType's loop).
-        await Promise.race([
-          ...inFlight,
-          sleep(this.pollIntervalMs, control.signal),
-        ]);
+        await Promise.race([...inFlight, sleep(this.pollIntervalMs, control.signal)]);
         continue;
       }
       // Reserve the global slot BEFORE the claim await: the saturation
@@ -211,10 +197,7 @@ export class WorkerPollerService {
         // Empty queue (for eligible tenants) — back off, but wake early
         // if a dispatch finishes: that can free a tenant-cap slot whose
         // tenant still has pending jobs.
-        await Promise.race([
-          ...inFlight,
-          sleep(this.emptyPollBackoffMs, control.signal),
-        ]);
+        await Promise.race([...inFlight, sleep(this.emptyPollBackoffMs, control.signal)]);
       }
       // Always yield a beat so a tight loop can't starve the event loop.
       await sleep(this.pollIntervalMs, control.signal);
@@ -248,8 +231,7 @@ export class WorkerPollerService {
     try {
       const eligible = (this.apiKeys?.knownCompanyIds() ?? []).filter(
         (companyId) =>
-          (this.inFlightByTenant.get(`${reg.jobType}::${companyId}`) ?? 0) <
-          limits.tenantMax,
+          (this.inFlightByTenant.get(`${reg.jobType}::${companyId}`) ?? 0) < limits.tenantMax,
       );
       const tenants = this.sampleByFairness(reg.jobType, eligible);
       for (const companyId of tenants) {
@@ -265,9 +247,7 @@ export class WorkerPollerService {
         }
       }
     } catch (e) {
-      this.logger.warn(
-        `claim cycle (${reg.jobType}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`claim cycle (${reg.jobType}) failed: ${(e as Error).message}`);
     }
     return null;
   }
@@ -287,10 +267,7 @@ export class WorkerPollerService {
   }): void {
     const { claimed, reg, control, inFlight } = args;
     const tenantKey = `${reg.jobType}::${claimed.companyId}`;
-    this.inFlightByTenant.set(
-      tenantKey,
-      (this.inFlightByTenant.get(tenantKey) ?? 0) + 1,
-    );
+    this.inFlightByTenant.set(tenantKey, (this.inFlightByTenant.get(tenantKey) ?? 0) + 1);
     const p: Promise<void> = withSpan('jobs.dispatch', () =>
       this.dispatcher.dispatch(claimed, reg, control.signal),
     )
@@ -317,10 +294,7 @@ export class WorkerPollerService {
     const fallback = readIntEnv('WORKER_LOOP_MAX_CONCURRENT');
     return {
       maxConcurrent: Math.max(1, perType ?? fallback ?? 1),
-      tenantMax: Math.max(
-        1,
-        readIntEnv('WORKER_LOOP_TENANT_MAX_CONCURRENT') ?? 1,
-      ),
+      tenantMax: Math.max(1, readIntEnv('WORKER_LOOP_TENANT_MAX_CONCURRENT') ?? 1),
       globalMax: readIntEnv('WORKER_LOOP_GLOBAL_MAX_CONCURRENT') ?? 0,
     };
   }

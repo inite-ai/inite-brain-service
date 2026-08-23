@@ -58,6 +58,4 @@ export const FactProvenanceResponseSchema = z.object({
 });
 
 export type FactReadResponse = z.infer<typeof FactReadResponseSchema>;
-export type FactProvenanceResponse = z.infer<
-  typeof FactProvenanceResponseSchema
->;
+export type FactProvenanceResponse = z.infer<typeof FactProvenanceResponseSchema>;

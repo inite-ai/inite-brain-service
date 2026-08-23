@@ -17,8 +17,7 @@ const SAMPLE_PREDICATES: PredicateDefinition[] = [
   {
     predicateId: 'interacted_with',
     semantics: 'append_only',
-    description:
-      'CATCH-ALL one-off generic action (booked/viewed/attended/purchased).',
+    description: 'CATCH-ALL one-off generic action (booked/viewed/attended/purchased).',
   } as PredicateDefinition,
   {
     predicateId: 'status',
@@ -65,8 +64,7 @@ describe('object normalization prompt/schema lockstep (E3b)', () => {
       JSON.stringify(buildExtractionSchema({ objectNormalization: false })),
     );
     expect(buildSystemPrompt([])).not.toContain('NORMALIZED OBJECT');
-    const factsSchema = (buildExtractionSchema() as any).properties.facts
-      .items;
+    const factsSchema = (buildExtractionSchema() as any).properties.facts.items;
     expect(factsSchema.properties.object).toBeUndefined();
     expect(factsSchema.required).not.toContain('object');
   });
@@ -74,9 +72,8 @@ describe('object normalization prompt/schema lockstep (E3b)', () => {
   it('flag on: prompt gains the section and the schema requires nullable object', () => {
     const prompt = buildSystemPrompt([], { objectNormalization: true });
     expect(prompt).toContain(OBJECT_NORMALIZATION_SECTION);
-    const factsSchema = (
-      buildExtractionSchema({ objectNormalization: true }) as any
-    ).properties.facts.items;
+    const factsSchema = (buildExtractionSchema({ objectNormalization: true }) as any).properties
+      .facts.items;
     expect(factsSchema.properties.object.type).toEqual(['string', 'null']);
     expect(factsSchema.required).toContain('object');
   });

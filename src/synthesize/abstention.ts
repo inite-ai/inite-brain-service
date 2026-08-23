@@ -81,7 +81,6 @@ export function assessMemoryCoverage(
       }
     }
   }
-  const covered =
-    topScore >= floors.minTopScore && factCount >= floors.minEvidence;
+  const covered = topScore >= floors.minTopScore && factCount >= floors.minEvidence;
   return { topScore, factCount, covered };
 }

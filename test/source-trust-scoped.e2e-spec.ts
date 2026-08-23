@@ -130,10 +130,10 @@ describe('domain-scoped source trust (Phase 2)', () => {
   it('fn::source_trust_scoped resolves scoped → global → 0.5', async () => {
     const lookup = (domain: string) =>
       withDb(async (db) => {
-        const [v] = await db.query<[number]>(
-          `RETURN fn::source_trust_scoped($k, $d)`,
-          { k: KEY, d: domain },
-        );
+        const [v] = await db.query<[number]>(`RETURN fn::source_trust_scoped($k, $d)`, {
+          k: KEY,
+          d: domain,
+        });
         return v as number;
       });
 
@@ -156,14 +156,17 @@ describe('domain-scoped source trust (Phase 2)', () => {
 
   it('resolve_fact stamps learnedTrust through the scoped ladder', async () => {
     const ingest = (predicate: string, object: string) =>
-      f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'scoped_trust_customer' },
-        predicate,
-        object,
-        validFrom: '2026-06-01T00:00:00Z',
-        source: SRC,
-        confidence: 0.9,
-      });
+      f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'scoped_trust_customer' },
+          predicate,
+          object,
+          validFrom: '2026-06-01T00:00:00Z',
+          source: SRC,
+          confidence: 0.9,
+        });
 
     const factRow = async (factId: string) =>
       withDb(async (db) => {

@@ -27,10 +27,8 @@ describe('POST /v1/facts/:id/retract — predicate-class auth', () => {
     companyId = `co_retract_auth_${Date.now()}`;
     writeOnlyKey = `key_w_${randomUUID()}`;
     adminKey = `key_a_${randomUUID()}`;
-    const writeHash =
-      'sha256:' + createHash('sha256').update(writeOnlyKey).digest('hex');
-    const adminHash =
-      'sha256:' + createHash('sha256').update(adminKey).digest('hex');
+    const writeHash = 'sha256:' + createHash('sha256').update(writeOnlyKey).digest('hex');
+    const adminHash = 'sha256:' + createHash('sha256').update(adminKey).digest('hex');
     process.env.BRAIN_API_KEYS = JSON.stringify([
       { keyHash: writeHash, companyId, scopes: ['brain:read', 'brain:write'] },
       {
@@ -60,10 +58,7 @@ describe('POST /v1/facts/:id/retract — predicate-class auth', () => {
     if (app) await app.close();
   });
 
-  async function ingest(
-    key: string,
-    payload: Record<string, unknown>,
-  ): Promise<string> {
+  async function ingest(key: string, payload: Record<string, unknown>): Promise<string> {
     const r = await http
       .post('/v1/ingest/fact')
       .set({ Authorization: `Bearer ${key}` })

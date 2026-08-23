@@ -23,10 +23,7 @@ describe('extractOrderingTopic', () => {
       'Can you list the order in which I brought up different aspects of the autocomplete feature?',
       ['autocomplete feature'],
     ],
-    [
-      'In what order did I mention the triangle concepts?',
-      ['triangle concepts'],
-    ],
+    ['In what order did I mention the triangle concepts?', ['triangle concepts']],
     [
       'Can you walk me through the order in which I raised deployment topics?',
       ['deployment topics'],
@@ -35,10 +32,7 @@ describe('extractOrderingTopic', () => {
       'Did I visit Lisbon before or after starting the new job?',
       ['visit lisbon', 'starting the new job'],
     ],
-    [
-      'What was the order of my research projects across the sessions?',
-      ['research projects'],
-    ],
+    ['What was the order of my research projects across the sessions?', ['research projects']],
   ];
   it.each(cases)('%s', (query, mustContain) => {
     const topic = extractOrderingTopic(query).toLowerCase();
@@ -98,11 +92,7 @@ describe('bestMentionPerSession', () => {
       row({ id: 's2', occurredAt: 5 * H, sim: 0.5 }),
       row({ id: 's3', occurredAt: 10 * H, lex: 2 }),
     ];
-    expect(bestMentionPerSession(rows).map((r) => r.id)).toEqual([
-      's1b',
-      's2',
-      's3',
-    ]);
+    expect(bestMentionPerSession(rows).map((r) => r.id)).toEqual(['s1b', 's2', 's3']);
   });
 
   it('lexical strength beats similarity inside a session', () => {
@@ -128,9 +118,7 @@ describe('pickMentionLine', () => {
   });
 
   it('falls back to the first line when nothing overlaps', () => {
-    expect(pickMentionLine(seg, ['zeppelin'])).toBe(
-      '[2024-03-01] user: hello there',
-    );
+    expect(pickMentionLine(seg, ['zeppelin'])).toBe('[2024-03-01] user: hello there');
   });
 
   it('caps line length at 240 chars', () => {

@@ -24,14 +24,17 @@ describe('Phase 3.5 e2e — nightly refits write to SurrealDB', () => {
     // active + superseded to give the correctness map non-trivial
     // signal.
     for (let i = 0; i < 12; i++) {
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: `nightly_tenant_${i}` },
-        predicate: 'status',
-        object: `seed object ${i}`,
-        validFrom: '2026-04-01',
-        source: { vertical: 'rent', recorder: 'auth.bot', eventId: 'evt' },
-        confidence: i % 2 === 0 ? 0.95 : 0.15,
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: `nightly_tenant_${i}` },
+          predicate: 'status',
+          object: `seed object ${i}`,
+          validFrom: '2026-04-01',
+          source: { vertical: 'rent', recorder: 'auth.bot', eventId: 'evt' },
+          confidence: i % 2 === 0 ? 0.95 : 0.15,
+        });
     }
   });
 

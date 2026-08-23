@@ -123,10 +123,7 @@ export interface NuggetJudge {
     prediction: string;
   }): Promise<{ nuggetScore: number; itemScores: number[] }>;
   /** event_ordering: LLM-aligned normalized Kendall tau-b vs the rubric. */
-  orderingScore(input: {
-    rubric: string[];
-    prediction: string;
-  }): Promise<OrderingScore>;
+  orderingScore(input: { rubric: string[]; prediction: string }): Promise<OrderingScore>;
 }
 
 /** Strip optional ``` fences (mirrors their parse_json_response). */
@@ -210,8 +207,7 @@ export function orderingScoreFromCanon(
   const fn = referenceCanon.filter((x) => !sysSet.has(x)).length;
   const precision = tp + fp ? tp / (tp + fp) : 0;
   const recall = tp + fn ? tp / (tp + fn) : 0;
-  const f1 =
-    precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
+  const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
   const union = [...new Set([...referenceCanon, ...systemCanon])];
   const tieRank = union.length + 1;
   const toRank = (seq: string[]): number[] => {
@@ -236,10 +232,7 @@ export function splitOrderingResponse(prediction: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-export function createNuggetJudge(
-  client: OpenAiLike,
-  model: string,
-): NuggetJudge {
+export function createNuggetJudge(client: OpenAiLike, model: string): NuggetJudge {
   async function judgeItem(
     question: string,
     rubricItem: string,
@@ -276,9 +269,7 @@ export function createNuggetJudge(
       temperature: 0,
       max_completion_tokens: 8,
     });
-    return (res.choices?.[0]?.message?.content ?? '')
-      .toLowerCase()
-      .includes('yes');
+    return (res.choices?.[0]?.message?.content ?? '').toLowerCase().includes('yes');
   }
 
   return {
@@ -294,11 +285,7 @@ export function createNuggetJudge(
     },
     async orderingScore({ rubric, prediction }) {
       const system = splitOrderingResponse(prediction);
-      const { referenceCanon, systemCanon } = await alignWithLlm(
-        rubric,
-        system,
-        equivalent,
-      );
+      const { referenceCanon, systemCanon } = await alignWithLlm(rubric, system, equivalent);
       return orderingScoreFromCanon(referenceCanon, systemCanon);
     },
   };

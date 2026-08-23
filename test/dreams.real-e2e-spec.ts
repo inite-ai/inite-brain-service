@@ -112,9 +112,7 @@ describe('Dreams real-e2e (dedup + resolve)', () => {
         // (links + unsure). We assert non-negative.
         Math.max(
           0,
-          stats.dedup!.llmJudgements -
-            stats.dedup!.identityLinksCreated -
-            stats.dedup!.unsurePairs,
+          stats.dedup!.llmJudgements - stats.dedup!.identityLinksCreated - stats.dedup!.unsurePairs,
         );
       expect(accountedFor).toBe(stats.dedup!.llmJudgements);
     },
@@ -179,12 +177,10 @@ describe('Dreams real-e2e (dedup + resolve)', () => {
       // it accounted for them coherently. Empty pairsConsidered is
       // legitimate "nothing to do".
       expect(typeof stats.resolve!.pairsConsidered).toBe('number');
-      expect(stats.resolve!.llmJudgements).toBeLessThanOrEqual(
-        stats.resolve!.pairsConsidered,
+      expect(stats.resolve!.llmJudgements).toBeLessThanOrEqual(stats.resolve!.pairsConsidered);
+      expect(stats.resolve!.resolutionsApplied + stats.resolve!.unsurePairs).toBeLessThanOrEqual(
+        stats.resolve!.llmJudgements,
       );
-      expect(
-        stats.resolve!.resolutionsApplied + stats.resolve!.unsurePairs,
-      ).toBeLessThanOrEqual(stats.resolve!.llmJudgements);
     },
     180_000,
   );

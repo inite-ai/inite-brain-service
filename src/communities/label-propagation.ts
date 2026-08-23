@@ -75,10 +75,7 @@ function dominantNeighbourLabel(
 }
 
 /** Bucket nodes by final label; sorted members, deterministic order. */
-function groupByLabel(
-  nodes: string[],
-  labels: Map<string, string>,
-): string[][] {
+function groupByLabel(nodes: string[], labels: Map<string, string>): string[][] {
   const groups = new Map<string, string[]>();
   for (const node of nodes) {
     const lab = labels.get(node)!;

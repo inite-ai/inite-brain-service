@@ -4,10 +4,7 @@
  * sensitive VALUE. This is also the structural defence for the GDPR
  * forget race (a re-materialised post-image is already redacted).
  */
-import {
-  redactAfterImage,
-  REDACTED,
-} from '../src/audit/changefeed-redaction';
+import { redactAfterImage, REDACTED } from '../src/audit/changefeed-redaction';
 
 describe('redactAfterImage', () => {
   it('redacts fact PII value fields but keeps structural fields', () => {

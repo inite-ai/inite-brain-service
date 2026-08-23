@@ -5,15 +5,9 @@
  */
 import { LocalPredicateSelectorService } from '../src/ai/local-predicate-selector.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
-import type {
-  PredicateSnapshot,
-  PredicateDefinition,
-} from '../src/ai/predicate-registry.service';
+import type { PredicateSnapshot, PredicateDefinition } from '../src/ai/predicate-registry.service';
 
-function mkEmbedder(
-  map: Map<string, number[]>,
-  fail = false,
-): EmbedderService {
+function mkEmbedder(map: Map<string, number[]>, fail = false): EmbedderService {
   return {
     embed: async (text: string) => {
       if (fail) throw new Error('boom');
@@ -24,9 +18,7 @@ function mkEmbedder(
   } as unknown as EmbedderService;
 }
 
-function mkSnapshot(
-  embeddings: Record<string, number[]>,
-): PredicateSnapshot {
+function mkSnapshot(embeddings: Record<string, number[]>): PredicateSnapshot {
   const active: PredicateDefinition[] = Object.keys(embeddings).map((id) => ({
     predicateId: id,
     displayLabel: id,
@@ -50,33 +42,23 @@ function mkSnapshot(
 
 describe('LocalPredicateSelectorService.rank', () => {
   it('returns [] on null snapshot', async () => {
-    const svc = new LocalPredicateSelectorService(
-      mkEmbedder(new Map([['q', [1, 0]]])),
-    );
+    const svc = new LocalPredicateSelectorService(mkEmbedder(new Map([['q', [1, 0]]])));
     expect(await svc.rank('q', null)).toEqual([]);
   });
 
   it('returns [] on snapshot with no embeddings', async () => {
-    const svc = new LocalPredicateSelectorService(
-      mkEmbedder(new Map([['q', [1, 0]]])),
-    );
+    const svc = new LocalPredicateSelectorService(mkEmbedder(new Map([['q', [1, 0]]])));
     expect(await svc.rank('q', mkSnapshot({}))).toEqual([]);
   });
 
   it('returns [] on empty clause', async () => {
     const svc = new LocalPredicateSelectorService(mkEmbedder(new Map()));
-    expect(
-      await svc.rank('   ', mkSnapshot({ address: [1, 0] })),
-    ).toEqual([]);
+    expect(await svc.rank('   ', mkSnapshot({ address: [1, 0] }))).toEqual([]);
   });
 
   it('returns [] when embedder fails', async () => {
-    const svc = new LocalPredicateSelectorService(
-      mkEmbedder(new Map(), true),
-    );
-    expect(
-      await svc.rank('q', mkSnapshot({ address: [1, 0] })),
-    ).toEqual([]);
+    const svc = new LocalPredicateSelectorService(mkEmbedder(new Map(), true));
+    expect(await svc.rank('q', mkSnapshot({ address: [1, 0] }))).toEqual([]);
   });
 
   it('ranks predicates by cosine similarity descending', async () => {
@@ -95,9 +77,7 @@ describe('LocalPredicateSelectorService.rank', () => {
   });
 
   it('respects topN cap', async () => {
-    const svc = new LocalPredicateSelectorService(
-      mkEmbedder(new Map([['q', [1, 0, 0]]])),
-    );
+    const svc = new LocalPredicateSelectorService(mkEmbedder(new Map([['q', [1, 0, 0]]])));
     const snap = mkSnapshot({
       a: [1, 0, 0],
       b: [0.9, 0.1, 0],
@@ -113,9 +93,7 @@ describe('LocalPredicateSelectorService.rank', () => {
     // Simulate the demo: clause is "She lives in Berlin" embedded into
     // a vector closer to `address` than `status`.
     const svc = new LocalPredicateSelectorService(
-      mkEmbedder(
-        new Map([['She lives in Berlin', [0.1, 0.95, 0.1]]]),
-      ),
+      mkEmbedder(new Map([['She lives in Berlin', [0.1, 0.95, 0.1]]])),
     );
     const snap = mkSnapshot({
       address: [0, 1, 0],

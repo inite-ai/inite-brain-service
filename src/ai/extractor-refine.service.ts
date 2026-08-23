@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
 import { resolveExtractionProfile } from './extraction-profile';
-import {
-  PredicateRegistryService,
-  PredicateSnapshot,
-} from './predicate-registry.service';
+import { PredicateRegistryService, PredicateSnapshot } from './predicate-registry.service';
 import { LocalPredicateSelectorService } from './local-predicate-selector.service';
 import type { ExtractedFact } from './extractor-internals/types';
 import {

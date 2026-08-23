@@ -1,8 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import {
-  SynthesizeService,
-  SynthesizeResult,
-} from '../src/synthesize/synthesize.service';
+import { SynthesizeService, SynthesizeResult } from '../src/synthesize/synthesize.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SynthesizeDto } from '../src/synthesize/dto/synthesize.dto';
 
@@ -51,17 +48,14 @@ describe('SynthesizeService', () => {
   }
 
   type StubResponse = string;
-  function makeStubOpenAI(
-    responses: StubResponse[],
-  ): { client: any; calls: number } {
+  function makeStubOpenAI(responses: StubResponse[]): { client: any; calls: number } {
     const state = { calls: 0 };
     const client = {
       chat: {
         completions: {
           create: async () => {
             const i = state.calls++;
-            const content =
-              responses[i] ?? responses[responses.length - 1] ?? '{}';
+            const content = responses[i] ?? responses[responses.length - 1] ?? '{}';
             return { choices: [{ message: { content } }] } as any;
           },
         },
@@ -89,7 +83,11 @@ describe('SynthesizeService', () => {
 
   it('returns no_results when search comes back empty', async () => {
     const { svc } = makeSvc(makeSearch([]), {}, []);
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out).toMatchObject<Partial<SynthesizeResult>>({
       answer: null,
       reason: 'no_results',
@@ -100,21 +98,19 @@ describe('SynthesizeService', () => {
 
   it('returns no_grounded_evidence on the generator sentinel', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: "I don't have grounded evidence for that.",
-          citedFactIds: [],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: "I don't have grounded evidence for that.",
+        citedFactIds: [],
+      }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toBe("I don't have grounded evidence for that.");
     expect(out.reason).toBe('no_grounded_evidence');
     expect(out.citations).toEqual([]);
@@ -122,17 +118,13 @@ describe('SynthesizeService', () => {
 
   it('answer mode never abstains — returns the answer, skips the verifier', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'preference', object: 'sunsets' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'preference', object: 'sunsets' }]),
     ]);
     // ONLY a generator response is stubbed — if the verifier ran it would
     // consume a second call. It must not; answer mode returns directly.
-    const { svc } = makeSvc(
-      search,
-      {},
-      [JSON.stringify({ answer: 'Sunsets [f1].', citedFactIds: ['f1'] })],
-    );
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({ answer: 'Sunsets [f1].', citedFactIds: ['f1'] }),
+    ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
       dto: { ...baseDto, synthesisGuardrails: 'answer' },
@@ -146,16 +138,12 @@ describe('SynthesizeService', () => {
     const search = makeSearch([
       makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: "I don't have grounded evidence for that.",
-          citedFactIds: [],
-        }),
-      ],
-    );
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: "I don't have grounded evidence for that.",
+        citedFactIds: [],
+      }),
+    ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
       dto: { ...baseDto, synthesisGuardrails: 'answer' },
@@ -175,18 +163,18 @@ describe('SynthesizeService', () => {
         },
       ]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya complained about a broken washing machine [f1].',
-          citedFactIds: ['f1'],
-        }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya complained about a broken washing machine [f1].',
+        citedFactIds: ['f1'],
+      }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toContain('broken washing machine');
     expect(out.reason).toBeUndefined();
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
@@ -205,20 +193,18 @@ describe('SynthesizeService', () => {
         },
       ]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'They requested a refund [knowledge_fact:abc123].',
-          citedFactIds: [],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
-    expect(out.citations.map((c) => c.factId)).toEqual([
-      'knowledge_fact:abc123',
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'They requested a refund [knowledge_fact:abc123].',
+        citedFactIds: [],
+      }),
     ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'off' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.citations.map((c) => c.factId)).toEqual(['knowledge_fact:abc123']);
   });
 
   it('resolves a citation whose prefix drifted to the example fact_ form', async () => {
@@ -235,63 +221,57 @@ describe('SynthesizeService', () => {
         },
       ]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'They requested a refund [fact_abc123].',
-          citedFactIds: ['fact_abc123'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
-    expect(out.citations.map((c) => c.factId)).toEqual([
-      'knowledge_fact:abc123',
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'They requested a refund [fact_abc123].',
+        citedFactIds: ['fact_abc123'],
+      }),
     ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'off' },
+      callerScopes: ['brain:read'],
+    });
+    expect(out.citations.map((c) => c.factId)).toEqual(['knowledge_fact:abc123']);
   });
 
   it('drops a hallucinated citation that matches no retrieved fact', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'knowledge_fact:real1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'knowledge_fact:real1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya did something [knowledge_fact:notreal].',
-          citedFactIds: ['knowledge_fact:notreal'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya did something [knowledge_fact:notreal].',
+        citedFactIds: ['knowledge_fact:notreal'],
+      }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'off' },
+      callerScopes: ['brain:read'],
+    });
     expect(out.citations).toEqual([]);
   });
 
   it('strict mode + unsupported verdict fails closed (answer null)', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya bought a new fridge yesterday [f1].',
-          citedFactIds: ['f1'],
-        }),
-        JSON.stringify({
-          verdict: 'unsupported',
-          unsupportedClaims: ['Maya bought a new fridge yesterday'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya bought a new fridge yesterday [f1].',
+        citedFactIds: ['f1'],
+      }),
+      JSON.stringify({
+        verdict: 'unsupported',
+        unsupportedClaims: ['Maya bought a new fridge yesterday'],
+      }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toBeNull();
     expect(out.reason).toBe('verifier_failed');
     expect(out.citations).toEqual([]);
@@ -307,25 +287,23 @@ describe('SynthesizeService', () => {
     process.env.RETRIEVAL_ABSTENTION_CALIBRATION = 'off';
     try {
       const search = makeSearch([
-        makeHit('cust_a', [
-          { factId: 'f1', predicate: 'name', object: 'Maya' },
-        ]),
+        makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
       ]);
-      const { svc } = makeSvc(
-        search,
-        {},
-        [
-          JSON.stringify({
-            answer: 'Maya bought a new fridge [f1].',
-            citedFactIds: ['f1'],
-          }),
-          JSON.stringify({
-            verdict: 'unsupported',
-            unsupportedClaims: ['Maya bought a new fridge'],
-          }),
-        ],
-      );
-      const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'lenient' }, callerScopes: ['brain:read'] });
+      const { svc } = makeSvc(search, {}, [
+        JSON.stringify({
+          answer: 'Maya bought a new fridge [f1].',
+          citedFactIds: ['f1'],
+        }),
+        JSON.stringify({
+          verdict: 'unsupported',
+          unsupportedClaims: ['Maya bought a new fridge'],
+        }),
+      ]);
+      const out = await svc.synthesize({
+        companyId: 'co_x',
+        dto: { ...baseDto, synthesisGuardrails: 'lenient' },
+        callerScopes: ['brain:read'],
+      });
       expect(out.answer).toContain('fridge');
       expect(out.reason).toBe('verifier_failed');
       expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
@@ -348,17 +326,17 @@ describe('SynthesizeService', () => {
         },
       ]),
     ]);
-    const { svc, stub } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya complained about a noisy neighbour [f1].',
-          citedFactIds: ['f1'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: { ...baseDto, synthesisGuardrails: 'off' }, callerScopes: ['brain:read'] });
+    const { svc, stub } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya complained about a noisy neighbour [f1].',
+        citedFactIds: ['f1'],
+      }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: { ...baseDto, synthesisGuardrails: 'off' },
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toContain('noisy neighbour');
     expect(out.reason).toBeUndefined();
     // Generator should be the only OpenAI call (no verifier).
@@ -374,41 +352,33 @@ describe('SynthesizeService', () => {
 
   it('drops hallucinated factId citations not present in retrieved set', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya is a customer [f1] [f_nope].',
-          citedFactIds: ['f1', 'f_nope'],
-        }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya is a customer [f1] [f_nope].',
+        citedFactIds: ['f1', 'f_nope'],
+      }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.citations.map((c) => c.factId)).toEqual(['f1']);
   });
 
   it('strict mode fails closed when verifier throws', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      {},
-      [
-        JSON.stringify({
-          answer: 'Maya is a customer [f1].',
-          citedFactIds: ['f1'],
-        }),
-      ],
-    );
+    const { svc } = makeSvc(search, {}, [
+      JSON.stringify({
+        answer: 'Maya is a customer [f1].',
+        citedFactIds: ['f1'],
+      }),
+    ]);
     // Second call throws (verifier).
     let calls = 0;
     (svc as any).openai = {
@@ -435,37 +405,37 @@ describe('SynthesizeService', () => {
         },
       },
     };
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toBeNull();
     expect(out.reason).toBe('verifier_error');
   });
 
   it('respects SYNTHESIZE_DEFAULT_GUARDRAILS=off env override', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'name', object: 'Maya' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
     ]);
-    const { svc } = makeSvc(
-      search,
-      { SYNTHESIZE_DEFAULT_GUARDRAILS: 'off' },
-      [
-        JSON.stringify({
-          answer: 'Maya is a customer [f1].',
-          citedFactIds: ['f1'],
-        }),
-      ],
-    );
-    const out = await svc.synthesize({ companyId: 'co_x', dto: baseDto, callerScopes: ['brain:read'] });
+    const { svc } = makeSvc(search, { SYNTHESIZE_DEFAULT_GUARDRAILS: 'off' }, [
+      JSON.stringify({
+        answer: 'Maya is a customer [f1].',
+        citedFactIds: ['f1'],
+      }),
+    ]);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
     expect(out.answer).toContain('customer');
     expect(out.reason).toBeUndefined();
   });
 
   it('surfaces each fact validity window in the generator prompt', async () => {
     const search = makeSearch([
-      makeHit('cust_a', [
-        { factId: 'f1', predicate: 'attended', object: 'support group' },
-      ]),
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'attended', object: 'support group' }]),
     ]);
     // Capture the generator's user prompt to assert the date is present.
     const prompts: string[] = [];

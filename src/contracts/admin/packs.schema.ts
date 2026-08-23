@@ -80,9 +80,9 @@ export const UninstallPackResponseSchema = z.object({
 export const PackEvalFixtureResultSchema = z.object({
   id: z.string(),
   passed: z.boolean(),
-  failures: z.array(z.string()).describe(
-    'Human-readable reasons the fixture failed (empty when passed).',
-  ),
+  failures: z
+    .array(z.string())
+    .describe('Human-readable reasons the fixture failed (empty when passed).'),
 });
 
 export const PackEvalReportSchema = z.object({
@@ -94,9 +94,7 @@ export const PackEvalReportSchema = z.object({
 });
 
 export type InstallPackRequest = z.infer<typeof InstallPackRequestSchema>;
-export type InstallFromRegistryRequest = z.infer<
-  typeof InstallFromRegistryRequestSchema
->;
+export type InstallFromRegistryRequest = z.infer<typeof InstallFromRegistryRequestSchema>;
 export type PackEvalReportWire = z.infer<typeof PackEvalReportSchema>;
 export type PacksListResponse = z.infer<typeof PacksListResponseSchema>;
 export type InstallPackResponse = z.infer<typeof InstallPackResponseSchema>;

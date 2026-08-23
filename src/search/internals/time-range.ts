@@ -70,9 +70,7 @@ function validDay(y: number, m: number, d: number): boolean {
   // (2024-02-30 -> 2024-03-01), which would anchor the filter on a day
   // the query never named (audit 2026-08-19).
   const dt = new Date(Date.UTC(y, m, d));
-  return (
-    dt.getUTCFullYear() === y && dt.getUTCMonth() === m && dt.getUTCDate() === d
-  );
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m && dt.getUTCDate() === d;
 }
 
 /** Envelope of [from, to) intervals; null when the list is empty. */

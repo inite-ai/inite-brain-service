@@ -1,9 +1,4 @@
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
 import type { PackMarketplaceMeta } from './marketplace-meta';
@@ -43,9 +38,7 @@ export class RegistryMetaService {
   }
 
   /** Batch read for catalogue enrichment — one indexed SELECT. */
-  async getMetaForPacks(
-    packIds: string[],
-  ): Promise<Map<string, PackMarketplaceMeta>> {
+  async getMetaForPacks(packIds: string[]): Promise<Map<string, PackMarketplaceMeta>> {
     const out = new Map<string, PackMarketplaceMeta>();
     if (packIds.length === 0) return out;
     const rows = await this.surreal.withAdminDb(async (db) => {
@@ -90,10 +83,7 @@ export class RegistryMetaService {
 
   /** Back to free. The billing product/prices stay (immutable there) —
    *  only the registry stops gating installs on them. */
-  async clearPricing(args: {
-    packId: string;
-    companyId: string;
-  }): Promise<void> {
+  async clearPricing(args: { packId: string; companyId: string }): Promise<void> {
     await this.upsert(args.packId, {
       set: `paid = false, priceCode = NONE,
             displayPriceAmount = NONE, displayPriceCurrency = NONE,
@@ -105,14 +95,9 @@ export class RegistryMetaService {
 
   /** Hosting-operator curation (registry:curate). 404s on a pack the
    *  registry has never seen — featuring nothing is a caller mistake. */
-  async setFeatured(args: {
-    packId: string;
-    featured: boolean;
-  }): Promise<void> {
+  async setFeatured(args: { packId: string; featured: boolean }): Promise<void> {
     if (!(await this.packExists(args.packId))) {
-      throw new NotFoundException(
-        `pack "${args.packId}" not found in the registry`,
-      );
+      throw new NotFoundException(`pack "${args.packId}" not found in the registry`);
     }
     await this.upsert(args.packId, {
       set: args.featured
@@ -120,18 +105,13 @@ export class RegistryMetaService {
         : `featured = false, featuredAt = NONE`,
       params: {},
     });
-    this.logger.log(
-      `Pack ${args.packId} ${args.featured ? 'featured' : 'unfeatured'}`,
-    );
+    this.logger.log(`Pack ${args.packId} ${args.featured ? 'featured' : 'unfeatured'}`);
   }
 
   /** Pricing is a publisher-owned surface: only the company whose key
    *  published (any version of) the pack may set/clear it. 404 when the
    *  pack is unknown, 403 when it belongs to someone else. */
-  async assertPublisherOwnsPack(args: {
-    packId: string;
-    companyId: string;
-  }): Promise<void> {
+  async assertPublisherOwnsPack(args: { packId: string; companyId: string }): Promise<void> {
     const owned = await this.surreal.withAdminDb(async (db) => {
       const [rows] = await db.query<[Array<{ id: unknown }>]>(
         `SELECT id FROM registry_pack
@@ -142,13 +122,9 @@ export class RegistryMetaService {
     });
     if (owned) return;
     if (!(await this.packExists(args.packId))) {
-      throw new NotFoundException(
-        `pack "${args.packId}" not found in the registry`,
-      );
+      throw new NotFoundException(`pack "${args.packId}" not found in the registry`);
     }
-    throw new ForbiddenException(
-      `pack "${args.packId}" was not published by this company`,
-    );
+    throw new ForbiddenException(`pack "${args.packId}" was not published by this company`);
   }
 
   async packExists(packId: string): Promise<boolean> {
@@ -188,10 +164,10 @@ export class RegistryMetaService {
           );
           id = ((created as Array<{ id: unknown }>) ?? [])[0]?.id;
         }
-        await db.query(
-          `UPDATE $row SET ${change.set}, updatedAt = time::now()`,
-          { row: id, ...change.params },
-        );
+        await db.query(`UPDATE $row SET ${change.set}, updatedAt = time::now()`, {
+          row: id,
+          ...change.params,
+        });
       }),
     );
   }
@@ -202,15 +178,10 @@ export class RegistryMetaService {
     return {
       packId: row.packId,
       featured: Boolean(row.featured),
-      featuredAt: row.featuredAt
-        ? new Date(row.featuredAt as string).toISOString()
-        : null,
+      featuredAt: row.featuredAt ? new Date(row.featuredAt as string).toISOString() : null,
       paid: Boolean(row.paid),
       priceCode: row.priceCode ?? null,
-      displayPrice:
-        typeof amount === 'number' && currency
-          ? { amount, currency }
-          : null,
+      displayPrice: typeof amount === 'number' && currency ? { amount, currency } : null,
     };
   }
 }

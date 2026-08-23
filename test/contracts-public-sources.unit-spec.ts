@@ -29,10 +29,7 @@ const summary = {
 
 describe('public sources — wire contracts', () => {
   it('PublicDeclaredSource has NO owner/note keys (regression fence)', () => {
-    expect(Object.keys(PublicDeclaredSourceSchema.shape).sort()).toEqual([
-      'authLevel',
-      'type',
-    ]);
+    expect(Object.keys(PublicDeclaredSourceSchema.shape).sort()).toEqual(['authLevel', 'type']);
   });
 
   it('PublicSourceSummary round-trips with and without domainTrust', () => {
@@ -43,10 +40,9 @@ describe('public sources — wire contracts', () => {
         domainTrust: { ...trustScope, domain: 'status' },
       }).success,
     ).toBe(true);
-    expect(
-      PublicSourceSummarySchema.safeParse({ ...summary, domainTrust: null })
-        .success,
-    ).toBe(true);
+    expect(PublicSourceSummarySchema.safeParse({ ...summary, domainTrust: null }).success).toBe(
+      true,
+    );
     // Either side of the join may be absent.
     expect(
       PublicSourceSummarySchema.safeParse({
@@ -66,10 +62,7 @@ describe('public sources — wire contracts', () => {
       offset: 0,
     });
     expect(parsed.success).toBe(true);
-    expect(
-      PublicSourcesListResponseSchema.safeParse({ sources: [summary] })
-        .success,
-    ).toBe(false);
+    expect(PublicSourcesListResponseSchema.safeParse({ sources: [summary] }).success).toBe(false);
   });
 
   it('PublicSourceDetailResponse round-trips and rejects a declared row with authLevel out of range', () => {
@@ -88,13 +81,11 @@ describe('public sources — wire contracts', () => {
         ],
       }).success,
     ).toBe(true);
-    expect(
-      PublicDeclaredSourceSchema.safeParse({ type: 'human', authLevel: 1.5 })
-        .success,
-    ).toBe(false);
-    expect(
-      PublicDeclaredSourceSchema.safeParse({ type: 'rumor_mill', authLevel: 1 })
-        .success,
-    ).toBe(false);
+    expect(PublicDeclaredSourceSchema.safeParse({ type: 'human', authLevel: 1.5 }).success).toBe(
+      false,
+    );
+    expect(PublicDeclaredSourceSchema.safeParse({ type: 'rumor_mill', authLevel: 1 }).success).toBe(
+      false,
+    );
   });
 });

@@ -40,35 +40,44 @@ describe('fact_trust in ranking (Phase 5, SEARCH_TRUST_BETA=1)', () => {
     // Two entities, same claim text — identical embeddings/decay/
     // confidence; the ONLY differentiator is the declared source tier
     // frozen into each fact's trustSnapshot (billing.* → 0.95 vs 0.5).
-    const trusted = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'trusted_claim_entity' },
-      predicate: 'status',
-      object: 'contract renewal confirmed',
-      validFrom: '2026-06-01T00:00:00Z',
-      source: { vertical: 'rent', eventId: 'billing.renewal' },
-      confidence: 0.9,
-    });
+    const trusted = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'trusted_claim_entity' },
+        predicate: 'status',
+        object: 'contract renewal confirmed',
+        validFrom: '2026-06-01T00:00:00Z',
+        source: { vertical: 'rent', eventId: 'billing.renewal' },
+        confidence: 0.9,
+      });
     expect(trusted.body.outcome).toBe('INSERTED');
-    const neutral = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'neutral_claim_entity' },
-      predicate: 'status',
-      object: 'contract renewal confirmed',
-      validFrom: '2026-06-01T00:00:00Z',
-      source: { vertical: 'rent', recorder: 'anon_scraper' },
-      confidence: 0.9,
-    });
+    const neutral = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'neutral_claim_entity' },
+        predicate: 'status',
+        object: 'contract renewal confirmed',
+        validFrom: '2026-06-01T00:00:00Z',
+        source: { vertical: 'rent', recorder: 'anon_scraper' },
+        confidence: 0.9,
+      });
     expect(neutral.body.outcome).toBe('INSERTED');
     // A distractor gives the fusion stage's min-max normalisation a
     // spread — with ONLY the two identical claims, max == min collapses
     // every fusedScore to 0 and the trust factor multiplies nothing.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'distractor_entity' },
-      predicate: 'status',
-      object: 'janitorial schedule updated for west wing',
-      validFrom: '2026-06-01T00:00:00Z',
-      source: { vertical: 'rent', recorder: 'anon_scraper' },
-      confidence: 0.9,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'distractor_entity' },
+        predicate: 'status',
+        object: 'janitorial schedule updated for west wing',
+        validFrom: '2026-06-01T00:00:00Z',
+        source: { vertical: 'rent', recorder: 'anon_scraper' },
+        confidence: 0.9,
+      });
 
     // NB: search has no `explain` flag — breakdown is always attached to
     // response facts (response-builder.ts); the types.ts "explain=true"
@@ -87,12 +96,8 @@ describe('fact_trust in ranking (Phase 5, SEARCH_TRUST_BETA=1)', () => {
     // β=1: trustFactor 1.45 (0.95 declared) vs 1.0 (neutral) — the
     // trusted source's entity must rank first.
     expect(hits[0].entityId).toContain('knowledge_entity:');
-    const first = hits[0].facts.find(
-      (x: any) => x.object === 'contract renewal confirmed',
-    );
-    const second = hits[1].facts.find(
-      (x: any) => x.object === 'contract renewal confirmed',
-    );
+    const first = hits[0].facts.find((x: any) => x.object === 'contract renewal confirmed');
+    const second = hits[1].facts.find((x: any) => x.object === 'contract renewal confirmed');
     expect(first.sourceKey).toBe('rent:_');
     expect(second.sourceKey).toBe('rent:anon_scraper');
 

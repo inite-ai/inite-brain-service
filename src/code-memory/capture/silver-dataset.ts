@@ -54,9 +54,7 @@ export interface SilverExample {
  *  contents). Single source of truth so the trained student is fed the same
  *  text the production gate will see. */
 export function commitText(commit: CommitInput): string {
-  return commit.prBody
-    ? `${commit.message}\n\n${commit.prBody}`
-    : commit.message;
+  return commit.prBody ? `${commit.message}\n\n${commit.prBody}` : commit.message;
 }
 
 /** Build one silver example from a commit + the teacher's extraction. Pure. */
@@ -182,15 +180,12 @@ async function runPool<T>(
   worker: (item: T, index: number) => Promise<void>,
 ): Promise<void> {
   let next = 0;
-  const lanes = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    async () => {
-      for (;;) {
-        const i = next++;
-        if (i >= items.length) break;
-        await worker(items[i]!, i); // i < items.length ⇒ in-bounds
-      }
-    },
-  );
+  const lanes = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) break;
+      await worker(items[i]!, i); // i < items.length ⇒ in-bounds
+    }
+  });
   await Promise.all(lanes);
 }

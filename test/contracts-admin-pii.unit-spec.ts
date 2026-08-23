@@ -24,13 +24,9 @@ function makeController(): AdminOpsController {
 
 describe('AdminOpsController.piiInventory() — wire contract', () => {
   it('matches PiiInventoryResponseSchema', async () => {
-    const parsed = PiiInventoryResponseSchema.safeParse(
-      await makeController().piiInventory(),
-    );
+    const parsed = PiiInventoryResponseSchema.safeParse(await makeController().piiInventory());
     if (!parsed.success) {
-      throw new Error(
-        `pii drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`pii drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

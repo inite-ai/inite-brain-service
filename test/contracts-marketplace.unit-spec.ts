@@ -98,7 +98,10 @@ function admin(): MarketplaceAdminController {
   return new MarketplaceAdminController(fakeMeta(), fakeProfiles(), fakeBilling());
 }
 
-function assertParses(schema: { safeParse: (v: unknown) => { success: boolean; error?: unknown } }, value: unknown): void {
+function assertParses(
+  schema: { safeParse: (v: unknown) => { success: boolean; error?: unknown } },
+  value: unknown,
+): void {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new Error(`contract drifted: ${JSON.stringify(parsed.error, null, 2)}`);
@@ -114,10 +117,7 @@ describe('marketplace wire contracts', () => {
   });
 
   it('DELETE pricing matches PackPricingResponseSchema', async () => {
-    assertParses(
-      PackPricingResponseSchema,
-      await admin().clearPricing(req, 'fintech'),
-    );
+    assertParses(PackPricingResponseSchema, await admin().clearPricing(req, 'fintech'));
   });
 
   it('feature/unfeature match FeatureResponseSchema', async () => {
@@ -133,20 +133,15 @@ describe('marketplace wire contracts', () => {
   });
 
   it('checkout matches CheckoutResponseSchema', async () => {
-    assertParses(
-      CheckoutResponseSchema,
-      await admin().checkout(req, 'fintech', {}, 'idem-1'),
-    );
+    assertParses(CheckoutResponseSchema, await admin().checkout(req, 'fintech', {}, 'idem-1'));
   });
 
   it('the install 402 body matches PaymentRequiredHintSchema', async () => {
     const gate = new PackPurchaseGateService(fakeMeta(), fakeBilling());
-    const err = await gate
-      .assertInstallable({ companyId: 'co_test', packId: 'fintech' })
-      .then(
-        () => null,
-        (e) => e as HttpException,
-      );
+    const err = await gate.assertInstallable({ companyId: 'co_test', packId: 'fintech' }).then(
+      () => null,
+      (e) => e as HttpException,
+    );
     expect(err).toBeInstanceOf(HttpException);
     assertParses(PaymentRequiredHintSchema, err!.getResponse());
   });

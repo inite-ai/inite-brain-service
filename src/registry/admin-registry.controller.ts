@@ -1,19 +1,9 @@
-import {
-  Body,
-  Controller,
-  Param,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PackRegistryService } from './pack-registry.service';
 import type { DomainPackManifest } from '../ai/domain-packs';
-import type {
-  PublishPackResponse,
-  YankPackResponse,
-} from '../contracts/registry/registry.schema';
+import type { PublishPackResponse, YankPackResponse } from '../contracts/registry/registry.schema';
 
 /**
  * Publisher-facing writes to the GLOBAL Domain Pack registry

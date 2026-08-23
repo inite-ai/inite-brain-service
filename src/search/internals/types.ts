@@ -4,20 +4,13 @@
  * (DB projection), so each stage can be typed precisely.
  */
 
-
 /**
  * Stage label identifying which retrieval leg surfaced a fact.
  * Carried end-to-end so DecisionLog can attribute each retrieved fact
  * to the provenance activity that found it (HippoRAG/PROV-style).
  */
 export type RetrievalStage =
-  | 'vector'
-  | 'lexical'
-  | 'graph_seed'
-  | 'graph_neighbour'
-  | 'edge_expansion'
-  | 'ppr'
-  | 'segment';
+  'vector' | 'lexical' | 'graph_seed' | 'graph_neighbour' | 'edge_expansion' | 'ppr' | 'segment';
 
 /** One graph edge to a neighbour entity, as projected by both the edge-
  *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg.

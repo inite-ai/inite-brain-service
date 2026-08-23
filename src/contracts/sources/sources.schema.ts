@@ -120,9 +120,7 @@ export const PublicSourcesListResponseSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int(),
 });
-export type PublicSourcesListResponse = z.infer<
-  typeof PublicSourcesListResponseSchema
->;
+export type PublicSourcesListResponse = z.infer<typeof PublicSourcesListResponseSchema>;
 
 export const PublicSourceDetailResponseSchema = z.object({
   sourceKey: z.string(),
@@ -132,6 +130,4 @@ export const PublicSourceDetailResponseSchema = z.object({
   /** Reputation-over-time trail, newest first, capped at 50 rows. */
   history: z.array(SourceHistoryRowSchema),
 });
-export type PublicSourceDetailResponse = z.infer<
-  typeof PublicSourceDetailResponseSchema
->;
+export type PublicSourceDetailResponse = z.infer<typeof PublicSourceDetailResponseSchema>;

@@ -4,16 +4,9 @@
  * sits in resolveForInstall, so every shape here is what
  * POST /v1/admin/packs/from-registry surfaces.
  */
-import {
-  BadGatewayException,
-  HttpException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadGatewayException, HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { PackPurchaseGateService } from '../src/registry/pack-purchase-gate.service';
-import {
-  BillingRequestError,
-  BillingUnavailableError,
-} from '../src/billing/billing-errors';
+import { BillingRequestError, BillingUnavailableError } from '../src/billing/billing-errors';
 import type { RegistryMetaService } from '../src/registry/registry-meta.service';
 import type { BillingClientService } from '../src/billing/billing-client.service';
 import type { PackMarketplaceMeta } from '../src/registry/marketplace-meta';

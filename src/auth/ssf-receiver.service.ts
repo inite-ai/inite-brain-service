@@ -106,9 +106,7 @@ export class SsfReceiverService implements OnModuleInit, OnModuleDestroy {
       });
       const claims = payload as SetClaims;
       const subject = claims.sub_id?.sub;
-      const revokes = Object.keys(claims.events ?? {}).some((e) =>
-        REVOKING_EVENTS.includes(e),
-      );
+      const revokes = Object.keys(claims.events ?? {}).some((e) => REVOKING_EVENTS.includes(e));
       if (subject && revokes) this.revocations.deny(subject);
       this.pendingAcks.push(jti);
     } catch (e) {

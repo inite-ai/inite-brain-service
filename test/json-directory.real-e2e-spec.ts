@@ -104,12 +104,9 @@ describe('JSON-directory eval (load + retrieval + lifecycle)', () => {
         .filter((q) => q.rankOfExpected === 0 || q.rankOfExpected > 3);
       expect({
         memoryFailures: memoryFailures.map(
-          (m) =>
-            `${m.scenarioId} ${m.kind}: ${m.description} — ${m.detail ?? ''}`,
+          (m) => `${m.scenarioId} ${m.kind}: ${m.description} — ${m.detail ?? ''}`,
         ),
-        queryFailures: queryFailures.map(
-          (q) => `${q.query} → rank ${q.rankOfExpected}`,
-        ),
+        queryFailures: queryFailures.map((q) => `${q.query} → rank ${q.rankOfExpected}`),
       }).toEqual({ memoryFailures: [], queryFailures: [] });
     },
     1_800_000,

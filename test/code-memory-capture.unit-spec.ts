@@ -62,9 +62,7 @@ describe('HeuristicDecisionClassifier', () => {
   });
 
   it('admits on an explicit decision/rationale trailer', () => {
-    const v = c.classify(
-      commit({ message: 'fix: x\n\nWhy: prevents a race under FANOUT' }),
-    );
+    const v = c.classify(commit({ message: 'fix: x\n\nWhy: prevents a race under FANOUT' }));
     expect(v.likelyDecision).toBe(true);
     expect(v.reason).toMatch(/trailer/);
   });
@@ -78,7 +76,8 @@ describe('HeuristicDecisionClassifier', () => {
   it('admits when rationale markers appear in prose', () => {
     const v = c.classify(
       commit({
-        message: 'style: reformat\n\nReordered so that the hot path stays inlined instead of a call.',
+        message:
+          'style: reformat\n\nReordered so that the hot path stays inlined instead of a call.',
       }),
     );
     expect(v.likelyDecision).toBe(true);
@@ -138,7 +137,8 @@ describe('runCapturePipeline', () => {
         commit({ sha: 'chore1', message: 'chore: bump deps' }),
         commit({
           sha: 'dec1',
-          message: 'refactor: split service\n\nbecause the god-class drifted between call-sites and we wanted ≤3 deps.',
+          message:
+            'refactor: split service\n\nbecause the god-class drifted between call-sites and we wanted ≤3 deps.',
         }),
       ],
       classifier,

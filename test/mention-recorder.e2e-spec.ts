@@ -29,9 +29,7 @@ describe('mention ingest populates source.recorder', () => {
            WHERE object = $obj`,
         { obj: objectText },
       );
-      return ((rows as Array<{ recorder: string | null }>) ?? []).map(
-        (r) => r.recorder ?? '_',
-      );
+      return ((rows as Array<{ recorder: string | null }>) ?? []).map((r) => r.recorder ?? '_');
     });
   };
 

@@ -21,8 +21,7 @@ function makeController(): AdminInfraController {
       fn: (db: { query: <T>(sql: string) => Promise<T> }) => Promise<unknown>,
     ) => {
       const db = {
-        query: async <T>(_sql: string): Promise<T> =>
-          [[{ migrationId: '0001' }]] as unknown as T,
+        query: async <T>(_sql: string): Promise<T> => [[{ migrationId: '0001' }]] as unknown as T,
       };
       return fn(db);
     },
@@ -36,13 +35,9 @@ function makeController(): AdminInfraController {
 
 describe('AdminInfraController.migrations() — wire contract', () => {
   it('matches MigrationsResponseSchema', async () => {
-    const parsed = MigrationsResponseSchema.safeParse(
-      await makeController().migrations(),
-    );
+    const parsed = MigrationsResponseSchema.safeParse(await makeController().migrations());
     if (!parsed.success) {
-      throw new Error(
-        `migrations drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`migrations drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

@@ -76,12 +76,7 @@ export class Reporter {
     for (const o of report.outcomes) {
       for (const q of o.queryResults) {
         const rank = q.rankOfExpected === 0 ? 'miss' : `#${q.rankOfExpected}`;
-        const pm =
-          q.factPredicateMatched === null
-            ? '—'
-            : q.factPredicateMatched
-              ? '✓'
-              : '✗';
+        const pm = q.factPredicateMatched === null ? '—' : q.factPredicateMatched ? '✓' : '✗';
         lines.push(
           `| ${o.scenarioId} | ${this.shorten(q.query)} | ${rank} | ${this.shorten(
             q.topEntityRef ?? '—',
@@ -146,11 +141,7 @@ export class Reporter {
       lines.push('| scenario | description | N | AUC | threshold | pass |');
       lines.push('|---|---|---|---|---|---|');
       for (const m of miaTests) {
-        const status = m.underpowered
-          ? `⚠ underpowered`
-          : m.passed
-            ? '✓'
-            : '✗';
+        const status = m.underpowered ? `⚠ underpowered` : m.passed ? '✓' : '✗';
         const totalN = m.forgottenN + m.controlN;
         lines.push(
           `| ${m.scenarioId} | ${this.shorten(m.description)} | ${totalN} | ${m.auc.toFixed(3)} | ${m.threshold.toFixed(2)} | ${status} |`,

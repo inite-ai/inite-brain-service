@@ -120,9 +120,7 @@ export class ExtractorService {
     return result;
   }
 
-  private async loadSnapshot(
-    companyId: string,
-  ): Promise<{
+  private async loadSnapshot(companyId: string): Promise<{
     versionHash: string;
     active: PredicateDefinition[];
     extractionProfiles?: PackExtractionProfile[];

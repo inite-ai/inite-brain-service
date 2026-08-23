@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { isHttpUrl } from './marketplace-meta';
@@ -108,9 +103,7 @@ export class PublisherProfileService {
         );
       }),
     );
-    this.logger.log(
-      `Publisher profile "${args.publisher}" upserted by ${args.companyId}`,
-    );
+    this.logger.log(`Publisher profile "${args.publisher}" upserted by ${args.companyId}`);
     const profile = await this.get(args.publisher);
     // The row was just written; a miss here is a datastore fault.
     if (!profile) {
@@ -183,9 +176,7 @@ export class PublisherProfileService {
       bio: row.bio ?? '',
       contactEmail: row.contactEmail ?? null,
       createdAt: new Date(row.createdAt).toISOString(),
-      updatedAt: row.updatedAt
-        ? new Date(row.updatedAt as string).toISOString()
-        : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt as string).toISOString() : null,
     };
   }
 }

@@ -24,13 +24,9 @@ function makeController(): AdminOpsController {
 
 describe('AdminOpsController.forgotten() — wire contract', () => {
   it('matches ForgottenResponseSchema', async () => {
-    const parsed = ForgottenResponseSchema.safeParse(
-      await makeController().forgotten(),
-    );
+    const parsed = ForgottenResponseSchema.safeParse(await makeController().forgotten());
     if (!parsed.success) {
-      throw new Error(
-        `forgotten drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`forgotten drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

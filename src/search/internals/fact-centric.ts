@@ -64,7 +64,5 @@ export function selectFactCentric(
     if (ra !== rb) return ra - rb;
     return (bestScore.get(b.entityId) ?? 0) - (bestScore.get(a.entityId) ?? 0);
   });
-  return opts.limit !== undefined && opts.limit > 0
-    ? ordered.slice(0, opts.limit)
-    : ordered;
+  return opts.limit !== undefined && opts.limit > 0 ? ordered.slice(0, opts.limit) : ordered;
 }

@@ -24,10 +24,7 @@ function accessor(attr: string): (view: PolicyRowView) => unknown {
   if (attr === 'userId') return (v) => v.userId;
   if (attr === 'corroboration.count') return (v) => v.corroboration?.count;
   if (attr.startsWith('trust.')) {
-    const key = attr.slice('trust.'.length) as
-      | 'authority'
-      | 'declaredTrust'
-      | 'learnedTrust';
+    const key = attr.slice('trust.'.length) as 'authority' | 'declaredTrust' | 'learnedTrust';
     return (v) => v.trustSnapshot?.[key];
   }
   if (attr.startsWith('source.meta.')) {
@@ -162,13 +159,9 @@ export function compilePolicySet(
   for (const rule of doc.rules) {
     if (!rule.enabled) continue;
     if (rule.kind === 'action') {
-      (rule.effect === 'deny' ? actionDeny : actionAllow).push(
-        compileActionRule(rule),
-      );
+      (rule.effect === 'deny' ? actionDeny : actionAllow).push(compileActionRule(rule));
     } else {
-      (rule.effect === 'deny' ? sourceDeny : sourceAllow).push(
-        compileSourceRule(rule),
-      );
+      (rule.effect === 'deny' ? sourceDeny : sourceAllow).push(compileSourceRule(rule));
     }
   }
 

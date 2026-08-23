@@ -75,10 +75,8 @@ export class DreamsResolverService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('DREAMS_RESOLVE_ENABLED'));
-    this.openai =
-      createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
+    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_RESOLVE_ENABLED'));
+    this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_RESOLVE_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
@@ -87,15 +85,9 @@ export class DreamsResolverService {
       this.configService.get<string>('DREAMS_RESOLVE_MIN_AGE_DAYS', '7'),
       10,
     );
-    this.maxPairs = parseInt(
-      this.configService.get<string>('DREAMS_RESOLVE_MAX_PAIRS', '20'),
-      10,
-    );
+    this.maxPairs = parseInt(this.configService.get<string>('DREAMS_RESOLVE_MAX_PAIRS', '20'), 10);
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('DREAMS_RESOLVE_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('DREAMS_RESOLVE_CONCURRENCY', '4'), 10),
     );
   }
 
@@ -103,10 +95,7 @@ export class DreamsResolverService {
     return this.enabled && !!this.openai;
   }
 
-  async run(
-    db: Surreal,
-    derivedVersion: string | null = null,
-  ): Promise<ResolverResult> {
+  async run(db: Surreal, derivedVersion: string | null = null): Promise<ResolverResult> {
     const result: ResolverResult = {
       pairsConsidered: 0,
       llmJudgements: 0,
@@ -174,9 +163,7 @@ export class DreamsResolverService {
     db: Surreal,
     derivedVersion: string | null,
   ): Promise<Array<{ a: CompetingFactRow; b: CompetingFactRow }>> {
-    const cutoff = new Date(
-      Date.now() - this.minAgeDays * 24 * 60 * 60 * 1000,
-    );
+    const cutoff = new Date(Date.now() - this.minAgeDays * 24 * 60 * 60 * 1000);
     const fence = derivedVersionFence(derivedVersion);
     // Fetch ALL competing facts (no age filter in the query). The group-size
     // check that follows decides what's a 2-way pair vs a 3+-way disagreement,
@@ -242,11 +229,7 @@ export class DreamsResolverService {
     // the LLM context — sometimes the resolution depends on what's
     // around the conflict (e.g. status: active vs churned, where a
     // recent payment fact tilts toward "active").
-    const ctxFacts = await this.fetchEntityContext(
-      db,
-      String(pair.a.entityId),
-      derivedVersion,
-    );
+    const ctxFacts = await this.fetchEntityContext(db, String(pair.a.entityId), derivedVersion);
     const sys = `You resolve a CONTRADICTION between two facts in a knowledge graph.
 
 Both facts share the same entity and the same predicate but disagree on the object value (e.g. status=active vs status=churned). Decide which is more likely TRUE based on:
@@ -278,34 +261,35 @@ Output strictly the JSON shape requested.`;
           model: this.model,
         },
         this.metrics,
-        () => this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: sys },
-          { role: 'user', content: user },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'resolve_verdict',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                verdict: {
-                  type: 'string',
-                  enum: ['a_wins', 'b_wins', 'unsure'],
+        () =>
+          this.openai.chat.completions.create({
+            model: this.model,
+            messages: [
+              { role: 'system', content: sys },
+              { role: 'user', content: user },
+            ],
+            response_format: {
+              type: 'json_schema',
+              json_schema: {
+                name: 'resolve_verdict',
+                strict: true,
+                schema: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    verdict: {
+                      type: 'string',
+                      enum: ['a_wins', 'b_wins', 'unsure'],
+                    },
+                    rationale: { type: 'string' },
+                  },
+                  required: ['verdict', 'rationale'],
                 },
-                rationale: { type: 'string' },
               },
-              required: ['verdict', 'rationale'],
             },
-          },
-        },
-        max_completion_tokens: 200,
-        temperature: 0,
-      }),
+            max_completion_tokens: 200,
+            temperature: 0,
+          }),
       );
       const content = res.choices[0]?.message?.content;
       if (!content) return { kind: 'unsure' };
@@ -342,18 +326,10 @@ Output strictly the JSON shape requested.`;
     );
     const r = (rows as R[]) ?? [];
     if (r.length === 0) return '(no other active facts)';
-    return r
-      .map(
-        (f) => `- [${f.recordedAt.slice(0, 10)}] ${f.predicate}: ${f.object}`,
-      )
-      .join('\n');
+    return r.map((f) => `- [${f.recordedAt.slice(0, 10)}] ${f.predicate}: ${f.object}`).join('\n');
   }
 
-  private async markSuperseded(
-    db: Surreal,
-    loserId: string,
-    winnerId: string,
-  ): Promise<void> {
+  private async markSuperseded(db: Surreal, loserId: string, winnerId: string): Promise<void> {
     const loser = new StringRecordId(loserId);
     const winner = new StringRecordId(winnerId);
     // Match fn::resolve_fact's supersede shape (migration 0033). The old
@@ -367,16 +343,13 @@ Output strictly the JSON shape requested.`;
     // "auto-resolved by the dreams cron" audit signal that the old
     // retractionReason='dreams_resolution' tag carried.
     type Bound = { validFrom: string; validUntil: string | null };
-    const [winRows] = await db.query<[Array<{ validFrom: string }>]>(
-      `SELECT validFrom FROM $w`,
-      { w: winner },
-    );
-    const [loseRows] = await db.query<[Bound[]]>(
-      `SELECT validFrom, validUntil FROM $l`,
-      { l: loser },
-    );
-    const winnerValidFrom = (winRows as Array<{ validFrom: string }>)?.[0]
-      ?.validFrom;
+    const [winRows] = await db.query<[Array<{ validFrom: string }>]>(`SELECT validFrom FROM $w`, {
+      w: winner,
+    });
+    const [loseRows] = await db.query<[Bound[]]>(`SELECT validFrom, validUntil FROM $l`, {
+      l: loser,
+    });
+    const winnerValidFrom = (winRows as Array<{ validFrom: string }>)?.[0]?.validFrom;
     const loserRow = (loseRows as Bound[])?.[0];
     if (!winnerValidFrom || !loserRow) {
       // A row vanished between selection and here (concurrent forget /
@@ -387,14 +360,12 @@ Output strictly the JSON shape requested.`;
     // winner's validFrom can equal/precede the loser's, so close no earlier
     // than the loser's own start.
     const closeAt =
-      new Date(winnerValidFrom).getTime() >
-      new Date(loserRow.validFrom).getTime()
+      new Date(winnerValidFrom).getTime() > new Date(loserRow.validFrom).getTime()
         ? new Date(winnerValidFrom)
         : new Date(loserRow.validFrom);
     // option<datetime> rejects NULL, so only assign priorValidUntil when the
     // loser actually had a bounded interval to snapshot.
-    const priorClause =
-      loserRow.validUntil != null ? 'priorValidUntil = $priorValidUntil,' : '';
+    const priorClause = loserRow.validUntil != null ? 'priorValidUntil = $priorValidUntil,' : '';
     await db.query(
       `UPDATE $loser SET
          status = 'superseded',
@@ -407,9 +378,7 @@ Output strictly the JSON shape requested.`;
         loser,
         winner,
         closeAt,
-        ...(loserRow.validUntil != null
-          ? { priorValidUntil: new Date(loserRow.validUntil) }
-          : {}),
+        ...(loserRow.validUntil != null ? { priorValidUntil: new Date(loserRow.validUntil) } : {}),
       },
     );
   }

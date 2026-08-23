@@ -30,10 +30,7 @@ const ASSISTANT_LINE_CHAR_CAP = 600;
 
 /** First-seen episode ids from fact grounding stamps, capped.
  *  Evidence order ≈ relevance order, so first-seen wins the cap. */
-function collectAnchorEpisodeIds(
-  facts: Array<{ eps?: unknown }>,
-  cap: number,
-): string[] {
+function collectAnchorEpisodeIds(facts: Array<{ eps?: unknown }>, cap: number): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const f of facts) {
@@ -54,14 +51,11 @@ function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
     .slice()
     .sort(
       (a, b) =>
-        new Date(a.occurredAt as string).getTime() -
-        new Date(b.occurredAt as string).getTime(),
+        new Date(a.occurredAt as string).getTime() - new Date(b.occurredAt as string).getTime(),
     )
     .map((r) => {
       const day = String(
-        r.occurredAt instanceof Date
-          ? r.occurredAt.toISOString()
-          : r.occurredAt,
+        r.occurredAt instanceof Date ? r.occurredAt.toISOString() : r.occurredAt,
       ).slice(0, 10);
       const who = r.speaker ? `${r.speaker}` : 'unknown';
       return `[${day}] ${who}: ${r.text}`;
@@ -212,10 +206,9 @@ export class EpisodeLaneService {
     const cap = opts.cap;
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(
-          FACT_EPISODES_SQL,
-          { ids: opts.factIds.map((id) => new StringRecordId(id)) },
-        );
+        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(FACT_EPISODES_SQL, {
+          ids: opts.factIds.map((id) => new StringRecordId(id)),
+        });
         const episodeIds = collectAnchorEpisodeIds(facts ?? [], cap);
         const rows = await this.episodes.byIds({
           companyId: opts.companyId,
@@ -259,10 +252,9 @@ export class EpisodeLaneService {
     if (opts.factIds.length === 0) return [];
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(
-          FACT_EPISODES_SQL,
-          { ids: opts.factIds.map((id) => new StringRecordId(id)) },
-        );
+        const [facts] = await db.query<[Array<{ eps?: unknown }>]>(FACT_EPISODES_SQL, {
+          ids: opts.factIds.map((id) => new StringRecordId(id)),
+        });
         const anchorIds = collectAnchorEpisodeIds(facts ?? [], opts.anchors);
         const includePii = opts.callerScopes.includes('brain:read_pii');
         const anchorRows = await this.episodes.byIds({
@@ -327,11 +319,12 @@ export class EpisodeLaneService {
     if (opts.factIds.length === 0) return new Map();
     try {
       return await this.surreal.withCompany(opts.companyId, async (db) => {
-        const [facts] = await db.query<
-          [Array<{ id?: unknown; eps?: unknown }>]
-        >(FACT_EPISODES_BY_ID_SQL, {
-          ids: opts.factIds.map((id) => new StringRecordId(id)),
-        });
+        const [facts] = await db.query<[Array<{ id?: unknown; eps?: unknown }>]>(
+          FACT_EPISODES_BY_ID_SQL,
+          {
+            ids: opts.factIds.map((id) => new StringRecordId(id)),
+          },
+        );
         const anchorByFact = new Map<string, string>();
         for (const f of facts ?? []) {
           const factId = String(f.id ?? '');
@@ -356,18 +349,13 @@ export class EpisodeLaneService {
           const row = rowById.get(episodeId);
           if (!row) continue; // fenced out or gone — the fact line stands alone
           const day = String(
-            row.occurredAt instanceof Date
-              ? row.occurredAt.toISOString()
-              : row.occurredAt,
+            row.occurredAt instanceof Date ? row.occurredAt.toISOString() : row.occurredAt,
           ).slice(0, 10);
           const text =
             row.text.length > GROUNDING_QUOTE_CHAR_CAP
               ? `${row.text.slice(0, GROUNDING_QUOTE_CHAR_CAP - 1)}…`
               : row.text;
-          out.set(
-            factId,
-            ` [source ${day} ${row.speaker ?? 'unknown'}: "${text}"]`,
-          );
+          out.set(factId, ` [source ${day} ${row.speaker ?? 'unknown'}: "${text}"]`);
         }
         return out;
       });

@@ -21,20 +21,26 @@ describe('Phase 4.B — lang-filtered retrieve', () => {
   beforeAll(async () => {
     f = await createApp();
 
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'cross_lingual_tenant' },
-      predicate: 'status',
-      object: 'Технический директор',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'cross_lingual_tenant' },
-      predicate: 'tier',
-      object: 'gold member',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'billing.tier_change' },
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cross_lingual_tenant' },
+        predicate: 'status',
+        object: 'Технический директор',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cross_lingual_tenant' },
+        predicate: 'tier',
+        object: 'gold member',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'billing.tier_change' },
+      });
   });
 
   afterAll(async () => {
@@ -56,14 +62,11 @@ describe('Phase 4.B — lang-filtered retrieve', () => {
   });
 
   it('disableLangFilter:true skips the filter entirely (single-pass)', async () => {
-    const res = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({
-        query: 'Who is the CTO at this tenant',
-        limit: 10,
-        disableLangFilter: true,
-      });
+    const res = await f.http.post('/v1/search').set(auth()).send({
+      query: 'Who is the CTO at this tenant',
+      limit: 10,
+      disableLangFilter: true,
+    });
     expect(res.status).toBe(201);
     expect(res.body.results.length).toBeGreaterThan(0);
   });

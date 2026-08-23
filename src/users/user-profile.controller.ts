@@ -14,11 +14,7 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
 import { UserProfileService } from './user-profile.service';
-import {
-  DEFAULT_MAX_FACTS,
-  HARD_MAX_FACTS,
-  type UserProfileWire,
-} from './dto/user-profile.dto';
+import { DEFAULT_MAX_FACTS, HARD_MAX_FACTS, type UserProfileWire } from './dto/user-profile.dto';
 
 /**
  * Rolling user profile v1: GET /v1/users/:userId/profile — a
@@ -54,8 +50,7 @@ export class UserProfileController {
     // A user-bound token may read only its own profile — the pin
     // throws 403 when the path names another user. M2M reads any.
     const pinned = pinUserScope(userId) ?? userId;
-    const parsed =
-      maxFacts !== undefined ? parseInt(maxFacts, 10) : DEFAULT_MAX_FACTS;
+    const parsed = maxFacts !== undefined ? parseInt(maxFacts, 10) : DEFAULT_MAX_FACTS;
     if (!Number.isFinite(parsed) || parsed < 1) {
       throw new BadRequestException(`maxFacts must be 1..${HARD_MAX_FACTS}`);
     }

@@ -14,10 +14,7 @@ export class FeedbackController {
   // by self-reported identities.
   @Post()
   @RequireScopes('brain:write')
-  async record(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: RecordFeedbackDto,
-  ) {
+  async record(@Req() req: AuthenticatedRequest, @Body() body: RecordFeedbackDto) {
     return this.feedback.record({
       companyId: req.brainAuth.companyId,
       factId: body.factId,

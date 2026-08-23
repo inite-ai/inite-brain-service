@@ -11,10 +11,7 @@ import type { Response } from 'express';
 import { Observable, Subject } from 'rxjs';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
-import {
-  LiveSubscriptionManager,
-  type LiveEvent,
-} from './live-subscription.manager';
+import { LiveSubscriptionManager, type LiveEvent } from './live-subscription.manager';
 
 /**
  * Realtime fact stream over SSE (flag `LIVE_SUBSCRIPTIONS_ENABLED`).
@@ -61,10 +58,7 @@ export class LiveSubscriptionController {
     };
     // AuthenticatedRequest is the auth-decorated view, not the Node stream
     // type; the runtime object is the express Request either way.
-    (req as unknown as { on(e: string, cb: () => void): void }).on(
-      'close',
-      release,
-    );
+    (req as unknown as { on(e: string, cb: () => void): void }).on('close', release);
     res.on('close', release);
     return subject.asObservable();
   }

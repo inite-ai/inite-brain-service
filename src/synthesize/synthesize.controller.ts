@@ -16,10 +16,7 @@ export class SynthesizeController {
   @PolicyAction('synthesize')
   // Generator + verifier each cost one chat completion; treat as expensive.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
-  async run(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: SynthesizeDto,
-  ) {
+  async run(@Req() req: AuthenticatedRequest, @Body() body: SynthesizeDto) {
     return this.synthesize.synthesize({
       companyId: req.brainAuth.companyId,
       dto: body,

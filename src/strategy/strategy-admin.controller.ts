@@ -40,11 +40,7 @@ import {
  *         confirmation, manual deprecation).
  */
 
-const STATUSES: readonly StrategyStatus[] = [
-  'candidate',
-  'active',
-  'deprecated',
-];
+const STATUSES: readonly StrategyStatus[] = ['candidate', 'active', 'deprecated'];
 
 const MAX_POST_MORTEMS = 50;
 
@@ -69,9 +65,7 @@ export class StrategyAdminController {
       resolved !== req.brainAuth.companyId &&
       !this.apiKeys.knownCompanyIds().includes(resolved)
     ) {
-      throw new BadRequestException(
-        `Unknown tenant '${resolved}' — not a registered tenant`,
-      );
+      throw new BadRequestException(`Unknown tenant '${resolved}' — not a registered tenant`);
     }
     return resolved;
   }
@@ -94,21 +88,12 @@ export class StrategyAdminController {
       throw new BadRequestException('postMortems must be a non-empty array');
     }
     if (postMortems.length > MAX_POST_MORTEMS) {
-      throw new BadRequestException(
-        `postMortems capped at ${MAX_POST_MORTEMS} per call`,
-      );
+      throw new BadRequestException(`postMortems capped at ${MAX_POST_MORTEMS} per call`);
     }
     for (const [i, pm] of postMortems.entries()) {
-      for (const field of [
-        'question',
-        'goldAnswer',
-        'ourAnswer',
-        'diagnosis',
-      ] as const) {
+      for (const field of ['question', 'goldAnswer', 'ourAnswer', 'diagnosis'] as const) {
         if (typeof pm?.[field] !== 'string' || !pm[field].trim()) {
-          throw new BadRequestException(
-            `postMortems[${i}].${field} must be a non-empty string`,
-          );
+          throw new BadRequestException(`postMortems[${i}].${field} must be a non-empty string`);
         }
       }
     }
@@ -127,16 +112,10 @@ export class StrategyAdminController {
   ): Promise<{ strategies: StrategyItem[] }> {
     this.assertEnabled();
     const resolved = this.resolveTenant(req, q.tenant);
-    if (
-      q.status !== undefined &&
-      !STATUSES.includes(q.status as StrategyStatus)
-    ) {
-      throw new BadRequestException(
-        `status must be one of ${STATUSES.join('/')}`,
-      );
+    if (q.status !== undefined && !STATUSES.includes(q.status as StrategyStatus)) {
+      throw new BadRequestException(`status must be one of ${STATUSES.join('/')}`);
     }
-    const parsedLimit =
-      q.limit !== undefined ? parseInt(q.limit, 10) : undefined;
+    const parsedLimit = q.limit !== undefined ? parseInt(q.limit, 10) : undefined;
     if (
       parsedLimit !== undefined &&
       (!Number.isFinite(parsedLimit) || parsedLimit < 1 || parsedLimit > 200)
@@ -160,17 +139,11 @@ export class StrategyAdminController {
     this.assertEnabled();
     const tenant = this.resolveTenant(req, body.tenant);
     if (!STATUSES.includes(body.status as StrategyStatus)) {
-      throw new BadRequestException(
-        `status must be one of ${STATUSES.join('/')}`,
-      );
+      throw new BadRequestException(`status must be one of ${STATUSES.join('/')}`);
     }
     if (!id || id.length > 128) {
       throw new BadRequestException('id must be a strategy record id');
     }
-    return this.strategies.updateStatus(
-      tenant,
-      id,
-      body.status as StrategyStatus,
-    );
+    return this.strategies.updateStatus(tenant, id, body.status as StrategyStatus);
   }
 }

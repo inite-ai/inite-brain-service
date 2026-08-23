@@ -116,17 +116,13 @@ export class IndexerRouterService {
           matched.push({ binding: b, sim });
         }
       } catch (e) {
-        this.logger.warn(
-          `router L2 embed failed for pack ${b.indexerId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`router L2 embed failed for pack ${b.indexerId}: ${(e as Error).message}`);
       }
     }
     return matched.sort((a, b) => b.sim - a.sim).map((m) => m.binding);
   }
 
-  private async installedManifests(
-    companyId: string,
-  ): Promise<DomainPackManifest[]> {
+  private async installedManifests(companyId: string): Promise<DomainPackManifest[]> {
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
         const rows = await queryRows<{ manifest: DomainPackManifest }>(

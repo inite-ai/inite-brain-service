@@ -97,9 +97,7 @@ export class ProjectionsController {
     }
     const version = body.version?.trim() || WINDOW_DERIVER_VERSION;
     if (!/^[a-z0-9-]{2,32}$/.test(version)) {
-      throw new BadRequestException(
-        'version must be a short kebab-case tag (e.g. wd-v2)',
-      );
+      throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
     }
     const conversationId = body.conversation?.trim() || undefined;
     if (conversationId && conversationId.length > 128) {

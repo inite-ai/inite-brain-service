@@ -16,9 +16,7 @@ const fixture: LocomoSample = {
   conversation: {
     speaker_a: 'Alice',
     speaker_b: 'Bob',
-    session_2: [
-      { dia_id: 'D2:1', speaker: 'Bob', text: 'second' },
-    ],
+    session_2: [{ dia_id: 'D2:1', speaker: 'Bob', text: 'second' }],
     session_2_date_time: '8 May, 2023',
     session_1: [
       { dia_id: 'D1:1', speaker: 'Alice', text: 'first' },

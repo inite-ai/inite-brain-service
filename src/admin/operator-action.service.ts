@@ -62,9 +62,7 @@ export class OperatorActionService {
     limit?: number | undefined;
   }): Promise<OperatorActionRow[]> {
     if (!this.surreal || !this.apiKeys) return [];
-    const tenants = filter.actor
-      ? [filter.actor]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.actor ? [filter.actor] : this.apiKeys.knownCompanyIds();
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -105,9 +103,7 @@ export class OperatorActionService {
           });
         }
       } catch (e) {
-        this.logger.warn(
-          `operator_action read failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`operator_action read failed for ${companyId}: ${(e as Error).message}`);
       }
     }
     out.sort((a, b) => b.ts.localeCompare(a.ts));

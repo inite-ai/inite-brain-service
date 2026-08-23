@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
@@ -11,10 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestOutcome, IngestResult } from './ingest-result';
-import {
-  buildConflictExplanation,
-  type ResolverConflictPayload,
-} from './conflict-explainer';
+import { buildConflictExplanation, type ResolverConflictPayload } from './conflict-explainer';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { evidenceValidationError } from './ingest-utils';
@@ -71,9 +63,7 @@ export class FactIngestService {
       const from = Date.parse(dto.validFrom);
       const until = Date.parse(dto.validUntil);
       if (Number.isFinite(from) && Number.isFinite(until) && until <= from) {
-        throw new BadRequestException(
-          'validUntil must be strictly after validFrom',
-        );
+        throw new BadRequestException('validUntil must be strictly after validFrom');
       }
     }
     // source is an opaque @IsObject (union shape) — nested evidence[] must
@@ -131,19 +121,13 @@ export class FactIngestService {
     return this.surreal.withCompany(companyId, async (db) => {
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
       //    dto.userId scopes both the entity dedup key and the fact.
-      const entityId = await this.entities.resolveOrCreateEntity(
-        db,
-        dto,
-        dto.userId,
-      );
+      const entityId = await this.entities.resolveOrCreateEntity(db, dto, dto.userId);
 
       // 2. Object preservation. Schema stores `object` as string for
       //    indexing; for non-string DTO objects we additionally keep
       //    the structured form in `objectMeta`.
       const objectIsString = typeof dto.object === 'string';
-      const objectStr = objectIsString
-        ? (dto.object as string)
-        : JSON.stringify(dto.object);
+      const objectStr = objectIsString ? (dto.object as string) : JSON.stringify(dto.object);
       // SurrealDB option<...> rejects NULL. JS `null` serialises as NULL,
       // `undefined` is dropped from the payload and treated as NONE — which
       // is what we want for an optional field.
@@ -194,7 +178,8 @@ export class FactIngestService {
           supersededFactIds: out.supersededFactIds,
           competingFactIds: out.competingFactIds,
           scoreBreakdown: result.scoreBreakdown as ResolverConflictPayload['scoreBreakdown'],
-          dominantDimension: result.dominantDimension as ResolverConflictPayload['dominantDimension'],
+          dominantDimension:
+            result.dominantDimension as ResolverConflictPayload['dominantDimension'],
           slotDelta: result.slotDelta as ResolverConflictPayload['slotDelta'],
         });
       }

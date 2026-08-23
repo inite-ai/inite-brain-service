@@ -38,8 +38,7 @@ type Inbound =
   | { id: number; kind: 'embedMany'; payload: { texts: string[] } };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('bge-m3.worker must be run as a worker_thread');
@@ -64,8 +63,7 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
     // Dockerfile provisions /app/.cache, node-owned) so the cache sticks.
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) {
-      (transformers as unknown as { env: { cacheDir?: string } }).env.cacheDir =
-        cacheDir;
+      (transformers as unknown as { env: { cacheDir?: string } }).env.cacheDir = cacheDir;
     }
     pipeline = (await transformers.pipeline(
       'feature-extraction',

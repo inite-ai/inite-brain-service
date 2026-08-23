@@ -43,11 +43,10 @@ export class CandidateSweeperService implements OnModuleInit {
 
   onModuleInit(): void {
     if (!this.workerLoop) return;
-    this.workerLoop.register(
-      'candidate_sweeper',
-      (ctx) => this.executeFromQueue(ctx),
-      { ttlSeconds: 600, maxAttempts: 2 },
-    );
+    this.workerLoop.register('candidate_sweeper', (ctx) => this.executeFromQueue(ctx), {
+      ttlSeconds: 600,
+      maxAttempts: 2,
+    });
   }
 
   /** 03:45 UTC — after compaction (03:17), before dreams (04:00). */
@@ -75,9 +74,7 @@ export class CandidateSweeperService implements OnModuleInit {
     return { enqueued };
   }
 
-  private async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const swept = await this.sweepTenant(ctx.companyId);
     const reconciled = await this.reconcileRuns(ctx.companyId);
     return { ...swept, ...reconciled };
@@ -159,9 +156,7 @@ export class CandidateSweeperService implements OnModuleInit {
           });
           if (created) recommitted++;
         } catch (e) {
-          this.logger.warn(
-            `reconcile commit enqueue for ${docId} failed: ${(e as Error).message}`,
-          );
+          this.logger.warn(`reconcile commit enqueue for ${docId} failed: ${(e as Error).message}`);
         }
       }
     }

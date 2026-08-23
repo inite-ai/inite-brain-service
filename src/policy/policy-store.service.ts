@@ -8,12 +8,7 @@ import { StringRecordId } from 'surrealdb';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { sanitizeSourceMeta } from './source-meta';
 import { PolicyResolverService } from './policy-resolver.service';
-import {
-  MAX_SETS_PER_KEY,
-  PolicyDocument,
-  PolicyDocumentSchema,
-  PolicyMode,
-} from './policy.types';
+import { MAX_SETS_PER_KEY, PolicyDocument, PolicyDocumentSchema, PolicyMode } from './policy.types';
 
 export interface StoredPolicySet {
   name: string;
@@ -135,11 +130,7 @@ export class PolicyStoreService {
     return found;
   }
 
-  async create(
-    companyId: string,
-    body: unknown,
-    updatedBy: string,
-  ): Promise<StoredPolicySet> {
+  async create(companyId: string, body: unknown, updatedBy: string): Promise<StoredPolicySet> {
     const doc = this.parseDocument(body);
     await this.surreal.withCompany(companyId, async (db) => {
       try {
@@ -306,18 +297,11 @@ export class PolicyStoreService {
    * Batched policy-view load for the simulation surface: one query for
    * up to ~250 factIds (search candidateK cap), keyed by full record id.
    */
-  async loadFactViews(
-    companyId: string,
-    factIds: string[],
-  ): Promise<Map<string, FactPolicyView>> {
+  async loadFactViews(companyId: string, factIds: string[]): Promise<Map<string, FactPolicyView>> {
     const out = new Map<string, FactPolicyView>();
     if (factIds.length === 0) return out;
     const ids = factIds
-      .map((raw) =>
-        raw.startsWith('knowledge_fact:')
-          ? raw.slice('knowledge_fact:'.length)
-          : raw,
-      )
+      .map((raw) => (raw.startsWith('knowledge_fact:') ? raw.slice('knowledge_fact:'.length) : raw))
       .filter((id) => FACT_ID_SHAPE.test(id));
     if (ids.length === 0) return out;
     const rows = await this.surreal.withCompany(companyId, async (db) =>
@@ -354,10 +338,7 @@ export class PolicyStoreService {
           ORDER BY createdAt ASC`,
       );
       const docs = docsOut.filter(
-        (d) =>
-          d.meta &&
-          typeof d.meta === 'object' &&
-          Object.keys(d.meta).length > 0,
+        (d) => d.meta && typeof d.meta === 'object' && Object.keys(d.meta).length > 0,
       );
       let factsUpdated = 0;
       let documentsProcessed = 0;
@@ -387,10 +368,7 @@ export class PolicyStoreService {
    * Recent active facts' policy views for the preview-rule sampler.
    * Bounded and approximate by design (ORDER BY recordedAt DESC).
    */
-  async sampleFactViews(
-    companyId: string,
-    limit: number,
-  ): Promise<FactPolicyView[]> {
+  async sampleFactViews(companyId: string, limit: number): Promise<FactPolicyView[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       // recordedAt must be IN the projection — SurrealQL 3.x refuses to
       // ORDER BY a field the SELECT didn't materialize (the "order
@@ -451,10 +429,7 @@ export class PolicyStoreService {
 
 const FACT_ID_SHAPE = /^[A-Za-z0-9_]+$/;
 
-function mapRow(
-  r: AccessPolicyRow,
-  attachedBy: Map<string, string[]>,
-): StoredPolicySet {
+function mapRow(r: AccessPolicyRow, attachedBy: Map<string, string[]>): StoredPolicySet {
   return {
     name: String(r.name),
     mode: String(r.mode) as PolicyMode,

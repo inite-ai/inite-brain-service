@@ -106,9 +106,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       }
       const trimmed = text.trim();
       if (!trimmed) return new Array(this.dimensions).fill(0);
-      return this.limiter.run(
-        () => this.rpc<number[]>('embed', { text: trimmed }),
-      );
+      return this.limiter.run(() => this.rpc<number[]>('embed', { text: trimmed }));
     }
     if (!this.pipeline) {
       throw new Error('BGE-M3 pipeline not ready — caller must check isReady()');
@@ -126,9 +124,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
         'feature-extraction',
         this.modelId,
       )) as unknown as FeatureExtractionPipeline;
-      this.logger.log(
-        `BGE-M3 ready (${this.modelId}) — in-thread warmup ${Date.now() - start}ms`,
-      );
+      this.logger.log(`BGE-M3 ready (${this.modelId}) — in-thread warmup ${Date.now() - start}ms`);
     } catch (e) {
       this.logger.warn(
         `BGE-M3 warmup failed for ${this.modelId}: ${(e as Error).message}; service will fall back to OpenAI`,
@@ -160,9 +156,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
         dimensions: this.dimensions,
       });
       this.workerReady = true;
-      this.logger.log(
-        `BGE-M3 ready (${this.modelId}) — worker warmup ${Date.now() - start}ms`,
-      );
+      this.logger.log(`BGE-M3 ready (${this.modelId}) — worker warmup ${Date.now() - start}ms`);
     } catch (e) {
       this.logger.warn(
         `BGE-M3 worker warmup failed for ${this.modelId}: ${(e as Error).message}; service will fall back to OpenAI`,
@@ -220,8 +214,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
       return Promise.reject(new Error('BGE-M3 worker not initialised'));
     }
     const id = this.nextReqId++;
-    const timeoutMs =
-      kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : WORKER_EMBED_TIMEOUT_MS;
+    const timeoutMs = kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : WORKER_EMBED_TIMEOUT_MS;
     return new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         // Only act if the reply hasn't already landed and cleared us.
@@ -235,11 +228,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
           // lifetime while serving zero traffic — reclaim it now.
           this.workerReady = false;
           void this.terminate();
-          reject(
-            new Error(
-              `BGE-M3 worker '${kind}' RPC timed out after ${timeoutMs}ms`,
-            ),
-          );
+          reject(new Error(`BGE-M3 worker '${kind}' RPC timed out after ${timeoutMs}ms`));
         }
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();

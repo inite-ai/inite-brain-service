@@ -83,9 +83,7 @@ export class AdminInfraController {
   @RequireScopes('brain:admin')
   retrievalProfile(@Req() req: AuthenticatedRequest): RetrievalProfileResponse {
     const companyId = req.brainAuth.companyId;
-    const profile =
-      getRequestContext()?.retrievalProfile ??
-      resolveRetrievalProfileFor(companyId);
+    const profile = getRequestContext()?.retrievalProfile ?? resolveRetrievalProfileFor(companyId);
     return {
       companyId,
       profile: { ...profile, lanes: [...profile.lanes].sort() },

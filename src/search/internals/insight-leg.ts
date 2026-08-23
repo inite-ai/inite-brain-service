@@ -1,9 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import type { FactRow } from './types';
-import {
-  derivedVersionFence,
-  type ReadPin,
-} from '../../episodes/read-pin.service';
+import { derivedVersionFence, type ReadPin } from '../../episodes/read-pin.service';
 
 /**
  * Insight fusion leg (V8 §1 — the qualified insight lane).
@@ -103,9 +100,7 @@ function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
     ...(r.trustSnapshot !== undefined ? { trustSnapshot: r.trustSnapshot } : {}),
     ...(r.corroboration !== undefined ? { corroboration: r.corroboration } : {}),
     ...(r.userId !== undefined ? { userId: r.userId } : {}),
-    ...(kind === 'vector'
-      ? { simScore: r.score ?? 0 }
-      : { bm25Score: r.score ?? 0 }),
+    ...(kind === 'vector' ? { simScore: r.score ?? 0 } : { bm25Score: r.score ?? 0 }),
   };
 }
 
@@ -127,12 +122,8 @@ export async function runInsightLegs({
   vectorRows: FactRow[];
   lexicalRows: FactRow[];
 }> {
-  const piiGate = callerScopes.includes('brain:read_pii')
-    ? ''
-    : 'AND piiClass IS NONE';
-  const userGate = userId
-    ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-    : 'AND userId IS NONE';
+  const piiGate = callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
+  const userGate = userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
   const userParams = userId ? { scopeUserId: userId } : {};
   const worldFence = derivedVersionFence(derivedVersion);
   const worldGate = worldFence.clause;

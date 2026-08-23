@@ -8,10 +8,7 @@ import type {
   MultiHopPlannerService,
   MultiHopPlan,
 } from '../src/multi-hop/multi-hop-planner.service';
-import type {
-  SynthesizeService,
-  SynthesizeOptions,
-} from '../src/synthesize/synthesize.service';
+import type { SynthesizeService, SynthesizeOptions } from '../src/synthesize/synthesize.service';
 import type { MultiHopDto } from '../src/multi-hop/dto/multi-hop.dto';
 import type { EntityBucket, ScoredRow } from '../src/search/internals/types';
 
@@ -52,14 +49,24 @@ describe('mergeExtraHits (evidence union)', () => {
 
   it('never duplicates a fact already present in base', () => {
     const base = [hit('e1', [['f1', 0.9]])];
-    const extra = [hit('e1', [['f1', 0.9], ['f2', 0.4]])];
+    const extra = [
+      hit('e1', [
+        ['f1', 0.9],
+        ['f2', 0.4],
+      ]),
+    ];
     const out = mergeExtraHits(base, extra, 10);
     expect(out).toHaveLength(1);
     expect(out[0]!.facts.map((f) => f.factId)).toEqual(['f1', 'f2']);
   });
 
   it('merges extra facts into an existing base entity without reordering base facts', () => {
-    const base = [hit('e1', [['f1', 0.9], ['f2', 0.8]])];
+    const base = [
+      hit('e1', [
+        ['f1', 0.9],
+        ['f2', 0.8],
+      ]),
+    ];
     const extra = [hit('e1', [['f9', 0.95]])];
     const out = mergeExtraHits(base, extra, 10);
     expect(out[0]!.facts.map((f) => f.factId)).toEqual(['f1', 'f2', 'f9']);
@@ -137,10 +144,7 @@ describe('selectFactCentric', () => {
   }
 
   it('lets a strong fact from a weak entity beat weak facts of a strong entity', () => {
-    const buckets = [
-      bucket('strong', [0.9, 0.2, 0.1]),
-      bucket('weak', [0.8]),
-    ];
+    const buckets = [bucket('strong', [0.9, 0.2, 0.1]), bucket('weak', [0.8])];
     const out = selectFactCentric(buckets, 2);
     expect(out.map((b) => b.entityId)).toEqual(['strong', 'weak']);
     expect(out[0]!.facts).toHaveLength(1); // only the 0.9 made the cut
@@ -148,10 +152,7 @@ describe('selectFactCentric', () => {
   });
 
   it('orders rebuilt buckets by their best selected fact', () => {
-    const out = selectFactCentric(
-      [bucket('a', [0.5]), bucket('b', [0.7])],
-      10,
-    );
+    const out = selectFactCentric([bucket('a', [0.5]), bucket('b', [0.7])], 10);
     expect(out.map((b) => b.entityId)).toEqual(['b', 'a']);
   });
 
@@ -193,17 +194,12 @@ describe('multi-hop hands hop evidence to synthesize (evidence union)', () => {
         ],
       }),
     } as unknown as MultiHopPlannerService;
-    const svc = new MultiHopService(
-      planner,
-      new MultiHopChainService(search, synth),
-    );
+    const svc = new MultiHopService(planner, new MultiHopChainService(search, synth));
     const dto = { query: 'q', synthesize: true } as MultiHopDto;
-    return svc
-      .run({ companyId: 'co_x', dto, callerScopes: ['brain:read'] })
-      .then(() => {
-        expect(captured).toBeDefined();
-        return captured!;
-      });
+    return svc.run({ companyId: 'co_x', dto, callerScopes: ['brain:read'] }).then(() => {
+      expect(captured).toBeDefined();
+      return captured!;
+    });
   }
 
   it('always passes hop hits as extraHits (union is how multi-hop hands off)', async () => {

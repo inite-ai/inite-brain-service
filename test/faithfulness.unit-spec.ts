@@ -1,11 +1,5 @@
-import {
-  computeFaithfulness,
-  meanFaithfulness,
-} from './eval/metrics/faithfulness';
-import type {
-  FaithfulnessScore,
-  OpenAiLike,
-} from './eval/metrics/faithfulness';
+import { computeFaithfulness, meanFaithfulness } from './eval/metrics/faithfulness';
+import type { FaithfulnessScore, OpenAiLike } from './eval/metrics/faithfulness';
 
 /**
  * Unit coverage for the faithfulness metric. The OpenAI client is a
@@ -13,9 +7,7 @@ import type {
  * the order the metric calls them.
  */
 describe('computeFaithfulness', () => {
-  function stubClient(
-    responses: Array<{ content: string | null }>,
-  ): OpenAiLike {
+  function stubClient(responses: Array<{ content: string | null }>): OpenAiLike {
     let i = 0;
     return {
       chat: {
@@ -54,10 +46,7 @@ describe('computeFaithfulness', () => {
     const client = stubClient([
       {
         content: JSON.stringify({
-          claims: [
-            'Alice complained about parking',
-            "Alice's complaint was on April 1",
-          ],
+          claims: ['Alice complained about parking', "Alice's complaint was on April 1"],
         }),
       },
       {
@@ -66,9 +55,7 @@ describe('computeFaithfulness', () => {
     ]);
     const out = await computeFaithfulness(client, {
       answer: 'Alice complained about parking on April 1.',
-      sourceFacts: [
-        { factId: 'f1', predicate: 'complained_about', object: 'parking' },
-      ],
+      sourceFacts: [{ factId: 'f1', predicate: 'complained_about', object: 'parking' }],
     });
     expect(out.faithfulness).toBe(1.0);
     expect(out.supportedClaims).toBe(2);

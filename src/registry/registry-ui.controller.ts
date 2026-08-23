@@ -47,9 +47,7 @@ export class RegistryUiController {
     });
   }
 
-  private async withMarketplaceMeta(
-    packs: RegistryPackSummary[],
-  ): Promise<RegistryPackSummary[]> {
+  private async withMarketplaceMeta(packs: RegistryPackSummary[]): Promise<RegistryPackSummary[]> {
     const metaMap = await this.meta.getMetaForPacks(packs.map((p) => p.packId));
     return mergeMarketplaceMeta(packs, metaMap);
   }

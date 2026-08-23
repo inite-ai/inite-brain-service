@@ -63,9 +63,9 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
 describe('docs/openapi.json', () => {
   it('is an OpenAPI 3.1 document with the package version', () => {
     expect(built.openapi).toBe('3.1.0');
-    const pkg = JSON.parse(
-      readFileSync(join(__dirname, '..', 'package.json'), 'utf8'),
-    ) as { version: string };
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+      version: string;
+    };
     expect((built.info as Json).version).toBe(pkg.version);
   });
 
@@ -95,24 +95,19 @@ describe('docs/openapi.json', () => {
       join(__dirname, '..', 'brain-landing', 'public', 'openapi.json'),
       'utf8',
     );
-    expect(published).toBe(
-      readFileSync(join(__dirname, '..', 'docs', 'openapi.json'), 'utf8'),
-    );
+    expect(published).toBe(readFileSync(join(__dirname, '..', 'docs', 'openapi.json'), 'utf8'));
   });
 
-  it.each(PLATFORM_OPERATIONS)(
-    'documents %s %s with operationId and responses',
-    (path, method) => {
-      const pathItem = (built.paths as Json)[path] as Json | undefined;
-      expect(pathItem).toBeDefined();
-      const op = pathItem?.[method] as Json | undefined;
-      expect(op).toBeDefined();
-      expect(typeof op?.operationId).toBe('string');
-      expect((op?.operationId as string).length).toBeGreaterThan(0);
-      const responses = op?.responses as Json;
-      expect(Object.keys(responses).length).toBeGreaterThanOrEqual(1);
-    },
-  );
+  it.each(PLATFORM_OPERATIONS)('documents %s %s with operationId and responses', (path, method) => {
+    const pathItem = (built.paths as Json)[path] as Json | undefined;
+    expect(pathItem).toBeDefined();
+    const op = pathItem?.[method] as Json | undefined;
+    expect(op).toBeDefined();
+    expect(typeof op?.operationId).toBe('string');
+    expect((op?.operationId as string).length).toBeGreaterThan(0);
+    const responses = op?.responses as Json;
+    expect(Object.keys(responses).length).toBeGreaterThanOrEqual(1);
+  });
 
   it('documents no paths beyond the platform surface', () => {
     const documented = Object.keys(built.paths as Json).sort();

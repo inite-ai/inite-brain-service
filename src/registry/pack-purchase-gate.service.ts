@@ -7,10 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { BillingClientService } from '../billing/billing-client.service';
-import {
-  BillingRequestError,
-  BillingUnavailableError,
-} from '../billing/billing-errors';
+import { BillingRequestError, BillingUnavailableError } from '../billing/billing-errors';
 import { RegistryMetaService } from './registry-meta.service';
 import type { PaymentRequiredHint } from '../contracts/registry/marketplace.schema';
 
@@ -40,10 +37,7 @@ export class PackPurchaseGateService {
     private readonly billing: BillingClientService,
   ) {}
 
-  async assertInstallable(args: {
-    companyId: string;
-    packId: string;
-  }): Promise<void> {
+  async assertInstallable(args: { companyId: string; packId: string }): Promise<void> {
     const meta = await this.meta.getMeta(args.packId);
     if (!meta?.paid) return;
     if (!this.billing.enabled()) return;
@@ -55,9 +49,7 @@ export class PackPurchaseGateService {
       });
     } catch (e) {
       if (e instanceof BillingUnavailableError) {
-        this.logger.warn(
-          `Entitlement check for ${args.packId} failed closed: ${e.message}`,
-        );
+        this.logger.warn(`Entitlement check for ${args.packId} failed closed: ${e.message}`);
         throw new ServiceUnavailableException(
           `billing service is unavailable — cannot verify the entitlement for paid pack "${args.packId}"; retry shortly`,
         );

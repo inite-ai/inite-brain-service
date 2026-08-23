@@ -40,20 +40,14 @@ describe('detectOrderingShape (the order-lexicon)', () => {
   });
 
   it('ordering shapes still route to the enumeration lane', () => {
-    expect(detectLane('Can you list the order in which I brought up X?')).toBe(
-      'enumeration',
-    );
-    expect(detectLane('Which came first, the marathon or the wedding?')).toBe(
-      'enumeration',
-    );
+    expect(detectLane('Can you list the order in which I brought up X?')).toBe('enumeration');
+    expect(detectLane('Which came first, the marathon or the wedding?')).toBe('enumeration');
   });
 });
 
 describe('RETRIEVAL_TIMELINE_EVIDENCE profile point', () => {
   it('defaults off; routed round-trips; garbage rejects to off', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).timelineEvidence,
-    ).toBe('off');
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).timelineEvidence).toBe('off');
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_TIMELINE_EVIDENCE: 'routed',
@@ -72,12 +66,8 @@ describe('RETRIEVAL_TIMELINE_EVIDENCE profile point', () => {
         beamco: { timelineEvidence: 'routed' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).timelineEvidence).toBe(
-      'routed',
-    );
-    expect(resolveRetrievalProfileFor('other', env).timelineEvidence).toBe(
-      'off',
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).timelineEvidence).toBe('routed');
+    expect(resolveRetrievalProfileFor('other', env).timelineEvidence).toBe('off');
   });
 });
 

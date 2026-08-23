@@ -9,29 +9,36 @@ import { resolveEventTime } from '../src/ingest/event-time';
 describe('resolveEventTime', () => {
   // 2023-05-08 is a Monday.
   const ref = '2023-05-08T13:56:00Z';
-  const ymd = (e: { date: Date } | null) =>
-    e ? e.date.toISOString().slice(0, 10) : null;
+  const ymd = (e: { date: Date } | null) => (e ? e.date.toISOString().slice(0, 10) : null);
 
   describe('English relative expressions', () => {
     it('yesterday → anchor minus one day (the +1-day offset bug)', () => {
-      expect(ymd(resolveEventTime('went to the support group yesterday', ref, { lang: 'en' })))
-        .toBe('2023-05-07');
+      expect(
+        ymd(resolveEventTime('went to the support group yesterday', ref, { lang: 'en' })),
+      ).toBe('2023-05-07');
     });
     it('the day before yesterday', () => {
-      expect(ymd(resolveEventTime('the day before yesterday I flew home', ref, { lang: 'en' })))
-        .toBe('2023-05-06');
+      expect(
+        ymd(resolveEventTime('the day before yesterday I flew home', ref, { lang: 'en' })),
+      ).toBe('2023-05-06');
     });
     it('last year → prior year', () => {
-      expect(resolveEventTime('painted that sunrise last year', ref, { lang: 'en' })?.date.getUTCFullYear())
-        .toBe(2022);
+      expect(
+        resolveEventTime('painted that sunrise last year', ref, {
+          lang: 'en',
+        })?.date.getUTCFullYear(),
+      ).toBe(2022);
     });
     it('N weeks ago', () => {
-      expect(ymd(resolveEventTime('signed up 3 weeks ago', ref, { lang: 'en' }))).toBe('2023-04-17');
+      expect(ymd(resolveEventTime('signed up 3 weeks ago', ref, { lang: 'en' }))).toBe(
+        '2023-04-17',
+      );
     });
     it('last <weekday> → the prior occurrence', () => {
       // Monday 8 May → last Friday = 5 May.
-      expect(ymd(resolveEventTime('the pottery workshop last Friday', ref, { lang: 'en' })))
-        .toBe('2023-05-05');
+      expect(ymd(resolveEventTime('the pottery workshop last Friday', ref, { lang: 'en' }))).toBe(
+        '2023-05-05',
+      );
     });
   });
 
@@ -43,24 +50,32 @@ describe('resolveEventTime', () => {
       expect(ymd(resolveEventTime('это было позавчера', ref, { lang: 'ru' }))).toBe('2023-05-06');
     });
     it('три недели назад', () => {
-      expect(ymd(resolveEventTime('купил три недели назад', ref, { lang: 'ru' }))).toBe('2023-04-17');
+      expect(ymd(resolveEventTime('купил три недели назад', ref, { lang: 'ru' }))).toBe(
+        '2023-04-17',
+      );
     });
     it('в прошлом году → prior year', () => {
-      expect(resolveEventTime('в прошлом году переехал', ref, { lang: 'ru' })?.date.getUTCFullYear())
-        .toBe(2022);
+      expect(
+        resolveEventTime('в прошлом году переехал', ref, { lang: 'ru' })?.date.getUTCFullYear(),
+      ).toBe(2022);
     });
     it('в прошлую пятницу → prior Friday', () => {
-      expect(ymd(resolveEventTime('это было в прошлую пятницу', ref, { lang: 'ru' }))).toBe('2023-05-05');
+      expect(ymd(resolveEventTime('это было в прошлую пятницу', ref, { lang: 'ru' }))).toBe(
+        '2023-05-05',
+      );
     });
   });
 
   describe('explicit-year fallback (chrono leaves it unparsed)', () => {
     it('EN "since 2016"', () => {
-      expect(resolveEventTime('practicing art since 2016', ref, { lang: 'en' })?.date.getUTCFullYear())
-        .toBe(2016);
+      expect(
+        resolveEventTime('practicing art since 2016', ref, { lang: 'en' })?.date.getUTCFullYear(),
+      ).toBe(2016);
     });
     it('RU "в 2016"', () => {
-      expect(resolveEventTime('начал в 2016', ref, { lang: 'ru' })?.date.getUTCFullYear()).toBe(2016);
+      expect(resolveEventTime('начал в 2016', ref, { lang: 'ru' })?.date.getUTCFullYear()).toBe(
+        2016,
+      );
     });
     it('does not accept the anchor year or a future year', () => {
       expect(resolveEventTime('planning for 2025', ref, { lang: 'en' })).toBeNull();

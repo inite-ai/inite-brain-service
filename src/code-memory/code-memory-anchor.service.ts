@@ -47,10 +47,7 @@ export class CodeMemoryAnchorService {
   constructor(private readonly surreal: SurrealService) {}
 
   /** All code anchors currently carrying active code-memory facts. */
-  async listAnchors(
-    companyId: string,
-    scopes: BrainScope[],
-  ): Promise<AnchorRow[]> {
+  async listAnchors(companyId: string, scopes: BrainScope[]): Promise<AnchorRow[]> {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Half-open predicate range rides fact_predicate_idx; the previous
       // string::starts_with defeated the index (full scan + per-row
@@ -84,11 +81,7 @@ export class CodeMemoryAnchorService {
   }
 
   /** Retract the active code-memory facts on an anchor (drift: symbol/file gone). */
-  async invalidateAnchor(
-    companyId: string,
-    anchor: string,
-    reason: string,
-  ): Promise<number> {
+  async invalidateAnchor(companyId: string, anchor: string, reason: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const entityId = await this.resolveEntity(db, anchor);
       if (!entityId) return 0;
@@ -152,21 +145,16 @@ export class CodeMemoryAnchorService {
         { eid: idTail(entityId) },
       );
       const refs = ent?.externalRefs ?? {};
-      await db.query(
-        `UPDATE type::record('knowledge_entity', $eid) SET externalRefs = $refs`,
-        { eid: idTail(entityId), refs: { ...refs, [newKey]: newAnchor } },
-      );
-      this.logger.log(
-        `Re-anchored ${oldAnchor} → ${newAnchor} (${companyId})`,
-      );
+      await db.query(`UPDATE type::record('knowledge_entity', $eid) SET externalRefs = $refs`, {
+        eid: idTail(entityId),
+        refs: { ...refs, [newKey]: newAnchor },
+      });
+      this.logger.log(`Re-anchored ${oldAnchor} → ${newAnchor} (${companyId})`);
       return { reanchored: true };
     });
   }
 
-  private async resolveEntity(
-    db: Surreal,
-    anchor: string,
-  ): Promise<string | null> {
+  private async resolveEntity(db: Surreal, anchor: string): Promise<string | null> {
     const key = externalRefKey('code', anchor);
     const first = await queryFirst<unknown>(
       db,

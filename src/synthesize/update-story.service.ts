@@ -2,10 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import {
-  renderUpdateStory,
-  type PreviousValue,
-} from './update-story';
+import { renderUpdateStory, type PreviousValue } from './update-story';
 
 interface LoserRow {
   id: unknown;
@@ -62,9 +59,7 @@ export class UpdateStoryService {
     userId?: string | undefined;
   }): Promise<Map<string, string>> {
     if (opts.factIds.length === 0) return new Map();
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
+    const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
     const userGate = opts.userId
       ? 'AND (userId IS NONE OR userId = $scopeUserId)'
       : 'AND userId IS NONE';
@@ -77,16 +72,12 @@ export class UpdateStoryService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: opts.callerScopes,
         surface: 'update_story',
-        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-          opts.companyId,
-        ),
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
       });
       const perRoot = new Map<string, PreviousValue[]>();
       await this.surreal.withCompany(opts.companyId, async (db) => {
         // currentId → the evidence fact whose story it belongs to.
-        let frontier = new Map<string, string>(
-          opts.factIds.map((id) => [id, id]),
-        );
+        let frontier = new Map<string, string>(opts.factIds.map((id) => [id, id]));
         for (let depth = 0; depth < MAX_STORY_DEPTH; depth += 1) {
           if (frontier.size === 0) break;
           const res = await db.query<[unknown, LoserRow[]]>(
@@ -101,9 +92,7 @@ export class UpdateStoryService {
               ORDER BY validUntil DESC`,
             { winners: [...frontier.keys()], ...userParams },
           );
-          const rows = ((res[1] ?? []) as LoserRow[]).filter((r) =>
-            rowPolicy.filter(r),
-          );
+          const rows = ((res[1] ?? []) as LoserRow[]).filter((r) => rowPolicy.filter(r));
           const next = new Map<string, string>();
           for (const row of rows) {
             const root = frontier.get(String(row.supersededBy));
@@ -111,10 +100,7 @@ export class UpdateStoryService {
             const list = perRoot.get(root) ?? [];
             list.push({
               object: row.object,
-              validUntil:
-                row.validUntil === undefined
-                  ? undefined
-                  : String(row.validUntil),
+              validUntil: row.validUntil === undefined ? undefined : String(row.validUntil),
             });
             perRoot.set(root, list);
             next.set(String(row.id), root);

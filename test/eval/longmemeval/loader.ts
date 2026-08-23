@@ -51,9 +51,7 @@ interface RawLmeQuestion {
 }
 
 export async function loadLongMemEval(path: string): Promise<LmeQuestion[]> {
-  const raw = JSON.parse(
-    await fs.readFile(path, 'utf-8'),
-  ) as RawLmeQuestion[];
+  const raw = JSON.parse(await fs.readFile(path, 'utf-8')) as RawLmeQuestion[];
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error(`LongMemEval loader: no questions in ${path}`);
   }

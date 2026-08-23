@@ -70,9 +70,7 @@ export class PolicyRegistryService {
       type: spec.type,
       ops: spec.ops,
       description: spec.description,
-      ...(attr === 'predicate' && predicateIds.length > 0
-        ? { values: predicateIds }
-        : {}),
+      ...(attr === 'predicate' && predicateIds.length > 0 ? { values: predicateIds } : {}),
       ...(attr === 'piiClass'
         ? { values: ['none', 'identifier', 'behavioral', 'text', 'sensitive'] }
         : {}),

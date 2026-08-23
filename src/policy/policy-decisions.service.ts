@@ -182,10 +182,7 @@ export class PolicyDecisionsService {
 
       if (row.decision === 'deny' || row.decision === 'would_deny') {
         if (row.action) {
-          deniedActions.set(
-            String(row.action),
-            (deniedActions.get(String(row.action)) ?? 0) + 1,
-          );
+          deniedActions.set(String(row.action), (deniedActions.get(String(row.action)) ?? 0) + 1);
         }
         if (row.policySet && row.ruleId) {
           const key = `${row.policySet}\u0000${row.ruleId}`;
@@ -212,10 +209,7 @@ export class PolicyDecisionsService {
       .map((s) => ({
         name: s.name,
         // Proxy for "how long in report_only": last document update.
-        sinceDays: Math.max(
-          0,
-          Math.floor((now - new Date(s.updatedAt).getTime()) / 86_400_000),
-        ),
+        sinceDays: Math.max(0, Math.floor((now - new Date(s.updatedAt).getTime()) / 86_400_000)),
         wouldDeny: wouldDenyBySet.get(s.name) ?? 0,
       }));
 

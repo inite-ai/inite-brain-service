@@ -40,8 +40,7 @@ export class LeaseManagerService {
     private readonly reaper: JobReaperService,
     @Optional() private readonly lease?: LeaderLeaseService,
   ) {
-    this.enabled =
-      (config.get<string>('LEASE_MANAGER_ENABLED', '1') ?? '1') !== '0';
+    this.enabled = (config.get<string>('LEASE_MANAGER_ENABLED', '1') ?? '1') !== '0';
   }
 
   /**
@@ -113,9 +112,7 @@ export class LeaseManagerService {
       // so a brief GC pause doesn't cause repeated re-acquire churn.
       return await this.lease.tryAcquire('lease_manager_cron', 60);
     } catch (e) {
-      this.logger.warn(
-        `lease_manager_cron acquire failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`lease_manager_cron acquire failed: ${(e as Error).message}`);
       return false;
     }
   }

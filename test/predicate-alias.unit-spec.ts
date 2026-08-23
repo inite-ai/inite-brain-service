@@ -107,10 +107,7 @@ describe('predicate alias (W3 0082)', () => {
         })),
       };
       const localPredicates = { rank: jest.fn() };
-      const svc = new ExtractorRefineService(
-        registry as never,
-        localPredicates as never,
-      );
+      const svc = new ExtractorRefineService(registry as never, localPredicates as never);
       const facts = [fact('painted_seascape')];
       await svc.applyPredicateRefinements(facts, null as never, 'co_x');
       // Coinage kept, alias stamped, no local-override ranking ran.
@@ -196,9 +193,7 @@ describe('predicate alias (W3 0082)', () => {
 
 describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () => {
   it('second occurrence of a proposed coinage matches in-cache: one embed, one insert, no reload', async () => {
-    const { PredicateRegistryService } = await import(
-      '../src/ai/predicate-registry.service'
-    );
+    const { PredicateRegistryService } = await import('../src/ai/predicate-registry.service');
     const { ConfigService } = await import('@nestjs/config');
     const queries: string[] = [];
     const db = {
@@ -210,8 +205,7 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
       }),
     };
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     };
     const embedder = {
       embed: jest.fn(async () => [1, 0]),
@@ -223,15 +217,16 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
       new ConfigService({ PREDICATE_REGISTRY_CACHE_CAP: '10' }),
     );
     // Bypass seed bootstrap — empty registry is the point.
-    (svc as unknown as { bootstrapped: { set(k: string, v: true): void } })
-      .bootstrapped.set('co_x', true);
+    (svc as unknown as { bootstrapped: { set(k: string, v: true): void } }).bootstrapped.set(
+      'co_x',
+      true,
+    );
 
     const first = await svc.canonicalize('co_x', 'painted_seascape', 'ctx');
     expect(first.kind).toBe('proposed');
     const inserts = () =>
-      db.query.mock.calls.filter(([sql]) =>
-        String(sql).includes('CREATE knowledge_predicate'),
-      ).length;
+      db.query.mock.calls.filter(([sql]) => String(sql).includes('CREATE knowledge_predicate'))
+        .length;
     expect(inserts()).toBe(1);
     const embedsAfterFirst = embedder.embed.mock.calls.length;
 
@@ -241,9 +236,7 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
     expect(embedder.embed.mock.calls.length).toBe(embedsAfterFirst); // no re-embed
     // No snapshot reload between the calls (cache updated in place).
     const fullLoads = queries.filter(
-      (q) =>
-        q.includes('FROM knowledge_predicate') &&
-        q.includes("WHERE status = 'active'"),
+      (q) => q.includes('FROM knowledge_predicate') && q.includes("WHERE status = 'active'"),
     ).length;
     expect(fullLoads).toBe(1);
   });

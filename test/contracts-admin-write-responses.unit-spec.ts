@@ -35,12 +35,14 @@ import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 
 const undef = undefined as unknown as never;
 
-function assertParses(schema: { safeParse: (x: unknown) => { success: boolean; error?: { issues: unknown } } }, payload: unknown, label: string) {
+function assertParses(
+  schema: { safeParse: (x: unknown) => { success: boolean; error?: { issues: unknown } } },
+  payload: unknown,
+  label: string,
+) {
   const parsed = schema.safeParse(payload);
   if (!parsed.success) {
-    throw new Error(
-      `${label} drifted: ${JSON.stringify(parsed.error?.issues, null, 2)}`,
-    );
+    throw new Error(`${label} drifted: ${JSON.stringify(parsed.error?.issues, null, 2)}`);
   }
 }
 
@@ -65,13 +67,11 @@ describe('write-side wire contracts', () => {
           llmJudgements: 3,
           identityLinksCreated: 1,
           unsurePairs: 1,
-          identityLinks: [
-            { survivorId: 'e:1', loserId: 'e:2', cosine: 0.94 },
-          ],
+          identityLinks: [{ survivorId: 'e:1', loserId: 'e:2', cosine: 0.94 }],
         },
       }),
     } as never;
-     
+
     const ctl = makeAdminController({ dreams });
     const req = {
       brainAuth: { companyId: 'tenant-a' },
@@ -91,7 +91,7 @@ describe('write-side wire contracts', () => {
         provider: 'bge-m3',
       }),
     } as never;
-     
+
     const ctl = makeAdminController({ reindex });
     const payload = await ctl.reindexEmbeddings();
     assertParses(ReindexRunResponseSchema, payload, 'reindex/embeddings');
@@ -110,23 +110,23 @@ describe('write-side wire contracts', () => {
     const jobs = {
       requestCancel: async () => true,
     } as never;
-     
+
     const ctl = new AdminJobsController(
-    jobs,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-  );
+      jobs,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+    );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -138,23 +138,23 @@ describe('write-side wire contracts', () => {
     const dreams = {
       runForTenant: async () => ({}),
     } as never;
-     
+
     const ctl = new AdminJobsController(
-    undef,
-    dreams,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-  );
+      undef,
+      dreams,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+    );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
@@ -169,32 +169,28 @@ describe('write-side wire contracts', () => {
     const compaction = {
       compactCompany: async () => undefined,
     } as never;
-     
+
     const ctl = new AdminJobsController(
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    apiKeys,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    compaction,
-    undef,
-  );
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      apiKeys,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      compaction,
+      undef,
+    );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
     const payload = ctl.triggerCompaction(req);
-    assertParses(
-      AcceptedCompactionResponseSchema,
-      payload,
-      'maintenance/compaction',
-    );
+    assertParses(AcceptedCompactionResponseSchema, payload, 'maintenance/compaction');
   });
 
   it('AdminJobsController.triggerCalibrationRefit() matches AcceptedCalibrationRefitResponseSchema', () => {
@@ -202,32 +198,28 @@ describe('write-side wire contracts', () => {
       refitCalibration: async () => undefined,
       refitSourceTrust: async () => undefined,
     } as never;
-     
+
     const ctl = new AdminJobsController(
-    undef,
-    undef,
-    refit,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-  );
+      undef,
+      undef,
+      refit,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+    );
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
     const payload = ctl.triggerCalibrationRefit(req);
-    assertParses(
-      AcceptedCalibrationRefitResponseSchema,
-      payload,
-      'maintenance/calibration-refit',
-    );
+    assertParses(AcceptedCalibrationRefitResponseSchema, payload, 'maintenance/calibration-refit');
   });
 
   it('AdminJobsController.drainChangefeed() matches ChangefeedDrainResponseSchema', async () => {
@@ -238,23 +230,23 @@ describe('write-side wire contracts', () => {
         tenants: 2,
       }),
     } as never;
-     
+
     const ctl = new AdminJobsController(
-    undef,
-    undef,
-    undef,
-    changefeed,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-    undef,
-  );
+      undef,
+      undef,
+      undef,
+      changefeed,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+      undef,
+    );
     const payload = await ctl.drainChangefeed();
     assertParses(ChangefeedDrainResponseSchema, payload, 'changefeed/drain');
   });
@@ -305,11 +297,7 @@ describe('write-side wire contracts', () => {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
     const payload = await ctl.deprecate(req, 'has_email');
-    assertParses(
-      PredicateDeprecateResponseSchema,
-      payload,
-      'predicates DELETE',
-    );
+    assertParses(PredicateDeprecateResponseSchema, payload, 'predicates DELETE');
   });
 
   it('AdminPredicatesController.promote() matches PredicateMutationResponseSchema', async () => {
@@ -331,11 +319,7 @@ describe('write-side wire contracts', () => {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
     const payload = await ctl.promote(req, 'has_email');
-    assertParses(
-      PredicateMutationResponseSchema,
-      payload,
-      'predicates promote',
-    );
+    assertParses(PredicateMutationResponseSchema, payload, 'predicates promote');
   });
 });
 

@@ -69,8 +69,7 @@ export function buildFactIndex(
   },
 ): FactIndexResult {
   const factIndex = new Map<string, Citation>();
-  const entries: Array<{ line: string; t: number; slot: string; obj: string }> =
-    [];
+  const entries: Array<{ line: string; t: number; slot: string; obj: string }> = [];
   for (const r of results) {
     for (const f of r.facts) {
       factIndex.set(f.factId, {
@@ -123,16 +122,9 @@ function factLineSuffixes(
     sceneTraces?: boolean | undefined;
   },
 ): string {
-  const elapsed = opts?.elapsedAsOf
-    ? formatElapsed(f.validFrom, opts.elapsedAsOf)
-    : '';
-  const mention = opts?.mentionDates
-    ? formatMentionDate(f.mentionedAt, f.validFrom)
-    : '';
-  const scene =
-    opts?.sceneTraces && f.scene?.trim()
-      ? ` (context: ${f.scene.trim()})`
-      : '';
+  const elapsed = opts?.elapsedAsOf ? formatElapsed(f.validFrom, opts.elapsedAsOf) : '';
+  const mention = opts?.mentionDates ? formatMentionDate(f.mentionedAt, f.validFrom) : '';
+  const scene = opts?.sceneTraces && f.scene?.trim() ? ` (context: ${f.scene.trim()})` : '';
   return `${formatFactValidity(f.validFrom, f.validUntil)}${mention}${scene}${elapsed}`;
 }
 

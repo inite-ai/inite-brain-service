@@ -13,8 +13,7 @@ export interface BrainKeySpec {
 
 export function newBrainKey(companyId: string, scopes: string[]): BrainKeySpec {
   const plaintext = `key_${randomUUID()}`;
-  const keyHash =
-    'sha256:' + createHash('sha256').update(plaintext).digest('hex');
+  const keyHash = 'sha256:' + createHash('sha256').update(plaintext).digest('hex');
   return { plaintext, keyHash, companyId, scopes };
 }
 

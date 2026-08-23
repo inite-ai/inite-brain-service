@@ -36,15 +36,10 @@ describe('ABAC source.meta projection', () => {
     process.env.ABAC_ENABLED = '1';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     f = await createApp({
-      extraKeys: [
-        { scopes: ['brain:read', 'brain:write'], policies: ['no-pii-class'] },
-      ],
+      extraKeys: [{ scopes: ['brain:read', 'brain:write'], policies: ['no-pii-class'] }],
     });
     restrictedKey = f.extraApiKeys[0]!;
-    const created = await f.http
-      .post('/v1/admin/policy-sets')
-      .set(auth())
-      .send(NO_PII_CLASS_DOC);
+    const created = await f.http.post('/v1/admin/policy-sets').set(auth()).send(NO_PII_CLASS_DOC);
     expect(created.status).toBe(201);
   });
 
@@ -99,13 +94,10 @@ describe('ABAC source.meta projection', () => {
     });
 
     // And the row filter hides it from a restricted key's search.
-    const full = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({ query: 'salary negotiation' });
-    expect(
-      full.body.results.flatMap((h: any) => h.facts).map((x: any) => x.object),
-    ).toContain('salary negotiation details');
+    const full = await f.http.post('/v1/search').set(auth()).send({ query: 'salary negotiation' });
+    expect(full.body.results.flatMap((h: any) => h.facts).map((x: any) => x.object)).toContain(
+      'salary negotiation details',
+    );
 
     const restricted = await f.http
       .post('/v1/search')

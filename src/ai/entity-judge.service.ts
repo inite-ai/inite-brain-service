@@ -38,8 +38,7 @@ export class EntityJudgeService {
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.openai =
-      createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
+    this.openai = createOpenAiClient(this.config) ?? (undefined as unknown as OpenAI);
     this.model = this.config.get<string>(
       'ENTITY_JUDGE_MODEL',
       this.config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
@@ -93,11 +92,7 @@ export class EntityJudgeService {
    * @param right  rendered facts for side B (e.g. the incoming mention)
    * @param ctx.cosine optional name cosine-similarity hint for the prompt
    */
-  async judge(
-    left: string,
-    right: string,
-    ctx: { cosine?: number } = {},
-  ): Promise<EntityVerdict> {
+  async judge(left: string, right: string, ctx: { cosine?: number } = {}): Promise<EntityVerdict> {
     if (!this.openai) return 'unsure';
     try {
       return await this.limiter.run(() => this.callLLM(left, right, ctx));
@@ -123,9 +118,7 @@ When unsure, prefer "different" — wrongly fusing two distinct entities is wors
 
 Output strictly the JSON shape requested. No preamble.`;
     const cosineLine =
-      typeof ctx.cosine === 'number'
-        ? `\n\nCosine name-similarity: ${ctx.cosine.toFixed(3)}.`
-        : '';
+      typeof ctx.cosine === 'number' ? `\n\nCosine name-similarity: ${ctx.cosine.toFixed(3)}.` : '';
     const user = `Entity A:\n${left}\n\nEntity B:\n${right}${cosineLine}`;
 
     const res = await withGenAiCall(

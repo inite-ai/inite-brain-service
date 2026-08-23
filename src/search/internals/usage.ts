@@ -53,10 +53,7 @@ export async function enrichWithUsage(opts: {
     const ids = rows.map((r) => new StringRecordId(String(r.id)));
     const [usageRows] = await db.query<
       [Array<{ factId: unknown; lastReadAt: Date | string; readCount: number }>]
-    >(
-      `SELECT factId, lastReadAt, readCount FROM fact_usage WHERE factId INSIDE $ids`,
-      { ids },
-    );
+    >(`SELECT factId, lastReadAt, readCount FROM fact_usage WHERE factId INSIDE $ids`, { ids });
     const byFactId = new Map<string, { lastReadAt: string; readCount: number }>();
     for (const u of (usageRows as Array<{
       factId: unknown;
@@ -65,9 +62,7 @@ export async function enrichWithUsage(opts: {
     }>) ?? []) {
       byFactId.set(String(u.factId), {
         lastReadAt:
-          u.lastReadAt instanceof Date
-            ? u.lastReadAt.toISOString()
-            : String(u.lastReadAt),
+          u.lastReadAt instanceof Date ? u.lastReadAt.toISOString() : String(u.lastReadAt),
         readCount: typeof u.readCount === 'number' ? u.readCount : 0,
       });
     }
@@ -114,8 +109,6 @@ export function recordFactUsage(opts: {
       );
     })
     .catch((e: Error) => {
-      opts.logger.warn(
-        `usage recording failed for ${opts.companyId}: ${e.message}`,
-      );
+      opts.logger.warn(`usage recording failed for ${opts.companyId}: ${e.message}`);
     });
 }

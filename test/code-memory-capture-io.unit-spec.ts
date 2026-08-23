@@ -3,10 +3,7 @@
  * grounding, the HTTP sink request shape, and the git-log parser. The OpenAI
  * call and the network are behind injected seams, so these run offline.
  */
-import {
-  buildExtractionPrompt,
-  parseCandidates,
-} from '../src/code-memory/capture/llm-extractor';
+import { buildExtractionPrompt, parseCandidates } from '../src/code-memory/capture/llm-extractor';
 import { HttpDecisionSink } from '../src/code-memory/capture/http-sink';
 import { parseGitLog } from '../src/code-memory/capture/git-commits';
 import type { CommitInput } from '../src/code-memory/capture/types';
@@ -52,9 +49,7 @@ describe('parseCandidates — grounding', () => {
 
   it('drops a candidate whose anchor is not a changed file (multi-file commit)', () => {
     const raw = JSON.stringify({
-      decisions: [
-        { kind: 'gotcha', text: 'g', anchor: 'src/not/touched.ts' },
-      ],
+      decisions: [{ kind: 'gotcha', text: 'g', anchor: 'src/not/touched.ts' }],
     });
     expect(parseCandidates(raw, COMMIT)).toHaveLength(0);
   });
@@ -126,8 +121,7 @@ describe('HttpDecisionSink', () => {
     const sink = new HttpDecisionSink({
       baseUrl: 'https://brain.test',
       apiKey: 'k',
-      fetchImpl: () =>
-        Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }),
+      fetchImpl: () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }),
     });
     await expect(
       sink.record({
@@ -149,9 +143,7 @@ describe('HttpDecisionSink', () => {
       timeoutMs: 20,
       fetchImpl: (_url: string, init: any) =>
         new Promise((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () =>
-            reject(new Error('aborted')),
-          );
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
         }) as any,
     });
     await expect(

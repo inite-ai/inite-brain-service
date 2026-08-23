@@ -28,7 +28,7 @@ export const falsePremiseScenarios: Scenario[] = [
     id: 'rent.false-premise.invented-relative',
     vertical: 'rent',
     description:
-      "Anna complained about the intercom; ask about her (never-mentioned) brother. Must refuse.",
+      'Anna complained about the intercom; ask about her (never-mentioned) brother. Must refuse.',
     setup: [
       {
         kind: 'fact',
@@ -272,8 +272,7 @@ export const falsePremiseScenarios: Scenario[] = [
   {
     id: 'shop.false-premise.invented-preference',
     vertical: 'shop',
-    description:
-      'Rohit prefers headphones; ask his favourite wine (never stated). Must refuse.',
+    description: 'Rohit prefers headphones; ask his favourite wine (never stated). Must refuse.',
     setup: [
       {
         kind: 'fact',

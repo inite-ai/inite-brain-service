@@ -21,10 +21,7 @@ import { createApp } from './app-fixture';
 import { IngestService } from '../src/ingest/ingest.service';
 import { EntitiesService } from '../src/entities/entities.service';
 import { CodeMemorySearchService } from '../src/code-memory/code-memory-search.service';
-import {
-  codeMemoryKindOf,
-  codeMemoryPredicateId,
-} from '../src/ai/domain-packs';
+import { codeMemoryKindOf, codeMemoryPredicateId } from '../src/ai/domain-packs';
 import { GOLDEN_QUERIES, GOLDEN_RECORDS } from '../src/code-memory/eval/golden';
 import { mean, recall } from '../src/code-memory/eval/metrics';
 

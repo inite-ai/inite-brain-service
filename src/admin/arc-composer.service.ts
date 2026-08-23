@@ -86,8 +86,7 @@ export function arcValidFrom(arc: ArcProposal, facts: FactRowLite[]): Date {
   let best = 0;
   for (const m of arc.members) {
     const v = facts[m]?.validFrom;
-    const t =
-      v instanceof Date ? v.getTime() : new Date(String(v ?? 0)).getTime();
+    const t = v instanceof Date ? v.getTime() : new Date(String(v ?? 0)).getTime();
     if (Number.isFinite(t) && t > best) best = t;
   }
   return best > 0 ? new Date(best) : new Date();
@@ -168,10 +167,7 @@ export class ArcComposerService {
     return { entities: r.entities, arcsWritten: r.written, skipped: r.skipped };
   }
 
-  private async callComposer(
-    name: string,
-    factLines: string[],
-  ): Promise<ArcProposal[]> {
+  private async callComposer(name: string, factLines: string[]): Promise<ArcProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,

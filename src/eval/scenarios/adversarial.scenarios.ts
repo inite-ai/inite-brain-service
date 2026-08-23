@@ -23,11 +23,7 @@ const ISO = (d: string) => new Date(d).toISOString();
 // 30 facts of varied predicates seeded under one customer for the bulk
 // scenario — enough to crowd the embedding space, small enough to keep
 // the suite fast.
-function bulkFactsFor(
-  vertical: string,
-  id: string,
-  startDate: string,
-): SetupStep[] {
+function bulkFactsFor(vertical: string, id: string, startDate: string): SetupStep[] {
   const predicates = [
     'tier',
     'preferred_contact_channel',

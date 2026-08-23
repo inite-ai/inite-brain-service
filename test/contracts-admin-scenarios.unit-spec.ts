@@ -36,13 +36,9 @@ function makeController(): AdminEvalController {
 
 describe('AdminEvalController.listScenarios() — wire contract', () => {
   it('matches ScenariosResponseSchema', () => {
-    const parsed = ScenariosResponseSchema.safeParse(
-      makeController().listScenarios(),
-    );
+    const parsed = ScenariosResponseSchema.safeParse(makeController().listScenarios());
     if (!parsed.success) {
-      throw new Error(
-        `scenarios drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`scenarios drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

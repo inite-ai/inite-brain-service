@@ -4,10 +4,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { BrainScope } from '../auth/api-key.types';
 import { CODE_MEMORY_PACK, codeMemoryKindOf } from '../ai/domain-packs';
-import {
-  makeRowPolicyFilter,
-  type PolicyFilterableRow,
-} from '../policy/row-filter';
+import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 
 export interface RecalledDecision {
   anchor: string;
@@ -58,18 +55,15 @@ export class CodeMemorySearchService {
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const embedding = await this.embedder.embed(q);
 
-    return this.surreal.withScopedCompany(
-      opts.companyId,
-      opts.scopes,
-      async (db) => {
-        // retractedAt IS NONE + the bitemporal validity window mirror
-        // /v1/search's default-now filters (search/internals/where-builder.ts):
-        // without them an invalidated anchor's facts (retractedAt set but
-        // status left 'active' by older writes) and future-dated decisions
-        // would surface in recall while every other read path hides them.
-        const rows = await queryRows<RecallRow>(
-          db,
-          `SELECT
+    return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
+      // retractedAt IS NONE + the bitemporal validity window mirror
+      // /v1/search's default-now filters (search/internals/where-builder.ts):
+      // without them an invalidated anchor's facts (retractedAt set but
+      // status left 'active' by older writes) and future-dated decisions
+      // would surface in recall while every other read path hides them.
+      const rows = await queryRows<RecallRow>(
+        db,
+        `SELECT
              predicate,
              object,
              validFrom,
@@ -87,38 +81,35 @@ export class CodeMemorySearchService {
              AND (validUntil IS NONE OR validUntil > time::now())
            ORDER BY score DESC
            LIMIT $limit`,
-          {
-            embedding,
-            // Half-open range instead of string::starts_with: a
-            // function-wrapped predicate can't use fact_predicate_idx,
-            // so every recall was a full scan computing cosine per row.
-            // U+FFFF upper-bounds the prefix range.
-            prefix: this.prefix,
-            prefixEnd: `${this.prefix}￿`,
-            limit,
-          },
-        );
-        // Scope + ABAC row gate — code_memory__* predicates are
-        // piiClass none today, but per-key source rules (e.g. deny a
-        // recorder) must still apply here like on every read surface.
-        const rowPolicy = makeRowPolicyFilter({
-          callerScopes: opts.scopes,
-          surface: 'recall_decisions',
-          policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-            opts.companyId,
-          ),
-        });
-        const visible = rows.filter((r) => rowPolicy.filter(r));
-        rowPolicy.finish();
-        return visible.map((r) => ({
-          anchor: anchorOf(r.refs),
-          kind: codeMemoryKindOf(String(r.predicate)),
-          text: String(r.object),
-          score: typeof r.score === 'number' ? r.score : 0,
-          validFrom: r.validFrom ? new Date(r.validFrom).toISOString() : '',
-        }));
-      },
-    );
+        {
+          embedding,
+          // Half-open range instead of string::starts_with: a
+          // function-wrapped predicate can't use fact_predicate_idx,
+          // so every recall was a full scan computing cosine per row.
+          // U+FFFF upper-bounds the prefix range.
+          prefix: this.prefix,
+          prefixEnd: `${this.prefix}￿`,
+          limit,
+        },
+      );
+      // Scope + ABAC row gate — code_memory__* predicates are
+      // piiClass none today, but per-key source rules (e.g. deny a
+      // recorder) must still apply here like on every read surface.
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: opts.scopes,
+        surface: 'recall_decisions',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
+      });
+      const visible = rows.filter((r) => rowPolicy.filter(r));
+      rowPolicy.finish();
+      return visible.map((r) => ({
+        anchor: anchorOf(r.refs),
+        kind: codeMemoryKindOf(String(r.predicate)),
+        text: String(r.object),
+        score: typeof r.score === 'number' ? r.score : 0,
+        validFrom: r.validFrom ? new Date(r.validFrom).toISOString() : '',
+      }));
+    });
   }
 }
 

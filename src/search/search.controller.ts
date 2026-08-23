@@ -21,10 +21,6 @@ export class SearchController {
   @RequireScopes('brain:read')
   @PolicyAction('search_knowledge')
   async run(@Req() req: AuthenticatedRequest, @Body() body: SearchDto) {
-    return this.search.search(
-      req.brainAuth.companyId,
-      body,
-      req.brainAuth.scopes,
-    );
+    return this.search.search(req.brainAuth.companyId, body, req.brainAuth.scopes);
   }
 }

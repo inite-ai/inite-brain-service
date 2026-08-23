@@ -25,9 +25,7 @@ describe('AdminOpsController.dlq() — wire contract', () => {
   it('matches DlqResponseSchema', async () => {
     const parsed = DlqResponseSchema.safeParse(await makeController().dlq());
     if (!parsed.success) {
-      throw new Error(
-        `dlq drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`dlq drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

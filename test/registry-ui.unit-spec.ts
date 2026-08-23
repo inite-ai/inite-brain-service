@@ -1,10 +1,7 @@
 /**
  * Registry UI — pure server-rendered catalogue + publisher pages.
  */
-import {
-  renderPublisherPage,
-  renderRegistryPage,
-} from '../src/registry/registry-ui';
+import { renderPublisherPage, renderRegistryPage } from '../src/registry/registry-ui';
 import type { RegistryPackSummary } from '../src/contracts/registry/registry.schema';
 import type { PublisherProfile } from '../src/contracts/registry/marketplace.schema';
 
@@ -70,9 +67,7 @@ describe('renderRegistryPage', () => {
   });
 
   it('shows a "mirrored from <host>" note for mirrored packs only', () => {
-    const mirrored = renderRegistryPage([
-      pack({ origin: 'https://upstream.example.com:8443/' }),
-    ]);
+    const mirrored = renderRegistryPage([pack({ origin: 'https://upstream.example.com:8443/' })]);
     expect(mirrored).toContain('mirrored from upstream.example.com:8443');
     // Locally published packs carry no note.
     const localOnly = renderRegistryPage([pack()]);
@@ -80,9 +75,7 @@ describe('renderRegistryPage', () => {
   });
 
   it('HTML-escapes an unparseable origin instead of injecting it', () => {
-    const html = renderRegistryPage([
-      pack({ origin: '<img src=x onerror=alert(1)>' }),
-    ]);
+    const html = renderRegistryPage([pack({ origin: '<img src=x onerror=alert(1)>' })]);
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
   });
@@ -130,9 +123,7 @@ describe('renderRegistryPage', () => {
     expect(idxOld).toBeGreaterThan(idxNew);
     expect(idxPlain).toBeGreaterThan(idxOld);
     // A featured pack renders exactly once (section, not duplication).
-    expect(html.split('star_new').length - 1).toBe(
-      html.split('plain').length - 1,
-    );
+    expect(html.split('star_new').length - 1).toBe(html.split('plain').length - 1);
   });
 
   it('renders no Featured section when nothing is featured', () => {

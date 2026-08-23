@@ -103,17 +103,34 @@ describe('buildDecisionLog', () => {
   it('orders picked facts before rejected, both by finalScore desc', () => {
     const hits = [
       makeHit('e1', [
-        { factId: 'low_pick', predicate: 'p1', object: 'o1', confidence: 0.5, score: 0.3, finalScore: 0.3 },
-        { factId: 'high_pick', predicate: 'p2', object: 'o2', confidence: 0.9, score: 0.8, finalScore: 0.8 },
-        { factId: 'high_reject', predicate: 'p3', object: 'o3', confidence: 0.95, score: 0.7, finalScore: 0.7 },
+        {
+          factId: 'low_pick',
+          predicate: 'p1',
+          object: 'o1',
+          confidence: 0.5,
+          score: 0.3,
+          finalScore: 0.3,
+        },
+        {
+          factId: 'high_pick',
+          predicate: 'p2',
+          object: 'o2',
+          confidence: 0.9,
+          score: 0.8,
+          finalScore: 0.8,
+        },
+        {
+          factId: 'high_reject',
+          predicate: 'p3',
+          object: 'o3',
+          confidence: 0.95,
+          score: 0.7,
+          finalScore: 0.7,
+        },
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(['low_pick', 'high_pick']));
-    expect(log.map((e) => e.factId)).toEqual([
-      'high_pick',
-      'low_pick',
-      'high_reject',
-    ]);
+    expect(log.map((e) => e.factId)).toEqual(['high_pick', 'low_pick', 'high_reject']);
   });
 
   it('carries provenance stages through to each entry', () => {

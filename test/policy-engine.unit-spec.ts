@@ -1,10 +1,5 @@
 import { compilePolicySet, denyAllSet } from '../src/policy/policy-compile';
-import {
-  evaluateAction,
-  evaluateRow,
-  explainRow,
-  toRowView,
-} from '../src/policy/policy-engine';
+import { evaluateAction, evaluateRow, explainRow, toRowView } from '../src/policy/policy-engine';
 import {
   CompiledPolicySet,
   PolicyContext,
@@ -73,9 +68,7 @@ describe('policy-engine action evaluation', () => {
   it('@readonly macro matches read-kind actions only (registered and auto-named)', () => {
     const set = compile({
       posture: { actions: 'deny', reads: 'allow' },
-      rules: [
-        { id: 'ro', effect: 'allow', kind: 'action', enabled: true, actions: ['@readonly'] },
-      ],
+      rules: [{ id: 'ro', effect: 'allow', kind: 'action', enabled: true, actions: ['@readonly'] }],
     });
     const ctx = ctxOf(set);
     expect(evaluateAction(ctx, 'search_knowledge').decision).toBe('allow');
@@ -89,9 +82,7 @@ describe('policy-engine action evaluation', () => {
 
   it('@write macro denies every write in one rule', () => {
     const set = compile({
-      rules: [
-        { id: 'nw', effect: 'deny', kind: 'action', enabled: true, actions: ['@write'] },
-      ],
+      rules: [{ id: 'nw', effect: 'deny', kind: 'action', enabled: true, actions: ['@write'] }],
     });
     expect(evaluateAction(ctxOf(set), 'record_fact').decision).toBe('deny');
     expect(evaluateAction(ctxOf(set), 'search_knowledge').decision).toBe('allow');
@@ -101,9 +92,7 @@ describe('policy-engine action evaluation', () => {
     const open = compile({ name: 'open-set' });
     const strict = compile({
       name: 'strict-set',
-      rules: [
-        { id: 'd', effect: 'deny', kind: 'action', enabled: true, actions: ['synthesize'] },
-      ],
+      rules: [{ id: 'd', effect: 'deny', kind: 'action', enabled: true, actions: ['synthesize'] }],
     });
     expect(evaluateAction(ctxOf(open, strict), 'synthesize').decision).toBe('deny');
     expect(evaluateAction(ctxOf(open, strict), 'search_knowledge').decision).toBe('allow');
@@ -127,9 +116,7 @@ describe('policy-engine action evaluation', () => {
 
   it('disabled rules are ignored at compile time', () => {
     const set = compile({
-      rules: [
-        { id: 'd', effect: 'deny', kind: 'action', enabled: false, actions: ['@all'] },
-      ],
+      rules: [{ id: 'd', effect: 'deny', kind: 'action', enabled: false, actions: ['@all'] }],
     });
     expect(evaluateAction(ctxOf(set), 'search_knowledge').decision).toBe('allow');
   });
@@ -146,7 +133,10 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'no-hr', effect: 'deny', kind: 'source', enabled: true,
+          id: 'no-hr',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'source.vertical', op: 'in', value: ['hr', 'finance'] }],
         },
       ],
@@ -160,7 +150,10 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'low-trust', effect: 'deny', kind: 'source', enabled: true,
+          id: 'low-trust',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'trust.authority', op: 'lt', value: 0.5 }],
         },
       ],
@@ -176,7 +169,10 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'combo', effect: 'deny', kind: 'source', enabled: true,
+          id: 'combo',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [
             { attr: 'source.vertical', op: 'eq', value: 'support' },
             { attr: 'corroboration.count', op: 'lt', value: 2 },
@@ -194,7 +190,10 @@ describe('policy-engine row evaluation', () => {
       posture: { actions: 'allow', reads: 'deny' },
       rules: [
         {
-          id: 'support-only', effect: 'allow', kind: 'source', enabled: true,
+          id: 'support-only',
+          effect: 'allow',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'source.vertical', op: 'eq', value: 'support' }],
         },
       ],
@@ -210,26 +209,31 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'purged', effect: 'deny', kind: 'source', enabled: true,
+          id: 'purged',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'provenance.purged', op: 'eq', value: true }],
         },
         {
-          id: 'doc-origin', effect: 'deny', kind: 'source', enabled: true,
+          id: 'doc-origin',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'source.originKey', op: 'prefix', value: 'doc:bad' }],
         },
         {
-          id: 'personal', effect: 'deny', kind: 'source', enabled: true,
+          id: 'personal',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'userId', op: 'exists' }],
         },
       ],
     });
     const ctx = ctxOf(set);
-    expect(
-      evaluateRow(ctx, view({ source: { provenancePurged: true } })).decision,
-    ).toBe('deny');
-    expect(
-      evaluateRow(ctx, view({ source: { originKey: 'doc:bad123' } })).decision,
-    ).toBe('deny');
+    expect(evaluateRow(ctx, view({ source: { provenancePurged: true } })).decision).toBe('deny');
+    expect(evaluateRow(ctx, view({ source: { originKey: 'doc:bad123' } })).decision).toBe('deny');
     expect(evaluateRow(ctx, view({ userId: 'u42' })).decision).toBe('deny');
     expect(evaluateRow(ctx, view()).decision).toBe('allow');
   });
@@ -238,18 +242,21 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'no-pii-class', effect: 'deny', kind: 'source', enabled: true,
+          id: 'no-pii-class',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'source.meta.data_class', op: 'in', value: ['pii'] }],
         },
       ],
     });
     const ctx = ctxOf(set);
-    expect(
-      evaluateRow(ctx, view({ source: { meta: { data_class: 'pii' } } })).decision,
-    ).toBe('deny');
-    expect(
-      evaluateRow(ctx, view({ source: { meta: { data_class: 'public' } } })).decision,
-    ).toBe('allow');
+    expect(evaluateRow(ctx, view({ source: { meta: { data_class: 'pii' } } })).decision).toBe(
+      'deny',
+    );
+    expect(evaluateRow(ctx, view({ source: { meta: { data_class: 'public' } } })).decision).toBe(
+      'allow',
+    );
     expect(evaluateRow(ctx, view({ source: {} })).decision).toBe('allow');
   });
 
@@ -257,14 +264,16 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'no-pii', effect: 'deny', kind: 'source', enabled: true,
+          id: 'no-pii',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'piiClass', op: 'in', value: ['identifier', 'sensitive'] }],
         },
       ],
     });
-    const rowView = toRowView(
-      { predicate: 'dob', source: { vertical: 'crm' } },
-      (p) => (p === 'dob' ? 'identifier' : 'none'),
+    const rowView = toRowView({ predicate: 'dob', source: { vertical: 'crm' } }, (p) =>
+      p === 'dob' ? 'identifier' : 'none',
     );
     expect(evaluateRow(ctxOf(set), rowView).decision).toBe('deny');
   });
@@ -273,7 +282,10 @@ describe('policy-engine row evaluation', () => {
     const set = compile({
       rules: [
         {
-          id: 'no-hr', effect: 'deny', kind: 'source', enabled: true,
+          id: 'no-hr',
+          effect: 'deny',
+          kind: 'source',
+          enabled: true,
           match: [{ attr: 'source.vertical', op: 'eq', value: 'hr' }],
         },
       ],
@@ -302,19 +314,35 @@ describe('PolicyDocumentSchema validation', () => {
     expect(
       PolicyDocumentSchema.safeParse({
         ...base,
-        rules: [{ id: 'r', effect: 'deny', kind: 'source', match: [{ attr: 'object', op: 'eq', value: 'x' }] }],
+        rules: [
+          {
+            id: 'r',
+            effect: 'deny',
+            kind: 'source',
+            match: [{ attr: 'object', op: 'eq', value: 'x' }],
+          },
+        ],
       }).success,
     ).toBe(false);
     expect(
       PolicyDocumentSchema.safeParse({
         ...base,
-        rules: [{ id: 'r', effect: 'deny', kind: 'source', match: [{ attr: 'trust.authority', op: 'prefix', value: '0.' }] }],
+        rules: [
+          {
+            id: 'r',
+            effect: 'deny',
+            kind: 'source',
+            match: [{ attr: 'trust.authority', op: 'prefix', value: '0.' }],
+          },
+        ],
       }).success,
     ).toBe(false);
     expect(
       PolicyDocumentSchema.safeParse({
         ...base,
-        rules: [{ id: 'r', effect: 'deny', kind: 'source', match: [{ attr: 'predicate', op: 'eq' }] }],
+        rules: [
+          { id: 'r', effect: 'deny', kind: 'source', match: [{ attr: 'predicate', op: 'eq' }] },
+        ],
       }).success,
     ).toBe(false);
   });
@@ -332,7 +360,14 @@ describe('PolicyDocumentSchema validation', () => {
     expect(
       PolicyDocumentSchema.safeParse({
         ...base,
-        rules: [{ id: 'r', effect: 'deny', kind: 'action', match: [{ attr: 'predicate', op: 'eq', value: 'x' }] }],
+        rules: [
+          {
+            id: 'r',
+            effect: 'deny',
+            kind: 'action',
+            match: [{ attr: 'predicate', op: 'eq', value: 'x' }],
+          },
+        ],
       }).success,
     ).toBe(false);
     expect(
@@ -348,9 +383,16 @@ describe('PolicyDocumentSchema validation', () => {
     const parsed = PolicyDocumentSchema.parse({
       ...base,
       rules: [
-        { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly', 'rest.stats.overview'] },
         {
-          id: 's', effect: 'deny', kind: 'source',
+          id: 'ro',
+          effect: 'allow',
+          kind: 'action',
+          actions: ['@readonly', 'rest.stats.overview'],
+        },
+        {
+          id: 's',
+          effect: 'deny',
+          kind: 'source',
           match: [
             { attr: 'source.meta.data_class', op: 'exists' },
             { attr: 'trust.learnedTrust', op: 'lte', value: 0.2 },

@@ -32,9 +32,7 @@ describe('AdminInfraController.retrievalProfile() — wire contract', () => {
     const out = makeAdminInfraController().retrievalProfile(req('tenant-x'));
     const parsed = RetrievalProfileResponseSchema.safeParse(out);
     if (!parsed.success) {
-      throw new Error(
-        `retrieval-profile drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`retrieval-profile drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
     expect(parsed.data.companyId).toBe('tenant-x');
   });

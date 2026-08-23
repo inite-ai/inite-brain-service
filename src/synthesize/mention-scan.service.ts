@@ -12,11 +12,7 @@ import {
   topicTerms,
   type ScanRow,
 } from './mention-scan';
-import {
-  BRUTE_ONLY,
-  runDenseScanLeg,
-  type CoverageScanTuning,
-} from './scan-leg';
+import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from './scan-leg';
 import { buildLexMatchLeg } from './lex-leg';
 import type { CoverageLexMode } from '../search/retrieval-profile';
 
@@ -71,9 +67,7 @@ export class MentionScanService {
     lex?: CoverageLexMode;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
+    const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
     // Fail-closed user scope — same contract as the segment lane (0055).
     const userGate = opts.userId
       ? 'AND (userId IS NONE OR userId = $scopeUserId)'
@@ -82,35 +76,32 @@ export class MentionScanService {
     const k = MentionScanService.SCAN_FETCH_CAP;
     try {
       const topicVector = await this.embedder.embed(topic);
-      const pool = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const dense = await runDenseScanLeg<SegmentScanRow>({
-            db,
-            table: 'episode_segment',
-            projection: 'id, text, occurredAt',
-            gates: `${piiGate} ${userGate}`,
-            params: { q: topicVector, k, ...userParams },
-            k,
-            tuning: opts.scan ?? BRUTE_ONLY,
-            logger: this.logger,
-          });
-          const lexLeg = buildLexMatchLeg({
-            fields: ['text'],
-            topic,
-            mode: opts.lex ?? 'phrase',
-          });
-          const [bm25] = await db.query<[SegmentScanRow[]]>(
-            `SELECT id, text, occurredAt, ${lexLeg.score} AS score
+      const pool = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const dense = await runDenseScanLeg<SegmentScanRow>({
+          db,
+          table: 'episode_segment',
+          projection: 'id, text, occurredAt',
+          gates: `${piiGate} ${userGate}`,
+          params: { q: topicVector, k, ...userParams },
+          k,
+          tuning: opts.scan ?? BRUTE_ONLY,
+          logger: this.logger,
+        });
+        const lexLeg = buildLexMatchLeg({
+          fields: ['text'],
+          topic,
+          mode: opts.lex ?? 'phrase',
+        });
+        const [bm25] = await db.query<[SegmentScanRow[]]>(
+          `SELECT id, text, occurredAt, ${lexLeg.score} AS score
                FROM episode_segment
               WHERE ${lexLeg.where} ${piiGate} ${userGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { ...lexLeg.params, k, ...userParams },
-          );
-          return mergeLegs(dense, bm25 ?? []);
-        },
-      );
+          { ...lexLeg.params, k, ...userParams },
+        );
+        return mergeLegs(dense, bm25 ?? []);
+      });
       // V10 §3 (R1): the ordering golds sequence aspects at SUB-session
       // granularity (one long session can raise several distinct
       // aspects), so under the ordering frame the per-session collapse
@@ -144,10 +135,7 @@ export class MentionScanService {
 }
 
 /** Union the dense and lexical pools by record id into ScanRows. */
-function mergeLegs(
-  dense: SegmentScanRow[],
-  bm25: SegmentScanRow[],
-): ScanRow[] {
+function mergeLegs(dense: SegmentScanRow[], bm25: SegmentScanRow[]): ScanRow[] {
   const byId = new Map<string, ScanRow>();
   for (const r of dense) {
     byId.set(String(r.id), {
@@ -159,8 +147,7 @@ function mergeLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
-    const lex =
-      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
+    const lex = typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
       prev.lex = lex;

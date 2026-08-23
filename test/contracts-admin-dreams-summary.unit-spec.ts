@@ -26,7 +26,7 @@ function makeController(): AdminJobsController {
     ],
   } as unknown as JobRunService;
   const undef = undefined as unknown as never;
-   
+
   return new AdminJobsController(
     jobs,
     undef,
@@ -47,17 +47,9 @@ function makeController(): AdminJobsController {
 
 describe('AdminJobsController.dreamsSummary() — wire contract', () => {
   it('matches DreamsSummaryResponseSchema', async () => {
-    const parsed = DreamsSummaryResponseSchema.safeParse(
-      await makeController().dreamsSummary(),
-    );
+    const parsed = DreamsSummaryResponseSchema.safeParse(await makeController().dreamsSummary());
     if (!parsed.success) {
-      throw new Error(
-        `dreams/summary drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
-      );
+      throw new Error(`dreams/summary drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

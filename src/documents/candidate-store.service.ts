@@ -157,11 +157,8 @@ export class CandidateStoreService {
         if (!existing) throw err;
         const status = String(existing.status);
         const runId = String(existing.id);
-        const createdMs = existing.createdAt
-          ? new Date(String(existing.createdAt)).getTime()
-          : 0;
-        const isStaleRunning =
-          status === 'running' && Date.now() - createdMs > staleRunMs();
+        const createdMs = existing.createdAt ? new Date(String(existing.createdAt)).getTime() : 0;
+        const isStaleRunning = status === 'running' && Date.now() - createdMs > staleRunMs();
         if (status === 'pending' || status === 'failed' || isStaleRunning) {
           // Reopen under a CAS: only proceed if the row is STILL in the
           // status we observed (`RETURN AFTER` gives us the updated rows;
@@ -317,10 +314,7 @@ export class CandidateStoreService {
    * enqueuing is always safe. Bounded so one nightly pass can't run
    * unbounded work.
    */
-  async findDocsNeedingCommit(
-    companyId: string,
-    limit = 500,
-  ): Promise<string[]> {
+  async findDocsNeedingCommit(companyId: string, limit = 500): Promise<string[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       // Record-link traversal (docId.status) fetches the parent document's
       // status; dedup + cap happen in TS to avoid a GROUP-BY-VALUE idiom.
@@ -426,9 +420,7 @@ export class CandidateStoreService {
             extractionEntropy: f.extractionEntropy,
             extractionAgreement: f.extractionAgreement,
             indexerId:
-              prov.executionMode === 'virtual'
-                ? indexerIdOfPredicate(f.predicate)
-                : prov.indexerId,
+              prov.executionMode === 'virtual' ? indexerIdOfPredicate(f.predicate) : prov.indexerId,
             packVersion: prov.packVersion,
             executionMode: prov.executionMode,
             model: prov.model,
@@ -468,9 +460,7 @@ export class CandidateStoreService {
   async listRuns(
     companyId: string,
     docId: string,
-  ): Promise<
-    Array<{ runId: string; packId: string; packVersion: string; status: string }>
-  > {
+  ): Promise<Array<{ runId: string; packId: string; packVersion: string; status: string }>> {
     return this.surreal.withCompany(companyId, async (db) => {
       // SurrealDB 3.x: the ORDER BY field must be in the projection
       // ("Missing order idiom" otherwise) — createdAt rides along.
@@ -521,10 +511,9 @@ export class CandidateStoreService {
    */
   async dropRunCandidates(companyId: string, runId: string): Promise<void> {
     await this.surreal.withCompany(companyId, async (db) => {
-      await db.query(
-        `DELETE candidate WHERE runId = type::record('indexer_run', $run)`,
-        { run: idTailOf(runId) },
-      );
+      await db.query(`DELETE candidate WHERE runId = type::record('indexer_run', $run)`, {
+        run: idTailOf(runId),
+      });
     });
   }
 
@@ -600,7 +589,6 @@ export class CandidateStoreService {
       );
     });
   }
-
 
   private async loadByDoc(
     db: Surreal,

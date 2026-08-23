@@ -20,10 +20,7 @@
 import { ConfigService } from '@nestjs/config';
 import { join } from 'node:path';
 import { JobWorkerPool } from '../src/jobs/job-worker-pool.service';
-import {
-  buildAdjacency,
-  labelPropagation,
-} from '../src/communities/label-propagation';
+import { buildAdjacency, labelPropagation } from '../src/communities/label-propagation';
 import {
   CommunityBuilderService,
   type CommunityBuildResult,
@@ -84,12 +81,8 @@ describe('label-propagation.worker-job on a real JobWorkerPool', () => {
       const second = await pool.run<{ clusters: string[][] }>(WORKER_JOB_PATH, {
         edges: FIXTURE_EDGES.slice(0, 5),
       });
-      expect(first.clusters).toEqual(
-        labelPropagation(buildAdjacency(FIXTURE_EDGES)),
-      );
-      expect(second.clusters).toEqual(
-        labelPropagation(buildAdjacency(FIXTURE_EDGES.slice(0, 5))),
-      );
+      expect(first.clusters).toEqual(labelPropagation(buildAdjacency(FIXTURE_EDGES)));
+      expect(second.clusters).toEqual(labelPropagation(buildAdjacency(FIXTURE_EDGES.slice(0, 5))));
     } finally {
       await pool.onApplicationShutdown();
     }

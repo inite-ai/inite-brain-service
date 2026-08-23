@@ -1,9 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
-import {
-  WindowDeriverService,
-  WINDOW_DERIVER_VERSION,
-} from '../src/admin/window-deriver.service';
+import { WindowDeriverService, WINDOW_DERIVER_VERSION } from '../src/admin/window-deriver.service';
 import {
   STAGING_SUFFIX,
   acquireDeriveLease,
@@ -89,8 +86,7 @@ function makeSvc(
             },
           ],
         ];
-      if (sql.includes('FROM knowledge_entity'))
-        return [[{ id: 'knowledge_entity:car' }]];
+      if (sql.includes('FROM knowledge_entity')) return [[{ id: 'knowledge_entity:car' }]];
       // Staging sweep existence probes.
       if (
         sql.includes('SELECT id FROM knowledge_fact') ||
@@ -101,8 +97,7 @@ function makeSvc(
     },
   };
   const surreal = {
-    withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-      fn(db),
+    withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
   } as unknown as SurrealService;
   const config = {
     get: (k: string, d?: string) => (k === 'OPENAI_API_KEY' ? 'sk' : d),
@@ -113,10 +108,7 @@ function makeSvc(
   } as unknown as FactEmbeddingService;
   const derived: Array<Record<string, unknown>> = [];
   const factResolver = {
-    resolveDerivedBatch: async (
-      _db: unknown,
-      rows: Array<Record<string, unknown>>,
-    ) => {
+    resolveDerivedBatch: async (_db: unknown, rows: Array<Record<string, unknown>>) => {
       derived.push(...rows);
       return rows.map(() => ({ outcome: 'INSERTED' }));
     },
@@ -164,9 +156,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     for (const row of derived) {
       // Per-run staging token: `<version>.staging.<token>`.
       expect(String(row.derivedVersion).startsWith(`${STAGING}.`)).toBe(true);
-      expect((row.source as Record<string, unknown>).recorder).toBe(
-        WINDOW_DERIVER_VERSION,
-      );
+      expect((row.source as Record<string, unknown>).recorder).toBe(WINDOW_DERIVER_VERSION);
     }
     // Every non-flip statement that touches a derivedVersion param
     // targets staging; only the flip transaction names the final.
@@ -180,18 +170,10 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // Audit 2026-08-21: facts AND digests flip in ONE transaction — a
     // committed fact-world can never be narrated by old digests.
     expect(flips.length).toBe(1);
-    expect(flips[0]!.sql).toContain(
-      'DELETE knowledge_fact WHERE derivedVersion = $final',
-    );
-    expect(flips[0]!.sql).toContain(
-      'UPDATE knowledge_fact SET derivedVersion = $final',
-    );
-    expect(flips[0]!.sql).toContain(
-      'DELETE conversation_digest WHERE derivedVersion = $final',
-    );
-    expect(flips[0]!.sql).toContain(
-      'UPDATE conversation_digest SET derivedVersion = $final',
-    );
+    expect(flips[0]!.sql).toContain('DELETE knowledge_fact WHERE derivedVersion = $final');
+    expect(flips[0]!.sql).toContain('UPDATE knowledge_fact SET derivedVersion = $final');
+    expect(flips[0]!.sql).toContain('DELETE conversation_digest WHERE derivedVersion = $final');
+    expect(flips[0]!.sql).toContain('UPDATE conversation_digest SET derivedVersion = $final');
     for (const flip of flips) {
       expect(flip.params?.final).toBe(WINDOW_DERIVER_VERSION);
       expect(String(flip.params?.staging).startsWith(`${STAGING}.`)).toBe(true);
@@ -205,9 +187,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     expect(res.status).toBe('failed');
     // No flip, no DELETE against the final version — the world readers
     // pin is byte-identical to before the run.
-    expect(queries.some((q) => q.sql.includes('BEGIN TRANSACTION'))).toBe(
-      false,
-    );
+    expect(queries.some((q) => q.sql.includes('BEGIN TRANSACTION'))).toBe(false);
     for (const q of queries) {
       if (q.params && 'version' in q.params) {
         expect(String(q.params.version).startsWith(STAGING)).toBe(true);
@@ -217,13 +197,10 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     const sweeps = queries.filter(
       (q) =>
         q.sql.includes('DELETE knowledge_fact WHERE derivedVersion = $version') ||
-        q.sql.includes(
-          'DELETE conversation_digest WHERE derivedVersion = $version',
-        ),
+        q.sql.includes('DELETE conversation_digest WHERE derivedVersion = $version'),
     );
     expect(sweeps.length).toBeGreaterThan(0);
-    for (const s of sweeps)
-      expect(String(s.params?.version).startsWith(`${STAGING}.`)).toBe(true);
+    for (const s of sweeps) expect(String(s.params?.version).startsWith(`${STAGING}.`)).toBe(true);
   });
 
   it('degraded run: no flip, staging swept, registry fails — never built', async () => {
@@ -261,9 +238,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // Pre-staging behavior landed the successful conversation in the
     // final world and marked the registry 'built'. Under atomic-flip
     // semantics a hole-y world is never promoted.
-    expect(queries.some((q) => q.sql.includes('BEGIN TRANSACTION'))).toBe(
-      false,
-    );
+    expect(queries.some((q) => q.sql.includes('BEGIN TRANSACTION'))).toBe(false);
     expect(res.activated).toBeUndefined();
     expect(events).toEqual(['begin', 'fail']);
   });
@@ -274,13 +249,9 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // Per-run tokens (audit round 3) make orphan names unknowable, so
     // the run-start GC sweeps by PREFIX across every staging namespace.
     const firstDelete = queries.findIndex(
-      (q) =>
-        q.sql.includes('DELETE knowledge_fact') &&
-        q.sql.includes('string::starts_with'),
+      (q) => q.sql.includes('DELETE knowledge_fact') && q.sql.includes('string::starts_with'),
     );
-    const firstEpisodeRead = queries.findIndex((q) =>
-      q.sql.includes('GROUP BY conversationId'),
-    );
+    const firstEpisodeRead = queries.findIndex((q) => q.sql.includes('GROUP BY conversationId'));
     expect(firstDelete).toBeGreaterThanOrEqual(0);
     expect(firstDelete).toBeLessThan(firstEpisodeRead);
     expect(queries[firstDelete]!.params?.prefix).toBe(STAGING);
@@ -313,9 +284,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // Conversation-scoped DELETE/UPDATE — a targeted flip must never
     // wipe the other conversations of the final world.
     expect(flips[0]!.sql).toContain('source.conversationId = $conv');
-    expect(flips[0]!.sql).not.toMatch(
-      /DELETE knowledge_fact WHERE derivedVersion = \$final;/,
-    );
+    expect(flips[0]!.sql).not.toMatch(/DELETE knowledge_fact WHERE derivedVersion = \$final;/);
     // The 0014-shape revive of OTHER conversations' superseded losers
     // now runs against the FINAL world at flip time.
     expect(flips[0]!.sql).toContain("status = 'superseded'");
@@ -338,9 +307,7 @@ describe('derive lease (concurrent derive rejection)', () => {
             create: async () => {
               await opened;
               return {
-                choices: [
-                  { message: { content: JSON.stringify(ONE_PROP) } },
-                ],
+                choices: [{ message: { content: JSON.stringify(ONE_PROP) } }],
               };
             },
           },
@@ -356,9 +323,7 @@ describe('derive lease (concurrent derive rejection)', () => {
     const first = a.svc.run('co_x');
     await new Promise((r) => setImmediate(r)); // let the lease land
     const b = makeSvc(ONE_PROP);
-    await expect(b.svc.run('co_x')).rejects.toThrow(
-      /derive already in flight/,
-    );
+    await expect(b.svc.run('co_x')).rejects.toThrow(/derive already in flight/);
     // A different tenant is a different lease — allowed concurrently.
     const c = makeSvc(ONE_PROP);
     await expect(c.svc.run('co_other')).resolves.toMatchObject({
@@ -418,9 +383,7 @@ describe('derive lease (concurrent derive rejection)', () => {
     const name = deriveLeaseName('Co:X-1 β', 'wd-v3s');
     expect(name).toMatch(/^derive_[a-z0-9_]+_[0-9a-f]{8}$/);
     // Distinct pairs must not collide after sanitization.
-    expect(deriveLeaseName('co-x', 'wd-v2')).not.toBe(
-      deriveLeaseName('co_x', 'wd-v2'),
-    );
+    expect(deriveLeaseName('co-x', 'wd-v2')).not.toBe(deriveLeaseName('co_x', 'wd-v2'));
   });
 });
 
@@ -428,13 +391,9 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
   function mockDb() {
     const queries: Recorded[] = [];
     const db = {
-      query: async <T>(
-        sql: string,
-        params?: Record<string, unknown>,
-      ): Promise<T> => {
+      query: async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
         queries.push({ sql, params });
-        if (sql.includes('SELECT id FROM'))
-          return [[{ id: 'row:x' }]] as unknown as T;
+        if (sql.includes('SELECT id FROM')) return [[{ id: 'row:x' }]] as unknown as T;
         return [[]] as unknown as T;
       },
     };
@@ -515,8 +474,7 @@ describe('gc staging protection', () => {
       },
     };
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     const config = {
       get: (_k: string, d?: string) => d,

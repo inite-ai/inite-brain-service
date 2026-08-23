@@ -26,25 +26,16 @@
  */
 
 /** First-person singular self-references → the speaker. */
-const FIRST_PERSON_SINGULAR = new Set([
-  'i',
-  'me',
-  'my',
-  'mine',
-  'myself',
-]);
+const FIRST_PERSON_SINGULAR = new Set(['i', 'me', 'my', 'mine', 'myself']);
 
 /** Second-person references → the addressee (when known). */
-const SECOND_PERSON = new Set([
-  'you',
-  'your',
-  'yours',
-  'yourself',
-  'yourselves',
-]);
+const SECOND_PERSON = new Set(['you', 'your', 'yours', 'yourself', 'yourselves']);
 
 function normalizeToken(name: string): string {
-  return name.trim().toLowerCase().replace(/[.,!?;:'"]+$/, '');
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!?;:'"]+$/, '');
 }
 
 /** True when the entity name is a bare first-person-singular pronoun. */

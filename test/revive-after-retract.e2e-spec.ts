@@ -33,14 +33,17 @@ describe('revive after retract — memlc.cycle scenario', () => {
 
   it('revives a superseded fact when its superseder is retracted', async () => {
     // Seed name so search-by-name has something to anchor on.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'revive_cycle_customer' },
-      predicate: 'name',
-      object: 'Revive Cycle Customer',
-      validFrom: '2026-01-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_created' },
-      confidence: 0.95,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'revive_cycle_customer' },
+        predicate: 'name',
+        object: 'Revive Cycle Customer',
+        validFrom: '2026-01-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_created' },
+        confidence: 0.95,
+      });
 
     const activeIngest = await f.http
       .post('/v1/ingest/fact')
@@ -93,9 +96,7 @@ describe('revive after retract — memlc.cycle scenario', () => {
         retractedBy: { source: 'system' },
       });
     expect(retract.status).toBe(201);
-    expect(retract.body.revivedFactIds).toEqual(
-      expect.arrayContaining([activeFactId]),
-    );
+    expect(retract.body.revivedFactIds).toEqual(expect.arrayContaining([activeFactId]));
 
     // Post-retract default search must now surface "active" — the
     // previously-superseded fact has been revived.
@@ -116,31 +117,40 @@ describe('revive after retract — memlc.cycle scenario', () => {
     // before C is ingested. When C is later retracted (operator
     // changed their mind on C too), only A should revive, not B —
     // B carries an independent retractionReason and stays hidden.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
-      predicate: 'name',
-      object: 'Revive Chain Tenant',
-      validFrom: '2026-01-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_created' },
-      confidence: 0.95,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
+        predicate: 'name',
+        object: 'Revive Chain Tenant',
+        validFrom: '2026-01-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_created' },
+        confidence: 0.95,
+      });
 
-    const aRes = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
-      predicate: 'status',
-      object: 'A',
-      validFrom: '2026-02-01',
-      source: { vertical: 'rent', eventId: 'evt-a' },
-      confidence: 0.9,
-    });
-    const bRes = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
-      predicate: 'status',
-      object: 'B',
-      validFrom: '2026-03-01',
-      source: { vertical: 'rent', eventId: 'evt-b' },
-      confidence: 0.9,
-    });
+    const aRes = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
+        predicate: 'status',
+        object: 'A',
+        validFrom: '2026-02-01',
+        source: { vertical: 'rent', eventId: 'evt-a' },
+        confidence: 0.9,
+      });
+    const bRes = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'revive_chain_tenant' },
+        predicate: 'status',
+        object: 'B',
+        validFrom: '2026-03-01',
+        source: { vertical: 'rent', eventId: 'evt-b' },
+        confidence: 0.9,
+      });
     expect(bRes.body.outcome).toBe('SUPERSEDED');
     expect(bRes.body.supersededFactIds).toContain(aRes.body.factId);
 
@@ -165,31 +175,40 @@ describe('revive after retract — memlc.cycle scenario', () => {
   });
 
   it('natural supersede must NOT set retractedAt (migration 0014 contract)', async () => {
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'supersede_contract' },
-      predicate: 'name',
-      object: 'Supersede Contract',
-      validFrom: '2026-01-01',
-      source: { vertical: 'rent', eventId: 'auth.created' },
-      confidence: 0.95,
-    });
-    const a = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'supersede_contract' },
-      predicate: 'status',
-      object: 'first',
-      validFrom: '2026-02-01',
-      source: { vertical: 'rent', eventId: 'evt-1' },
-      confidence: 0.9,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'supersede_contract' },
+        predicate: 'name',
+        object: 'Supersede Contract',
+        validFrom: '2026-01-01',
+        source: { vertical: 'rent', eventId: 'auth.created' },
+        confidence: 0.95,
+      });
+    const a = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'supersede_contract' },
+        predicate: 'status',
+        object: 'first',
+        validFrom: '2026-02-01',
+        source: { vertical: 'rent', eventId: 'evt-1' },
+        confidence: 0.9,
+      });
     const aFactId = a.body.factId as string;
-    const b = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'supersede_contract' },
-      predicate: 'status',
-      object: 'second',
-      validFrom: '2026-05-01',
-      source: { vertical: 'rent', eventId: 'evt-2' },
-      confidence: 0.9,
-    });
+    const b = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'supersede_contract' },
+        predicate: 'status',
+        object: 'second',
+        validFrom: '2026-05-01',
+        source: { vertical: 'rent', eventId: 'evt-2' },
+        confidence: 0.9,
+      });
     expect(b.body.outcome).toBe('SUPERSEDED');
     expect(b.body.supersededFactIds).toContain(aFactId);
 

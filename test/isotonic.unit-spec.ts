@@ -1,8 +1,4 @@
-import {
-  applyMap,
-  fitIsotonic,
-  type CalibrationPair,
-} from '../src/ai/calibration/isotonic';
+import { applyMap, fitIsotonic, type CalibrationPair } from '../src/ai/calibration/isotonic';
 import { BOOTSTRAP_GOLD_SET } from '../src/ai/calibration/gold-set';
 
 describe('fitIsotonic + applyMap', () => {

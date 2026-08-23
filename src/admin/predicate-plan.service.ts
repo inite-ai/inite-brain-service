@@ -1,8 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  PredicateRegistryService,
-  type PredicateSnapshot,
-} from '../ai/predicate-registry.service';
+import { PredicateRegistryService, type PredicateSnapshot } from '../ai/predicate-registry.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { traceArtifact } from '../common/debug-trace';
 import { extractPredicateHintsLocally } from './chat-router-internals/local-prepass';
@@ -16,10 +13,7 @@ import { extractPredicateHintsLocally } from './chat-router-internals/local-prep
 @Injectable()
 export class PredicatePlanService {
   private readonly logger = new Logger(PredicatePlanService.name);
-  private readonly hintSimilarityThreshold = cfgFloat(
-    'CHAT_ROUTE_HINT_SIMILARITY',
-    0.4,
-  );
+  private readonly hintSimilarityThreshold = cfgFloat('CHAT_ROUTE_HINT_SIMILARITY', 0.4);
   private readonly hintMaxCount = cfgInt('CHAT_ROUTE_HINT_MAX', 3);
 
   constructor(
@@ -54,9 +48,7 @@ export class PredicatePlanService {
     return { snapshot, predicateVocab, localHints };
   }
 
-  private async loadPredicateSnapshot(
-    companyId: string,
-  ): Promise<PredicateSnapshot | null> {
+  private async loadPredicateSnapshot(companyId: string): Promise<PredicateSnapshot | null> {
     try {
       return await this.registry.getSnapshot(companyId);
     } catch (e) {

@@ -92,9 +92,7 @@ export function shouldDeprecate(
   now: Date,
 ): boolean {
   const contradictions =
-    typeof item.evidence?.nContradict === 'number'
-      ? item.evidence.nContradict
-      : 0;
+    typeof item.evidence?.nContradict === 'number' ? item.evidence.nContradict : 0;
   if (contradictions >= STRATEGY_MAX_CONTRADICT) return true;
   const anchorRaw = item.evidence?.lastValidatedAt ?? item.createdAt;
   const anchor = Date.parse(String(anchorRaw));
@@ -143,21 +141,14 @@ export class StrategyMemoryService {
     private readonly embedder: EmbedderService,
     config: ConfigService,
   ) {
-    this.enabled = envFlagEnabled(
-      config.get<string>('STRATEGY_MEMORY_ENABLED'),
-    );
-    this.retrievalEnabled = envFlagEnabled(
-      config.get<string>('STRATEGY_RETRIEVAL_ENABLED'),
-    );
+    this.enabled = envFlagEnabled(config.get<string>('STRATEGY_MEMORY_ENABLED'));
+    this.retrievalEnabled = envFlagEnabled(config.get<string>('STRATEGY_RETRIEVAL_ENABLED'));
     // Unset/blank must NOT collapse to Number('')===0 (the
     // nonNegativeFloatEnv lesson): an absent knob means DEFAULT 0.4,
     // not "no floor".
-    const rawFloor = (
-      config.get<string>('STRATEGY_SIMILARITY_FLOOR') ?? ''
-    ).trim();
+    const rawFloor = (config.get<string>('STRATEGY_SIMILARITY_FLOOR') ?? '').trim();
     const floor = rawFloor === '' ? Number.NaN : Number(rawFloor);
-    this.similarityFloor =
-      Number.isFinite(floor) && floor >= 0 ? floor : 0.4;
+    this.similarityFloor = Number.isFinite(floor) && floor >= 0 ? floor : 0.4;
   }
 
   /** Whole-feature master switch (lane + endpoints + cron). */
@@ -170,16 +161,11 @@ export class StrategyMemoryService {
     return this.enabled && this.retrievalEnabled;
   }
 
-  async create(
-    companyId: string,
-    args: CreateStrategyArgs,
-  ): Promise<StrategyItem> {
+  async create(companyId: string, args: CreateStrategyArgs): Promise<StrategyItem> {
     return this.surreal.withCompany(companyId, async (db) => {
       // Embed the retrieval key: situation carries the preconditions
       // the query is matched against; title disambiguates near-twins.
-      const embedding = await this.embedder.embed(
-        `${args.title}\n${args.situation}`,
-      );
+      const embedding = await this.embedder.embed(`${args.title}\n${args.situation}`);
       const [row] = await db.query<RawStrategyRow[]>(
         `CREATE ONLY strategy_memory CONTENT {
             companyId: $companyId,
@@ -306,11 +292,7 @@ export class StrategyMemoryService {
    * is off — the read flag is a hard gate here so no caller can serve
    * strategies past it.
    */
-  async retrieve(
-    companyId: string,
-    query: string,
-    k?: number,
-  ): Promise<ScoredStrategyItem[]> {
+  async retrieve(companyId: string, query: string, k?: number): Promise<ScoredStrategyItem[]> {
     if (!this.isRetrievalEnabled()) return [];
     return this.scoredMatch(companyId, query, {
       statuses: ['active'],
@@ -325,11 +307,7 @@ export class StrategyMemoryService {
    * distiller must see near-twins even while serving is off. No
    * similarity floor: the merge LLM judges relatedness itself.
    */
-  async findSimilar(
-    companyId: string,
-    text: string,
-    k = 3,
-  ): Promise<ScoredStrategyItem[]> {
+  async findSimilar(companyId: string, text: string, k = 3): Promise<ScoredStrategyItem[]> {
     return this.scoredMatch(companyId, text, {
       statuses: ['candidate', 'active'],
       k,
@@ -395,9 +373,7 @@ export class StrategyMemoryService {
           );
           deprecated++;
         } catch (e) {
-          this.logger.warn(
-            `deprecate ${item.strategyId} failed: ${(e as Error).message}`,
-          );
+          this.logger.warn(`deprecate ${item.strategyId} failed: ${(e as Error).message}`);
         }
       }
       if (deprecated > 0) {
@@ -411,9 +387,7 @@ export class StrategyMemoryService {
 }
 
 function idTail(raw: string): string {
-  return raw.startsWith('strategy_memory:')
-    ? raw.slice('strategy_memory:'.length)
-    : raw;
+  return raw.startsWith('strategy_memory:') ? raw.slice('strategy_memory:'.length) : raw;
 }
 
 function mapStrategyRow(r: RawStrategyRow): StrategyItem {

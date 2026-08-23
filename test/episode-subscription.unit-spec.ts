@@ -94,9 +94,7 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
       calls.push({
         url: String(url),
         body: String(init?.body),
-        sig: String(
-          (init?.headers as Record<string, string>)['X-Brain-Signature'],
-        ),
+        sig: String((init?.headers as Record<string, string>)['X-Brain-Signature']),
       });
       return { ok: true, status: 200 } as Response;
     }) as typeof fetch;
@@ -117,9 +115,7 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
     });
     // metadata only — never text
     expect(calls[0]!.body).not.toContain('"text"');
-    const expected = createHmac('sha256', 'shh')
-      .update(calls[0]!.body)
-      .digest('hex');
+    const expected = createHmac('sha256', 'shh').update(calls[0]!.body).digest('hex');
     expect(calls[0]!.sig).toBe(`sha256=${expected}`);
     const advance = queries.find((q) => q.sql.includes('SET watermark'));
     expect(advance).toBeDefined();

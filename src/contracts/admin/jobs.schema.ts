@@ -19,13 +19,7 @@ import { z } from 'zod';
  * renders them generically anyway).
  */
 
-const JobStatusSchema = z.enum([
-  'pending',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-]);
+const JobStatusSchema = z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']);
 
 const TriggeredBySchema = z.enum(['cron', 'manual', 'startup']);
 

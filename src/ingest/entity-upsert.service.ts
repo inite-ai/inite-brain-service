@@ -38,11 +38,7 @@ export class EntityUpsertService {
    * On a unique violation (another caller created the same ref between our
    * read and write) we retry; the next read finds the row.
    */
-  async resolveOrCreateEntity(
-    db: Surreal,
-    dto: IngestFactDto,
-    userId?: string,
-  ): Promise<string> {
+  async resolveOrCreateEntity(db: Surreal, dto: IngestFactDto, userId?: string): Promise<string> {
     if ('entityId' in dto.entityRef && dto.entityRef.entityId) {
       // A bare entityId attaches to that entity whatever its scope — the
       // trusted caller can put a personal fact on a shared entity.
@@ -179,10 +175,7 @@ export class EntityUpsertService {
     return String(created?.id);
   }
 
-  async resolveOrCreateBareRef(
-    db: Surreal,
-    ref: EntityRef,
-  ): Promise<string> {
+  async resolveOrCreateBareRef(db: Surreal, ref: EntityRef): Promise<string> {
     if ('entityId' in ref && ref.entityId) {
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
     }

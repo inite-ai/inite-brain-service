@@ -1,9 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import {
-  ReadPinService,
-  derivedVersionFence,
-} from '../episodes/read-pin.service';
+import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
 
 /** Newest digests surfaced per answer — one per conversation; multi-
  *  conversation tenants get the most recently active few. */
@@ -45,8 +42,7 @@ export class DigestLaneService {
   }): Promise<string[]> {
     try {
       const derivedVersion =
-        (await this.readPin?.resolveRead(opts.companyId)) ??
-        ReadPinService.bootstrapRead();
+        (await this.readPin?.resolveRead(opts.companyId)) ?? ReadPinService.bootstrapRead();
       const fence = derivedVersionFence(derivedVersion);
       // The fence clause is 'AND'-prefixed for splicing after other
       // filters; this WHERE has none, so strip the connective.
@@ -60,25 +56,18 @@ export class DigestLaneService {
               OR array::len(userScopes) = 0
               OR userScopes = [$digestUserId])`
         : '';
-      const params = opts.userId
-        ? { ...fence.params, digestUserId: opts.userId }
-        : fence.params;
-      const rows = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const [out] = await db.query<
-            [Array<{ summary: string; lastEventAt: Date | string }>]
-          >(
-            `SELECT summary, lastEventAt FROM conversation_digest
+      const params = opts.userId ? { ...fence.params, digestUserId: opts.userId } : fence.params;
+      const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const [out] = await db.query<[Array<{ summary: string; lastEventAt: Date | string }>]>(
+          `SELECT summary, lastEventAt FROM conversation_digest
               WHERE ${worldGate}
               ${userGate}
               ORDER BY lastEventAt DESC
               LIMIT ${DIGEST_LIMIT}`,
-            params,
-          );
-          return out ?? [];
-        },
-      );
+          params,
+        );
+        return out ?? [];
+      });
       return rows
         .filter((r) => r.summary && r.summary.trim().length > 0)
         .map((r) => {
@@ -89,9 +78,7 @@ export class DigestLaneService {
           return `Conversation record (through ${day}):\n${r.summary}`;
         });
     } catch (e) {
-      this.logger.warn(
-        `digest lane failed (companyId=${opts.companyId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`digest lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);
       return [];
     }
   }

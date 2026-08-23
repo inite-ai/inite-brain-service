@@ -62,10 +62,7 @@ export class SourcesService {
   /** Catalogue: union of declared and learned sources, one line each.
    *  opts.domain additionally captures that domain's learned rate onto
    *  each summary (public /v1/sources?domain= projection). */
-  async list(
-    companyId: string,
-    opts?: { domain?: string | undefined },
-  ): Promise<SourceSummary[]> {
+  async list(companyId: string, opts?: { domain?: string | undefined }): Promise<SourceSummary[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const declaredRows = await queryRows<DeclaredRow>(
         db,
@@ -109,10 +106,7 @@ export class SourcesService {
   }
 
   /** Declared row + every learned scope + the reputation-over-time trail. */
-  async detail(
-    companyId: string,
-    sourceKey: string,
-  ): Promise<SourceDetailResponse> {
+  async detail(companyId: string, sourceKey: string): Promise<SourceDetailResponse> {
     return this.surreal.withCompany(companyId, async (db) => {
       const declared = await this.declaredOf(db, sourceKey);
       const trustRows = await queryRows<TrustRow>(
@@ -128,9 +122,7 @@ export class SourcesService {
            ORDER BY recordedAt DESC LIMIT 100`,
         { k: sourceKey },
       );
-      const trust = trustRows
-        .map(mapTrustScope)
-        .sort(byGlobalFirstThenDomain);
+      const trust = trustRows.map(mapTrustScope).sort(byGlobalFirstThenDomain);
       return {
         sourceKey,
         declared,
@@ -156,9 +148,7 @@ export class SourcesService {
       throw new BadRequestException('sourceKey is required');
     }
     if (!SOURCE_TYPES.includes(body?.type as (typeof SOURCE_TYPES)[number])) {
-      throw new BadRequestException(
-        `type must be one of ${SOURCE_TYPES.join('|')}`,
-      );
+      throw new BadRequestException(`type must be one of ${SOURCE_TYPES.join('|')}`);
     }
     const authLevel = body.authLevel ?? 0;
     if (
@@ -209,10 +199,7 @@ export class SourcesService {
     });
   }
 
-  private async declaredOf(
-    db: Surreal,
-    sourceKey: string,
-  ): Promise<DeclaredSource | null> {
+  private async declaredOf(db: Surreal, sourceKey: string): Promise<DeclaredSource | null> {
     const row = await queryFirst<DeclaredRow>(
       db,
       `SELECT * FROM source_registry WHERE sourceKey = $k LIMIT 1`,

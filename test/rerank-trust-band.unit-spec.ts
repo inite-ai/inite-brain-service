@@ -32,8 +32,7 @@ function bucket(entityId: string, rankScore: number): EntityBucket {
 const invertingCrossEncoder = {
   isEnabled: () => true,
   isLocalOnly: () => false,
-  rerank: async (_q: string, inputs: unknown[]) =>
-    inputs.map((_, i) => inputs.length - 1 - i),
+  rerank: async (_q: string, inputs: unknown[]) => inputs.map((_, i) => inputs.length - 1 - i),
 } as unknown as CrossEncoderService;
 
 const disabledReranker = {

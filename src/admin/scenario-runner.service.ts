@@ -108,9 +108,7 @@ export class ScenarioRunnerService {
 
       const memoryAssertionResults: MemoryAssertionResult[] = [];
       for (const a of scenario.memoryAssertions ?? []) {
-        memoryAssertionResults.push(
-          await this.evaluator.runMemoryAssertion(companyId, a),
-        );
+        memoryAssertionResults.push(await this.evaluator.runMemoryAssertion(companyId, a));
       }
 
       const queryResults: ScenarioQueryResult[] = [];
@@ -120,9 +118,7 @@ export class ScenarioRunnerService {
 
       const passes = queryResults.filter((q) => q.passed).length;
       const memPassed = memoryAssertionResults.filter((r) => r.passed).length;
-      const piiResults = queryResults.filter(
-        (q) => q.piiGatedCorrectly !== null,
-      );
+      const piiResults = queryResults.filter((q) => q.piiGatedCorrectly !== null);
       const piiPassed = piiResults.filter((q) => q.piiGatedCorrectly).length;
 
       const identityOk = identityMergeResult
@@ -159,13 +155,11 @@ export class ScenarioRunnerService {
           : {}),
         metrics: {
           recallAt1: queryResults.length
-            ? queryResults.filter((q) => q.rankOfExpected === 1).length /
-              queryResults.length
+            ? queryResults.filter((q) => q.rankOfExpected === 1).length / queryResults.length
             : 0,
           recallAt5: queryResults.length
-            ? queryResults.filter(
-                (q) => q.rankOfExpected > 0 && q.rankOfExpected <= 5,
-              ).length / queryResults.length
+            ? queryResults.filter((q) => q.rankOfExpected > 0 && q.rankOfExpected <= 5).length /
+              queryResults.length
             : 0,
           queries: queryResults.length,
           passes,

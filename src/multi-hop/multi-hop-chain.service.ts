@@ -6,12 +6,7 @@ import { SynthesizeService } from '../synthesize/synthesize.service';
 import { withSpan } from '../common/tracing';
 import { MetricsService } from '../metrics/metrics.service';
 import { NOOP_REPORTER } from '../mcp/progress-reporter';
-import {
-  HopOutcome,
-  MultiHopResult,
-  MultiHopRunOptions,
-  collectFactIds,
-} from './multi-hop.types';
+import { HopOutcome, MultiHopResult, MultiHopRunOptions, collectFactIds } from './multi-hop.types';
 import { envFlagEnabled } from '../common/env-validation';
 
 export interface MultiHopExecuteOptions extends MultiHopRunOptions {
@@ -167,9 +162,7 @@ export class MultiHopChainService {
           break;
         }
       } catch (err) {
-        this.logger.warn(
-          `Multi-hop hop ${i} failed: ${(err as Error).message}`,
-        );
+        this.logger.warn(`Multi-hop hop ${i} failed: ${(err as Error).message}`);
         this.metrics?.countMultiHop('hop_error');
         break;
       }
@@ -308,10 +301,7 @@ export class MultiHopChainService {
     // to a complaining customer's project). Default OFF so the
     // existing eval baseline doesn't shift; operator-tunable.
     let anchorIds: string[] | undefined;
-    if (
-      hop.combination === 'subset_of_previous' &&
-      priorEntityIds.length > 0
-    ) {
+    if (hop.combination === 'subset_of_previous' && priorEntityIds.length > 0) {
       anchorIds = priorEntityIds;
       if (envFlagEnabled(process.env.MULTI_HOP_EDGE_EXPANSION_ENABLED)) {
         try {
@@ -332,15 +322,12 @@ export class MultiHopChainService {
     // disambiguate; honour that as "no filter" rather than an empty
     // INSIDE clause that would match nothing.
     const predicatesOverride =
-      hop.predicates && hop.predicates.length > 0
-        ? hop.predicates
-        : dto.predicates;
+      hop.predicates && hop.predicates.length > 0 ? hop.predicates : dto.predicates;
     // The planner is an LLM: a malformed hop.asOf ("2023-04", "three
     // months in") became an Invalid Date param and 500'd the whole
     // request (live LME-500 finding, q 0ddfec37). Unparseable planner
     // dates degrade to the caller's asOf, never to an error.
-    const asOfOverride =
-      hop.asOf && !Number.isNaN(Date.parse(hop.asOf)) ? hop.asOf : dto.asOf;
+    const asOfOverride = hop.asOf && !Number.isNaN(Date.parse(hop.asOf)) ? hop.asOf : dto.asOf;
     // Base spread minus the keys we recompute below: predicates/asOf/
     // entityIds get their overridden value (or stay ABSENT, matching
     // SearchDto's optional contract) instead of the caller's raw one,
@@ -361,9 +348,7 @@ export class MultiHopChainService {
     const hopDto = {
       ...dtoRest,
       query: hop.subQuery,
-      ...(predicatesOverride !== undefined
-        ? { predicates: predicatesOverride }
-        : {}),
+      ...(predicatesOverride !== undefined ? { predicates: predicatesOverride } : {}),
       ...(asOfOverride !== undefined ? { asOf: asOfOverride } : {}),
       // Anchor only when explicitly requested — for 'intersect' /
       // 'union' the search runs unconstrained and combination

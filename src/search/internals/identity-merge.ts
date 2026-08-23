@@ -46,10 +46,7 @@ export async function hydrateSurvivors(
  * resolve to the same hit. Pure data-shape transform; doesn't touch
  * scores or fact bodies.
  */
-export function reattributeMerged(
-  rows: FusedRow[],
-  survivors: Map<string, Survivor>,
-): FusedRow[] {
+export function reattributeMerged(rows: FusedRow[], survivors: Map<string, Survivor>): FusedRow[] {
   if (survivors.size === 0) return rows;
   const out: FusedRow[] = [];
   for (const row of rows) {

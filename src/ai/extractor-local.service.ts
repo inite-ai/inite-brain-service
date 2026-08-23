@@ -5,11 +5,7 @@ import { ExtractionPatternService } from './extraction-pattern.service';
 import { splitClauses } from './clause-splitter';
 import { attemptLocalSynth } from './extractor-internals/local-synth';
 import { persistExtractionPatterns } from './extractor-internals/pattern-emitter';
-import type {
-  ExtractedEdge,
-  ExtractedFact,
-  ExtractionResult,
-} from './extractor-internals/types';
+import type { ExtractedEdge, ExtractedFact, ExtractionResult } from './extractor-internals/types';
 import { resolveExtractionProfile } from './extraction-profile';
 
 /**
@@ -34,10 +30,7 @@ export class ExtractorLocalService {
    * result when every clause is covered by cached patterns + local NER,
    * else null so the caller falls through to the LLM path.
    */
-  async trySkip(
-    companyId: string,
-    trimmed: string,
-  ): Promise<ExtractionResult | null> {
+  async trySkip(companyId: string, trimmed: string): Promise<ExtractionResult | null> {
     const localClauses = splitClauses(trimmed);
     traceArtifact('extractor.local_clauses', {
       count: localClauses.length,

@@ -21,18 +21,10 @@ describe('indexer work discovery (e2e)', () => {
 
   beforeAll(async () => {
     f = await createApp({
-      scopes: [
-        'brain:read',
-        'brain:write',
-        'brain:admin',
-        'brain:read_pii',
-        'indexer:write',
-      ],
+      scopes: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii', 'indexer:write'],
       // A pack-bound indexer key in the SAME tenant — the binding-fence
       // suite uses it (fixture keys are static at boot).
-      extraKeys: [
-        { scopes: ['indexer:write'], packIds: ['some_other_pack'] },
-      ],
+      extraKeys: [{ scopes: ['indexer:write'], packIds: ['some_other_pack'] }],
     });
     process.env.DOCUMENT_INGEST_ENABLED = '1';
     // External work items are produced by the multi-indexer router.
@@ -49,14 +41,17 @@ describe('indexer work discovery (e2e)', () => {
     // Empty extraction: the document exists purely as a Source; the
     // external indexer is the one doing the reading.
     f.extractor.setScript({ entities: [], facts: [], edges: [] });
-    const r = await f.http.post('/v1/ingest/document').set(auth()).send({
-      kind: 'markdown',
-      text,
-      occurredAt: '2026-07-01T10:00:00.000Z',
-      contextRef: { vertical: 'work_e2e' },
-      indexers: ['code_memory'],
-      ...extra,
-    });
+    const r = await f.http
+      .post('/v1/ingest/document')
+      .set(auth())
+      .send({
+        kind: 'markdown',
+        text,
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        contextRef: { vertical: 'work_e2e' },
+        indexers: ['code_memory'],
+        ...extra,
+      });
     expect(r.status).toBe(201);
     return r.body as {
       documentId: string;
@@ -76,10 +71,7 @@ describe('indexer work discovery (e2e)', () => {
     }>;
   }
 
-  function workFor(
-    work: Array<{ documentId: string }>,
-    docId: string,
-  ): any[] {
+  function workFor(work: Array<{ documentId: string }>, docId: string): any[] {
     return work.filter((w) => w.documentId === docId);
   }
 
@@ -154,9 +146,7 @@ describe('indexer work discovery (e2e)', () => {
     expect(content.status).toBe(200);
     expect(content.body.documentId).toBe(documentId);
     expect(content.body.vertical).toBe('work_e2e');
-    const fullText = content.body.chunks
-      .map((c: { text: string }) => c.text)
-      .join('\n');
+    const fullText = content.body.chunks.map((c: { text: string }) => c.text).join('\n');
     expect(fullText).toContain('route all fact writes through one gateway');
 
     const badBeat = await f.http
@@ -187,12 +177,8 @@ describe('indexer work discovery (e2e)', () => {
 
     // The fulfilled slot is gone from discovery and terminal on the ledger.
     expect(workFor(await pollWork(), documentId)).toHaveLength(0);
-    const docView = await f.http
-      .get(`/v1/documents/${encodeURIComponent(documentId)}`)
-      .set(auth());
-    const run = docView.body.runs.find(
-      (r: { packId: string }) => r.packId === 'code_memory',
-    );
+    const docView = await f.http.get(`/v1/documents/${encodeURIComponent(documentId)}`).set(auth());
+    const run = docView.body.runs.find((r: { packId: string }) => r.packId === 'code_memory');
     expect(run.status).toBe('succeeded');
   });
 
@@ -207,12 +193,8 @@ describe('indexer work discovery (e2e)', () => {
     expect(submit.status).toBe(201);
 
     expect(workFor(await pollWork(), documentId)).toHaveLength(0);
-    const docView = await f.http
-      .get(`/v1/documents/${encodeURIComponent(documentId)}`)
-      .set(auth());
-    const runs = docView.body.runs.filter(
-      (r: { packId: string }) => r.packId === 'code_memory',
-    );
+    const docView = await f.http.get(`/v1/documents/${encodeURIComponent(documentId)}`).set(auth());
+    const runs = docView.body.runs.filter((r: { packId: string }) => r.packId === 'code_memory');
     expect(runs).toHaveLength(1);
     expect(runs[0].status).toBe('succeeded');
   });
@@ -288,9 +270,7 @@ describe('indexer work discovery (e2e)', () => {
       const list = await other.http.get('/v1/indexer/work').set(theirAuth);
       expect(list.status).toBe(200);
       expect(
-        list.body.work.filter(
-          (w: { documentId: string }) => w.documentId === documentId,
-        ),
+        list.body.work.filter((w: { documentId: string }) => w.documentId === documentId),
       ).toHaveLength(0);
       const claim = await other.http
         .post(`/v1/indexer/work/${encodeURIComponent(item.runId)}/claim`)
@@ -302,9 +282,7 @@ describe('indexer work discovery (e2e)', () => {
     }
 
     // Unknown pack filter is a 404, mirroring the submission surface.
-    const unknown = await f.http
-      .get('/v1/indexer/work?packId=totally_unknown')
-      .set(auth());
+    const unknown = await f.http.get('/v1/indexer/work?packId=totally_unknown').set(auth());
     expect(unknown.status).toBe(404);
 
     // Claim-field pairing and token fencing on submit.
@@ -327,9 +305,7 @@ describe('indexer work discovery (e2e)', () => {
     const boundAuth = { Authorization: `Bearer ${f.extraApiKeys[0]}` };
 
     // Explicit packId outside the binding fences before any lookup.
-    const list = await f.http
-      .get('/v1/indexer/work?packId=code_memory')
-      .set(boundAuth);
+    const list = await f.http.get('/v1/indexer/work?packId=code_memory').set(boundAuth);
     expect(list.status).toBe(403);
     expect(list.body.message).toMatch(/not bound to indexer pack/);
 
@@ -392,9 +368,7 @@ describe('indexer work discovery (e2e)', () => {
 
       // No stored text to serve — the indexer extracts from its own copy.
       const content = await f.http
-        .get(
-          `/v1/indexer/work/${encodeURIComponent(items[0].runId)}/content`,
-        )
+        .get(`/v1/indexer/work/${encodeURIComponent(items[0].runId)}/content`)
         .set(auth());
       expect(content.status).toBe(404);
     } finally {

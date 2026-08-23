@@ -181,10 +181,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function pickFactObject(
-  entity: JsonDirectoryEntity,
-  predicate: string,
-): string | undefined {
+function pickFactObject(entity: JsonDirectoryEntity, predicate: string): string | undefined {
   for (const f of entity.facts) {
     if (f.predicate === predicate) return f.object;
   }

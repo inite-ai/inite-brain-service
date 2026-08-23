@@ -1,9 +1,5 @@
 import type { DecisionKind, Layer1Signals } from './types';
-import {
-  DEFAULT_FEATURE_CONFIG,
-  featurize,
-  type FeatureConfig,
-} from './gate-features';
+import { DEFAULT_FEATURE_CONFIG, featurize, type FeatureConfig } from './gate-features';
 import { GATE_KINDS, type GateModel, type LinearHead } from './gate-classifier';
 
 /**
@@ -62,9 +58,7 @@ function shuffle<T>(arr: T[], rng: () => number): void {
 function trainLogistic(
   feats: Array<Map<number, number>>,
   targets: number[],
-  opts: Required<
-    Pick<TrainOptions, 'epochs' | 'learningRate' | 'l2' | 'seed' | 'pruneBelow'>
-  >,
+  opts: Required<Pick<TrainOptions, 'epochs' | 'learningRate' | 'l2' | 'seed' | 'pruneBelow'>>,
 ): LinearHead {
   const { epochs, learningRate: lr, l2, seed, pruneBelow } = opts;
   const rng = mulberry32(seed);
@@ -96,10 +90,7 @@ function trainLogistic(
   return { bias, weights: sparse };
 }
 
-export function trainGate(
-  examples: TrainExample[],
-  opts: TrainOptions = {},
-): GateModel {
+export function trainGate(examples: TrainExample[], opts: TrainOptions = {}): GateModel {
   const config = opts.config ?? DEFAULT_FEATURE_CONFIG;
   const seed = opts.seed ?? 42;
   const base = {
@@ -111,10 +102,14 @@ export function trainGate(
   const feats = examples.map((e) => featurize(e.text, e.signals, config));
 
   // Binary decision-bearing head (seed unchanged → same weights as a v1 train).
-  const binary = trainLogistic(feats, examples.map((e) => e.label), {
-    ...base,
-    seed,
-  });
+  const binary = trainLogistic(
+    feats,
+    examples.map((e) => e.label),
+    {
+      ...base,
+      seed,
+    },
+  );
 
   const model: GateModel = {
     version: 1,
@@ -126,8 +121,7 @@ export function trainGate(
 
   // Per-kind one-vs-rest heads when the corpus carries kinds.
   const trainKinds =
-    opts.trainKinds !== false &&
-    examples.some((e) => e.kinds && e.kinds.length > 0);
+    opts.trainKinds !== false && examples.some((e) => e.kinds && e.kinds.length > 0);
   if (trainKinds) {
     const kinds: Partial<Record<DecisionKind, LinearHead>> = {};
     GATE_KINDS.forEach((kind, i) => {

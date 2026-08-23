@@ -55,8 +55,7 @@ describe('CrossEncoderService', () => {
 
   it('returns identity on HTTP failure', async () => {
     const original = global.fetch;
-    global.fetch = (async () =>
-      new Response('bad', { status: 500 })) as typeof fetch;
+    global.fetch = (async () => new Response('bad', { status: 500 })) as typeof fetch;
     try {
       const s = svc({
         COHERE_API_KEY: 'k',

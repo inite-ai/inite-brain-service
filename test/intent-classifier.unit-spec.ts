@@ -16,7 +16,6 @@ function mkConfig(over: Record<string, string> = {}): ConfigService {
   } as unknown as ConfigService;
 }
 
- 
 type MockPipeline = jest.Mock<any, any>;
 
 function mkPipeline(qScore: number, sScore = 1 - qScore): MockPipeline {
@@ -81,9 +80,7 @@ describe('IntentClassifierService — NLI primary path', () => {
   });
 
   it('no `?`, NLI says ask below threshold → tell + nli source', async () => {
-    const svc = new IntentClassifierService(
-      mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.7' }),
-    );
+    const svc = new IntentClassifierService(mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.7' }));
     const pipe = mkPipeline(0.55);
     svc.setClassifierForTesting(pipe);
     const result = await svc.classify('Maria moved to Berlin');
@@ -146,15 +143,11 @@ describe('IntentClassifierService — NLI primary path', () => {
   });
 
   it('threshold tunable via CHAT_ROUTE_NLI_ASK_THRESHOLD', async () => {
-    const strict = new IntentClassifierService(
-      mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.9' }),
-    );
+    const strict = new IntentClassifierService(mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.9' }));
     strict.setClassifierForTesting(mkPipeline(0.85));
     expect((await strict.classify('borderline q')).intent).toBe('tell');
 
-    const loose = new IntentClassifierService(
-      mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.5' }),
-    );
+    const loose = new IntentClassifierService(mkConfig({ CHAT_ROUTE_NLI_ASK_THRESHOLD: '0.5' }));
     loose.setClassifierForTesting(mkPipeline(0.55));
     expect((await loose.classify('borderline q')).intent).toBe('ask');
   });

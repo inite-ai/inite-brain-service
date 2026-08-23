@@ -56,12 +56,8 @@ export function registerPackTools(opts: RegisterPackToolsOptions): void {
   // Sub-flags, independently toggleable: query tools default ON under
   // the master flag; external tools default OFF (outbound calls are a
   // bigger operator decision than tenant-local reads).
-  const queryEnabled = envFlagEnabled(
-    process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1',
-  );
-  const externalEnabled = envFlagEnabled(
-    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED,
-  );
+  const queryEnabled = envFlagEnabled(process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1');
+  const externalEnabled = envFlagEnabled(process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED);
   const seen = new Set<string>();
   for (const binding of opts.bindings) {
     for (const tool of binding.tools) {
@@ -154,9 +150,7 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
         tool,
       }),
       inputSchema: {
-        predicate: z
-          .enum(locals)
-          .describe("One of the pack's own predicates"),
+        predicate: z.enum(locals).describe("One of the pack's own predicates"),
         entity: z
           .string()
           .max(200)
@@ -219,9 +213,7 @@ function registerExternalTool(ctx: ExternalToolContext): void {
       const out = await deps.proxy!.call({ binding, tool, args: forwarded });
       return {
         content: out.content,
-        ...(out.structuredContent
-          ? { structuredContent: out.structuredContent }
-          : {}),
+        ...(out.structuredContent ? { structuredContent: out.structuredContent } : {}),
       };
     },
   );
@@ -241,9 +233,7 @@ function paramSchema(p: PackToolParam): z.ZodTypeAny {
     schema = z.boolean();
   }
   if (p.description) {
-    schema = schema.describe(
-      sanitizePackText(p.description, PARAM_DESCRIPTION_CAP),
-    );
+    schema = schema.describe(sanitizePackText(p.description, PARAM_DESCRIPTION_CAP));
   }
   return p.required ? schema : schema.optional();
 }

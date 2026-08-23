@@ -64,9 +64,7 @@ describe('calibration-refit pure helpers', () => {
 
   describe('isCorrect', () => {
     it('active + no retract → correct', () => {
-      expect(
-        isCorrect({ status: 'active', retractedAt: null, retractionReason: null }),
-      ).toBe(true);
+      expect(isCorrect({ status: 'active', retractedAt: null, retractionReason: null })).toBe(true);
     });
 
     it('superseded → incorrect', () => {

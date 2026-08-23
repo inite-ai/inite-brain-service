@@ -1,11 +1,6 @@
 import { IsArray, IsIn, IsOptional } from 'class-validator';
 
-export type DreamsOperation =
-  | 'dedup'
-  | 'resolve'
-  | 'corroborate'
-  | 'summarize'
-  | 'communities';
+export type DreamsOperation = 'dedup' | 'resolve' | 'corroborate' | 'summarize' | 'communities';
 
 /**
  * Body of `POST /v1/dreams/run`. Caller picks which sub-operations
