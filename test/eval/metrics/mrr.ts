@@ -13,7 +13,10 @@ import type { QueryResult } from '../../../src/eval/types';
 export function meanReciprocalRank(results: QueryResult[]): number | null {
   const scoreable = results.filter((r) => r.piiGatedCorrectly === null);
   if (scoreable.length === 0) return null;
-  const sum = scoreable.reduce((acc, r) => acc + (r.rankOfExpected > 0 ? 1 / r.rankOfExpected : 0), 0);
+  const sum = scoreable.reduce(
+    (acc, r) => acc + (r.rankOfExpected > 0 ? 1 / r.rankOfExpected : 0),
+    0,
+  );
   return sum / scoreable.length;
 }
 
@@ -22,7 +25,5 @@ export function meanReciprocalRank(results: QueryResult[]): number | null {
  */
 export function reciprocalRankVector(results: QueryResult[]): number[] {
   const scoreable = results.filter((r) => r.piiGatedCorrectly === null);
-  return scoreable.map((r) =>
-    r.rankOfExpected > 0 ? 1 / r.rankOfExpected : 0,
-  );
+  return scoreable.map((r) => (r.rankOfExpected > 0 ? 1 / r.rankOfExpected : 0));
 }

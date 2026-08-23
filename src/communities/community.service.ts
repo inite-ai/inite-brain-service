@@ -132,11 +132,7 @@ export class CommunityService {
 }
 
 function toRecordId(raw: string): StringRecordId {
-  return new StringRecordId(
-    raw.startsWith('knowledge_entity:')
-      ? raw
-      : `knowledge_entity:${raw}`,
-  );
+  return new StringRecordId(raw.startsWith('knowledge_entity:') ? raw : `knowledge_entity:${raw}`);
 }
 
 function mapCommunity(r: RawCommunity): CommunityRecord {

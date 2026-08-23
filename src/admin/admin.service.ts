@@ -116,13 +116,20 @@ export interface AuditPage {
 // String()/Number()/new Date() are typed `unknown`.
 
 /** `count() AS c ... GROUP ALL` result row. */
-interface CountRow { c?: number }
+interface CountRow {
+  c?: number;
+}
 
 /** `SELECT n FROM stats_entity_total` computed-view row. */
-interface ViewCountRow { n?: number }
+interface ViewCountRow {
+  n?: number;
+}
 
 /** `SELECT n, status FROM stats_fact_by_status` computed-view row. */
-interface StatusCountRow { n?: number; status?: string }
+interface StatusCountRow {
+  n?: number;
+  status?: string;
+}
 
 /** Columns read from `ingest_dead_letter`. */
 interface DeadLetterRow {
@@ -155,10 +162,18 @@ interface AuditEventDbRow {
 }
 
 /** PII-classed predicate rows from `knowledge_predicate`. */
-interface PiiPredicateRow { predicateId: string; piiClass: string; requiresScope?: string }
+interface PiiPredicateRow {
+  predicateId: string;
+  piiClass: string;
+  requiresScope?: string;
+}
 
 /** Per-(predicate,status) fact counts for the PII inventory. */
-interface PiiCountRow { predicate?: string; status?: string; c?: unknown }
+interface PiiCountRow {
+  predicate?: string;
+  status?: string;
+  c?: unknown;
+}
 
 /**
  * Cross-tenant read-only fan-out for the admin dashboard.
@@ -202,9 +217,7 @@ export class AdminService {
       concurrency: TENANT_FANOUT,
       fn: (companyId) => this.collectTenant(companyId, dayAgoIso),
       onError: (err, companyId) =>
-        this.logger.warn(
-          `Failed to collect admin overview for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`Failed to collect admin overview for ${companyId}: ${err.message}`),
     });
     tenants.forEach((companyId, i) => {
       const data = tenantResults[i];
@@ -277,10 +290,7 @@ export class AdminService {
     const sumBuckets = (name: string): number =>
       (byName[name] ?? []).reduce((acc, b) => acc + b.value, 0);
 
-    const groupByLabel = (
-      name: string,
-      labelKey: string,
-    ): Record<string, number> => {
+    const groupByLabel = (name: string, labelKey: string): Record<string, number> => {
       const out: Record<string, number> = {};
       for (const b of byName[name] ?? []) {
         const k = b.labels?.[labelKey] ?? '_unknown';
@@ -322,10 +332,8 @@ export class AdminService {
   async buildCostBreakdown(): Promise<CostBreakdown> {
     const pricing = this.resolvePricing();
     type Sample = { value: number; labels: Record<string, string> };
-    const tokens = (await this.collectMetric('brain_openai_tokens_total')) as
-      Sample[];
-    const calls = (await this.collectMetric('brain_openai_calls_total')) as
-      Sample[];
+    const tokens = (await this.collectMetric('brain_openai_tokens_total')) as Sample[];
+    const calls = (await this.collectMetric('brain_openai_calls_total')) as Sample[];
     const perModelMap = new Map<string, CostBucket>();
     const perOpMap = new Map<string, CostBucket>();
     let totalTokens = 0;
@@ -444,9 +452,7 @@ export class AdminService {
     reason?: string | undefined;
     limit?: number | undefined;
   }): Promise<AdminDeadLetterRow[]> {
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const out: AdminDeadLetterRow[] = [];
     const where: string[] = [];
@@ -478,9 +484,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `dead-letter list failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`dead-letter list failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
@@ -504,9 +508,7 @@ export class AdminService {
         return rows.length > 0;
       });
     } catch (e) {
-      this.logger.warn(
-        `dead-letter delete failed (${companyId}/${id}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`dead-letter delete failed (${companyId}/${id}): ${(e as Error).message}`);
       return false;
     }
   }
@@ -521,9 +523,7 @@ export class AdminService {
     since?: string | undefined;
     limit?: number | undefined;
   }): Promise<AdminForgottenRow[]> {
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 2000);
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -560,9 +560,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `forgotten list failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`forgotten list failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
@@ -602,36 +600,33 @@ export class AdminService {
         // a fresh withCompany and ran two GROUP ALL counts PER PII
         // predicate — 50 tenants × 10 predicates ≈ 1000+ serial round
         // trips inside one admin HTTP request.
-        const { rows, counts } = await this.surreal.withCompany(
-          companyId,
-          async (db) => {
-            const predRows = await queryRows<PiiPredicateRow>(
-              db,
-              `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
+        const { rows, counts } = await this.surreal.withCompany(companyId, async (db) => {
+          const predRows = await queryRows<PiiPredicateRow>(
+            db,
+            `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
                 WHERE piiClass != 'none'`,
-            );
-            const preds = predRows.map((p) => p.predicateId);
-            if (preds.length === 0) {
-              return {
-                rows: [] as PiiPredicateRow[],
-                counts: new Map<string, number>(),
-              };
-            }
-            const countRows = await queryRows<PiiCountRow>(
-              db,
-              `SELECT predicate, status, count() AS c FROM knowledge_fact
+          );
+          const preds = predRows.map((p) => p.predicateId);
+          if (preds.length === 0) {
+            return {
+              rows: [] as PiiPredicateRow[],
+              counts: new Map<string, number>(),
+            };
+          }
+          const countRows = await queryRows<PiiCountRow>(
+            db,
+            `SELECT predicate, status, count() AS c FROM knowledge_fact
                 WHERE predicate INSIDE $preds
                   AND status INSIDE ['active', 'retracted']
                 GROUP BY predicate, status`,
-              { preds },
-            );
-            const counts = new Map<string, number>();
-            for (const r of countRows) {
-              counts.set(`${r.predicate}|${r.status}`, Number(r.c) || 0);
-            }
-            return { rows: predRows, counts };
-          },
-        );
+            { preds },
+          );
+          const counts = new Map<string, number>();
+          for (const r of countRows) {
+            counts.set(`${r.predicate}|${r.status}`, Number(r.c) || 0);
+          }
+          return { rows: predRows, counts };
+        });
         for (const p of rows) {
           out.push({
             companyId,
@@ -643,9 +638,7 @@ export class AdminService {
           });
         }
       } catch (e) {
-        this.logger.warn(
-          `pii inventory failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`pii inventory failed for ${companyId}: ${(e as Error).message}`);
       }
     }
     return out;
@@ -663,9 +656,7 @@ export class AdminService {
    */
   async listAuditEvents(q: AuditQuery): Promise<AuditPage> {
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
-    const tenants = q.companyId
-      ? [q.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = q.companyId ? [q.companyId] : this.apiKeys.knownCompanyIds();
     const events: AuditEventRow[] = [];
     const totalsBySource: Record<string, number> = {};
     const totalsByOp: Record<string, number> = {};
@@ -689,9 +680,7 @@ export class AdminService {
       whereClauses.push('ts < type::datetime($before)');
       bindings.before = q.before;
     }
-    const whereSql = whereClauses.length
-      ? `WHERE ${whereClauses.join(' AND ')}`
-      : '';
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const perTenant = await mapWithLimit({
       items: tenants,
@@ -721,9 +710,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `listAuditEvents failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`listAuditEvents failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (!batch) continue;
@@ -869,14 +856,7 @@ export class AdminService {
           WHERE forgottenAt > type::datetime($dayAgoIso) GROUP ALL;
       `;
       const res = await db.query<
-        [
-          ViewCountRow[],
-          StatusCountRow[],
-          DeadLetterRow[],
-          CountRow[],
-          ForgottenRow[],
-          CountRow[],
-        ]
+        [ViewCountRow[], StatusCountRow[], DeadLetterRow[], CountRow[], ForgottenRow[], CountRow[]]
       >(sql, { dayAgoIso });
 
       const entities = viewCountOf(res[0]);

@@ -82,15 +82,10 @@ export interface ArcBeat {
  * order, but when the topic touches more facts than the budget, the
  * cut must keep the most relevant ones, not the earliest.
  */
-export function pickArcBeats(
-  beats: ArcBeat[],
-  max: number = ARC_MAX_BEATS,
-): ArcBeat[] {
+export function pickArcBeats(beats: ArcBeat[], max: number = ARC_MAX_BEATS): ArcBeat[] {
   return [...beats]
     .sort((a, b) =>
-      (a.lex ?? 0) !== (b.lex ?? 0)
-        ? (b.lex ?? 0) - (a.lex ?? 0)
-        : (b.sim ?? 0) - (a.sim ?? 0),
+      (a.lex ?? 0) !== (b.lex ?? 0) ? (b.lex ?? 0) - (a.lex ?? 0) : (b.sim ?? 0) - (a.sim ?? 0),
     )
     .slice(0, max)
     .sort((a, b) => a.validFrom.localeCompare(b.validFrom));
@@ -105,9 +100,7 @@ export function renderArcLines(beats: ArcBeat[]): string[] {
           ? `${b.object.slice(0, ARC_BEAT_CHAR_CAP - 1)}…`
           : b.object;
       const day = b.validFrom.slice(0, 10);
-      return text.trim().length > 0
-        ? `- [${day}] ${text.trim()}`
-        : '';
+      return text.trim().length > 0 ? `- [${day}] ${text.trim()}` : '';
     })
     .filter((l) => l.length > 0);
 }

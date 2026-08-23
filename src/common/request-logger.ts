@@ -37,9 +37,11 @@ export function requestLogger() {
       res.removeListener('close', onDone);
 
       const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-      const auth = (req as unknown as {
-        brainAuth?: { companyId: string; keyHash: string };
-      }).brainAuth;
+      const auth = (
+        req as unknown as {
+          brainAuth?: { companyId: string; keyHash: string };
+        }
+      ).brainAuth;
       const companyId = auth?.companyId ?? '-';
       const keyTag = auth?.keyHash ? auth.keyHash.slice(7, 15) : '-';
       const url = req.originalUrl ?? req.url;

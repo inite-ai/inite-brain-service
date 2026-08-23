@@ -76,9 +76,7 @@ export class IntrospectionClient {
       config.get<string>('AUTH_SERVICE_INTROSPECTION_URL') ??
       (base ? `${base.replace(/\/$/, '')}/v1/oauth/introspect` : undefined);
     const clientId = config.get<string>('AUTH_SERVICE_INTROSPECTION_CLIENT_ID');
-    const clientSecret = config.get<string>(
-      'AUTH_SERVICE_INTROSPECTION_CLIENT_SECRET',
-    );
+    const clientSecret = config.get<string>('AUTH_SERVICE_INTROSPECTION_CLIENT_SECRET');
     if (!url || !clientId || !clientSecret) return null;
     const audience = config.get<string>('AUTH_SERVICE_AUDIENCE', 'brain') ?? 'brain';
     return new IntrospectionClient({ url, clientId, clientSecret, audience });
@@ -95,10 +93,7 @@ export class IntrospectionClient {
     return record;
   }
 
-  private async introspect(
-    token: string,
-    tokenHash: string,
-  ): Promise<ApiKeyRecord | null> {
+  private async introspect(token: string, tokenHash: string): Promise<ApiKeyRecord | null> {
     let payload: Record<string, unknown>;
     try {
       const res = await fetch(this.opts.url, {

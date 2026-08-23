@@ -31,7 +31,5 @@ function isAbsenceQuery(r: QueryResult): boolean {
  */
 export function recallAtKVector(results: QueryResult[], k: number): number[] {
   const scoreable = results.filter((r) => !isAbsenceQuery(r));
-  return scoreable.map((r) =>
-    r.rankOfExpected > 0 && r.rankOfExpected <= k ? 1 : 0,
-  );
+  return scoreable.map((r) => (r.rankOfExpected > 0 && r.rankOfExpected <= k ? 1 : 0));
 }

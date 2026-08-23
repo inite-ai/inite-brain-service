@@ -27,8 +27,7 @@ interface Recorded {
 
 type Row = Record<string, unknown>;
 
-const ridOf = (id: unknown): string =>
-  String((id as { rid?: unknown })?.rid ?? id);
+const ridOf = (id: unknown): string => String((id as { rid?: unknown })?.rid ?? id);
 
 function makeStack(opts: {
   factsByCompany: Record<string, Row[]>;
@@ -54,9 +53,7 @@ function makeStack(opts: {
           rows = rows.filter((e) => e.piiClass === undefined);
         }
         if (sql.includes('userId = $scopeUserId')) {
-          rows = rows.filter(
-            (e) => e.userId === undefined || e.userId === params?.scopeUserId,
-          );
+          rows = rows.filter((e) => e.userId === undefined || e.userId === params?.scopeUserId);
         } else {
           rows = rows.filter((e) => e.userId === undefined);
         }
@@ -71,17 +68,13 @@ function makeStack(opts: {
       _scopes: readonly string[],
       fn: (db: unknown) => Promise<unknown>,
     ) => fn(dbFor(companyId)),
-    withCompany: async (
-      companyId: string,
-      fn: (db: unknown) => Promise<unknown>,
-    ) => fn(dbFor(companyId)),
+    withCompany: async (companyId: string, fn: (db: unknown) => Promise<unknown>) =>
+      fn(dbFor(companyId)),
   } as unknown as SurrealService;
   const episodes = new EpisodeReadStoreService(surreal);
   const registry = opts.policy
     ? ({
-        rowPolicyLookup:
-          async () => (p: string) =>
-            opts.policy?.[p] ?? { piiClass: 'none' },
+        rowPolicyLookup: async () => (p: string) => opts.policy?.[p] ?? { piiClass: 'none' },
       } as unknown as PredicateRegistryService)
     : undefined;
   return {
@@ -174,16 +167,16 @@ describe('GET /v1/facts/:id — fact read', () => {
 
   it('missing fact → 404', async () => {
     const { svc } = makeStack({ factsByCompany: { co_a: [FACT_GLOBAL] } });
-    await expect(
-      svc.getFact({ companyId: 'co_a', factId: 'nope', scopes: READ }),
-    ).rejects.toThrow(NotFoundException);
+    await expect(svc.getFact({ companyId: 'co_a', factId: 'nope', scopes: READ })).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("another tenant's fact id → 404 (tenant fence)", async () => {
     const { svc } = makeStack({ factsByCompany: { co_a: [FACT_GLOBAL] } });
-    await expect(
-      svc.getFact({ companyId: 'co_b', factId: 'f1', scopes: READ }),
-    ).rejects.toThrow(NotFoundException);
+    await expect(svc.getFact({ companyId: 'co_b', factId: 'f1', scopes: READ })).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });
 
@@ -192,17 +185,14 @@ describe('user scope (0055) on the fact read', () => {
 
   it("user-bound token: another user's fact → 404, not 403", async () => {
     const { svc } = makeStack({ factsByCompany: { co_a: [USER_FACT] } });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u1' },
-      async () => {
-        await expect(
-          svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ }),
-        ).rejects.toThrow(NotFoundException);
-        await expect(
-          svc.getProvenance({ companyId: 'co_a', factId: 'f1', scopes: READ }),
-        ).rejects.toThrow(NotFoundException);
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      await expect(svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ })).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(
+        svc.getProvenance({ companyId: 'co_a', factId: 'f1', scopes: READ }),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   it('user-bound token: OWN user-scoped fact and tenant-global facts resolve', async () => {
@@ -211,23 +201,20 @@ describe('user scope (0055) on the fact read', () => {
         co_a: [USER_FACT, { ...FACT_GLOBAL, id: 'knowledge_fact:f2' }],
       },
     });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u2' },
-      async () => {
-        const own = await svc.getFact({
-          companyId: 'co_a',
-          factId: 'f1',
-          scopes: READ,
-        });
-        expect(own.userId).toBe('u2');
-        const global = await svc.getFact({
-          companyId: 'co_a',
-          factId: 'f2',
-          scopes: READ,
-        });
-        expect(global.userId).toBeUndefined();
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u2' }, async () => {
+      const own = await svc.getFact({
+        companyId: 'co_a',
+        factId: 'f1',
+        scopes: READ,
+      });
+      expect(own.userId).toBe('u2');
+      const global = await svc.getFact({
+        companyId: 'co_a',
+        factId: 'f2',
+        scopes: READ,
+      });
+      expect(global.userId).toBeUndefined();
+    });
   });
 
   it("M2M (no user-bound token) reads a user-scoped fact, and the episode fetch is keyed to the FACT's user", async () => {
@@ -251,14 +238,9 @@ describe('user scope (0055) on the fact read', () => {
       factId: 'f1',
       scopes: READ,
     });
-    expect(prov.episodes.map((e) => e.episodeId)).toEqual([
-      'episode:e1',
-      'episode:e2',
-    ]);
+    expect(prov.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e2']);
     const episodeQuery = queries.find((q) => q.sql.includes('FROM episode'));
-    expect(episodeQuery?.sql).toContain(
-      '(userId IS NONE OR userId = $scopeUserId)',
-    );
+    expect(episodeQuery?.sql).toContain('(userId IS NONE OR userId = $scopeUserId)');
     expect(episodeQuery?.params?.scopeUserId).toBe('u2');
   });
 });
@@ -276,10 +258,7 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
     });
     expect(res.factId).toBe('knowledge_fact:f1');
     // source.episodeIds order is [e2, e1]; the response is chronological.
-    expect(res.episodes.map((e) => e.episodeId)).toEqual([
-      'episode:e1',
-      'episode:e2',
-    ]);
+    expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e2']);
     expect(res.episodes[0]).toEqual({
       episodeId: 'episode:e1',
       conversationId: 'conv-1',
@@ -399,9 +378,7 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
       scopes: READ,
     });
     expect(without.episodes.map((e) => e.episodeId)).toEqual(['episode:e1']);
-    const episodeQuery = stack.queries.find((q) =>
-      q.sql.includes('FROM episode'),
-    );
+    const episodeQuery = stack.queries.find((q) => q.sql.includes('FROM episode'));
     expect(episodeQuery?.sql).toContain('piiClass IS NONE');
 
     const withScope = await makeStack({
@@ -412,10 +389,7 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
       factId: 'f1',
       scopes: READ_PII,
     });
-    expect(withScope.episodes.map((e) => e.episodeId)).toEqual([
-      'episode:e1',
-      'episode:e3',
-    ]);
+    expect(withScope.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e3']);
   });
 });
 
@@ -433,9 +407,9 @@ describe('registry-backed row policy (scope-fenced predicates)', () => {
       factsByCompany: { co_a: [FENCED_FACT] },
       policy,
     });
-    await expect(
-      svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ }),
-    ).rejects.toThrow(NotFoundException);
+    await expect(svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ })).rejects.toThrow(
+      NotFoundException,
+    );
     await expect(
       svc.getProvenance({ companyId: 'co_a', factId: 'f1', scopes: READ }),
     ).rejects.toThrow(NotFoundException);
@@ -563,19 +537,16 @@ describe('FactsService.retract() — ownership fence', () => {
     const { svc, queries } = makeStack({
       factsByCompany: { co_a: [USER_FACT_U2] },
     });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u1' },
-      async () => {
-        await expect(
-          svc.retract({
-            companyId: 'co_a',
-            factId: 'f1',
-            dto,
-            callerScopes: WRITE,
-          }),
-        ).rejects.toThrow(NotFoundException);
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      await expect(
+        svc.retract({
+          companyId: 'co_a',
+          factId: 'f1',
+          dto,
+          callerScopes: WRITE,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
     expect(onlySelects(queries)).toBe(true);
   });
 
@@ -583,19 +554,16 @@ describe('FactsService.retract() — ownership fence', () => {
     const { svc, queries } = makeStack({
       factsByCompany: { co_a: [{ ...FACT_GLOBAL }] },
     });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u1' },
-      async () => {
-        await expect(
-          svc.retract({
-            companyId: 'co_a',
-            factId: 'f1',
-            dto,
-            callerScopes: WRITE,
-          }),
-        ).rejects.toThrow('requires an M2M token or brain:admin');
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      await expect(
+        svc.retract({
+          companyId: 'co_a',
+          factId: 'f1',
+          dto,
+          callerScopes: WRITE,
+        }),
+      ).rejects.toThrow('requires an M2M token or brain:admin');
+    });
     expect(onlySelects(queries)).toBe(true);
   });
 
@@ -603,41 +571,35 @@ describe('FactsService.retract() — ownership fence', () => {
     const { svc } = makeStack({
       factsByCompany: { co_a: [{ ...USER_FACT_U2, userId: 'u1' }] },
     });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u1' },
-      async () => {
-        // The stub has no dbMerge surface — reaching the mutation step
-        // (past every fence) throws a non-HTTP error, which is the
-        // assertion: the fence did NOT stop an owner.
-        await expect(
-          svc.retract({
-            companyId: 'co_a',
-            factId: 'f1',
-            dto,
-            callerScopes: WRITE,
-          }),
-        ).rejects.not.toThrow(NotFoundException);
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      // The stub has no dbMerge surface — reaching the mutation step
+      // (past every fence) throws a non-HTTP error, which is the
+      // assertion: the fence did NOT stop an owner.
+      await expect(
+        svc.retract({
+          companyId: 'co_a',
+          factId: 'f1',
+          dto,
+          callerScopes: WRITE,
+        }),
+      ).rejects.not.toThrow(NotFoundException);
+    });
   });
 
   it('user-bound token + brain:admin: tenant-global fact passes the fence', async () => {
     const { svc } = makeStack({
       factsByCompany: { co_a: [{ ...FACT_GLOBAL }] },
     });
-    await runWithRequestContext(
-      { correlationId: 'test', authUserId: 'u1' },
-      async () => {
-        await expect(
-          svc.retract({
-            companyId: 'co_a',
-            factId: 'f1',
-            dto,
-            callerScopes: WRITE_ADMIN,
-          }),
-        ).rejects.not.toThrow(NotFoundException);
-      },
-    );
+    await runWithRequestContext({ correlationId: 'test', authUserId: 'u1' }, async () => {
+      await expect(
+        svc.retract({
+          companyId: 'co_a',
+          factId: 'f1',
+          dto,
+          callerScopes: WRITE_ADMIN,
+        }),
+      ).rejects.not.toThrow(NotFoundException);
+    });
   });
 
   it('scope-fenced predicate → 404 for callers without the scope, zero mutations', async () => {

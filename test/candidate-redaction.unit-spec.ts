@@ -86,11 +86,7 @@ describe('redactGatedCandidates', () => {
     const [denied] = redactGatedCandidates([factCandidate('tier')], ['brain:read'], ctx);
     expect(isRedacted(denied!)).toBe(true);
     // A different predicate the rule doesn't target stays visible.
-    const [kept] = redactGatedCandidates(
-      [factCandidate('preference')],
-      ['brain:read'],
-      ctx,
-    );
+    const [kept] = redactGatedCandidates([factCandidate('preference')], ['brain:read'], ctx);
     expect(kept!.payload.object).toBe('secret value');
   });
 

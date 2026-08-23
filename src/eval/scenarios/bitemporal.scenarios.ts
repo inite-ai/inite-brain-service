@@ -227,9 +227,21 @@ export const bitemporalScenarios: Scenario[] = [
       },
     ],
     queries: [
-      { query: 'Yara Castillo', expectedTopEntityRef: 'rent.allen_contains', asOf: ISO('2026-02-15') },
-      { query: 'Yara Castillo', expectedTopEntityRef: 'rent.allen_contains', asOf: ISO('2026-06-15') },
-      { query: 'Yara Castillo', expectedTopEntityRef: 'rent.allen_contains', asOf: ISO('2026-11-15') },
+      {
+        query: 'Yara Castillo',
+        expectedTopEntityRef: 'rent.allen_contains',
+        asOf: ISO('2026-02-15'),
+      },
+      {
+        query: 'Yara Castillo',
+        expectedTopEntityRef: 'rent.allen_contains',
+        asOf: ISO('2026-06-15'),
+      },
+      {
+        query: 'Yara Castillo',
+        expectedTopEntityRef: 'rent.allen_contains',
+        asOf: ISO('2026-11-15'),
+      },
     ],
   },
 
@@ -267,8 +279,16 @@ export const bitemporalScenarios: Scenario[] = [
       },
     ],
     queries: [
-      { query: 'Tomas Alvarez', expectedTopEntityRef: 'rent.allen_starts', asOf: ISO('2026-05-15') },
-      { query: 'Tomas Alvarez', expectedTopEntityRef: 'rent.allen_starts', asOf: ISO('2026-08-15') },
+      {
+        query: 'Tomas Alvarez',
+        expectedTopEntityRef: 'rent.allen_starts',
+        asOf: ISO('2026-05-15'),
+      },
+      {
+        query: 'Tomas Alvarez',
+        expectedTopEntityRef: 'rent.allen_starts',
+        asOf: ISO('2026-08-15'),
+      },
     ],
   },
 
@@ -345,7 +365,11 @@ export const bitemporalScenarios: Scenario[] = [
       },
     ],
     queries: [
-      { query: 'Priya Iyengar', expectedTopEntityRef: 'rent.allen_equals', asOf: ISO('2026-06-15') },
+      {
+        query: 'Priya Iyengar',
+        expectedTopEntityRef: 'rent.allen_equals',
+        asOf: ISO('2026-06-15'),
+      },
     ],
   },
 
@@ -383,9 +407,21 @@ export const bitemporalScenarios: Scenario[] = [
       },
     ],
     queries: [
-      { query: 'Ravi Sharma', expectedTopEntityRef: 'rent.allen_overlapped_by', asOf: ISO('2026-05-15') },
-      { query: 'Ravi Sharma', expectedTopEntityRef: 'rent.allen_overlapped_by', asOf: ISO('2026-07-01') },
-      { query: 'Ravi Sharma', expectedTopEntityRef: 'rent.allen_overlapped_by', asOf: ISO('2026-08-15') },
+      {
+        query: 'Ravi Sharma',
+        expectedTopEntityRef: 'rent.allen_overlapped_by',
+        asOf: ISO('2026-05-15'),
+      },
+      {
+        query: 'Ravi Sharma',
+        expectedTopEntityRef: 'rent.allen_overlapped_by',
+        asOf: ISO('2026-07-01'),
+      },
+      {
+        query: 'Ravi Sharma',
+        expectedTopEntityRef: 'rent.allen_overlapped_by',
+        asOf: ISO('2026-08-15'),
+      },
     ],
   },
 

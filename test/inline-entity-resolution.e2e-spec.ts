@@ -83,9 +83,7 @@ describe('Inline entity resolution — mention ingest wiring', () => {
     // Mention 1 → mints "Acme Inc" with an `industry` fact.
     f.extractor.setScript({
       entities: [{ name: 'Acme Inc', type: 'customer' }],
-      facts: [
-        { entityIndex: 0, predicate: 'industry', object: 'software', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'industry', object: 'software', confidence: 0.9 }],
       edges: [],
     });
     await ingestMention('first mention about acme');
@@ -99,9 +97,7 @@ describe('Inline entity resolution — mention ingest wiring', () => {
     // Mention 2 → different surface name + a `tier` fact.
     f.extractor.setScript({
       entities: [{ name: 'Acme Incorporated', type: 'customer' }],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 }],
       edges: [],
     });
     await ingestMention('second mention about acme incorporated');
@@ -119,18 +115,14 @@ describe('Inline entity resolution — mention ingest wiring', () => {
 
     f.extractor.setScript({
       entities: [{ name: 'Globex Ltd', type: 'customer' }],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'silver', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'silver', confidence: 0.9 }],
       edges: [],
     });
     await ingestMention('globex first');
 
     f.extractor.setScript({
       entities: [{ name: 'Globex Limited', type: 'customer' }],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 }],
       edges: [],
     });
     await ingestMention('globex second');

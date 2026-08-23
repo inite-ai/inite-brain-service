@@ -20,9 +20,7 @@ import type {
 export const PUBLIC_HISTORY_LIMIT = 50;
 export const PUBLIC_LIST_MAX_LIMIT = 200;
 
-export function toPublicDeclared(
-  declared: DeclaredSource | null,
-): PublicDeclaredSource | null {
+export function toPublicDeclared(declared: DeclaredSource | null): PublicDeclaredSource | null {
   if (!declared) return null;
   return { type: declared.type, authLevel: declared.authLevel };
 }
@@ -44,9 +42,7 @@ export function toPublicSummary(
 
 /** History arrives newest-first from the service — the slice keeps the
  *  50 most recent rows. */
-export function toPublicDetail(
-  detail: SourceDetailResponse,
-): PublicSourceDetailResponse {
+export function toPublicDetail(detail: SourceDetailResponse): PublicSourceDetailResponse {
   return {
     sourceKey: detail.sourceKey,
     declared: toPublicDeclared(detail.declared),
@@ -79,9 +75,7 @@ export function filterAndPage(
       return false;
     }
     if (filter.minSamples !== undefined) {
-      const basis = domainRequested
-        ? (s.domainTrust ?? s.globalTrust)
-        : s.globalTrust;
+      const basis = domainRequested ? (s.domainTrust ?? s.globalTrust) : s.globalTrust;
       if ((basis?.sampleCount ?? 0) < filter.minSamples) return false;
     }
     return true;

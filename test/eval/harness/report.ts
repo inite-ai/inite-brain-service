@@ -39,9 +39,7 @@ export interface AxisReport {
 function nuggetMean(rows: EvalScore[]): number | undefined {
   const graded = rows.filter((s) => typeof s.nuggetScore === 'number');
   if (graded.length === 0) return undefined;
-  return (
-    graded.reduce((a, s) => a + (s.nuggetScore as number), 0) / graded.length
-  );
+  return graded.reduce((a, s) => a + (s.nuggetScore as number), 0) / graded.length;
 }
 
 export function buildAxisReport(scores: EvalScore[]): AxisReport {
@@ -64,9 +62,7 @@ export function buildAxisReport(scores: EvalScore[]): AxisReport {
       return {
         group,
         n: arr.length,
-        judgeAccuracy: j.length
-          ? j.filter((s) => s.judgeCorrect).length / j.length
-          : undefined,
+        judgeAccuracy: j.length ? j.filter((s) => s.judgeCorrect).length / j.length : undefined,
       };
     }),
     abstention: {
@@ -76,10 +72,7 @@ export function buildAxisReport(scores: EvalScore[]): AxisReport {
         : undefined,
     },
     avgPromptTokens: withTokens.length
-      ? Math.round(
-          withTokens.reduce((a, s) => a + (s.promptTokens ?? 0), 0) /
-            withTokens.length,
-        )
+      ? Math.round(withTokens.reduce((a, s) => a + (s.promptTokens ?? 0), 0) / withTokens.length)
       : undefined,
     errored: scores.filter((s) => s.errored).length,
     ...buildNuggetBlock(scores),
@@ -118,15 +111,9 @@ export function estimateHaystackTokens(worlds: EvalWorld[]): number {
   return Math.round(chars / 4);
 }
 
-export function formatSummaryLine(
-  axis: string,
-  report: AxisReport,
-  out: string,
-): string {
+export function formatSummaryLine(axis: string, report: AxisReport, out: string): string {
   const acc =
-    report.judgeAccuracy !== undefined
-      ? `${(100 * report.judgeAccuracy).toFixed(1)}%`
-      : 'n/a';
+    report.judgeAccuracy !== undefined ? `${(100 * report.judgeAccuracy).toFixed(1)}%` : 'n/a';
   return (
     `[${axis}] judge=${acc} (n=${report.judgedN}) ` +
     `abstention=${report.abstention.abstainedRate ?? 'n/a'} ` +

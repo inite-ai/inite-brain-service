@@ -15,10 +15,7 @@ import type { FusedRow } from './types';
  */
 const MAX_EXPANSION_NAMES = 3;
 
-export function buildEntityExpansionQuery(
-  query: string,
-  rows: FusedRow[],
-): string | null {
+export function buildEntityExpansionQuery(query: string, rows: FusedRow[]): string | null {
   const lower = query.toLowerCase();
   const bestByName = new Map<string, number>();
   for (const r of rows) {

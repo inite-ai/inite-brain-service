@@ -10,11 +10,7 @@ import {
   RelationWriteOutcome,
 } from './commit-writer.service';
 import type { StoredDocument } from './document-store.service';
-import {
-  mergeCandidates,
-  MergedFact,
-  MergeResult,
-} from './candidate-merge';
+import { mergeCandidates, MergedFact, MergeResult } from './candidate-merge';
 import type { CandidateKind } from '../indexers/candidate.types';
 
 export interface CommitResult {
@@ -66,10 +62,7 @@ export class CandidateCommitService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  async commitDocument(
-    companyId: string,
-    doc: StoredDocument,
-  ): Promise<CommitResult> {
+  async commitDocument(companyId: string, doc: StoredDocument): Promise<CommitResult> {
     const lockKey = `commit\x00${companyId}\x00${doc.id}`;
     return this.commitLock.run(lockKey, () =>
       traceSpan('brain.commit', () => this.commitLocked(companyId, doc)),
@@ -95,10 +88,7 @@ export class CandidateCommitService {
     return { ...result, deferred: false };
   }
 
-  private async commitLocked(
-    companyId: string,
-    doc: StoredDocument,
-  ): Promise<CommitResult> {
+  private async commitLocked(companyId: string, doc: StoredDocument): Promise<CommitResult> {
     const pending = await this.candidates.loadPending(companyId, doc.id);
     if (pending.length === 0) {
       this.metrics?.countCommitMemory('noop');
@@ -152,9 +142,7 @@ export class CandidateCommitService {
   private async embedBatch(facts: MergedFact[]): Promise<number[][]> {
     if (!facts.length) return [];
     try {
-      return await this.factEmbedding.embedMany(
-        facts.map((f) => `${f.predicate}: ${f.object}`),
-      );
+      return await this.factEmbedding.embedMany(facts.map((f) => `${f.predicate}: ${f.object}`));
     } catch {
       // Same trade as the mention path: pay per-fact embed round-trips in
       // the resolver rather than fail the whole commit on an embedder
@@ -169,23 +157,19 @@ export class CandidateCommitService {
     written: Awaited<ReturnType<CommitWriterService['writeMerged']>>;
   }): StatusUpdate[] {
     return [
-      ...p.merge.rejected.map(
-        (r): StatusUpdate => ({
-          id: r.candidateId,
-          kind: r.kind,
-          status: 'rejected',
-          statusReason: r.reason,
-        }),
-      ),
+      ...p.merge.rejected.map((r): StatusUpdate => ({
+        id: r.candidateId,
+        kind: r.kind,
+        status: 'rejected',
+        statusReason: r.reason,
+      })),
       ...p.lowConfidence.flatMap((f) =>
-        f.contributors.map(
-          (c): StatusUpdate => ({
-            id: c.candidateId,
-            kind: 'fact',
-            status: 'rejected',
-            statusReason: 'low_confidence',
-          }),
-        ),
+        f.contributors.map((c): StatusUpdate => ({
+          id: c.candidateId,
+          kind: 'fact',
+          status: 'rejected',
+          statusReason: 'low_confidence',
+        })),
       ),
       ...entityUpdates(p.merge, p.written.entityIds),
       ...p.written.facts.flatMap(factUpdates),
@@ -194,10 +178,7 @@ export class CandidateCommitService {
   }
 }
 
-function entityUpdates(
-  merge: MergeResult,
-  entityIds: Map<string, string>,
-): StatusUpdate[] {
+function entityUpdates(merge: MergeResult, entityIds: Map<string, string>): StatusUpdate[] {
   return merge.entities.flatMap((me) => {
     const entityId = entityIds.get(me.key);
     const [leader, ...rest] = me.candidateIds;
@@ -209,15 +190,13 @@ function entityUpdates(
       statusReason: entityId ? undefined : 'entity_resolve_failed',
       commitRef: entityId,
     };
-    const dupUpdates = rest.map(
-      (dup): StatusUpdate => ({
-        id: dup,
-        kind: 'entity',
-        status: 'merged',
-        statusReason: `merged_into:${leader}`,
-        commitRef: entityId,
-      }),
-    );
+    const dupUpdates = rest.map((dup): StatusUpdate => ({
+      id: dup,
+      kind: 'entity',
+      status: 'merged',
+      statusReason: `merged_into:${leader}`,
+      commitRef: entityId,
+    }));
     return [leaderUpdate, ...dupUpdates];
   });
 }
@@ -228,18 +207,16 @@ function factUpdates(fo: FactWriteOutcome): StatusUpdate[] {
     id: fo.fact.leaderId,
     kind: 'fact',
     status: ok ? 'committed' : 'rejected',
-    statusReason: ok ? fo.outcome ?? undefined : 'resolver_rejected',
+    statusReason: ok ? (fo.outcome ?? undefined) : 'resolver_rejected',
     commitRef: fo.factId ?? undefined,
   };
-  const dupUpdates = fo.fact.mergedIds.map(
-    (dup): StatusUpdate => ({
-      id: dup,
-      kind: 'fact',
-      status: ok ? 'merged' : 'rejected',
-      statusReason: ok ? `merged_into:${fo.fact.leaderId}` : 'resolver_rejected',
-      commitRef: fo.factId ?? undefined,
-    }),
-  );
+  const dupUpdates = fo.fact.mergedIds.map((dup): StatusUpdate => ({
+    id: dup,
+    kind: 'fact',
+    status: ok ? 'merged' : 'rejected',
+    statusReason: ok ? `merged_into:${fo.fact.leaderId}` : 'resolver_rejected',
+    commitRef: fo.factId ?? undefined,
+  }));
   return [leaderUpdate, ...dupUpdates];
 }
 
@@ -252,15 +229,13 @@ function relationUpdates(ro: RelationWriteOutcome): StatusUpdate[] {
     statusReason: ok ? undefined : 'edge_write_failed',
     commitRef: ro.edgeId ?? undefined,
   };
-  const dupUpdates = ro.relation.mergedIds.map(
-    (dup): StatusUpdate => ({
-      id: dup,
-      kind: 'relation',
-      status: ok ? 'merged' : 'rejected',
-      statusReason: ok ? `merged_into:${ro.relation.leaderId}` : 'edge_write_failed',
-      commitRef: ro.edgeId ?? undefined,
-    }),
-  );
+  const dupUpdates = ro.relation.mergedIds.map((dup): StatusUpdate => ({
+    id: dup,
+    kind: 'relation',
+    status: ok ? 'merged' : 'rejected',
+    statusReason: ok ? `merged_into:${ro.relation.leaderId}` : 'edge_write_failed',
+    commitRef: ro.edgeId ?? undefined,
+  }));
   return [leaderUpdate, ...dupUpdates];
 }
 

@@ -25,10 +25,7 @@ export class DemoPipelineService {
     private readonly dreams: DreamsService,
   ) {}
 
-  async ingestMention(
-    tenant: string,
-    body: { text: string; vertical?: string | undefined },
-  ) {
+  async ingestMention(tenant: string, body: { text: string; vertical?: string | undefined }) {
     return this.ingest.ingestMention(tenant, {
       text: body.text,
       contextRef: { vertical: body.vertical ?? 'shop' },
@@ -75,9 +72,7 @@ export class DemoPipelineService {
     let autoDedup: { identityLinksCreated?: number } | undefined;
     try {
       const r = await this.dreams.runForTenant(tenant, ['dedup']);
-      autoDedup = r.dedup
-        ? { identityLinksCreated: r.dedup.identityLinksCreated }
-        : undefined;
+      autoDedup = r.dedup ? { identityLinksCreated: r.dedup.identityLinksCreated } : undefined;
     } catch (e) {
       // Auto-dedup is best-effort; an error here MUST NOT fail the
       // ingest. The deep sweep button will still pick it up later.
@@ -117,9 +112,7 @@ export class DemoPipelineService {
         callerScopes: scopes as string[],
       }),
     );
-    const graphHasFacts = graph.results.some(
-      (r) => Array.isArray(r.facts) && r.facts.length > 0,
-    );
+    const graphHasFacts = graph.results.some((r) => Array.isArray(r.facts) && r.facts.length > 0);
     if (graphHasFacts) {
       traceArtifact('demo.strategy', {
         picked: 'graph',

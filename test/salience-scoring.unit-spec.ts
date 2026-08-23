@@ -1,9 +1,6 @@
 import { scoreRows } from '../src/search/internals/scoring';
 import type { FusedRow } from '../src/search/internals/types';
-import {
-  buildDeriverSystem,
-  SALIENCE_GRADING_SYSTEM,
-} from '../src/admin/window-deriver.service';
+import { buildDeriverSystem, SALIENCE_GRADING_SYSTEM } from '../src/admin/window-deriver.service';
 import { resolveExtractionProfile } from '../src/ai/extraction-profile';
 import {
   resolveRetrievalProfile,
@@ -85,9 +82,7 @@ describe('scoreRows salience fold', () => {
 describe('deriver salience prompt separation (V9 §5)', () => {
   it('the extraction prompt NEVER mentions salience — grading is a separate turn', () => {
     expect(buildDeriverSystem()).not.toContain('salience');
-    expect(buildDeriverSystem({ assistantContent: true })).not.toContain(
-      'salience',
-    );
+    expect(buildDeriverSystem({ assistantContent: true })).not.toContain('salience');
   });
 
   it('the grading rubric carries the mass targets and the 0-3 scale', () => {
@@ -101,9 +96,7 @@ describe('deriver salience prompt separation (V9 §5)', () => {
 
 describe('flag plumbing', () => {
   it('DERIVER_SALIENCE_STAMP resolves through the extraction profile', () => {
-    expect(
-      resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSalienceStamp,
-    ).toBe(false);
+    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSalienceStamp).toBe(false);
     expect(
       resolveExtractionProfile({
         DERIVER_SALIENCE_STAMP: '1',
@@ -112,9 +105,7 @@ describe('flag plumbing', () => {
   });
 
   it('RETRIEVAL_SALIENCE_SCORING resolves + overlays per tenant', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).salienceScoring,
-    ).toBe(false);
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).salienceScoring).toBe(false);
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_SALIENCE_SCORING: '1',
@@ -126,8 +117,6 @@ describe('flag plumbing', () => {
       }),
     } as NodeJS.ProcessEnv;
     expect(resolveRetrievalProfileFor('salco', env).salienceScoring).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).salienceScoring).toBe(
-      false,
-    );
+    expect(resolveRetrievalProfileFor('other', env).salienceScoring).toBe(false);
   });
 });

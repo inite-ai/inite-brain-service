@@ -22,9 +22,7 @@ describe('isGroundedSpan word-boundary', () => {
   });
 
   it('grounds a multi-word span', () => {
-    expect(
-      isGroundedSpan(norm('moved to New York City'), norm('New York')),
-    ).toBe(true);
+    expect(isGroundedSpan(norm('moved to New York City'), norm('New York'))).toBe(true);
   });
 
   it('keeps plain-substring semantics for unspaced (CJK) scripts', () => {
@@ -123,7 +121,10 @@ describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () =>
     const empty: RawExtractedFact[] = [
       { entityIndex: 0, clauseIndex: undefined, predicate: 'x', valueSpan: '', confidence: 0.5 },
     ];
-    const { facts, dropped } = applyGroundingGate('anything', empty, { clauses: [], allowUngrounded: true });
+    const { facts, dropped } = applyGroundingGate('anything', empty, {
+      clauses: [],
+      allowUngrounded: true,
+    });
     expect(facts).toHaveLength(0);
     expect(dropped[0]!.reason).toBe('empty');
   });
@@ -140,15 +141,13 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
   };
 
   it('isObjectGroundedInSpan: subset of span words passes, new words fail', () => {
-    expect(
-      isObjectGroundedInSpan('camped in the mountains with my kids', 'the mountains'),
-    ).toBe(true);
-    expect(
-      isObjectGroundedInSpan('camped in the mountains with my kids', 'mountains'),
-    ).toBe(true);
-    expect(
-      isObjectGroundedInSpan('camped in the mountains with my kids', 'hiking trip'),
-    ).toBe(false);
+    expect(isObjectGroundedInSpan('camped in the mountains with my kids', 'the mountains')).toBe(
+      true,
+    );
+    expect(isObjectGroundedInSpan('camped in the mountains with my kids', 'mountains')).toBe(true);
+    expect(isObjectGroundedInSpan('camped in the mountains with my kids', 'hiking trip')).toBe(
+      false,
+    );
     expect(isObjectGroundedInSpan('anything', '')).toBe(false);
   });
 
@@ -190,13 +189,9 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
   });
 
   it('objectNormalizationEnabled: flag on, but the open vocabulary wins', () => {
+    expect(objectNormalizationEnabled(resolveExtractionProfile({}))).toBe(false);
     expect(
-      objectNormalizationEnabled(resolveExtractionProfile({})),
-    ).toBe(false);
-    expect(
-      objectNormalizationEnabled(
-        resolveExtractionProfile({ EXTRACTION_OBJECT_NORMALIZE: '1' }),
-      ),
+      objectNormalizationEnabled(resolveExtractionProfile({ EXTRACTION_OBJECT_NORMALIZE: '1' })),
     ).toBe(true);
     expect(
       objectNormalizationEnabled(

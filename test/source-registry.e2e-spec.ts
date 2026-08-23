@@ -40,33 +40,29 @@ describe('source registry + authority activation (Phase 3)', () => {
    * to different-but-similar claims.
    */
   const seedIncumbent = async (entityId: string): Promise<string> => {
-    const embedding = await new StubEmbedder().embed(
-      `field_report: ${CHALLENGE_OBJECT}`,
-    );
-    return f.app
-      .get(SurrealService)
-      .withCompany(f.companyId, async (db: Surreal) => {
-        const [ent] = await db.query<[{ id: unknown }]>(
-          `CREATE ONLY knowledge_entity CONTENT {
+    const embedding = await new StubEmbedder().embed(`field_report: ${CHALLENGE_OBJECT}`);
+    return f.app.get(SurrealService).withCompany(f.companyId, async (db: Surreal) => {
+      const [ent] = await db.query<[{ id: unknown }]>(
+        `CREATE ONLY knowledge_entity CONTENT {
              type: 'location',
              canonicalName: $name,
              externalRefs: $refs
            }`,
-          {
-            name: entityId,
-            refs: { [`ops__${entityId}`]: entityId },
-          },
-        );
-        const eid = String((ent as { id: unknown }).id).split(':')[1];
-        await db.query(
-          `CREATE entity_external_ref CONTENT {
+        {
+          name: entityId,
+          refs: { [`ops__${entityId}`]: entityId },
+        },
+      );
+      const eid = String((ent as { id: unknown }).id).split(':')[1];
+      await db.query(
+        `CREATE entity_external_ref CONTENT {
              key: $key,
              entity: type::record('knowledge_entity', $eid)
            }`,
-          { key: `ops__${entityId}`, eid },
-        );
-        const [fact] = await db.query<[{ id: unknown }]>(
-          `CREATE ONLY knowledge_fact CONTENT {
+        { key: `ops__${entityId}`, eid },
+      );
+      const [fact] = await db.query<[{ id: unknown }]>(
+        `CREATE ONLY knowledge_fact CONTENT {
              entityId: type::record('knowledge_entity', $eid),
              predicate: 'field_report',
              object: 'capacity problems reported at the amsterdam office',
@@ -76,10 +72,10 @@ describe('source registry + authority activation (Phase 3)', () => {
              embedding: $embedding,
              status: 'active'
            }`,
-          { eid, src: JUNIOR, embedding },
-        );
-        return String((fact as { id: unknown }).id);
-      });
+        { eid, src: JUNIOR, embedding },
+      );
+      return String((fact as { id: unknown }).id);
+    });
   };
 
   beforeAll(async () => {
@@ -103,14 +99,17 @@ describe('source registry + authority activation (Phase 3)', () => {
   // so the pair enters the bitemporal competing set WITHOUT tripping the
   // Phase-4 exact-object corroboration branch.
   const challenge = (source: object, entityId: string) =>
-    f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'ops', id: entityId },
-      predicate: 'field_report',
-      object: CHALLENGE_OBJECT,
-      validFrom: '2026-06-01T00:00:00Z',
-      source,
-      confidence: 1.0,
-    });
+    f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'ops', id: entityId },
+        predicate: 'field_report',
+        object: CHALLENGE_OBJECT,
+        validFrom: '2026-06-01T00:00:00Z',
+        source,
+        confidence: 1.0,
+      });
 
   it('declares a source and reads it back joined with reputation', async () => {
     const put = await f.http
@@ -133,9 +132,7 @@ describe('source registry + authority activation (Phase 3)', () => {
 
     const list = await f.http.get('/v1/admin/sources').set(auth());
     expect(list.status).toBe(200);
-    const line = list.body.sources.find(
-      (s: any) => s.sourceKey === SENIOR_KEY,
-    );
+    const line = list.body.sources.find((s: any) => s.sourceKey === SENIOR_KEY);
     expect(line.declared.authLevel).toBe(1.0);
 
     // Malformed declares are 400s, not silent policy downgrades.
@@ -160,28 +157,27 @@ describe('source registry + authority activation (Phase 3)', () => {
       'hq_control',
     );
     expect(controlChallenge.body.outcome).toBe('COMPETING');
-    expect(controlChallenge.body.competingFactIds).toContain(
-      controlIncumbentId,
-    );
+    expect(controlChallenge.body.competingFactIds).toContain(controlIncumbentId);
 
     // Same conflict, but the challenger's source carries a declared
     // authLevel of 1.0 (registered in the previous test): margin 0.16.
     const incumbentId = await seedIncumbent('hq_live');
-    const live = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'ops', id: 'hq_live' },
-      predicate: 'field_report',
-      object: CHALLENGE_OBJECT,
-      validFrom: '2026-06-01T00:00:00Z',
-      source: SENIOR,
-      confidence: 1.0,
-      explain: true,
-    });
+    const live = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'ops', id: 'hq_live' },
+        predicate: 'field_report',
+        object: CHALLENGE_OBJECT,
+        validFrom: '2026-06-01T00:00:00Z',
+        source: SENIOR,
+        confidence: 1.0,
+        explain: true,
+      });
     expect(live.body.outcome).toBe('SUPERSEDED');
     expect(live.body.supersededFactIds).toContain(incumbentId);
     // The decomposition names authority as a live component now.
-    expect(
-      live.body.conflictExplanation.scoreBreakdown.winner.authority,
-    ).toBeCloseTo(0.1);
+    expect(live.body.conflictExplanation.scoreBreakdown.winner.authority).toBeCloseTo(0.1);
   });
 
   it('get_source_reputation is served through the sources service', async () => {

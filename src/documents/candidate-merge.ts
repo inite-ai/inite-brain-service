@@ -115,9 +115,7 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     const type = normalizeType(p.type);
     const nameKey = joinKey(type, foldName(p.name));
     const canonical =
-      typeof p.canonical === 'string' && p.canonical.trim()
-        ? p.canonical
-        : undefined;
+      typeof p.canonical === 'string' && p.canonical.trim() ? p.canonical : undefined;
     dsu.add(nameKey);
     if (canonical) dsu.union(nameKey, joinKey(type, foldName(canonical)));
     items.push({ row, name: p.name, canonical, nameKey });
@@ -126,10 +124,7 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
   const entities = new Map<string, MergedEntity>();
   for (const it of items) {
     const key = dsu.find(it.nameKey);
-    ctx.scopeToKey.set(
-      scopeRef(it.row.runId, it.row.chunkSeq, it.row.payload.entityIndex),
-      key,
-    );
+    ctx.scopeToKey.set(scopeRef(it.row.runId, it.row.chunkSeq, it.row.payload.entityIndex), key);
     const existing = entities.get(key);
     if (existing) {
       existing.candidateIds.push(it.row.id);
@@ -189,9 +184,7 @@ function mergeFacts(rows: CandidateRow[], ctx: MergeContext): MergedFact[] {
   for (const row of rows) {
     if (row.kind !== 'fact') continue;
     const p = row.payload;
-    const entityKey = ctx.scopeToKey.get(
-      scopeRef(row.runId, row.chunkSeq, p.entityIndex),
-    );
+    const entityKey = ctx.scopeToKey.get(scopeRef(row.runId, row.chunkSeq, p.entityIndex));
     if (!entityKey) {
       ctx.rejected.push({ candidateId: row.id, kind: 'fact', reason: 'orphan_entity' });
       continue;
@@ -252,8 +245,7 @@ function foldFactIntoGroup(p: {
     group.recorder = contributor.indexerId;
     group.entropy = numOrUndefined(payload.extractionEntropy);
     group.clause =
-      (typeof payload.clause === 'string' ? payload.clause : undefined) ??
-      group.clause;
+      (typeof payload.clause === 'string' ? payload.clause : undefined) ?? group.clause;
   } else {
     group.mergedIds.push(row.id);
   }
@@ -265,12 +257,8 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
   for (const row of rows) {
     if (row.kind !== 'relation') continue;
     const p = row.payload;
-    const fromKey = ctx.scopeToKey.get(
-      scopeRef(row.runId, row.chunkSeq, p.fromEntityIndex),
-    );
-    const toKey = ctx.scopeToKey.get(
-      scopeRef(row.runId, row.chunkSeq, p.toEntityIndex),
-    );
+    const fromKey = ctx.scopeToKey.get(scopeRef(row.runId, row.chunkSeq, p.fromEntityIndex));
+    const toKey = ctx.scopeToKey.get(scopeRef(row.runId, row.chunkSeq, p.toEntityIndex));
     if (!fromKey || !toKey || fromKey === toKey) {
       ctx.rejected.push({ candidateId: row.id, kind: 'relation', reason: 'orphan_relation' });
       continue;
@@ -295,10 +283,7 @@ function mergeRelations(rows: CandidateRow[], ctx: MergeContext): MergedRelation
 }
 
 /** "predicate: object" strings per entity — feeds the inline-resolution judge. */
-export function incomingFactsFor(
-  merge: MergeResult,
-  entityKey: string,
-): string[] {
+export function incomingFactsFor(merge: MergeResult, entityKey: string): string[] {
   return merge.facts
     .filter((f) => f.entityKey === entityKey)
     .map((f) => `${f.predicate}: ${f.object}`);

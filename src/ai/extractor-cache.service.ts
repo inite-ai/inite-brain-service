@@ -42,12 +42,8 @@ export class ExtractorCacheService {
   private misses = 0;
 
   constructor(private readonly config: ConfigService) {
-    const size = parseInt(
-      this.config.get<string>('EXTRACTOR_CACHE_SIZE', '500'),
-      10,
-    );
-    this.enabled =
-      envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
+    const size = parseInt(this.config.get<string>('EXTRACTOR_CACHE_SIZE', '500'), 10);
+    this.enabled = envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
     this.cache = new LRUCache<string, ExtractionResult>(size);
   }
 

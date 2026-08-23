@@ -150,12 +150,9 @@ function usageFactorFor(
   usageFactor: number;
   usageBreakdown: { usage: { readCount: number; usageFactor: number } } | object;
 } {
-  const readCount =
-    typeof row.readCount === 'number' && row.readCount > 0 ? row.readCount : 0;
+  const readCount = typeof row.readCount === 'number' && row.readCount > 0 ? row.readCount : 0;
   const usageFactor =
-    usageBeta > 0 && readCount > 0
-      ? 1 + usageBeta * usageSquash(readCount, usageSaturation)
-      : 1;
+    usageBeta > 0 && readCount > 0 ? 1 + usageBeta * usageSquash(readCount, usageSaturation) : 1;
   return {
     usageFactor,
     usageBreakdown: usageFactor !== 1 ? { usage: { readCount, usageFactor } } : {},
@@ -199,29 +196,19 @@ function timeRangeFactor(
 ): number {
   const vf = row.validFrom ? new Date(String(row.validFrom)).getTime() : NaN;
   if (!Number.isFinite(vf)) return 1;
-  const vuRaw = row.validUntil
-    ? new Date(String(row.validUntil)).getTime()
-    : NaN;
+  const vuRaw = row.validUntil ? new Date(String(row.validUntil)).getTime() : NaN;
   const inRange = Number.isFinite(vuRaw)
     ? vf < range.toMs && range.fromMs < vuRaw
     : vf >= range.fromMs && vf < range.toMs;
   if (inRange) return 1;
-  const mentionRaw = (row.source as { mentionedAt?: unknown } | null)
-    ?.mentionedAt;
+  const mentionRaw = (row.source as { mentionedAt?: unknown } | null)?.mentionedAt;
   const mention = mentionRaw ? new Date(String(mentionRaw)).getTime() : NaN;
-  if (
-    Number.isFinite(mention) &&
-    mention >= range.fromMs &&
-    mention < range.toMs
-  ) {
+  if (Number.isFinite(mention) && mention >= range.fromMs && mention < range.toMs) {
     return 1;
   }
   const upper = Number.isFinite(vuRaw) ? vuRaw : vf;
-  const gapDays =
-    (vf >= range.toMs ? vf - range.toMs : range.fromMs - upper) / 86_400_000;
-  const decay = Math.exp(
-    (-Math.LN2 * Math.max(0, gapDays)) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS,
-  );
+  const gapDays = (vf >= range.toMs ? vf - range.toMs : range.fromMs - upper) / 86_400_000;
+  const decay = Math.exp((-Math.LN2 * Math.max(0, gapDays)) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS);
   return TEMPORAL_OVERLAP_FLOOR + (1 - TEMPORAL_OVERLAP_FLOOR) * decay;
 }
 
@@ -237,16 +224,11 @@ function temporalOverlapFactor(
 ): number {
   const vf = row.validFrom ? new Date(String(row.validFrom)).getTime() : NaN;
   if (!Number.isFinite(vf)) return 1;
-  const vuMs = row.validUntil
-    ? new Date(String(row.validUntil)).getTime()
-    : Infinity;
+  const vuMs = row.validUntil ? new Date(String(row.validUntil)).getTime() : Infinity;
   const vu = Number.isFinite(vuMs) ? vuMs : Infinity;
   if (vf <= anchorMs && anchorMs < vu) return 1;
-  const gapDays =
-    (vf > anchorMs ? vf - anchorMs : anchorMs - vu) / 86_400_000;
-  const decay = Math.exp(
-    (-Math.LN2 * gapDays) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS,
-  );
+  const gapDays = (vf > anchorMs ? vf - anchorMs : anchorMs - vu) / 86_400_000;
+  const decay = Math.exp((-Math.LN2 * gapDays) / TEMPORAL_OVERLAP_HALF_LIFE_DAYS);
   return TEMPORAL_OVERLAP_FLOOR + (1 - TEMPORAL_OVERLAP_FLOOR) * decay;
 }
 
@@ -289,19 +271,14 @@ export function scoreRows({
     // used stays fresh. Unenriched rows decay from recordedAt exactly
     // as before, so the flag off is byte-identical.
     const freshAnchor = row.lastReadAt
-      ? Math.max(
-          new Date(row.recordedAt).getTime(),
-          new Date(row.lastReadAt).getTime(),
-        )
+      ? Math.max(new Date(row.recordedAt).getTime(), new Date(row.lastReadAt).getTime())
       : new Date(row.recordedAt).getTime();
     const ageDays = (now - freshAnchor) / 86_400_000;
     const decay =
       policy.decayHalfLifeDays === null
         ? 1
         : Math.exp((-Math.LN2 * ageDays) / policy.decayHalfLifeDays);
-    const calibratedConfidence = calibrator
-      ? calibrator.calibrate(row.confidence)
-      : row.confidence;
+    const calibratedConfidence = calibrator ? calibrator.calibrate(row.confidence) : row.confidence;
 
     // fact_trust (Phase 5): the write-time snapshot ladder. Multiplicative
     // ranking semantics, kept OUT of the resolver's weighted sum — see the
@@ -329,9 +306,7 @@ export function scoreRows({
       sourceReputation,
       authority,
       corroborationCount,
-      evidenceCount: Array.isArray(row.source?.evidence)
-        ? row.source.evidence.length
-        : 0,
+      evidenceCount: Array.isArray(row.source?.evidence) ? row.source.evidence.length : 0,
       trustFactor,
       corroborationFactor,
       authorityFactor,
@@ -348,11 +323,7 @@ export function scoreRows({
     // scorer when SEARCH_USAGE_RANKING_ENABLED attached it; β > 0 is the
     // strength gate. Either off, or a fact search never surfaced → 1.0 →
     // byte-identical ranking.
-    const { usageFactor, usageBreakdown } = usageFactorFor(
-      row,
-      usageBeta,
-      usageSaturation,
-    );
+    const { usageFactor, usageBreakdown } = usageFactorFor(row, usageBeta, usageSaturation);
     const finalScore =
       row.fusedScore *
       decay *
@@ -421,10 +392,7 @@ export function bucketByEntity(scored: ScoredRow[]): Map<string, EntityBucket> {
     for (const f of sortedFacts) {
       // 0082: cap on the canonical predicate — coinages of one canon
       // share a diversity bucket instead of each getting their own.
-      const key = diversityKey(
-        f.row.predicateAlias ?? f.row.predicate,
-        f.row.object,
-      );
+      const key = diversityKey(f.row.predicateAlias ?? f.row.predicate, f.row.object);
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
       if (f.score === bucket.bestScore && !skippedBest) {

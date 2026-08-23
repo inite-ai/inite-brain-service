@@ -48,11 +48,7 @@ describe('user-profile wire contract', () => {
     expect(Object.keys(UserProfileResponseSchema.shape).sort()).toEqual(
       Object.keys(fullProfile).sort(),
     );
-    expect(Object.keys(ProfileSectionSchema.shape).sort()).toEqual(
-      Object.keys(fullSection).sort(),
-    );
-    expect(Object.keys(ProfileFactSchema.shape).sort()).toEqual(
-      Object.keys(fullFact).sort(),
-    );
+    expect(Object.keys(ProfileSectionSchema.shape).sort()).toEqual(Object.keys(fullSection).sort());
+    expect(Object.keys(ProfileFactSchema.shape).sort()).toEqual(Object.keys(fullFact).sort());
   });
 });

@@ -1,7 +1,4 @@
-import {
-  ReadPinService,
-  derivedVersionFence,
-} from '../src/episodes/read-pin.service';
+import { ReadPinService, derivedVersionFence } from '../src/episodes/read-pin.service';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { ProjectionRegistryService } from '../src/episodes/projection-registry.service';
 

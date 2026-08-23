@@ -70,9 +70,7 @@ describe('scoreRows temporal anchor (overlap factor via breakdown)', () => {
     })[0]!.breakdown.temporalOverlap;
 
   it('interval containing the anchor → factor 1 (omitted)', () => {
-    expect(
-      factorOf(row('2023-01-01T00:00:00Z', '2024-01-01T00:00:00Z')),
-    ).toBeUndefined();
+    expect(factorOf(row('2023-01-01T00:00:00Z', '2024-01-01T00:00:00Z'))).toBeUndefined();
     expect(factorOf(row('2023-01-01T00:00:00Z'))).toBeUndefined();
   });
 
@@ -126,9 +124,7 @@ describe('profile temporalMode resolution', () => {
     delete process.env.RETRIEVAL_TEMPORAL_MODE;
     expect(resolveRetrievalProfileFor('co_x').temporalMode).toBe('filter');
     process.env.RETRIEVAL_TEMPORAL_MODE = 'overlap_boost';
-    expect(resolveRetrievalProfileFor('co_x').temporalMode).toBe(
-      'overlap_boost',
-    );
+    expect(resolveRetrievalProfileFor('co_x').temporalMode).toBe('overlap_boost');
     const profile = resolveRetrievalProfileFor('co_y', {
       ...process.env,
       RETRIEVAL_TEMPORAL_MODE: 'filter',

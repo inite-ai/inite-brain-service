@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { IngestService } from '../ingest/ingest.service';
-import type {
-  SetupFactStep,
-  SetupMentionStep,
-  SetupLinkStep,
-} from '../eval/types';
+import type { SetupFactStep, SetupMentionStep, SetupLinkStep } from '../eval/types';
 
 /**
  * Write phase of a scenario run: the three additive ingest steps
@@ -35,9 +31,7 @@ export class ScenarioWriteService {
     await this.ingest.ingestMention(companyId, {
       text: step.text,
       contextRef: step.contextRef,
-      ...(step.knownEntities !== undefined
-        ? { knownEntities: step.knownEntities }
-        : {}),
+      ...(step.knownEntities !== undefined ? { knownEntities: step.knownEntities } : {}),
       emittedAt: step.emittedAt,
     });
   }

@@ -71,9 +71,7 @@ describe('anchorQuote — code-point offsets (astral chars)', () => {
     // UTF-16 indexOf would say 3; code points say 2.
     expect(span!.start).toBe(2);
     expect(span!.end).toBe(16);
-    expect([...text].slice(span!.start, span!.end).join('')).toBe(
-      'marks the spot',
-    );
+    expect([...text].slice(span!.start, span!.end).join('')).toBe('marks the spot');
   });
 
   it('a quote containing astral chars counts them as one position each', () => {

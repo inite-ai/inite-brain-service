@@ -5,10 +5,7 @@
  */
 import { ConfigService } from '@nestjs/config';
 import { CompactionRunnerService } from '../src/compaction/compaction-runner.service';
-import type {
-  FactToSummarize,
-  SummaryGenerator,
-} from '../src/compaction/summary-generator';
+import type { FactToSummarize, SummaryGenerator } from '../src/compaction/summary-generator';
 import type { SurrealService } from '../src/db/surreal.service';
 
 class StubConfig {
@@ -83,7 +80,7 @@ function rows(specs: Array<Partial<CandidateRow> & { id: string }>): CandidateRo
     entityId: 'knowledge_entity:e1',
     predicate: 'tier',
     object: `value_${i}`,
-    validFrom: `2025-${String(i % 12 + 1).padStart(2, '0')}-01T00:00:00Z`,
+    validFrom: `2025-${String((i % 12) + 1).padStart(2, '0')}-01T00:00:00Z`,
     confidence: 0.8,
     ...s,
   }));
@@ -189,16 +186,48 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     const { surreal, calls, created } = makeFakeSurreal({
       co_a: {
         rows: rows([
-          { id: 'fact:1', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'gold', validFrom: '2025-01-01T00:00:00Z' },
-          { id: 'fact:2', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'platinum', validFrom: '2025-04-01T00:00:00Z' },
-          { id: 'fact:3', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'diamond', validFrom: '2025-07-01T00:00:00Z' },
-          { id: 'fact:4', entityId: 'knowledge_entity:e2', predicate: 'name', object: 'Anna', validFrom: '2025-01-15T00:00:00Z' },
+          {
+            id: 'fact:1',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'gold',
+            validFrom: '2025-01-01T00:00:00Z',
+          },
+          {
+            id: 'fact:2',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'platinum',
+            validFrom: '2025-04-01T00:00:00Z',
+          },
+          {
+            id: 'fact:3',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'diamond',
+            validFrom: '2025-07-01T00:00:00Z',
+          },
+          {
+            id: 'fact:4',
+            entityId: 'knowledge_entity:e2',
+            predicate: 'name',
+            object: 'Anna',
+            validFrom: '2025-01-15T00:00:00Z',
+          },
           // Singleton group — should NOT produce a summary
-          { id: 'fact:5', entityId: 'knowledge_entity:e3', predicate: 'lifetime_orders', object: '4', validFrom: '2025-02-01T00:00:00Z' },
+          {
+            id: 'fact:5',
+            entityId: 'knowledge_entity:e3',
+            predicate: 'lifetime_orders',
+            object: '4',
+            validFrom: '2025-02-01T00:00:00Z',
+          },
         ]),
       },
     });
-    const gen = new StubGenerator((g) => `SUMMARY(${g.length}:${g.map((f) => f.object).join(',')})`);
+    const gen = new StubGenerator(
+      (g) => `SUMMARY(${g.length}:${g.map((f) => f.object).join(',')})`,
+    );
 
     const runner = new CompactionRunnerService(
       surreal,
@@ -275,8 +304,20 @@ describe('ConcatSummaryGenerator', () => {
     const { ConcatSummaryGenerator } = await import('../src/compaction/summary-generator');
     const gen = new ConcatSummaryGenerator();
     const text = await gen.generate([
-      { factId: 'a', predicate: 'tier', object: 'gold', validFrom: '2025-01-15T00:00:00Z', confidence: 0.9 },
-      { factId: 'b', predicate: 'tier', object: 'platinum', validFrom: '2025-04-01T00:00:00Z', confidence: 0.95 },
+      {
+        factId: 'a',
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: '2025-01-15T00:00:00Z',
+        confidence: 0.9,
+      },
+      {
+        factId: 'b',
+        predicate: 'tier',
+        object: 'platinum',
+        validFrom: '2025-04-01T00:00:00Z',
+        confidence: 0.95,
+      },
     ]);
     expect(text).toBe('[2025-01-15] tier: gold | [2025-04-01] tier: platinum');
   });
@@ -286,7 +327,13 @@ describe('ConcatSummaryGenerator', () => {
     const gen = new ConcatSummaryGenerator();
     const big = 'x'.repeat(10_000);
     const text = await gen.generate([
-      { factId: 'a', predicate: 'note', object: big, validFrom: '2025-01-15T00:00:00Z', confidence: 0.9 },
+      {
+        factId: 'a',
+        predicate: 'note',
+        object: big,
+        validFrom: '2025-01-15T00:00:00Z',
+        confidence: 0.9,
+      },
     ]);
     expect(text.length).toBe(8_000);
     expect(text.endsWith('...')).toBe(true);

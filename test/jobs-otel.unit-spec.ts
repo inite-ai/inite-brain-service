@@ -31,8 +31,7 @@ describe('Jobs OTel handoff — wire contract', () => {
     // Without an SDK registered, propagation.inject yields an empty
     // carrier (the default propagator is no-op pre-register). We
     // install a manual carrier directly via the API surface.
-    const fakeTraceparent =
-      '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1111111111111111-01';
+    const fakeTraceparent = '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1111111111111111-01';
     const extractedCtx = propagation.extract(context.active(), {
       traceparent: fakeTraceparent,
     });
@@ -60,8 +59,7 @@ describe('Jobs OTel handoff — wire contract', () => {
   });
 
   it('dispatch propagates claim.traceparent as the active OTel context', async () => {
-    const fakeTraceparent =
-      '00-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-2222222222222222-01';
+    const fakeTraceparent = '00-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-2222222222222222-01';
     const claimSvc = {
       identity: () => 'host-test#1',
       renew: jest.fn(async () => ({ stillOwned: true, cancelRequested: false })),
@@ -136,8 +134,7 @@ describe('Jobs OTel handoff — wire contract', () => {
   });
 
   it('claimNext returns claim.traceparent when the row has one', async () => {
-    const traceparent =
-      '00-cccccccccccccccccccccccccccccccc-3333333333333333-01';
+    const traceparent = '00-cccccccccccccccccccccccccccccccc-3333333333333333-01';
     const db = {
       // Real 3.x shape for the 2-statement claim tx: [BEGIN, LET,
       // RETURN row, COMMIT] — runTransaction reads the slot before the

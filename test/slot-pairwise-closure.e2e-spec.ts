@@ -17,10 +17,7 @@
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 
-const deg = (d: number): number[] => [
-  Math.cos((d * Math.PI) / 180),
-  Math.sin((d * Math.PI) / 180),
-];
+const deg = (d: number): number[] => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)];
 
 describe('0085 pairwise closure + competing re-admission (real SurrealDB)', () => {
   let f: AppFixture;
@@ -76,17 +73,12 @@ describe('0085 pairwise closure + competing re-admission (real SurrealDB)', () =
       // C: same day as B, later than A, ≥ gate to BOTH.
       const c = await resolve('moved to the infra org', '2026-01-05', deg(25));
       expect(c.outcome).toBe('SUPERSEDED');
-      expect((c.supersededFactIds ?? []).map(String)).toEqual([
-        String(a.factId),
-      ]);
-      expect((c.competingFactIds ?? []).map(String)).toEqual([
-        String(b.factId),
-      ]);
+      expect((c.supersededFactIds ?? []).map(String)).toEqual([String(a.factId)]);
+      expect((c.competingFactIds ?? []).map(String)).toEqual([String(b.factId)]);
 
-      const [bRow] = await db.query<[Array<{ status: string }>]>(
-        `SELECT status FROM ONLY $id`,
-        { id: b.factId },
-      );
+      const [bRow] = await db.query<[Array<{ status: string }>]>(`SELECT status FROM ONLY $id`, {
+        id: b.factId,
+      });
       expect((bRow as unknown as { status: string }).status).toBe('competing');
 
       // D: strictly later day, ≥ gate to B and C (25°↔50° = 0.906;
@@ -105,9 +97,7 @@ describe('0085 pairwise closure + competing re-admission (real SurrealDB)', () =
           WHERE entityId = knowledge_entity:slot_subj
             AND status = 'active'`,
       );
-      expect((open ?? []).map((r) => String(r.id))).toEqual([
-        String(d.factId),
-      ]);
+      expect((open ?? []).map((r) => String(r.id))).toEqual([String(d.factId)]);
     });
   }, 60_000);
 });

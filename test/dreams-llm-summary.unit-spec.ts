@@ -21,11 +21,7 @@ describe('LlmSummaryGenerator', () => {
     return new LlmSummaryGenerator(cfg);
   }
 
-  function fact(
-    day: string,
-    predicate: string,
-    object: string,
-  ): FactToSummarize {
+  function fact(day: string, predicate: string, object: string): FactToSummarize {
     return {
       factId: `f_${day}`,
       predicate,
@@ -144,13 +140,7 @@ describe('LlmSummaryGenerator', () => {
     // 1000 facts × 35 chars each ≈ 35k.
     const many: FactToSummarize[] = [];
     for (let i = 0; i < 1000; i++) {
-      many.push(
-        fact(
-          `2026-${String((i % 12) + 1).padStart(2, '0')}-01`,
-          'tier',
-          'gold',
-        ),
-      );
+      many.push(fact(`2026-${String((i % 12) + 1).padStart(2, '0')}-01`, 'tier', 'gold'));
     }
     const out = await g.generate(many);
     expect(out.length).toBeLessThanOrEqual(8000);

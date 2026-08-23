@@ -10,9 +10,27 @@ describe('executeIngest resilience', () => {
   const plan: IngestPlan = {
     speakers: [{ entityId: 's__a', name: 'A', validFrom: '2023-01-01T00:00:00Z' }],
     mentions: [
-      { speakerEntityId: 's__a', speakerName: 'A', text: 'm1', validFrom: '2023-01-01T00:00:00Z', sourceMessageId: 'locomo:s:1' },
-      { speakerEntityId: 's__a', speakerName: 'A', text: 'm2', validFrom: '2023-01-01T00:00:00Z', sourceMessageId: 'locomo:s:2' },
-      { speakerEntityId: 's__a', speakerName: 'A', text: 'm3', validFrom: '2023-01-01T00:00:00Z', sourceMessageId: 'locomo:s:3' },
+      {
+        speakerEntityId: 's__a',
+        speakerName: 'A',
+        text: 'm1',
+        validFrom: '2023-01-01T00:00:00Z',
+        sourceMessageId: 'locomo:s:1',
+      },
+      {
+        speakerEntityId: 's__a',
+        speakerName: 'A',
+        text: 'm2',
+        validFrom: '2023-01-01T00:00:00Z',
+        sourceMessageId: 'locomo:s:2',
+      },
+      {
+        speakerEntityId: 's__a',
+        speakerName: 'A',
+        text: 'm3',
+        validFrom: '2023-01-01T00:00:00Z',
+        sourceMessageId: 'locomo:s:3',
+      },
     ],
   };
 

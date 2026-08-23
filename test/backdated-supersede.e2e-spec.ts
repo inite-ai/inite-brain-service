@@ -43,37 +43,46 @@ describe('backdated single_active ingest', () => {
     const entity = { vertical: 'rent', id: 'backdated_customer' };
 
     // Anchor name for search-by-name.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'name',
-      object: 'Backdated Customer',
-      validFrom: oldValidFrom,
-      source: { vertical: 'rent', eventId: 'auth.profile_created' },
-      confidence: 0.95,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'name',
+        object: 'Backdated Customer',
+        validFrom: oldValidFrom,
+        source: { vertical: 'rent', eventId: 'auth.profile_created' },
+        confidence: 0.95,
+      });
 
     // B — the CURRENT value, recorded first (validFrom 30 days ago).
-    const bIngest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'premium',
-      validFrom: newValidFrom,
-      source: { vertical: 'rent', eventId: 'auth.tier_upgraded' },
-      confidence: 0.9,
-    });
+    const bIngest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'premium',
+        validFrom: newValidFrom,
+        source: { vertical: 'rent', eventId: 'auth.tier_upgraded' },
+        confidence: 0.9,
+      });
     expect(bIngest.body.outcome).toBe('INSERTED');
     const bFactId = bIngest.body.factId as string;
 
     // A — arrives LATE with an OLDER validFrom (out-of-order replay).
     // Pre-0043 this displaced B; now it slots in as history.
-    const aIngest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'trial',
-      validFrom: oldValidFrom,
-      source: { vertical: 'rent', eventId: 'auth.signup' },
-      confidence: 0.9,
-    });
+    const aIngest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'trial',
+        validFrom: oldValidFrom,
+        source: { vertical: 'rent', eventId: 'auth.signup' },
+        confidence: 0.9,
+      });
     expect(aIngest.body.outcome).toBe('INSERTED_HISTORICAL');
     expect(aIngest.body.reason).toBe('backdated');
     expect(String(aIngest.body.supersededByFactId)).toBe(bFactId);
@@ -93,14 +102,11 @@ describe('backdated single_active ingest', () => {
     expect(nowObjects).not.toContain('trial');
 
     // asOf BETWEEN the two validFroms: the historical value was in force.
-    const betweenSearch = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({
-        query: 'Backdated Customer status',
-        limit: 5,
-        asOf: asOfBetween,
-      });
+    const betweenSearch = await f.http.post('/v1/search').set(auth()).send({
+      query: 'Backdated Customer status',
+      limit: 5,
+      asOf: asOfBetween,
+    });
     expect(betweenSearch.status).toBe(201);
     const betweenObjects = betweenSearch.body.results
       .flatMap((r: any) => r.facts)
@@ -113,24 +119,30 @@ describe('backdated single_active ingest', () => {
     const entity = { vertical: 'rent', id: 'backdated_same_instant' };
     const ts = new Date(now - 10 * DAY).toISOString();
 
-    const first = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'v1',
-      validFrom: ts,
-      source: { vertical: 'rent', eventId: 'auth.decide' },
-      confidence: 0.9,
-    });
+    const first = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'v1',
+        validFrom: ts,
+        source: { vertical: 'rent', eventId: 'auth.decide' },
+        confidence: 0.9,
+      });
     expect(first.body.outcome).toBe('INSERTED');
 
-    const second = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'v2',
-      validFrom: ts,
-      source: { vertical: 'rent', eventId: 'auth.redecide' },
-      confidence: 0.9,
-    });
+    const second = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'v2',
+        validFrom: ts,
+        source: { vertical: 'rent', eventId: 'auth.redecide' },
+        confidence: 0.9,
+      });
     expect(second.body.outcome).toBe('SUPERSEDED');
     expect(second.body.supersededFactIds).toContain(first.body.factId);
   });

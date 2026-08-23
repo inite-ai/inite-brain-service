@@ -49,10 +49,7 @@ const passthroughJudge: LlmJudge = {
 
 describe('runLocomo qaConcurrency', () => {
   it('preserves LOAD order in the report despite out-of-order completion', async () => {
-    const convs = [
-      conv('c1', ['q0', 'q1', 'q2', 'q3']),
-      conv('c2', ['q4', 'q5', 'q6']),
-    ];
+    const convs = [conv('c1', ['q0', 'q1', 'q2', 'q3']), conv('c2', ['q4', 'q5', 'q6'])];
     const total = 7;
     const report = await runLocomo(convs, reversingAgent(total), {
       qaConcurrency: 4,
@@ -61,10 +58,22 @@ describe('runLocomo qaConcurrency', () => {
     expect(report.scores).toHaveLength(total);
     // Report order == load order (c1's 4 then c2's 3), each matched to its Q.
     expect(report.scores.map((s) => s.question)).toEqual([
-      'q0', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6',
+      'q0',
+      'q1',
+      'q2',
+      'q3',
+      'q4',
+      'q5',
+      'q6',
     ]);
     expect(report.scores.map((s) => s.prediction)).toEqual([
-      'ans:q0', 'ans:q1', 'ans:q2', 'ans:q3', 'ans:q4', 'ans:q5', 'ans:q6',
+      'ans:q0',
+      'ans:q1',
+      'ans:q2',
+      'ans:q3',
+      'ans:q4',
+      'ans:q5',
+      'ans:q6',
     ]);
     // Sample attribution stays correct after the flatten/pool.
     expect(report.scores.slice(0, 4).every((s) => s.sampleId === 'c1')).toBe(true);

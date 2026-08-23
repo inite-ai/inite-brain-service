@@ -40,10 +40,7 @@ export interface LlmJudge {
  * cheap and deterministic. (Abstention golds still call the judge: an
  * empty prediction can be a legitimate decline.)
  */
-export function createOpenAiJudge(
-  client: OpenAiLike,
-  model: string,
-): LlmJudge {
+export function createOpenAiJudge(client: OpenAiLike, model: string): LlmJudge {
   return {
     async grade({ question, gold, prediction, category }) {
       if (!prediction.trim() && !looksLikeAbstention(gold)) {

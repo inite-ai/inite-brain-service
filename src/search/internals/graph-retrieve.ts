@@ -137,9 +137,7 @@ export function assembleGraphHits({
       // keeps the result focused on the asked predicate.
       continue;
     }
-    results.push(
-      renderHit({ ent, rows, hintSet, entityScore: NEIGHBOUR_SCORE }),
-    );
+    results.push(renderHit({ ent, rows, hintSet, entityScore: NEIGHBOUR_SCORE }));
   }
 
   return results;
@@ -208,8 +206,6 @@ function dedupeAndSortFacts(rows: GraphFactRow[]): GraphFactRow[] {
     }
   }
   return [...byKey.values()].sort(
-    (a, b) =>
-      new Date(b.recordedAt ?? 0).getTime() -
-      new Date(a.recordedAt ?? 0).getTime(),
+    (a, b) => new Date(b.recordedAt ?? 0).getTime() - new Date(a.recordedAt ?? 0).getTime(),
   );
 }

@@ -7,10 +7,7 @@ import type { SearchTuning } from '../retrieval-profile';
 import type { EntityBucket } from './types';
 
 /** The shaping slice of SearchTuning; defaults mirror the env defaults. */
-export type ShapingTuning = Pick<
-  SearchTuning,
-  'tokenCountOffload' | 'tokenOffloadMinHits'
->;
+export type ShapingTuning = Pick<SearchTuning, 'tokenCountOffload' | 'tokenOffloadMinHits'>;
 
 /**
  * Assemble final SearchHit rows from the fact-centric top-K bucket
@@ -78,15 +75,13 @@ export function assembleHits({
         ...(row.highlight ? { highlight: row.highlight } : {}),
         // Mention anchor rides in FLEXIBLE `source` (V12 §1) — surface
         // it only when it's the string the deriver stamped.
-        ...(typeof (row.source as { mentionedAt?: unknown } | null)
-          ?.mentionedAt === 'string'
+        ...(typeof (row.source as { mentionedAt?: unknown } | null)?.mentionedAt === 'string'
           ? {
               mentionedAt: (row.source as { mentionedAt: string }).mentionedAt,
             }
           : {}),
         // Scene trace rides the same way (V13 dual-trace encoding).
-        ...(typeof (row.source as { scene?: unknown } | null)?.scene ===
-        'string'
+        ...(typeof (row.source as { scene?: unknown } | null)?.scene === 'string'
           ? { scene: (row.source as { scene: string }).scene }
           : {}),
         score,

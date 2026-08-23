@@ -6,8 +6,7 @@ const log = new Logger('EnvValidation');
 // The placeholder password baked into migration 0005's `DEFINE USER
 // brain_caller`. It is public (lives in the repo), so deploying with it
 // unchanged leaves the scoped account on a known credential.
-const SHIPPED_SCOPED_PASS_DEFAULT =
-  'brain-caller-password-must-be-overridden-via-env';
+const SHIPPED_SCOPED_PASS_DEFAULT = 'brain-caller-password-must-be-overridden-via-env';
 
 /**
  * Validate required environment variables at boot. Fails fast with a
@@ -44,9 +43,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
         }
       }
       if (parsed.length === 0 && env.NODE_ENV === 'production') {
-        warnings.push(
-          'BRAIN_API_KEYS is empty in production — no caller can authenticate',
-        );
+        warnings.push('BRAIN_API_KEYS is empty in production — no caller can authenticate');
       }
     }
   } catch (e) {
@@ -60,9 +57,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
         'FORGET_HMAC_KEY must be set in production — using the default lets anyone forge tombstone hashes',
       );
     } else {
-      warnings.push(
-        'FORGET_HMAC_KEY uses an insecure default. Set it before deploying.',
-      );
+      warnings.push('FORGET_HMAC_KEY uses an insecure default. Set it before deploying.');
     }
   } else if (env.FORGET_HMAC_KEY.length < 32) {
     warnings.push('FORGET_HMAC_KEY is shorter than 32 chars — recommended ≥ 32');
@@ -206,7 +201,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   nonNegativeFloat(env, 'SEARCH_EDGE_EXPANSION_ALPHA', errors);
 
   // ── ABAC policy knobs ──────────────────────────────────────────────
-validateAbacEnv(env, errors);
+  validateAbacEnv(env, errors);
 
   // ── Document ingest knobs (Source → Indexer → Candidates → Brain) ──
   positiveInt(env, 'DOC_MAX_CHARS', errors);
@@ -266,8 +261,7 @@ function validateProductionGuards(
 ): void {
   const isProd = env.NODE_ENV === 'production';
 
-  const haveScoped =
-    !!env.SURREALDB_SCOPED_USER?.trim() && !!env.SURREALDB_SCOPED_PASS?.trim();
+  const haveScoped = !!env.SURREALDB_SCOPED_USER?.trim() && !!env.SURREALDB_SCOPED_PASS?.trim();
   if (!haveScoped) {
     if (isProd) {
       errors.push(
@@ -319,9 +313,7 @@ function validateProcessRole(env: NodeJS.ProcessEnv, errors: string[]): void {
   if (env.PROCESS_ROLE === undefined) return;
   const role = normalizeProcessRole(env.PROCESS_ROLE);
   if (!isProcessRole(role)) {
-    errors.push(
-      `PROCESS_ROLE must be one of api/worker/all (got "${env.PROCESS_ROLE}")`,
-    );
+    errors.push(`PROCESS_ROLE must be one of api/worker/all (got "${env.PROCESS_ROLE}")`);
     return;
   }
   if (role === 'all') return;
@@ -394,10 +386,7 @@ function validateBooleanFlags(env: NodeJS.ProcessEnv, warnings: string[]): void 
  * (WORKER_LOOP_MAX_CONCURRENT_<JOBTYPE>), so sweep every env key with
  * that prefix instead of hard-coding the jobType list.
  */
-function validateWorkerConcurrencyEnv(
-  env: NodeJS.ProcessEnv,
-  errors: string[],
-): void {
+function validateWorkerConcurrencyEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   positiveInt(env, 'WORKER_LOOP_MAX_CONCURRENT', errors);
   positiveInt(env, 'WORKER_LOOP_TENANT_MAX_CONCURRENT', errors);
   nonNegativeInt(env, 'WORKER_LOOP_GLOBAL_MAX_CONCURRENT', errors);
@@ -415,24 +404,15 @@ function validateWorkerConcurrencyEnv(
  * at boot. Overrides only need to parse as an object-of-objects; the
  * per-field validation is lenient inside resolveRetrievalProfileFor.
  */
-function validateRetrievalProfileEnv(
-  env: NodeJS.ProcessEnv,
-  errors: string[],
-): void {
+function validateRetrievalProfileEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   const enums: Array<[string, string[]]> = [
     ['RETRIEVAL_GENRE', ['dialogue', 'assistant_chat', 'documents']],
-    [
-      'RETRIEVAL_VERBATIM_EVIDENCE',
-      ['off', 'shape_conditioned', 'always', 'fused', 'routed'],
-    ],
+    ['RETRIEVAL_VERBATIM_EVIDENCE', ['off', 'shape_conditioned', 'always', 'fused', 'routed']],
     ['RETRIEVAL_INSIGHT_EVIDENCE', ['off', 'routed', 'query_arc']],
     ['RETRIEVAL_TIMELINE_EVIDENCE', ['off', 'routed', 'scan']],
     ['RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw']],
     ['RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms']],
-    [
-      'RETRIEVAL_ABSTENTION_CALIBRATION',
-      ['off', 'coverage', 'verifier', 'minicheck'],
-    ],
+    ['RETRIEVAL_ABSTENTION_CALIBRATION', ['off', 'coverage', 'verifier', 'minicheck']],
     ['RETRIEVAL_DATE_ANCHORING', ['none', 'session_date', 'absolute']],
     ['RETRIEVAL_TEMPORAL_MODE', ['filter', 'overlap_boost']],
     ['RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku']],
@@ -451,9 +431,7 @@ function validateRetrievalProfileEnv(
         parsed === null ||
         typeof parsed !== 'object' ||
         Array.isArray(parsed) ||
-        Object.values(parsed).some(
-          (o) => o === null || typeof o !== 'object' || Array.isArray(o),
-        )
+        Object.values(parsed).some((o) => o === null || typeof o !== 'object' || Array.isArray(o))
       ) {
         errors.push(
           'RETRIEVAL_PROFILE_OVERRIDES must be a JSON object mapping ' +
@@ -461,9 +439,7 @@ function validateRetrievalProfileEnv(
         );
       }
     } catch (e) {
-      errors.push(
-        `RETRIEVAL_PROFILE_OVERRIDES is not valid JSON: ${(e as Error).message}`,
-      );
+      errors.push(`RETRIEVAL_PROFILE_OVERRIDES is not valid JSON: ${(e as Error).message}`);
     }
   }
 }
@@ -754,10 +730,7 @@ export function envFlagNotDisabled(value: string | undefined): boolean {
 }
 
 function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
-  for (const name of [
-    'DOMAIN_PACK_REQUIRE_SIGNATURE',
-    'PACK_REGISTRY_REQUIRE_SIGNATURE',
-  ]) {
+  for (const name of ['DOMAIN_PACK_REQUIRE_SIGNATURE', 'PACK_REGISTRY_REQUIRE_SIGNATURE']) {
     const v = env[name];
     if (v !== undefined && !FLAG_VALUES.has(v.trim().toLowerCase())) {
       errors.push(
@@ -796,10 +769,7 @@ function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
  * catch it at boot instead. REGISTRY_UPSTREAM_TOKEN is a free-form bearer
  * (nothing to validate); the interval shares the positiveInt idiom.
  */
-function validateRegistryMirrorEnv(
-  env: NodeJS.ProcessEnv,
-  errors: string[],
-): void {
+function validateRegistryMirrorEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   const url = env.REGISTRY_UPSTREAM_URL;
   if (url !== undefined && url.trim() !== '') {
     let valid = false;
@@ -844,9 +814,7 @@ function validateBillingEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
       );
     }
   } else if (enabled) {
-    errors.push(
-      'BILLING_SERVICE_URL is required when DOMAIN_PACK_BILLING_ENABLED is on.',
-    );
+    errors.push('BILLING_SERVICE_URL is required when DOMAIN_PACK_BILLING_ENABLED is on.');
   }
   if (enabled && !env.BILLING_SERVICE_API_KEY?.trim()) {
     errors.push(
@@ -880,20 +848,10 @@ function required({
 }
 
 /** Set-but-malformed model ids fail boot loudly; empty/unset = inherit. */
-function modelIdFormat(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  errors: string[],
-): void {
+function modelIdFormat(env: NodeJS.ProcessEnv, name: string, errors: string[]): void {
   const v = env[name];
-  if (
-    v !== undefined &&
-    v.trim() !== '' &&
-    !/^[A-Za-z0-9._:/-]{1,64}$/.test(v.trim())
-  ) {
-    errors.push(
-      `${name} must be a plain model id (letters, digits, . _ : / -, max 64 chars)`,
-    );
+  if (v !== undefined && v.trim() !== '' && !/^[A-Za-z0-9._:/-]{1,64}$/.test(v.trim())) {
+    errors.push(`${name} must be a plain model id (letters, digits, . _ : / -, max 64 chars)`);
   }
 }
 
@@ -906,11 +864,7 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): vo
 }
 
 /** Like positiveInt, but 0 is a valid (usually "feature off") value. */
-function nonNegativeInt(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  errors: string[],
-): void {
+function nonNegativeInt(env: NodeJS.ProcessEnv, name: string, errors: string[]): void {
   const v = env[name];
   if (v === undefined) return;
   if (!/^\d+$/.test(v)) {
@@ -918,11 +872,7 @@ function nonNegativeInt(
   }
 }
 
-function nonNegativeFloat(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  errors: string[],
-): void {
+function nonNegativeFloat(env: NodeJS.ProcessEnv, name: string, errors: string[]): void {
   const v = env[name];
   if (v === undefined) return;
   const n = Number(v);

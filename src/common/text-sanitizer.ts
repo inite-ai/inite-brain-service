@@ -58,8 +58,5 @@ export function sanitizeIngestText<T>(s: T): T {
  * non-strings. Byte-identical to the former pack-tool-render local copy.
  */
 export function sanitizePackText(s: unknown, cap: number): string {
-  return stripUnsafeUnicode(s)
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, cap);
+  return stripUnsafeUnicode(s).replace(/\s+/g, ' ').trim().slice(0, cap);
 }

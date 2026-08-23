@@ -62,19 +62,14 @@ export class JwksService implements OnModuleInit {
     // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
     // surface (e.g. a symmetric key smuggled into the key set). Configurable
     // for issuers that sign with ES256/EdDSA, but default to RS256.
-    this.algorithms = (
-      this.configService.get<string>('AUTH_SERVICE_JWT_ALGS', 'RS256') ?? 'RS256'
-    )
+    this.algorithms = (this.configService.get<string>('AUTH_SERVICE_JWT_ALGS', 'RS256') ?? 'RS256')
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean);
     // In production an unvalidated issuer means a token minted by ANY trusted
     // JWKS (e.g. another tenant's auth realm sharing the key infra) would pass.
     // Refuse to boot rather than fail open.
-    if (
-      this.configService.get<string>('NODE_ENV') === 'production' &&
-      !this.issuer
-    ) {
+    if (this.configService.get<string>('NODE_ENV') === 'production' && !this.issuer) {
       throw new Error(
         'AUTH_SERVICE_ISSUER must be set in production when JWKS verification ' +
           'is enabled — without it the `iss` claim is not validated and any ' +

@@ -133,9 +133,7 @@ describe('SchemaMigrator', () => {
     expect(result.applied).toEqual([]);
     expect(result.alreadyApplied).toEqual(['0001']);
     expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
-    expect(
-      calls.some((c) => c.sql.startsWith('CREATE schema_migrations')),
-    ).toBe(false);
+    expect(calls.some((c) => c.sql.startsWith('CREATE schema_migrations'))).toBe(false);
   });
 
   it('tolerates a concurrent applier winning the ledger insert', async () => {

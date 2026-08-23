@@ -9,9 +9,7 @@ import {
   type CollapseSnapshot,
 } from '../src/admin/collapse-pattern.service';
 
-function mkSnap(
-  pairs: Array<[string, string]>,
-): CollapseSnapshot {
+function mkSnap(pairs: Array<[string, string]>): CollapseSnapshot {
   const m = new Map<string, { pattern: string; replacement: string }>();
   for (const [pattern, replacement] of pairs) {
     m.set(pattern.toLowerCase(), { pattern, replacement });
@@ -21,15 +19,11 @@ function mkSnap(
 
 describe('extractCollapseEditsLocally', () => {
   it('returns [] on empty snapshot', () => {
-    expect(extractCollapseEditsLocally('moved to Berlin', mkSnap([]))).toEqual(
-      [],
-    );
+    expect(extractCollapseEditsLocally('moved to Berlin', mkSnap([]))).toEqual([]);
   });
 
   it('returns [] on empty message', () => {
-    expect(
-      extractCollapseEditsLocally('', mkSnap([['moved to', 'lives in']])),
-    ).toEqual([]);
+    expect(extractCollapseEditsLocally('', mkSnap([['moved to', 'lives in']]))).toEqual([]);
   });
 
   it('matches a known pattern with word boundaries', () => {
@@ -63,10 +57,7 @@ describe('extractCollapseEditsLocally', () => {
       ['moved', 'lives'],
       ['moved from', 'lives in'],
     ]);
-    const out = extractCollapseEditsLocally(
-      'Maria moved from Berlin',
-      snap,
-    );
+    const out = extractCollapseEditsLocally('Maria moved from Berlin', snap);
     expect(out).toHaveLength(1);
     expect(out[0]!.pattern).toBe('moved from');
   });
@@ -76,22 +67,13 @@ describe('extractCollapseEditsLocally', () => {
       ['moved to', 'lives in'],
       ['joined as', 'is the'],
     ]);
-    const out = extractCollapseEditsLocally(
-      'She moved to Dublin and joined as CTO',
-      snap,
-    );
-    expect(out.map((c) => c.pattern).sort()).toEqual([
-      'joined as',
-      'moved to',
-    ]);
+    const out = extractCollapseEditsLocally('She moved to Dublin and joined as CTO', snap);
+    expect(out.map((c) => c.pattern).sort()).toEqual(['joined as', 'moved to']);
   });
 
   it('handles multilingual patterns (Cyrillic)', () => {
     const snap = mkSnap([['переехал в', 'живёт в']]);
-    const out = extractCollapseEditsLocally(
-      'Мария переехал в Берлин',
-      snap,
-    );
+    const out = extractCollapseEditsLocally('Мария переехал в Берлин', snap);
     expect(out).toHaveLength(1);
     expect(out[0]!.replacement).toBe('живёт в');
     expect(out[0]!.span.text).toBe('переехал в');
@@ -99,12 +81,8 @@ describe('extractCollapseEditsLocally', () => {
 
   it('matches at message boundaries', () => {
     const snap = mkSnap([['moved to', 'lives in']]);
-    expect(
-      extractCollapseEditsLocally('moved to Berlin', snap),
-    ).toHaveLength(1);
-    expect(
-      extractCollapseEditsLocally('Maria moved to', snap),
-    ).toHaveLength(1);
+    expect(extractCollapseEditsLocally('moved to Berlin', snap)).toHaveLength(1);
+    expect(extractCollapseEditsLocally('Maria moved to', snap)).toHaveLength(1);
   });
 
   it('preserves source casing in span.text', () => {

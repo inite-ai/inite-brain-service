@@ -45,10 +45,7 @@ export class BillingClientService {
   private readonly logger = new Logger(BillingClientService.name);
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl: typeof fetch = fetch;
-  private readonly entitlementCache = new Map<
-    string,
-    { keys: Set<string>; expiresAt: number }
-  >();
+  private readonly entitlementCache = new Map<string, { keys: Set<string>; expiresAt: number }>();
 
   /** Feature switch — every marketplace surface checks this first.
    *  Off (the default) = self-hosted posture: paid metadata is ignored
@@ -133,14 +130,10 @@ export class BillingClientService {
           source: 'brain_marketplace',
         },
       },
-      ...(args.idempotencyKey
-        ? { headers: { 'idempotency-key': args.idempotencyKey } }
-        : {}),
+      ...(args.idempotencyKey ? { headers: { 'idempotency-key': args.idempotencyKey } } : {}),
     })) as { sessionId?: unknown; checkoutUrl?: unknown };
     if (typeof res?.sessionId !== 'string' || typeof res?.checkoutUrl !== 'string') {
-      throw new BillingUnavailableError(
-        'billing checkout answered without sessionId/checkoutUrl',
-      );
+      throw new BillingUnavailableError('billing checkout answered without sessionId/checkoutUrl');
     }
     return { sessionId: res.sessionId, checkoutUrl: res.checkoutUrl };
   }
@@ -148,10 +141,7 @@ export class BillingClientService {
   /** Does the company hold an active entitlement `key`? TTL-cached per
    *  company; NEVER served stale (expired cache + billing down throws —
    *  the caller decides what fail-closed means for its surface). */
-  async hasEntitlement(args: {
-    companyId: string;
-    key: string;
-  }): Promise<boolean> {
+  async hasEntitlement(args: { companyId: string; key: string }): Promise<boolean> {
     const cached = this.entitlementCache.get(args.companyId);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.keys.has(args.key);
@@ -160,9 +150,7 @@ export class BillingClientService {
       path: `/v1/entitlements/${encodeURIComponent(args.companyId)}`,
       retries: 1,
     })) as BillingEntitlement[];
-    const keys = new Set(
-      (Array.isArray(rows) ? rows : []).map((r) => String(r.key)),
-    );
+    const keys = new Set((Array.isArray(rows) ? rows : []).map((r) => String(r.key)));
     this.entitlementCache.set(args.companyId, {
       keys,
       expiresAt: Date.now() + this.cacheTtlMs(),
@@ -183,10 +171,7 @@ export class BillingClientService {
       path: '/v1/service/catalog/products',
       retries: 1,
     })) as BillingProduct[];
-    return (
-      (Array.isArray(products) ? products : []).find((p) => p.code === code) ??
-      null
-    );
+    return (Array.isArray(products) ? products : []).find((p) => p.code === code) ?? null;
   }
 
   /** One billing HTTP roundtrip: x-api-key auth, per-call timeout, 4xx →
@@ -248,9 +233,7 @@ export class BillingClientService {
         headers: {
           accept: 'application/json',
           'x-api-key': args.apiKey,
-          ...(args.body !== undefined
-            ? { 'content-type': 'application/json' }
-            : {}),
+          ...(args.body !== undefined ? { 'content-type': 'application/json' } : {}),
           ...(args.headers ?? {}),
         },
         ...(args.body !== undefined ? { body: JSON.stringify(args.body) } : {}),

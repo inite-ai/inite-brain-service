@@ -1,16 +1,10 @@
-import {
-  buildDeriverSystem,
-  DERIVER_TYPED_SECTION,
-  TYPED_ATOM_KINDS,
-} from './deriver-client';
+import { buildDeriverSystem, DERIVER_TYPED_SECTION, TYPED_ATOM_KINDS } from './deriver-client';
 
 describe('DERIVER_TYPED_ATOMS (multiworld §10 — typed single-pass derive)', () => {
   it('system prompt gains the atom-types section only under the flag', () => {
     expect(buildDeriverSystem({ typedAtoms: true })).toContain('ATOM TYPES');
     expect(buildDeriverSystem({})).not.toContain('ATOM TYPES');
-    expect(buildDeriverSystem()).toBe(
-      buildDeriverSystem({ typedAtoms: false }),
-    );
+    expect(buildDeriverSystem()).toBe(buildDeriverSystem({ typedAtoms: false }));
   });
 
   it('the prompt vocabulary and the row-builder gate are the same set', () => {

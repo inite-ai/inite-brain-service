@@ -33,10 +33,7 @@ export class ProceduralMemoryService {
     private readonly embedder: EmbedderService,
   ) {}
 
-  async record(
-    companyId: string,
-    args: RecordProcedureArgs,
-  ): Promise<ProcedureRecord> {
+  async record(companyId: string, args: RecordProcedureArgs): Promise<ProcedureRecord> {
     return this.surreal.withCompany(companyId, async (db) => {
       const embedding = await this.embedder.embed(args.trigger);
 
@@ -76,10 +73,7 @@ export class ProceduralMemoryService {
    * (lower priority number wins ties — convention is 100=normal,
    * 0=urgent).
    */
-  async match(
-    companyId: string,
-    args: MatchProcedureArgs,
-  ): Promise<MatchedProcedure[]> {
+  async match(companyId: string, args: MatchProcedureArgs): Promise<MatchedProcedure[]> {
     // Caller-facing reads ride the scoped pool when the caller
     // identifies itself (MCP path) so DB-level PERMISSIONS apply.
     //
@@ -113,9 +107,7 @@ export class ProceduralMemoryService {
 
       const scored: MatchedProcedure[] = [];
       for (const p of rows) {
-        const emb = Array.isArray(p.triggerEmbedding)
-          ? (p.triggerEmbedding as number[])
-          : null;
+        const emb = Array.isArray(p.triggerEmbedding) ? (p.triggerEmbedding as number[]) : null;
         if (!emb) continue;
         const sim = cosineSimilarity(queryEmbedding, emb, qNorm);
         if (sim < minSim) continue;
@@ -132,10 +124,7 @@ export class ProceduralMemoryService {
     });
   }
 
-  async list(
-    companyId: string,
-    args: ListProceduresArgs = {},
-  ): Promise<ProcedureRecord[]> {
+  async list(companyId: string, args: ListProceduresArgs = {}): Promise<ProcedureRecord[]> {
     return this.run(companyId, args.callerScopes, async (db) => {
       const filter = args.includeRetired ? '' : 'WHERE retiredAt IS NONE';
       const rows = await queryRows<ProcedureRowDb>(
@@ -215,9 +204,7 @@ function mapRow(row: ProcedureRowDb): ProcedureRecord {
     action: String(row.action ?? ''),
     priority: typeof row.priority === 'number' ? row.priority : 100,
     decayHalfLifeDays:
-      typeof row.decayHalfLifeDays === 'number'
-        ? row.decayHalfLifeDays
-        : undefined,
+      typeof row.decayHalfLifeDays === 'number' ? row.decayHalfLifeDays : undefined,
     source: (row.source ?? { kind: 'operator' }) as Record<string, unknown>,
     createdAt: toIso(row.createdAt),
     retiredAt: row.retiredAt ? toIso(row.retiredAt) : undefined,

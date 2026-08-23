@@ -42,10 +42,7 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
   });
 
   it('installs a custom pack and seeds its namespaced predicate', async () => {
-    const r = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: MEDICAL_MANIFEST });
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: MEDICAL_MANIFEST });
     expect([200, 201]).toContain(r.status);
     expect(r.body.packId).toBe('medical');
     expect(r.body.predicatesSeeded).toBe(1);
@@ -130,10 +127,7 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     );
     expect(depd?.status).toBe('deprecated');
 
-    const r = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: MEDICAL_MANIFEST });
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: MEDICAL_MANIFEST });
     expect([200, 201]).toContain(r.status);
 
     // The pack must be USABLE again — the predicate back in the active set,
@@ -161,14 +155,9 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
       ...MEDICAL_MANIFEST,
       id: 'badenum',
       version: '1.0.0',
-      predicates: [
-        { ...MEDICAL_MANIFEST.predicates[0], semantics: 'sometimes' },
-      ],
+      predicates: [{ ...MEDICAL_MANIFEST.predicates[0], semantics: 'sometimes' }],
     };
-    const r = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: bad });
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: bad });
     expect(r.status).toBe(400);
     expect(JSON.stringify(r.body)).toMatch(/semantics/);
   });
@@ -228,9 +217,7 @@ describe('/v1/admin/packs — runtime Domain Pack install', () => {
     expect([200, 201]).toContain(i2.status);
 
     const preds = await f.http.get('/v1/admin/predicates').set(auth());
-    const byId = new Map(
-      (preds.body.predicates ?? []).map((p: any) => [p.predicateId, p]),
-    );
+    const byId = new Map((preds.body.predicates ?? []).map((p: any) => [p.predicateId, p]));
     // Redefined: definition is no longer frozen at first-install values.
     expect((byId.get('oncology__stage') as any)?.piiClass).toBe('sensitive');
     expect((byId.get('oncology__stage') as any)?.status).toBe('active');

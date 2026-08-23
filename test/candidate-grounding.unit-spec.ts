@@ -21,9 +21,7 @@ describe('groundExternalBatch', () => {
     const out = groundExternalBatch({
       docText: DOC,
       entities: [entity('Nonexistent Inc', 0), entity('Acme Corp', 1)],
-      facts: [
-        { entityIndex: 1, predicate: 'tier', object: 'gold', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 1, predicate: 'tier', object: 'gold', confidence: 0.9 }],
       relations: [],
     });
     expect(out.entities).toHaveLength(1);
@@ -40,9 +38,7 @@ describe('groundExternalBatch', () => {
     const out = groundExternalBatch({
       docText: DOC,
       entities: [entity('Acme Corp', 0)],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'platinum', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'platinum', confidence: 0.9 }],
       relations: [],
     });
     expect(out.facts).toHaveLength(0);
@@ -55,12 +51,8 @@ describe('groundExternalBatch', () => {
     const out = groundExternalBatch({
       docText: DOC,
       entities: [entity('Ghost LLC', 0), entity('Maria', 1)],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 },
-      ],
-      relations: [
-        { fromEntityIndex: 1, toEntityIndex: 0, kind: 'works_at', confidence: 0.8 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 }],
+      relations: [{ fromEntityIndex: 1, toEntityIndex: 0, kind: 'works_at', confidence: 0.8 }],
     });
     expect(out.facts).toHaveLength(0);
     expect(out.relations).toHaveLength(0);

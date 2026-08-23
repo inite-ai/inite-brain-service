@@ -11,10 +11,8 @@ import { RevocationCacheService } from '../src/auth/revocation-cache.service';
 import { SsfReceiverService } from '../src/auth/ssf-receiver.service';
 
 const ISSUER = 'https://auth.test';
-const SESSION_REVOKED =
-  'https://schemas.openid.net/secevent/caep/event-type/session-revoked';
-const VERIFICATION =
-  'https://schemas.openid.net/secevent/ssf/event-type/verification';
+const SESSION_REVOKED = 'https://schemas.openid.net/secevent/caep/event-type/session-revoked';
+const VERIFICATION = 'https://schemas.openid.net/secevent/ssf/event-type/verification';
 
 class StubConfig {
   constructor(private readonly map: Record<string, string>) {}

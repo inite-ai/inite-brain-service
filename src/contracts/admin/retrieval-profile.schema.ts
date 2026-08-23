@@ -15,13 +15,7 @@ import { z } from 'zod';
 
 export const RetrievalProfileWireSchema = z.object({
   genre: z.enum(['dialogue', 'assistant_chat', 'documents']),
-  verbatimEvidence: z.enum([
-    'off',
-    'shape_conditioned',
-    'always',
-    'fused',
-    'routed',
-  ]),
+  verbatimEvidence: z.enum(['off', 'shape_conditioned', 'always', 'fused', 'routed']),
   insightEvidence: z.enum(['off', 'routed', 'query_arc']),
   timelineEvidence: z.enum(['off', 'routed', 'scan']),
   coverageScanMode: z.enum(['brute', 'hnsw']),
@@ -76,6 +70,4 @@ export const RetrievalProfileResponseSchema = z.object({
   profile: RetrievalProfileWireSchema,
 });
 
-export type RetrievalProfileResponse = z.infer<
-  typeof RetrievalProfileResponseSchema
->;
+export type RetrievalProfileResponse = z.infer<typeof RetrievalProfileResponseSchema>;

@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsObject,
-  IsNumber,
-  Min,
-  Max,
-} from 'class-validator';
+import { IsString, IsOptional, IsObject, IsNumber, Min, Max } from 'class-validator';
 
 export interface LinkRef {
   vertical?: string;
@@ -28,7 +21,10 @@ export class IngestLinkDto {
   @IsString()
   kind!: string;
 
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
   weight?: number;
 
   @IsObject()

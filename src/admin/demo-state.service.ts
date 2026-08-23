@@ -20,11 +20,7 @@ export class DemoStateService {
     try {
       return await this.surreal.withCompany(tenant, async (db) => {
         const [eRows, fRows, lastRows] = await db.query<
-          [
-            Array<{ c: number }>,
-            Array<{ c: number }>,
-            Array<{ recordedAt?: string }>,
-          ]
+          [Array<{ c: number }>, Array<{ c: number }>, Array<{ recordedAt?: string }>]
         >(
           `SELECT count() AS c FROM knowledge_entity WHERE mergedInto IS NONE GROUP ALL;
            SELECT count() AS c FROM knowledge_fact WHERE retractedAt IS NONE GROUP ALL;
@@ -41,9 +37,7 @@ export class DemoStateService {
     }
   }
 
-  async reset(
-    tenant: string,
-  ): Promise<{ dropped: boolean; reason?: string }> {
+  async reset(tenant: string): Promise<{ dropped: boolean; reason?: string }> {
     try {
       await this.surreal.dropCompanyDatabase(tenant);
     } catch (e) {

@@ -26,8 +26,7 @@ function stubLocal(scores: number[]): LocalCrossEncoderProvider {
   } as unknown as LocalCrossEncoderProvider;
 }
 
-const cands = (n: number) =>
-  Array.from({ length: n }, (_, i) => ({ label: `c${i}`, body: '' }));
+const cands = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `c${i}`, body: '' }));
 
 describe('CrossEncoderService — local fallback', () => {
   it('isEnabled() is TRUE with no Cohere and a wired provider (capability)', () => {
@@ -64,16 +63,11 @@ describe('CrossEncoderService — local fallback', () => {
 
   it('isLocalOnly() reflects the active path', () => {
     // No Cohere → local path is active.
-    expect(
-      new CrossEncoderService(cfg({}), stubLocal([])).isLocalOnly(),
-    ).toBe(true);
+    expect(new CrossEncoderService(cfg({}), stubLocal([])).isLocalOnly()).toBe(true);
     // Cohere configured → local is NOT the active path.
-    expect(
-      new CrossEncoderService(
-        cfg({ COHERE_API_KEY: 'k' }),
-        stubLocal([]),
-      ).isLocalOnly(),
-    ).toBe(false);
+    expect(new CrossEncoderService(cfg({ COHERE_API_KEY: 'k' }), stubLocal([])).isLocalOnly()).toBe(
+      false,
+    );
   });
 
   it('ranks deadline-unscored (-Infinity) docs last, stably', async () => {

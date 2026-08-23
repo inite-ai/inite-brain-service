@@ -39,10 +39,7 @@ describe('kendallTauB', () => {
     // x: 1,2,3,4; y: 1,1,2,3 — one tied pair in y
     // pairs: (1,2):dx≠0,dy=0 → tieY; 5 concordant
     // tau_b = 5 / sqrt(6*5) ≈ 0.9129
-    expect(kendallTauB([1, 2, 3, 4], [1, 1, 2, 3])!).toBeCloseTo(
-      5 / Math.sqrt(30),
-      10,
-    );
+    expect(kendallTauB([1, 2, 3, 4], [1, 1, 2, 3])!).toBeCloseTo(5 / Math.sqrt(30), 10);
   });
 });
 
@@ -79,10 +76,7 @@ describe('orderingScoreFromCanon', () => {
 
 describe('splitOrderingResponse', () => {
   it('splits on newlines, trims, drops blanks', () => {
-    expect(splitOrderingResponse('1. Core\n\n  2. Errors  \n')).toEqual([
-      '1. Core',
-      '2. Errors',
-    ]);
+    expect(splitOrderingResponse('1. Core\n\n  2. Errors  \n')).toEqual(['1. Core', '2. Errors']);
   });
 });
 
@@ -110,8 +104,7 @@ describe('createNuggetJudge.scoreQuestion', () => {
       rubric: ['states March 15'],
       prediction: 'No idea.',
     });
-    const prompt = (create.mock.calls[0][0] as any).messages[0]
-      .content as string;
+    const prompt = (create.mock.calls[0][0] as any).messages[0].content as string;
     expect(prompt).toContain('What is the deadline?');
     expect(prompt).toContain('states March 15');
     expect(prompt).not.toContain('<question>');

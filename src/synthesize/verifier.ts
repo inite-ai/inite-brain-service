@@ -125,9 +125,7 @@ function buildVerifierUserMessage({
     sections.push(`${header}\n` + transcriptLines.join('\n'));
   }
   if (insightLines && insightLines.length > 0) {
-    sections.push(
-      `Derived insights (equally valid support):\n` + insightLines.join('\n'),
-    );
+    sections.push(`Derived insights (equally valid support):\n` + insightLines.join('\n'));
   }
   if (dateMathLines && dateMathLines.length > 0) {
     sections.push(
@@ -147,12 +145,9 @@ function buildVerifierUserMessage({
  * deterministic temperature 0 and the tight cap — byte-identical call.
  */
 
-
 export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
   const { openai, metrics, model, topicCoverage } = req;
-  const system = topicCoverage
-    ? VERIFIER_SYSTEM + TOPIC_COVERAGE_ADDENDUM
-    : VERIFIER_SYSTEM;
+  const system = topicCoverage ? VERIFIER_SYSTEM + TOPIC_COVERAGE_ADDENDUM : VERIFIER_SYSTEM;
   const user = buildVerifierUserMessage(req);
   traceArtifact('synthesize.verifier_prompt', {
     system,
@@ -192,9 +187,7 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
                     type: 'array',
                     items: { type: 'string' },
                   },
-                  ...(topicCoverage
-                    ? { questionAnswered: { type: 'boolean' } }
-                    : {}),
+                  ...(topicCoverage ? { questionAnswered: { type: 'boolean' } } : {}),
                 },
                 required: [
                   'verdict',

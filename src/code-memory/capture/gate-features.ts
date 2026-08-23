@@ -80,9 +80,6 @@ export function featurize(
 
 /** Featurize a commit exactly as the serving gate sees it (message + PR body +
  *  parsed signals) — the bridge used by TrainedDecisionClassifier. */
-export function featurizeCommit(
-  commit: CommitInput,
-  config?: FeatureConfig,
-): Map<number, number> {
+export function featurizeCommit(commit: CommitInput, config?: FeatureConfig): Map<number, number> {
   return featurize(commitText(commit), parseCommitSignals(commit), config);
 }

@@ -2,14 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import { DreamsService } from '../src/dreams/dreams.service';
 import type { ApiKeyService } from '../src/auth/api-key.service';
 import type { SurrealService } from '../src/db/surreal.service';
-import type {
-  DreamsDedupService,
-  DedupResult,
-} from '../src/dreams/dedup.service';
-import type {
-  DreamsResolverService,
-  ResolverResult,
-} from '../src/dreams/resolver.service';
+import type { DreamsDedupService, DedupResult } from '../src/dreams/dedup.service';
+import type { DreamsResolverService, ResolverResult } from '../src/dreams/resolver.service';
 import type { CompactionService } from '../src/compaction/compaction.service';
 
 /**
@@ -38,10 +32,7 @@ describe('DreamsService', () => {
 
   function makeSurreal(): SurrealService {
     return {
-      withCompany: async <T>(
-        _companyId: string,
-        fn: (db: unknown) => Promise<T>,
-      ) => fn({}),
+      withCompany: async <T>(_companyId: string, fn: (db: unknown) => Promise<T>) => fn({}),
     } as unknown as SurrealService;
   }
 
@@ -238,12 +229,12 @@ describe('DreamsService', () => {
     expect(out[1]!.error).toMatch(/only tenant b is sad/);
     expect(out[2]!.error).toBeUndefined();
     // ok should fire for the two healthy tenants, failed for the bad one.
-    const okCount = (
-      metrics.countDreams as jest.Mock
-    ).mock.calls.filter((c) => c[0] === 'ok').length;
-    const failedCount = (
-      metrics.countDreams as jest.Mock
-    ).mock.calls.filter((c) => c[0] === 'failed').length;
+    const okCount = (metrics.countDreams as jest.Mock).mock.calls.filter(
+      (c) => c[0] === 'ok',
+    ).length;
+    const failedCount = (metrics.countDreams as jest.Mock).mock.calls.filter(
+      (c) => c[0] === 'failed',
+    ).length;
     expect(okCount).toBe(2);
     expect(failedCount).toBe(1);
   });

@@ -1,13 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import {
-  ReadPinService,
-  derivedVersionFence,
-} from '../episodes/read-pin.service';
-import {
-  makeRowPolicyFilter,
-  type PolicyFilterableRow,
-} from '../policy/row-filter';
+import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
+import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import {
   PER_ASPECT_CAP,
@@ -103,27 +97,22 @@ function compareSections(a: SectionDraft, b: SectionDraft): number {
 
 /** Group by predicate/aspect, cap per aspect, order sections, then cut
  *  to the global budget walking sections in their final order. */
-function assembleSections(
-  rows: ProfileRow[],
-  maxFacts: number,
-): ProfileSectionWire[] {
+function assembleSections(rows: ProfileRow[], maxFacts: number): ProfileSectionWire[] {
   const groups = new Map<string, ProfileFactWire[]>();
   for (const r of rows) {
     const list = groups.get(r.predicate);
     if (list) list.push(toWireFact(r));
     else groups.set(r.predicate, [toWireFact(r)]);
   }
-  const drafts: SectionDraft[] = [...groups.entries()].map(
-    ([aspect, facts]) => {
-      facts.sort(compareFacts);
-      return {
-        aspect,
-        persona: facts.some((f) => f.kind === 'persona_attr'),
-        poolSize: facts.length,
-        facts: facts.slice(0, PER_ASPECT_CAP),
-      };
-    },
-  );
+  const drafts: SectionDraft[] = [...groups.entries()].map(([aspect, facts]) => {
+    facts.sort(compareFacts);
+    return {
+      aspect,
+      persona: facts.some((f) => f.kind === 'persona_attr'),
+      poolSize: facts.length,
+      facts: facts.slice(0, PER_ASPECT_CAP),
+    };
+  });
   drafts.sort(compareSections);
 
   const sections: ProfileSectionWire[] = [];
@@ -143,9 +132,7 @@ function renderProfileText(sections: ProfileSectionWire[]): string {
   const lines: string[] = [];
   for (const s of sections) {
     for (const f of s.facts) {
-      lines.push(
-        `- [${s.aspect}] ${f.statement} (as of ${f.validFrom.slice(0, 10)})`,
-      );
+      lines.push(`- [${s.aspect}] ${f.statement} (as of ${f.validFrom.slice(0, 10)})`);
     }
   }
   return lines.join('\n');
@@ -172,8 +159,7 @@ export class UserProfileService {
   }): Promise<UserProfileWire> {
     const { companyId, userId, callerScopes, maxFacts, lang } = opts;
     const derivedVersion =
-      (await this.readPin?.resolveRead(companyId)) ??
-      ReadPinService.bootstrapRead();
+      (await this.readPin?.resolveRead(companyId)) ?? ReadPinService.bootstrapRead();
     // The read-pin fence for the derived half, UNIONED with the legacy
     // namespace: the profile reads ingested user facts AND the pinned
     // derived world's typed atoms in one pass.
@@ -220,21 +206,17 @@ export class UserProfileService {
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
     });
 
-    const rows = await this.surreal.withScopedCompany(
-      companyId,
-      callerScopes,
-      async (db) => {
-        const [res] = await db.query<[ProfileRow[]]>(
-          `SELECT ${PROFILE_PROJECTION}
+    const rows = await this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
+      const [res] = await db.query<[ProfileRow[]]>(
+        `SELECT ${PROFILE_PROJECTION}
              FROM knowledge_fact
             WHERE ${clauses.join('\n              AND ')}
             ORDER BY validFrom DESC, id ASC
             LIMIT $fetchCap`,
-          params,
-        );
-        return res ?? [];
-      },
-    );
+        params,
+      );
+      return res ?? [];
+    });
     const visible = rows.filter((r) => rowPolicy.filter(r));
     rowPolicy.finish();
     if (rows.length >= FETCH_CAP) {

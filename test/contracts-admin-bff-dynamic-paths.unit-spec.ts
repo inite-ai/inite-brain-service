@@ -13,11 +13,7 @@
 function placeholderToRegex(pattern: string): RegExp {
   const escaped = pattern
     .split('/')
-    .map((seg) =>
-      seg.startsWith(':')
-        ? '[^/]+'
-        : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-    )
+    .map((seg) => (seg.startsWith(':') ? '[^/]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     .join('/');
   return new RegExp(`^${escaped}$`);
 }

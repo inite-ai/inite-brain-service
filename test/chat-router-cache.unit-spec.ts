@@ -60,9 +60,9 @@ describe('ChatRouterCacheService.computeKey', () => {
   });
 
   it('is order-independent within knownNames (stable hash)', () => {
-    expect(
-      svc.computeKey({ ...baseInput, knownNames: ['A', 'B', 'C'] }),
-    ).toBe(svc.computeKey({ ...baseInput, knownNames: ['C', 'A', 'B'] }));
+    expect(svc.computeKey({ ...baseInput, knownNames: ['A', 'B', 'C'] })).toBe(
+      svc.computeKey({ ...baseInput, knownNames: ['C', 'A', 'B'] }),
+    );
   });
 
   it('changes key when predicateVocab differs', () => {
@@ -72,9 +72,9 @@ describe('ChatRouterCacheService.computeKey', () => {
   });
 
   it('is order-independent within predicateVocab', () => {
-    expect(
-      svc.computeKey({ ...baseInput, predicateVocab: ['x', 'y', 'z'] }),
-    ).toBe(svc.computeKey({ ...baseInput, predicateVocab: ['z', 'y', 'x'] }));
+    expect(svc.computeKey({ ...baseInput, predicateVocab: ['x', 'y', 'z'] })).toBe(
+      svc.computeKey({ ...baseInput, predicateVocab: ['z', 'y', 'x'] }),
+    );
   });
 
   it('ignores `now` when message has no temporal', () => {
@@ -119,9 +119,9 @@ describe('ChatRouterCacheService.computeKey', () => {
     const composed = 'café';
     const decomposed = 'café';
     expect(composed).not.toBe(decomposed);
-    expect(
-      svc.computeKey({ ...baseInput, message: composed }),
-    ).toBe(svc.computeKey({ ...baseInput, message: decomposed }));
+    expect(svc.computeKey({ ...baseInput, message: composed })).toBe(
+      svc.computeKey({ ...baseInput, message: decomposed }),
+    );
   });
 });
 
@@ -135,9 +135,7 @@ describe('ChatRouterCacheService get/set', () => {
   });
 
   it('disabled cache always misses and never stores', () => {
-    const svc = new ChatRouterCacheService(
-      mkConfig({ CHAT_ROUTE_CACHE_ENABLED: 'false' }),
-    );
+    const svc = new ChatRouterCacheService(mkConfig({ CHAT_ROUTE_CACHE_ENABLED: 'false' }));
     const key = svc.computeKey(baseInput);
     svc.set(key, stubRoute);
     expect(svc.get(key)).toBeUndefined();
@@ -158,9 +156,7 @@ describe('ChatRouterCacheService get/set', () => {
   });
 
   it('LRU evicts oldest entry past capacity', () => {
-    const svc = new ChatRouterCacheService(
-      mkConfig({ CHAT_ROUTE_CACHE_SIZE: '2' }),
-    );
+    const svc = new ChatRouterCacheService(mkConfig({ CHAT_ROUTE_CACHE_SIZE: '2' }));
     const k1 = svc.computeKey({ ...baseInput, message: 'one' });
     const k2 = svc.computeKey({ ...baseInput, message: 'two' });
     const k3 = svc.computeKey({ ...baseInput, message: 'three' });

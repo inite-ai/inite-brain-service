@@ -46,25 +46,18 @@ export class RerankerService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.openai =
-      createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
+    this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'SEARCH_RERANKER_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('SEARCH_RERANKER_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('SEARCH_RERANKER_CONCURRENCY', '4'), 10),
     );
     // SC_N: number of parallel rerank calls used for permutation
     // self-consistency. 1 = no SC (single call). 3-5 are common
     // in the literature; 3 is the standard default for cost.
-    const rawN = parseInt(
-      this.configService.get<string>('SEARCH_RERANKER_SC_N', '1'),
-      10,
-    );
+    const rawN = parseInt(this.configService.get<string>('SEARCH_RERANKER_SC_N', '1'), 10);
     this.scN = Number.isFinite(rawN) && rawN > 0 ? rawN : 1;
   }
 
@@ -82,10 +75,7 @@ export class RerankerService {
    *
    * Skip when ≤1 candidate or query is empty.
    */
-  async rerank(
-    query: string,
-    candidates: RerankCandidate[],
-  ): Promise<number[]> {
+  async rerank(query: string, candidates: RerankCandidate[]): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     if (!this.isEnabled() || candidates.length <= 1 || !query.trim()) {
       return identity;
@@ -101,13 +91,9 @@ export class RerankerService {
     // Each call sees a unique shuffle of [0..N); the call returns a
     // permutation in the SHUFFLED space, which singleRerank then
     // maps back to parent indices before returning.
-    const orderings = Array.from({ length: this.scN }, () =>
-      shuffle(candidates.map((_, i) => i)),
-    );
+    const orderings = Array.from({ length: this.scN }, () => shuffle(candidates.map((_, i) => i)));
     const settled = await Promise.allSettled(
-      orderings.map((ord) =>
-        this.singleRerank({ query, candidates, presentationOrder: ord }),
-      ),
+      orderings.map((ord) => this.singleRerank({ query, candidates, presentationOrder: ord })),
     );
     const rankings: number[][] = [];
     for (const s of settled) {
@@ -163,34 +149,38 @@ Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every
             attrs: { 'brain.rerank.candidates': candidates.length },
           },
           this.metrics,
-          () => this.openai.chat.completions.create(
-          {
-          model: this.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'reranking',
-              strict: true,
-              schema: {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  ranking: {
-                    type: 'array',
-                    items: { type: 'integer', minimum: 0 },
+          () =>
+            this.openai.chat.completions.create(
+              {
+                model: this.model,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+                response_format: {
+                  type: 'json_schema',
+                  json_schema: {
+                    name: 'reranking',
+                    strict: true,
+                    schema: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        ranking: {
+                          type: 'array',
+                          items: { type: 'integer', minimum: 0 },
+                        },
+                      },
+                      required: ['ranking'],
+                    },
                   },
                 },
-                required: ['ranking'],
+                max_completion_tokens: 256,
+                temperature: 0,
               },
-            },
-          },
-          max_completion_tokens: 256,
-          temperature: 0,
-        }, { signal: getAbortSignal() })),
+              { signal: getAbortSignal() },
+            ),
+        ),
       );
 
       const content = res.choices[0]?.message?.content;

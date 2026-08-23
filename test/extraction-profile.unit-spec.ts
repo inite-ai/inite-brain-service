@@ -7,10 +7,7 @@
  * assembly; the DB→snapshot→prompt round-trip is proven in the e2e.
  */
 import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
-import {
-  buildSystemPrompt,
-  renderExtractionProfiles,
-} from '../src/ai/extractor-internals/prompts';
+import { buildSystemPrompt, renderExtractionProfiles } from '../src/ai/extractor-internals/prompts';
 import type { PackExtractionProfile } from '../src/ai/predicate-registry-internals/types';
 
 const REAL_ESTATE_PROFILE: PackExtractionProfile = {
@@ -47,9 +44,7 @@ describe('renderExtractionProfiles', () => {
   });
 
   it('renders nothing when profiles carry no guidance/fewShot', () => {
-    expect(
-      renderExtractionProfiles([{ packId: 'empty', profile: {} }]),
-    ).toBe('');
+    expect(renderExtractionProfiles([{ packId: 'empty', profile: {} }])).toBe('');
   });
 
   it('renders the guidance, pack id, and few-shot example text', () => {
@@ -63,10 +58,7 @@ describe('renderExtractionProfiles', () => {
   });
 
   it('skips profiles with no content but keeps those with content', () => {
-    const out = renderExtractionProfiles([
-      { packId: 'empty', profile: {} },
-      REAL_ESTATE_PROFILE,
-    ]);
+    const out = renderExtractionProfiles([{ packId: 'empty', profile: {} }, REAL_ESTATE_PROFILE]);
     expect(out).toContain('[pack: real_estate]');
     expect(out).not.toContain('[pack: empty]');
   });

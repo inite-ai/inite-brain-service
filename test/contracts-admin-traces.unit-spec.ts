@@ -39,13 +39,9 @@ describe('AdminEvalController.listTraces() — wire contract', () => {
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
-    const parsed = TracesResponseSchema.safeParse(
-      makeController().listTraces(req),
-    );
+    const parsed = TracesResponseSchema.safeParse(makeController().listTraces(req));
     if (!parsed.success) {
-      throw new Error(
-        `traces drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`traces drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

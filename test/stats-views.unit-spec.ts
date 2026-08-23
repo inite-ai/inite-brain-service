@@ -39,9 +39,8 @@ function viewStatsResults(): unknown[] {
 function makeStatsService(query: jest.Mock) {
   const db = { query };
   const surreal = {
-    withScopedCompany: jest.fn(
-      (_c: string, _s: readonly string[], fn: (d: unknown) => unknown) =>
-        fn(db),
+    withScopedCompany: jest.fn((_c: string, _s: readonly string[], fn: (d: unknown) => unknown) =>
+      fn(db),
     ),
   };
   const svc = new StatsService(surreal as never);

@@ -187,9 +187,7 @@ export function resolveExtractionProfile(
   env: NodeJS.ProcessEnv = process.env,
 ): ExtractionPipelineProfile {
   const open = envFlagEnabled(env.EXTRACTOR_DIALOGUE_PROFILE);
-  const threshold = parseFloat(
-    env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45',
-  );
+  const threshold = parseFloat(env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45');
   return {
     vocabulary: open ? 'open' : 'closed',
     normalizeObjects: envFlagEnabled(env.EXTRACTION_OBJECT_NORMALIZE),

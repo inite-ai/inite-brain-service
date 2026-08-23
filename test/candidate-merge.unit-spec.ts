@@ -24,11 +24,7 @@ const row = (p: {
   payload: p.payload,
 });
 
-const entity = (
-  name: string,
-  entityIndex: number,
-  extra: Record<string, unknown> = {},
-) =>
+const entity = (name: string, entityIndex: number, extra: Record<string, unknown> = {}) =>
   row({
     kind: 'entity',
     payload: { entityIndex, name, type: 'customer', indexerId: '_general' },

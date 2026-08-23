@@ -41,9 +41,7 @@ export class JobDispatcherService {
           traceparent: claim.traceparent,
         })
       : context.active();
-    return context.with(parentCtx, () =>
-      this.dispatchInner(claim, reg, shutdownSignal),
-    );
+    return context.with(parentCtx, () => this.dispatchInner(claim, reg, shutdownSignal));
   }
 
   private async dispatchInner(
@@ -97,10 +95,7 @@ export class JobDispatcherService {
     // reaped out from under us OR if an operator requested cancel.
     let cancelRequested = false;
     let lostClaim = false;
-    const renewIntervalMs = Math.max(
-      1000,
-      Math.floor((reg.ttlSeconds * 1000) / 3),
-    );
+    const renewIntervalMs = Math.max(1000, Math.floor((reg.ttlSeconds * 1000) / 3));
     const renewTimer = setInterval(() => {
       void (async () => {
         const r = await this.claim.renew({
@@ -152,9 +147,7 @@ export class JobDispatcherService {
         // duplicate-work cost was already paid; just bail.
         consumerSpan.setAttribute('job.outcome', 'lost_claim');
         outcome = 'lost_claim';
-        this.logger.warn(
-          `Claim ${claim.runId} lost mid-handler; skipping terminal write`,
-        );
+        this.logger.warn(`Claim ${claim.runId} lost mid-handler; skipping terminal write`);
       } else {
         consumerSpan.setAttribute('job.outcome', 'succeeded');
         outcome = 'succeeded';
@@ -179,9 +172,7 @@ export class JobDispatcherService {
       } else if (lostClaim) {
         consumerSpan.setAttribute('job.outcome', 'lost_claim');
         outcome = 'lost_claim';
-        this.logger.warn(
-          `Claim ${claim.runId} lost mid-handler (handler threw): ${e.message}`,
-        );
+        this.logger.warn(`Claim ${claim.runId} lost mid-handler (handler threw): ${e.message}`);
       } else {
         consumerSpan.setAttribute('job.outcome', 'failed');
         outcome = 'failed';

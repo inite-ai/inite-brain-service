@@ -28,7 +28,7 @@ export function registerProceduralReadTools(
     {
       title: 'Match procedural memory against a context query',
       description:
-        "Cosine-matches procedural memory (curated 'how to' patterns the operator recorded) against a free-text context query. Returns top-K procedures sorted by similarity DESC then priority ASC. Use at the top of an agent loop to surface behaviour rules that should apply — e.g. \"user asks about pricing\" → \"mention they're on platinum tier; they get 20% off\". Procedural memory is the third tier alongside facts (semantic) and episodes (timeline).",
+        'Cosine-matches procedural memory (curated \'how to\' patterns the operator recorded) against a free-text context query. Returns top-K procedures sorted by similarity DESC then priority ASC. Use at the top of an agent loop to surface behaviour rules that should apply — e.g. "user asks about pricing" → "mention they\'re on platinum tier; they get 20% off". Procedural memory is the third tier alongside facts (semantic) and episodes (timeline).',
       inputSchema: {
         query: z.string().describe('Natural-language context'),
         limit: z.number().int().min(1).max(20).optional(),
@@ -45,9 +45,7 @@ export function registerProceduralReadTools(
         callerScopes: scopes,
         query: args.query,
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        ...(args.minSimilarity !== undefined
-          ? { minSimilarity: args.minSimilarity }
-          : {}),
+        ...(args.minSimilarity !== undefined ? { minSimilarity: args.minSimilarity } : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
@@ -72,9 +70,7 @@ export function registerProceduralReadTools(
       const out = await deps.procedural.list(companyId, {
         callerScopes: scopes,
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        ...(args.includeRetired !== undefined
-          ? { includeRetired: args.includeRetired }
-          : {}),
+        ...(args.includeRetired !== undefined ? { includeRetired: args.includeRetired } : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],

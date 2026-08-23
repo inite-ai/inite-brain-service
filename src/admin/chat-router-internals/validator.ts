@@ -219,9 +219,7 @@ export function validateAndAssemble({
   return {
     intent: parsed.intent,
     normalizedMessage,
-    ...(cleanedQuery !== undefined && cleanedQuery !== message
-      ? { cleanedQuery }
-      : {}),
+    ...(cleanedQuery !== undefined && cleanedQuery !== message ? { cleanedQuery } : {}),
     mentions,
     predicateHints,
     ...(asOf ? { asOf } : {}),
@@ -330,11 +328,7 @@ function collectTemporalAnchors({
   }
   let validFrom: TemporalAnchor | undefined;
   if (parsed.intent === 'tell' && parsed.validFrom) {
-    const span = validateSpan(
-      message,
-      normalizedInput,
-      parsed.validFrom.anchorSpan,
-    );
+    const span = validateSpan(message, normalizedInput, parsed.validFrom.anchorSpan);
     if (span && isValidIso(parsed.validFrom.iso)) {
       validFrom = { iso: parsed.validFrom.iso, anchorSpan: span };
       report.validFromStatus = 'grounded';
@@ -425,9 +419,7 @@ function deriveStripTemporalEdits(
   const out: EditOp[] = [];
   for (const anchor of [asOf?.anchorSpan, validFrom?.anchorSpan]) {
     if (!anchor) continue;
-    const overlaps = acceptedSpans.some(
-      (s) => !(s.end <= anchor.start || s.start >= anchor.end),
-    );
+    const overlaps = acceptedSpans.some((s) => !(s.end <= anchor.start || s.start >= anchor.end));
     if (overlaps) continue;
     out.push({ op: 'strip_temporal', sourceSpan: anchor });
   }

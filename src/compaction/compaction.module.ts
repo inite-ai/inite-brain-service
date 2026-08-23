@@ -6,10 +6,7 @@ import { RecomposeService } from './recompose.service';
 import { CompactionQueueService } from './compaction-queue.service';
 import { PromotionRunnerService } from './promotion-runner.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
-import {
-  ConcatSummaryGenerator,
-  type SummaryGenerator,
-} from './summary-generator';
+import { ConcatSummaryGenerator, type SummaryGenerator } from './summary-generator';
 import { LlmSummaryGenerator } from '../dreams/llm-summary.generator';
 import { MetricsModule } from '../metrics/metrics.module';
 import { EpisodesModule } from '../episodes/episodes.module';
@@ -39,11 +36,8 @@ import { envFlagEnabled } from '../common/env-validation';
       provide: SUMMARY_GENERATOR,
       inject: [ConfigService],
       useFactory: (config: ConfigService): SummaryGenerator => {
-        const llmEnabled =
-          envFlagEnabled(config.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
-        return llmEnabled
-          ? new LlmSummaryGenerator(config)
-          : new ConcatSummaryGenerator();
+        const llmEnabled = envFlagEnabled(config.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
+        return llmEnabled ? new LlmSummaryGenerator(config) : new ConcatSummaryGenerator();
       },
     },
   ],

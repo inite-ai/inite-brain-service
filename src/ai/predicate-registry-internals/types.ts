@@ -5,17 +5,8 @@
  */
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
-export type PiiClass =
-  | 'none'
-  | 'identifier'
-  | 'behavioral'
-  | 'text'
-  | 'sensitive';
-export type PredicateStatus =
-  | 'active'
-  | 'proposed'
-  | 'aliased'
-  | 'deprecated';
+export type PiiClass = 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+export type PredicateStatus = 'active' | 'proposed' | 'aliased' | 'deprecated';
 
 export interface PredicateDefinition {
   predicateId: string;
@@ -130,8 +121,7 @@ export const CANONICALIZE_REPORT_FLOOR = 0.6;
 export const DEFAULT_FALLBACK: PredicateDefinition = {
   predicateId: '__default__',
   displayLabel: 'default',
-  description:
-    'Synthesised fallback when a predicate is not in the registry.',
+  description: 'Synthesised fallback when a predicate is not in the registry.',
   datatype: 'string',
   // W3 (audit 2026-08 #2): a predicate NOT in the registry is a coined,
   // open-vocabulary observation — history matters, and `bitemporal`

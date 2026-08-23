@@ -4,11 +4,7 @@
  * post-verification recordTier() calls widen a bucket, and unknown /
  * malformed configuration degrades to the default tier.
  */
-import {
-  recordTier,
-  tierMultiplier,
-  tokenTrackerKey,
-} from '../src/auth/tier-cache';
+import { recordTier, tierMultiplier, tokenTrackerKey } from '../src/auth/tier-cache';
 
 describe('tier-cache', () => {
   const key = tokenTrackerKey('some-bearer-token');

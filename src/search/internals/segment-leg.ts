@@ -91,9 +91,7 @@ function toFactRow(r: SegmentRow, kind: 'vector' | 'lexical'): FactRow {
         : `transcript segment${day ? ` (${day})` : ''}`,
       externalRefs: {},
     },
-    ...(kind === 'vector'
-      ? { simScore: r.score ?? 0 }
-      : { bm25Score: r.score ?? 0 }),
+    ...(kind === 'vector' ? { simScore: r.score ?? 0 } : { bm25Score: r.score ?? 0 }),
   };
 }
 
@@ -115,15 +113,11 @@ export async function runSegmentLegs({
   vectorRows: FactRow[];
   lexicalRows: FactRow[];
 }> {
-  const piiGate = callerScopes.includes('brain:read_pii')
-    ? ''
-    : 'AND piiClass IS NONE';
+  const piiGate = callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
   // Fail-closed user scope (0055, audit W1 #14): segments inherit the
   // window's userId only when unanimous; an unscoped read stays
   // tenant-global rather than serving another user's window.
-  const userGate = userId
-    ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-    : 'AND userId IS NONE';
+  const userGate = userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
   const userParams = userId ? { scopeUserId: userId } : {};
 
   const [denseRes, bm25Res] = await Promise.all([

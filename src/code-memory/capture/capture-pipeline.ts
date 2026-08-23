@@ -33,9 +33,7 @@ export async function runCapturePipeline(opts: {
    * grounded symbol anchor (see anchor/refine.ts). Runs client-side (reads local
    * files); defaults to identity so Phase-1 file anchoring still works.
    */
-  refineAnchor?: (
-    c: import('./types').DecisionCandidate,
-  ) => import('./types').DecisionCandidate;
+  refineAnchor?: (c: import('./types').DecisionCandidate) => import('./types').DecisionCandidate;
   log?: (msg: string) => void;
 }): Promise<CaptureSummary> {
   const { commits, classifier, extractor, sink } = opts;

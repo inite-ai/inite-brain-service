@@ -13,9 +13,11 @@ import { JobDispatcherService } from '../src/jobs/job-dispatcher.service';
 import type { JobClaim } from '../src/jobs/job-claim.service';
 import type { JobType } from '../src/jobs/job-run.service';
 
-function makeClaimSvc(opts: {
-  renewSequence?: Array<{ stillOwned: boolean; cancelRequested: boolean }>;
-} = {}) {
+function makeClaimSvc(
+  opts: {
+    renewSequence?: Array<{ stillOwned: boolean; cancelRequested: boolean }>;
+  } = {},
+) {
   const calls = {
     completed: [] as Array<{ recordId: string; result?: unknown }>,
     failed: [] as Array<{ recordId: string; attempts: number; error: unknown }>,
@@ -35,16 +37,14 @@ function makeClaimSvc(opts: {
     complete: jest.fn(async (input: { recordId: string; result?: unknown }) => {
       calls.completed.push({ recordId: input.recordId, result: input.result });
     }),
-    fail: jest.fn(
-      async (input: { recordId: string; attempts: number; error: unknown }) => {
-        calls.failed.push({
-          recordId: input.recordId,
-          attempts: input.attempts,
-          error: input.error,
-        });
-        return { requeued: true };
-      },
-    ),
+    fail: jest.fn(async (input: { recordId: string; attempts: number; error: unknown }) => {
+      calls.failed.push({
+        recordId: input.recordId,
+        attempts: input.attempts,
+        error: input.error,
+      });
+      return { requeued: true };
+    }),
     cancelled: jest.fn(async (input: { recordId: string; result?: unknown }) => {
       calls.cancelled.push({ recordId: input.recordId, result: input.result });
     }),
@@ -54,14 +54,16 @@ function makeClaimSvc(opts: {
   };
 }
 
-function makeJobClaim(opts: {
-  recordId?: string;
-  runId?: string;
-  jobType?: JobType;
-  companyId?: string;
-  attempts?: number;
-  payload?: Record<string, unknown> | null;
-} = {}): JobClaim {
+function makeJobClaim(
+  opts: {
+    recordId?: string;
+    runId?: string;
+    jobType?: JobType;
+    companyId?: string;
+    attempts?: number;
+    payload?: Record<string, unknown> | null;
+  } = {},
+): JobClaim {
   return {
     recordId: opts.recordId ?? 'job_run:abc',
     runId: opts.runId ?? 'run-uuid-1',
@@ -74,11 +76,7 @@ function makeJobClaim(opts: {
 }
 
 function mkDispatcher(claimSvc: unknown, metrics?: unknown): JobDispatcherService {
-  return new JobDispatcherService(
-    claimSvc as never,
-    undefined,
-    metrics as never,
-  );
+  return new JobDispatcherService(claimSvc as never, undefined, metrics as never);
 }
 
 function callDispatch(
@@ -95,9 +93,7 @@ describe('WorkerLoopService.register', () => {
     const svc = new WorkerLoopService(undefined as never);
     svc.register('dreams', async () => ({}));
     svc.register('compaction', async () => ({}));
-    expect(svc.registeredTypes()).toEqual(
-      expect.arrayContaining(['dreams', 'compaction']),
-    );
+    expect(svc.registeredTypes()).toEqual(expect.arrayContaining(['dreams', 'compaction']));
     expect(svc.registeredTypes()).toHaveLength(2);
   });
 });
@@ -109,10 +105,10 @@ describe('WorkerLoopService shutdown ordering', () => {
   // back to onApplicationShutdown reintroduces the zombie-lease-on-deploy bug.
   it('releases in beforeApplicationShutdown, not onApplicationShutdown', () => {
     const svc = new WorkerLoopService(undefined as never);
-    expect(typeof (svc as unknown as Record<string, unknown>)
-      .beforeApplicationShutdown).toBe('function');
-    expect((svc as unknown as Record<string, unknown>)
-      .onApplicationShutdown).toBeUndefined();
+    expect(typeof (svc as unknown as Record<string, unknown>).beforeApplicationShutdown).toBe(
+      'function',
+    );
+    expect((svc as unknown as Record<string, unknown>).onApplicationShutdown).toBeUndefined();
   });
 
   it('beforeApplicationShutdown stops the poller and resolves', async () => {
@@ -173,9 +169,7 @@ describe('JobDispatcherService.dispatch', () => {
     await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.failed).toHaveLength(1);
     expect(claimSvc.calls.failed[0]!.attempts).toBe(2);
-    expect((claimSvc.calls.failed[0]!.error as Error).message).toBe(
-      'handler boom',
-    );
+    expect((claimSvc.calls.failed[0]!.error as Error).message).toBe('handler boom');
   });
 
   it('routes cancel-requested → cancelled() not failed()', async () => {

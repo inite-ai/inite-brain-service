@@ -28,11 +28,7 @@ export function precision(expected: string[], retrieved: string[]): number {
 }
 
 /** Recall considering only the top-k of a ranked retrieval. */
-export function recallAtK(
-  expected: string[],
-  rankedRetrieved: string[],
-  k: number,
-): number {
+export function recallAtK(expected: string[], rankedRetrieved: string[], k: number): number {
   return recall(expected, rankedRetrieved.slice(0, k));
 }
 

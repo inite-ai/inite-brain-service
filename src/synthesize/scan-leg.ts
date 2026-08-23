@@ -60,9 +60,7 @@ export interface DenseScanLegRequest {
  * mode short of the brute fallback itself throwing — the lanes' outer
  * degrade-to-[] contract stays the single failure boundary.
  */
-export async function runDenseScanLeg<Row>(
-  req: DenseScanLegRequest,
-): Promise<Row[]> {
+export async function runDenseScanLeg<Row>(req: DenseScanLegRequest): Promise<Row[]> {
   const { db, params, k, tuning, logger } = req;
   if (tuning.mode !== 'hnsw') return runBrute(req);
   const kOver = Math.min(k * tuning.overfetch, SCAN_KNN_K_CAP);

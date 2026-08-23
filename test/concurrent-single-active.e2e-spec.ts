@@ -48,9 +48,7 @@ describe('concurrent single_active ingest stays single-active', () => {
         }),
     );
     const results = await Promise.allSettled(reqs);
-    const ok = results.filter(
-      (r) => r.status === 'fulfilled' && r.value.status === 201,
-    ).length;
+    const ok = results.filter((r) => r.status === 'fulfilled' && r.value.status === 201).length;
     // At fan-out == pool size every concurrent resolve converges via the
     // OCC-retry loop, so all should land cleanly (no retry-exhaustion 500s).
     expect(ok).toBe(N);

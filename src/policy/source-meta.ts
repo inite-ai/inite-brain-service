@@ -41,7 +41,9 @@ export function sanitizeSourceMeta(raw: unknown): SanitizeMetaResult {
       (typeof value === 'number' && Number.isFinite(value)) ||
       (typeof value === 'string' && value.length <= SOURCE_META_MAX_VALUE_CHARS);
     if (!ok) {
-      dropped.push(`value of '${key}' must be a boolean, finite number, or string ≤${SOURCE_META_MAX_VALUE_CHARS} chars`);
+      dropped.push(
+        `value of '${key}' must be a boolean, finite number, or string ≤${SOURCE_META_MAX_VALUE_CHARS} chars`,
+      );
       continue;
     }
     if (kept >= SOURCE_META_MAX_KEYS) {

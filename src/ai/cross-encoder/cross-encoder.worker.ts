@@ -38,8 +38,7 @@ type Inbound =
     };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('cross-encoder.worker must be run as a worker_thread');
@@ -60,10 +59,7 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
       env: { cacheDir?: string; allowRemoteModels?: boolean };
       AutoTokenizer: { from_pretrained: (id: string) => Promise<Tokenizer> };
       AutoModelForSequenceClassification: {
-        from_pretrained: (
-          id: string,
-          opts?: { quantized?: boolean },
-        ) => Promise<SeqClassModel>;
+        from_pretrained: (id: string, opts?: { quantized?: boolean }) => Promise<SeqClassModel>;
       };
     };
     // transformers.js v2 ignores the python-style TRANSFORMERS_CACHE / HF_HOME
@@ -73,10 +69,9 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) t.env.cacheDir = cacheDir;
     tokenizer = await t.AutoTokenizer.from_pretrained(cfg.modelId);
-    model = await t.AutoModelForSequenceClassification.from_pretrained(
-      cfg.modelId,
-      { quantized: true },
-    );
+    model = await t.AutoModelForSequenceClassification.from_pretrained(cfg.modelId, {
+      quantized: true,
+    });
   })();
   return warmupPromise;
 }
@@ -87,11 +82,8 @@ async function score(p: {
   deadlineMs?: number;
 }): Promise<number[]> {
   if (!tokenizer || !model) throw new Error('cross-encoder not ready');
-  const deadline =
-    p.deadlineMs && p.deadlineMs > 0 ? Date.now() + p.deadlineMs : undefined;
-  const scores: number[] = new Array(p.documents.length).fill(
-    Number.NEGATIVE_INFINITY,
-  );
+  const deadline = p.deadlineMs && p.deadlineMs > 0 ? Date.now() + p.deadlineMs : undefined;
+  const scores: number[] = new Array(p.documents.length).fill(Number.NEGATIVE_INFINITY);
   for (const [i, doc] of p.documents.entries()) {
     // Deadline check between pairs: a slow host must not blow the caller's
     // stage budget. Unscored docs keep -Infinity and sink to the tail (the
@@ -131,8 +123,6 @@ const onMessage = async (msg: Inbound): Promise<void> => {
 // catastrophic reply()/port failure from becoming an unhandledRejection.
 parentPort.on('message', (msg: Inbound) => {
   void onMessage(msg).catch((err) => {
-    console.error(
-      `cross-encoder worker handler crashed: ${(err as Error).message}`,
-    );
+    console.error(`cross-encoder worker handler crashed: ${(err as Error).message}`);
   });
 });

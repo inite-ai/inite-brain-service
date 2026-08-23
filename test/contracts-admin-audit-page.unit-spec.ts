@@ -33,13 +33,9 @@ function makeController(): AdminController {
 
 describe('AdminController.audit() — wire contract', () => {
   it('matches AuditPageResponseSchema', async () => {
-    const parsed = AuditPageResponseSchema.safeParse(
-      await makeController().audit(),
-    );
+    const parsed = AuditPageResponseSchema.safeParse(await makeController().audit());
     if (!parsed.success) {
-      throw new Error(
-        `audit drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`audit drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

@@ -20,9 +20,7 @@ const TraceListItemSchema = z.object({
   status: z.number(),
   durationMs: z.number(),
   companyId: z.string().optional(),
-  errored: z
-    .object({ message: z.string(), name: z.string().optional() })
-    .optional(),
+  errored: z.object({ message: z.string(), name: z.string().optional() }).optional(),
 });
 
 export const TracesResponseSchema = z.object({

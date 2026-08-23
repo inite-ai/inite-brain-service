@@ -8,10 +8,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { DreamsDedupService, DedupResult } from './dedup.service';
 import { DreamsResolverService, ResolverResult } from './resolver.service';
-import {
-  DreamsCorroborateService,
-  CorroborateResult,
-} from './corroborate.service';
+import { DreamsCorroborateService, CorroborateResult } from './corroborate.service';
 import { CompactionService } from '../compaction/compaction.service';
 import {
   CommunityBuilderService,
@@ -20,10 +17,7 @@ import {
 import { DreamsOperation } from './dto/run-dreams.dto';
 import { JobRunService, JobRunRow } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
-import {
-  WorkerLoopService,
-  type JobContext,
-} from '../jobs/worker-loop.service';
+import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 import { envFlagEnabled } from '../common/env-validation';
 import { ReadPinService } from '../episodes/read-pin.service';
@@ -116,8 +110,7 @@ export class DreamsService implements OnModuleInit {
     // EpisodesModule. Legs fenced to the live derived world (audit W2 #10).
     @Optional() private readonly readPin?: ReadPinService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('DREAMS_ENABLED'));
+    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_ENABLED'));
     // Default operation set: every sub-service that's been individually
     // enabled. An operator who only wants dedup flips
     // DREAMS_DEDUP_ENABLED=1 and DREAMS_ENABLED=1 — the cron then
@@ -128,9 +121,7 @@ export class DreamsService implements OnModuleInit {
     if (this.corroborate?.isEnabled()) ops.push('corroborate');
     // summarize is always available because the no-LLM concat path
     // is the fallback; the LLM path engages when DREAMS_LLM_SUMMARY_ENABLED=1.
-    if (
-      envFlagEnabled(this.configService.get<string>('DREAMS_RUN_SUMMARIZE'))
-    ) {
+    if (envFlagEnabled(this.configService.get<string>('DREAMS_RUN_SUMMARIZE'))) {
       ops.push('summarize');
     }
     // Communities auto-join the default set when enabled (same pattern as
@@ -184,9 +175,7 @@ export class DreamsService implements OnModuleInit {
       ? await this.guard.run('dreams_all', () => this.runAll())
       : await this.runAll();
     if (result === null) {
-      this.logger.warn(
-        'dreams cron skipped — previous runAll still in flight',
-      );
+      this.logger.warn('dreams cron skipped — previous runAll still in flight');
       return [];
     }
     return result;
@@ -194,8 +183,7 @@ export class DreamsService implements OnModuleInit {
 
   private queueModeEnabled(): boolean {
     return (
-      (this.configService.get<string>('JOBS_QUEUE_MODE', 'enqueue') ??
-        'enqueue') === 'enqueue'
+      (this.configService.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') === 'enqueue'
     );
   }
 
@@ -220,9 +208,7 @@ export class DreamsService implements OnModuleInit {
         });
         if (created) enqueued++;
       } catch (e) {
-        this.logger.warn(
-          `enqueue dreams for ${companyId} failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`enqueue dreams for ${companyId} failed: ${(e as Error).message}`);
       }
     }
     this.logger.log(
@@ -250,9 +236,7 @@ export class DreamsService implements OnModuleInit {
    * Throwing here routes to cancelled() (not fail+requeue) inside
    * WorkerLoopService.dispatch.
    */
-  async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const opsRaw = ctx.payload?.operations as DreamsOperation[] | undefined;
     const ops = opsRaw && opsRaw.length ? opsRaw : [...this.defaultOps];
     this.throwIfAborted(ctx);
@@ -304,14 +288,8 @@ export class DreamsService implements OnModuleInit {
         });
       }
     }
-    const totalDedupLinks = out.reduce(
-      (acc, r) => acc + (r.dedup?.identityLinksCreated ?? 0),
-      0,
-    );
-    const totalResolutions = out.reduce(
-      (acc, r) => acc + (r.resolve?.resolutionsApplied ?? 0),
-      0,
-    );
+    const totalDedupLinks = out.reduce((acc, r) => acc + (r.dedup?.identityLinksCreated ?? 0), 0);
+    const totalResolutions = out.reduce((acc, r) => acc + (r.resolve?.resolutionsApplied ?? 0), 0);
     this.logger.log(
       `Dreams done — ${out.length} tenant(s), ${totalDedupLinks} identity link(s), ` +
         `${totalResolutions} resolution(s) applied`,
@@ -344,9 +322,7 @@ export class DreamsService implements OnModuleInit {
         )
       : await this.runForTenantInner({ companyId, operations, triggered });
     if (guarded !== null) return guarded;
-    this.logger.warn(
-      `dreams skipped for ${companyId} — previous run still in flight`,
-    );
+    this.logger.warn(`dreams skipped for ${companyId} — previous run still in flight`);
     return {
       companyId,
       durationSeconds: 0,
@@ -416,8 +392,7 @@ export class DreamsService implements OnModuleInit {
   private async startDreamsJobRow(
     companyId: string,
     triggered:
-      | { triggeredBy?: 'cron' | 'manual' | 'startup'; triggeredByActor?: string }
-      | undefined,
+      { triggeredBy?: 'cron' | 'manual' | 'startup'; triggeredByActor?: string } | undefined,
     opSet: Set<DreamsOperation>,
   ): Promise<JobRunRow | null> {
     try {
@@ -431,9 +406,7 @@ export class DreamsService implements OnModuleInit {
         })) ?? null
       );
     } catch (e) {
-      this.logger.warn(
-        `dreams job_run start failed for ${companyId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`dreams job_run start failed for ${companyId}: ${(e as Error).message}`);
       return null;
     }
   }
@@ -455,17 +428,12 @@ export class DreamsService implements OnModuleInit {
     // fact status in worlds the pinned reader never queries. Every leg is
     // now fenced to this tenant's live world (or the legacy namespace).
     const derivedVersion =
-      (await this.readPin?.resolve(companyId)) ??
-      ReadPinService.bootstrapDefault();
+      (await this.readPin?.resolve(companyId)) ?? ReadPinService.bootstrapDefault();
     if (opSet.has('dedup')) {
       this.assertNotAborted(signal);
-      stats.dedup = await withSpan(
-        'dreams.dedup',
-        () => this.dedup.run(db, derivedVersion),
-        {
-          'dreams.tenant': companyId,
-        },
-      );
+      stats.dedup = await withSpan('dreams.dedup', () => this.dedup.run(db, derivedVersion), {
+        'dreams.tenant': companyId,
+      });
       if (jobRow) {
         await this.jobs?.updateProgress(jobRow, {
           currentTenant: companyId,
@@ -528,16 +496,12 @@ export class DreamsService implements OnModuleInit {
   ): Promise<void> {
     this.assertNotAborted(signal);
     try {
-      await withSpan(
-        'dreams.summarize',
-        () => this.compaction.compactCompany(companyId),
-        { 'dreams.tenant': companyId },
-      );
+      await withSpan('dreams.summarize', () => this.compaction.compactCompany(companyId), {
+        'dreams.tenant': companyId,
+      });
       stats.summarized = true;
     } catch (err) {
-      this.logger.warn(
-        `Dreams summarize failed for ${companyId}: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Dreams summarize failed for ${companyId}: ${(err as Error).message}`);
       stats.summarized = false;
     }
   }
@@ -546,22 +510,13 @@ export class DreamsService implements OnModuleInit {
   private recordDreamsMetrics(stats: DreamsTenantStats): void {
     this.metrics?.countDreams('ok');
     if (stats.dedup) {
-      this.metrics?.countDreamsEmitted(
-        'identity_link',
-        stats.dedup.identityLinksCreated,
-      );
+      this.metrics?.countDreamsEmitted('identity_link', stats.dedup.identityLinksCreated);
     }
     if (stats.resolve) {
-      this.metrics?.countDreamsEmitted(
-        'resolution',
-        stats.resolve.resolutionsApplied,
-      );
+      this.metrics?.countDreamsEmitted('resolution', stats.resolve.resolutionsApplied);
     }
     if (stats.corroborate) {
-      this.metrics?.countDreamsEmitted(
-        'corroboration',
-        stats.corroborate.corroborationsApplied,
-      );
+      this.metrics?.countDreamsEmitted('corroboration', stats.corroborate.corroborationsApplied);
     }
     if (stats.summarized) {
       this.metrics?.countDreamsEmitted('summary', 1);
@@ -593,11 +548,7 @@ export class DreamsService implements OnModuleInit {
    * detail doesn't fail the run — the aggregate counters in
    * job_run.result are the source of truth.
    */
-  private async writeEmits(
-    db: Surreal,
-    runId: string,
-    stats: DreamsTenantStats,
-  ): Promise<void> {
+  private async writeEmits(db: Surreal, runId: string, stats: DreamsTenantStats): Promise<void> {
     try {
       // One INSERT for the whole run's emits instead of one CREATE per
       // row across three sequential loops (~90 round-trips on a busy
@@ -629,9 +580,7 @@ export class DreamsService implements OnModuleInit {
         await db.query(`INSERT INTO dream_emit $rows`, { rows });
       }
     } catch (e) {
-      this.logger.warn(
-        `dream_emit write failed (${runId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`dream_emit write failed (${runId}): ${(e as Error).message}`);
     }
   }
 
@@ -641,10 +590,7 @@ export class DreamsService implements OnModuleInit {
    * service that owns the table (write is 40 lines up), never in a
    * controller.
    */
-  async emitsForRun(
-    companyId: string,
-    runId: string,
-  ): Promise<Array<Record<string, unknown>>> {
+  async emitsForRun(companyId: string, runId: string): Promise<Array<Record<string, unknown>>> {
     return this.surreal.withCompany(companyId, async (db) => {
       const res = (await db.query<unknown[]>(
         `SELECT runId, kind, ts, subject, object, detail

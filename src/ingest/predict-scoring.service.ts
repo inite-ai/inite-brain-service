@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmbedderService } from '../ai/embedder.service';
-import {
-  ConflictConfig,
-  SOURCE_TRUST,
-  scoreFact,
-} from './conflict-resolver';
+import { ConflictConfig, SOURCE_TRUST, scoreFact } from './conflict-resolver';
 import { sourceTrustFor } from './ingest-utils';
 import {
   OpposingFact,

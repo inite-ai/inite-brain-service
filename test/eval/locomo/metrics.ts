@@ -85,9 +85,7 @@ export function bleu1(prediction: string, gold: string): number {
   const precision = matches / predTokens.length;
   // Brevity penalty
   const bp =
-    predTokens.length > goldTokens.length
-      ? 1
-      : Math.exp(1 - goldTokens.length / predTokens.length);
+    predTokens.length > goldTokens.length ? 1 : Math.exp(1 - goldTokens.length / predTokens.length);
   return bp * precision;
 }
 
@@ -126,10 +124,7 @@ export function isRefusal(text: string): boolean {
   return REFUSAL_PATTERNS.some((p) => norm.includes(p));
 }
 
-export function adversarialScore(
-  prediction: string,
-  gold: string,
-): number {
+export function adversarialScore(prediction: string, gold: string): number {
   const goldRefuses = isRefusal(gold);
   const predRefuses = isRefusal(prediction);
   if (!goldRefuses) {

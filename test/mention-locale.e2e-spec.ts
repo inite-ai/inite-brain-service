@@ -27,8 +27,7 @@ describe('mention-path locale coverage', () => {
   beforeAll(async () => {
     companyId = `co_mloc_${Date.now()}`;
     apiKey = `key_${randomUUID()}`;
-    const keyHash =
-      'sha256:' + createHash('sha256').update(apiKey).digest('hex');
+    const keyHash = 'sha256:' + createHash('sha256').update(apiKey).digest('hex');
     process.env.BRAIN_API_KEYS = JSON.stringify([
       {
         keyHash,
@@ -67,9 +66,7 @@ describe('mention-path locale coverage', () => {
       .useValue(stubExtractor)
       .compile();
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
-    );
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     http = supertest(app.getHttpServer());
     surreal = app.get(SurrealService);
@@ -93,9 +90,7 @@ describe('mention-path locale coverage', () => {
 
     const factId = r.body.extractedFactIds[0];
     const row = await surreal.withCompany(companyId, async (db) => {
-      const tail = String(factId).includes(':')
-        ? String(factId).split(':')[1]
-        : String(factId);
+      const tail = String(factId).includes(':') ? String(factId).split(':')[1] : String(factId);
       const [rows] = await db.query<any[][]>(
         `SELECT lang, script FROM type::record('knowledge_fact', $t)`,
         { t: tail },

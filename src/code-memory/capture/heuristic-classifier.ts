@@ -1,9 +1,5 @@
 import type { CommitInput, DecisionClassifier, Layer1Verdict } from './types';
-import {
-  DECISION_TRAILER_KEYS,
-  isMergeCommit,
-  parseCommitSignals,
-} from './commit-signals';
+import { DECISION_TRAILER_KEYS, isMergeCommit, parseCommitSignals } from './commit-signals';
 
 /**
  * Layer 1, deterministic. Admits commits whose message carries a plausible
@@ -32,9 +28,7 @@ export class HeuristicDecisionClassifier implements DecisionClassifier {
       return { likelyDecision: false, reason: 'merge commit', signals };
     }
 
-    const hasDecisionTrailer = DECISION_TRAILER_KEYS.some(
-      (k) => k in signals.trailers,
-    );
+    const hasDecisionTrailer = DECISION_TRAILER_KEYS.some((k) => k in signals.trailers);
     if (hasDecisionTrailer) {
       return {
         likelyDecision: true,

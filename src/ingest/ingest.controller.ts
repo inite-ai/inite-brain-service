@@ -1,10 +1,4 @@
-import {
-  Body,
-  Controller,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
@@ -27,10 +21,7 @@ export class IngestController {
   @Post('fact')
   @RequireScopes('brain:write')
   @PolicyAction('record_fact')
-  async ingestFact(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: IngestFactDto,
-  ) {
+  async ingestFact(@Req() req: AuthenticatedRequest, @Body() body: IngestFactDto) {
     return this.ingest.ingestFact(req.brainAuth.companyId, body);
   }
 
@@ -39,10 +30,7 @@ export class IngestController {
   @PolicyAction('rest.ingest.mention')
   // Mention ingest runs the LLM extractor; cap per-credential rate.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
-  async ingestMention(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: IngestMentionDto,
-  ) {
+  async ingestMention(@Req() req: AuthenticatedRequest, @Body() body: IngestMentionDto) {
     // INGEST_MENTION_VIA_DOCUMENT (default off): route the mention through
     // the document pipeline — same response contract, one decision engine.
     // Flag off = the legacy path, untouched.
@@ -55,10 +43,7 @@ export class IngestController {
   @Post('link')
   @RequireScopes('brain:write')
   @PolicyAction('link_entities')
-  async ingestLink(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: IngestLinkDto,
-  ) {
+  async ingestLink(@Req() req: AuthenticatedRequest, @Body() body: IngestLinkDto) {
     return this.ingest.ingestLink(req.brainAuth.companyId, body);
   }
 }

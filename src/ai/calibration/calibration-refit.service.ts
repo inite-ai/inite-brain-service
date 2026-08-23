@@ -3,10 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { envFlagEnabled } from '../../common/env-validation';
 import { CalibrationRefitRunnerService } from './calibration-refit-runner.service';
 import { CalibrationRefitQueueService } from './calibration-refit-queue.service';
-import {
-  CalibrationRefitJobService,
-  type RefitTrigger,
-} from './calibration-refit-job.service';
+import { CalibrationRefitJobService, type RefitTrigger } from './calibration-refit-job.service';
 
 /**
  * Phase 3.5 — nightly refit + source-trust recalculation (orchestration).

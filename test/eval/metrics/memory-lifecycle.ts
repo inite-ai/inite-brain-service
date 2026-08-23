@@ -11,9 +11,7 @@ import type { MemoryAssertionResult } from '../../../src/eval/types';
  * surface in default search). The aggregator threshold is 1.0 — any
  * failure should block a release.
  */
-export function memoryLifecycleCorrectness(
-  results: MemoryAssertionResult[],
-): number | null {
+export function memoryLifecycleCorrectness(results: MemoryAssertionResult[]): number | null {
   if (results.length === 0) return null;
   const passed = results.filter((r) => r.passed).length;
   return passed / results.length;

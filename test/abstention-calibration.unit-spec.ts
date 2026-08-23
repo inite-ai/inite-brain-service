@@ -1,7 +1,4 @@
-import {
-  assessMemoryCoverage,
-  NOT_IN_MEMORY_ANSWER,
-} from '../src/synthesize/abstention';
+import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from '../src/synthesize/abstention';
 import {
   resolveRetrievalProfile,
   resolveRetrievalProfileFor,
@@ -90,9 +87,7 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
   it('genre-preset default; coverage round-trips; garbage rejects to preset', () => {
     // The default genre (assistant_chat) presets 'verifier' — the V9
     // verdict-decline win (genre-presets.ts). Explicit env still wins.
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).abstentionCalibration,
-    ).toBe('verifier');
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).abstentionCalibration).toBe('verifier');
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_ABSTENTION_CALIBRATION: 'off',
@@ -156,8 +151,6 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION profile point', () => {
     expect(beamco.abstentionMinEvidence).toBe(3);
     // A tenant without an overlay rides the default genre's preset
     // ('verifier' on assistant_chat — genre-presets.ts).
-    expect(resolveRetrievalProfileFor('other', env).abstentionCalibration).toBe(
-      'verifier',
-    );
+    expect(resolveRetrievalProfileFor('other', env).abstentionCalibration).toBe('verifier');
   });
 });

@@ -28,15 +28,13 @@ import type { PredicateRegistryService } from '../src/ai/predicate-registry.serv
 
 describe('extractArcTopic', () => {
   it('strips summary scaffolding down to the topic', () => {
-    expect(
-      extractArcTopic('Give me a comprehensive summary of the parser project'),
-    ).toBe('parser project');
+    expect(extractArcTopic('Give me a comprehensive summary of the parser project')).toBe(
+      'parser project',
+    );
     expect(extractArcTopic('How has the database migration progressed over time?')).toBe(
       'database migration',
     );
-    expect(extractArcTopic('What happened with the CORS errors?')).toBe(
-      'CORS errors',
-    );
+    expect(extractArcTopic('What happened with the CORS errors?')).toBe('CORS errors');
   });
 
   it('falls back to the whole question when the residue is too thin', () => {
@@ -58,10 +56,7 @@ describe('pickArcBeats', () => {
       beat('mid and strong-dense', '2026-02-01', { sim: 0.9 }),
     ];
     const picked = pickArcBeats(beats, 2);
-    expect(picked.map((b) => b.object)).toEqual([
-      'early and lexical',
-      'mid and strong-dense',
-    ]);
+    expect(picked.map((b) => b.object)).toEqual(['early and lexical', 'mid and strong-dense']);
   });
 
   it('caps at the beat budget', () => {
@@ -82,9 +77,7 @@ describe('renderArcLines', () => {
   });
 
   it('caps runaway beat text', () => {
-    const [line] = renderArcLines([
-      { object: 'x'.repeat(500), validFrom: '2026-01-02' },
-    ]);
+    const [line] = renderArcLines([{ object: 'x'.repeat(500), validFrom: '2026-01-02' }]);
     expect(line!.length).toBeLessThan(230);
     expect(line!.endsWith('…')).toBe(true);
   });
@@ -98,10 +91,7 @@ describe('QueryArcService', () => {
     registry?: PredicateRegistryService;
   }): QueryArcService {
     const surreal = {
-      withCompany: async (
-        _c: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) => {
+      withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) => {
         let call = 0;
         return fn({
           query: async (sql: string) => {
@@ -174,9 +164,9 @@ describe('QueryArcService', () => {
     } as unknown as SurrealService;
     const embedder = { embed: async () => [0.1] } as unknown as EmbedderService;
     const svc = new QueryArcService(surreal, embedder);
-    await expect(
-      svc.arcLines({ companyId: 'c1', query: 'q', callerScopes: [] }),
-    ).resolves.toEqual([]);
+    await expect(svc.arcLines({ companyId: 'c1', query: 'q', callerScopes: [] })).resolves.toEqual(
+      [],
+    );
   });
 
   it('renders ISO days and sorts chronologically when the driver returns Date objects', async () => {
@@ -216,11 +206,10 @@ describe('QueryArcService', () => {
     // predicate with an operator-set requiresScope only lives in the
     // registry — the lane must run the same row-policy seam search does.
     const registry = {
-      rowPolicyLookup:
-        async () => (p: string) =>
-          p === 'internal_only'
-            ? { requiresScope: 'sec:internal', piiClass: 'none' }
-            : { piiClass: 'none' },
+      rowPolicyLookup: async () => (p: string) =>
+        p === 'internal_only'
+          ? { requiresScope: 'sec:internal', piiClass: 'none' }
+          : { piiClass: 'none' },
     } as unknown as PredicateRegistryService;
     const rows = {
       dense: [
@@ -296,8 +285,7 @@ describe('QueryArcService', () => {
     const bm25 = capture[1];
     // Topic strips to 'parser project' → two terms × two fields.
     expect(bm25).toContain(
-      'searchHaystack @1@ $t0 OR object @2@ $t0 OR ' +
-        'searchHaystack @3@ $t1 OR object @4@ $t1',
+      'searchHaystack @1@ $t0 OR object @2@ $t0 OR ' + 'searchHaystack @3@ $t1 OR object @4@ $t1',
     );
     expect(bm25).toContain(
       'math::sum([math::max([search::score(1), search::score(2)]), ' +
@@ -318,12 +306,8 @@ describe('query_arc gating and prompt header', () => {
 
   it('wantsInsightEvidence admits query_arc on the paying lanes only', () => {
     expect(wantsInsightEvidence(profileWith('query_arc'), 'summary')).toBe(true);
-    expect(wantsInsightEvidence(profileWith('query_arc'), 'enumeration')).toBe(
-      true,
-    );
-    expect(wantsInsightEvidence(profileWith('query_arc'), 'temporal')).toBe(
-      false,
-    );
+    expect(wantsInsightEvidence(profileWith('query_arc'), 'enumeration')).toBe(true);
+    expect(wantsInsightEvidence(profileWith('query_arc'), 'temporal')).toBe(false);
     expect(wantsInsightEvidence(profileWith('query_arc'), null)).toBe(false);
     expect(wantsInsightEvidence(profileWith('off'), 'summary')).toBe(false);
     expect(wantsInsightEvidence(profileWith('routed'), 'summary')).toBe(true);
@@ -362,9 +346,7 @@ describe('RETRIEVAL_INSIGHT_EVIDENCE query_arc profile point', () => {
         beamco: { insightEvidence: 'query_arc' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe(
-      'query_arc',
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe('query_arc');
     expect(resolveRetrievalProfileFor('other', env).insightEvidence).toBe('off');
   });
 });

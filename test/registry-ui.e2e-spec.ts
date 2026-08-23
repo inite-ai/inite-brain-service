@@ -4,11 +4,7 @@
  * verified-publisher badge.
  */
 import { generateKeyPairSync } from 'node:crypto';
-import {
-  REAL_ESTATE_PACK,
-  signPack,
-  type DomainPackManifest,
-} from '../src/ai/domain-packs';
+import { REAL_ESTATE_PACK, signPack, type DomainPackManifest } from '../src/ai/domain-packs';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 
@@ -37,10 +33,7 @@ describe('GET /registry/ui — public catalogue (e2e)', () => {
     );
     await f.http.post('/v1/admin/registry/packs').set(auth).send({ manifest });
     // One install-from-registry → download counter at 1.
-    await f.http
-      .post('/v1/admin/packs/from-registry')
-      .set(auth)
-      .send({ packId: 'realty_ui_e2e' });
+    await f.http.post('/v1/admin/packs/from-registry').set(auth).send({ packId: 'realty_ui_e2e' });
   });
   afterAll(async () => {
     delete process.env.DOMAIN_PACK_TRUSTED_KEYS;

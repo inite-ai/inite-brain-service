@@ -38,20 +38,14 @@ export class DistributedLeaseGuard {
    * on `=== null` to detect a skip must use an `fn` whose own success value
    * is never `null`.
    */
-  async run<T>(
-    key: string,
-    fn: () => Promise<T>,
-    ttlSeconds = 300,
-  ): Promise<T | null> {
+  async run<T>(key: string, fn: () => Promise<T>, ttlSeconds = 300): Promise<T | null> {
     // Local reentrancy first — cheap and protects same-pod overlap
     // (cron + manual trigger landing simultaneously).
     return this.local.run(key, async () => {
       if (this.lease) {
         const got = await this.lease.tryAcquire(key, ttlSeconds);
         if (!got) {
-          this.logger.log(
-            `lease ${key} held by another pod — skipping cron`,
-          );
+          this.logger.log(`lease ${key} held by another pod — skipping cron`);
           return null;
         }
         try {

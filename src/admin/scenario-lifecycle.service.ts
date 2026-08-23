@@ -65,16 +65,11 @@ export class ScenarioLifecycleService {
     try {
       await this.surreal.dropCompanyDatabase(companyId);
     } catch (e) {
-      this.logger.warn(
-        `Could not drop ephemeral tenant ${companyId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`Could not drop ephemeral tenant ${companyId}: ${(e as Error).message}`);
     }
   }
 
-  private async findEntityByExternalRef(
-    companyId: string,
-    refKey: string,
-  ): Promise<string | null> {
+  private async findEntityByExternalRef(companyId: string, refKey: string): Promise<string | null> {
     return this.surreal.withCompany(companyId, async (db) => {
       const first = await queryFirst<unknown>(
         db,

@@ -60,9 +60,7 @@ export interface ScorableExtraction {
 
 /** Resolve a fixture predicate to its stored id. */
 function resolvePredicate(packId: string, predicate: string): string {
-  return predicate.includes(PACK_NAMESPACE_SEP)
-    ? predicate
-    : composePredicateId(packId, predicate);
+  return predicate.includes(PACK_NAMESPACE_SEP) ? predicate : composePredicateId(packId, predicate);
 }
 
 /** Score one fixture against an extraction. Pure — the runtime service supplies
@@ -95,13 +93,8 @@ export function scoreFixture(
       `expected >= ${fixture.expect.minEntities} entities, got ${extraction.entities.length}`,
     );
   }
-  if (
-    fixture.expect.minFacts !== undefined &&
-    extraction.facts.length < fixture.expect.minFacts
-  ) {
-    failures.push(
-      `expected >= ${fixture.expect.minFacts} facts, got ${extraction.facts.length}`,
-    );
+  if (fixture.expect.minFacts !== undefined && extraction.facts.length < fixture.expect.minFacts) {
+    failures.push(`expected >= ${fixture.expect.minFacts} facts, got ${extraction.facts.length}`);
   }
   return { id: fixture.id, passed: failures.length === 0, failures };
 }

@@ -1,21 +1,10 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PolicyKeysService } from '../policy/policy-keys.service';
 import { PolicyRegistryService } from '../policy/policy-registry.service';
-import {
-  PolicySimulationService,
-  SimulationSubject,
-} from '../policy/policy-simulation.service';
+import { PolicySimulationService, SimulationSubject } from '../policy/policy-simulation.service';
 import type {
   PolicyRegistryResponse,
   PreviewRuleResponse,
@@ -49,9 +38,7 @@ export class AdminPolicyController {
 
   @Get('registry')
   @RequireScopes('brain:admin')
-  async registry(
-    @Req() req: AuthenticatedRequest,
-  ): Promise<PolicyRegistryResponse> {
+  async registry(@Req() req: AuthenticatedRequest): Promise<PolicyRegistryResponse> {
     return (await this.registryService.registry(
       req.brainAuth.companyId,
     )) satisfies PolicyRegistryResponse;
@@ -109,15 +96,10 @@ export class AdminPolicyController {
   }
 
   /** keyId → policyNames, then hand the normalized subject to the engine. */
-  private async resolveSubject(
-    req: AuthenticatedRequest,
-    body: SubjectBody,
-  ) {
+  private async resolveSubject(req: AuthenticatedRequest, body: SubjectBody) {
     const subject = body?.subject;
     if (!subject || (!subject.keyId && !subject.policyNames && !subject.inline)) {
-      throw new BadRequestException(
-        'subject requires one of keyId, policyNames, or inline',
-      );
+      throw new BadRequestException('subject requires one of keyId, policyNames, or inline');
     }
     const normalized: SimulationSubject = {
       ...(subject.policyNames ? { policyNames: subject.policyNames } : {}),
@@ -134,9 +116,7 @@ export class AdminPolicyController {
           `Key '${subject.keyId}' has no policy sets attached — nothing to simulate`,
         );
       }
-      normalized.policyNames = [
-        ...new Set([...(normalized.policyNames ?? []), ...policyNames]),
-      ];
+      normalized.policyNames = [...new Set([...(normalized.policyNames ?? []), ...policyNames])];
     }
     return this.simulation.resolveSubject(req.brainAuth.companyId, normalized);
   }

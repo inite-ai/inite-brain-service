@@ -46,11 +46,7 @@ export interface MirrorLocalRegistry {
     origin: string;
     expectedChecksum: string;
   }): Promise<{ created: boolean }>;
-  yank(input: {
-    packId: string;
-    version: string;
-    reason?: string;
-  }): Promise<void>;
+  yank(input: { packId: string; version: string; reason?: string }): Promise<void>;
 }
 
 export interface MirrorLogger {
@@ -121,9 +117,7 @@ interface SyncCtx {
   summary: MirrorSyncSummary;
 }
 
-export async function syncRegistryMirror(
-  opts: MirrorSyncOptions,
-): Promise<MirrorSyncSummary> {
+export async function syncRegistryMirror(opts: MirrorSyncOptions): Promise<MirrorSyncSummary> {
   const base = normalizeUpstreamBase(opts.upstreamBase);
   const ctx: SyncCtx = {
     base,
@@ -155,9 +149,7 @@ export async function syncRegistryMirror(
       await syncPack(ctx, packId);
     } catch (e) {
       ctx.summary.failures++;
-      ctx.logger.warn(
-        `mirror: pack ${packId} failed — ${(e as Error).message}`,
-      );
+      ctx.logger.warn(`mirror: pack ${packId} failed — ${(e as Error).message}`);
     }
   }
   ctx.summary.capped = ctx.capped;
@@ -191,9 +183,7 @@ async function syncPack(ctx: SyncCtx, packId: string): Promise<void> {
     `/v1/registry/packs/${encodeURIComponent(packId)}`,
   )) as { versions?: UpstreamVersionRow[] };
   const upstreamVersions = Array.isArray(res?.versions) ? res.versions : [];
-  const localByVersion = new Map(
-    (await ctx.local.versionsOf(packId)).map((v) => [v.version, v]),
-  );
+  const localByVersion = new Map((await ctx.local.versionsOf(packId)).map((v) => [v.version, v]));
   for (const uv of upstreamVersions) {
     if (ctx.capped || ctx.signal?.aborted) return;
     const existing = localByVersion.get(uv.version);
@@ -213,9 +203,7 @@ async function syncPack(ctx: SyncCtx, packId: string): Promise<void> {
       await importVersion(ctx, { packId, row: uv });
     } catch (e) {
       ctx.summary.failures++;
-      ctx.logger.warn(
-        `mirror: import ${packId}@${uv.version} failed — ${(e as Error).message}`,
-      );
+      ctx.logger.warn(`mirror: import ${packId}@${uv.version} failed — ${(e as Error).message}`);
     }
   }
 }
@@ -240,9 +228,7 @@ async function reconcileExisting(
   if ((local.origin ?? null) !== ctx.base) {
     // The yank fence: never yank a locally published (or other-origin) row.
     ctx.summary.skippedExisting++;
-    ctx.logger.debug(
-      `mirror: yank fence ${at} — local row does not originate from this upstream`,
-    );
+    ctx.logger.debug(`mirror: yank fence ${at} — local row does not originate from this upstream`);
     return;
   }
   await ctx.local.yank({
@@ -321,10 +307,7 @@ async function importVersion(
 
 /** GET a JSON document from the upstream with a per-request timeout and
  *  optional bearer, honouring the outer abort signal. */
-async function fetchUpstreamJson(
-  ctx: SyncCtx,
-  path: string,
-): Promise<unknown> {
+async function fetchUpstreamJson(ctx: SyncCtx, path: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ctx.timeoutMs);
   timer.unref?.();

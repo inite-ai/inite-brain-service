@@ -34,10 +34,7 @@ export interface WindowedFact {
  * `window` by fused score, descending — the slice a cross-encoder
  * pass can afford to rescore.
  */
-export function collectFactWindow(
-  buckets: EntityBucket[],
-  window: number,
-): WindowedFact[] {
+export function collectFactWindow(buckets: EntityBucket[], window: number): WindowedFact[] {
   const flat: WindowedFact[] = [];
   for (const bucket of buckets) {
     for (const row of bucket.facts) flat.push({ bucket, row });
@@ -55,10 +52,7 @@ export function collectFactWindow(
  * fused order stands, mirroring the identity-fallback contract of the
  * CE service itself.
  */
-export function remapWindowScores(
-  rows: WindowedFact[],
-  permutation: number[],
-): boolean {
+export function remapWindowScores(rows: WindowedFact[], permutation: number[]): boolean {
   const n = rows.length;
   if (permutation.length !== n) return false;
   const seen = new Set<number>();

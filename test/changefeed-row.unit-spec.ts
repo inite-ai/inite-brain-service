@@ -1,7 +1,4 @@
-import {
-  changefeedRow,
-  changefeedRecordId,
-} from '../src/db/changefeed-row';
+import { changefeedRow, changefeedRecordId } from '../src/db/changefeed-row';
 
 /**
  * The `SHOW CHANGES` item shape under `CHANGEFEED … INCLUDE ORIGINAL`, pinned
@@ -69,9 +66,7 @@ describe('changefeedRow', () => {
     it('reads the id from creates, updates and deletes alike', () => {
       expect(changefeedRecordId(created)).toBe('knowledge_fact:p1');
       expect(changefeedRecordId(updated)).toBe('knowledge_fact:p1');
-      expect(changefeedRecordId({ delete: 'knowledge_fact:gone' })).toBe(
-        'knowledge_fact:gone',
-      );
+      expect(changefeedRecordId({ delete: 'knowledge_fact:gone' })).toBe('knowledge_fact:gone');
     });
 
     it('returns null when there is no id to read', () => {

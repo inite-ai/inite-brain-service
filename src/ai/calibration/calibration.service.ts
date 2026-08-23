@@ -2,11 +2,7 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { envFlagNotDisabled } from '../../common/env-validation';
 import { createHash } from 'node:crypto';
-import {
-  applyMap,
-  fitIsotonic,
-  type CalibrationMap,
-} from './isotonic';
+import { applyMap, fitIsotonic, type CalibrationMap } from './isotonic';
 import { BOOTSTRAP_GOLD_SET } from './gold-set';
 import { SurrealService } from '../../db/surreal.service';
 import { ApiKeyService } from '../../auth/api-key.service';
@@ -48,14 +44,8 @@ export class CalibrationService implements OnModuleInit {
     @Optional() private readonly surreal?: SurrealService,
     @Optional() private readonly apiKeys?: ApiKeyService,
   ) {
-    this.disabled =
-      !envFlagNotDisabled(
-        this.configService.get<string>('CALIBRATION_USE_GOLD_SET'),
-      );
-    this.extractorModel = this.configService.get<string>(
-      'OPENAI_CHAT_MODEL',
-      'gpt-4o-mini',
-    );
+    this.disabled = !envFlagNotDisabled(this.configService.get<string>('CALIBRATION_USE_GOLD_SET'));
+    this.extractorModel = this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
     this.bootstrapMap = fitIsotonic(BOOTSTRAP_GOLD_SET);
     if (!this.disabled) {
       this.logger.log(
@@ -99,9 +89,7 @@ export class CalibrationService implements OnModuleInit {
     }
   }
 
-  private async loadPersistedBootstrap(
-    host: string,
-  ): Promise<CalibrationMap | null> {
+  private async loadPersistedBootstrap(host: string): Promise<CalibrationMap | null> {
     if (!this.surreal) return null;
     return this.surreal.withCompany(host, async (db) => {
       const [rows] = await db.query<
@@ -119,11 +107,13 @@ export class CalibrationService implements OnModuleInit {
            ORDER BY version DESC LIMIT 1`,
         { m: this.extractorModel, p: BOOTSTRAP_PROMPT_HASH },
       );
-      const row = (rows as Array<{
-        thresholds: number[];
-        values: number[];
-        sampleCount: number;
-      }>)?.[0];
+      const row = (
+        rows as Array<{
+          thresholds: number[];
+          values: number[];
+          sampleCount: number;
+        }>
+      )?.[0];
       if (!row || !Array.isArray(row.thresholds) || !Array.isArray(row.values)) {
         return null;
       }
@@ -183,11 +173,7 @@ export class CalibrationService implements OnModuleInit {
    * job consuming the CHANGEFEED). The next `calibrate()` for that
    * (model, prompt) pair uses the new map.
    */
-  loadMap(
-    extractorModel: string,
-    promptText: string,
-    map: CalibrationMap,
-  ): void {
+  loadMap(extractorModel: string, promptText: string, map: CalibrationMap): void {
     if (this.disabled) return;
     this.cache.set(cacheKey(extractorModel, promptHashOf(promptText)), map);
   }

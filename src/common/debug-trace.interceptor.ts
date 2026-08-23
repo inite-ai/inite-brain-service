@@ -1,15 +1,7 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable, catchError, map, throwError } from 'rxjs';
-import {
-  getDebugContext,
-  type DebugTraceSnapshot,
-} from './debug-trace-core';
+import { getDebugContext, type DebugTraceSnapshot } from './debug-trace-core';
 import { TraceBufferService } from './trace-buffer.service';
 
 /**
@@ -42,9 +34,11 @@ export class DebugTraceInterceptor implements NestInterceptor {
       message: string;
       name?: string;
     }): DebugTraceSnapshot | null => {
-      const auth = (req as unknown as {
-        brainAuth?: { companyId: string; scopes: string[] };
-      }).brainAuth;
+      const auth = (
+        req as unknown as {
+          brainAuth?: { companyId: string; scopes: string[] };
+        }
+      ).brainAuth;
       // Cross-tenant leakage guard: only admins get snapshots in the
       // shared ring buffer. Non-admin callers can still emit X-Brain-Debug
       // (and pay the in-flight ALS cost), but their artifacts evaporate

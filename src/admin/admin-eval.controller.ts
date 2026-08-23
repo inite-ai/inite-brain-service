@@ -15,10 +15,7 @@ import type { Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
-import {
-  ScenarioRunnerService,
-  ScenarioRunOutcome,
-} from './scenario-runner.service';
+import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
 import { TraceBufferService } from '../common/debug-trace';
 import type { ScenariosResponse } from '../contracts/admin/scenarios.schema';
@@ -54,9 +51,7 @@ export class AdminEvalController {
   listScenarios(@Query('vertical') vertical?: string): ScenariosResponse {
     const all = this.scenarios.list();
     return {
-      scenarios: vertical
-        ? all.filter((s) => s.vertical === vertical)
-        : all,
+      scenarios: vertical ? all.filter((s) => s.vertical === vertical) : all,
     } satisfies ScenariosResponse;
   }
 
@@ -92,16 +87,18 @@ export class AdminEvalController {
   @RequireScopes('brain:admin')
   async runBatch(
     @Body()
-    body: { ids?: string[]; vertical?: string; keepTenant?: boolean },
+    body: {
+      ids?: string[];
+      vertical?: string;
+      keepTenant?: boolean;
+    },
   ): Promise<ScenariosBatchResponse> {
     const BATCH_CAP = 10;
     const all = this.scenarios.list();
     const candidate = body.ids?.length
       ? body.ids
       : body.vertical
-        ? all
-            .filter((s) => s.vertical === body.vertical)
-            .map((s) => s.id)
+        ? all.filter((s) => s.vertical === body.vertical).map((s) => s.id)
         : all.map((s) => s.id);
     if (candidate.length > BATCH_CAP) {
       throw new BadRequestException(
@@ -130,9 +127,7 @@ export class AdminEvalController {
             links: 0,
             retracts: 0,
             forgets: 0,
-            errors: [
-              { step: -1, kind: 'runtime', error: (e as Error).message },
-            ],
+            errors: [{ step: -1, kind: 'runtime', error: (e as Error).message }],
           },
           queryResults: [],
           memoryAssertionResults: [],
@@ -167,14 +162,9 @@ export class AdminEvalController {
     @Body() body: { outcomes: ScenarioRunOutcome[] },
   ): Promise<BaselineSaveResponse> {
     if (!body?.outcomes?.length) {
-      throw new BadRequestException(
-        'outcomes[] required and must be non-empty',
-      );
+      throw new BadRequestException('outcomes[] required and must be non-empty');
     }
-    return (await this.baselines.save(
-      name,
-      body.outcomes,
-    )) satisfies BaselineSaveResponse;
+    return (await this.baselines.save(name, body.outcomes)) satisfies BaselineSaveResponse;
   }
 
   @Post('baselines/:name/diff')
@@ -183,10 +173,7 @@ export class AdminEvalController {
     @Param('name') name: string,
     @Body() body: { outcomes: ScenarioRunOutcome[] },
   ): Promise<BaselineDiffResponse> {
-    return (await this.baselines.diff(
-      name,
-      body?.outcomes ?? [],
-    )) satisfies BaselineDiffResponse;
+    return (await this.baselines.diff(name, body?.outcomes ?? [])) satisfies BaselineDiffResponse;
   }
 
   // ── Traces ───────────────────────────────────────────────────────
@@ -217,9 +204,7 @@ export class AdminEvalController {
    */
   @Sse('traces/stream')
   @RequireScopes('brain:admin')
-  streamTraces(
-    @Req() req: AuthenticatedRequest,
-  ): Observable<{ data: unknown }> {
+  streamTraces(@Req() req: AuthenticatedRequest): Observable<{ data: unknown }> {
     const tenant = req.brainAuth.companyId;
     return this.traces.observe().pipe(
       filter((t) => !tenant || t.companyId === tenant),

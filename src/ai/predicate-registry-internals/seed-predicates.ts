@@ -22,9 +22,7 @@ export async function seedMissingPredicates(opts: {
     `SELECT predicateId FROM knowledge_predicate`,
   );
   const existingIds = new Set(
-    ((existingRows as Array<{ predicateId: string }>) ?? []).map(
-      (r) => r.predicateId,
-    ),
+    ((existingRows as Array<{ predicateId: string }>) ?? []).map((r) => r.predicateId),
   );
   const missing = predicates.filter((p) => !existingIds.has(p.predicateId));
   if (missing.length === 0) return 0;

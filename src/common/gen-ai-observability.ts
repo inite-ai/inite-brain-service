@@ -84,8 +84,7 @@ export async function withGenAiCall<R extends OpenAiLikeResponse | unknown>(
         // OpenAI returns total_tokens — fold it into prompt to keep the
         // labelled counter monotonically meaningful.
         const promptTokens =
-          usage?.prompt_tokens ??
-          (spec.kind === 'embed' ? usage?.total_tokens : undefined);
+          usage?.prompt_tokens ?? (spec.kind === 'embed' ? usage?.total_tokens : undefined);
         const completionTokens = usage?.completion_tokens;
         if (typeof promptTokens === 'number') {
           span.setAttribute('gen_ai.usage.input_tokens', promptTokens);

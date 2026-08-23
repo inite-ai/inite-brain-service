@@ -12,7 +12,7 @@ function makeController(): AdminPredicatesController {
       {
         predicateId: 'has_email',
         displayLabel: 'Has email',
-        description: 'Subject\'s primary email address.',
+        description: "Subject's primary email address.",
         datatype: 'string' as const,
         semantics: 'single_active' as const,
         decayHalfLifeDays: null,
@@ -31,17 +31,9 @@ describe('AdminPredicatesController.list() — wire contract', () => {
     const req = {
       brainAuth: { companyId: 'tenant-a' },
     } as unknown as AuthenticatedRequest;
-    const parsed = PredicatesListResponseSchema.safeParse(
-      await makeController().list(req),
-    );
+    const parsed = PredicatesListResponseSchema.safeParse(await makeController().list(req));
     if (!parsed.success) {
-      throw new Error(
-        `predicates drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
-      );
+      throw new Error(`predicates drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

@@ -1,9 +1,6 @@
 import type { Logger } from '@nestjs/common';
 import type { LocalPredicateSelectorService } from '../local-predicate-selector.service';
-import type {
-  PredicateRegistryService,
-  PredicateSnapshot,
-} from '../predicate-registry.service';
+import type { PredicateRegistryService, PredicateSnapshot } from '../predicate-registry.service';
 import type { ExtractedFact } from './types';
 
 /**
@@ -89,30 +86,20 @@ export async function applyAliasPass({
     similarity?: number;
   }> = [];
   for (const f of facts) {
-    const contextText = `${f.predicate}: ${f.object}${
-      f.clause ? ` (clause: ${f.clause})` : ''
-    }`;
+    const contextText = `${f.predicate}: ${f.object}${f.clause ? ` (clause: ${f.clause})` : ''}`;
     try {
-      const decision = await registry.canonicalize(
-        companyId,
-        f.predicate,
-        contextText,
-      );
+      const decision = await registry.canonicalize(companyId, f.predicate, contextText);
       if (decision.canonicalId !== f.predicate) {
         f.predicateAlias = decision.canonicalId;
         decisions.push({
           original: f.predicate,
           canonical: decision.canonicalId,
           kind: decision.kind,
-          ...(decision.kind === 'aliased'
-            ? { similarity: decision.similarity }
-            : {}),
+          ...(decision.kind === 'aliased' ? { similarity: decision.similarity } : {}),
         });
       }
     } catch (e) {
-      logger.warn(
-        `alias pass failed for predicate '${f.predicate}': ${(e as Error).message}`,
-      );
+      logger.warn(`alias pass failed for predicate '${f.predicate}': ${(e as Error).message}`);
     }
   }
   return decisions;
@@ -156,23 +143,15 @@ export async function applyCanonicalizePass({
     bestMatchId?: string;
   }> = [];
   for (const f of facts) {
-    const contextText = `${f.predicate}: ${f.object}${
-      f.clause ? ` (clause: ${f.clause})` : ''
-    }`;
+    const contextText = `${f.predicate}: ${f.object}${f.clause ? ` (clause: ${f.clause})` : ''}`;
     try {
-      const decision = await registry.canonicalize(
-        companyId,
-        f.predicate,
-        contextText,
-      );
+      const decision = await registry.canonicalize(companyId, f.predicate, contextText);
       if (decision.canonicalId !== f.predicate) {
         decisions.push({
           original: f.predicate,
           canonical: decision.canonicalId,
           kind: decision.kind,
-          ...(decision.kind === 'aliased'
-            ? { similarity: decision.similarity }
-            : {}),
+          ...(decision.kind === 'aliased' ? { similarity: decision.similarity } : {}),
           ...(decision.kind === 'proposed' && decision.bestMatch
             ? {
                 similarity: decision.bestMatch.similarity,
@@ -186,15 +165,11 @@ export async function applyCanonicalizePass({
           original: f.predicate,
           canonical: decision.canonicalId,
           kind: decision.kind,
-          ...(decision.kind === 'aliased'
-            ? { similarity: decision.similarity }
-            : {}),
+          ...(decision.kind === 'aliased' ? { similarity: decision.similarity } : {}),
         });
       }
     } catch (e) {
-      logger.warn(
-        `canonicalize failed for predicate '${f.predicate}': ${(e as Error).message}`,
-      );
+      logger.warn(`canonicalize failed for predicate '${f.predicate}': ${(e as Error).message}`);
     }
   }
   return decisions;

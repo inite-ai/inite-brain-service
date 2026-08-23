@@ -24,20 +24,9 @@ import { DreamsCorroborateService } from './corroborate.service';
  * none of the justification).
  */
 @Module({
-  imports: [
-    ConfigModule,
-    CompactionModule,
-    CommunityModule,
-    AuthModule,
-    EpisodesModule,
-  ],
+  imports: [ConfigModule, CompactionModule, CommunityModule, AuthModule, EpisodesModule],
   controllers: [DreamsController],
-  providers: [
-    DreamsService,
-    DreamsDedupService,
-    DreamsResolverService,
-    DreamsCorroborateService,
-  ],
+  providers: [DreamsService, DreamsDedupService, DreamsResolverService, DreamsCorroborateService],
   exports: [DreamsService],
 })
 export class DreamsModule {}

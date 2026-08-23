@@ -6,10 +6,7 @@
  * run continues), and the judgeAccuracy aggregation (judged-only, absent
  * when the judge is off).
  */
-import {
-  createOpenAiJudge,
-  LOCOMO_JUDGE_SYSTEM,
-} from '../test/eval/locomo/judge';
+import { createOpenAiJudge, LOCOMO_JUDGE_SYSTEM } from '../test/eval/locomo/judge';
 import { runLocomo, rejudgeScores } from '../test/eval/locomo/runner';
 import type { QuestionScore } from '../test/eval/locomo/runner';
 import type { NormalizedConversation } from '../test/eval/locomo/types';
@@ -21,9 +18,7 @@ function stubOpenAi(replies: boolean[]): {
 } {
   let i = 0;
   const create = jest.fn(async () => ({
-    choices: [
-      { message: { content: JSON.stringify({ correct: replies[i++] }) } },
-    ],
+    choices: [{ message: { content: JSON.stringify({ correct: replies[i++] }) } }],
   }));
   return { client: { chat: { completions: { create } } }, create };
 }
@@ -76,10 +71,7 @@ describe('createOpenAiJudge', () => {
     const create = jest.fn(async () => ({
       choices: [{ message: { content: '{"correct":"yes"}' } }],
     }));
-    const judge = createOpenAiJudge(
-      { chat: { completions: { create } } },
-      'm',
-    );
+    const judge = createOpenAiJudge({ chat: { completions: { create } } }, 'm');
     await expect(
       judge.grade({ question: 'q', gold: 'g', prediction: 'p', category: 1 }),
     ).rejects.toThrow(/malformed/);
@@ -125,10 +117,7 @@ describe('runLocomo — judge integration', () => {
       if (i++ === 0) throw new Error('judge 500');
       return { choices: [{ message: { content: '{"correct":true}' } }] };
     });
-    const judge = createOpenAiJudge(
-      { chat: { completions: { create } } },
-      'm',
-    );
+    const judge = createOpenAiJudge({ chat: { completions: { create } } }, 'm');
     const report = await runLocomo([convWith(qa)], agent, { judge });
     expect(report.totalQuestions).toBe(2);
     expect(report.overall.judgedN).toBe(1);

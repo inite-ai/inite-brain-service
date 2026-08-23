@@ -25,15 +25,7 @@ export type PolicyDecision = 'allow' | 'deny' | 'would_deny';
 export type ActionKind = 'read' | 'write' | 'admin';
 
 export type MatchOp =
-  | 'eq'
-  | 'in'
-  | 'prefix'
-  | 'gte'
-  | 'gt'
-  | 'lte'
-  | 'lt'
-  | 'exists'
-  | 'not_exists';
+  'eq' | 'in' | 'prefix' | 'gte' | 'gt' | 'lte' | 'lt' | 'exists' | 'not_exists';
 
 /**
  * Static attribute vocabulary. `source.meta.<key>` is the one dynamic
@@ -137,17 +129,7 @@ export const MAX_SETS_PER_KEY = 8;
 const MatchConditionSchema = z
   .object({
     attr: z.string().max(96),
-    op: z.enum([
-      'eq',
-      'in',
-      'prefix',
-      'gte',
-      'gt',
-      'lte',
-      'lt',
-      'exists',
-      'not_exists',
-    ]),
+    op: z.enum(['eq', 'in', 'prefix', 'gte', 'gt', 'lte', 'lt', 'exists', 'not_exists']),
     value: z
       .union([
         z.string().max(256),
@@ -232,11 +214,7 @@ const PolicyRuleSchema = z
     kind: z.enum(['action', 'source']),
     enabled: z.boolean().default(true),
     description: z.string().max(300).optional(),
-    actions: z
-      .array(z.string().regex(ACTION_NAME))
-      .min(1)
-      .max(MAX_VALUES_PER_LIST)
-      .optional(),
+    actions: z.array(z.string().regex(ACTION_NAME)).min(1).max(MAX_VALUES_PER_LIST).optional(),
     match: z.array(MatchConditionSchema).min(1).max(16).optional(),
   })
   .superRefine((rule, ctx) => {

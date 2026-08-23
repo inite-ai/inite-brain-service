@@ -48,10 +48,7 @@ describe('dedupeMentionLines', () => {
   });
 
   it('never collapses on thin token evidence', () => {
-    const lines = [
-      '[2026-01-02] alex: done',
-      '[2026-01-03] alex: done again today',
-    ];
+    const lines = ['[2026-01-02] alex: done', '[2026-01-03] alex: done again today'];
     expect(dedupeMentionLines(lines)).toEqual(lines);
   });
 
@@ -83,10 +80,7 @@ describe('extractOrderingTopic strips the exact-N ask scaffold (R1)', () => {
 describe('segment-level mention record under dedupeAspects (R1)', () => {
   function makeService(segments: Array<Record<string, unknown>>) {
     const surreal = {
-      withCompany: async (
-        _c: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) => {
+      withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) => {
         let call = 0;
         return fn({
           query: async () => {
@@ -186,15 +180,9 @@ describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
   });
 
   it('orderingFrame requires BOTH the profile flag and a fired record', () => {
-    expect(
-      resolvePromptFrames(profile({ orderingFrame: true }), true).orderingFrame,
-    ).toBe(true);
-    expect(
-      resolvePromptFrames(profile({ orderingFrame: true }), false).orderingFrame,
-    ).toBe(false);
-    expect(
-      resolvePromptFrames(profile({}), true).orderingFrame,
-    ).toBe(false);
+    expect(resolvePromptFrames(profile({ orderingFrame: true }), true).orderingFrame).toBe(true);
+    expect(resolvePromptFrames(profile({ orderingFrame: true }), false).orderingFrame).toBe(false);
+    expect(resolvePromptFrames(profile({}), true).orderingFrame).toBe(false);
   });
 
   it('conflict arbitration rides updateStoryRendering; arc header rides query_arc', () => {
@@ -215,9 +203,7 @@ describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
 
 describe('RETRIEVAL_ORDERING_FRAME profile point', () => {
   it('defaults off; env enables; overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).orderingFrame).toBe(
-      false,
-    );
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).orderingFrame).toBe(false);
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_ORDERING_FRAME: '1',

@@ -5,10 +5,7 @@ import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
-import {
-  runInsightComposer,
-  type InsightComposerSpec,
-} from './insight-composer-kernel';
+import { runInsightComposer, type InsightComposerSpec } from './insight-composer-kernel';
 
 /**
  * Lane C composer, v1: per-entity ASPECT AGGREGATES
@@ -135,10 +132,7 @@ export class AggregateComposerService {
     };
   }
 
-  private async callComposer(
-    name: string,
-    factLines: string[],
-  ): Promise<AggregateProposal[]> {
+  private async callComposer(name: string, factLines: string[]): Promise<AggregateProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,

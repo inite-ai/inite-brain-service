@@ -41,14 +41,8 @@ export class ChatRouterCacheService {
   private misses = 0;
 
   constructor(private readonly config: ConfigService) {
-    const size = parseInt(
-      this.config.get<string>('CHAT_ROUTE_CACHE_SIZE', '1000'),
-      10,
-    );
-    this.enabled =
-      envFlagNotDisabled(
-        this.config.get<string>('CHAT_ROUTE_CACHE_ENABLED'),
-      );
+    const size = parseInt(this.config.get<string>('CHAT_ROUTE_CACHE_SIZE', '1000'), 10);
+    this.enabled = envFlagNotDisabled(this.config.get<string>('CHAT_ROUTE_CACHE_ENABLED'));
     this.cache = new LRUCache<string, ChatRoute>(size);
   }
 
@@ -120,8 +114,5 @@ function nfc(s: string): string {
 function stableArrayHash(arr: string[]): string {
   if (arr.length === 0) return 'empty';
   const sorted = [...arr].sort();
-  return createHash('sha256')
-    .update(sorted.join('\x1e'))
-    .digest('hex')
-    .slice(0, 16);
+  return createHash('sha256').update(sorted.join('\x1e')).digest('hex').slice(0, 16);
 }

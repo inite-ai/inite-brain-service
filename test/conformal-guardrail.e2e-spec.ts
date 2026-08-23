@@ -28,22 +28,28 @@ describe('Phase 3.C e2e — conformal guardrail', () => {
     // Two facts on the same entity. Calibration shrinks raw 0.95 to
     // roughly ~0.70 (above the 0.5 floor) and raw 0.05 stays low
     // (below the floor) per the bootstrap gold set.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'conformal_tenant' },
-      predicate: 'status',
-      object: 'high confidence claim',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-      confidence: 0.95,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'conformal_tenant' },
-      predicate: 'tier',
-      object: 'low confidence claim',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'billing.tier_change' },
-      confidence: 0.05,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'conformal_tenant' },
+        predicate: 'status',
+        object: 'high confidence claim',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+        confidence: 0.95,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'conformal_tenant' },
+        predicate: 'tier',
+        object: 'low confidence claim',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'billing.tier_change' },
+        confidence: 0.05,
+      });
   });
 
   afterAll(async () => {

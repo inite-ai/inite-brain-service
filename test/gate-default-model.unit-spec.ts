@@ -25,9 +25,7 @@ const MODEL_PATH = join(__dirname, '..', 'models', 'decision-gate.model.json');
 const SHIPPED_GOLDEN_F1_FLOOR = 0.66;
 
 describe('shipped default gate model', () => {
-  const model = TrainedDecisionClassifier.fromJson(
-    JSON.parse(readFileSync(MODEL_PATH, 'utf8')),
-  );
+  const model = TrainedDecisionClassifier.fromJson(JSON.parse(readFileSync(MODEL_PATH, 'utf8')));
 
   it('loads and is a valid gate model', () => {
     // fromJson threw if invalid; a smoke classify confirms it scores.
@@ -41,10 +39,7 @@ describe('shipped default gate model', () => {
   });
 
   it('hybrid (heuristic OR model) beats the heuristic on the golden', () => {
-    const hybrid = new HybridDecisionClassifier(
-      new HeuristicDecisionClassifier(),
-      model,
-    );
+    const hybrid = new HybridDecisionClassifier(new HeuristicDecisionClassifier(), model);
     const h = evaluateHeuristicOnGolden();
     const hy = evaluateClassifierOnGolden(hybrid);
     // Strictly better F1, and precision never regresses — the gate's contract.
@@ -55,10 +50,7 @@ describe('shipped default gate model', () => {
   });
 
   it('holds the absolute golden F1 ratchet (catches a silent regression)', () => {
-    const hybrid = new HybridDecisionClassifier(
-      new HeuristicDecisionClassifier(),
-      model,
-    );
+    const hybrid = new HybridDecisionClassifier(new HeuristicDecisionClassifier(), model);
     const hy = evaluateClassifierOnGolden(hybrid);
     expect(hy.f1).toBeGreaterThanOrEqual(SHIPPED_GOLDEN_F1_FLOOR);
   });

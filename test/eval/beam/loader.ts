@@ -57,9 +57,7 @@ export interface BeamConversation {
 }
 
 export async function loadBeam(path: string): Promise<BeamConversation[]> {
-  const raw = JSON.parse(
-    await fs.readFile(path, 'utf-8'),
-  ) as BeamConversation[];
+  const raw = JSON.parse(await fs.readFile(path, 'utf-8')) as BeamConversation[];
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error(`BEAM loader: no conversations in ${path}`);
   }

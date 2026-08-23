@@ -11,9 +11,10 @@ import { SynthesizeService } from '../src/synthesize/synthesize.service';
  * For "is X close to Y" assertions in tests, we exploit text equality:
  * identical text → cosine 1.0; different text → cosine ~0.
  */
-export class StubEmbedder
-  implements Pick<EmbedderService, 'embed' | 'embedMany' | 'getDimensions'>
-{
+export class StubEmbedder implements Pick<
+  EmbedderService,
+  'embed' | 'embedMany' | 'getDimensions'
+> {
   constructor(private readonly dimensions = 1536) {}
 
   async embed(text: string): Promise<number[]> {
@@ -41,10 +42,10 @@ export class StubEmbedder
  * "topic" entity from the literal text. Tests that need specific
  * extraction results call setScript() before exercising ingest-mention.
  */
-export class StubExtractor
-  implements
-    Pick<ExtractorService, 'extract' | 'modelId' | 'vocabularyVersionHash'>
-{
+export class StubExtractor implements Pick<
+  ExtractorService,
+  'extract' | 'modelId' | 'vocabularyVersionHash'
+> {
   private script: ExtractionResult | null = null;
 
   setScript(result: ExtractionResult | null) {
@@ -60,10 +61,7 @@ export class StubExtractor
     return 'stub-vocab';
   }
 
-  async extract(
-    text: string,
-    _companyId?: string,
-  ): Promise<ExtractionResult> {
+  async extract(text: string, _companyId?: string): Promise<ExtractionResult> {
     if (this.script) return this.script;
     if (!text.trim()) return { entities: [], facts: [], edges: [] };
     return {
@@ -104,25 +102,17 @@ export interface OpenAiMockState {
  * Returns the mock state so the caller can introspect captured
  * messages after `/v1/synthesize` returns.
  */
-export function mockSynthesizeOpenAi(
-  app: INestApplication,
-  responses: string[],
-): OpenAiMockState {
+export function mockSynthesizeOpenAi(app: INestApplication, responses: string[]): OpenAiMockState {
   const state: OpenAiMockState = { calls: [] };
   const svc = app.get(SynthesizeService);
   const stub = {
     chat: {
       completions: {
-        create: async (req: {
-          messages: Array<{ role: string; content: string }>;
-        }) => {
-          const system =
-            req.messages.find((m) => m.role === 'system')?.content ?? '';
-          const user =
-            req.messages.find((m) => m.role === 'user')?.content ?? '';
+        create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+          const system = req.messages.find((m) => m.role === 'system')?.content ?? '';
+          const user = req.messages.find((m) => m.role === 'user')?.content ?? '';
           const idx = state.calls.length;
-          const content =
-            responses[idx] ?? responses[responses.length - 1] ?? '{}';
+          const content = responses[idx] ?? responses[responses.length - 1] ?? '{}';
           state.calls.push({ system, user, response: content });
           return { choices: [{ message: { content } }] };
         },

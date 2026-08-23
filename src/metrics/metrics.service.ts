@@ -465,9 +465,7 @@ export class MetricsService implements OnModuleInit {
    * `mcp` (here) and `fact` (in FactIngestService), so sum-across-labels
    * is not meaningful; query per-path for burst detection.
    */
-  countIngestWrite(
-    path: 'mention' | 'fact' | 'document' | 'candidate' | 'mcp',
-  ): void {
+  countIngestWrite(path: 'mention' | 'fact' | 'document' | 'candidate' | 'mcp'): void {
     this.ingestWrites.inc({ path } as LabelValues<'path'>);
   }
 
@@ -476,12 +474,7 @@ export class MetricsService implements OnModuleInit {
   }
 
   countRerank(
-    outcome:
-      | 'invoked'
-      | 'error'
-      | 'skipped_disabled'
-      | 'skipped_singleton'
-      | 'skipped_margin',
+    outcome: 'invoked' | 'error' | 'skipped_disabled' | 'skipped_singleton' | 'skipped_margin',
   ): void {
     this.searchRerankCount.inc({ outcome } as LabelValues<'outcome'>);
   }
@@ -512,13 +505,7 @@ export class MetricsService implements OnModuleInit {
   }
 
   countMultiHop(
-    outcome:
-      | 'ok'
-      | 'single_hop'
-      | 'chain_empty'
-      | 'no_results'
-      | 'planner_error'
-      | 'hop_error',
+    outcome: 'ok' | 'single_hop' | 'chain_empty' | 'no_results' | 'planner_error' | 'hop_error',
   ): void {
     this.multiHopCount.inc({ outcome } as LabelValues<'outcome'>);
   }
@@ -545,19 +532,12 @@ export class MetricsService implements OnModuleInit {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
-  countAnswerCache(
-    outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass',
-  ): void {
+  countAnswerCache(outcome: 'hit' | 'miss' | 'rejected_stale' | 'stored' | 'bypass'): void {
     this.answerCacheCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countL3Escalation(
-    outcome:
-      | 'fired'
-      | 'flipped'
-      | 'no_flip'
-      | 'skipped_no_anchor'
-      | 'over_budget_degraded',
+    outcome: 'fired' | 'flipped' | 'no_flip' | 'skipped_no_anchor' | 'over_budget_degraded',
   ): void {
     this.l3EscalationCount.inc({ outcome } as LabelValues<'outcome'>);
   }
@@ -588,22 +568,14 @@ export class MetricsService implements OnModuleInit {
 
   countIndexerRun(
     outcome:
-      | 'succeeded'
-      | 'failed'
-      | 'skipped_duplicate'
-      | 'reopened'
-      | 'stale_reaped'
-      | 'claim_released',
+      'succeeded' | 'failed' | 'skipped_duplicate' | 'reopened' | 'stale_reaped' | 'claim_released',
   ): void {
     this.indexerRunsCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countCandidate(kind: string, decision: string, n = 1): void {
     if (n > 0) {
-      this.candidatesCount.inc(
-        { kind, decision } as LabelValues<'kind' | 'decision'>,
-        n,
-      );
+      this.candidatesCount.inc({ kind, decision } as LabelValues<'kind' | 'decision'>, n);
     }
   }
 
@@ -650,10 +622,7 @@ export class MetricsService implements OnModuleInit {
     durationSeconds: number,
   ): void {
     this.jobsTotal.inc({ jobType, outcome } as LabelValues<'jobType' | 'outcome'>);
-    this.jobDuration.observe(
-      { jobType } as LabelValues<'jobType'>,
-      durationSeconds,
-    );
+    this.jobDuration.observe({ jobType } as LabelValues<'jobType'>, durationSeconds);
   }
 
   setWorkerLeader(isLeader: boolean): void {
@@ -661,10 +630,7 @@ export class MetricsService implements OnModuleInit {
   }
 
   setWorkerJobsInFlight(jobType: string, inFlight: number): void {
-    this.workerJobsInFlight.set(
-      { jobType } as LabelValues<'jobType'>,
-      inFlight,
-    );
+    this.workerJobsInFlight.set({ jobType } as LabelValues<'jobType'>, inFlight);
   }
 
   countChangefeedConsumed(source: string, n = 1): void {
@@ -691,10 +657,7 @@ export class MetricsService implements OnModuleInit {
       );
     }
     for (const band of ['low', 'neutral', 'high'] as const) {
-      this.memoryFactTrust.set(
-        { band } as LabelValues<'band'>,
-        snapshot.trustBands[band],
-      );
+      this.memoryFactTrust.set({ band } as LabelValues<'band'>, snapshot.trustBands[band]);
     }
     this.memoryOrphanEntities.set(snapshot.orphanEntities);
     this.policySetsActive.set(snapshot.policySetsActive);
@@ -705,9 +668,7 @@ export class MetricsService implements OnModuleInit {
     kind: 'action' | 'row',
     mode: 'report_only' | 'enforce',
   ): void {
-    this.policyDecisions.inc({ decision, kind, mode } as LabelValues<
-      'decision' | 'kind' | 'mode'
-    >);
+    this.policyDecisions.inc({ decision, kind, mode } as LabelValues<'decision' | 'kind' | 'mode'>);
   }
 
   observePolicyEval(seconds: number): void {

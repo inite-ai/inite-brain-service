@@ -85,7 +85,7 @@ export class SchemaMigrator {
       // guards make it a clean no-op.
       let attempts = 0;
       const maxAttempts = 5;
-       
+
       while (true) {
         try {
           await conn.query(m.sql);
@@ -96,9 +96,7 @@ export class SchemaMigrator {
             this.logger.error(
               `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
             );
-            throw new Error(
-              `Migration ${m.name} failed: ${(err as Error).message}`,
-            );
+            throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
           }
           const baseMs = 20 * Math.pow(2, attempts - 1);
           await new Promise((r) => setTimeout(r, baseMs + Math.random() * baseMs));
@@ -111,10 +109,10 @@ export class SchemaMigrator {
       // has already applied identical schema and must treat the unique
       // violation as "someone else recorded it first", not a failure.
       try {
-        await conn.query(
-          `CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`,
-          { id: m.id, name: m.name },
-        );
+        await conn.query(`CREATE schema_migrations CONTENT { migrationId: $id, name: $name }`, {
+          id: m.id,
+          name: m.name,
+        });
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
         this.logger.log(`Ledger row for ${m.name} already written by a concurrent applier`);
@@ -167,8 +165,6 @@ export class SchemaMigrator {
     const [rows] = await conn.query<[Array<{ migrationId: string }>]>(
       `SELECT migrationId FROM schema_migrations`,
     );
-    return ((rows ?? []) as Array<{ migrationId: string }>).map(
-      (r) => r.migrationId,
-    );
+    return ((rows ?? []) as Array<{ migrationId: string }>).map((r) => r.migrationId);
   }
 }

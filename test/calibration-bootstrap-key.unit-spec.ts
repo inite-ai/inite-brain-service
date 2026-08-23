@@ -58,9 +58,7 @@ describe('calibration bootstrap promptHash — persist/load contract', () => {
     const calib = new CalibrationService(config, surreal, apiKeys);
     await calib.onModuleInit();
 
-    const promptHashes = binds
-      .filter((b) => 'p' in b)
-      .map((b) => b.p as string);
+    const promptHashes = binds.filter((b) => 'p' in b).map((b) => b.p as string);
 
     expect(promptHashes.length).toBeGreaterThan(0);
     for (const p of promptHashes) {

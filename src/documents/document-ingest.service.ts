@@ -37,15 +37,9 @@ export class DocumentIngestService {
     private readonly commit: CandidateCommitService,
   ) {}
 
-  async ingestDocument(
-    companyId: string,
-    dto: IngestDocumentDto,
-  ): Promise<DocumentIngestResponse> {
+  async ingestDocument(companyId: string, dto: IngestDocumentDto): Promise<DocumentIngestResponse> {
     return traceSpan('ingest.document', async () => {
-      const { doc, chunks, deduplicated } = await this.store.createOrGet(
-        companyId,
-        dto,
-      );
+      const { doc, chunks, deduplicated } = await this.store.createOrGet(companyId, dto);
 
       try {
         await this.store.setStatus({ companyId, docId: doc.id, status: 'indexing' });
@@ -78,9 +72,7 @@ export class DocumentIngestService {
         }
         return this.shapeResponse({ doc, chunks, deduplicated, runs, commit });
       } catch (err) {
-        this.logger.warn(
-          `document ingest failed doc=${doc.id}: ${(err as Error).message}`,
-        );
+        this.logger.warn(`document ingest failed doc=${doc.id}: ${(err as Error).message}`);
         await this.store
           .setStatus({ companyId, docId: doc.id, status: 'failed' })
           .catch(() => undefined);
@@ -90,10 +82,7 @@ export class DocumentIngestService {
   }
 
   /** Manual (re)commit of whatever is pending — the admin endpoint. */
-  async commitPending(
-    companyId: string,
-    docId: string,
-  ): Promise<CommitResult | null> {
+  async commitPending(companyId: string, docId: string): Promise<CommitResult | null> {
     const doc = await this.store.getById(companyId, docId);
     if (!doc) return null;
     const commit = await this.commit.commitDocument(companyId, doc);

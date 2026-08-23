@@ -63,8 +63,7 @@ export function routeByRules(
       requested.has(b.indexerId) ||
       r?.alwaysRun === true ||
       (r?.verticals?.includes(input.vertical) ?? false);
-    const l1 =
-      !l0 && (r?.keywords?.some((kw) => headMatchesKeyword(head, kw)) ?? false);
+    const l1 = !l0 && (r?.keywords?.some((kw) => headMatchesKeyword(head, kw)) ?? false);
     if (l0 || l1) {
       selected.push(b);
     } else if (r?.description) {
@@ -88,9 +87,7 @@ export function headMatchesKeyword(head: string, keyword: string): boolean {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return false;
   const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(
-    head,
-  );
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(head);
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

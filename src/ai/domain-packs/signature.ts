@@ -23,21 +23,13 @@ function signedBytes(manifest: DomainPackManifest): Buffer {
   return Buffer.from(canonicalJson(rest), 'utf8');
 }
 
-export function signPack(
-  manifest: DomainPackManifest,
-  privateKeyPem: string,
-): string {
-  return cryptoSign(
-    null,
-    signedBytes(manifest),
-    createPrivateKey(privateKeyPem),
-  ).toString('base64');
+export function signPack(manifest: DomainPackManifest, privateKeyPem: string): string {
+  return cryptoSign(null, signedBytes(manifest), createPrivateKey(privateKeyPem)).toString(
+    'base64',
+  );
 }
 
-export function verifyPackSignature(
-  manifest: DomainPackManifest,
-  publicKeyPem: string,
-): boolean {
+export function verifyPackSignature(manifest: DomainPackManifest, publicKeyPem: string): boolean {
   if (!manifest.signature) return false;
   try {
     return cryptoVerify(

@@ -100,14 +100,10 @@ describe('LoCoMo metrics', () => {
 
   describe('adversarialScore', () => {
     it('rewards refusing when gold is a refusal', () => {
-      expect(
-        adversarialScore('No information available', "I don't know"),
-      ).toBe(1);
+      expect(adversarialScore('No information available', "I don't know")).toBe(1);
     });
     it('penalises confabulation against a refusal gold', () => {
-      expect(
-        adversarialScore('Alice prefers cats', 'No information available'),
-      ).toBe(0);
+      expect(adversarialScore('Alice prefers cats', 'No information available')).toBe(0);
     });
     it('falls back to F1 when gold is not a refusal', () => {
       expect(adversarialScore('blue car', 'blue car')).toBe(1);

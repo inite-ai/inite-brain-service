@@ -18,10 +18,7 @@ import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { compileDenyPushdown } from '../src/policy/db-fence';
 import { compilePolicySet } from '../src/policy/policy-compile';
-import {
-  PolicyContext,
-  PolicyDocumentSchema,
-} from '../src/policy/policy.types';
+import { PolicyContext, PolicyDocumentSchema } from '../src/policy/policy.types';
 
 jest.setTimeout(180_000);
 
@@ -68,12 +65,8 @@ describe('compileDenyPushdown', () => {
 
   it('returns [] with no context, forceReportOnly, or report_only sets', () => {
     expect(compileDenyPushdown(undefined)).toEqual([]);
-    expect(
-      compileDenyPushdown({ ...ctxOf(NO_HR), forceReportOnly: true }),
-    ).toEqual([]);
-    expect(
-      compileDenyPushdown(ctxOf({ ...NO_HR, mode: 'report_only' })),
-    ).toEqual([]);
+    expect(compileDenyPushdown({ ...ctxOf(NO_HR), forceReportOnly: true })).toEqual([]);
+    expect(compileDenyPushdown(ctxOf({ ...NO_HR, mode: 'report_only' }))).toEqual([]);
   });
 });
 
@@ -160,15 +153,11 @@ describe('DB fence (scoped pool)', () => {
     const surreal = f.app.get(SurrealService);
 
     // LET does not survive a query() boundary on this stack…
-    const persistence = await surreal.withScopedCompany(
-      f.companyId,
-      ['brain:read'],
-      async (db) => {
-        await db.query(`LET $probe_var = 42`);
-        const [a] = await db.query<[any]>(`RETURN $probe_var ?? 'GONE'`);
-        return a;
-      },
-    );
+    const persistence = await surreal.withScopedCompany(f.companyId, ['brain:read'], async (db) => {
+      await db.query(`LET $probe_var = 42`);
+      const [a] = await db.query<[any]>(`RETURN $probe_var ?? 'GONE'`);
+      return a;
+    });
     expect(persistence).toBe('GONE');
 
     // …and PERMISSIONS are skipped for brain_caller (system user): an

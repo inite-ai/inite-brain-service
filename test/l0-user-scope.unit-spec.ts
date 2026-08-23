@@ -105,7 +105,6 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
 });
 
 describe('L0 user-scope fence (0055) — segment lane', () => {
-
   function makeLane(): {
     svc: SegmentLaneService;
     queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
@@ -118,7 +117,6 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
   }
 
   it('both legs carry the fence; unscoped is global-only', async () => {
-
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
@@ -132,7 +130,6 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
   });
 
   it('scoped read passes the param to both legs', async () => {
-
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
@@ -152,8 +149,7 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
 describe('episode subscriptions — single-writer + per-subscription breaker', () => {
   const savedFlag = process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
   afterEach(() => {
-    if (savedFlag === undefined)
-      delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
+    if (savedFlag === undefined) delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
     else process.env.EPISODE_SUBSCRIPTIONS_ENABLED = savedFlag;
   });
 
@@ -169,12 +165,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
     const lease = {
       tryAcquire: async () => false,
     } as unknown as LeaderLeaseService;
-    const svc = new EpisodeSubscriptionService(
-      surreal,
-      episodes,
-      apiKeys,
-      lease,
-    );
+    const svc = new EpisodeSubscriptionService(surreal, episodes, apiKeys, lease);
     await svc.dispatchTick();
     expect(queries).toHaveLength(0);
   });
@@ -195,12 +186,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
         return true;
       },
     } as unknown as LeaderLeaseService;
-    const svc = new EpisodeSubscriptionService(
-      surreal,
-      episodes,
-      apiKeys,
-      lease,
-    );
+    const svc = new EpisodeSubscriptionService(surreal, episodes, apiKeys, lease);
     await svc.dispatchTick();
     expect(names).toEqual(['episode_subscriptions']);
     expect(queries.length).toBeGreaterThan(0);

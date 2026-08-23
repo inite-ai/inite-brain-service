@@ -33,10 +33,7 @@ export class JobReaperService {
     @Optional() private readonly claim?: JobClaimService,
     @Optional() private readonly apiKeys?: ApiKeyService,
   ) {
-    this.maxAttempts = parseInt(
-      config.get<string>('JOB_RUN_MAX_ATTEMPTS', '3') ?? '3',
-      10,
-    );
+    this.maxAttempts = parseInt(config.get<string>('JOB_RUN_MAX_ATTEMPTS', '3') ?? '3', 10);
     this.backoffBaseMs = parseInt(
       config.get<string>('JOB_RUN_BACKOFF_BASE_MS', '30000') ?? '30000',
       10,

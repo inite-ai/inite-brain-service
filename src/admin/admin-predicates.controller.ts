@@ -13,10 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
-import {
-  PredicateRegistryService,
-  PredicateDefinition,
-} from '../ai/predicate-registry.service';
+import { PredicateRegistryService, PredicateDefinition } from '../ai/predicate-registry.service';
 import type { PredicatesListResponse } from '../contracts/admin/predicates.schema';
 import type {
   PredicateMutationResponse,
@@ -33,18 +30,12 @@ import type {
 @Controller('v1/admin/predicates')
 @UseGuards(ApiKeyGuard)
 export class AdminPredicatesController {
-  constructor(
-    private readonly predicateRegistry: PredicateRegistryService,
-  ) {}
+  constructor(private readonly predicateRegistry: PredicateRegistryService) {}
 
   @Get()
   @RequireScopes('brain:admin')
-  async list(
-    @Req() req: AuthenticatedRequest,
-  ): Promise<PredicatesListResponse> {
-    const predicates = await this.predicateRegistry.listAll(
-      req.brainAuth.companyId,
-    );
+  async list(@Req() req: AuthenticatedRequest): Promise<PredicatesListResponse> {
+    const predicates = await this.predicateRegistry.listAll(req.brainAuth.companyId);
     return { predicates } satisfies PredicatesListResponse;
   }
 
@@ -67,10 +58,7 @@ export class AdminPredicatesController {
         'predicateId must be lowercase snake_case (e.g. medical_diagnosis)',
       );
     }
-    const created = await this.predicateRegistry.create(
-      req.brainAuth.companyId,
-      body,
-    );
+    const created = await this.predicateRegistry.create(req.brainAuth.companyId, body);
     return { predicate: created } satisfies PredicateMutationResponse;
   }
 
@@ -99,10 +87,7 @@ export class AdminPredicatesController {
     @Req() req: AuthenticatedRequest,
     @Param('predicateId') predicateId: string,
   ): Promise<PredicateDeprecateResponse> {
-    const ok = await this.predicateRegistry.deprecate(
-      req.brainAuth.companyId,
-      predicateId,
-    );
+    const ok = await this.predicateRegistry.deprecate(req.brainAuth.companyId, predicateId);
     if (!ok) {
       throw new NotFoundException(`Predicate ${predicateId} not found`);
     }
@@ -115,10 +100,7 @@ export class AdminPredicatesController {
     @Req() req: AuthenticatedRequest,
     @Param('predicateId') predicateId: string,
   ): Promise<PredicateMutationResponse> {
-    const result = await this.predicateRegistry.promote(
-      req.brainAuth.companyId,
-      predicateId,
-    );
+    const result = await this.predicateRegistry.promote(req.brainAuth.companyId, predicateId);
     if (!result) {
       throw new NotFoundException(`Predicate ${predicateId} not found`);
     }

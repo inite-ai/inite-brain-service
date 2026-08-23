@@ -37,11 +37,7 @@ describe('AdminController.calibrationStats() — wire contract', () => {
     );
     if (!parsed.success) {
       throw new Error(
-        `calibration (enabled) drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
+        `calibration (enabled) drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
       );
     }
     expect(parsed.data.disabled).toBe(false);
@@ -61,11 +57,7 @@ describe('AdminController.calibrationStats() — wire contract', () => {
     );
     if (!parsed.success) {
       throw new Error(
-        `calibration (disabled) drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
+        `calibration (disabled) drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
       );
     }
     expect(parsed.data.disabled).toBe(true);

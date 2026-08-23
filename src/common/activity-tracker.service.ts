@@ -30,8 +30,6 @@ export class ActivityTrackerService {
   }
 
   list(): InFlightRequest[] {
-    return [...this.inFlight.values()].sort(
-      (a, b) => a.startedAtMs - b.startedAtMs,
-    );
+    return [...this.inFlight.values()].sort((a, b) => a.startedAtMs - b.startedAtMs);
   }
 }

@@ -1,9 +1,4 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { ThrottlerObservabilityService } from './throttler-observability.service';
@@ -19,9 +14,7 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
  */
 @Injectable()
 export class ThrottlerObservabilityInterceptor implements NestInterceptor {
-  constructor(
-    private readonly observability: ThrottlerObservabilityService,
-  ) {}
+  constructor(private readonly observability: ThrottlerObservabilityService) {}
 
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = ctx.switchToHttp();
@@ -39,9 +32,7 @@ export class ThrottlerObservabilityInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap({
         next: () =>
-          this.observability.record(
-            this.buildInput({ req, res, path, forceThrottled: false }),
-          ),
+          this.observability.record(this.buildInput({ req, res, path, forceThrottled: false })),
         error: (err) =>
           this.observability.record(
             this.buildInput({

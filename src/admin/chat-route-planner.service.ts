@@ -2,10 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { traceArtifact } from '../common/debug-trace';
 import { PredicatePlanService } from './predicate-plan.service';
 import { IntentClassifierService } from './intent-classifier.service';
-import {
-  CollapsePatternService,
-  extractCollapseEditsLocally,
-} from './collapse-pattern.service';
+import { CollapsePatternService, extractCollapseEditsLocally } from './collapse-pattern.service';
 import {
   extractMentionsLocally,
   extractTemporalLocally,
@@ -39,8 +36,10 @@ export class ChatRoutePlannerService {
     const nowIso = (options.now ?? new Date()).toISOString();
     const refDate = options.now ?? new Date();
 
-    const { snapshot, predicateVocab, localHints } =
-      await this.predicatePlan.plan(message, options.companyId);
+    const { snapshot, predicateVocab, localHints } = await this.predicatePlan.plan(
+      message,
+      options.companyId,
+    );
 
     const localTemporal = extractTemporalLocally(message, refDate);
     const localMentions = extractMentionsLocally(message, knownNames);
@@ -112,9 +111,7 @@ export class ChatRoutePlannerService {
     message: string,
     companyId: string,
   ): Promise<{
-    collapseSnapshot:
-      | { patterns: Map<string, { pattern: string; replacement: string }> }
-      | null;
+    collapseSnapshot: { patterns: Map<string, { pattern: string; replacement: string }> } | null;
     localCollapses: ReturnType<typeof extractCollapseEditsLocally>;
   }> {
     try {

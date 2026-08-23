@@ -11,10 +11,7 @@ import {
   type EpisodeRow,
 } from '../src/admin/window-deriver.service';
 import { DATE_AUDIT_SYSTEM } from '../src/admin/deriver-client';
-import {
-  chatCallParams,
-  isReasoningModel,
-} from '../src/ai/openai-client';
+import { chatCallParams, isReasoningModel } from '../src/ai/openai-client';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
@@ -36,10 +33,7 @@ describe('segmentSessions', () => {
       ],
       60 * 60 * 1000,
     );
-    expect(sessions.map((s) => s.map((e) => e.id))).toEqual([
-      ['a', 'b'],
-      ['c'],
-    ]);
+    expect(sessions.map((s) => s.map((e) => e.id))).toEqual([['a', 'b'], ['c']]);
   });
 
   it('one session when gaps stay under the threshold', () => {
@@ -108,18 +102,26 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         if (sql.includes('FROM episode'))
           return [
             opts?.episodes ?? [
-              { id: 'episode:e0', speaker: 'Melanie', text: 'Do you have pets?', occurredAt: '2023-05-01T10:00:00Z' },
-              { id: 'episode:e1', speaker: 'Caroline', text: 'Luna and Oliver! They are so sweet', occurredAt: '2023-05-01T10:01:00Z' },
+              {
+                id: 'episode:e0',
+                speaker: 'Melanie',
+                text: 'Do you have pets?',
+                occurredAt: '2023-05-01T10:00:00Z',
+              },
+              {
+                id: 'episode:e1',
+                speaker: 'Caroline',
+                text: 'Luna and Oliver! They are so sweet',
+                occurredAt: '2023-05-01T10:01:00Z',
+              },
             ],
           ];
-        if (sql.includes('FROM knowledge_entity'))
-          return [[{ id: 'knowledge_entity:car' }]];
+        if (sql.includes('FROM knowledge_entity')) return [[{ id: 'knowledge_entity:car' }]];
         return [[]];
       },
     };
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     const config = {
       get: (k: string, d?: string) => (k === 'OPENAI_API_KEY' ? 'sk' : d),
@@ -130,10 +132,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     } as unknown as FactEmbeddingService;
     const derived: Array<Record<string, unknown>> = [];
     const factResolver = {
-      resolveDerivedBatch: async (
-        _db: unknown,
-        rows: Array<Record<string, unknown>>,
-      ) => {
+      resolveDerivedBatch: async (_db: unknown, rows: Array<Record<string, unknown>>) => {
         derived.push(...rows);
         return rows.map(() => ({ outcome: 'INSERTED' }));
       },
@@ -190,9 +189,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // ever touched by the atomic flip at the end of a clean run.
     // Per-run token (audit round 3): `<version>.staging.<token>`.
     const staging = `${WINDOW_DERIVER_VERSION}.staging`;
-    const del = queries.find(
-      (q) => q.sql.includes('DELETE knowledge_fact') && q.params?.version,
-    );
+    const del = queries.find((q) => q.sql.includes('DELETE knowledge_fact') && q.params?.version);
     expect(String(del?.params?.version).startsWith(`${staging}.`)).toBe(true);
     const flip = queries.find(
       (q) =>
@@ -200,9 +197,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         q.sql.includes('UPDATE knowledge_fact SET derivedVersion = $final'),
     );
     expect(flip).toBeDefined();
-    expect(flip?.sql).toContain(
-      'DELETE knowledge_fact WHERE derivedVersion = $final',
-    );
+    expect(flip?.sql).toContain('DELETE knowledge_fact WHERE derivedVersion = $final');
     expect(flip?.params?.final).toBe(WINDOW_DERIVER_VERSION);
     expect(String(flip?.params?.staging).startsWith(`${staging}.`)).toBe(true);
     // S4/0079: the write goes through the ONE write primitive
@@ -278,40 +273,28 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // namespace — the old digest is DELETED even with the flag off (a
     // stale narrative must not outlive the facts rewritten next to it);
     // nothing is CREATED.
-    expect(
-      off.queries.some((q) => q.sql.includes('DELETE conversation_digest')),
-    ).toBe(true);
-    expect(
-      off.queries.some((q) => q.sql.includes('CREATE conversation_digest')),
-    ).toBe(false);
+    expect(off.queries.some((q) => q.sql.includes('DELETE conversation_digest'))).toBe(true);
+    expect(off.queries.some((q) => q.sql.includes('CREATE conversation_digest'))).toBe(false);
 
     process.env.DERIVER_DIGEST = '1';
     try {
       const on = makeSvc(props);
       await on.svc.run('co_x');
-      const write = on.queries.find((q) =>
-        q.sql.includes('CREATE conversation_digest'),
-      );
+      const write = on.queries.find((q) => q.sql.includes('CREATE conversation_digest'));
       expect(write).toBeDefined();
       // The DELETE is its own statement now (it must run even when the
       // fold produces nothing).
-      expect(
-        on.queries.some((q) => q.sql.includes('DELETE conversation_digest')),
-      ).toBe(true);
+      expect(on.queries.some((q) => q.sql.includes('DELETE conversation_digest'))).toBe(true);
       // Digest writes stage like fact writes; the digest flip
       // transaction promotes them alongside the facts.
-      expect(
-        String(write?.params?.version).startsWith(
-          `${WINDOW_DERIVER_VERSION}.staging.`,
-        ),
-      ).toBe(true);
+      expect(String(write?.params?.version).startsWith(`${WINDOW_DERIVER_VERSION}.staging.`)).toBe(
+        true,
+      );
       expect(
         on.queries.some(
           (q) =>
             q.sql.includes('BEGIN TRANSACTION') &&
-            q.sql.includes(
-              'UPDATE conversation_digest SET derivedVersion = $final',
-            ),
+            q.sql.includes('UPDATE conversation_digest SET derivedVersion = $final'),
         ),
       ).toBe(true);
       expect(write?.params?.conv).toBe('conv-1');
@@ -341,16 +324,37 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     try {
       const { svc, queries } = makeSvc(props, {
         episodes: [
-          { id: 'episode:e0', speaker: 'Melanie', text: 'Do you have pets?', occurredAt: '2023-05-01T10:00:00Z', userId: 'user-b' },
-          { id: 'episode:e1', speaker: 'Caroline', text: 'Luna and Oliver!', occurredAt: '2023-05-01T10:01:00Z', userId: 'user-a' },
-          { id: 'episode:e2', speaker: 'Caroline', text: 'They are so sweet', occurredAt: '2023-05-01T10:02:00Z', userId: 'user-a' },
-          { id: 'episode:e3', speaker: 'Melanie', text: 'A tenant-global turn', occurredAt: '2023-05-01T10:03:00Z' },
+          {
+            id: 'episode:e0',
+            speaker: 'Melanie',
+            text: 'Do you have pets?',
+            occurredAt: '2023-05-01T10:00:00Z',
+            userId: 'user-b',
+          },
+          {
+            id: 'episode:e1',
+            speaker: 'Caroline',
+            text: 'Luna and Oliver!',
+            occurredAt: '2023-05-01T10:01:00Z',
+            userId: 'user-a',
+          },
+          {
+            id: 'episode:e2',
+            speaker: 'Caroline',
+            text: 'They are so sweet',
+            occurredAt: '2023-05-01T10:02:00Z',
+            userId: 'user-a',
+          },
+          {
+            id: 'episode:e3',
+            speaker: 'Melanie',
+            text: 'A tenant-global turn',
+            occurredAt: '2023-05-01T10:03:00Z',
+          },
         ],
       });
       await svc.run('co_x');
-      const write = queries.find((q) =>
-        q.sql.includes('CREATE conversation_digest'),
-      );
+      const write = queries.find((q) => q.sql.includes('CREATE conversation_digest'));
       // Distinct, non-null, sorted — the policy metadata the digest
       // lane's fail-closed read keys on.
       expect(write?.sql).toContain('userScopes = $userScopes');
@@ -413,9 +417,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     const res = await svc.run('co_x', { conversationId: 'conv-other' });
     expect(res.conversations).toBe(0);
     expect(res.propositions).toBe(0);
-    expect(
-      queries.some((q) => q.sql.includes('DELETE knowledge_fact')),
-    ).toBe(false);
+    expect(queries.some((q) => q.sql.includes('DELETE knowledge_fact'))).toBe(false);
   });
 
   describe('world forks (Mandela guard + flip + gc)', () => {
@@ -440,9 +442,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     it('refuses to derive into the live read pin without force', async () => {
       process.env.RETRIEVAL_DERIVED_VERSION = 'wd-v2';
       const { svc, queries } = makeSvc(oneProp);
-      await expect(svc.run('co_x', { version: 'wd-v2' })).rejects.toThrow(
-        'live read set',
-      );
+      await expect(svc.run('co_x', { version: 'wd-v2' })).rejects.toThrow('live read set');
       expect(queries).toHaveLength(0);
       // force overrides for deliberate in-place eval rewrites
       const { svc: svc2 } = makeSvc(oneProp);
@@ -455,9 +455,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       process.env.RETRIEVAL_DERIVED_VERSIONS = 'wd-extra';
       try {
         const { svc, queries } = makeSvc(oneProp);
-        await expect(svc.run('co_x', { version: 'wd-extra' })).rejects.toThrow(
-          'live read set',
-        );
+        await expect(svc.run('co_x', { version: 'wd-extra' })).rejects.toThrow('live read set');
         expect(queries).toHaveLength(0);
       } finally {
         delete process.env.RETRIEVAL_DERIVED_VERSIONS;
@@ -497,10 +495,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       };
       const surreal = {
-        withCompany: async (
-          _c: string,
-          fn: (d: unknown) => Promise<unknown>,
-        ) => fn(db),
+        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
       } as unknown as SurrealService;
       const config = {
         get: (k: string, d?: string) => d,
@@ -509,15 +504,19 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const embedding = {
         embedMany: async (t: string[]) => t.map(() => [1, 0]),
       } as unknown as FactEmbeddingService;
-      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal), {
-        resolveDerivedBatch: async () => [],
-      } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService);
+      const svc = new WindowDeriverService(
+        surreal,
+        config,
+        embedding,
+        new EpisodeReadStoreService(surreal),
+        {
+          resolveDerivedBatch: async () => [],
+        } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService,
+      );
       const res = await svc.gc('co_x', { keep: ['wd-v2'] });
       expect(res.deleted).toEqual({ 'wd-v1': 100 });
       expect(res.kept.sort()).toEqual(['wd-v2', 'wd-v3']);
-      const dels = queries.filter((q) =>
-        q.sql.includes('DELETE knowledge_fact'),
-      );
+      const dels = queries.filter((q) => q.sql.includes('DELETE knowledge_fact'));
       expect(dels).toHaveLength(1);
       expect(dels[0]!.params?.version).toBe('wd-v1');
     });
@@ -526,15 +525,10 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       delete process.env.RETRIEVAL_DERIVED_VERSION;
       const db = {
         query: async (sql: string) =>
-          sql.includes('GROUP BY derivedVersion')
-            ? [[{ derivedVersion: 'wd-v1', n: 100 }]]
-            : [[]],
+          sql.includes('GROUP BY derivedVersion') ? [[{ derivedVersion: 'wd-v1', n: 100 }]] : [[]],
       };
       const surreal = {
-        withCompany: async (
-          _c: string,
-          fn: (d: unknown) => Promise<unknown>,
-        ) => fn(db),
+        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
       } as unknown as SurrealService;
       const config = {
         get: (k: string, d?: string) => d,
@@ -543,9 +537,15 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       const embedding = {
         embedMany: async (t: string[]) => t.map(() => [1, 0]),
       } as unknown as FactEmbeddingService;
-      const svc = new WindowDeriverService(surreal, config, embedding, new EpisodeReadStoreService(surreal), {
-        resolveDerivedBatch: async () => [],
-      } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService);
+      const svc = new WindowDeriverService(
+        surreal,
+        config,
+        embedding,
+        new EpisodeReadStoreService(surreal),
+        {
+          resolveDerivedBatch: async () => [],
+        } as unknown as import('../src/ingest/fact-resolver.service').FactResolverService,
+      );
       await expect(svc.gc('co_x')).rejects.toThrow(/gc refused/);
     });
 
@@ -570,10 +570,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       };
       const surreal = {
-        withCompany: async (
-          _c: string,
-          fn: (d: unknown) => Promise<unknown>,
-        ) => fn(db),
+        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
       } as unknown as SurrealService;
       const config = {
         get: (k: string, d?: string) => d,
@@ -622,9 +619,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       (svc as unknown as { openai: unknown }).openai = failingLlm;
       const res = await svc.run('co_x');
       expect(res.conversations).toBe(0);
-      expect(res.skipped).toEqual([
-        { conversationId: 'conv-1', reason: 'llm down' },
-      ]);
+      expect(res.skipped).toEqual([{ conversationId: 'conv-1', reason: 'llm down' }]);
       expect(res.status).toBe('failed');
       expect(res.failed).toBe(1);
     });
@@ -688,9 +683,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(res.status).toBe('degraded');
       expect(res.failed).toBe(1);
       expect(res.conversations).toBe(1);
-      expect(res.skipped).toEqual([
-        { conversationId: 'conv-1', reason: 'llm down' },
-      ]);
+      expect(res.skipped).toEqual([{ conversationId: 'conv-1', reason: 'llm down' }]);
       // Flipping every reader onto a world with known holes is never
       // what the operator meant — activation demands a clean run.
       expect(res.activated).toBeUndefined();
@@ -779,9 +772,7 @@ describe('buildDeriverSystem (V12 §3 date-resolve lockstep)', () => {
       assistantContent: true,
       dateResolve: true,
     });
-    expect(both.indexOf('ASSISTANT-SIDE CONTRIBUTIONS')).toBeLessThan(
-      both.indexOf('EVENT DATING'),
-    );
+    expect(both.indexOf('ASSISTANT-SIDE CONTRIBUTIONS')).toBeLessThan(both.indexOf('EVENT DATING'));
   });
 });
 
@@ -790,7 +781,9 @@ describe('chatCallParams (the ONE reasoning-model guard)', () => {
     expect(chatCallParams('gpt-5-mini', { temperature: 0, visibleCap: 512 })).toEqual({
       max_completion_tokens: 2048,
     });
-    expect(chatCallParams('o3-mini', { temperature: 0.1, visibleCap: 1000, reasoningCap: 8000 })).toEqual({
+    expect(
+      chatCallParams('o3-mini', { temperature: 0.1, visibleCap: 1000, reasoningCap: 8000 }),
+    ).toEqual({
       max_completion_tokens: 8000,
     });
   });

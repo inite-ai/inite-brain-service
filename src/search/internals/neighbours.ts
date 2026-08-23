@@ -138,9 +138,7 @@ export async function expandEntityIdsViaEdges({
 }): Promise<string[]> {
   if (entityIds.length === 0) return entityIds;
   const rids = entityIds.map((raw) => {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
+    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return new StringRecordId(`knowledge_entity:${id}`);
   });
   const fence = buildEdgeFence(userId);

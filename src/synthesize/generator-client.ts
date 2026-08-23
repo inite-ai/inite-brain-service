@@ -8,7 +8,6 @@ import type { LaneId } from '../search/retrieval-profile';
 import { buildGeneratorUserMessage } from './generator-prompt';
 import { salvageTruncatedAnswer } from './synthesize.helpers';
 
-
 import type { GeneratorOutput } from './synthesize.types';
 
 /**
@@ -140,15 +139,9 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
                 properties: {
                   answer: { type: 'string' },
                   citedFactIds: { type: 'array', items: { type: 'string' } },
-                  ...(req.allowRefine
-                    ? { refineQuery: { type: ['string', 'null'] } }
-                    : {}),
+                  ...(req.allowRefine ? { refineQuery: { type: ['string', 'null'] } } : {}),
                 },
-                required: [
-                  'answer',
-                  'citedFactIds',
-                  ...(req.allowRefine ? ['refineQuery'] : []),
-                ],
+                required: ['answer', 'citedFactIds', ...(req.allowRefine ? ['refineQuery'] : [])],
               },
             },
           },

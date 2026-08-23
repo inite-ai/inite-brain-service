@@ -5,10 +5,7 @@ import { createOpenAiClient } from '../ai/openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
-import {
-  FactToSummarize,
-  SummaryGenerator,
-} from '../compaction/summary-generator';
+import { FactToSummarize, SummaryGenerator } from '../compaction/summary-generator';
 import { envFlagEnabled } from '../common/env-validation';
 
 /**
@@ -43,19 +40,14 @@ export class LlmSummaryGenerator implements SummaryGenerator {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
-    this.openai =
-      createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
+    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
+    this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_SUMMARY_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('DREAMS_SUMMARY_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('DREAMS_SUMMARY_CONCURRENCY', '4'), 10),
     );
   }
 
@@ -69,9 +61,7 @@ export class LlmSummaryGenerator implements SummaryGenerator {
       if (summary) return summary;
       return this.concatFallback(group);
     } catch (err) {
-      this.logger.warn(
-        `LLM summary failed (${group.length} facts): ${(err as Error).message}`,
-      );
+      this.logger.warn(`LLM summary failed (${group.length} facts): ${(err as Error).message}`);
       return this.concatFallback(group);
     }
   }
@@ -100,15 +90,16 @@ Rules:
         model: this.model,
       },
       this.metrics,
-      () => this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: sys },
-        { role: 'user', content: user },
-      ],
-      max_completion_tokens: 200,
-      temperature: 0,
-    }),
+      () =>
+        this.openai.chat.completions.create({
+          model: this.model,
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: user },
+          ],
+          max_completion_tokens: 200,
+          temperature: 0,
+        }),
     );
     const content = res.choices[0]?.message?.content?.trim();
     if (!content) return '';

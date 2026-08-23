@@ -54,9 +54,7 @@ describe('IndexerWebhookService', () => {
       packId: event.packId,
       packVersion: event.packVersion,
     });
-    const expected = createHmac('sha256', 'shhh-secret')
-      .update(init.body)
-      .digest('hex');
+    const expected = createHmac('sha256', 'shhh-secret').update(init.body).digest('hex');
     expect(init.headers['x-brain-signature']).toBe(`sha256=${expected}`);
     expect(init.headers['x-brain-event']).toBe('work_available');
   });

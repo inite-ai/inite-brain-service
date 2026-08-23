@@ -9,19 +9,10 @@
  */
 import * as http from 'node:http';
 import { createHash } from 'node:crypto';
-import {
-  ExecutionContext,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import {
-  exportJWK,
-  generateKeyPair,
-  SignJWT,
-  type JWK,
-  type KeyLike,
-} from 'jose';
+import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from 'jose';
 import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ApiKeyService } from '../src/auth/api-key.service';
 import { CredentialResolverService } from '../src/auth/credential-resolver.service';
@@ -124,9 +115,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
       AUTH_SERVICE_AUDIENCE: AUDIENCE,
       BRAIN_API_KEYS: JSON.stringify([
         {
-          keyHash:
-            'sha256:' +
-            createHash('sha256').update('static-test-key').digest('hex'),
+          keyHash: 'sha256:' + createHash('sha256').update('static-test-key').digest('hex'),
           companyId: 'co_static',
           scopes: ['brain:read', 'brain:write'],
         },
@@ -343,9 +332,7 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
       AUTH_SERVICE_ISSUER: 'https://auth.test/',
       BRAIN_API_KEYS: JSON.stringify([
         {
-          keyHash:
-            'sha256:' +
-            createHash('sha256').update('prod-static-key').digest('hex'),
+          keyHash: 'sha256:' + createHash('sha256').update('prod-static-key').digest('hex'),
           companyId: 'co_prod',
           scopes: ['brain:read'],
         },

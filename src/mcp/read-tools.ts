@@ -1,7 +1,4 @@
-import {
-  McpServer,
-  ResourceTemplate,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
@@ -12,11 +9,7 @@ import type { MemoryDiffService } from '../diff/memory-diff.service';
 import type { IngestPredictionService } from '../ingest/ingest-predictor.service';
 import type { SummarizeEntityService } from '../summarize-entity/summarize-entity.service';
 import type { BrainScope } from '../auth/api-key.types';
-import {
-  NOOP_REPORTER,
-  type ProgressEvent,
-  type ProgressReporter,
-} from './progress-reporter';
+import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
 
@@ -76,9 +69,7 @@ function buildProgressReporter(extra: {
           progressToken: token,
           progress: event.index ?? counter,
           total: event.total,
-          message: event.message
-            ? `[${event.stage}] ${event.message}`
-            : event.stage,
+          message: event.message ? `[${event.stage}] ${event.message}` : event.stage,
         },
       })
       .catch(() => undefined);
@@ -103,12 +94,7 @@ export function registerReadTools({
   registerReadResources({ server, companyId, scopes, deps });
 }
 
-function registerSearchTools({
-  server,
-  companyId,
-  scopes,
-  deps,
-}: RegisterReadToolsOptions): void {
+function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadToolsOptions): void {
   const embedderHint = ` Embedding model on this tenant: ${deps.embedderDescription()}.`;
 
   // ── search_knowledge ──────────────────────────────────────────────
@@ -129,7 +115,9 @@ function registerSearchTools({
           .string()
           .max(200)
           .optional()
-          .describe("Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)"),
+          .describe(
+            "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
+          ),
       },
     },
     async (args) => {
@@ -140,9 +128,7 @@ function registerSearchTools({
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
           ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
           ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
-          ...(args.minConfidence !== undefined
-            ? { minConfidence: args.minConfidence }
-            : {}),
+          ...(args.minConfidence !== undefined ? { minConfidence: args.minConfidence } : {}),
           ...(args.userId !== undefined ? { userId: args.userId } : {}),
         },
         scopes,
@@ -164,27 +150,29 @@ function registerSearchTools({
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
-        maxHops: z.number().int().min(1).max(5).optional().describe(
-          'Hard cap on planner hops (default 3, capped at 5 — beyond that latency dominates)',
-        ),
-        synthesize: z.boolean().optional().describe(
-          'Run the synthesizer over the final entity set and return a grounded answer with citations',
-        ),
+        maxHops: z
+          .number()
+          .int()
+          .min(1)
+          .max(5)
+          .optional()
+          .describe(
+            'Hard cap on planner hops (default 3, capped at 5 — beyond that latency dominates)',
+          ),
+        synthesize: z
+          .boolean()
+          .optional()
+          .describe(
+            'Run the synthesizer over the final entity set and return a grounded answer with citations',
+          ),
         synthesisGuardrails: z
           .enum(['strict', 'lenient', 'off'])
           .optional()
           .describe(
             'Override guardrails when synthesize=true: strict closes to null on partial; lenient returns the answer with the verifier verdict; off skips the verifier',
           ),
-        asOf: z
-          .string()
-          .datetime()
-          .optional()
-          .describe('Knowledge as-of this ISO 8601 moment'),
-        predicates: z
-          .array(z.string())
-          .optional()
-          .describe('Filter to these predicates only'),
+        asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
+        predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(100).optional(),
         userId: z
           .string()
@@ -233,9 +221,13 @@ function registerSearchTools({
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language question'),
-        limit: z.number().int().min(1).max(100).optional().describe(
-          'Top-K facts fed to the generator (default 10)',
-        ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Top-K facts fed to the generator (default 10)'),
         predicates: z.array(z.string()).optional(),
         asOf: z.string().datetime().optional(),
         minConfidence: z.number().min(0).max(1).optional(),
@@ -261,9 +253,7 @@ function registerSearchTools({
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
           ...(args.predicates !== undefined ? { predicates: args.predicates } : {}),
           ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
-          ...(args.minConfidence !== undefined
-            ? { minConfidence: args.minConfidence }
-            : {}),
+          ...(args.minConfidence !== undefined ? { minConfidence: args.minConfidence } : {}),
           ...(args.synthesisGuardrails !== undefined
             ? { synthesisGuardrails: args.synthesisGuardrails }
             : {}),
@@ -303,10 +293,7 @@ function registerMemoryDiffTool({
           .array(z.string())
           .optional()
           .describe('Scope to these entities (short or full ids)'),
-        predicates: z
-          .array(z.string())
-          .optional()
-          .describe('Scope to these predicates'),
+        predicates: z.array(z.string()).optional().describe('Scope to these predicates'),
       },
     },
     async (args) => {
@@ -349,20 +336,14 @@ function registerGraphRetrieveTool({
         query: z
           .string()
           .optional()
-          .describe(
-            'Free-text fallback used to resolve seeds when a name does not match exactly',
-          ),
+          .describe('Free-text fallback used to resolve seeds when a name does not match exactly'),
         predicateHints: z
           .array(z.string())
           .optional()
           .describe(
             'Prefer facts with these predicates (non-matching neighbour facts are dropped, seed facts kept at lower score)',
           ),
-        asOf: z
-          .string()
-          .datetime()
-          .optional()
-          .describe('Knowledge as-of this ISO 8601 moment'),
+        asOf: z.string().datetime().optional().describe('Knowledge as-of this ISO 8601 moment'),
       },
     },
     async (args) => {
@@ -450,9 +431,7 @@ function registerEntityReadTools({
       description:
         "Returns a short one-line briefing about the entity — name, type, the most-confident active facts, external refs — suitable for dropping into an LLM context window. Caches in-process (per companyId / entityId / asOf / styleHint) so a hot entity touched across many turns doesn't reload the profile. styleHint='neutral' | 'sales' | 'support' are template-rendered (no LLM call). styleHint='client_llm' opts into MCP SAMPLING: brain asks the connected client (Claude Desktop / agent runtime) to write the one-liner with its own model — zero brain-side OpenAI cost, perfect for self-hosters who don't want brain holding an LLM key. Falls back to neutral template + sampledBy='local_template' when the client doesn't advertise sampling capability. Use INSTEAD of profile+timeline+competing when you only need a briefing.",
       inputSchema: {
-        entityId: z
-          .string()
-          .describe('Brain entity id (knowledge_entity:...) or short id'),
+        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         asOf: z
           .string()
           .datetime()
@@ -506,11 +485,9 @@ function registerEntityReadTools({
     {
       title: 'List competing facts for an entity',
       description:
-        "Returns facts in COMPETING status — those the conflict resolver couldn't auto-supersede because two same-predicate bitemporal facts overlap in valid-time and are too cosine-close within margin. Grouped by (entityId, predicate); 2-fact groups are pairs the resolver left for adjudication, 3+-fact groups are multi-way disagreements escalated for human review. Use as preflight before record_fact (\"is this entity already conflicted on this predicate?\") or to drive an in-product reviewer queue. asOf filters to disagreements that were live at that moment.",
+        'Returns facts in COMPETING status — those the conflict resolver couldn\'t auto-supersede because two same-predicate bitemporal facts overlap in valid-time and are too cosine-close within margin. Grouped by (entityId, predicate); 2-fact groups are pairs the resolver left for adjudication, 3+-fact groups are multi-way disagreements escalated for human review. Use as preflight before record_fact ("is this entity already conflicted on this predicate?") or to drive an in-product reviewer queue. asOf filters to disagreements that were live at that moment.',
       inputSchema: {
-        entityId: z
-          .string()
-          .describe('Brain entity id (knowledge_entity:...) or short id'),
+        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         predicate: z
           .string()
           .optional()
@@ -587,7 +564,7 @@ function registerDetectContradictionTool({
     {
       title: 'Predict the conflict-resolver outcome for a candidate fact',
       description:
-        "Dry-run preflight against fn::resolve_fact. Answers \"if I were to record this fact right now, what would the resolver decide?\" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Use before record_fact when the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: this preflight uses the SEED source-trust table and authority 0 — the live resolver scores opponents with the learned domain-scoped rates (migration 0045) and declared source authority (migration 0046), so predictions can differ for sources with conflict history or a registered authLevel; check get_source_reputation when precision matters.",
+        'Dry-run preflight against fn::resolve_fact. Answers "if I were to record this fact right now, what would the resolver decide?" without writing to the database. wouldOutcome ∈ {INSERTED, SUPERSEDED, COMPETING, REJECTED}; reasoning explains which rule fired (semantics class, score gap vs margin, cosine threshold, etc); opposingFacts lists the same-predicate priors the resolver would have weighed against. Use before record_fact when the cost of a contested write is high (e.g. agent loops that pay an ingest credit). Fidelity: this preflight uses the SEED source-trust table and authority 0 — the live resolver scores opponents with the learned domain-scoped rates (migration 0045) and declared source authority (migration 0046), so predictions can differ for sources with conflict history or a registered authLevel; check get_source_reputation when precision matters.',
       inputSchema: {
         entityRef: z.union([
           z.object({ vertical: z.string(), id: z.string() }),
@@ -598,9 +575,7 @@ function registerDetectContradictionTool({
         validFrom: z.string().datetime(),
         validUntil: z.string().datetime().optional(),
         confidence: z.number().min(0).max(1).optional(),
-        sourceVertical: z
-          .string()
-          .describe('Vertical attributed as source (matches record_fact)'),
+        sourceVertical: z.string().describe('Vertical attributed as source (matches record_fact)'),
         userId: z
           .string()
           .max(200)

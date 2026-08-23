@@ -80,9 +80,7 @@ export class LeaderLeaseService {
               // record<worker_loop>"). The string-compose form parses
               // and constructs on both generations; lease names are
               // code-controlled [a-z_]+ so no id-escaping concerns.
-              .add(
-                `LET $row = (SELECT * FROM type::record('leader_lease:' + $name))[0]`,
-              )
+              .add(`LET $row = (SELECT * FROM type::record('leader_lease:' + $name))[0]`)
               .add(
                 `IF $row IS NONE OR $row.leaseUntil < time::now() OR $row.leaderId = $me {
                    UPSERT type::record('leader_lease:' + $name) CONTENT {
@@ -121,15 +119,13 @@ export class LeaderLeaseService {
         // point-reads: a WHERE-name scan drags the whole table into the
         // transaction's read-set and aborts concurrent acquires.
         // Single-arg type::record — see tryAcquire for why.
-        await db.query(
-          `DELETE type::record('leader_lease:' + $name) WHERE leaderId = $me`,
-          { name, me: this.leaderId },
-        );
+        await db.query(`DELETE type::record('leader_lease:' + $name) WHERE leaderId = $me`, {
+          name,
+          me: this.leaderId,
+        });
       });
     } catch (e) {
-      this.logger.warn(
-        `release(${name}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`release(${name}) failed: ${(e as Error).message}`);
     }
   }
 

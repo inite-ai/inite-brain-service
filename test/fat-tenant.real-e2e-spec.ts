@@ -93,13 +93,9 @@ describe('Fat-tenant retrieval eval', () => {
       // — anything below top-3 means the graph noise dominates,
       // which is the exact regime we're trying to characterise.
       const queryResults = report.outcomes.flatMap((o) => o.queryResults);
-      const failed = queryResults.filter(
-        (q) => q.rankOfExpected === 0 || q.rankOfExpected > 3,
-      );
+      const failed = queryResults.filter((q) => q.rankOfExpected === 0 || q.rankOfExpected > 3);
       expect({
-        failed: failed.map(
-          (q) => `${q.query} → rank ${q.rankOfExpected}, top=${q.topEntityRef}`,
-        ),
+        failed: failed.map((q) => `${q.query} → rank ${q.rankOfExpected}, top=${q.topEntityRef}`),
       }).toEqual({ failed: [] });
     },
     1_800_000, // 30 min — seeding 2k+ setup steps is slow without LLM batching

@@ -7,11 +7,7 @@ import {
   listSymbols,
   symbolExists,
 } from '../src/code-memory/anchor/ts-symbol-resolver';
-import {
-  parseAnchor,
-  symbolAnchorId,
-  isSymbolAnchor,
-} from '../src/code-memory/anchor/symbol-id';
+import { parseAnchor, symbolAnchorId, isSymbolAnchor } from '../src/code-memory/anchor/symbol-id';
 import {
   makeSymbolAnchorRefiner,
   validateAnchor,
@@ -123,28 +119,24 @@ describe('makeSymbolAnchorRefiner', () => {
   it('keeps the file anchor when there is no symbol or file is gone', () => {
     const refine = makeSymbolAnchorRefiner({ readFile });
     expect(refine(base).anchor).toBe('x.ts');
-    expect(
-      refine({ ...base, anchor: 'gone.ts', symbol: 'Whatever' }).anchor,
-    ).toBe('gone.ts');
+    expect(refine({ ...base, anchor: 'gone.ts', symbol: 'Whatever' }).anchor).toBe('gone.ts');
   });
 });
 
 describe('validateAnchor (drift check)', () => {
   const readFile = (p: string) => (p === 'x.ts' ? SRC : null);
   it('present when the symbol still resolves (line-independent)', () => {
-    expect(
-      validateAnchor({ anchor: 'x.ts#FactResolverService.resolve', readFile }),
-    ).toBe('present');
+    expect(validateAnchor({ anchor: 'x.ts#FactResolverService.resolve', readFile })).toBe(
+      'present',
+    );
   });
   it('symbol_missing when the file exists but the symbol is gone', () => {
-    expect(
-      validateAnchor({ anchor: 'x.ts#FactResolverService.gone', readFile }),
-    ).toBe('symbol_missing');
+    expect(validateAnchor({ anchor: 'x.ts#FactResolverService.gone', readFile })).toBe(
+      'symbol_missing',
+    );
   });
   it('file_gone when the file no longer exists', () => {
-    expect(validateAnchor({ anchor: 'deleted.ts#Foo.bar', readFile })).toBe(
-      'file_gone',
-    );
+    expect(validateAnchor({ anchor: 'deleted.ts#Foo.bar', readFile })).toBe('file_gone');
   });
   it('present for a bare file anchor that still exists', () => {
     expect(validateAnchor({ anchor: 'x.ts', readFile })).toBe('present');
@@ -158,8 +150,7 @@ describe('reanchor', () => {
       path: 'x.ts',
       missingSymbolPath: 'FactResolverService.resolv', // typo'd/renamed
       choose: (candidates, missing) =>
-        candidates.find((c) => c.startsWith('FactResolverService.res')) ??
-        (missing ? null : null),
+        candidates.find((c) => c.startsWith('FactResolverService.res')) ?? (missing ? null : null),
     });
     expect(out).toBe('x.ts#FactResolverService.resolve');
   });

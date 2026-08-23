@@ -27,10 +27,7 @@
 import type { SearchHit } from '../search/search.types';
 import type { ScoreBreakdown } from '../search/internals/types';
 
-export type DecisionRejectReason =
-  | 'low_score'
-  | 'not_relevant_to_query'
-  | 'duplicate_predicate';
+export type DecisionRejectReason = 'low_score' | 'not_relevant_to_query' | 'duplicate_predicate';
 
 export interface DecisionLogEntry {
   factId: string;

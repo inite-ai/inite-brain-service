@@ -113,9 +113,7 @@ function composeGroup(
       // convert mention metadata into an asserted event date no atom
       // ever claimed — exactly the off-by-days class. Date-stamp only
       // audited/real event dates.
-      const piece = m.dated
-        ? `${text} (${m.validFrom.toISOString().slice(0, 10)})`
-        : text;
+      const piece = m.dated ? `${text} (${m.validFrom.toISOString().slice(0, 10)})` : text;
       // Keep the CHRONOLOGICAL PREFIX under the cap — enumeration golds
       // skew to the full history, and a silent mid-list cut is worse
       // than a stated one.
@@ -175,9 +173,7 @@ export function accumulateLanded(
     // launder one user's facts into everyone's view.
     if (typeof r.userId === 'string' && r.userId.length > 0) return;
     const eps = Array.isArray(r.source?.episodeIds)
-      ? (r.source.episodeIds as unknown[]).filter(
-          (e): e is string => typeof e === 'string',
-        )
+      ? (r.source.episodeIds as unknown[]).filter((e): e is string => typeof e === 'string')
       : undefined;
     pool.push({
       entityId: r.entityId,

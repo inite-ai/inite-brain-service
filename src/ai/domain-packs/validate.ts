@@ -23,21 +23,8 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 // invalid enum here would otherwise surface as a raw Surreal ASSERT error
 // (HTTP 500 + a half-installed pack) rather than a clean 400.
 const SEMANTICS = new Set(['append_only', 'single_active', 'bitemporal']);
-const PII_CLASSES = new Set([
-  'none',
-  'identifier',
-  'behavioral',
-  'text',
-  'sensitive',
-]);
-const DATATYPES = new Set([
-  'string',
-  'number',
-  'date',
-  'datetime',
-  'enum',
-  'json',
-]);
+const PII_CLASSES = new Set(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
+const DATATYPES = new Set(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 
 export class DomainPackError extends Error {}
 
@@ -50,9 +37,7 @@ export function validatePack(pack: DomainPackManifest): void {
   // A trailing underscore lets `foo_`'s composed prefix (`foo___`) collide
   // with `foo`'s uninstall prefix (`foo__`) — reject it up front.
   if (pack.id.endsWith('_')) {
-    throw new DomainPackError(
-      `pack id "${pack.id}" must not end with an underscore`,
-    );
+    throw new DomainPackError(`pack id "${pack.id}" must not end with an underscore`);
   }
   if (!SEMVER.test(pack.version)) {
     throw new DomainPackError(
@@ -76,9 +61,7 @@ export function validatePack(pack: DomainPackManifest): void {
       );
     }
     if (seen.has(p.localId)) {
-      throw new DomainPackError(
-        `pack "${pack.id}" declares duplicate localId "${p.localId}"`,
-      );
+      throw new DomainPackError(`pack "${pack.id}" declares duplicate localId "${p.localId}"`);
     }
     seen.add(p.localId);
     if (!SEMANTICS.has(p.semantics as string)) {
@@ -149,10 +132,7 @@ function validateRelevance(packId: string, relevance: unknown): void {
   };
   for (const field of ['keywords', 'verticals'] as const) {
     const v = r[field];
-    if (
-      v !== undefined &&
-      (!Array.isArray(v) || v.some((s) => typeof s !== 'string' || !s))
-    ) {
+    if (v !== undefined && (!Array.isArray(v) || v.some((s) => typeof s !== 'string' || !s))) {
       throw new DomainPackError(
         `pack "${packId}" indexer.relevance.${field} must be an array of non-empty strings`,
       );
@@ -167,9 +147,7 @@ function validateRelevance(packId: string, relevance: unknown): void {
     );
   }
   if (r.description !== undefined && typeof r.description !== 'string') {
-    throw new DomainPackError(
-      `pack "${packId}" indexer.relevance.description must be a string`,
-    );
+    throw new DomainPackError(`pack "${packId}" indexer.relevance.description must be a string`);
   }
   // Floor the L2 cosine threshold: 0 means "match every document", which
   // turns the embedding gate into an unconditional run.
@@ -182,9 +160,7 @@ function validateRelevance(packId: string, relevance: unknown): void {
     );
   }
   if (r.alwaysRun !== undefined && typeof r.alwaysRun !== 'boolean') {
-    throw new DomainPackError(
-      `pack "${packId}" indexer.relevance.alwaysRun must be a boolean`,
-    );
+    throw new DomainPackError(`pack "${packId}" indexer.relevance.alwaysRun must be a boolean`);
   }
 }
 
@@ -197,18 +173,13 @@ function validateDedicated(packId: string, dedicated: unknown): void {
     model?: unknown;
     scPasses?: unknown;
   };
-  if (
-    ded.includeCorePredicates !== undefined &&
-    typeof ded.includeCorePredicates !== 'boolean'
-  ) {
+  if (ded.includeCorePredicates !== undefined && typeof ded.includeCorePredicates !== 'boolean') {
     throw new DomainPackError(
       `pack "${packId}" indexer.dedicated.includeCorePredicates must be a boolean`,
     );
   }
   if (ded.model !== undefined && typeof ded.model !== 'string') {
-    throw new DomainPackError(
-      `pack "${packId}" indexer.dedicated.model must be a string`,
-    );
+    throw new DomainPackError(`pack "${packId}" indexer.dedicated.model must be a string`);
   }
   if (
     ded.scPasses !== undefined &&
@@ -233,29 +204,17 @@ function validateEvalFixtures(packId: string, fixtures: unknown): void {
   for (const f of fixtures) {
     const fx = f as { id?: unknown; text?: unknown; expect?: unknown };
     if (typeof fx.id !== 'string' || !fx.id) {
-      throw new DomainPackError(
-        `pack "${packId}" evalFixtures entries need a non-empty string id`,
-      );
+      throw new DomainPackError(`pack "${packId}" evalFixtures entries need a non-empty string id`);
     }
     if (ids.has(fx.id)) {
-      throw new DomainPackError(
-        `pack "${packId}" evalFixtures has duplicate id "${fx.id}"`,
-      );
+      throw new DomainPackError(`pack "${packId}" evalFixtures has duplicate id "${fx.id}"`);
     }
     ids.add(fx.id);
     if (typeof fx.text !== 'string' || !fx.text) {
-      throw new DomainPackError(
-        `pack "${packId}" evalFixture "${fx.id}" needs a non-empty text`,
-      );
+      throw new DomainPackError(`pack "${packId}" evalFixture "${fx.id}" needs a non-empty text`);
     }
-    if (
-      typeof fx.expect !== 'object' ||
-      fx.expect === null ||
-      Array.isArray(fx.expect)
-    ) {
-      throw new DomainPackError(
-        `pack "${packId}" evalFixture "${fx.id}" needs an expect object`,
-      );
+    if (typeof fx.expect !== 'object' || fx.expect === null || Array.isArray(fx.expect)) {
+      throw new DomainPackError(`pack "${packId}" evalFixture "${fx.id}" needs an expect object`);
     }
     const facts = (fx.expect as { facts?: unknown }).facts;
     if (facts !== undefined) {
@@ -265,9 +224,7 @@ function validateEvalFixtures(packId: string, fixtures: unknown): void {
         );
       }
       for (const want of facts) {
-        if (
-          typeof (want as { predicate?: unknown })?.predicate !== 'string'
-        ) {
+        if (typeof (want as { predicate?: unknown })?.predicate !== 'string') {
           throw new DomainPackError(
             `pack "${packId}" evalFixture "${fx.id}" expect.facts entries need a string predicate`,
           );
@@ -312,9 +269,7 @@ function validateSeedDocuments(packId: string, seeds: unknown): void {
   let totalChars = 0;
   for (const s of seeds) {
     if (typeof s !== 'object' || s === null || Array.isArray(s)) {
-      throw new DomainPackError(
-        `pack "${packId}" seedDocuments entries must be objects`,
-      );
+      throw new DomainPackError(`pack "${packId}" seedDocuments entries must be objects`);
     }
     const seed = s as SeedShape;
     if (
@@ -343,31 +298,21 @@ function validateSeedDocuments(packId: string, seeds: unknown): void {
 }
 
 /** Per-document field checks (localId already vetted by the caller). */
-function validateSeedFields(
-  packId: string,
-  localId: string,
-  seed: SeedShape,
-): void {
+function validateSeedFields(packId: string, localId: string, seed: SeedShape): void {
   if (typeof seed.title !== 'string' || !seed.title || seed.title.length > 512) {
     throw new DomainPackError(
       `pack "${packId}" seed document "${localId}" needs a non-empty title of at most 512 chars`,
     );
   }
   if (typeof seed.text !== 'string' || !seed.text) {
-    throw new DomainPackError(
-      `pack "${packId}" seed document "${localId}" needs a non-empty text`,
-    );
+    throw new DomainPackError(`pack "${packId}" seed document "${localId}" needs a non-empty text`);
   }
   if (seed.text.length > SEED_DOC_MAX_CHARS) {
     throw new DomainPackError(
       `pack "${packId}" seed document "${localId}" text is ${seed.text.length} chars — the per-document cap is ${SEED_DOC_MAX_CHARS}`,
     );
   }
-  if (
-    typeof seed.vertical !== 'string' ||
-    !seed.vertical ||
-    seed.vertical.length > 64
-  ) {
+  if (typeof seed.vertical !== 'string' || !seed.vertical || seed.vertical.length > 64) {
     throw new DomainPackError(
       `pack "${packId}" seed document "${localId}" needs a non-empty vertical of at most 64 chars`,
     );
@@ -382,8 +327,7 @@ function validateSeedFields(
   }
   if (
     seed.occurredAt !== undefined &&
-    (typeof seed.occurredAt !== 'string' ||
-      !Number.isFinite(Date.parse(seed.occurredAt)))
+    (typeof seed.occurredAt !== 'string' || !Number.isFinite(Date.parse(seed.occurredAt)))
   ) {
     throw new DomainPackError(
       `pack "${packId}" seed document "${localId}" occurredAt must be an ISO datetime`,
@@ -425,24 +369,18 @@ function validateSeedMeta(packId: string, localId: string, meta: unknown): void 
  */
 function validateExtractionProfile(packId: string, profile: unknown): void {
   if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) {
-    throw new DomainPackError(
-      `pack "${packId}" extractionProfile must be an object`,
-    );
+    throw new DomainPackError(`pack "${packId}" extractionProfile must be an object`);
   }
   const { guidance, fewShot } = profile as {
     guidance?: unknown;
     fewShot?: unknown;
   };
   if (guidance !== undefined && typeof guidance !== 'string') {
-    throw new DomainPackError(
-      `pack "${packId}" extractionProfile.guidance must be a string`,
-    );
+    throw new DomainPackError(`pack "${packId}" extractionProfile.guidance must be a string`);
   }
   if (fewShot !== undefined) {
     if (!Array.isArray(fewShot)) {
-      throw new DomainPackError(
-        `pack "${packId}" extractionProfile.fewShot must be an array`,
-      );
+      throw new DomainPackError(`pack "${packId}" extractionProfile.fewShot must be an array`);
     }
     for (const ex of fewShot) {
       if (
@@ -479,9 +417,7 @@ const MAX_TOOL_PARAMS = 8;
  */
 export function validateMcpTools(pack: DomainPackManifest, tools: unknown): void {
   if (!Array.isArray(tools) || tools.length === 0) {
-    throw new DomainPackError(
-      `pack "${pack.id}" mcpTools must be a non-empty array`,
-    );
+    throw new DomainPackError(`pack "${pack.id}" mcpTools must be a non-empty array`);
   }
   if (tools.length > MAX_TOOLS) {
     throw new DomainPackError(
@@ -506,19 +442,13 @@ export function validateMcpTools(pack: DomainPackManifest, tools: unknown): void
       );
     }
     const name = tool.name as string;
-    if (
-      typeof name !== 'string' ||
-      !TOOL_NAME.test(name) ||
-      name.includes(PACK_NAMESPACE_SEP)
-    ) {
+    if (typeof name !== 'string' || !TOOL_NAME.test(name) || name.includes(PACK_NAMESPACE_SEP)) {
       throw new DomainPackError(
         `pack "${pack.id}" mcpTool name "${name}" must match ${TOOL_NAME} and must not contain "${PACK_NAMESPACE_SEP}"`,
       );
     }
     if (seen.has(name)) {
-      throw new DomainPackError(
-        `pack "${pack.id}" declares duplicate mcpTool name "${name}"`,
-      );
+      throw new DomainPackError(`pack "${pack.id}" declares duplicate mcpTool name "${name}"`);
     }
     seen.add(name);
     if (tool.title !== undefined && (typeof tool.title !== 'string' || tool.title.length > 80)) {
@@ -556,9 +486,7 @@ function validateQueryTool({
 }): void {
   const { query } = tool as { query?: unknown };
   if (typeof query !== 'object' || query === null || Array.isArray(query)) {
-    throw new DomainPackError(
-      `pack "${packId}" mcpTool "${name}" needs a query object`,
-    );
+    throw new DomainPackError(`pack "${packId}" mcpTool "${name}" needs a query object`);
   }
   const q = query as {
     surface?: unknown;
@@ -610,11 +538,7 @@ function validateQueryTool({
         `pack "${packId}" mcpTool "${name}" query.minConfidence applies to the search surface only`,
       );
     }
-    if (
-      typeof q.minConfidence !== 'number' ||
-      q.minConfidence < 0 ||
-      q.minConfidence > 1
-    ) {
+    if (typeof q.minConfidence !== 'number' || q.minConfidence < 0 || q.minConfidence > 1) {
       throw new DomainPackError(
         `pack "${packId}" mcpTool "${name}" query.minConfidence must be a number in [0, 1]`,
       );
@@ -672,9 +596,7 @@ const TOOL_PARAM_TYPES = new Set(['string', 'number', 'boolean']);
 
 function validateToolParam(packId: string, name: string, param: unknown): void {
   if (param === null || typeof param !== 'object' || Array.isArray(param)) {
-    throw new DomainPackError(
-      `pack "${packId}" mcpTool "${name}" params entries must be objects`,
-    );
+    throw new DomainPackError(`pack "${packId}" mcpTool "${name}" params entries must be objects`);
   }
   const p = param as Partial<PackToolParam>;
   if (

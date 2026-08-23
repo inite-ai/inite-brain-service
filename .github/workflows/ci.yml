@@ -58,6 +58,14 @@ jobs:
         # fix is thrown away — the working tree isn't committed back).
         run: pnpm lint:ci
 
+      # Formatting gate. ESLint owns correctness; Prettier owns layout
+      # (eslint-plugin-prettier/recommended disables the conflicting ESLint
+      # stylistic rules, and prettier/prettier is kept off so lint stays fast
+      # — this separate --check is the formatting authority). Fails on any
+      # unformatted src/test .ts; run `pnpm format` to fix.
+      - name: Format check (prettier)
+        run: pnpm format:check
+
       # Typecheck the WHOLE project, tests included. `nest build` only
       # compiles src/ (tsconfig.json excludes test/), so before this step a
       # type error in a spec only surfaced if/when ts-jest happened to run

@@ -65,10 +65,9 @@ describe('SurrealService — concurrent tenant isolation', () => {
     await Promise.all(
       tenants.map((t) =>
         surreal.withCompany(t, async (db) => {
-          await db.query(
-            `CREATE knowledge_entity SET type = 'customer', canonicalName = $name`,
-            { name: `mark_${t}` },
-          );
+          await db.query(`CREATE knowledge_entity SET type = 'customer', canonicalName = $name`, {
+            name: `mark_${t}`,
+          });
         }),
       ),
     );
@@ -126,9 +125,7 @@ describe('SurrealService — concurrent tenant isolation', () => {
         }),
       );
 
-    const results = await Promise.all(
-      Array.from({ length: FANOUT }, (_, i) => upsertOnce(i)),
-    );
+    const results = await Promise.all(Array.from({ length: FANOUT }, (_, i) => upsertOnce(i)));
 
     // All attempts converge on the same id
     const unique = new Set(results);
@@ -222,10 +219,9 @@ describe('SurrealService — concurrent tenant isolation', () => {
       Array.from({ length: N }, (_, i) =>
         surreal.withCompany(tenant, (db) =>
           retryOnUniqueViolation(() =>
-            db.query(
-              `CREATE knowledge_entity SET type = 'customer', canonicalName = $n`,
-              { n: `drain_${i}` },
-            ),
+            db.query(`CREATE knowledge_entity SET type = 'customer', canonicalName = $n`, {
+              n: `drain_${i}`,
+            }),
           ),
         ),
       ),

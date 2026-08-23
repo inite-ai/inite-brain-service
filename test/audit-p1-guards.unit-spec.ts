@@ -17,10 +17,7 @@ import { JobRunService } from '../src/jobs/job-run.service';
 const MIGRATIONS = join(__dirname, '..', 'src', 'db', 'migrations');
 
 describe('0058_reap_zombies_lease_guard', () => {
-  const sql = readFileSync(
-    join(MIGRATIONS, '0058_reap_zombies_lease_guard.surql'),
-    'utf8',
-  );
+  const sql = readFileSync(join(MIGRATIONS, '0058_reap_zombies_lease_guard.surql'), 'utf8');
 
   it('redefines fn::reap_zombies', () => {
     expect(sql).toContain('DEFINE FUNCTION OVERWRITE fn::reap_zombies');
@@ -39,9 +36,7 @@ describe('0058_reap_zombies_lease_guard', () => {
     const ungated = sql
       .split('\n')
       .filter((l) => !l.trimStart().startsWith('--'))
-      .filter(
-        (l) => l.includes('leaseUntil < $now') && !l.includes('IS NOT NONE'),
-      );
+      .filter((l) => l.includes('leaseUntil < $now') && !l.includes('IS NOT NONE'));
     expect(ungated).toEqual([]);
   });
 });
@@ -57,9 +52,7 @@ describe('0059_perf_indexes', () => {
     ['retrieval_feedback_created_idx', 'retrieval_feedback', 'createdAt'],
     ['edge_invalidated_idx', 'knowledge_edge', 'invalidatedAt'],
   ])('defines %s on %s(%s)', (name, table, field) => {
-    const re = new RegExp(
-      `DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${field};`,
-    );
+    const re = new RegExp(`DEFINE INDEX IF NOT EXISTS ${name}\\s+ON ${table} FIELDS ${field};`);
     expect(sql).toMatch(re);
   });
 });

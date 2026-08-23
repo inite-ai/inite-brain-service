@@ -53,9 +53,9 @@ describe('JobWorkerPool', () => {
     const pool = new JobWorkerPool(makeConfig({ JOB_WORKER_POOL_SIZE: '1' }));
     await pool.onModuleInit();
     try {
-      await expect(
-        pool.run(FIXTURE_PATH, { mode: 'boom' }),
-      ).rejects.toThrow(/worker boom for test/);
+      await expect(pool.run(FIXTURE_PATH, { mode: 'boom' })).rejects.toThrow(
+        /worker boom for test/,
+      );
     } finally {
       await pool.onApplicationShutdown();
     }
@@ -96,9 +96,7 @@ describe('JobWorkerPool', () => {
     );
     await pool.onModuleInit();
     try {
-      await expect(pool.run(FIXTURE_PATH, { mode: 'hang' })).rejects.toThrow(
-        /timed out/,
-      );
+      await expect(pool.run(FIXTURE_PATH, { mode: 'hang' })).rejects.toThrow(/timed out/);
       // The timed-out worker was terminated; the pool should respawn a
       // replacement and accept new work again. Wait for an *idle* worker, not
       // just size===1 — the terminated slot lingers in `workers` until its

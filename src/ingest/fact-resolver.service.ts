@@ -6,11 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { KeyedMutex } from '../common/keyed-mutex';
-import {
-  ConflictConfig,
-  type DerivedSemantics,
-  type ResolveOutcome,
-} from './conflict-resolver';
+import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
 
@@ -34,13 +30,8 @@ export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
 ]);
 
 /** Derive-internal semantics choice (V9 §1); pure, exported for tests. */
-export function derivedSemanticsFor(
-  aspect: string,
-  slotSemantics: boolean,
-): DerivedSemantics {
-  return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect)
-    ? 'bitemporal_event'
-    : 'append_only';
+export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): DerivedSemantics {
+  return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect) ? 'bitemporal_event' : 'append_only';
 }
 
 /**
@@ -73,13 +64,13 @@ export class FactResolverService {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
       slotSimilarityThreshold: this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9),
       weights: {
-        confidence:  this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE',  0.30),
-        sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.40),
-        recency:     this.cfgNum('CONFLICT_WEIGHT_RECENCY',     0.20),
-        authority:   this.cfgNum('CONFLICT_WEIGHT_AUTHORITY',   0.10),
+        confidence: this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE', 0.3),
+        sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.4),
+        recency: this.cfgNum('CONFLICT_WEIGHT_RECENCY', 0.2),
+        authority: this.cfgNum('CONFLICT_WEIGHT_AUTHORITY', 0.1),
       },
-      marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE',  0.15),
-      rejectThreshold:    this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.30),
+      marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE', 0.15),
+      rejectThreshold: this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.3),
     };
   }
 
@@ -167,15 +158,11 @@ export class FactResolverService {
       );
     }
 
-    const prepared = await Promise.all(
-      inputs.map((p) => this.buildResolveCall(p)),
-    );
+    const prepared = await Promise.all(inputs.map((p) => this.buildResolveCall(p)));
     const results: ResolveOutcome[] = new Array(inputs.length);
     const appendIdx: number[] = [];
     const restIdx: number[] = [];
-    prepared.forEach((c, i) =>
-      (c.semantics === 'append_only' ? appendIdx : restIdx).push(i),
-    );
+    prepared.forEach((c, i) => (c.semantics === 'append_only' ? appendIdx : restIdx).push(i));
 
     if (appendIdx.length > 0) {
       try {
@@ -221,17 +208,13 @@ export class FactResolverService {
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
     const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
-    const sourceTrust = sourceTrustFor(
-      p.source as Parameters<typeof sourceTrustFor>[0],
-    );
+    const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     const detLang = detectLanguage(p.object);
     const lang = detLang.language !== 'und' ? detLang.language : undefined;
     const script = detLang.language !== 'und' ? detLang.script : undefined;
     const embedding =
       p.precomputedEmbedding ??
-      (await this.factEmbedding.embed(
-        p.embeddingText ?? `${p.predicate}: ${p.object}`,
-      ));
+      (await this.factEmbedding.embed(p.embeddingText ?? `${p.predicate}: ${p.object}`));
     return {
       companyId: p.companyId,
       entityId: p.entityId,
@@ -300,10 +283,10 @@ export class FactResolverService {
     if (byUser.size === 0) return;
     try {
       for (const [userId, ids] of byUser) {
-        await db.query(
-          `UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`,
-          { scope: scopeForUser(userId), ids },
-        );
+        await db.query(`UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`, {
+          scope: scopeForUser(userId),
+          ids,
+        });
       }
     } catch (e) {
       this.logger.warn(
@@ -365,11 +348,10 @@ export class FactResolverService {
       reject_threshold: this.conflict.rejectThreshold,
       margin_for_supersede: this.conflict.marginForSupersede,
     };
-    const out = await queryRows<ResolveOutcome>(
-      db,
-      `RETURN fn::resolve_facts($facts, $cfg)`,
-      { facts, cfg },
-    );
+    const out = await queryRows<ResolveOutcome>(db, `RETURN fn::resolve_facts($facts, $cfg)`, {
+      facts,
+      cfg,
+    });
     await this.stampFactScope(
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
@@ -450,16 +432,11 @@ export class FactResolverService {
       // fn::resolve_facts statement. Retry per row so the batch
       // degrades to N-1 good rows + a WARN per bad one instead of a
       // skipped conversation.
-      this.logger.warn(
-        `derived batch resolve failed (${(e as Error).message}); retrying per-row`,
-      );
+      this.logger.warn(`derived batch resolve failed (${(e as Error).message}); retrying per-row`);
       const out: ResolveOutcome[] = [];
       for (const c of prepared) {
         try {
-          const [r] = await this.resolveAppendOnlyBatch(
-            db as unknown as Surreal,
-            [c],
-          );
+          const [r] = await this.resolveAppendOnlyBatch(db as unknown as Surreal, [c]);
           out.push(r as ResolveOutcome);
         } catch (rowErr) {
           this.logger.warn(

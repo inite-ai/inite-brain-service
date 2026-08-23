@@ -36,9 +36,7 @@ export class ScenarioRunner {
       ? await this.memoryChecker.check(scenario)
       : [];
 
-    const miaTestResults = this.miaChecker
-      ? await this.miaChecker.check(scenario)
-      : [];
+    const miaTestResults = this.miaChecker ? await this.miaChecker.check(scenario) : [];
 
     const queryResults = [];
     for (const q of scenario.queries) {

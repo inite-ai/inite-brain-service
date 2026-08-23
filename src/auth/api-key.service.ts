@@ -29,7 +29,9 @@ export class ApiKeyService implements OnModuleInit {
     }
     for (const k of keys) {
       if (!k.keyHash || !k.companyId || !Array.isArray(k.scopes)) {
-        throw new Error('BRAIN_API_KEYS entry missing required fields (keyHash, companyId, scopes)');
+        throw new Error(
+          'BRAIN_API_KEYS entry missing required fields (keyHash, companyId, scopes)',
+        );
       }
       // Hash shape MUST match the convention `static hash()` emits —
       // `sha256:` + 64 hex chars. A misconfigured operator entry
@@ -52,10 +54,7 @@ export class ApiKeyService implements OnModuleInit {
       const legacy = k as { policies?: unknown };
       if (k.policyNames !== undefined || legacy.policies !== undefined) {
         const names = legacy.policies ?? k.policyNames;
-        if (
-          !Array.isArray(names) ||
-          names.some((n: unknown) => typeof n !== 'string')
-        ) {
+        if (!Array.isArray(names) || names.some((n: unknown) => typeof n !== 'string')) {
           throw new Error(
             `BRAIN_API_KEYS entry has malformed policies (expected array of strings): companyId=${k.companyId}`,
           );

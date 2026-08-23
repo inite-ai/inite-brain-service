@@ -1,8 +1,4 @@
-import type {
-  ExtractedEntity,
-  ExtractedFact,
-  RawExtractedFact,
-} from './types';
+import type { ExtractedEntity, ExtractedFact, RawExtractedFact } from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
@@ -20,9 +16,7 @@ import type { ExtractionPipelineProfile } from '../extraction-profile';
  * measured regressions before (agent-qa 47.4→42.1 rollback); this one
  * gets a paid confirm leg before any default flip.
  */
-export function objectNormalizationEnabled(
-  profile: ExtractionPipelineProfile,
-): boolean {
+export function objectNormalizationEnabled(profile: ExtractionPipelineProfile): boolean {
   return profile.vocabulary === 'closed' && profile.normalizeObjects;
 }
 
@@ -58,10 +52,7 @@ function boundaryOk(adjacent: string | undefined, edge: string): boolean {
  * ground "act" on "active", but multilingual-safe — CJK/Thai keep plain
  * substring behaviour. Both args must already be normalizeForGrounding'd.
  */
-export function isGroundedSpan(
-  normalizedInput: string,
-  normalizedSpan: string,
-): boolean {
+export function isGroundedSpan(normalizedInput: string, normalizedSpan: string): boolean {
   if (!normalizedSpan) return false;
   let from = 0;
   for (;;) {
@@ -99,9 +90,7 @@ export function groundEntities(
   allowedNames: string[] = [],
 ): boolean[] {
   const normalizedInput = normalizeForGrounding(trimmedInput);
-  const allowed = new Set(
-    allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean),
-  );
+  const allowed = new Set(allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean));
   return entities.map((e) => {
     const normName = normalizeForGrounding(e.name);
     return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
@@ -135,8 +124,7 @@ export function parseEntities(parsed: unknown): ExtractedEntity[] {
     out.push({
       name: e.name.trim(),
       type: normalizeEntityType(e.type),
-      canonical:
-        typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
+      canonical: typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
     });
   }
   return out;
@@ -153,10 +141,7 @@ export function parseClauses(parsed: unknown): string[] {
  * Pull raw facts out of the LLM JSON with shallow shape validation —
  * entityIndex in bounds, predicate is a string, valueSpan is a string.
  */
-export function parseRawFacts(
-  parsed: unknown,
-  entityCount: number,
-): RawExtractedFact[] {
+export function parseRawFacts(parsed: unknown, entityCount: number): RawExtractedFact[] {
   const facts = isRecord(parsed) ? parsed.facts : undefined;
   if (!Array.isArray(facts)) return [];
   const out: RawExtractedFact[] = [];
@@ -175,20 +160,13 @@ export function parseRawFacts(
     out.push({
       entityIndex: f.entityIndex,
       clauseIndex:
-        typeof f.clauseIndex === 'number' &&
-        Number.isInteger(f.clauseIndex) &&
-        f.clauseIndex >= 0
+        typeof f.clauseIndex === 'number' && Number.isInteger(f.clauseIndex) && f.clauseIndex >= 0
           ? f.clauseIndex
           : undefined,
       predicate: f.predicate.trim(),
       valueSpan: f.valueSpan.trim(),
-      confidence:
-        typeof f.confidence === 'number'
-          ? Math.max(0, Math.min(1, f.confidence))
-          : 0.5,
-      ...(typeof f.object === 'string' && f.object.trim()
-        ? { object: f.object.trim() }
-        : {}),
+      confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
+      ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
     });
   }
   return out;
@@ -202,13 +180,8 @@ export function parseRawFacts(
  * anti-hallucination structural: "camped in the mountains with my kids"
  * admits "the mountains" and rejects "hiking trip".
  */
-export function isObjectGroundedInSpan(
-  valueSpan: string,
-  object: string,
-): boolean {
-  const spanTokens = new Set(
-    normalizeForGrounding(valueSpan).split(/\s+/).filter(Boolean),
-  );
+export function isObjectGroundedInSpan(valueSpan: string, object: string): boolean {
+  const spanTokens = new Set(normalizeForGrounding(valueSpan).split(/\s+/).filter(Boolean));
   const objTokens = normalizeForGrounding(object).split(/\s+/).filter(Boolean);
   if (objTokens.length === 0) return false;
   return objTokens.every((t) => spanTokens.has(t));

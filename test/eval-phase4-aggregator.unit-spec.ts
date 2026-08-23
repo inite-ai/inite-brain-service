@@ -6,14 +6,9 @@
  *   - mean-extraction-entropy (diagnostic, no threshold)
  */
 import { Aggregator } from './eval/runner/aggregator';
-import type {
-  ScenarioOutcome,
-  SynthesizeOutcome,
-} from '../src/eval/types';
+import type { ScenarioOutcome, SynthesizeOutcome } from '../src/eval/types';
 
-function mkOutcome(
-  partial: Partial<SynthesizeOutcome> = {},
-): SynthesizeOutcome {
+function mkOutcome(partial: Partial<SynthesizeOutcome> = {}): SynthesizeOutcome {
   return {
     scenarioId: 's',
     query: 'q',
@@ -51,9 +46,7 @@ describe('Aggregator — Phase 4 gates', () => {
         mkOutcome({ answerLangCorrect: false, answerLangDetected: 'en' }),
       ]),
     ]);
-    const metric = report.overall.find(
-      (m) => m.name === 'answer-language-correctness',
-    );
+    const metric = report.overall.find((m) => m.name === 'answer-language-correctness');
     expect(metric).toBeDefined();
     // 1/2 = 0.5 (only the two gated outcomes count)
     expect(metric!.value).toBe(0.5);
@@ -63,12 +56,8 @@ describe('Aggregator — Phase 4 gates', () => {
 
   it('answer-language-correctness: null when no expectations declared', async () => {
     const agg = new Aggregator();
-    const report = agg.build([
-      mkScenarioOutcome([mkOutcome({}), mkOutcome({})]),
-    ]);
-    const metric = report.overall.find(
-      (m) => m.name === 'answer-language-correctness',
-    );
+    const report = agg.build([mkScenarioOutcome([mkOutcome({}), mkOutcome({})])]);
+    const metric = report.overall.find((m) => m.name === 'answer-language-correctness');
     expect(metric!.value).toBeNull();
     expect(metric!.threshold).toBeUndefined();
   });
@@ -85,9 +74,7 @@ describe('Aggregator — Phase 4 gates', () => {
         mkOutcome({ answer: null, decisionLogCitationCount: 0 }),
       ]),
     ]);
-    const metric = report.overall.find(
-      (m) => m.name === 'decision-log-citation-rate',
-    );
+    const metric = report.overall.find((m) => m.name === 'decision-log-citation-rate');
     expect(metric!.value).toBe(0.5);
     expect(metric!.n).toBe(2);
     expect(metric!.threshold).toBe(0.8);
@@ -103,9 +90,7 @@ describe('Aggregator — Phase 4 gates', () => {
         mkOutcome({ avgExtractionEntropy: null }),
       ]),
     ]);
-    const metric = report.overall.find(
-      (m) => m.name === 'mean-extraction-entropy',
-    );
+    const metric = report.overall.find((m) => m.name === 'mean-extraction-entropy');
     expect(metric!.value).toBe(0.5);
     expect(metric!.threshold).toBeUndefined();
     expect(metric!.n).toBe(2);
@@ -114,9 +99,7 @@ describe('Aggregator — Phase 4 gates', () => {
   it('mean-extraction-entropy: null when no entropy data', async () => {
     const agg = new Aggregator();
     const report = agg.build([mkScenarioOutcome([mkOutcome({})])]);
-    const metric = report.overall.find(
-      (m) => m.name === 'mean-extraction-entropy',
-    );
+    const metric = report.overall.find((m) => m.name === 'mean-extraction-entropy');
     expect(metric!.value).toBeNull();
   });
 });

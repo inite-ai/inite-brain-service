@@ -68,7 +68,7 @@ function makeController(): AdminJobsController {
   } as unknown as ConfigService;
 
   const undef = undefined as unknown as never;
-   
+
   return new AdminJobsController(
     undef,
     undef,

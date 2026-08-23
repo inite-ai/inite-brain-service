@@ -65,9 +65,6 @@ describe('scoreRows — usage-aware decay', () => {
       rows: [row()],
       now: NOW,
     })[0]!;
-    expect(scored.breakdown.decay).toBeCloseTo(
-      Math.exp((-Math.LN2 * 120) / 60),
-      10,
-    );
+    expect(scored.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 60), 10);
   });
 });

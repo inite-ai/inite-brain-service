@@ -3,10 +3,7 @@ import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
 import type { MentionScanService } from '../src/synthesize/mention-scan.service';
 import type { UpdateStoryService } from '../src/synthesize/update-story.service';
-import {
-  resolveRetrievalProfile,
-  type RetrievalProfile,
-} from '../src/search/retrieval-profile';
+import { resolveRetrievalProfile, type RetrievalProfile } from '../src/search/retrieval-profile';
 
 /**
  * The collector's branch matrix (V9 quality pass) — the degrade and
@@ -60,9 +57,7 @@ describe('EvidenceCollectorService branches', () => {
       undefined,
       undefined,
     );
-    const out = await svc.collect(
-      collectorArgs(profileWith({ timelineEvidence: 'scan' })),
-    );
+    const out = await svc.collect(collectorArgs(profileWith({ timelineEvidence: 'scan' })));
     expect(out.timelineEvidence).toBe(true);
     expect(segmentCalls).toHaveLength(1);
     expect(out.transcriptLines).toEqual(['[2026-01-02] user: parser project note']);
@@ -88,9 +83,7 @@ describe('EvidenceCollectorService branches', () => {
       undefined,
       undefined,
     );
-    const out = await svc.collect(
-      collectorArgs(profileWith({ timelineEvidence: 'scan' })),
-    );
+    const out = await svc.collect(collectorArgs(profileWith({ timelineEvidence: 'scan' })));
     expect(out.transcriptLines).toEqual(['[2026-01-02] mention line']);
     expect(segmentCalls).toHaveLength(0);
   });
@@ -115,15 +108,11 @@ describe('EvidenceCollectorService branches', () => {
       );
 
     // Flag off → no call, undefined.
-    const off = await make().collect(
-      collectorArgs(profileWith({ updateStoryRendering: false })),
-    );
+    const off = await make().collect(collectorArgs(profileWith({ updateStoryRendering: false })));
     expect(off.updateStories).toBeUndefined();
 
     // Flag on, no fact ids → no call.
-    const empty = await make().collect(
-      collectorArgs(profileWith({ updateStoryRendering: true })),
-    );
+    const empty = await make().collect(collectorArgs(profileWith({ updateStoryRendering: true })));
     expect(empty.updateStories).toBeUndefined();
     expect(storyCalls).toHaveLength(0);
 
@@ -144,9 +133,7 @@ describe('EvidenceCollectorService branches', () => {
     } as unknown as SearchService;
     const svc = new EvidenceCollectorService(search);
     const profile = profileWith({});
-    (profile as { lanes: ReadonlySet<string> }).lanes = new Set([
-      'instruction',
-    ]);
+    (profile as { lanes: ReadonlySet<string> }).lanes = new Set(['instruction']);
     const out = await svc.collect(collectorArgs(profile));
     // No instructions section (probe died, evidence empty) — but the
     // collect itself succeeded.
@@ -164,9 +151,7 @@ describe('EvidenceCollectorService branches', () => {
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
 
-    const off = await make().collect(
-      collectorArgs(profileWith({ assistantLane: false })),
-    );
+    const off = await make().collect(collectorArgs(profileWith({ assistantLane: false })));
     expect(off.transcriptLines).toEqual([]);
     expect(calls).toHaveLength(0);
 
@@ -179,9 +164,7 @@ describe('EvidenceCollectorService branches', () => {
         }),
       ),
     );
-    expect(on.transcriptLines).toEqual([
-      '[2023-05-01] conv__assistant: use the token bucket',
-    ]);
+    expect(on.transcriptLines).toEqual(['[2023-05-01] conv__assistant: use the token bucket']);
     expect(calls).toEqual([{ limit: 6, match: 'assistant' }]);
   });
 
@@ -253,9 +236,7 @@ describe('EvidenceCollectorService branches', () => {
 
     // Lane on, read-side flag off → no call, undefined.
     const laneOnProfile = profileWith({});
-    (laneOnProfile as { lanes: ReadonlySet<string> }).lanes = new Set([
-      'strategy',
-    ]);
+    (laneOnProfile as { lanes: ReadonlySet<string> }).lanes = new Set(['strategy']);
     const servingOff = await make(false).collect(collectorArgs(laneOnProfile));
     expect(servingOff.strategyNotes).toBeUndefined();
     expect(calls).toHaveLength(0);
@@ -304,15 +285,11 @@ describe('EvidenceCollectorService branches', () => {
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
 
-    const off = await make().collect(
-      collectorArgs(profileWith({ factsAsKeys: false })),
-    );
+    const off = await make().collect(collectorArgs(profileWith({ factsAsKeys: false })));
     expect(off.groundingQuotes).toBeUndefined();
     expect(seen).toHaveLength(0);
 
-    const empty = await make().collect(
-      collectorArgs(profileWith({ factsAsKeys: true })),
-    );
+    const empty = await make().collect(collectorArgs(profileWith({ factsAsKeys: true })));
     expect(empty.groundingQuotes).toBeUndefined();
     expect(seen).toHaveLength(0);
 
@@ -320,9 +297,7 @@ describe('EvidenceCollectorService branches', () => {
       ...collectorArgs(profileWith({ factsAsKeys: true, factsAsKeysCap: 2 })),
       factIds: ['f1', 'f2', 'f3'],
     });
-    expect(on.groundingQuotes?.get('f1')).toBe(
-      ' [source 2023-05-01 Mel: "dog face"]',
-    );
+    expect(on.groundingQuotes?.get('f1')).toBe(' [source 2023-05-01 Mel: "dog face"]');
     // Cap applies to the BEST evidence facts (input order).
     expect(seen).toEqual([['f1', 'f2']]);
   });
@@ -341,14 +316,9 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
   const laneCalls: Array<{ lane: string; userId?: string | undefined }> = [];
   const scopedLines = (lane: string, userId: string | undefined): string[] => {
     laneCalls.push({ lane, userId });
-    return userId === undefined || userId === 'user-a'
-      ? [`[2026-01-01] ${lane}: ${A_SECRET}`]
-      : [];
+    return userId === undefined || userId === 'user-a' ? [`[2026-01-01] ${lane}: ${A_SECRET}`] : [];
   };
-  const scopedMap = (
-    lane: string,
-    userId: string | undefined,
-  ): Map<string, string> => {
+  const scopedMap = (lane: string, userId: string | undefined): Map<string, string> => {
     laneCalls.push({ lane, userId });
     return userId === undefined || userId === 'user-a'
       ? new Map([['f1', ` [${lane}: ${A_SECRET}]`]])
@@ -357,32 +327,23 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
 
   function makeIsolationCollector(): EvidenceCollectorService {
     const episodeLane = {
-      transcriptLines: async (o: { userId?: string }) =>
-        scopedLines('episode', o.userId),
-      sourceExcerpts: async (o: { userId?: string }) =>
-        scopedLines('excerpt', o.userId),
-      rawWindows: async (o: { userId?: string }) =>
-        scopedLines('raw-window', o.userId),
-      assistantTurns: async (o: { userId?: string }) =>
-        scopedLines('assistant', o.userId),
-      groundingQuotes: async (o: { userId?: string }) =>
-        scopedMap('grounding', o.userId),
+      transcriptLines: async (o: { userId?: string }) => scopedLines('episode', o.userId),
+      sourceExcerpts: async (o: { userId?: string }) => scopedLines('excerpt', o.userId),
+      rawWindows: async (o: { userId?: string }) => scopedLines('raw-window', o.userId),
+      assistantTurns: async (o: { userId?: string }) => scopedLines('assistant', o.userId),
+      groundingQuotes: async (o: { userId?: string }) => scopedMap('grounding', o.userId),
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const segmentLane = {
-      transcriptLines: async (o: { userId?: string }) =>
-        scopedLines('segment', o.userId),
+      transcriptLines: async (o: { userId?: string }) => scopedLines('segment', o.userId),
     } as unknown as SegmentLaneService;
     const insightLane = {
-      insightLines: async (o: { userId?: string }) =>
-        scopedLines('insight', o.userId),
+      insightLines: async (o: { userId?: string }) => scopedLines('insight', o.userId),
     } as unknown as import('../src/synthesize/insight-lane.service').InsightLaneService;
     const updateStory = {
-      previousStories: async (o: { userId?: string }) =>
-        scopedMap('update-story', o.userId),
+      previousStories: async (o: { userId?: string }) => scopedMap('update-story', o.userId),
     } as unknown as UpdateStoryService;
     const digestLane = {
-      digestLines: async (o: { userId?: string }) =>
-        scopedLines('digest', o.userId),
+      digestLines: async (o: { userId?: string }) => scopedLines('digest', o.userId),
     } as unknown as import('../src/synthesize/digest-lane.service').DigestLaneService;
     return new EvidenceCollectorService(
       noSearch,
@@ -417,9 +378,7 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
     };
   }
 
-  const flattenSections = (
-    out: Awaited<ReturnType<EvidenceCollectorService['collect']>>,
-  ): string =>
+  const flattenSections = (out: Awaited<ReturnType<EvidenceCollectorService['collect']>>): string =>
     [
       ...out.transcriptLines,
       ...out.insightLines,
@@ -436,9 +395,7 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
 
   it("user B's collect surfaces A's content in NO section, every lane user-scoped", async () => {
     laneCalls.length = 0;
-    const out = await makeIsolationCollector().collect(
-      isolationArgs('user-b'),
-    );
+    const out = await makeIsolationCollector().collect(isolationArgs('user-b'));
     expect(flattenSections(out)).not.toContain('A-SECRET');
     // Not vacuous: every user-fenced lane WAS consulted, and each one
     // received the caller's scope — no lane call dropped the userId.

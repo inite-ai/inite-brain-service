@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  CONFIG_CATALOG,
-  type ConfigCatalogSpec,
-} from './config-catalog.data';
+import { CONFIG_CATALOG, type ConfigCatalogSpec } from './config-catalog.data';
 
 export type ConfigCategory =
   | 'pipeline'
@@ -69,7 +66,7 @@ export class ConfigInspectorService {
             ? '••• set'
             : '∅'
           : current === ''
-            ? spec.defaultValue ?? '∅'
+            ? (spec.defaultValue ?? '∅')
             : current,
         defaultValue: spec.defaultValue ?? null,
         runtimeMutable: spec.runtimeMutable === true,
@@ -90,7 +87,6 @@ export class ConfigInspectorService {
       category: s.category,
     }));
   }
-
 
   private catalogue(): ConfigCatalogSpec[] {
     return CONFIG_CATALOG;

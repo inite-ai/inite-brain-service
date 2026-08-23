@@ -112,10 +112,7 @@ const DEFAULT_EXPANSION_CONFIG: ExpansionConfig = {
  * which calls this from resolveSearchTuning().
  */
 export function resolveExpansionConfig(env: NodeJS.ProcessEnv): ExpansionConfig {
-  const topSeeds = Math.max(
-    1,
-    parseInt(env.SEARCH_EDGE_EXPANSION_TOP_SEEDS ?? '3', 10) || 3,
-  );
+  const topSeeds = Math.max(1, parseInt(env.SEARCH_EDGE_EXPANSION_TOP_SEEDS ?? '3', 10) || 3);
   const maxNeighboursPerSeed = Math.max(
     1,
     parseInt(env.SEARCH_EDGE_EXPANSION_MAX_NEIGHBOURS ?? '5', 10) || 5,
@@ -127,10 +124,7 @@ export function resolveExpansionConfig(env: NodeJS.ProcessEnv): ExpansionConfig 
   // had never been reachable via env — caught by the ablation arm
   // running byte-identical to its baseline.
   const rawAlpha = parseFloat(env.SEARCH_EDGE_EXPANSION_ALPHA ?? '0');
-  const alpha =
-    Number.isFinite(rawAlpha) && rawAlpha >= 0 && rawAlpha <= 1
-      ? rawAlpha
-      : 0;
+  const alpha = Number.isFinite(rawAlpha) && rawAlpha >= 0 && rawAlpha <= 1 ? rawAlpha : 0;
   return { topSeeds, maxNeighboursPerSeed, alpha };
 }
 
@@ -166,10 +160,7 @@ export interface ExpandViaEdgesOptions {
    * round-trip for everything the vector KNN already surfaced.
    */
   prefetchedNeighbours?:
-    | Map<
-        string,
-        { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
-      >
+    | Map<string, { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }>
     | undefined;
 }
 
@@ -287,8 +278,7 @@ export async function expandViaEdges({
         if (seenForSeed.has(peerId)) continue;
         if (seenForSeed.size >= config.maxNeighboursPerSeed) break;
         seenForSeed.add(peerId);
-        const w =
-          typeof e.weight === 'number' && e.weight > 0 ? e.weight : 1.0;
+        const w = typeof e.weight === 'number' && e.weight > 0 ? e.weight : 1.0;
         tuples.push({ seedId, neighbourId: peerId, weight: w });
       }
     };
@@ -328,17 +318,13 @@ export async function expandViaEdges({
       factsByNeighbour.set(key, list);
     }
   } catch (err) {
-    logger.warn(
-      `expandViaEdges: neighbour-fact query failed: ${(err as Error).message}`,
-    );
+    logger.warn(`expandViaEdges: neighbour-fact query failed: ${(err as Error).message}`);
     return 0;
   }
 
   // Build expansions for the static merger. Bucket factory is
   // closure-captured so the merger stays pure / unit-testable.
-  const seedRankByEntity = new Map(
-    seeds.map((s) => [s.entityId, s.rankScore]),
-  );
+  const seedRankByEntity = new Map(seeds.map((s) => [s.entityId, s.rankScore]));
   const expansions = tuples
     .map((t) => {
       const facts = factsByNeighbour.get(t.neighbourId);

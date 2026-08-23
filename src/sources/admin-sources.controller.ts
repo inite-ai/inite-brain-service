@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Put,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { SourcesService } from './sources.service';
@@ -55,11 +47,7 @@ export class AdminSourcesController {
     @Param('sourceKey') sourceKey: string,
     @Body() body: DeclareSourceRequest,
   ): Promise<DeclareSourceResponse> {
-    const declared = await this.sources.declare(
-      req.brainAuth.companyId,
-      sourceKey,
-      body,
-    );
+    const declared = await this.sources.declare(req.brainAuth.companyId, sourceKey, body);
     return { declared } satisfies DeclareSourceResponse;
   }
 }

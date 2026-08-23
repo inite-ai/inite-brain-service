@@ -65,8 +65,7 @@ describe('scoreFixture', () => {
       expect: { facts: [{ predicate: 'address' }] },
     };
     expect(
-      scoreFixture('real_estate', f, extraction([{ predicate: 'name', object: 'Bob' }]))
-        .passed,
+      scoreFixture('real_estate', f, extraction([{ predicate: 'name', object: 'Bob' }])).passed,
     ).toBe(false); // resolved to real_estate__name, not core name
     expect(
       scoreFixture(

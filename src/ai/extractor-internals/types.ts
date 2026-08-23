@@ -5,14 +5,7 @@
 
 export interface ExtractedEntity {
   name: string;
-  type:
-    | 'customer'
-    | 'staff'
-    | 'asset'
-    | 'project'
-    | 'topic'
-    | 'location'
-    | 'other';
+  type: 'customer' | 'staff' | 'asset' | 'project' | 'topic' | 'location' | 'other';
   /** Optional canonical clue ("Apple Inc.", "Acme Corp"). */
   canonical?: string | undefined;
 }

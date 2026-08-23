@@ -14,9 +14,7 @@ function baseProdEnv(): NodeJS.ProcessEnv {
     SURREALDB_PASSWORD: 'root',
     OPENAI_API_KEY: 'sk-test',
     FORGET_HMAC_KEY: 'a'.repeat(40),
-    BRAIN_API_KEYS: JSON.stringify([
-      { keyHash: 'h', companyId: 'co_a', scopes: ['brain:read'] },
-    ]),
+    BRAIN_API_KEYS: JSON.stringify([{ keyHash: 'h', companyId: 'co_a', scopes: ['brain:read'] }]),
     SURREALDB_SCOPED_USER: 'brain_caller',
     SURREALDB_SCOPED_PASS: 'scoped-secret',
   };

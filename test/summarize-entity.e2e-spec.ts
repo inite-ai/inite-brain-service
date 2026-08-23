@@ -71,11 +71,7 @@ describe('SummarizeEntityService.summarize — briefings + LRU', () => {
 
   it('returns a one-liner that mentions the canonical name and a fact', async () => {
     const svc = f.app.get(SummarizeEntityService);
-    const out = await svc.summarize(
-      f.companyId,
-      { entityId },
-      ['brain:read'],
-    );
+    const out = await svc.summarize(f.companyId, { entityId }, ['brain:read']);
     expect(out.summary).toContain('Sasha Customer');
     // At least one fact predicate present in the rendered line.
     expect(out.summary).toMatch(/tier|name/);
@@ -86,29 +82,21 @@ describe('SummarizeEntityService.summarize — briefings + LRU', () => {
 
   it('second call with same args is served from cache', async () => {
     const svc = f.app.get(SummarizeEntityService);
-    const first = await svc.summarize(f.companyId, { entityId }, [
-      'brain:read',
-    ]);
+    const first = await svc.summarize(f.companyId, { entityId }, ['brain:read']);
     expect(first.cached).toBe(false);
-    const second = await svc.summarize(f.companyId, { entityId }, [
-      'brain:read',
-    ]);
+    const second = await svc.summarize(f.companyId, { entityId }, ['brain:read']);
     expect(second.cached).toBe(true);
     expect(second.summary).toBe(first.summary);
   });
 
   it('different styleHint misses the cache and yields a distinct briefing', async () => {
     const svc = f.app.get(SummarizeEntityService);
-    const neutral = await svc.summarize(
-      f.companyId,
-      { entityId, styleHint: 'neutral' },
-      ['brain:read'],
-    );
-    const sales = await svc.summarize(
-      f.companyId,
-      { entityId, styleHint: 'sales' },
-      ['brain:read'],
-    );
+    const neutral = await svc.summarize(f.companyId, { entityId, styleHint: 'neutral' }, [
+      'brain:read',
+    ]);
+    const sales = await svc.summarize(f.companyId, { entityId, styleHint: 'sales' }, [
+      'brain:read',
+    ]);
     expect(sales.cached).toBe(false);
     expect(sales.summary).not.toBe(neutral.summary);
     expect(sales.style).toBe('sales');
@@ -116,11 +104,9 @@ describe('SummarizeEntityService.summarize — briefings + LRU', () => {
 
   it('asOf before any fact returns the no-active-facts branch', async () => {
     const svc = f.app.get(SummarizeEntityService);
-    const out = await svc.summarize(
-      f.companyId,
-      { entityId, asOf: '2025-06-01T00:00:00Z' },
-      ['brain:read'],
-    );
+    const out = await svc.summarize(f.companyId, { entityId, asOf: '2025-06-01T00:00:00Z' }, [
+      'brain:read',
+    ]);
     expect(out.summary).toMatch(/no active facts/i);
     expect(out.factsConsidered).toBe(0);
   });

@@ -109,9 +109,7 @@ export async function runInsightComposer<P>(
   const { companyId } = opts;
   const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
   const version = opts.version?.trim() || undefined;
-  const versionClause = version
-    ? 'AND derivedVersion = $version'
-    : 'AND derivedVersion IS NONE';
+  const versionClause = version ? 'AND derivedVersion = $version' : 'AND derivedVersion IS NONE';
   const result: ComposerRunResult = { entities: 0, written: 0, skipped: [] };
   await deps.surreal.withCompany(companyId, async (db) => {
     const [tops] = await db.query<[Array<{ entityId: unknown; n: number }>]>(
@@ -174,9 +172,7 @@ async function composeEntity<P>(
   );
   if (!facts || facts.length < spec.minFacts) return 0;
 
-  const lines = facts.map(
-    (f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`,
-  );
+  const lines = facts.map((f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`);
   const proposals = await spec.propose(name, lines);
   const valid = proposals.filter((p) => spec.valid(p, facts));
   // Every paid step (the proposal above, embeddings here) runs BEFORE

@@ -33,9 +33,7 @@ function mkSvc(opts: {
     getDimensions: () => 4,
     isReady: () => true,
     embed: async () => [0, 0, 0, 0],
-    embedMany:
-      opts.embedManyMock ??
-      (async (texts: string[]) => texts.map((_, i) => [i, i, i, i])),
+    embedMany: opts.embedManyMock ?? (async (texts: string[]) => texts.map((_, i) => [i, i, i, i])),
   } as any;
   (svc as any).primary = fake;
   (svc as any).fallback = null;
@@ -98,8 +96,7 @@ describe('EmbedderService.embedMany', () => {
 
   it('preserves original input order across mixed hit/miss/empty', async () => {
     const svc = mkSvc({
-      embedManyMock: async (t) =>
-        t.map((s) => [s.length, s.length, s.length, s.length]),
+      embedManyMock: async (t) => t.map((s) => [s.length, s.length, s.length, s.length]),
     });
     // Prime: cache 'cached'
     await svc.embedMany(['cached']);

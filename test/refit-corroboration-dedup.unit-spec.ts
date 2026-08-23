@@ -78,9 +78,7 @@ describe('buildTrustEvents — corroboration win dedup', () => {
         recordedAt: e.recordedAt,
       })),
     );
-    const domainScope = scopes.find(
-      (s) => s.sourceKey === 'rent:echobot' && s.domain === 'price',
-    )!;
+    const domainScope = scopes.find((s) => s.sourceKey === 'rent:echobot' && s.domain === 'price')!;
     // Deduped: 1 win (not 10) + 1 loss → rate 0.5, not ~0.91.
     expect(domainScope.wins).toBe(1);
     expect(domainScope.losses).toBe(1);

@@ -20,10 +20,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { registerReadTools } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
-import {
-  registerCodeMemoryReadTools,
-  registerCodeMemoryWriteTools,
-} from './code-memory-tools';
+import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerSourceReadTools } from './source-tools';
 import { SourcesService } from '../sources/sources.service';
 import { DocumentIngestService } from '../documents/document-ingest.service';
@@ -34,10 +31,7 @@ import { ACTIONS } from '../policy/action-registry';
 import { ActionKind, PolicyContext } from '../policy/policy.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs';
-import {
-  PackToolsReaderService,
-  type PackToolBinding,
-} from './pack-tools-reader.service';
+import { PackToolsReaderService, type PackToolBinding } from './pack-tools-reader.service';
 import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 
@@ -142,26 +136,28 @@ export class McpService {
       config: unknown,
       handler: (...args: unknown[]) => unknown,
     ) =>
-      raw(name as never, config as never, (async (...args: unknown[]) => {
-        try {
-          return await handler(...args);
-        } catch (e) {
-          if (e instanceof HttpException && e.getStatus() < 500) throw e;
-          const ref = randomUUID().slice(0, 8);
-          this.logger.error(
-            `tool ${name} failed (ref ${ref}): ${(e as Error).stack ?? e}`,
-          );
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `internal error while running ${name} (ref ${ref})`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }) as never);
+      raw(
+        name as never,
+        config as never,
+        (async (...args: unknown[]) => {
+          try {
+            return await handler(...args);
+          } catch (e) {
+            if (e instanceof HttpException && e.getStatus() < 500) throw e;
+            const ref = randomUUID().slice(0, 8);
+            this.logger.error(`tool ${name} failed (ref ${ref}): ${(e as Error).stack ?? e}`);
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `internal error while running ${name} (ref ${ref})`,
+                },
+              ],
+              isError: true,
+            };
+          }
+        }) as never,
+      );
   }
 
   // `kinds` carries the explicit read/write classification for tool
@@ -178,12 +174,15 @@ export class McpService {
       config: unknown,
       handler: (...args: unknown[]) => unknown,
     ) => {
-      const denied =
-        evaluateAction(policy, name, kinds?.get(name)).decision === 'deny';
-      const tool = raw(name as never, config as never, ((...args: unknown[]) => {
-        this.policyGate.enforceToolAction(policy, name, kinds?.get(name));
-        return handler(...args);
-      }) as never);
+      const denied = evaluateAction(policy, name, kinds?.get(name)).decision === 'deny';
+      const tool = raw(
+        name as never,
+        config as never,
+        ((...args: unknown[]) => {
+          this.policyGate.enforceToolAction(policy, name, kinds?.get(name));
+          return handler(...args);
+        }) as never,
+      );
       // Enforce-denied tools unregister immediately: gone from
       // tools/list, and a blind tools/call gets the SDK's standard
       // unknown-tool error. Registered-then-removed (vs never
@@ -396,8 +395,6 @@ export class McpService {
   ): Promise<PackToolBinding[]> {
     if (!envFlagEnabled(process.env.MCP_PACK_TOOLS_ENABLED)) return [];
     const bindings = await this.packToolsReader.installedPackTools(companyId);
-    return packIds
-      ? bindings.filter((b) => packIds.includes(b.packId))
-      : bindings;
+    return packIds ? bindings.filter((b) => packIds.includes(b.packId)) : bindings;
   }
 }

@@ -56,9 +56,7 @@ describe('ExtractionPatternService', () => {
     const { service } = mkSurreal([
       {
         clauseText: 'Maria is the CTO at Acme',
-        facts: [
-          { predicate: 'status', valueSpan: 'CTO', confidence: 0.9 },
-        ],
+        facts: [{ predicate: 'status', valueSpan: 'CTO', confidence: 0.9 }],
         edges: [
           {
             kind: 'works_at',
@@ -83,9 +81,7 @@ describe('ExtractionPatternService', () => {
     await svc.record('demo', [
       {
         clauseText: 'Maria is the CTO at Acme',
-        facts: [
-          { predicate: 'status', valueSpan: 'CTO', confidence: 0.9 },
-        ],
+        facts: [{ predicate: 'status', valueSpan: 'CTO', confidence: 0.9 }],
         edges: [
           {
             kind: 'works_at',

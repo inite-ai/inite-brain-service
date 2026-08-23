@@ -6,9 +6,7 @@ export function parseRefTag(ref: string): { refKey: string; id: string } {
   return { refKey: `${safe(vertical)}__${safe(id)}`, id };
 }
 
-export function formatTopRef(
-  refs: Record<string, string> | undefined,
-): string | null {
+export function formatTopRef(refs: Record<string, string> | undefined): string | null {
   if (!refs) return null;
   const entries = Object.entries(refs);
   if (entries.length === 0) return null;

@@ -46,8 +46,7 @@ function fakeUpstream(packs: Record<string, UpstreamVersionFixture[]>) {
       headers: (init?.headers ?? {}) as Record<string, string>,
     });
     const path = url.replace(BASE, '');
-    const json = (body: unknown) =>
-      ({ ok: true, status: 200, json: async () => body }) as Response;
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response;
 
     if (path.startsWith('/v1/registry/packs?')) {
       const offset = Number(/offset=(\d+)/.exec(path)?.[1] ?? '0');
@@ -93,8 +92,7 @@ function fakeLocal(existing: Record<string, MirrorLocalVersion[]> = {}) {
     origin: string;
     expectedChecksum: string;
   }> = [];
-  const yanks: Array<{ packId: string; version: string; reason?: string }> =
-    [];
+  const yanks: Array<{ packId: string; version: string; reason?: string }> = [];
   const port: MirrorLocalRegistry = {
     versionsOf: async (packId) => existing[packId] ?? [],
     publish: async (input) => {
@@ -132,9 +130,7 @@ function runSync(args: {
     logger: args.logger.logger,
     fetchImpl: args.upstream.fetchImpl,
     ...(args.token !== undefined ? { token: args.token } : {}),
-    ...(args.maxVersionsPerRun !== undefined
-      ? { maxVersionsPerRun: args.maxVersionsPerRun }
-      : {}),
+    ...(args.maxVersionsPerRun !== undefined ? { maxVersionsPerRun: args.maxVersionsPerRun } : {}),
   });
 }
 
@@ -150,9 +146,7 @@ describe('registry mirror — sync core', () => {
     expect(local.published).toHaveLength(1);
     expect(local.published[0]!.origin).toBe(BASE);
     expect(local.published[0]!.manifest.id).toBe('alpha');
-    expect(local.published[0]!.expectedChecksum).toBe(
-      packChecksum(manifest('alpha', '1.0.0')),
-    );
+    expect(local.published[0]!.expectedChecksum).toBe(packChecksum(manifest('alpha', '1.0.0')));
   });
 
   it('skips a version that already exists locally (local rows always win)', async () => {
@@ -166,25 +160,19 @@ describe('registry mirror — sync core', () => {
     expect(summary.imported).toBe(0);
     expect(summary.skippedExisting).toBe(1);
     expect(local.published).toHaveLength(0);
-    expect(
-      logger.lines.some((l) => l.startsWith('DEBUG') && l.includes('skip')),
-    ).toBe(true);
+    expect(logger.lines.some((l) => l.startsWith('DEBUG') && l.includes('skip'))).toBe(true);
   });
 
   it('mirrors an upstream yank ONLY onto rows whose origin matches this upstream', async () => {
     const upstream = fakeUpstream({
-      mirrored_pack: [
-        { version: '1.0.0', yanked: true, yankReason: 'CVE-2026-1' },
-      ],
+      mirrored_pack: [{ version: '1.0.0', yanked: true, yankReason: 'CVE-2026-1' }],
       local_pack: [{ version: '1.0.0', yanked: true }],
       other_origin: [{ version: '1.0.0', yanked: true }],
     });
     const local = fakeLocal({
       mirrored_pack: [{ version: '1.0.0', yanked: false, origin: BASE }],
       local_pack: [{ version: '1.0.0', yanked: false, origin: null }],
-      other_origin: [
-        { version: '1.0.0', yanked: false, origin: 'https://elsewhere.example' },
-      ],
+      other_origin: [{ version: '1.0.0', yanked: false, origin: 'https://elsewhere.example' }],
     });
     const logger = fakeLogger();
     const summary = await runSync({ upstream, local, logger });
@@ -236,11 +224,9 @@ describe('registry mirror — sync core', () => {
     expect(summary.checksumMismatches).toBe(1);
     expect(summary.imported).toBe(0);
     expect(local.published).toHaveLength(0);
-    expect(
-      logger.lines.some(
-        (l) => l.startsWith('WARN') && l.includes('checksum mismatch'),
-      ),
-    ).toBe(true);
+    expect(logger.lines.some((l) => l.startsWith('WARN') && l.includes('checksum mismatch'))).toBe(
+      true,
+    );
   });
 
   it('rejects a manifest that identifies as a different (id, version)', async () => {
@@ -278,9 +264,7 @@ describe('registry mirror — sync core', () => {
     expect(summary.imported).toBe(2);
     expect(summary.capped).toBe(true);
     expect(local.published).toHaveLength(2);
-    expect(
-      logger.lines.some((l) => l.includes('budget') && l.includes('2')),
-    ).toBe(true);
+    expect(logger.lines.some((l) => l.includes('budget') && l.includes('2'))).toBe(true);
   });
 
   it('one failing pack does not abort the rest of the run', async () => {
@@ -321,11 +305,7 @@ describe('registry mirror — sync core', () => {
       logger: fakeLogger(),
       token: 'sekret',
     });
-    expect(
-      withToken.calls.every(
-        (c) => c.headers.authorization === 'Bearer sekret',
-      ),
-    ).toBe(true);
+    expect(withToken.calls.every((c) => c.headers.authorization === 'Bearer sekret')).toBe(true);
 
     const noToken = fakeUpstream({ alpha: [{ version: '1.0.0' }] });
     await runSync({
@@ -333,9 +313,7 @@ describe('registry mirror — sync core', () => {
       local: fakeLocal(),
       logger: fakeLogger(),
     });
-    expect(
-      noToken.calls.every((c) => c.headers.authorization === undefined),
-    ).toBe(true);
+    expect(noToken.calls.every((c) => c.headers.authorization === undefined)).toBe(true);
   });
 
   it('normalizes the upstream base so a trailing slash cannot split the yank fence', async () => {

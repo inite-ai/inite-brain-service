@@ -45,10 +45,7 @@ function stubSurreal(
   docsByTenant: Record<string, Array<{ contentHash: string; meta: unknown }>>,
 ): SurrealService {
   return {
-    withCompany: async <R>(
-      companyId: string,
-      fn: (db: unknown) => Promise<R>,
-    ): Promise<R> => {
+    withCompany: async <R>(companyId: string, fn: (db: unknown) => Promise<R>): Promise<R> => {
       const db = {
         query: async (_sql: string, params: { hashes: string[] }) => {
           const docs = (docsByTenant[companyId] ?? []).filter((d) =>

@@ -31,9 +31,7 @@ function makeController(): AdminController {
         openaiCallsTotal: 0,
         openaiTokensTotal: 0,
       },
-      tenants: [
-        { companyId: 'tenant-a', entities: 50, factsActive: 600, factsRetracted: 5 },
-      ],
+      tenants: [{ companyId: 'tenant-a', entities: 50, factsActive: 600, factsRetracted: 5 }],
       recentDeadLetter: [],
       recentForgotten: [],
     }),
@@ -43,13 +41,9 @@ function makeController(): AdminController {
 
 describe('AdminController.overview() — wire contract', () => {
   it('matches OverviewResponseSchema', async () => {
-    const parsed = OverviewResponseSchema.safeParse(
-      await makeController().overview(),
-    );
+    const parsed = OverviewResponseSchema.safeParse(await makeController().overview());
     if (!parsed.success) {
-      throw new Error(
-        `overview drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`overview drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

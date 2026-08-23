@@ -17,9 +17,7 @@ describe('documents pipeline (e2e)', () => {
 
   const TIER_GOLD: ExtractionResult = {
     entities: [{ name: 'Acme Corp', type: 'customer' }],
-    facts: [
-      { entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 },
-    ],
+    facts: [{ entityIndex: 0, predicate: 'tier', object: 'gold', confidence: 0.9 }],
     edges: [],
   };
 
@@ -39,12 +37,15 @@ describe('documents pipeline (e2e)', () => {
   });
 
   const postDocument = (body: Record<string, unknown>) =>
-    f.http.post('/v1/ingest/document').set(auth()).send({
-      kind: 'markdown',
-      occurredAt: '2026-07-01T10:00:00.000Z',
-      contextRef: { vertical: 'docs_e2e' },
-      ...body,
-    });
+    f.http
+      .post('/v1/ingest/document')
+      .set(auth())
+      .send({
+        kind: 'markdown',
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        contextRef: { vertical: 'docs_e2e' },
+        ...body,
+      });
 
   it('answers 503 feature_disabled with the flag off', async () => {
     process.env.DOCUMENT_INGEST_ENABLED = '0';
@@ -64,9 +65,7 @@ describe('documents pipeline (e2e)', () => {
         { entityIndex: 0, predicate: 'tier', object: 'silver', confidence: 0.8 },
         { entityIndex: 1, predicate: 'said', object: 'hello world', confidence: 0.7 },
       ],
-      edges: [
-        { fromEntityIndex: 1, toEntityIndex: 0, kind: 'works_at', confidence: 0.9 },
-      ],
+      edges: [{ fromEntityIndex: 1, toEntityIndex: 0, kind: 'works_at', confidence: 0.9 }],
     });
     const r = await postDocument({ text: 'Quarterly review notes for Acme.' });
     expect(r.status).toBe(201);
@@ -136,9 +135,7 @@ describe('documents pipeline (e2e)', () => {
     const cands = await f.http
       .get(`/v1/documents/${encodeURIComponent(docB.body.documentId)}/candidates`)
       .set(auth());
-    const factCand = cands.body.candidates.find(
-      (c: { kind: string }) => c.kind === 'fact',
-    );
+    const factCand = cands.body.candidates.find((c: { kind: string }) => c.kind === 'fact');
     // Committed fact candidates carry the resolver outcome as statusReason.
     expect(factCand.status).toBe('committed');
     expect(factCand.statusReason).toBe('CORROBORATED');
@@ -165,15 +162,11 @@ describe('documents pipeline (e2e)', () => {
     const cands = await f.http
       .get(`/v1/documents/${encodeURIComponent(r.body.documentId)}/candidates`)
       .set(auth());
-    const factCands = cands.body.candidates.filter(
-      (c: { kind: string }) => c.kind === 'fact',
-    );
+    const factCands = cands.body.candidates.filter((c: { kind: string }) => c.kind === 'fact');
     expect(factCands).toHaveLength(2);
     const statuses = factCands.map((c: { status: string }) => c.status).sort();
     expect(statuses).toEqual(['committed', 'merged']);
-    const committed = factCands.find(
-      (c: { status: string }) => c.status === 'committed',
-    );
+    const committed = factCands.find((c: { status: string }) => c.status === 'committed');
     // INSERTED, not CORROBORATED — same origin is refresh, not evidence.
     expect(committed.statusReason).toBe('INSERTED');
   });
@@ -199,9 +192,7 @@ describe('documents pipeline (e2e)', () => {
   it('purging document content flags derived facts, never retracts them', async () => {
     f.extractor.setScript({
       entities: [{ name: 'Purge Probe Inc', type: 'customer' }],
-      facts: [
-        { entityIndex: 0, predicate: 'tier', object: 'bronze', confidence: 0.9 },
-      ],
+      facts: [{ entityIndex: 0, predicate: 'tier', object: 'bronze', confidence: 0.9 }],
       edges: [],
     });
     const r = await postDocument({
@@ -221,14 +212,13 @@ describe('documents pipeline (e2e)', () => {
     // no-longer-reproducible.
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ status: string; source: Record<string, unknown> }>]
-      >(`SELECT status, source FROM $fact`, {
-        fact: new StringRecordId(factId),
-      });
-      const fact = (
-        rows as Array<{ status: string; source: Record<string, unknown> }>
-      )[0]!;
+      const [rows] = await db.query<[Array<{ status: string; source: Record<string, unknown> }>]>(
+        `SELECT status, source FROM $fact`,
+        {
+          fact: new StringRecordId(factId),
+        },
+      );
+      const fact = (rows as Array<{ status: string; source: Record<string, unknown> }>)[0]!;
       expect(fact.status).toBe('active');
       expect(fact.source.provenancePurged).toBe(true);
     });

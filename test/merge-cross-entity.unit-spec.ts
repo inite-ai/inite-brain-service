@@ -37,19 +37,19 @@ describe('merge keeps same-value facts of different entities (W3 #5)', () => {
       ),
     ]);
     expect(merged.facts).toHaveLength(2);
-    expect(new Set(merged.facts.map((f) => f.entityIndex))).toEqual(
-      new Set([0, 1]),
-    );
+    expect(new Set(merged.facts.map((f) => f.entityIndex))).toEqual(new Set([0, 1]));
   });
 
   it('the SAME entity+value across passes still dedupes to one', () => {
     const merged = mergeExtractions([
-      pass([{ name: 'Anna', type: 'customer' }], [
-        { entityIndex: 0, predicate: 'address', object: 'Berlin' },
-      ]),
-      pass([{ name: 'Anna', type: 'customer' }], [
-        { entityIndex: 0, predicate: 'address', object: 'berlin ' },
-      ]),
+      pass(
+        [{ name: 'Anna', type: 'customer' }],
+        [{ entityIndex: 0, predicate: 'address', object: 'Berlin' }],
+      ),
+      pass(
+        [{ name: 'Anna', type: 'customer' }],
+        [{ entityIndex: 0, predicate: 'address', object: 'berlin ' }],
+      ),
     ]);
     expect(merged.facts).toHaveLength(1);
   });

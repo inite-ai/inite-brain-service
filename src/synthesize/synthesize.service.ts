@@ -9,17 +9,10 @@ import { clampLlmInputText } from '../common/input-limits';
 import { getAbortSignal } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
 import { MetricsService } from '../metrics/metrics.service';
-import {
-  SynthesisGuardrails,
-  SynthesizeDto,
-} from './dto/synthesize.dto';
+import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
-import {
-  coverageAbstention,
-  finalizeVerdict,
-  unverifiedReturn,
-} from './verdict';
+import { coverageAbstention, finalizeVerdict, unverifiedReturn } from './verdict';
 import {
   attachDecisionLog,
   buildSecondaryDto,
@@ -29,22 +22,11 @@ import {
   resolveLaneDateContext,
   verifierErrorResult,
 } from './synthesize.helpers';
-import {
-  resolvePromptFrames,
-  wantsTimelineEvidence,
-} from './evidence-gates';
+import { resolvePromptFrames, wantsTimelineEvidence } from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
-import {
-  routeLane,
-  laneProbeDto,
-  detectEvidenceConflicts,
-  type LaneId,
-} from './answer-router';
+import { routeLane, laneProbeDto, detectEvidenceConflicts, type LaneId } from './answer-router';
 export { detectEvidenceConflicts } from './answer-router';
-import {
-  getActiveRetrievalProfile,
-  type RetrievalProfile,
-} from '../search/retrieval-profile';
+import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
@@ -61,10 +43,7 @@ import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
 } from '../answer-cache/answer-cache.service';
-import {
-  NOOP_REPORTER,
-  type ProgressReporter,
-} from '../mcp/progress-reporter';
+import { NOOP_REPORTER, type ProgressReporter } from '../mcp/progress-reporter';
 
 export interface SynthesizeOptions {
   companyId: string;
@@ -96,10 +75,7 @@ export type {
   SynthesizeResult,
   TokenUsage,
 } from './synthesize.types';
-import type {
-  GeneratorOutput,
-  SynthesizeResult,
-} from './synthesize.types';
+import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -147,15 +123,9 @@ export class SynthesizeService {
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('SYNTHESIZE_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('SYNTHESIZE_CONCURRENCY', '4'), 10),
     );
-    const raw = this.configService.get<string>(
-      'SYNTHESIZE_DEFAULT_GUARDRAILS',
-      'strict',
-    );
+    const raw = this.configService.get<string>('SYNTHESIZE_DEFAULT_GUARDRAILS', 'strict');
     this.defaultGuardrails =
       raw === 'lenient' || raw === 'off' || raw === 'answer' ? raw : 'strict';
     // ConU conformal guardrail floor. Pre-fix the default was 0 (off);
@@ -177,14 +147,8 @@ export class SynthesizeService {
       this.configService.get<string>('SYNTHESIZE_MIN_FACT_TRUST', '0'),
     );
     // V11 §2 arm (b): local NLI endpoint for abstention='minicheck'.
-    this.minicheckUrl = this.configService.get<string>(
-      'MINICHECK_URL',
-      'http://127.0.0.1:11434',
-    );
-    this.minicheckModel = this.configService.get<string>(
-      'MINICHECK_MODEL',
-      'bespoke-minicheck',
-    );
+    this.minicheckUrl = this.configService.get<string>('MINICHECK_URL', 'http://127.0.0.1:11434');
+    this.minicheckModel = this.configService.get<string>('MINICHECK_MODEL', 'bespoke-minicheck');
   }
 
   async synthesize({
@@ -209,8 +173,7 @@ export class SynthesizeService {
     // search() re-pins its own clone only — the collector lanes read
     // dto.userId directly and got tenant-global-only evidence without it.
     dto = { ...dto, query: clamped.value, userId: pinUserScope(dto.userId) };
-    const guardrails: SynthesisGuardrails =
-      dto.synthesisGuardrails ?? this.defaultGuardrails;
+    const guardrails: SynthesisGuardrails = dto.synthesisGuardrails ?? this.defaultGuardrails;
     const model = dto.synthesisModel ?? this.defaultModel;
     const explain = dto.explain === true;
 
@@ -256,29 +219,18 @@ export class SynthesizeService {
     // results stay first; unseen extras append best-score-first, capped.
     const evidence = applyEvidenceUnion(
       searchResult.results,
-      laneProbeHits.length > 0
-        ? [...(extraHits ?? []), ...laneProbeHits]
-        : extraHits,
+      laneProbeHits.length > 0 ? [...(extraHits ?? []), ...laneProbeHits] : extraHits,
       profile.extraEvidenceCap,
     );
 
     const answerMode = guardrails === 'answer';
-    const prepareOpts = {
+    const prepareOpts = this.buildPrepareOpts({
       answerMode,
       explain,
-      elapsedAsOf: lane === 'temporal' ? dto.asOf : undefined,
-      // T2 and T6 both read off a code-sorted timeline.
-      chronological: lane === 'enumeration' || lane === 'summary',
-      // T5: recency marker on the newest fact of multi-statement slots
-      // (knowledge-update misses answer STALE values) — active for any
-      // routed request, independent of lane.
-      markRecency: profile.lanes.has('recency'),
-      // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
-      // facts whose anchor disagrees with validFrom by day.
-      mentionDates: profile.mentionDates,
-      // V13 dual-trace read side: "(context: …)" scene suffixes.
-      sceneTraces: profile.sceneTraces,
-    };
+      lane,
+      asOf: dto.asOf,
+      profile,
+    });
     const prepared = this.prepareEvidence(evidence, prepareOpts);
     if ('empty' in prepared) return prepared.empty;
     // `let`: the V13 search loop may replace the evidence set with the
@@ -330,10 +282,7 @@ export class SynthesizeService {
     // suffix maps land on the SAME lines the generator and the
     // verifier read (prompt-side only; citations and ranking
     // untouched).
-    let promptFactLines = applyFactSuffixes(factLines, [
-      updateStories,
-      groundingQuotes,
-    ]);
+    let promptFactLines = applyFactSuffixes(factLines, [updateStories, groundingQuotes]);
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
@@ -385,15 +334,9 @@ export class SynthesizeService {
     const { generated } = produced;
     ({ results, factIndex, promptFactLines, dateMathLines } = produced);
 
-    const citations = resolveCitations(
-      generated.citedFactIds,
-      generated.answer,
-      factIndex,
-    );
+    const citations = resolveCitations(generated.citedFactIds, generated.answer, factIndex);
     const citedSet = new Set(citations.map((c) => c.factId));
-    const decisionLog = explain
-      ? buildDecisionLog(results, citedSet)
-      : undefined;
+    const decisionLog = explain ? buildDecisionLog(results, citedSet) : undefined;
 
     const unverified = this.unverifiedReturn({
       guardrails,
@@ -413,8 +356,7 @@ export class SynthesizeService {
     // the local NLI; the verdict falls through to the SAME
     // finalizeVerdict gate below (verdict.ts treats the mode like
     // 'verifier'). A throw lands in the shared verifier_error catch.
-    const nliMode =
-      guardrails === 'lenient' && profile.abstentionCalibration === 'minicheck';
+    const nliMode = guardrails === 'lenient' && profile.abstentionCalibration === 'minicheck';
     let verdict: VerifierOutput;
     try {
       verdict = nliMode
@@ -425,45 +367,45 @@ export class SynthesizeService {
             insightLines,
           })
         : await withSpan(
-        'synthesize.verify',
-        () =>
-          this.limiter.run(() =>
-            this.callVerifier({
-              query: dto.query,
-              answer: generated.answer,
-              factLines: promptFactLines,
-              // Audit W5 #22: the verifier used to see ONLY factLines,
-              // so an answer correctly built from transcript quotes or
-              // the computed interval table had claims present in no
-              // fact line — strict mode dropped correct answers, and
-              // lenient/answer shipped quoted L0 content with zero
-              // faithfulness scoring. It now audits against the same
-              // evidence the generator was given.
-              transcriptLines,
-              insightLines,
-              // W5 #22 parity for the mention record (V9 §2 closes the
-              // V8 gap): the auditor sees the same MENTION RECORD
-              // framing the generator saw — the collector computed it
-              // exactly once for both.
-              timelineEvidence,
-              // V10 §5: topic-coverage audit (relationship-claim
-              // strictness + the questionAnswered judgment).
-              topicCoverage: profile.verifierTopicCoverage,
-              // V13 date-table parity: the auditor sees the same
-              // computed table the generator saw.
-              dateMathLines,
-              // G4 strategyNotes are DELIBERATELY absent — the one
-              // documented exception to the W5 #22 parity invariant:
-              // advisory strategy notes are guidance, not evidence,
-              // and must never make an unsupported claim verify as
-              // supported (see verifier.ts + CollectedEvidence).
-              // V11 §2 arm (a): the audit may run on a stronger judge
-              // than the generator; empty override = same model.
-              model: profile.verifierModel || model,
-            }),
-          ),
-        { 'synthesize.facts': factIndex.size },
-      );
+            'synthesize.verify',
+            () =>
+              this.limiter.run(() =>
+                this.callVerifier({
+                  query: dto.query,
+                  answer: generated.answer,
+                  factLines: promptFactLines,
+                  // Audit W5 #22: the verifier used to see ONLY factLines,
+                  // so an answer correctly built from transcript quotes or
+                  // the computed interval table had claims present in no
+                  // fact line — strict mode dropped correct answers, and
+                  // lenient/answer shipped quoted L0 content with zero
+                  // faithfulness scoring. It now audits against the same
+                  // evidence the generator was given.
+                  transcriptLines,
+                  insightLines,
+                  // W5 #22 parity for the mention record (V9 §2 closes the
+                  // V8 gap): the auditor sees the same MENTION RECORD
+                  // framing the generator saw — the collector computed it
+                  // exactly once for both.
+                  timelineEvidence,
+                  // V10 §5: topic-coverage audit (relationship-claim
+                  // strictness + the questionAnswered judgment).
+                  topicCoverage: profile.verifierTopicCoverage,
+                  // V13 date-table parity: the auditor sees the same
+                  // computed table the generator saw.
+                  dateMathLines,
+                  // G4 strategyNotes are DELIBERATELY absent — the one
+                  // documented exception to the W5 #22 parity invariant:
+                  // advisory strategy notes are guidance, not evidence,
+                  // and must never make an unsupported claim verify as
+                  // supported (see verifier.ts + CollectedEvidence).
+                  // V11 §2 arm (a): the audit may run on a stronger judge
+                  // than the generator; empty override = same model.
+                  model: profile.verifierModel || model,
+                }),
+              ),
+            { 'synthesize.facts': factIndex.size },
+          );
     } catch (err) {
       this.logger.warn(`Synthesize verifier failed: ${(err as Error).message}`);
       this.metrics?.countSynthesize('verifier_error');
@@ -483,13 +425,30 @@ export class SynthesizeService {
     // + anchor requirement live in tryL3Escalation / the L3 service.
     return (
       (await this.tryL3Escalation({
-        cache, verdict, companyId, callerScopes, dto, profile, lane, model,
-        answerLang, refineAttempted: produced.refined, results, factIndex,
-        promptFactLines, dateMathLines, guardrails, explain,
+        cache,
+        verdict,
+        companyId,
+        callerScopes,
+        dto,
+        profile,
+        lane,
+        model,
+        answerLang,
+        refineAttempted: produced.refined,
+        results,
+        factIndex,
+        promptFactLines,
+        dateMathLines,
+        guardrails,
+        explain,
       })) ??
       this.finalizeAndAdmit(cache, verdict, {
-        answer: generated.answer, citations, results,
-        guardrails, decisionLog, abstention: profile.abstentionCalibration,
+        answer: generated.answer,
+        citations,
+        results,
+        guardrails,
+        decisionLog,
+        abstention: profile.abstentionCalibration,
       })
     );
   }
@@ -565,10 +524,7 @@ export class SynthesizeService {
   private async finalizeAndAdmit(
     cache: AnswerCacheBeginResult | undefined,
     verdict: VerifierOutput,
-    args: Omit<
-      Parameters<typeof finalizeVerdict>[1],
-      'verdict' | 'questionAnswered'
-    >,
+    args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
     const final = this.finalizeVerdict({
       verdict: verdict.verdict,
@@ -586,10 +542,7 @@ export class SynthesizeService {
    * empty sections; only the timeline gate is still computed, exactly
    * as the collector would.
    */
-  private emptyCollected(
-    profile: RetrievalProfile,
-    query: string,
-  ): CollectedEvidence {
+  private emptyCollected(profile: RetrievalProfile, query: string): CollectedEvidence {
     return {
       transcriptLines: [],
       insightLines: [],
@@ -677,9 +630,7 @@ export class SynthesizeService {
         { 'synthesize.facts': args.factIndex.size },
       );
     } catch (err) {
-      this.logger.warn(
-        `Synthesize generator failed: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Synthesize generator failed: ${(err as Error).message}`);
       this.metrics?.countSynthesize('generator_error');
       return {
         failed: attachDecisionLog(
@@ -763,20 +714,14 @@ export class SynthesizeService {
           args.callerScopes,
         ),
       );
-      const union = applyEvidenceUnion(
-        args.evidence,
-        probe.results,
-        profile.extraEvidenceCap,
-      );
+      const union = applyEvidenceUnion(args.evidence, probe.results, profile.extraEvidenceCap);
       const prepared = this.prepareEvidence(union, args.prepareOpts);
       if ('empty' in prepared) return null;
       const promptFactLines = applyFactSuffixes(prepared.factLines, [
         args.updateStories,
         args.groundingQuotes,
       ]);
-      const dateMathLines = profile.dateMath
-        ? buildDateMathLines(prepared.results)
-        : undefined;
+      const dateMathLines = profile.dateMath ? buildDateMathLines(prepared.results) : undefined;
       const generated = await withSpan('synthesize.generate_refined', () =>
         this.limiter.run(() =>
           this.callGenerator({
@@ -819,25 +764,18 @@ export class SynthesizeService {
   // The verdict/exit matrix lives in verdict.ts (V10.5 audit pass —
   // file budget headroom before the V11 features); the adapters keep
   // the call sites and the spec bindings unchanged.
-  private finalizeVerdict(
-    args: Parameters<typeof finalizeVerdict>[1],
-  ): SynthesizeResult {
+  private finalizeVerdict(args: Parameters<typeof finalizeVerdict>[1]): SynthesizeResult {
     return finalizeVerdict({ metrics: this.metrics }, args);
   }
 
-  private unverifiedReturn(
-    args: Parameters<typeof unverifiedReturn>[1],
-  ): SynthesizeResult | null {
+  private unverifiedReturn(args: Parameters<typeof unverifiedReturn>[1]): SynthesizeResult | null {
     return unverifiedReturn({ metrics: this.metrics }, args);
   }
 
   private coverageAbstention(
     args: Parameters<typeof coverageAbstention>[1],
   ): SynthesizeResult | null {
-    return coverageAbstention(
-      { metrics: this.metrics, logger: this.logger },
-      args,
-    );
+    return coverageAbstention({ metrics: this.metrics, logger: this.logger }, args);
   }
 
   /**
@@ -874,11 +812,7 @@ export class SynthesizeService {
       // Audit 2026-08-19 P1: the probe inherits the caller's full
       // filter contract; the lane supplies only its query and limit.
       const probe = await withSpan('synthesize.lane_probe', () =>
-        this.search.search(
-          companyId,
-          buildSecondaryDto(dto, probeDto),
-          callerScopes,
-        ),
+        this.search.search(companyId, buildSecondaryDto(dto, probeDto), callerScopes),
       );
       return probe.results;
     } catch (e) {
@@ -887,6 +821,37 @@ export class SynthesizeService {
       );
       return [];
     }
+  }
+
+  /**
+   * Build the per-request evidence-preparation options from the routed
+   * lane + profile. Extracted from synthesize() to keep it under the
+   * function-size gate; the field semantics live here.
+   */
+  private buildPrepareOpts(args: {
+    answerMode: boolean;
+    explain: boolean;
+    lane: LaneId | null;
+    asOf: string | undefined;
+    profile: RetrievalProfile;
+  }) {
+    const { answerMode, explain, lane, asOf, profile } = args;
+    return {
+      answerMode,
+      explain,
+      elapsedAsOf: lane === 'temporal' ? asOf : undefined,
+      // T2 and T6 both read off a code-sorted timeline.
+      chronological: lane === 'enumeration' || lane === 'summary',
+      // T5: recency marker on the newest fact of multi-statement slots
+      // (knowledge-update misses answer STALE values) — active for any
+      // routed request, independent of lane.
+      markRecency: profile.lanes.has('recency'),
+      // V12 mention anchoring: "(mentioned YYYY-MM-DD)" on stamped
+      // facts whose anchor disagrees with validFrom by day.
+      mentionDates: profile.mentionDates,
+      // V13 dual-trace read side: "(context: …)" scene suffixes.
+      sceneTraces: profile.sceneTraces,
+    };
   }
 
   private prepareEvidence(
@@ -905,9 +870,7 @@ export class SynthesizeService {
       /** V13: "(context: …)" scene suffix (profile.sceneTraces). */
       sceneTraces?: boolean | undefined;
     },
-  ):
-    | { empty: SynthesizeResult }
-    | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
+  ): { empty: SynthesizeResult } | ({ results: SearchHit[] } & ReturnType<typeof buildFactIndex>) {
     const {
       answerMode,
       explain,
@@ -1000,9 +963,7 @@ export class SynthesizeService {
       ...(args.transcriptLines.length
         ? [`Conversation excerpts:\n${args.transcriptLines.join('\n')}`]
         : []),
-      ...(args.insightLines.length
-        ? [`Derived insights:\n${args.insightLines.join('\n')}`]
-        : []),
+      ...(args.insightLines.length ? [`Derived insights:\n${args.insightLines.join('\n')}`] : []),
     ].join('\n\n');
     const consistent = await withSpan('synthesize.verify', () =>
       miniCheckConsistent({

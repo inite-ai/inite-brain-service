@@ -126,16 +126,11 @@ export class SearchRetrievalService {
    * degrade to an empty map: verbatim is additive evidence, never a
    * reason to fail the search.
    */
-  async runSegmentLegStage(
-    db: Surreal,
-    ctx: PipelineContext,
-  ): Promise<Map<string, EntityBucket>> {
+  async runSegmentLegStage(db: Surreal, ctx: PipelineContext): Promise<Map<string, EntityBucket>> {
     try {
       return await withSpan('search.segment_leg', async (span) => {
         const queryVector =
-          ctx.mode !== 'lexical'
-            ? await this.embedder.embed(ctx.dto.query)
-            : null;
+          ctx.mode !== 'lexical' ? await this.embedder.embed(ctx.dto.query) : null;
         const { vectorRows, lexicalRows } = await runSegmentLegs({
           db,
           queryText: ctx.dto.query,
@@ -161,8 +156,7 @@ export class SearchRetrievalService {
           })),
         );
         const buckets = this.scoreAndBucket(fused, {
-          temporalAnchor:
-            ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+          temporalAnchor: ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
           tuning: ctx.tuning,
           salienceScoring: ctx.profile.salienceScoring,
           queryRange: ctx.queryRange ?? null,
@@ -245,4 +239,3 @@ export class SearchRetrievalService {
     return bucketByEntity(scored);
   }
 }
-

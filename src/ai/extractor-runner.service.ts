@@ -7,10 +7,7 @@ import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
 import { mergeExtractions } from './extractor-internals/merge';
 import { detectFacets, type Facet } from './extractor-internals/facet-router';
-import type {
-  ExtractedEntity,
-  ExtractionResult,
-} from './extractor-internals/types';
+import type { ExtractedEntity, ExtractionResult } from './extractor-internals/types';
 import {
   applyGroundingGate,
   groundEntities,
@@ -165,10 +162,7 @@ export class ExtractorRunnerService {
   }): Promise<ExtractionResult | null> {
     const N = args.overrides?.scPasses ?? this.llm.scPasses;
     // Even temperature spread across [0.1, 0.7].
-    const temperatures = Array.from(
-      { length: N },
-      (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1),
-    );
+    const temperatures = Array.from({ length: N }, (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1));
 
     const rawJsons = await Promise.all(
       temperatures.map((t) =>
@@ -181,9 +175,7 @@ export class ExtractorRunnerService {
             model: args.overrides?.model,
           })
           .catch((e) => {
-            this.logger.warn(
-              `sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`,
-            );
+            this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
             return null;
           }),
       ),
@@ -244,10 +236,7 @@ export class ExtractorRunnerService {
     context?: ConversationContext | undefined;
     overrides?: RunOverrides | undefined;
   }): Promise<ExtractionResult | null> {
-    const prompts = [
-      args.systemPrompt,
-      ...args.facets.map((f) => buildFacetSystemPrompt(f)),
-    ];
+    const prompts = [args.systemPrompt, ...args.facets.map((f) => buildFacetSystemPrompt(f))];
     const rawJsons = await Promise.all(
       prompts.map((systemPrompt, i) =>
         this.llm
@@ -378,9 +367,7 @@ export class ExtractorRunnerService {
         toEntityIndex: remap.get(e.toEntityIndex) as number,
       }));
     if (entities.length < parsedEntities.length) {
-      const droppedNames = parsedEntities
-        .filter((_, i) => !groundedMask[i])
-        .map((e) => e.name);
+      const droppedNames = parsedEntities.filter((_, i) => !groundedMask[i]).map((e) => e.name);
       this.logger.warn(
         `extractor dropped ${droppedNames.length} entity(ies) that failed span-grounding: ${droppedNames.join('; ')}`,
       );

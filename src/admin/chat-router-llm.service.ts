@@ -84,9 +84,7 @@ message: ${message}`;
       // back to a safeDefault route — the chat UI still gets a
       // response, the trace records why we degraded.
       const msg = (e as Error).message;
-      this.logger.warn(
-        `chat router LLM call failed: ${msg}; falling back to safeDefault`,
-      );
+      this.logger.warn(`chat router LLM call failed: ${msg}; falling back to safeDefault`);
       traceArtifact('demo.chat.llm_error', { message: msg });
       return { kind: 'llm_error', message: msg };
     }

@@ -14,13 +14,8 @@
  * a single number the operator can chart over time.
  */
 import type { ConfigService } from '@nestjs/config';
-import {
-  classifyIntentLocally,
-  shouldSkipLLM,
-} from '../src/admin/chat-router.service';
-import {
-  ChatRouterCacheService,
-} from '../src/admin/chat-router-cache.service';
+import { classifyIntentLocally, shouldSkipLLM } from '../src/admin/chat-router.service';
+import { ChatRouterCacheService } from '../src/admin/chat-router-cache.service';
 import {
   extractCollapseEditsLocally,
   type CollapseSnapshot,
@@ -64,9 +59,7 @@ interface Scenario {
   mockMentions?: Array<{ canonical: string }>;
 }
 
-const collapseSnapshotWith = (
-  pairs: Array<[string, string]>,
-): CollapseSnapshot => {
+const collapseSnapshotWith = (pairs: Array<[string, string]>): CollapseSnapshot => {
   const m = new Map<string, { pattern: string; replacement: string }>();
   for (const [pattern, replacement] of pairs) {
     m.set(pattern.toLowerCase(), { pattern, replacement });
@@ -152,8 +145,7 @@ const SCENARIOS: Scenario[] = [
   // ── TELL scenarios ──────────────────────────────────────────────────
   {
     name: 'TELL: demo step 1 — long state-change sentence (cold cache)',
-    message:
-      'Maria Petrov is our new CTO at Acme. She moved from Berlin and prefers vegan lunch.',
+    message: 'Maria Petrov is our new CTO at Acme. She moved from Berlin and prefers vegan lunch.',
     knownNames: ['Maria Petrov', 'Acme'],
     mockMentions: [{ canonical: 'Maria Petrov' }, { canonical: 'Acme' }],
     collapseSnapshot: collapseSnapshotWith([]), // first-time — empty cache
@@ -166,8 +158,7 @@ const SCENARIOS: Scenario[] = [
   },
   {
     name: 'TELL: demo step 1 replay — warm cache',
-    message:
-      'Maria Petrov is our new CTO at Acme. She moved from Berlin and prefers vegan lunch.',
+    message: 'Maria Petrov is our new CTO at Acme. She moved from Berlin and prefers vegan lunch.',
     knownNames: ['Maria Petrov', 'Acme'],
     mockMentions: [{ canonical: 'Maria Petrov' }, { canonical: 'Acme' }],
     collapseSnapshot: collapseSnapshotWith([['moved from', 'lives in']]),
@@ -371,7 +362,7 @@ describe('Hybrid router scenarios — aggregate skip rate', () => {
     // explicit acknowledgement instead of silent drift.
     expect(rate).toBeGreaterThanOrEqual(0.25);
     // Surface the breakdown via console so a CI run preserves it.
-     
+
     console.log(
       `Hybrid router scenario skip-rate: ${(rate * 100).toFixed(1)}%  breakdown=${JSON.stringify(breakdown)}`,
     );

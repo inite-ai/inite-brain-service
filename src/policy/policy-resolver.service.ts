@@ -5,12 +5,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import { MetricsService } from '../metrics/metrics.service';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { compilePolicySet, denyAllSet } from './policy-compile';
-import {
-  CompiledPolicySet,
-  MAX_SETS_PER_KEY,
-  PolicyContext,
-  PolicyDocument,
-} from './policy.types';
+import { CompiledPolicySet, MAX_SETS_PER_KEY, PolicyContext, PolicyDocument } from './policy.types';
 
 /** Who is asking: credential hash + claim-carried set names + acting client. */
 export interface PolicySubject {
@@ -73,9 +68,7 @@ export class PolicyResolverService {
     config: ConfigService,
   ) {
     this.enabled = envFlagEnabled(config.get<string>('ABAC_ENABLED'));
-    this.forceReportOnly = envFlagEnabled(
-      config.get<string>('ABAC_FORCE_REPORT_ONLY'),
-    );
+    this.forceReportOnly = envFlagEnabled(config.get<string>('ABAC_FORCE_REPORT_ONLY'));
     const ttl = parseInt(config.get<string>('POLICY_CACHE_TTL_MS', '60000'), 10);
     this.ttlMs = Number.isFinite(ttl) && ttl >= 0 ? ttl : 60_000;
     const cap = parseInt(config.get<string>('POLICY_CACHE_CAP', '500'), 10);
@@ -96,10 +89,7 @@ export class PolicyResolverService {
    * or the key references no policy sets — the null short-circuits every
    * enforcement point to pre-ABAC behavior.
    */
-  async contextFor(
-    companyId: string,
-    subject: PolicySubject,
-  ): Promise<PolicyContext | null> {
+  async contextFor(companyId: string, subject: PolicySubject): Promise<PolicyContext | null> {
     if (!this.enabled) return null;
     const { keyHash, claimNames, actorId } = subject;
     const snap = await this.snapshot(companyId);
@@ -216,10 +206,7 @@ export class PolicyResolverService {
       }
       const bindings = new Map<string, string[]>();
       for (const r of bindingRows) {
-        bindings.set(
-          String(r.subject),
-          ((r.policyNames as string[]) ?? []).map(String),
-        );
+        bindings.set(String(r.subject), ((r.policyNames as string[]) ?? []).map(String));
       }
       return { sets, knownNames, bindings, loadedAt: Date.now() };
     });

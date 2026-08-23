@@ -135,11 +135,10 @@ export class IndexerRunService {
           // becomes terminal (reap-able / reopenable) instead of stuck.
           throw new Error('aborted');
         }
-        const extraction = await traceSpan(
-          'indexer.run.extract',
-          () => spec.extract(chunk.text),
-          { packId: spec.packId, chunkSeq: chunk.seq },
-        );
+        const extraction = await traceSpan('indexer.run.extract', () => spec.extract(chunk.text), {
+          packId: spec.packId,
+          chunkSeq: chunk.seq,
+        });
         const batch: CandidateBatch = {
           provenance: {
             indexerId: spec.packId,

@@ -33,27 +33,24 @@ describe('cross-source corroboration (Phase 4)', () => {
 
   const factRow = async (factId: string) =>
     withDb(async (db) => {
-      const [rows] = await db.query<[any[]]>(
-        `SELECT * FROM type::record('knowledge_fact', $rid)`,
-        { rid: factId.split(':')[1] },
-      );
+      const [rows] = await db.query<[any[]]>(`SELECT * FROM type::record('knowledge_fact', $rid)`, {
+        rid: factId.split(':')[1],
+      });
       return (rows as any[])?.[0];
     });
 
-  const ingest = (opts: {
-    entityId: string;
-    predicate: string;
-    object: string;
-    source: object;
-  }) =>
-    f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'ops', id: opts.entityId },
-      predicate: opts.predicate,
-      object: opts.object,
-      validFrom: '2026-06-01T00:00:00Z',
-      source: opts.source,
-      confidence: 0.9,
-    });
+  const ingest = (opts: { entityId: string; predicate: string; object: string; source: object }) =>
+    f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'ops', id: opts.entityId },
+        predicate: opts.predicate,
+        object: opts.object,
+        validFrom: '2026-06-01T00:00:00Z',
+        source: opts.source,
+        confidence: 0.9,
+      });
 
   beforeAll(async () => {
     f = await createApp({ companyId: 'co_corroboration_e2e' });

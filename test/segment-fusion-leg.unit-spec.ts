@@ -161,8 +161,7 @@ describe('SearchRetrievalService.runSegmentLegStage segmentTopK cap', () => {
       score: 0.9 - i * 0.05,
     }));
     const db = {
-      query: async (sql: string) =>
-        sql.includes('vector::similarity::cosine') ? [rows] : [[]],
+      query: async (sql: string) => (sql.includes('vector::similarity::cosine') ? [rows] : [[]]),
     } as unknown as Surreal;
     const svc = new SearchRetrievalService(
       { embed: async () => [1, 0] } as unknown as EmbedderService,

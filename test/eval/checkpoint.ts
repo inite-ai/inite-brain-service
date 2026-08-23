@@ -28,10 +28,7 @@ export async function loadCheckpoint<T>(
   return done;
 }
 
-export async function appendCheckpoint(
-  path: string | undefined,
-  row: unknown,
-): Promise<void> {
+export async function appendCheckpoint(path: string | undefined, row: unknown): Promise<void> {
   if (!path) return;
   await fs.appendFile(path, `${JSON.stringify(row)}\n`);
 }

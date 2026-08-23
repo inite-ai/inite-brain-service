@@ -37,9 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Prefer the ALS id; fall back to the response header the
     // correlation-id middleware already set.
     const requestId =
-      getCorrelationId() ??
-      (res.getHeader('x-request-id') as string | undefined) ??
-      'unknown';
+      getCorrelationId() ?? (res.getHeader('x-request-id') as string | undefined) ?? 'unknown';
 
     // Streaming routes (MCP uses @Res() + transport.handleRequest, SSE)
     // may have already committed the response when a late error reaches

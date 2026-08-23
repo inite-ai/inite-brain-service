@@ -54,15 +54,9 @@ describe('RecomposeService', () => {
     };
     const apiKeys = { knownCompanyIds: () => ['co_x'] };
     const generator = {
-      generate: jest.fn(
-        async (_group: any[]) => opts.summaryText ?? 'regenerated summary',
-      ),
+      generate: jest.fn(async (_group: any[]) => opts.summaryText ?? 'regenerated summary'),
     };
-    const svc = new RecomposeService(
-      surreal as never,
-      apiKeys as never,
-      generator as never,
-    );
+    const svc = new RecomposeService(surreal as never, apiKeys as never, generator as never);
     return { svc, queries, generator };
   }
 
@@ -101,9 +95,7 @@ describe('RecomposeService', () => {
         changes: [change(11, 'knowledge_fact:p1', 'retracted')],
       });
       await svc.invalidate('co_x');
-      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(
-        true,
-      );
+      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(true);
     });
 
     it("does NOT treat 'compacted' as a change — that is compaction's own bookkeeping", async () => {
@@ -116,9 +108,7 @@ describe('RecomposeService', () => {
       });
       const marked = await svc.invalidate('co_x');
       expect(marked).toBe(0);
-      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(
-        false,
-      );
+      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(false);
     });
 
     it('ignores an ordinary active write', async () => {
@@ -145,9 +135,7 @@ describe('RecomposeService', () => {
         changes: [change(10, 'knowledge_fact:old', 'superseded')],
       });
       expect(await svc.invalidate('co_x')).toBe(0);
-      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(
-        false,
-      );
+      expect(queries.some((q) => q.sql.includes('fn::mark_derived_stale'))).toBe(false);
     });
   });
 
@@ -201,9 +189,7 @@ describe('RecomposeService', () => {
       });
       await svc.recompute('co_x');
       const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
-      expect(write!.params.derivedFrom.map(String)).toEqual([
-        'knowledge_fact:p1v2',
-      ]);
+      expect(write!.params.derivedFrom.map(String)).toEqual(['knowledge_fact:p1v2']);
     });
 
     it('drops a retracted parent but keeps the summary over the survivors', async () => {

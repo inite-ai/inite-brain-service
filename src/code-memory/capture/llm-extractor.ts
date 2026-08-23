@@ -1,10 +1,5 @@
 import OpenAI from 'openai';
-import type {
-  CommitInput,
-  DecisionCandidate,
-  DecisionExtractor,
-  DecisionKind,
-} from './types';
+import type { CommitInput, DecisionCandidate, DecisionExtractor, DecisionKind } from './types';
 
 /**
  * Layer 2 — LLM extraction of the Decision/Rationale taxonomy from a commit's
@@ -20,10 +15,7 @@ import type {
  * cannot invent a path.
  */
 
-export type ChatComplete = (prompt: {
-  system: string;
-  user: string;
-}) => Promise<string>;
+export type ChatComplete = (prompt: { system: string; user: string }) => Promise<string>;
 
 const KINDS: DecisionKind[] = ['decided', 'because', 'invariant', 'gotcha'];
 
@@ -60,10 +52,7 @@ ${files}`;
   return { system, user };
 }
 
-export function parseCandidates(
-  raw: string,
-  commit: CommitInput,
-): DecisionCandidate[] {
+export function parseCandidates(raw: string, commit: CommitInput): DecisionCandidate[] {
   const parsed = safeParse(raw);
   const list: unknown[] = Array.isArray(parsed)
     ? parsed
@@ -85,13 +74,10 @@ export function parseCandidates(
       else continue;
     }
     const confidence =
-      typeof o.confidence === 'number' &&
-      o.confidence >= 0 &&
-      o.confidence <= 1
+      typeof o.confidence === 'number' && o.confidence >= 0 && o.confidence <= 1
         ? o.confidence
         : undefined;
-    const symbol =
-      typeof o.symbol === 'string' && o.symbol.trim() ? o.symbol.trim() : undefined;
+    const symbol = typeof o.symbol === 'string' && o.symbol.trim() ? o.symbol.trim() : undefined;
     out.push({
       kind,
       text,
@@ -122,10 +108,7 @@ function safeParse(raw: string): unknown {
  * own key), so the brain server never sees the commit text. JSON-object response
  * format; temperature 0 for stable extraction.
  */
-export function makeOpenAiCompleter(opts: {
-  apiKey: string;
-  model?: string;
-}): ChatComplete {
+export function makeOpenAiCompleter(opts: { apiKey: string; model?: string }): ChatComplete {
   const client = new OpenAI({ apiKey: opts.apiKey });
   const model = opts.model ?? 'gpt-4o-mini';
   return async ({ system, user }) => {

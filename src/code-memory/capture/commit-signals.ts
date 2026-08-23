@@ -67,7 +67,5 @@ export function parseCommitSignals(commit: CommitInput): Layer1Signals {
 }
 
 export function isMergeCommit(commit: CommitInput): boolean {
-  return /^Merge (branch|pull request|remote-tracking) /.test(
-    commit.message.trimStart(),
-  );
+  return /^Merge (branch|pull request|remote-tracking) /.test(commit.message.trimStart());
 }

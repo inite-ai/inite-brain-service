@@ -29,14 +29,17 @@ describe('retrieval feedback loop', () => {
   });
 
   it('one standing vote per caller key — repeat replaces, never stacks', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'fb_subject' },
-      predicate: 'tier',
-      object: 'gold',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'fb_bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'fb_subject' },
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'fb_bot' },
+      });
     const factId = ingest.body.factId as string;
 
     const first = await f.http
@@ -55,9 +58,7 @@ describe('retrieval feedback loop', () => {
 
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ verdict: string; reason: string | null }>]
-      >(
+      const [rows] = await db.query<[Array<{ verdict: string; reason: string | null }>]>(
         `SELECT verdict, reason FROM retrieval_feedback
           WHERE factId = type::record('knowledge_fact', $tail)`,
         { tail: factId.split(':')[1] },

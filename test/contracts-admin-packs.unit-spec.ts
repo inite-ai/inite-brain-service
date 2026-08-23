@@ -39,13 +39,9 @@ describe('AdminPacksController.list() — wire contract', () => {
     const req = {
       brainAuth: { companyId: 'co_test' },
     } as AuthenticatedRequest;
-    const parsed = PacksListResponseSchema.safeParse(
-      await makeController().list(req),
-    );
+    const parsed = PacksListResponseSchema.safeParse(await makeController().list(req));
     if (!parsed.success) {
-      throw new Error(
-        `packs list drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`packs list drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

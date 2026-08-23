@@ -123,7 +123,7 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/await-thenable': 'error',
-      'prettier/prettier': 'off', // formatting handled by `pnpm format`, not lint
+      'prettier/prettier': 'off', // formatting gated by the CI `format:check` step, not lint
 
       // ── Clean architecture / DRY hard gates ───────────────────────
       // import/no-cycle disabled by default — requires the import

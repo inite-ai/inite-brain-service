@@ -29,11 +29,7 @@
  * slotDelta.
  */
 
-export type ConflictDimension =
-  | 'confidence'
-  | 'source_trust'
-  | 'recency'
-  | 'authority';
+export type ConflictDimension = 'confidence' | 'source_trust' | 'recency' | 'authority';
 
 export type ConflictOutcome = 'SUPERSEDED' | 'COMPETING';
 
@@ -92,16 +88,12 @@ export interface ResolverConflictPayload {
   slotDelta: ConflictSlotDelta;
 }
 
-export function buildConflictExplanation(
-  payload: ResolverConflictPayload,
-): ConflictExplanation {
+export function buildConflictExplanation(payload: ResolverConflictPayload): ConflictExplanation {
   const allLoserIds =
     payload.outcome === 'SUPERSEDED'
       ? (payload.supersededFactIds ?? [])
       : (payload.competingFactIds ?? []);
-  const otherLoserFactIds = allLoserIds.filter(
-    (id) => id !== payload.bestOpponentId,
-  );
+  const otherLoserFactIds = allLoserIds.filter((id) => id !== payload.bestOpponentId);
 
   return {
     outcome: payload.outcome,
@@ -125,15 +117,12 @@ export function buildConflictExplanation(
 function renderNarrative(payload: ResolverConflictPayload): string {
   const gap = payload.scoreBreakdown.margin;
   const gapStr = gap >= 0 ? `+${gap.toFixed(3)}` : gap.toFixed(3);
-  const verbBase =
-    payload.outcome === 'SUPERSEDED' ? 'superseded' : 'competes with';
+  const verbBase = payload.outcome === 'SUPERSEDED' ? 'superseded' : 'competes with';
   const dim = payload.dominantDimension;
   const deltaSlots = describeSlotDelta(payload.slotDelta);
 
   const dimPhrase = dimPhraseFor(dim);
-  const slotPhrase = deltaSlots.length
-    ? ` differs by ${deltaSlots.join(' + ')}`
-    : '';
+  const slotPhrase = deltaSlots.length ? ` differs by ${deltaSlots.join(' + ')}` : '';
 
   return `New fact ${verbBase} the strongest prior (gap ${gapStr} on ${dimPhrase})${slotPhrase}.`;
 }

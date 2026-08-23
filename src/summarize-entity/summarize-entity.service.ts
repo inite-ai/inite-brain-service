@@ -132,10 +132,7 @@ export class SummarizeEntityService {
  * proactive invalidation the old LRU-only cache lacked. Both-null (entity
  * with no facts) is fresh.
  */
-function isStale(
-  builtWatermark: string | null,
-  currentWatermark: string | null,
-): boolean {
+function isStale(builtWatermark: string | null, currentWatermark: string | null): boolean {
   return (builtWatermark ?? '') !== (currentWatermark ?? '');
 }
 
@@ -153,9 +150,7 @@ function buildCacheKey(
   // otherwise a read_pii summary is served to a brain:read key. Fold both
   // axes into the key. Absent policy context (ABAC off) → scopes decide.
   const visibility =
-    [...scopes].sort().join(',') +
-    '::' +
-    (getPolicyContext()?.keyHash ?? 'no-policy');
+    [...scopes].sort().join(',') + '::' + (getPolicyContext()?.keyHash ?? 'no-policy');
   const raw = `${companyId}::${args.entityId}::${asOf}::${style}::${visibility}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
@@ -183,13 +178,9 @@ function renderSummary(
   // filter: getProfile's activeFactWhere now applies the full
   // believed-and-valid-now closure (the filter here used to patch
   // around its leak of superseded/expired rows).
-  const top = [...profile.facts]
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 6);
+  const top = [...profile.facts].sort((a, b) => b.confidence - a.confidence).slice(0, 6);
 
-  const factLine = top
-    .map((f) => `${f.predicate}=${f.object}`)
-    .join('; ');
+  const factLine = top.map((f) => `${f.predicate}=${f.object}`).join('; ');
   const refsLine = Object.keys(profile.externalRefs).length
     ? ` (refs: ${Object.entries(profile.externalRefs)
         .map(([k, v]) => `${k}=${v}`)

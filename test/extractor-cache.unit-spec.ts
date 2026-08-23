@@ -70,9 +70,7 @@ describe('ExtractorCacheService.computeKey', () => {
   });
 
   it('omitted scPasses maps to the single-pass bucket', () => {
-    expect(svc.computeKey(baseInput)).toBe(
-      svc.computeKey({ ...baseInput, scPasses: 1 }),
-    );
+    expect(svc.computeKey(baseInput)).toBe(svc.computeKey({ ...baseInput, scPasses: 1 }));
   });
 
   it('NFC-normalizes text', () => {
@@ -96,9 +94,7 @@ describe('ExtractorCacheService get/set', () => {
   });
 
   it('disabled cache always misses', () => {
-    const svc = new ExtractorCacheService(
-      mkConfig({ EXTRACTOR_CACHE_ENABLED: 'false' }),
-    );
+    const svc = new ExtractorCacheService(mkConfig({ EXTRACTOR_CACHE_ENABLED: 'false' }));
     svc.set('k', stub);
     expect(svc.get('k')).toBeUndefined();
     expect(svc.stats().enabled).toBe(false);
@@ -118,9 +114,7 @@ describe('ExtractorCacheService get/set', () => {
   });
 
   it('LRU evicts oldest past capacity', () => {
-    const svc = new ExtractorCacheService(
-      mkConfig({ EXTRACTOR_CACHE_SIZE: '2' }),
-    );
+    const svc = new ExtractorCacheService(mkConfig({ EXTRACTOR_CACHE_SIZE: '2' }));
     const k1 = svc.computeKey({ ...baseInput, text: 'a' });
     const k2 = svc.computeKey({ ...baseInput, text: 'b' });
     const k3 = svc.computeKey({ ...baseInput, text: 'c' });

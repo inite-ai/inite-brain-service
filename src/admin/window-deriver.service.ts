@@ -53,11 +53,7 @@ import {
   type ComposedProposition,
   type DerivedProposition,
 } from './deriver-client';
-import {
-  composeAspectRollups,
-  majorityEntityId,
-  type RollupMember,
-} from './aspect-rollups';
+import { composeAspectRollups, majorityEntityId, type RollupMember } from './aspect-rollups';
 import {
   STAGING_SUFFIX,
   acquireDeriveLease,
@@ -104,15 +100,8 @@ export interface DeriveRunResult {
 // The session primitive moved to the episodes layer (V9 quality pass —
 // synthesize-side lanes need the same convention and may not import
 // from admin); re-exported so existing consumers keep their import.
-export {
-  segmentSessions,
-  type EpisodeRow,
-} from '../episodes/session-window';
-import {
-  distinctUserScopes,
-  segmentSessions,
-  type EpisodeRow,
-} from '../episodes/session-window';
+export { segmentSessions, type EpisodeRow } from '../episodes/session-window';
+import { distinctUserScopes, segmentSessions, type EpisodeRow } from '../episodes/session-window';
 import { persistDigest } from './digest-persist';
 
 /** `YYYY-MM-DD HH:MM` (UTC) turn stamp for DERIVER_TURN_HEADERS. */
@@ -171,9 +160,7 @@ export class WindowDeriverService {
     // The PRIMARY pin drives activation/live semantics below — a union
     // member is being read but is not the registry-live world.
     const activePin =
-      (await this.readPin?.resolve(companyId)) ??
-      ReadPinService.bootstrapDefault() ??
-      undefined;
+      (await this.readPin?.resolve(companyId)) ?? ReadPinService.bootstrapDefault() ?? undefined;
     // Audit 2026-08-21 P1: the guard covers the whole READ SET — a
     // union-served world (RETRIEVAL_DERIVED_VERSIONS) is as live as the
     // primary pin.
@@ -263,9 +250,7 @@ export class WindowDeriverService {
             result.conversations += 1;
           } catch (e) {
             result.skipped.push({ conversationId, reason: (e as Error).message });
-            this.logger.warn(
-              `derive failed for ${conversationId}: ${(e as Error).message}`,
-            );
+            this.logger.warn(`derive failed for ${conversationId}: ${(e as Error).message}`);
           }
         }
       });
@@ -359,14 +344,9 @@ export class WindowDeriverService {
 
   /** Failed/degraded-run staging GC — best-effort by contract: the next
    *  run for the same version sweeps whatever this pass missed. */
-  private async sweepStagingBestEffort(
-    companyId: string,
-    staging: string,
-  ): Promise<void> {
+  private async sweepStagingBestEffort(companyId: string, staging: string): Promise<void> {
     try {
-      await this.surreal.withCompany(companyId, (db) =>
-        sweepStagingRows(db, staging),
-      );
+      await this.surreal.withCompany(companyId, (db) => sweepStagingRows(db, staging));
     } catch (e) {
       this.logger.warn(
         `staging sweep for '${staging}' failed (${(e as Error).message}) — ` +
@@ -394,8 +374,7 @@ export class WindowDeriverService {
   }): Promise<void> {
     const { companyId, version, activate, activePin, result } = args;
     if (activate && result.conversations > 0 && result.failed === 0) {
-      result.previousVersion =
-        (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
+      result.previousVersion = (await this.readPin?.resolve(companyId)) ?? activePin ?? null;
       result.activated = true;
       this.logger.log(
         `derived world '${version}' activated for ${companyId} ` +
@@ -417,12 +396,7 @@ export class WindowDeriverService {
    */
   private finalizeRunStatus(result: DeriveRunResult): DeriveRunStatus {
     result.failed = result.skipped.length;
-    result.status =
-      result.failed === 0
-        ? 'ok'
-        : result.conversations > 0
-          ? 'degraded'
-          : 'failed';
+    result.status = result.failed === 0 ? 'ok' : result.conversations > 0 ? 'degraded' : 'failed';
     return result.status;
   }
 
@@ -438,8 +412,7 @@ export class WindowDeriverService {
     // Audit 2026-08-21 P1: the whole READ SET survives GC — union
     // worlds are being served even when no registry row says so.
     const activePins = ReadPinService.readSet(
-      (await this.readPin?.resolve(companyId)) ??
-        ReadPinService.bootstrapDefault(),
+      (await this.readPin?.resolve(companyId)) ?? ReadPinService.bootstrapDefault(),
     );
     // Audit W0 (engine-architecture-audit-2026-08.md #8): the registry is
     // part of the keep-set — the env pin is process-local and may be unset
@@ -453,9 +426,7 @@ export class WindowDeriverService {
           (r.status === 'live' || r.status === 'building' || r.status === 'built'),
       )
       .map((r) => r.version);
-    const keep = new Set(
-      [...activePins, ...registryKeep, ...(opts.keep ?? [])].filter(Boolean),
-    );
+    const keep = new Set([...activePins, ...registryKeep, ...(opts.keep ?? [])].filter(Boolean));
     if (keep.size === 0) {
       throw new Error(
         'gc refused: no live read pin and no registry evidence of a ' +
@@ -470,13 +441,10 @@ export class WindowDeriverService {
     // base or at the start of the next run for that version.
     const kept = (name: string): boolean =>
       keep.has(name) ||
-      (name.endsWith(STAGING_SUFFIX) &&
-        keep.has(name.slice(0, -STAGING_SUFFIX.length)));
+      (name.endsWith(STAGING_SUFFIX) && keep.has(name.slice(0, -STAGING_SUFFIX.length)));
     const deleted: Record<string, number> = {};
     await this.surreal.withCompany(companyId, async (db) => {
-      const [versions] = await db.query<
-        [Array<{ derivedVersion?: string; n: number }>]
-      >(
+      const [versions] = await db.query<[Array<{ derivedVersion?: string; n: number }>]>(
         `SELECT derivedVersion, count() AS n FROM knowledge_fact
           WHERE derivedVersion IS NOT NONE
           GROUP BY derivedVersion`,
@@ -484,25 +452,19 @@ export class WindowDeriverService {
       for (const v of versions ?? []) {
         const name = String(v.derivedVersion);
         if (kept(name)) continue;
-        await db.query(
-          `DELETE knowledge_fact WHERE derivedVersion = $version`,
-          { version: name },
-        );
+        await db.query(`DELETE knowledge_fact WHERE derivedVersion = $version`, { version: name });
         // Audit 2026-08-19 P1: the version's digests die with it — a
         // reaped world must not keep serving its narrative.
-        await db.query(
-          `DELETE conversation_digest WHERE derivedVersion = $version`,
-          { version: name },
-        );
+        await db.query(`DELETE conversation_digest WHERE derivedVersion = $version`, {
+          version: name,
+        });
         deleted[name] = v.n;
       }
       // Digests of versions with ZERO remaining facts (fold ran but the
       // fact write failed, or a version never landed facts) are
       // unreachable through any keep-set derived from facts — sweep the
       // orphans by the same keep-set.
-      const [digestVersions] = await db.query<
-        [Array<{ derivedVersion?: string }>]
-      >(
+      const [digestVersions] = await db.query<[Array<{ derivedVersion?: string }>]>(
         `SELECT derivedVersion FROM conversation_digest
           WHERE derivedVersion IS NOT NONE
           GROUP BY derivedVersion`,
@@ -510,10 +472,9 @@ export class WindowDeriverService {
       for (const v of digestVersions ?? []) {
         const name = String(v.derivedVersion);
         if (kept(name) || name in deleted) continue;
-        await db.query(
-          `DELETE conversation_digest WHERE derivedVersion = $version`,
-          { version: name },
-        );
+        await db.query(`DELETE conversation_digest WHERE derivedVersion = $version`, {
+          version: name,
+        });
       }
     });
     // A registry row promises a queryable world — reaped versions lose theirs.
@@ -536,18 +497,13 @@ export class WindowDeriverService {
     ns: DeriveNamespace;
     result: DeriveRunResult;
   }): Promise<void> {
-    const episodes: EpisodeRow[] = await this.episodes.conversationTurnsRaw(
-      db,
-      conversationId,
-    );
+    const episodes: EpisodeRow[] = await this.episodes.conversationTurnsRaw(db, conversationId);
     if (episodes.length === 0) return;
 
     // Speaker display name → entity id, via the fact-densest entities
     // whose canonicalName embeds the speaker name. Unresolved subjects
     // are counted, not guessed.
-    const speakers = [
-      ...new Set(episodes.map((e) => e.speaker).filter((s): s is string => !!s)),
-    ];
+    const speakers = [...new Set(episodes.map((e) => e.speaker).filter((s): s is string => !!s))];
     // Deterministic first: LoCoMo-style speaker entities are canonically
     // `<convSlug>__<speaker>` where convSlug drops the vertical prefix
     // ("locomo:conv-26" → "conv_26"). Exact match sidesteps cross-
@@ -563,9 +519,7 @@ export class WindowDeriverService {
     const slugBySpeaker = new Map<string, string>(
       speakers.map((sp) => [`${convSlug}__${sp.toLowerCase()}`, sp]),
     );
-    const [exactRows] = await db.query<
-      [Array<{ id: unknown; canonicalNameLc: string }>]
-    >(
+    const [exactRows] = await db.query<[Array<{ id: unknown; canonicalNameLc: string }>]>(
       `SELECT id, canonicalNameLc FROM knowledge_entity
         WHERE canonicalNameLc INSIDE $slugs`,
       { slugs: [...slugBySpeaker.keys()] },
@@ -627,15 +581,13 @@ export class WindowDeriverService {
     let digestEventAt: Date | null = null;
     // V13 A2: landed rows accumulate per conversation for the aspect
     // rollup pass ([] only under the flag — zero cost off).
-    const rollupPool: RollupMember[] | null = resolveExtractionProfile()
-      .deriveAspectRollups
+    const rollupPool: RollupMember[] | null = resolveExtractionProfile().deriveAspectRollups
       ? []
       : null;
     // V13 compose pass: same landed-row pool shape, separate flag —
     // the LLM composition and the mechanical rollups are independent
     // legs and must be measurable apart.
-    const composePool: RollupMember[] | null = resolveExtractionProfile()
-      .deriveComposePass
+    const composePool: RollupMember[] | null = resolveExtractionProfile().deriveComposePass
       ? []
       : null;
     // V13 DERIVER_TURN_HEADERS: each line carries the turn's own
@@ -659,16 +611,10 @@ export class WindowDeriverService {
             `digest fold failed (${(e as Error).message}) — keeping prior digest state`,
           );
         }
-        const last = new Date(
-          session[session.length - 1]!.occurredAt as string,
-        );
+        const last = new Date(session[session.length - 1]!.occurredAt as string);
         if (!digestEventAt || last > digestEventAt) digestEventAt = last;
       }
-      const props = await this.callDeriver(
-        sessionDate,
-        speakers,
-        transcript,
-      );
+      const props = await this.callDeriver(sessionDate, speakers, transcript);
       result.sessions += 1;
       // Subject → entity. Third-party subjects (kids, friends, another
       // conversation's cast) re-attach to the SPEAKER of their grounding
@@ -700,9 +646,7 @@ export class WindowDeriverService {
       // questions), while the stored object stays the bare proposition.
       const vectors = await this.embedding.embedMany(
         resolved.map(({ p }) =>
-          p.scene?.trim()
-            ? `${p.proposition} — ${p.scene.trim()}`
-            : p.proposition,
+          p.scene?.trim() ? `${p.proposition} — ${p.scene.trim()}` : p.proposition,
         ),
       );
       // ONE write primitive for every producer (S4/0079): the batch
@@ -723,8 +667,7 @@ export class WindowDeriverService {
       // grounding (round 2) has no trustworthy scope at all — both are
       // dropped (with their resolved twins, keeping every downstream
       // array index-aligned) rather than landed tenant-global.
-      const dropRow = (r: (typeof builtRows)[number]) =>
-        r.crossUserScope || r.groundingInvalid;
+      const dropRow = (r: (typeof builtRows)[number]) => r.crossUserScope || r.groundingInvalid;
       const crossUser = builtRows.filter((r) => r.crossUserScope).length;
       const ungrounded = builtRows.filter((r) => r.groundingInvalid).length;
       if (crossUser > 0 || ungrounded > 0) {
@@ -816,8 +759,6 @@ export class WindowDeriverService {
     }
   }
 
-
-
   /**
    * V13 A2 aspect rollups: mechanical per-(entity, aspect) list-facts
    * over this conversation's landed rows (see aspect-rollups.ts for
@@ -841,9 +782,7 @@ export class WindowDeriverService {
     try {
       const rollups = composeAspectRollups(pool);
       if (rollups.length === 0) return;
-      const vectors = await this.embedding.embedMany(
-        rollups.map((r) => r.object),
-      );
+      const vectors = await this.embedding.embedMany(rollups.map((r) => r.object));
       const rows = rollups.map((r, i) => ({
         entityId: r.entityId,
         predicate: r.predicate,
@@ -878,9 +817,7 @@ export class WindowDeriverService {
       // gates (percent-level comparisons across flag pairs) — folding
       // composed rows in would report inflated EXTRACTION volume.
       result.rollups = (result.rollups ?? 0) + landed;
-      this.logger.log(
-        `aspect rollups: ${landed}/${rollups.length} landed (${conversationId})`,
-      );
+      this.logger.log(`aspect rollups: ${landed}/${rollups.length} landed (${conversationId})`);
     } catch (e) {
       this.logger.warn(
         `aspect rollup pass failed (${(e as Error).message}) — atomic facts unaffected`,
@@ -919,18 +856,12 @@ export class WindowDeriverService {
         .map((c) => ({
           ...c,
           members: [
-            ...new Set(
-              c.members.filter(
-                (m) => Number.isInteger(m) && m >= 0 && m < pool.length,
-              ),
-            ),
+            ...new Set(c.members.filter((m) => Number.isInteger(m) && m >= 0 && m < pool.length)),
           ],
         }))
         .filter((c) => c.members.length >= 2 && c.proposition.trim());
       if (compositions.length === 0) return;
-      const vectors = await this.embedding.embedMany(
-        compositions.map((c) => c.proposition),
-      );
+      const vectors = await this.embedding.embedMany(compositions.map((c) => c.proposition));
       const rows = compositions.map((c, i) => {
         // members were filtered to valid pool indices (0 ≤ m < pool.length).
         const members = c.members.map((m) => pool[m]!);
@@ -938,17 +869,11 @@ export class WindowDeriverService {
           .toLowerCase()
           .replace(/[^a-z0-9_]+/g, '_')
           .slice(0, 40);
-        const occurredMs = c.occurred_on
-          ? Date.parse(`${c.occurred_on}T00:00:00.000Z`)
-          : NaN;
+        const occurredMs = c.occurred_on ? Date.parse(`${c.occurred_on}T00:00:00.000Z`) : NaN;
         const validFrom = Number.isFinite(occurredMs)
           ? new Date(occurredMs)
-          : new Date(
-              Math.max(...members.map((m) => m.validFrom.getTime())),
-            );
-        const episodeIds = [
-          ...new Set(members.flatMap((m) => m.episodeIds)),
-        ].slice(0, 64);
+          : new Date(Math.max(...members.map((m) => m.validFrom.getTime())));
+        const episodeIds = [...new Set(members.flatMap((m) => m.episodeIds))].slice(0, 64);
         return {
           entityId: majorityEntityId(members),
           predicate: aspect || 'other',
@@ -979,19 +904,13 @@ export class WindowDeriverService {
       ).length;
       // Separate counter — same volume-parity reasoning as rollups.
       result.composed = (result.composed ?? 0) + landed;
-      this.logger.log(
-        `compose pass: ${landed}/${compositions.length} landed (${conversationId})`,
-      );
+      this.logger.log(`compose pass: ${landed}/${compositions.length} landed (${conversationId})`);
     } catch (e) {
-      this.logger.warn(
-        `compose pass failed (${(e as Error).message}) — atomic facts unaffected`,
-      );
+      this.logger.warn(`compose pass failed (${(e as Error).message}) — atomic facts unaffected`);
     }
   }
 
-  private async composeCrossSession(
-    pool: RollupMember[],
-  ): Promise<ComposedProposition[]> {
+  private async composeCrossSession(pool: RollupMember[]): Promise<ComposedProposition[]> {
     return composeCrossSession(
       { openai: this.openai, model: this.model, logger: this.logger },
       {

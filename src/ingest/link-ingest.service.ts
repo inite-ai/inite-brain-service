@@ -49,14 +49,10 @@ export class LinkIngestService {
       // nothing, and we throw before creating the edge.
       if (dto.kind === 'identity_of') {
         if (fromId === toId) {
-          throw new BadRequestException(
-            'identity_of cannot merge an entity into itself',
-          );
+          throw new BadRequestException('identity_of cannot merge an entity into itself');
         }
         const merge = await retryOnUniqueViolation(async () => {
-          const [r] = await db.query<
-            [{ merged: boolean; reason: string | null }]
-          >(
+          const [r] = await db.query<[{ merged: boolean; reason: string | null }]>(
             `RETURN fn::merge_identity(
                 type::record('knowledge_entity', $loser),
                 type::record('knowledge_entity', $survivor))`,
@@ -73,9 +69,7 @@ export class LinkIngestService {
           if (merge?.reason === 'self_merge') {
             // Defensive: the fromId===toId fast-path above already covers
             // this, so the function's own self-merge branch is normally dead.
-            throw new BadRequestException(
-              'identity_of cannot merge an entity into itself',
-            );
+            throw new BadRequestException('identity_of cannot merge an entity into itself');
           }
           // merged=false with no recognised reason (or a null/unexpected
           // result shape) is NOT a client input error — surface it as such

@@ -1,10 +1,5 @@
 import type { ExtractionPatternService } from '../extraction-pattern.service';
-import type {
-  ExtractedEdge,
-  ExtractedEntity,
-  ExtractedFact,
-  ExtractionResult,
-} from './types';
+import type { ExtractedEdge, ExtractedEntity, ExtractedFact, ExtractionResult } from './types';
 import { normalizeForGrounding } from './grounding';
 
 /** Map a HuggingFace NER label to our closed entity-type vocabulary. */
@@ -20,10 +15,7 @@ export function mapNerTypeToEntityType(t: string): ExtractedEntity['type'] {
  * Pick the local entity that overlaps the clause text. First try
  * case-insensitive name occurrence; return -1 if no entity links.
  */
-function entityIndexForFact(
-  localEntities: Array<{ text: string }>,
-  clauseText: string,
-): number {
+function entityIndexForFact(localEntities: Array<{ text: string }>, clauseText: string): number {
   const clauseLower = clauseText.toLowerCase();
   for (const [i, en] of localEntities.entries()) {
     if (clauseLower.includes(en.text.toLowerCase())) {

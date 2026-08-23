@@ -17,11 +17,7 @@ interface FakeServer {
   };
 }
 
-function fakeServer(opts: {
-  sampling: boolean;
-  text?: string;
-  shouldThrow?: boolean;
-}): FakeServer {
+function fakeServer(opts: { sampling: boolean; text?: string; shouldThrow?: boolean }): FakeServer {
   return {
     server: {
       getClientCapabilities: () => (opts.sampling ? { sampling: {} } : {}),

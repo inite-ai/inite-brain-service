@@ -37,9 +37,7 @@ export const TraceDetailResponseSchema = z.object({
   companyId: z.string().optional(),
   spans: z.array(DebugSpanSchema),
   artifacts: z.array(DebugArtifactSchema),
-  errored: z
-    .object({ message: z.string(), name: z.string().optional() })
-    .optional(),
+  errored: z.object({ message: z.string(), name: z.string().optional() }).optional(),
 });
 
 export type TraceDetailResponse = z.infer<typeof TraceDetailResponseSchema>;

@@ -3,11 +3,7 @@ import type {
   ExtractionPatternEntry,
   ExtractionPatternService,
 } from '../extraction-pattern.service';
-import type {
-  ExtractedEdge,
-  ExtractedFact,
-  RawExtractedFact,
-} from './types';
+import type { ExtractedEdge, ExtractedFact, RawExtractedFact } from './types';
 
 /**
  * Persist per-clause extraction patterns so future ingests can replay
@@ -74,8 +70,6 @@ export async function persistExtractionPatterns({
   try {
     await patterns.record(companyId, entries);
   } catch (e) {
-    logger.warn(
-      `extraction pattern record failed for ${companyId}: ${(e as Error).message}`,
-    );
+    logger.warn(`extraction pattern record failed for ${companyId}: ${(e as Error).message}`);
   }
 }

@@ -5,10 +5,7 @@ import { ReadPinService } from '../episodes/read-pin.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 import { fuse } from '../search/internals/fusion';
-import {
-  INSIGHT_TOP_K,
-  runInsightLegs,
-} from '../search/internals/insight-leg';
+import { INSIGHT_TOP_K, runInsightLegs } from '../search/internals/insight-leg';
 
 /**
  * Insight lane (V8 §1) — the prompt-side consumer of the insight
@@ -49,24 +46,20 @@ export class InsightLaneService {
     const fetchK = Math.max(INSIGHT_TOP_K * 3, 12);
     try {
       const derivedVersion =
-        (await this.readPin?.resolveRead(opts.companyId)) ??
-        ReadPinService.bootstrapRead();
+        (await this.readPin?.resolveRead(opts.companyId)) ?? ReadPinService.bootstrapRead();
       const queryVector = await this.embedder.embed(opts.query);
-      const fused = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const { vectorRows, lexicalRows } = await runInsightLegs({
-            db,
-            queryText: opts.query,
-            queryVector,
-            fetchK,
-            callerScopes: opts.callerScopes,
-            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
-            derivedVersion,
-          });
-          return fuse(vectorRows, lexicalRows, 'hybrid');
-        },
-      );
+      const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const { vectorRows, lexicalRows } = await runInsightLegs({
+          db,
+          queryText: opts.query,
+          queryVector,
+          fetchK,
+          callerScopes: opts.callerScopes,
+          ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+          derivedVersion,
+        });
+        return fuse(vectorRows, lexicalRows, 'hybrid');
+      });
       // Audit 2026-08-19 P1: the same predicate scope-fence + ABAC row
       // verdict every other prompt-producing lane applies (the SQL
       // gates cover pii/user; operator-set requiresScope lives only in
@@ -74,9 +67,7 @@ export class InsightLaneService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: opts.callerScopes,
         surface: 'insight_lane',
-        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-          opts.companyId,
-        ),
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
       });
       const admitted = fused.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();

@@ -22,12 +22,7 @@ export type JobType =
   | 'scenarios_batch'
   | 'registry_mirror';
 
-export type JobStatus =
-  | 'pending'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface JobProgress {
   processed?: number;
@@ -73,21 +68,17 @@ const JOB_RUN_LIST_COLUMNS = `runId, jobType, status, triggeredBy, triggeredByAc
 /** Build the optional WHERE clause + bound params for the cross-tenant list.
  *  Pure — extracted from JobRunService.list so each stays under the complexity
  *  gate and the filter logic is unit-testable in isolation. */
-function buildJobRunListWhere(filter: {
-  jobType?: JobType;
-  status?: JobStatus;
-  since?: string;
-}): { whereSql: string; params: Record<string, unknown> } {
+function buildJobRunListWhere(filter: { jobType?: JobType; status?: JobStatus; since?: string }): {
+  whereSql: string;
+  params: Record<string, unknown>;
+} {
   const clauses: Array<[string, string, unknown]> = [];
   if (filter.jobType) clauses.push(['jobType = $jobType', 'jobType', filter.jobType]);
   if (filter.status) clauses.push(['status = $status', 'status', filter.status]);
-  if (filter.since)
-    clauses.push(['startedAt >= type::datetime($since)', 'since', filter.since]);
+  if (filter.since) clauses.push(['startedAt >= type::datetime($since)', 'since', filter.since]);
   const params: Record<string, unknown> = {};
   for (const [, key, value] of clauses) params[key] = value;
-  const whereSql = clauses.length
-    ? `WHERE ${clauses.map(([sql]) => sql).join(' AND ')}`
-    : '';
+  const whereSql = clauses.length ? `WHERE ${clauses.map(([sql]) => sql).join(' AND ')}` : '';
   return { whereSql, params };
 }
 
@@ -196,8 +187,7 @@ export class JobRunService {
     @Optional() config?: ConfigService,
   ) {
     this.persistEnabled =
-      (config?.get<string>('JOB_RUN_PERSIST', '1') ?? '1') !== '0' &&
-      !!this.surreal;
+      (config?.get<string>('JOB_RUN_PERSIST', '1') ?? '1') !== '0' && !!this.surreal;
   }
 
   /**
@@ -262,15 +252,13 @@ export class JobRunService {
     if (this.persistEnabled && this.surreal) {
       try {
         await this.surreal.withCompany(row.companyId, async (db) => {
-          await db.query(
-            `UPDATE job_run SET progress = $progress WHERE runId = $runId`,
-            { progress: row.progress, runId: row.runId },
-          );
+          await db.query(`UPDATE job_run SET progress = $progress WHERE runId = $runId`, {
+            progress: row.progress,
+            runId: row.runId,
+          });
         });
       } catch (e) {
-        this.logger.warn(
-          `job_run progress write failed (${row.runId}): ${(e as Error).message}`,
-        );
+        this.logger.warn(`job_run progress write failed (${row.runId}): ${(e as Error).message}`);
       }
     }
     this.stream.next(row);
@@ -310,9 +298,7 @@ export class JobRunService {
           );
         });
       } catch (e) {
-        this.logger.warn(
-          `job_run finish write failed (${row.runId}): ${(e as Error).message}`,
-        );
+        this.logger.warn(`job_run finish write failed (${row.runId}): ${(e as Error).message}`);
       }
     }
     this.inProcessCancelHints.delete(row.runId);
@@ -364,17 +350,12 @@ export class JobRunService {
       });
       return updated;
     } catch (e) {
-      this.logger.warn(
-        `job_run cancel write failed (${runId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`job_run cancel write failed (${runId}): ${(e as Error).message}`);
       return false;
     }
   }
 
-  async isCancelRequested(
-    runId: string,
-    companyId: string,
-  ): Promise<boolean> {
+  async isCancelRequested(runId: string, companyId: string): Promise<boolean> {
     if (this.inProcessCancelHints.has(runId)) return true;
     if (!this.persistEnabled || !this.surreal) return false;
     try {
@@ -407,9 +388,7 @@ export class JobRunService {
   }): Promise<JobRunRow[]> {
     if (!this.persistEnabled || !this.surreal || !this.apiKeys) return [];
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const where = buildJobRunListWhere(filter);
     const out: JobRunRow[] = [];
     for (const companyId of tenants) {
@@ -438,9 +417,7 @@ export class JobRunService {
         ),
       );
     } catch (e) {
-      this.logger.warn(
-        `job_run list failed for ${companyId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`job_run list failed for ${companyId}: ${(e as Error).message}`);
       return [];
     }
   }

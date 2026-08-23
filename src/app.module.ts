@@ -64,14 +64,8 @@ import { StrategyModule } from './strategy/strategy.module';
         },
         {
           name: 'expensive',
-          ttl: parseInt(
-            config.get<string>('THROTTLE_EXPENSIVE_TTL_MS', '60000'),
-            10,
-          ),
-          limit: parseInt(
-            config.get<string>('THROTTLE_EXPENSIVE_LIMIT', '10'),
-            10,
-          ),
+          ttl: parseInt(config.get<string>('THROTTLE_EXPENSIVE_TTL_MS', '60000'), 10),
+          limit: parseInt(config.get<string>('THROTTLE_EXPENSIVE_LIMIT', '10'), 10),
         },
       ],
     }),

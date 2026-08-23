@@ -116,12 +116,9 @@ export class HttpBrainClient {
       return (await res.json()) as T;
     };
     this.ingest = {
-      fact: (body: unknown) =>
-        this.call<EvalIngestResult>('POST', '/v1/ingest/fact', body),
-      link: (body: unknown) =>
-        this.call<{ [k: string]: unknown }>('POST', '/v1/ingest/link', body),
-      mention: (body: unknown) =>
-        this.call<EvalMentionResult>('POST', '/v1/ingest/mention', body),
+      fact: (body: unknown) => this.call<EvalIngestResult>('POST', '/v1/ingest/fact', body),
+      link: (body: unknown) => this.call<{ [k: string]: unknown }>('POST', '/v1/ingest/link', body),
+      mention: (body: unknown) => this.call<EvalMentionResult>('POST', '/v1/ingest/mention', body),
     };
     this.facts = {
       retract: (factId: string, body: unknown) =>
@@ -158,11 +155,7 @@ export class HttpBrainClient {
    * other eval paths can reuse the same surface.
    */
   async multiHop(body: unknown): Promise<EvalMultiHopResponse> {
-    return this.call<EvalMultiHopResponse>(
-      'POST',
-      '/v1/search/multi-hop',
-      body,
-    );
+    return this.call<EvalMultiHopResponse>('POST', '/v1/search/multi-hop', body);
   }
 
   /**
@@ -208,15 +201,9 @@ interface IngestSurface {
 }
 
 interface FactsSurface {
-  retract(
-    factId: string,
-    body: unknown,
-  ): Promise<{ [k: string]: unknown }>;
+  retract(factId: string, body: unknown): Promise<{ [k: string]: unknown }>;
 }
 
 interface EntitiesSurface {
-  forget(
-    entityId: string,
-    body: unknown,
-  ): Promise<{ [k: string]: unknown }>;
+  forget(entityId: string, body: unknown): Promise<{ [k: string]: unknown }>;
 }

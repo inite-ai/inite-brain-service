@@ -32,10 +32,7 @@ export class MentionViaDocumentService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  async ingest(
-    companyId: string,
-    dto: IngestMentionDto,
-  ): Promise<MentionCompatResult> {
+  async ingest(companyId: string, dto: IngestMentionDto): Promise<MentionCompatResult> {
     // Audit 2026-08-21 P0, FAIL-CLOSED: the document pipeline does not
     // carry per-user scope yet — refusing a user-scoped mention beats
     // silently landing a user's memory tenant-global. M2M tenant-global

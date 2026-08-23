@@ -32,11 +32,7 @@ import { StringRecordId } from 'surrealdb';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
-import {
-  newRunToken,
-  promoteStaging,
-  stagingNamespace,
-} from '../src/admin/derive-staging';
+import { newRunToken, promoteStaging, stagingNamespace } from '../src/admin/derive-staging';
 
 const ENTITY_ID = 'knowledge_entity:staleness_evt';
 
@@ -50,10 +46,7 @@ describe('0089 fact_staleness event', () => {
   const rid = (id: string) => new StringRecordId(id);
 
   /** Minimal SCHEMAFULL-valid knowledge_fact row for direct seeding. */
-  const factRow = (
-    id: string,
-    over: Record<string, unknown> = {},
-  ): Record<string, unknown> => ({
+  const factRow = (id: string, over: Record<string, unknown> = {}): Record<string, unknown> => ({
     id: rid(id),
     entityId: rid(ENTITY_ID),
     predicate: 'e2e_staleness',
@@ -67,13 +60,12 @@ describe('0089 fact_staleness event', () => {
 
   const staleOf = async (ids: string[]) =>
     inDb(async (db) => {
-      const [rows] = await db.query<[Array<{ id: unknown; staleAt: unknown; staleReason: unknown }>]>(
-        `SELECT id, staleAt, staleReason FROM knowledge_fact WHERE id IN $ids`,
-        { ids: ids.map(rid) },
-      );
-      return new Map(
-        ((rows as any[]) ?? []).map((r) => [String(r.id), r]),
-      );
+      const [rows] = await db.query<
+        [Array<{ id: unknown; staleAt: unknown; staleReason: unknown }>]
+      >(`SELECT id, staleAt, staleReason FROM knowledge_fact WHERE id IN $ids`, {
+        ids: ids.map(rid),
+      });
+      return new Map(((rows as any[]) ?? []).map((r) => [String(r.id), r]));
     });
 
   const tenantStaleCount = async (): Promise<number> =>
@@ -88,9 +80,7 @@ describe('0089 fact_staleness event', () => {
     f = await createApp();
     surreal = f.app.get(SurrealService);
     await inDb((db) =>
-      db.query(
-        `CREATE ${ENTITY_ID} SET type = 'other', canonicalName = 'staleness e2e'`,
-      ),
+      db.query(`CREATE ${ENTITY_ID} SET type = 'other', canonicalName = 'staleness e2e'`),
     );
   });
 
@@ -113,15 +103,15 @@ describe('0089 fact_staleness event', () => {
     const stagedB = Array.from({ length: 80 }, (_, i) => `knowledge_fact:storm_s${i}`);
     const stagedFull = Array.from({ length: 80 }, (_, i) => `knowledge_fact:storm_f${i}`);
     const stormIds = [...convA, ...revivable, ...convB, ...stagedB, ...stagedFull];
-    const canaryIds = stormIds.map((id) => id.replace('knowledge_fact:storm_', 'knowledge_fact:canary_'));
+    const canaryIds = stormIds.map((id) =>
+      id.replace('knowledge_fact:storm_', 'knowledge_fact:canary_'),
+    );
 
     await inDb(async (db) => {
       // Canaries first: live-world (derivedVersion NONE) children, one per
       // storm row.
       await db.query(`INSERT INTO knowledge_fact $rows`, {
-        rows: stormIds.map((id, i) =>
-          factRow(canaryIds[i]!, { derivedFrom: [rid(id)] }),
-        ),
+        rows: stormIds.map((id, i) => factRow(canaryIds[i]!, { derivedFrom: [rid(id)] })),
       });
       // The final world: convA rows, 20 of them superseded-by-convB (the
       // revive population), and convB rows the targeted flip will DELETE.
@@ -223,14 +213,17 @@ describe('0089 fact_staleness event', () => {
     const entity = { vertical: 'rent', id: 'staleness_evt_supersede' };
     const ts = new Date(Date.now() - 10 * 86_400_000).toISOString();
 
-    const first = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'trial',
-      validFrom: ts,
-      source: { vertical: 'rent', eventId: 'auth.decide' },
-      confidence: 0.9,
-    });
+    const first = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'trial',
+        validFrom: ts,
+        source: { vertical: 'rent', eventId: 'auth.decide' },
+        confidence: 0.9,
+      });
     expect(first.body.outcome).toBe('INSERTED');
     const parentId = first.body.factId as string;
 
@@ -249,14 +242,17 @@ describe('0089 fact_staleness event', () => {
     // Same-instant re-decide — the proven SUPERSEDED shape
     // (backdated-supersede.e2e-spec.ts): fn::resolve_fact flips the
     // incumbent active -> superseded inside its own transaction.
-    const second = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'premium',
-      validFrom: ts,
-      source: { vertical: 'rent', eventId: 'auth.redecide' },
-      confidence: 0.9,
-    });
+    const second = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'premium',
+        validFrom: ts,
+        source: { vertical: 'rent', eventId: 'auth.redecide' },
+        confidence: 0.9,
+      });
     expect(second.body.outcome).toBe('SUPERSEDED');
     expect(second.body.supersededFactIds).toContain(parentId);
 
@@ -276,14 +272,17 @@ describe('0089 fact_staleness event', () => {
   // ── 3. Retract: cascade shape and orphan shape ───────────────────────
   it('marks dependents during fn::cascade_retract and on a direct retract flip', async () => {
     const entity = { vertical: 'rent', id: 'staleness_evt_retract' };
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate: 'status',
-      object: 'active-customer',
-      validFrom: new Date().toISOString(),
-      source: { vertical: 'rent', eventId: 'auth.decide' },
-      confidence: 0.9,
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate: 'status',
+        object: 'active-customer',
+        validFrom: new Date().toISOString(),
+        source: { vertical: 'rent', eventId: 'auth.decide' },
+        confidence: 0.9,
+      });
     expect(ingest.body.outcome).toBe('INSERTED');
     const rootId = ingest.body.factId as string;
 
@@ -303,9 +302,7 @@ describe('0089 fact_staleness event', () => {
       .set(auth())
       .send({ reason: 'e2e retract', retractedBy: { source: 'human' } });
     expect(retract.status).toBe(201);
-    expect(retract.body.cascadedFactIds).toEqual(
-      expect.arrayContaining([s1, s2]),
-    );
+    expect(retract.body.cascadedFactIds).toEqual(expect.arrayContaining([s1, s2]));
 
     // Level ordering: cascade level 1 retracts s1 — that transition fires
     // the event, which marks s2 stale BEFORE level 2 retracts it. s1
@@ -324,10 +321,7 @@ describe('0089 fact_staleness event', () => {
     const orphanChild = 'knowledge_fact:ret_orphan_child';
     await inDb(async (db) => {
       await db.query(`INSERT INTO knowledge_fact $rows`, {
-        rows: [
-          factRow(orphan),
-          factRow(orphanChild, { derivedFrom: [rid(orphan)] }),
-        ],
+        rows: [factRow(orphan), factRow(orphanChild, { derivedFrom: [rid(orphan)] })],
       });
       await db.query(
         `UPDATE $id SET status = 'retracted', retractedAt = time::now(),
@@ -358,9 +352,7 @@ describe('0089 fact_staleness event', () => {
 
     // One transition. If the staleness stamp could re-fire the event this
     // would loop forever and the query would never return (jest timeout).
-    await inDb((db) =>
-      db.query(`UPDATE $id SET status = 'superseded'`, { id: rid(root) }),
-    );
+    await inDb((db) => db.query(`UPDATE $id SET status = 'superseded'`, { id: rid(root) }));
 
     const marked = await staleOf([root, l1, l2, l3]);
     expect(marked.get(root)!.staleAt ?? null).toBeNull();
@@ -382,8 +374,6 @@ describe('0089 fact_staleness event', () => {
     });
     expect(await tenantStaleCount()).toBe(countBefore);
     const after = await staleOf([l1, l2, l3]);
-    expect([l1, l2, l3].map((id) => String(after.get(id)!.staleAt))).toEqual(
-      stamps,
-    );
+    expect([l1, l2, l3].map((id) => String(after.get(id)!.staleAt))).toEqual(stamps);
   });
 });

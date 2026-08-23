@@ -62,10 +62,7 @@ export class ExtractionPatternService {
     private readonly surreal: SurrealService,
     private readonly config: ConfigService,
   ) {
-    const cap = parseInt(
-      this.config.get<string>('EXTRACTION_PATTERN_CACHE_CAP', '200'),
-      10,
-    );
+    const cap = parseInt(this.config.get<string>('EXTRACTION_PATTERN_CACHE_CAP', '200'), 10);
     this.snapshotCache = new LRUCache(cap);
   }
 
@@ -74,9 +71,7 @@ export class ExtractionPatternService {
     return clauseText.trim().normalize('NFC').toLowerCase();
   }
 
-  async getSnapshot(
-    companyId: string,
-  ): Promise<Map<string, ExtractionPatternEntry>> {
+  async getSnapshot(companyId: string): Promise<Map<string, ExtractionPatternEntry>> {
     const cached = this.snapshotCache.get(companyId);
     if (cached && Date.now() - cached.loadedAt < SNAPSHOT_TTL_MS) {
       return cached.entries;
@@ -89,10 +84,7 @@ export class ExtractionPatternService {
     return fresh;
   }
 
-  async lookup(
-    companyId: string,
-    clauseText: string,
-  ): Promise<ExtractionPatternEntry | undefined> {
+  async lookup(companyId: string, clauseText: string): Promise<ExtractionPatternEntry | undefined> {
     const snap = await this.getSnapshot(companyId);
     return snap.get(this.normalise(clauseText));
   }
@@ -103,10 +95,7 @@ export class ExtractionPatternService {
    * Failure does NOT block the caller — the cache stays cold for
    * that clause and the next extraction triggers another LLM pass.
    */
-  async record(
-    companyId: string,
-    entries: ExtractionPatternEntry[],
-  ): Promise<void> {
+  async record(companyId: string, entries: ExtractionPatternEntry[]): Promise<void> {
     if (entries.length === 0) return;
     await this.surreal.withCompany(companyId, async (db) => {
       for (const e of entries) {
@@ -143,9 +132,7 @@ export class ExtractionPatternService {
     this.snapshotCache.delete(companyId);
   }
 
-  private async loadFresh(
-    companyId: string,
-  ): Promise<Map<string, ExtractionPatternEntry>> {
+  private async loadFresh(companyId: string): Promise<Map<string, ExtractionPatternEntry>> {
     return this.surreal.withCompany(companyId, async (db) => {
       try {
         const [rows] = await db.query<

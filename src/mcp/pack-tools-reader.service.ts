@@ -38,10 +38,9 @@ const CACHE_CAP = 200;
 @Injectable()
 export class PackToolsReaderService {
   private readonly logger = new Logger(PackToolsReaderService.name);
-  private readonly cache = new LRUCache<
-    string,
-    { bindings: PackToolBinding[]; loadedAt: number }
-  >(CACHE_CAP);
+  private readonly cache = new LRUCache<string, { bindings: PackToolBinding[]; loadedAt: number }>(
+    CACHE_CAP,
+  );
   private readonly inFlight = new Map<string, Promise<PackToolBinding[]>>();
 
   constructor(private readonly surreal: SurrealService) {}
@@ -100,11 +99,7 @@ export class PackToolsReaderService {
    */
   private toBinding(row: Record<string, unknown>): PackToolBinding | null {
     const manifest = row.manifest as DomainPackManifest | undefined;
-    if (
-      !manifest ||
-      !Array.isArray(manifest.mcpTools) ||
-      manifest.mcpTools.length === 0
-    ) {
+    if (!manifest || !Array.isArray(manifest.mcpTools) || manifest.mcpTools.length === 0) {
       return null;
     }
     if (

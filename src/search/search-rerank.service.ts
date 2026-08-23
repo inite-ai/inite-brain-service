@@ -107,10 +107,7 @@ export class SearchRerankService {
     /** Prefetched by prefetchNeighbours(); missing entries → no graph line. */
     neighboursByEntity?: Map<string, Neighbour[]>;
   }): Promise<EntityBucket[]> {
-    const { wideCandidates, rerankWindow: RERANK_WINDOW } = this.wideCandidates(
-      byEntity,
-      ctx,
-    );
+    const { wideCandidates, rerankWindow: RERANK_WINDOW } = this.wideCandidates(byEntity, ctx);
 
     let candidatesForRerank = wideCandidates.slice(0, RERANK_WINDOW);
 
@@ -230,10 +227,7 @@ export class SearchRerankService {
    * sort key (band desc, reranker position asc). Deterministic and
    * transitive (unlike a pairwise margin comparator). Band 0 → no-op.
    */
-  private applyScoreBandOrder(
-    buckets: EntityBucket[],
-    band: number,
-  ): EntityBucket[] {
+  private applyScoreBandOrder(buckets: EntityBucket[], band: number): EntityBucket[] {
     if (!(band > 0) || buckets.length <= 1) return buckets;
     const pos = new Map(buckets.map((b, i) => [b.entityId, i] as const));
     return [...buckets].sort((a, b) => {

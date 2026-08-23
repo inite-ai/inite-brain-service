@@ -24,13 +24,16 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
   });
 
   it('ingest persists lang=ru / script=Cyrl on Cyrillic objects', async () => {
-    const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'lang_persist_ru' },
-      predicate: 'status',
-      object: 'Технический директор',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    const r = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'lang_persist_ru' },
+        predicate: 'status',
+        object: 'Технический директор',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
     expect(r.body.outcome).toBe('INSERTED');
     const factId = r.body.factId as string;
 
@@ -48,13 +51,16 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
   });
 
   it('ingest persists lang=en / script=Latn on English objects', async () => {
-    const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'lang_persist_en' },
-      predicate: 'status',
-      object: 'Chief technology officer in charge of engineering',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    const r = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'lang_persist_en' },
+        predicate: 'status',
+        object: 'Chief technology officer in charge of engineering',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
     expect(r.body.outcome).toBe('INSERTED');
     const factId = r.body.factId as string;
 
@@ -72,43 +78,38 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
 
   it('reindex endpoint mutates the embedding column', async () => {
     // Ingest a fact to ensure something exists for reindex to touch.
-    const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'reindex_persist_tenant' },
-      predicate: 'status',
-      object: 'reindex-verify-text',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    const r = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'reindex_persist_tenant' },
+        predicate: 'status',
+        object: 'reindex-verify-text',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
     const factId = r.body.factId as string;
     const surreal = f.app.get(SurrealService);
-    const beforeEmbedding = await surreal.withCompany(
-      f.companyId,
-      async (db) => {
-        const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
-          `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
-          { tail: factId.replace(/^knowledge_fact:/, '') },
-        );
-        return Array.isArray(rows) ? rows[0]?.embedding ?? null : null;
-      },
-    );
+    const beforeEmbedding = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
+        `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
+        { tail: factId.replace(/^knowledge_fact:/, '') },
+      );
+      return Array.isArray(rows) ? (rows[0]?.embedding ?? null) : null;
+    });
     expect(Array.isArray(beforeEmbedding)).toBe(true);
 
-    const reindex = await f.http
-      .post('/v1/admin/reindex/embeddings')
-      .set(auth());
+    const reindex = await f.http.post('/v1/admin/reindex/embeddings').set(auth());
     expect(reindex.status).toBe(201);
     expect(reindex.body.factsUpdated).toBeGreaterThanOrEqual(1);
 
-    const afterEmbedding = await surreal.withCompany(
-      f.companyId,
-      async (db) => {
-        const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
-          `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
-          { tail: factId.replace(/^knowledge_fact:/, '') },
-        );
-        return Array.isArray(rows) ? rows[0]?.embedding ?? null : null;
-      },
-    );
+    const afterEmbedding = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ embedding: number[] }>]>(
+        `SELECT embedding FROM type::record('knowledge_fact', $tail)`,
+        { tail: factId.replace(/^knowledge_fact:/, '') },
+      );
+      return Array.isArray(rows) ? (rows[0]?.embedding ?? null) : null;
+    });
     expect(Array.isArray(afterEmbedding)).toBe(true);
     expect(afterEmbedding!.length).toBe(beforeEmbedding!.length);
     // The StubEmbedder is deterministic — embedding for the same text

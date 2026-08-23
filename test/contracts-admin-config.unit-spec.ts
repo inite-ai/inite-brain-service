@@ -36,9 +36,7 @@ describe('AdminOpsController.configList() — wire contract', () => {
   it('matches ConfigResponseSchema', () => {
     const parsed = ConfigResponseSchema.safeParse(makeController().configList());
     if (!parsed.success) {
-      throw new Error(
-        `config drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`config drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

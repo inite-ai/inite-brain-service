@@ -50,7 +50,7 @@ if (!parentPort) {
   // We were imported (not spawned via new Worker) — exit silently so
   // ts-jest's typecheck doesn't run worker code in the main test
   // process. Real worker entry always has parentPort.
-   
+
   process.exit(0);
 }
 

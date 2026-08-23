@@ -7,9 +7,7 @@ import type { ExtractionResult } from '../../../src/eval/types';
  */
 export function extractionRecall(results: ExtractionResult[]): number | null {
   if (results.length === 0) return null;
-  return (
-    results.reduce((acc, r) => acc + r.predicateRecall, 0) / results.length
-  );
+  return results.reduce((acc, r) => acc + r.predicateRecall, 0) / results.length;
 }
 
 /**

@@ -8,10 +8,7 @@ import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService } from '../jobs/worker-loop.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { changefeedRow } from '../db/changefeed-row';
-import type {
-  SummaryGenerator,
-  FactToSummarize,
-} from './summary-generator';
+import type { SummaryGenerator, FactToSummarize } from './summary-generator';
 
 /** Changefeed cursor key — distinct from the audit drain's per-table keys. */
 const CURSOR = 'recompose:knowledge_fact';
@@ -117,11 +114,10 @@ export class RecomposeService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.workerLoop?.register(
-      'recompose',
-      (ctx) => this.runForTenant(ctx.companyId),
-      { ttlSeconds: 900, maxAttempts: 2 },
-    );
+    this.workerLoop?.register('recompose', (ctx) => this.runForTenant(ctx.companyId), {
+      ttlSeconds: 900,
+      maxAttempts: 2,
+    });
   }
 
   /** 03:05 UTC — after consolidation (02:40), before compaction (03:17), so a
@@ -141,9 +137,7 @@ export class RecomposeService implements OnModuleInit {
         });
         if (created) enqueued++;
       } catch (e) {
-        this.logger.warn(
-          `enqueue recompose for ${companyId} failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`enqueue recompose for ${companyId} failed: ${(e as Error).message}`);
       }
     }
     return { enqueued };
@@ -214,9 +208,7 @@ export class RecomposeService implements OnModuleInit {
    * nothing left to say and is retracted itself — the only case where deletion
    * is the right answer.
    */
-  async recompute(
-    companyId: string,
-  ): Promise<{ recomputed: number; retracted: number }> {
+  async recompute(companyId: string): Promise<{ recomputed: number; retracted: number }> {
     return this.surreal.withCompany(companyId, async (db) => {
       const rows = await queryRows<StaleSummaryRow>(
         db,
@@ -247,10 +239,7 @@ export class RecomposeService implements OnModuleInit {
    * at status='compacted' is NORMAL — that is what compaction does to its
    * sources — so it counts as surviving.
    */
-  private async currentParents(
-    db: Surreal,
-    recorded: unknown[],
-  ): Promise<FactToSummarize[]> {
+  private async currentParents(db: Surreal, recorded: unknown[]): Promise<FactToSummarize[]> {
     if (recorded.length === 0) return [];
     const rows = await queryRows<FactRow>(
       db,
@@ -277,10 +266,7 @@ export class RecomposeService implements OnModuleInit {
   }
 
   /** Walk supersededBy to the current row. Bounded at 8 hops. */
-  private async followSupersedes(
-    db: Surreal,
-    row: FactRow,
-  ): Promise<FactRow | null> {
+  private async followSupersedes(db: Surreal, row: FactRow): Promise<FactRow | null> {
     let current: FactRow = row;
     for (let hop = 0; hop < 8 && current.supersededBy; hop++) {
       const next = await queryRows<FactRow>(
@@ -308,8 +294,7 @@ export class RecomposeService implements OnModuleInit {
     const first = parents[0];
     const last = parents[parents.length - 1];
     if (!first || !last) return false; // no parents to recompose from
-    const meanConfidence =
-      parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
+    const meanConfidence = parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
     await db.query(
       `UPDATE $id SET
          object = $object, confidence = $confidence,

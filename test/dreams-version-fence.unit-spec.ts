@@ -93,9 +93,7 @@ describe('dreams legs stay inside the tenant live world (W2)', () => {
       config({ DREAMS_CORROBORATE_ENABLED: '1', OPENAI_API_KEY: 'sk' }),
     );
     await svc.run(db, 'wd-v3');
-    const groups = queries.find((q) =>
-      q.sql.includes('GROUP BY entityId, canonPredicate'),
-    );
+    const groups = queries.find((q) => q.sql.includes('GROUP BY entityId, canonPredicate'));
     expect(groups?.sql).toContain('AND derivedVersion = $derivedVersion');
     expect(groups?.params?.derivedVersion).toBe('wd-v3');
   });

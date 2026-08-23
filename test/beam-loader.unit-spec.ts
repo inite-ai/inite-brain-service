@@ -9,11 +9,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {
-  loadBeam,
-  beamQuestionDateIso,
-  BeamConversation,
-} from '../test/eval/beam/loader';
+import { loadBeam, beamQuestionDateIso, BeamConversation } from '../test/eval/beam/loader';
 import { loadCheckpoint, appendCheckpoint } from '../test/eval/checkpoint';
 
 const conv: BeamConversation = {
@@ -79,18 +75,12 @@ describe('eval checkpoint', () => {
   });
 
   it('round-trips appended rows keyed by id', async () => {
-    const file = path.join(
-      await fs.mkdtemp(path.join(os.tmpdir(), 'ckpt-')),
-      'run.jsonl',
-    );
+    const file = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'ckpt-')), 'run.jsonl');
     await appendCheckpoint(file, { id: 'q1', judgeCorrect: true });
     await appendCheckpoint(file, { id: 'q2', judgeCorrect: false });
     // Later rows for the same key win — a rerun's fresh score replaces stale.
     await appendCheckpoint(file, { id: 'q2', judgeCorrect: true });
-    const done = await loadCheckpoint<{ id: string; judgeCorrect: boolean }>(
-      file,
-      (r) => r.id,
-    );
+    const done = await loadCheckpoint<{ id: string; judgeCorrect: boolean }>(file, (r) => r.id);
     expect(done.size).toBe(2);
     expect(done.get('q2')?.judgeCorrect).toBe(true);
   });

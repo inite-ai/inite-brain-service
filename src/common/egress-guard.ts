@@ -25,14 +25,10 @@ export async function assertPublicHttpUrl(
     throw new EgressDeniedError(`"${rawUrl}" is not a valid URL`);
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new EgressDeniedError(
-      `endpoint "${rawUrl}" must use http(s), got ${url.protocol}`,
-    );
+    throw new EgressDeniedError(`endpoint "${rawUrl}" must use http(s), got ${url.protocol}`);
   }
   if (url.username || url.password) {
-    throw new EgressDeniedError(
-      `endpoint must not embed credentials in the URL`,
-    );
+    throw new EgressDeniedError(`endpoint must not embed credentials in the URL`);
   }
   if (opts.allowHttp) {
     // Dev/test escape hatch (MCP_PACK_TOOLS_ALLOW_HTTP): permits plain
@@ -52,8 +48,7 @@ export async function assertPublicHttpUrl(
     throw new EgressDeniedError(`cannot resolve endpoint host "${host}"`);
   }
   for (const { address, family } of addrs) {
-    const blocked =
-      family === 6 ? isBlockedIPv6(address) : isBlockedIPv4(address);
+    const blocked = family === 6 ? isBlockedIPv6(address) : isBlockedIPv4(address);
     if (blocked) {
       throw new EgressDeniedError(
         `endpoint host "${host}" resolves to a non-public address (${address})`,
@@ -65,10 +60,7 @@ export async function assertPublicHttpUrl(
 /** 0/8 (unspecified), 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16. */
 function isBlockedIPv4(ip: string): boolean {
   const parts = ip.split('.').map(Number);
-  if (
-    parts.length !== 4 ||
-    parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)
-  ) {
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
     return true; // unparseable → fail closed
   }
   const [a, b] = parts;

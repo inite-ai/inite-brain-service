@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  MultiHopPlan,
-  MultiHopPlannerService,
-} from './multi-hop-planner.service';
+import { MultiHopPlan, MultiHopPlannerService } from './multi-hop-planner.service';
 import { MultiHopChainService } from './multi-hop-chain.service';
 import { withSpan } from '../common/tracing';
 import { NOOP_REPORTER } from '../mcp/progress-reporter';

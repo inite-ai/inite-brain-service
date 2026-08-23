@@ -2,12 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 
-export type ProjectionStatus =
-  | 'building'
-  | 'built'
-  | 'live'
-  | 'residual'
-  | 'failed';
+export type ProjectionStatus = 'building' | 'built' | 'live' | 'residual' | 'failed';
 
 export interface ProjectionRow {
   id: string;
@@ -89,11 +84,7 @@ export class ProjectionRegistryService {
   }
 
   /** Builder aborted; the world may be partial (a rebuild overwrites). */
-  async fail(opts: {
-    companyId: string;
-    name: string;
-    version: string;
-  }): Promise<void> {
+  async fail(opts: { companyId: string; name: string; version: string }): Promise<void> {
     await this.safely('fail', opts.companyId, async (db) => {
       await db.query(
         `UPDATE projection:[$name, $version]
@@ -104,17 +95,13 @@ export class ProjectionRegistryService {
   }
 
   /** Reaped worlds lose their rows — a row promises a queryable world. */
-  async dropVersions(opts: {
-    companyId: string;
-    name: string;
-    versions: string[];
-  }): Promise<void> {
+  async dropVersions(opts: { companyId: string; name: string; versions: string[] }): Promise<void> {
     if (opts.versions.length === 0) return;
     await this.safely('dropVersions', opts.companyId, async (db) => {
-      await db.query(
-        `DELETE projection WHERE name = $name AND version INSIDE $versions`,
-        { name: opts.name, versions: opts.versions },
-      );
+      await db.query(`DELETE projection WHERE name = $name AND version INSIDE $versions`, {
+        name: opts.name,
+        versions: opts.versions,
+      });
     });
   }
 

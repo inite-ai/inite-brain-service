@@ -97,13 +97,7 @@ export function planIngest(conv: NormalizedConversation): IngestPlan {
   const mentions: IngestPlan['mentions'] = [];
   for (const session of conv.sessions) {
     for (const turn of session.turns) {
-      const speakerEntityId = speakerEntityFor(
-        turn,
-        speakerAId,
-        speakerBId,
-        prefix,
-        conv,
-      );
+      const speakerEntityId = speakerEntityFor(turn, speakerAId, speakerBId, prefix, conv);
       // Addressee = the other main speaker (2-party dialogue). Drives
       // second-person "you" coreference. Omitted for stranger turns where
       // the addressee is ambiguous.
@@ -119,9 +113,7 @@ export function planIngest(conv: NormalizedConversation): IngestPlan {
       // (locomo-fullcontext-baseline.ts) — omitting them here blinded the
       // memory side to ~21% of turns and skewed every FC comparison.
       // Same rendering as the baseline, for protocol symmetry.
-      const caption = turn.blip_caption
-        ? ` [shares an image: ${turn.blip_caption}]`
-        : '';
+      const caption = turn.blip_caption ? ` [shares an image: ${turn.blip_caption}]` : '';
       mentions.push({
         speakerEntityId,
         speakerName: turn.speaker,
@@ -187,8 +179,7 @@ export async function executeIngest(
   options: ExecuteIngestOptions | string = {},
 ): Promise<IngestOutcome> {
   // Back-compat: the 3rd arg used to be a bare companyId string.
-  const opts: ExecuteIngestOptions =
-    typeof options === 'string' ? { companyId: options } : options;
+  const opts: ExecuteIngestOptions = typeof options === 'string' ? { companyId: options } : options;
   const companyId = opts.companyId;
   const retries = Math.max(1, opts.retries ?? 4);
   const backoffMs = Math.max(0, opts.backoffMs ?? 3000);

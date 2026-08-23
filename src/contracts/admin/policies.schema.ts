@@ -14,20 +14,8 @@ import { z } from 'zod';
 
 export const PolicyMatchConditionSchema = z.object({
   attr: z.string(),
-  op: z.enum([
-    'eq',
-    'in',
-    'prefix',
-    'gte',
-    'gt',
-    'lte',
-    'lt',
-    'exists',
-    'not_exists',
-  ]),
-  value: z
-    .union([z.string(), z.number(), z.boolean(), z.array(z.string())])
-    .optional(),
+  op: z.enum(['eq', 'in', 'prefix', 'gte', 'gt', 'lte', 'lt', 'exists', 'not_exists']),
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
 });
 
 export const PolicyRuleWireSchema = z.object({

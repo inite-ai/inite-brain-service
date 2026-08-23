@@ -6,10 +6,7 @@ import { ASK_INTENT_VOCAB } from './types';
  * authoring weeds. The grounding rules live here so a prompt change
  * doesn't require touching the orchestrator.
  */
-export function buildSystemPrompt(
-  predicateVocab: string[],
-  knownNames: string[],
-): string {
+export function buildSystemPrompt(predicateVocab: string[], knownNames: string[]): string {
   return `You route a free-form chat message to a knowledge-graph backend.
 
 THE GROUNDING RULE (most important):
@@ -110,9 +107,7 @@ export function buildSchema(predicateVocab: string[]): Record<string, unknown> {
     required: ['text', 'start', 'end'],
   };
   const predicateField =
-    predicateVocab.length > 0
-      ? { type: 'string', enum: predicateVocab }
-      : { type: 'string' };
+    predicateVocab.length > 0 ? { type: 'string', enum: predicateVocab } : { type: 'string' };
   return {
     type: 'object',
     additionalProperties: false,
@@ -190,14 +185,6 @@ export function buildSchema(predicateVocab: string[]): Record<string, unknown> {
       },
       reason: { type: ['string', 'null'] },
     },
-    required: [
-      'intent',
-      'mentions',
-      'predicateHints',
-      'edits',
-      'asOf',
-      'validFrom',
-      'reason',
-    ],
+    required: ['intent', 'mentions', 'predicateHints', 'edits', 'asOf', 'validFrom', 'reason'],
   };
 }

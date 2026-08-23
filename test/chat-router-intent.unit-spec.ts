@@ -3,10 +3,7 @@
  * deterministic decision functions that gate the LLM call.
  * Punctuation-only intent classifier; conservative all-pass skip gate.
  */
-import {
-  classifyIntentLocally,
-  shouldSkipLLM,
-} from '../src/admin/chat-router.service';
+import { classifyIntentLocally, shouldSkipLLM } from '../src/admin/chat-router.service';
 
 describe('classifyIntentLocally', () => {
   it('empty / whitespace → tell, 0 (never skip)', () => {
@@ -53,9 +50,7 @@ describe('classifyIntentLocally', () => {
 
   it('language-agnostic — only the universal `?` matters', () => {
     expect(classifyIntentLocally('где живёт Мария?').confidence).toBe(0.95);
-    expect(classifyIntentLocally('Мария переехала в Берлин').confidence).toBe(
-      0.7,
-    );
+    expect(classifyIntentLocally('Мария переехала в Берлин').confidence).toBe(0.7);
   });
 
   it('trailing whitespace after `?` still counts as `?`', () => {

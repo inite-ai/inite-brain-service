@@ -3,10 +3,7 @@
  * split per owning pack by predicate namespace (packId__localId), core
  * predicates → 'core'.
  */
-import {
-  attributeFactsByIndexer,
-  indexerIdOfPredicate,
-} from '../src/indexers/virtual-attributor';
+import { attributeFactsByIndexer, indexerIdOfPredicate } from '../src/indexers/virtual-attributor';
 import type { ExtractedFact } from '../src/ai/extractor-internals/types';
 
 const fact = (predicate: string, entityIndex = 0): ExtractedFact => ({
@@ -47,10 +44,7 @@ describe('attributeFactsByIndexer', () => {
     ];
     const grouped = attributeFactsByIndexer(facts);
     expect([...grouped.keys()].sort()).toEqual(['core', 'fintech', 'real_estate']);
-    expect(grouped.get('core')!.map((f) => f.predicate)).toEqual([
-      'works_at',
-      'lives_in',
-    ]);
+    expect(grouped.get('core')!.map((f) => f.predicate)).toEqual(['works_at', 'lives_in']);
     expect(grouped.get('real_estate')!.map((f) => f.predicate)).toEqual([
       'real_estate__zoned_as',
       'real_estate__valued_at',

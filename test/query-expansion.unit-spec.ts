@@ -52,9 +52,7 @@ describe('buildEntityExpansionQuery', () => {
 
   it('names already present in the query are not anchors', () => {
     expect(
-      buildEntityExpansionQuery('what does Caroline like?', [
-        row('Caroline', 0.9),
-      ]),
+      buildEntityExpansionQuery('what does Caroline like?', [row('Caroline', 0.9)]),
     ).toBeNull();
   });
 

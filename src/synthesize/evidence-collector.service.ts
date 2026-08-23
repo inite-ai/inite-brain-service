@@ -4,10 +4,7 @@ import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
 import type { SearchDto } from '../search/dto/search.dto';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
-import {
-  INSTRUCTION_PROBE_QUERY,
-  extractStandingInstructions,
-} from './answer-router';
+import { INSTRUCTION_PROBE_QUERY, extractStandingInstructions } from './answer-router';
 import { buildSecondaryDto } from './synthesize.helpers';
 import {
   wantsInsightEvidence,
@@ -15,10 +12,7 @@ import {
   wantsVerbatimEvidence,
 } from './evidence-gates';
 import { CrossEncoderService } from '../ai/cross-encoder.service';
-import {
-  StrategyMemoryService,
-  renderStrategyNote,
-} from '../strategy/strategy-memory.service';
+import { StrategyMemoryService, renderStrategyNote } from '../strategy/strategy-memory.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
@@ -178,9 +172,7 @@ export class EvidenceCollectorService {
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
     // (evidence parity by construction, the W5 #22 lesson).
-    const insightSlot = digestLines.length
-      ? [...digestLines, ...insightLines]
-      : insightLines;
+    const insightSlot = digestLines.length ? [...digestLines, ...insightLines] : insightLines;
     // V13 noise filter (the unported LIGHT component): injected
     // context sections are relevance-gated by the local cross-encoder;
     // fact lines are NEVER filtered. The mention record is exempt —
@@ -188,9 +180,7 @@ export class EvidenceCollectorService {
     const [filteredTranscript, filteredInsights] =
       profile.noiseFilter && this.crossEncoder?.isEnabled()
         ? await Promise.all([
-            timelineEvidence
-              ? transcriptLines
-              : this.noiseFilterLines(query, transcriptLines),
+            timelineEvidence ? transcriptLines : this.noiseFilterLines(query, transcriptLines),
             this.noiseFilterLines(query, insightSlot),
           ])
         : [transcriptLines, insightSlot];
@@ -234,9 +224,7 @@ export class EvidenceCollectorService {
       if (items.length === 0) return undefined;
       return items.map(renderStrategyNote);
     } catch (e) {
-      this.logger.warn(
-        `strategy notes failed (companyId=${companyId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`strategy notes failed (companyId=${companyId}): ${(e as Error).message}`);
       return undefined;
     }
   }
@@ -278,10 +266,7 @@ export class EvidenceCollectorService {
    * untouched, and an exact-identity permutation reads as "no ranking
    * signal" (the provider's failure fallback) — everything survives.
    */
-  private async noiseFilterLines(
-    query: string,
-    lines: string[],
-  ): Promise<string[]> {
+  private async noiseFilterLines(query: string, lines: string[]): Promise<string[]> {
     if (lines.length <= NOISE_FILTER_MIN_LINES || !this.crossEncoder) {
       return lines;
     }
@@ -387,10 +372,7 @@ export class EvidenceCollectorService {
     // served by the mention-scan lane (coverage-first, one line per
     // session) INSTEAD of the top-K segment appendix — the appendix
     // still runs for the 'always' verbatim profile and for 'routed'.
-    const scanActive =
-      timelineActive &&
-      profile.timelineEvidence === 'scan' &&
-      !!this.mentionScan;
+    const scanActive = timelineActive && profile.timelineEvidence === 'scan' && !!this.mentionScan;
     // The lanes are independent reads — run them concurrently
     // (audit W4 carried: they used to be sequential awaits).
     // Segments compete for the prompt on their own retrieval merit —
@@ -406,89 +388,86 @@ export class EvidenceCollectorService {
       windowLines = [],
       assistantLines = [],
     ] = await Promise.all([
-        active
-          ? this.episodeLane
-              ?.transcriptLines({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                limit: profile.quotesPerPrompt,
-              })
-              .then((v) => v ?? [])
-          : [],
-        active
-          ? this.episodeLane
-              ?.sourceExcerpts({
-                companyId,
-                factIds,
-                callerScopes,
-                userId,
-                cap: profile.sourceExcerptsCap,
-              })
-              .then((v) => v ?? [])
-          : [],
-        profile.verbatimEvidence === 'always' || (timelineActive && !scanActive)
-          ? this.segmentLane
-              ?.transcriptLines({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                topK: profile.segmentTopK,
-                rerank: profile.segmentRerank,
-              })
-              .then((v) => v ?? [])
-          : [],
-        scanActive
-          ? this.mentionScan
-              ?.mentionLines({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                // V10 §3: the ordering frame asks for distinct aspect
-                // items, so repeats collapse at the record level too.
-                dedupeAspects: profile.orderingFrame,
-                scan: scanTuning(profile),
-                lex: profile.coverageLexMode,
-              })
-              .then((v) => v ?? [])
-          : [],
-        // V13 raw-window lane: gated on its OWN flag, not the verbatim
-        // mode — the hybrid-substrate leg must be measurable on the
-        // default shape-conditioned profile.
-        profile.rawWindow
-          ? this.episodeLane
-              ?.rawWindows({
-                companyId,
-                factIds,
-                callerScopes,
-                userId,
-                anchors: RAW_WINDOW_MAX_ANCHORS,
-                span: profile.rawWindowSpan,
-              })
-              .then((v) => v ?? [])
-          : [],
-        // Multiworld §10 assistant lane: role-filtered verbatim over
-        // L0 — same own-flag gating as raw-window, measurable on the
-        // default profile.
-        profile.assistantLane
-          ? this.episodeLane
-              ?.assistantTurns({
-                companyId,
-                query,
-                callerScopes,
-                userId,
-                limit: Math.min(
-                  profile.assistantLaneTopK,
-                  ASSISTANT_LANE_MAX_TOPK,
-                ),
-                match: profile.assistantLaneMatch,
-              })
-              .then((v) => v ?? [])
-          : [],
-      ]).then((lanes) => lanes.map((l) => l ?? []));
+      active
+        ? this.episodeLane
+            ?.transcriptLines({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              limit: profile.quotesPerPrompt,
+            })
+            .then((v) => v ?? [])
+        : [],
+      active
+        ? this.episodeLane
+            ?.sourceExcerpts({
+              companyId,
+              factIds,
+              callerScopes,
+              userId,
+              cap: profile.sourceExcerptsCap,
+            })
+            .then((v) => v ?? [])
+        : [],
+      profile.verbatimEvidence === 'always' || (timelineActive && !scanActive)
+        ? this.segmentLane
+            ?.transcriptLines({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              topK: profile.segmentTopK,
+              rerank: profile.segmentRerank,
+            })
+            .then((v) => v ?? [])
+        : [],
+      scanActive
+        ? this.mentionScan
+            ?.mentionLines({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              // V10 §3: the ordering frame asks for distinct aspect
+              // items, so repeats collapse at the record level too.
+              dedupeAspects: profile.orderingFrame,
+              scan: scanTuning(profile),
+              lex: profile.coverageLexMode,
+            })
+            .then((v) => v ?? [])
+        : [],
+      // V13 raw-window lane: gated on its OWN flag, not the verbatim
+      // mode — the hybrid-substrate leg must be measurable on the
+      // default shape-conditioned profile.
+      profile.rawWindow
+        ? this.episodeLane
+            ?.rawWindows({
+              companyId,
+              factIds,
+              callerScopes,
+              userId,
+              anchors: RAW_WINDOW_MAX_ANCHORS,
+              span: profile.rawWindowSpan,
+            })
+            .then((v) => v ?? [])
+        : [],
+      // Multiworld §10 assistant lane: role-filtered verbatim over
+      // L0 — same own-flag gating as raw-window, measurable on the
+      // default profile.
+      profile.assistantLane
+        ? this.episodeLane
+            ?.assistantTurns({
+              companyId,
+              query,
+              callerScopes,
+              userId,
+              limit: Math.min(profile.assistantLaneTopK, ASSISTANT_LANE_MAX_TOPK),
+              match: profile.assistantLaneMatch,
+            })
+            .then((v) => v ?? [])
+        : [],
+    ]).then((lanes) => lanes.map((l) => l ?? []));
     return [
       ...new Set([
         ...scanLines,

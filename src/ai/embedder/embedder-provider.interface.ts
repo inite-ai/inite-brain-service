@@ -40,9 +40,7 @@ export interface EmbedderProvider {
    * observability wrapper populate `gen_ai.usage.*` for embeddings —
    * which `embed()` alone can't, since a bare vector carries no usage.
    */
-  embedWithUsage?(
-    text: string,
-  ): Promise<{ vector: number[]; usage?: { total_tokens?: number } }>;
+  embedWithUsage?(text: string): Promise<{ vector: number[]; usage?: { total_tokens?: number } }>;
 
   /**
    * Optional batched API. Providers that support it return one vector

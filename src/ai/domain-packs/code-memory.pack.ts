@@ -88,14 +88,10 @@ export function codeMemoryPredicateId(kind: CodeMemoryKind): string {
 }
 
 /** The set of namespaced code-memory predicate ids (for filtering reads). */
-export const CODE_MEMORY_PREDICATE_IDS: string[] = CODE_MEMORY_KINDS.map(
-  codeMemoryPredicateId,
-);
+export const CODE_MEMORY_PREDICATE_IDS: string[] = CODE_MEMORY_KINDS.map(codeMemoryPredicateId);
 
 /** Strip the pack prefix from a namespaced id → the local kind (for display). */
 export function codeMemoryKindOf(predicateId: string): string {
   const prefix = `${CODE_MEMORY_PACK.id}__`;
-  return predicateId.startsWith(prefix)
-    ? predicateId.slice(prefix.length)
-    : predicateId;
+  return predicateId.startsWith(prefix) ? predicateId.slice(prefix.length) : predicateId;
 }
