@@ -11,6 +11,7 @@ import type { FeedbackService } from '../feedback/feedback.service';
 import { DOC_TEXT_HARD_CAP } from '../documents/dto/ingest-document.dto';
 import { docMaxChars } from '../documents/documents-gate';
 import type { BrainScope } from '../auth/api-key.types';
+import type { MetricsService } from '../metrics/metrics.service';
 
 export interface WriteToolDeps {
   ingest: IngestService;
@@ -18,6 +19,8 @@ export interface WriteToolDeps {
   procedural: ProceduralMemoryService;
   documents?: DocumentIngestService;
   feedback?: FeedbackService;
+  /** G9 write-anomaly counter — record_fact fires the `mcp` origin path. */
+  metrics?: MetricsService;
 }
 
 export interface AdminToolDeps {
@@ -84,6 +87,10 @@ export function registerWriteTools({
       },
     },
     async (args) => {
+      // G9 write-anomaly signal: the `mcp` origin overlay (the direct-
+      // write abuse surface). The underlying ingestFact also fires the
+      // `fact` path — query per-path, don't sum labels.
+      deps.metrics?.countIngestWrite('mcp');
       const out = await deps.ingest.ingestFact(companyId, {
         entityRef: args.entityRef as any,
         predicate: args.predicate,

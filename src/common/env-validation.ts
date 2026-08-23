@@ -657,6 +657,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
   'INGEST_BATCH_FACTS',
+  // G9 (docs/roadmap/sota-gap-build-2026-08.md): NFC-normalize + strip
+  // bidi/zero-width/control chars from ingest text (mention/fact/
+  // document/candidate) before storage. Default off = byte-identical.
+  'INGEST_SANITIZE_UNICODE',
   // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
   // per-tenant connection outside both pools holds a LIVE SELECT, with the
   // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate

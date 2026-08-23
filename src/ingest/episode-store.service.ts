@@ -4,6 +4,7 @@ import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
+import { sanitizeIngestText } from '../common/text-sanitizer';
 import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
 
 /**
@@ -36,12 +37,21 @@ export class EpisodeStoreService {
   async captureTurn(companyId: string, dto: IngestMentionDto): Promise<boolean> {
     if (!this.isEnabled()) return false;
     try {
-      const { text, classes } = redactPiiWithReport(dto.text);
+      // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+      // NFC-normalize + strip bidi/zero-width/control chars BEFORE
+      // redaction and language detection, so the stored turn text, the
+      // PII spans computed over it, and the detected language all see the
+      // same de-obfuscated text. Flag off → dto.text is used verbatim
+      // (byte-identical capture). Layout (\n \t) is preserved.
+      const rawText = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)
+        ? sanitizeIngestText(dto.text)
+        : dto.text;
+      const { text, classes } = redactPiiWithReport(rawText);
       const participant = (role: string): KnownEntity | undefined =>
         dto.knownEntities?.find((k) => k.role === role);
       const nameOf = (k?: KnownEntity): string | undefined =>
         k ? (k.name ?? `${k.vertical}:${k.id}`) : undefined;
-      const lang = detectLanguage(dto.text).language;
+      const lang = detectLanguage(rawText).language;
       const row = {
         kind: 'turn',
         conversationId: dto.contextRef.conversationId,

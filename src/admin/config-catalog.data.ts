@@ -1456,6 +1456,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
           'Mention ingest captures the raw episode and returns before LLM extraction — the derived world is then built in batch by POST /v1/admin/maintenance/derive. LLM-free ingest for eval harnesses and bulk backfills; requires EPISODE_SUBSTRATE_ENABLED.',
       },
       {
+        key: 'INGEST_SANITIZE_UNICODE',
+        category: 'extractor',
+        defaultValue: '0',
+        runtimeMutable: true,
+        isBooleanFlag: true,
+        description:
+          'G9 ingest-time Unicode sanitization (docs/roadmap/sota-gap-build-2026-08.md): NFC-normalize and strip bidi controls, zero-width/word-joiners, and nonprinting C0/C1 controls (keeping \\n \\t) from free-text ingest bodies BEFORE storage — conversation mention turns, direct fact predicate/object, document bodies, and external candidate submissions. Closes the memory-injection smuggling vector the MCP pack surface already defends (sanitizePackText); read per-request so a flip takes effect live. Off (default) → stored text is byte-identical to the wire payload.',
+      },
+      {
         key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
         category: 'embedder',
         defaultValue: '0',

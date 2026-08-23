@@ -114,4 +114,20 @@ describe('MetricsService', () => {
     expect(body).toMatch(/brain_ingest_mentions_total\{result="extracted"\} 2/);
     expect(body).toMatch(/brain_ingest_mentions_total\{result="skipped"\} 1/);
   });
+
+  it('counts ingest write attempts by surface path (G9 write-anomaly)', async () => {
+    metrics.countIngestWrite('mention');
+    metrics.countIngestWrite('mention');
+    metrics.countIngestWrite('fact');
+    metrics.countIngestWrite('document');
+    metrics.countIngestWrite('candidate');
+    metrics.countIngestWrite('mcp');
+
+    const { body } = await metrics.serialize();
+    expect(body).toMatch(/brain_ingest_writes_total\{path="mention"\} 2/);
+    expect(body).toMatch(/brain_ingest_writes_total\{path="fact"\} 1/);
+    expect(body).toMatch(/brain_ingest_writes_total\{path="document"\} 1/);
+    expect(body).toMatch(/brain_ingest_writes_total\{path="candidate"\} 1/);
+    expect(body).toMatch(/brain_ingest_writes_total\{path="mcp"\} 1/);
+  });
 });

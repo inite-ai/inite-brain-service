@@ -1,4 +1,4 @@
-import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SearchService } from '../search/search.service';
@@ -16,6 +16,7 @@ import { CodeMemorySearchService } from '../code-memory/code-memory-search.servi
 import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
+import { MetricsService } from '../metrics/metrics.service';
 import { registerReadTools } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
@@ -107,6 +108,7 @@ export class McpService {
     private readonly policyGate: PolicyGateService,
     private readonly packToolsReader: PackToolsReaderService,
     private readonly packToolProxy: PackToolProxyService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -354,6 +356,7 @@ export class McpService {
           procedural: this.procedural,
           documents: this.documents,
           feedback: this.feedback,
+          metrics: this.metrics,
         },
       });
       registerCodeMemoryWriteTools({

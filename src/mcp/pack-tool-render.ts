@@ -1,4 +1,5 @@
 import type { PackToolSpec } from '../ai/domain-packs';
+import { sanitizePackText } from '../common/text-sanitizer';
 
 /**
  * Rendering of pack-authored tool text for the MCP surface
@@ -8,34 +9,17 @@ import type { PackToolSpec } from '../ai/domain-packs';
  * whitespace collapse, hard cap) and every tool description gets a
  * server-owned preamble stating its provenance and effect FIRST — the
  * one part of the description a pack cannot spoof. Pure module.
+ *
+ * The strip/normalize primitive now lives in the shared
+ * `common/text-sanitizer` (so ingest paths can apply the same defense);
+ * `sanitizePackText` is re-exported here unchanged for existing importers.
  */
 
 export const TITLE_CAP = 80;
 export const DESCRIPTION_CAP = 500;
 export const PARAM_DESCRIPTION_CAP = 200;
 
-// Control chars (C0/C1 minus \t\n\r, which the whitespace collapse
-// turns into single spaces), bidi overrides/isolates (U+202A-E,
-// U+2066-69, U+200E/F, U+061C), zero-width + word joiners (U+200B-D,
-// U+2060-64, U+FEFF) — the classes used to smuggle invisible or
-// re-ordered instructions into tool descriptions.
-const STRIP = new RegExp(
-  '[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F' +
-    '\\u061C\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]',
-  'g',
-);
-
-/** NFC-normalize, strip control/bidi/zero-width, collapse whitespace,
- *  trim, cap. Idempotent; returns '' for non-strings. */
-export function sanitizePackText(s: unknown, cap: number): string {
-  if (typeof s !== 'string') return '';
-  return s
-    .normalize('NFC')
-    .replace(STRIP, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, cap);
-}
+export { sanitizePackText };
 
 /**
  * Full tool description: server preamble (always first, kind-specific)
