@@ -536,7 +536,7 @@ export class WindowDeriverService {
     ns: DeriveNamespace;
     result: DeriveRunResult;
   }): Promise<void> {
-    const episodes: EpisodeRow[] = await this.episodes.conversationTurns(
+    const episodes: EpisodeRow[] = await this.episodes.conversationTurnsRaw(
       db,
       conversationId,
     );

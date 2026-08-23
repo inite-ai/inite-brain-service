@@ -183,6 +183,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   positiveInt(env, 'RETRIEVAL_ASSISTANT_LANE_TOPK', errors);
   positiveInt(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', errors);
 
+  // ── G2 L3 escalation lane bounds ───────────────────────────────────
+  positiveInt(env, 'RETRIEVAL_L3_MAX_SESSIONS', errors);
+  positiveInt(env, 'RETRIEVAL_L3_TOKEN_CAP', errors);
+
   // ── Communities (dreams sub-op) ────────────────────────────────────
   // 0 is meaningful (= never offload label propagation to the worker
   // pool), so this one is non-negative rather than positive.
@@ -628,6 +632,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   // V13 constrained search loop: one structured refine round, then a
   // forced answer. Default off.
   'RETRIEVAL_SEARCH_LOOP',
+  // G2 (sota-gap-build-2026-08): confidence-gated L3 escalation — on a
+  // verifier-fail with an anchoring session, escalate to one full-raw-
+  // session large-context generation, re-verify, return only on flip.
+  // Default off = byte-identical (the fact-only verdict stands).
+  'RETRIEVAL_L3_ESCALATION',
   // R3: agent-qa V2 tool set — masked search + timeline enumerator +
   // literal transcript grep in the ReAct loop.
   'AGENT_QA_TOOLS_V2',

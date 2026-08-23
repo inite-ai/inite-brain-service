@@ -480,6 +480,24 @@ export interface RetrievalProfile {
    * answer. Hard cap of one extra round. Off = byte-identical.
    */
   searchLoop: boolean;
+  /**
+   * G2 (docs/roadmap/sota-gap-build-2026-08.md) confidence-gated L3
+   * escalation: when the extracted-fact answer fails the verifier (or
+   * fires abstain-intent) with coverage below floor AND at least one
+   * retrieved fact names a session, the engine escalates UP to a
+   * single full-raw-session large-context generation, re-verifies it,
+   * and returns the L3 answer only if the verifier now passes. Monotone
+   * single-shot ladder (each tier entered at most once); off =
+   * byte-identical (the fact-only verdict stands). The two escalation
+   * signals already exist in the stack and today terminate in
+   * abstain/re-search — this wires them one layer up.
+   */
+  l3Escalation: boolean;
+  /** G2: max full sessions lifted into the L3 large-context prompt. */
+  l3MaxSessions: number;
+  /** G2: token cap for the assembled L3 context; over it the lane
+   *  degrades to widened L2 windows rather than truncating a session. */
+  l3TokenCap: number;
   /** Coverage floor: minimum best fact score (see abstention.ts). */
   abstentionMinTopScore: number;
   /** Coverage floor: minimum evidence fact count. */
@@ -764,6 +782,13 @@ function resolveForGenre(
     ),
     noiseFilter: presetFlag(env, 'RETRIEVAL_NOISE_FILTER', preset.noiseFilter),
     searchLoop: presetFlag(env, 'RETRIEVAL_SEARCH_LOOP', preset.searchLoop),
+    l3Escalation: presetFlag(
+      env,
+      'RETRIEVAL_L3_ESCALATION',
+      preset.l3Escalation,
+    ),
+    l3MaxSessions: positiveIntEnv(env, 'RETRIEVAL_L3_MAX_SESSIONS', 3),
+    l3TokenCap: positiveIntEnv(env, 'RETRIEVAL_L3_TOKEN_CAP', 60000),
     abstentionMinTopScore: nonNegativeFloatEnv(
       env,
       'RETRIEVAL_ABSTENTION_MIN_SCORE',
@@ -862,6 +887,8 @@ export function resolveRetrievalProfileFor(
     'rawWindowSpan',
     'assistantLaneTopK',
     'factsAsKeysCap',
+    'l3MaxSessions',
+    'l3TokenCap',
   ] as const) {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
@@ -908,6 +935,7 @@ export function resolveRetrievalProfileFor(
     'answerConditioning',
     'noiseFilter',
     'searchLoop',
+    'l3Escalation',
     'assistantLane',
     'factsAsKeys',
   ] as const) {

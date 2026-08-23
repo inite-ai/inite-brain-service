@@ -14,7 +14,7 @@
  * INVARIANT — spans are computed against the STORED episode text.
  * captureTurn (episode-store.service.ts) runs redactPiiWithReport
  * BEFORE storage, and the window deriver builds its transcript from the
- * same stored rows (EpisodeReadStoreService.conversationTurns), so the
+ * same stored rows (EpisodeReadStoreService.conversationTurnsRaw), so the
  * text the deriver quoted, the text anchored here, and the text the
  * provenance API returns are one and the same. Anchoring against any
  * pre-redaction wire text would silently shift every offset.

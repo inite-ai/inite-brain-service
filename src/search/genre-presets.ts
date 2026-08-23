@@ -70,6 +70,7 @@ export type GenrePreset = Partial<
     | 'answerConditioning'
     | 'noiseFilter'
     | 'searchLoop'
+    | 'l3Escalation'
   >
 >;
 

@@ -125,7 +125,7 @@ export class SegmentComposerService {
     generation: string;
   }): Promise<void> {
     const episodes: SegmentEpisodeRow[] =
-      await this.episodes.conversationTurns(db, conversationId);
+      await this.episodes.conversationTurnsRaw(db, conversationId);
     if (episodes.length === 0) return;
 
     // Session boundaries first (same 60-min gap rule as the deriver), then

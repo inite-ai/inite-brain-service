@@ -56,6 +56,7 @@ import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import type { CollectedEvidence } from './evidence-collector.service';
+import { L3EscalationService } from './l3-escalation.service';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -138,6 +139,7 @@ export class SynthesizeService {
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly evidenceCollector?: EvidenceCollectorService,
     @Optional() private readonly answerCache?: AnswerCacheService,
+    @Optional() private readonly l3?: L3EscalationService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -474,12 +476,80 @@ export class SynthesizeService {
       });
     }
 
-    return this.finalizeAndAdmit(cache, verdict, {
-      answer: generated.answer,
-      citations,
-      results,
-      guardrails,
-      decisionLog,
+    // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
+    // an anchoring session it escalates ONCE to full-raw-session context
+    // and returns the L3 answer when re-verification flips fail→pass;
+    // else (null) the normal abstention/decline exit runs. Trigger matrix
+    // + anchor requirement live in tryL3Escalation / the L3 service.
+    return (
+      (await this.tryL3Escalation({
+        cache, verdict, companyId, callerScopes, dto, profile, lane, model,
+        answerLang, refineAttempted: produced.refined, results, factIndex,
+        promptFactLines, dateMathLines, guardrails, explain,
+      })) ??
+      this.finalizeAndAdmit(cache, verdict, {
+        answer: generated.answer, citations, results,
+        guardrails, decisionLog, abstention: profile.abstentionCalibration,
+      })
+    );
+  }
+
+  /**
+   * G2 L3 escalation seam, extracted from synthesize() (function-size
+   * budget). Returns the finalised L3 answer when the ladder fired AND
+   * the re-verification flipped the verdict fail→pass; null otherwise
+   * (the caller then takes the normal abstention exit). Monotone
+   * single-shot ladder: the flow is linear so `escalated` is false at
+   * this one call site and the tier cannot re-enter (the invariant is
+   * enforced in l3TriggerDecision). A flipped answer is admitted to the
+   * G1 cache exactly like any other supported grounded answer.
+   */
+  private async tryL3Escalation(args: {
+    cache: AnswerCacheBeginResult | undefined;
+    verdict: VerifierOutput;
+    companyId: string;
+    callerScopes: string[];
+    dto: SynthesizeDto;
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    model: string;
+    answerLang: string | null;
+    refineAttempted: boolean;
+    results: SearchHit[];
+    factIndex: ReturnType<typeof buildFactIndex>['factIndex'];
+    promptFactLines: string[];
+    dateMathLines?: string[];
+    guardrails: SynthesisGuardrails;
+    explain: boolean;
+  }): Promise<SynthesizeResult | null> {
+    const { profile } = args;
+    if (!this.l3 || !profile.l3Escalation) return null;
+    const l3 = await this.l3.escalate({
+      openai: this.openai,
+      model: args.model,
+      companyId: args.companyId,
+      dto: args.dto,
+      callerScopes: args.callerScopes,
+      profile,
+      lane: args.lane,
+      verdict: args.verdict,
+      refineAttempted: args.refineAttempted,
+      escalated: false,
+      results: args.results,
+      factIndex: args.factIndex,
+      factLines: args.promptFactLines,
+      answerLang: args.answerLang,
+      dateMathLines: args.dateMathLines,
+    });
+    if (!l3) return null;
+    return this.finalizeAndAdmit(args.cache, l3.verdict, {
+      answer: l3.answer,
+      citations: l3.citations,
+      results: args.results,
+      guardrails: args.guardrails,
+      decisionLog: args.explain
+        ? buildDecisionLog(args.results, new Set(l3.citations.map((c) => c.factId)))
+        : undefined,
       abstention: profile.abstentionCalibration,
     });
   }
@@ -554,6 +624,10 @@ export class SynthesizeService {
         promptFactLines: string[];
         dateMathLines?: string[];
         generated: GeneratorOutput;
+        /** Whether the one search-loop refine round actually ran (the
+         *  G2 L3 trigger requires a refine to precede escalation when
+         *  the search loop is on). */
+        refined: boolean;
       }
   > {
     const { profile, dto, collected } = args;
@@ -620,15 +694,16 @@ export class SynthesizeService {
       };
     }
     const second = await this.refineRound({ ...args, generated });
-    return (
-      second ?? {
-        results: args.results,
-        factIndex: args.factIndex,
-        promptFactLines: args.promptFactLines,
-        dateMathLines: args.dateMathLines,
-        generated,
-      }
-    );
+    return second
+      ? { ...second, refined: true }
+      : {
+          results: args.results,
+          factIndex: args.factIndex,
+          promptFactLines: args.promptFactLines,
+          dateMathLines: args.dateMathLines,
+          generated,
+          refined: false,
+        };
   }
 
   /**

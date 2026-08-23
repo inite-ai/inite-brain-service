@@ -115,6 +115,26 @@ describe('MetricsService', () => {
     expect(body).toMatch(/brain_ingest_mentions_total\{result="skipped"\} 1/);
   });
 
+  it('counts L3 escalation outcomes by label (G2)', async () => {
+    metrics.countL3Escalation('fired');
+    metrics.countL3Escalation('fired');
+    metrics.countL3Escalation('flipped');
+    metrics.countL3Escalation('no_flip');
+    metrics.countL3Escalation('skipped_no_anchor');
+    metrics.countL3Escalation('over_budget_degraded');
+
+    const { body } = await metrics.serialize();
+    expect(body).toMatch(/brain_l3_escalation_total\{outcome="fired"\} 2/);
+    expect(body).toMatch(/brain_l3_escalation_total\{outcome="flipped"\} 1/);
+    expect(body).toMatch(/brain_l3_escalation_total\{outcome="no_flip"\} 1/);
+    expect(body).toMatch(
+      /brain_l3_escalation_total\{outcome="skipped_no_anchor"\} 1/,
+    );
+    expect(body).toMatch(
+      /brain_l3_escalation_total\{outcome="over_budget_degraded"\} 1/,
+    );
+  });
+
   it('counts ingest write attempts by surface path (G9 write-anomaly)', async () => {
     metrics.countIngestWrite('mention');
     metrics.countIngestWrite('mention');
