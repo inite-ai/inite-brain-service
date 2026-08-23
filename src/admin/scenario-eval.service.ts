@@ -71,7 +71,10 @@ export class ScenarioEvalService {
       error = (e as Error).message;
     }
 
-    const [vertical, id] = expectation.expectedTopEntityRef.split('.', 2);
+    const [vertical = '', id = ''] = expectation.expectedTopEntityRef.split(
+      '.',
+      2,
+    );
     const refTag = `${safe(vertical)}__${safe(id)}`;
     const rank = hits.findIndex((r) => r.externalRefs?.[refTag] === id);
     const rankOfExpected = rank === -1 ? 0 : rank + 1;
@@ -80,7 +83,7 @@ export class ScenarioEvalService {
 
     const factPredicateMatched =
       expectation.expectedFactPredicate && rankOfExpected > 0
-        ? hits[rankOfExpected - 1].facts.some(
+        ? hits[rankOfExpected - 1]!.facts.some( // rankOfExpected>0 ⇒ valid rank
             (f) => f.predicate === expectation.expectedFactPredicate,
           )
         : null;

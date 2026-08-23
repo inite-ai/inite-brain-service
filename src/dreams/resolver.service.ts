@@ -221,7 +221,7 @@ export class DreamsResolverService {
         (r) => new Date(r.recordedAt as unknown as string).getTime() <= cutoffMs,
       );
       if (!aged) continue;
-      pairs.push({ a: group[0], b: group[1] });
+      pairs.push({ a: group[0]!, b: group[1]! }); // group.length === 2 (checked)
       if (pairs.length >= this.maxPairs) break;
     }
     return pairs;

@@ -82,7 +82,7 @@ describe('PolicyResolverService', () => {
     const ctx = await resolver.contextFor('co_a', { keyHash: 'sha256:k', claimNames: ['readonly-agent'] });
     expect(ctx).not.toBeNull();
     expect(ctx!.sets).toHaveLength(1);
-    expect(ctx!.sets[0].name).toBe('readonly-agent');
+    expect(ctx!.sets[0]!.name).toBe('readonly-agent');
     expect(ctx!.resolutionError).toBe(false);
   });
 
@@ -111,8 +111,8 @@ describe('PolicyResolverService', () => {
     const ctx = await resolver.contextFor('co_a', { keyHash: 'sha256:k', claimNames: ['ghost-set'] });
     expect(ctx).not.toBeNull();
     expect(ctx!.resolutionError).toBe(true);
-    expect(ctx!.sets[0].posture).toEqual({ actions: 'deny', reads: 'deny' });
-    expect(ctx!.sets[0].mode).toBe('enforce');
+    expect(ctx!.sets[0]!.posture).toEqual({ actions: 'deny', reads: 'deny' });
+    expect(ctx!.sets[0]!.mode).toBe('enforce');
     expect(resolutionErrors).toHaveLength(1);
   });
 

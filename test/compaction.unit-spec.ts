@@ -104,11 +104,11 @@ describe('CompactionService — mark + drop (default mode)', () => {
     const stats = await runner.compactAll(['co_a', 'co_b', 'co_c']);
     expect(stats).toHaveLength(3);
     const byTenant = Object.fromEntries(stats.map((s) => [s.companyId, s]));
-    expect(byTenant.co_a.factsCompacted).toBe(12);
-    expect(byTenant.co_b.factsCompacted).toBe(0);
-    expect(byTenant.co_c.factsCompacted).toBe(5);
-    expect(byTenant.co_a.summariesCreated).toBe(0); // summaries off by default
-    expect(byTenant.co_a.bytesFreed).toBe(12 * 6 * 1024);
+    expect(byTenant.co_a!.factsCompacted).toBe(12);
+    expect(byTenant.co_b!.factsCompacted).toBe(0);
+    expect(byTenant.co_c!.factsCompacted).toBe(5);
+    expect(byTenant.co_a!.summariesCreated).toBe(0); // summaries off by default
+    expect(byTenant.co_a!.bytesFreed).toBe(12 * 6 * 1024);
 
     const calls_b = calls.find((c) => c.companyId === 'co_b')!;
     expect(calls_b.calls.some((c) => c.sql.startsWith('UPDATE'))).toBe(false);
@@ -146,7 +146,7 @@ describe('CompactionService — mark + drop (default mode)', () => {
     await runner.compactCompany('co_a');
     const after = Date.now();
 
-    const select = calls[0].calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
+    const select = calls[0]!.calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
     // Date param, not an ISO string — SurrealDB 3.x needs a native
     // datetime (the 2.x `d$cutoff` cast no longer parses).
     const cutoff = select.params!.cutoff as Date;
@@ -207,14 +207,14 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     );
 
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(5);
+    expect(stats!.factsCompacted).toBe(5);
     // Two summaries: tier (3 rows) + name (1 row) — name is singleton, skip
-    expect(stats.summariesCreated).toBe(1);
+    expect(stats!.summariesCreated).toBe(1);
     expect(gen.calls).toHaveLength(1);
-    expect(gen.calls[0].map((f) => f.object)).toEqual(['gold', 'platinum', 'diamond']);
+    expect(gen.calls[0]!.map((f) => f.object)).toEqual(['gold', 'platinum', 'diamond']);
 
     expect(created).toHaveLength(1);
-    const summary = created[0].payload as Record<string, unknown>;
+    const summary = created[0]!.payload as Record<string, unknown>;
     expect(summary.predicate).toBe('summary_tier');
     expect(summary.object).toBe('SUMMARY(3:gold,platinum,diamond)');
     expect((summary.derivedFrom as unknown[]).length).toBe(3);
@@ -222,7 +222,7 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     expect(summary.confidence).toBeCloseTo(0.8, 5);
     expect(summary.status).toBe('active');
 
-    const updates = calls[0].calls.filter((c) => c.sql.startsWith('UPDATE'));
+    const updates = calls[0]!.calls.filter((c) => c.sql.startsWith('UPDATE'));
     expect(updates).toHaveLength(1);
   });
 
@@ -242,8 +242,8 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       emptyGen,
     );
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(2);
-    expect(stats.summariesCreated).toBe(0);
+    expect(stats!.factsCompacted).toBe(2);
+    expect(stats!.summariesCreated).toBe(0);
     expect(created).toHaveLength(0);
   });
 
@@ -263,8 +263,8 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       gen,
     );
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(2);
-    expect(stats.summariesCreated).toBe(0);
+    expect(stats!.factsCompacted).toBe(2);
+    expect(stats!.summariesCreated).toBe(0);
     expect(gen.calls).toHaveLength(0);
     expect(created).toHaveLength(0);
   });

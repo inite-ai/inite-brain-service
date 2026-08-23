@@ -65,8 +65,8 @@ export function isGroundedSpan(
     const before = idx > 0 ? normalizedInput[idx - 1] : undefined;
     const after = normalizedInput[idx + normalizedSpan.length];
     if (
-      boundaryOk(before, normalizedSpan[0]) &&
-      boundaryOk(after, normalizedSpan[normalizedSpan.length - 1])
+      boundaryOk(before, normalizedSpan[0]!) && // non-empty (checked line 60)
+      boundaryOk(after, normalizedSpan[normalizedSpan.length - 1]!)
     ) {
       return true;
     }

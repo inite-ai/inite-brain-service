@@ -34,7 +34,7 @@ describe('MetricsService', () => {
     // Sum should be ≈ 1.75
     const sumMatch = body.match(/brain_search_duration_seconds_sum (\d+\.?\d*)/);
     expect(sumMatch).toBeTruthy();
-    expect(parseFloat(sumMatch![1])).toBeCloseTo(1.75, 2);
+    expect(parseFloat(sumMatch![1]!)).toBeCloseTo(1.75, 2);
   });
 
   it('counts retracts, forgets, compactions', async () => {

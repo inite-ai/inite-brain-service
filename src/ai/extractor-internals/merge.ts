@@ -58,7 +58,7 @@ export function mergeExtractions(
             object: f.object,
             // Merged index, so the same person across passes is one
             // cluster and two people are never one (audit W3 #5).
-            entity: remaps[p].get(f.entityIndex),
+            entity: remaps[p]!.get(f.entityIndex),
           })),
         ),
       )
@@ -68,7 +68,7 @@ export function mergeExtractions(
   const facts: ExtractionResult['facts'] = [];
   passes.forEach((pass, p) => {
     for (const f of pass.facts) {
-      const entityIndex = remaps[p].get(f.entityIndex);
+      const entityIndex = remaps[p]!.get(f.entityIndex);
       if (entityIndex === undefined) continue;
       const k = clusterKey({
         predicate: f.predicate,
@@ -95,8 +95,8 @@ export function mergeExtractions(
   const seenEdges = new Set<string>();
   passes.forEach((pass, p) => {
     for (const ed of pass.edges) {
-      const from = remaps[p].get(ed.fromEntityIndex);
-      const to = remaps[p].get(ed.toEntityIndex);
+      const from = remaps[p]!.get(ed.fromEntityIndex);
+      const to = remaps[p]!.get(ed.toEntityIndex);
       if (from === undefined || to === undefined) continue;
       const k = `${from}-${ed.kind}-${to}`;
       if (seenEdges.has(k)) continue;

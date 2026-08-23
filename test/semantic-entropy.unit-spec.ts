@@ -13,7 +13,7 @@ describe('semantic-entropy', () => {
       [{ predicate: 'status', object: 'CTO' }],
     ]);
     expect(clusters.size).toBe(1);
-    const [info] = clusters.values();
+    const info = [...clusters.values()][0]!;
     expect(info.count).toBe(3);
   });
 
@@ -42,7 +42,7 @@ describe('semantic-entropy', () => {
       ],
       [{ predicate: 'status', object: 'CTO' }],
     ]);
-    const [info] = clusters.values();
+    const info = [...clusters.values()][0]!;
     expect(info.count).toBe(2);
   });
 

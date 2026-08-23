@@ -36,9 +36,9 @@ describe('extractCollapseEditsLocally', () => {
     const snap = mkSnap([['moved to', 'lives in']]);
     const out = extractCollapseEditsLocally('Maria moved to Berlin', snap);
     expect(out).toHaveLength(1);
-    expect(out[0].pattern).toBe('moved to');
-    expect(out[0].replacement).toBe('lives in');
-    expect(out[0].span).toEqual({
+    expect(out[0]!.pattern).toBe('moved to');
+    expect(out[0]!.replacement).toBe('lives in');
+    expect(out[0]!.span).toEqual({
       text: 'moved to',
       start: 6,
       end: 14,
@@ -55,7 +55,7 @@ describe('extractCollapseEditsLocally', () => {
     const snap = mkSnap([['moved to', 'lives in']]);
     const out = extractCollapseEditsLocally('She MOVED TO Paris', snap);
     expect(out).toHaveLength(1);
-    expect(out[0].span.text).toBe('MOVED TO');
+    expect(out[0]!.span.text).toBe('MOVED TO');
   });
 
   it('prefers longest match when patterns overlap', () => {
@@ -68,7 +68,7 @@ describe('extractCollapseEditsLocally', () => {
       snap,
     );
     expect(out).toHaveLength(1);
-    expect(out[0].pattern).toBe('moved from');
+    expect(out[0]!.pattern).toBe('moved from');
   });
 
   it('emits multiple non-overlapping matches in one message', () => {
@@ -93,8 +93,8 @@ describe('extractCollapseEditsLocally', () => {
       snap,
     );
     expect(out).toHaveLength(1);
-    expect(out[0].replacement).toBe('живёт в');
-    expect(out[0].span.text).toBe('переехал в');
+    expect(out[0]!.replacement).toBe('живёт в');
+    expect(out[0]!.span.text).toBe('переехал в');
   });
 
   it('matches at message boundaries', () => {
@@ -110,6 +110,6 @@ describe('extractCollapseEditsLocally', () => {
   it('preserves source casing in span.text', () => {
     const snap = mkSnap([['moved to', 'lives in']]);
     const out = extractCollapseEditsLocally('Maria Moved To Berlin', snap);
-    expect(out[0].span.text).toBe('Moved To');
+    expect(out[0]!.span.text).toBe('Moved To');
   });
 });

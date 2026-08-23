@@ -158,11 +158,12 @@ export class FactResolverService {
     inputs: Parameters<FactResolverService['resolve']>[1][],
   ): Promise<Array<{ result: any; semantics: string }>> {
     if (inputs.length === 0) return [];
+    const firstCompanyId = inputs[0]!.companyId; // inputs non-empty (checked)
     try {
-      await this.predicateRegistry.getSnapshot(inputs[0].companyId);
+      await this.predicateRegistry.getSnapshot(firstCompanyId);
     } catch (e) {
       this.logger.warn(
-        `ingest: predicate registry getSnapshot failed for ${inputs[0].companyId}: ${(e as Error).message}; using seed policy`,
+        `ingest: predicate registry getSnapshot failed for ${firstCompanyId}: ${(e as Error).message}; using seed policy`,
       );
     }
 
@@ -180,7 +181,8 @@ export class FactResolverService {
       try {
         const batch = await this.resolveAppendOnlyBatch(
           db,
-          appendIdx.map((i) => prepared[i]),
+          // appendIdx holds valid indices into `prepared` (built above).
+          appendIdx.map((i) => prepared[i]!),
         );
         appendIdx.forEach((i, k) => (results[i] = batch[k]));
       } catch (e) {
@@ -188,20 +190,23 @@ export class FactResolverService {
           `ingest: batched fact resolve fell back to per-fact: ${(e as Error).message}`,
         );
         for (const i of appendIdx) {
-          results[i] = await this.resolveFactCall(db, prepared[i]);
+          results[i] = await this.resolveFactCall(db, prepared[i]!);
         }
       }
     }
     // single_active / bitemporal keep the serialized per-fact path.
     for (const i of restIdx) {
-      results[i] = await this.resolveFactCall(db, prepared[i]);
+      results[i] = await this.resolveFactCall(db, prepared[i]!);
     }
 
     // Post-call side effects (HyPE + metric) per fact, in order.
     const out: Array<{ result: any; semantics: string }> = [];
     for (let i = 0; i < inputs.length; i++) {
-      await this.postResolve(db, inputs[i], results[i]);
-      out.push({ result: results[i], semantics: prepared[i].semantics });
+      // prepared.length === inputs.length ⇒ both indices are in-bounds.
+      const input = inputs[i]!;
+      const prep = prepared[i]!;
+      await this.postResolve(db, input, results[i]);
+      out.push({ result: results[i], semantics: prep.semantics });
     }
     return out;
   }

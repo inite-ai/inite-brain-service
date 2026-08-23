@@ -58,7 +58,7 @@ function bulkFactsFor(
       kind: 'fact',
       entityRef: { vertical, id },
       predicate: p,
-      object: objects[i],
+      object: objects[i]!, // objects is parallel to predicates (same length)
       validFrom: new Date(day + i * 86_400_000).toISOString(),
       confidence: 0.85,
       source: { vertical, eventId: `bulk.seed.${i}` },

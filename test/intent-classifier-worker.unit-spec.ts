@@ -97,7 +97,7 @@ async function warmService(svc: IntentClassifierService): Promise<MockWorker> {
   svc.onModuleInit();
   await waitFor(() => svc.isReady());
   mockOnPost = previous;
-  return mockWorkers[mockWorkers.length - 1];
+  return mockWorkers[mockWorkers.length - 1]!;
 }
 
 beforeEach(() => {
@@ -119,7 +119,7 @@ describe('IntentClassifierService — worker runtime', () => {
     });
     expect(mockWorkers).toHaveLength(1);
     expect(
-      mockWorkers[0].posted.filter((m) => m.kind === 'classify'),
+      mockWorkers[0]!.posted.filter((m) => m.kind === 'classify'),
     ).toHaveLength(0);
     await svc.onApplicationShutdown();
   });
@@ -142,7 +142,7 @@ describe('IntentClassifierService — worker runtime', () => {
     expect(first).toEqual({ intent: 'ask', confidence: 0.82, source: 'nli' });
     const classifyCalls = worker.posted.filter((m) => m.kind === 'classify');
     expect(classifyCalls).toHaveLength(1);
-    expect(classifyCalls[0].payload).toEqual({
+    expect(classifyCalls[0]!.payload).toEqual({
       text: 'where Maria lives',
       labels: ['question', 'statement'],
       hypothesisTemplate: 'This text is a {}.',

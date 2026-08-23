@@ -289,7 +289,7 @@ export class IngestPredictionService {
         if (newer.length > 0) {
           return {
             wouldOutcome: 'INSERTED_HISTORICAL',
-            reasoning: `A newer fact (validFrom ${dateToIso(newer[0].validFrom)}) already exists; the backdated candidate would be inserted as already-superseded history, not supersede the active fact.`,
+            reasoning: `A newer fact (validFrom ${dateToIso(newer[0]!.validFrom)}) already exists; the backdated candidate would be inserted as already-superseded history, not supersede the active fact.`,
             opposingFacts: gate(newer.map(rowToOpposingFact)),
             predicatePolicy: policy,
           };

@@ -12,9 +12,12 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   let na = 0;
   let nb = 0;
   for (let i = 0; i < len; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    // i < len = min(a.length, b.length) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    na += ai * ai;
+    nb += bi * bi;
   }
   const denom = Math.sqrt(na) * Math.sqrt(nb);
   return denom === 0 ? 0 : dot / denom;

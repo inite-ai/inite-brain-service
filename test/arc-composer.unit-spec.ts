@@ -135,14 +135,14 @@ describe('ArcComposerService (V9 §3)', () => {
     expect(swap?.sql).toContain('INSERT INTO knowledge_fact');
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
-    expect(rows[0].predicate).toBe('summary_arc_apartment_move_');
-    expect(rows[1].predicate).toBe('summary_arc_running');
-    expect((rows[0].derivedFrom as unknown[]).length).toBe(3);
-    expect(rows[0].embedding).toEqual([1, 0]);
-    expect((rows[0].validFrom as Date).toISOString().slice(0, 10)).toBe(
+    expect(rows[0]!.predicate).toBe('summary_arc_apartment_move_');
+    expect(rows[1]!.predicate).toBe('summary_arc_running');
+    expect((rows[0]!.derivedFrom as unknown[]).length).toBe(3);
+    expect(rows[0]!.embedding).toEqual([1, 0]);
+    expect((rows[0]!.validFrom as Date).toISOString().slice(0, 10)).toBe(
       '2024-06-12',
     );
-    expect(rows[0].source).toMatchObject({ recorder: ARC_RECORDER });
+    expect(rows[0]!.source).toMatchObject({ recorder: ARC_RECORDER });
   });
 
   it('sources exclude both composers and the summary_ prefix', async () => {
@@ -198,7 +198,7 @@ describe('ArcComposerService (V9 §3)', () => {
       q.sql.includes('INSERT INTO knowledge_fact'),
     );
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
-    expect(rows[0].derivedVersion).toBe('wd-v9');
+    expect(rows[0]!.derivedVersion).toBe('wd-v9');
   });
 
   it('records per-entity failures without failing the run', async () => {

@@ -76,7 +76,8 @@ export function validArc(arc: ArcProposal, facts: FactRowLite[]): boolean {
   if (arc.members.length < 2) return false;
   if (!arc.members.every((m) => m >= 0 && m < facts.length)) return false;
   if (arc.narrative.trim().length === 0) return false;
-  const days = new Set(arc.members.map((m) => factDay(facts[m].validFrom)));
+  // members validated in-bounds by the check above.
+  const days = new Set(arc.members.map((m) => factDay(facts[m]!.validFrom)));
   return days.size >= 2;
 }
 
@@ -142,7 +143,8 @@ export class ArcComposerService {
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: arc.members.map(
-          (m) => new StringRecordId(String(ctx.facts[m].id)),
+          // members are validated in-bounds by validArc.
+          (m) => new StringRecordId(String(ctx.facts[m]!.id)),
         ),
         ...(ctx.version ? { derivedVersion: ctx.version } : {}),
       };

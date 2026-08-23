@@ -88,6 +88,9 @@ export class PredictScoringService {
       }))
       .sort((a, b) => b.score - a.score);
     const top = scored[0];
+    // Caller guarantees a non-empty `overlapping` (competing.length === 0 is
+    // short-circuited upstream), so `scored` is non-empty — fail loud if not.
+    if (!top) throw new Error('predictSingleActive: no overlapping priors');
     const gap = candidateScore - top.score;
     if (gap > this.conflict.marginForSupersede) {
       return {
@@ -131,7 +134,11 @@ export class PredictScoringService {
     candidateScore: number,
     above: Array<{ opposing: OpposingFact; cosine: number; score: number; row: PriorRow }>,
   ): Omit<PredictResolveResult, 'predicatePolicy'> {
-    const top = above.reduce((acc, c) => (c.score > acc.score ? c : acc), above[0]);
+    const first = above[0];
+    // Caller guarantees a non-empty `above` (competing.length === 0 is
+    // short-circuited upstream) — fail loud rather than reduce over nothing.
+    if (!first) throw new Error('predictBitemporal: no priors above threshold');
+    const top = above.reduce((acc, c) => (c.score > acc.score ? c : acc), first);
     const gap = candidateScore - top.score;
     if (gap > this.conflict.marginForSupersede) {
       return {

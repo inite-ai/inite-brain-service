@@ -396,11 +396,11 @@ export class DreamsCorroborateService {
     const pairs: Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> =
       [];
     for (let j = 1; j < members.length; j++) {
-      const younger = members[j];
+      const younger = members[j]!; // j < members.length ⇒ in-bounds
       if (younger.corroborationCount > 0) continue;
       let best: { incumbent: ActiveFactRow; sim: number } | null = null;
       for (let i = 0; i < j; i++) {
-        const older = members[i];
+        const older = members[i]!; // i < j < members.length ⇒ in-bounds
         if (older.originKey === younger.originKey) continue;
         if (!intervalsOverlap(older, younger)) continue;
         const sim = cosine(older.embedding, younger.embedding);
@@ -544,9 +544,12 @@ function cosine(a: number[], b: number[]): number {
   let na = 0;
   let nb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    na += ai * ai;
+    nb += bi * bi;
   }
   if (na === 0 || nb === 0) return -1;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));

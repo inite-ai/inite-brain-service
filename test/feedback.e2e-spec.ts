@@ -64,8 +64,8 @@ describe('retrieval feedback loop', () => {
       );
       const votes = rows as Array<{ verdict: string; reason: string | null }>;
       expect(votes).toHaveLength(1);
-      expect(votes[0].verdict).toBe('incorrect');
-      expect(votes[0].reason).toBe('tier is actually silver');
+      expect(votes[0]!.verdict).toBe('incorrect');
+      expect(votes[0]!.reason).toBe('tier is actually silver');
     });
   });
 
@@ -91,8 +91,8 @@ describe('retrieval feedback loop', () => {
       // The active fact itself is a win; the standing 'incorrect'
       // feedback vote is the loss.
       expect(trust).toBeDefined();
-      expect(trust.lossCount).toBeGreaterThanOrEqual(1);
-      expect(trust.sampleCount).toBeGreaterThanOrEqual(2);
+      expect(trust!.lossCount).toBeGreaterThanOrEqual(1);
+      expect(trust!.sampleCount).toBeGreaterThanOrEqual(2);
     });
   });
 });

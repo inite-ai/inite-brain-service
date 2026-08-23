@@ -399,12 +399,12 @@ export class EvidenceCollectorService {
     // 'fused' retrieves them as scored SearchHits inside search, so
     // appending them here would duplicate the evidence.
     const [
-      laneLines,
-      sourceLines,
-      segmentLines,
-      scanLines,
-      windowLines,
-      assistantLines,
+      laneLines = [],
+      sourceLines = [],
+      segmentLines = [],
+      scanLines = [],
+      windowLines = [],
+      assistantLines = [],
     ] = await Promise.all([
         active
           ? this.episodeLane

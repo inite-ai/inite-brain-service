@@ -141,7 +141,7 @@ describe('PackSeedIngestService.runForPack', () => {
       ingest.svc,
     );
     await svc.runForPack('co_1', REF);
-    const dto = ingest.calls[0];
+    const dto = ingest.calls[0]!;
     expect(dto.kind).toBe('pack_seed');
     expect(dto.title).toBe('Gardening primer');
     expect(dto.text).toBe('Tomatoes want sun.');
@@ -182,8 +182,8 @@ describe('PackSeedIngestService.runForPack', () => {
       ingest.svc,
     );
     await svc.runForPack('co_1', REF);
-    expect(ingest.calls[0].originUri).toBe('https://example.com/primer');
-    expect(ingest.calls[0].occurredAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(ingest.calls[0]!.originUri).toBe('https://example.com/primer');
+    expect(ingest.calls[0]!.occurredAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('throws "aborted" between documents so the job requeues', async () => {

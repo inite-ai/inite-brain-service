@@ -116,7 +116,7 @@ export class RerankerService {
       }
     }
     if (rankings.length === 0) return identity;
-    if (rankings.length === 1) return rankings[0];
+    if (rankings.length === 1) return rankings[0]!;
     return bordaAggregate(rankings, candidates.length);
   }
 
@@ -141,6 +141,7 @@ export class RerankerService {
     const items = presentationOrder
       .map((parentIdx, presIdx) => {
         const c = candidates[parentIdx];
+        if (!c) return `[${presIdx}] `; // out-of-range presentation index
         return `[${presIdx}] ${c.label}\n${c.body}`;
       })
       .join('\n\n');
@@ -208,7 +209,8 @@ Return ONLY a JSON object of the shape {"ranking": [<index>, ...]} listing every
         if (x < 0 || x >= candidates.length) return identity;
         if (seen.has(x)) return identity;
         seen.add(x);
-        validatedParentIdx.push(presentationOrder[x]);
+        // x ∈ [0, candidates.length) = presentationOrder.length ⇒ in-bounds.
+        validatedParentIdx.push(presentationOrder[x]!);
       }
       if (validatedParentIdx.length !== candidates.length) return identity;
       return validatedParentIdx;
@@ -228,7 +230,8 @@ function shuffle<T>(xs: T[]): T[] {
   const out = [...xs];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    // i ∈ [1, len-1], j ∈ [0, i] ⇒ both indices are in-bounds.
+    [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
 }
@@ -243,12 +246,14 @@ function shuffle<T>(xs: T[]): T[] {
 function bordaAggregate(rankings: number[][], n: number): number[] {
   const points = new Array<number>(n).fill(0);
   for (const rank of rankings) {
-    for (let pos = 0; pos < rank.length; pos++) {
-      const candidate = rank[pos];
-      points[candidate] += n - pos;
+    for (const [pos, candidate] of rank.entries()) {
+      points[candidate] = (points[candidate] ?? 0) + (n - pos);
     }
   }
-  const indexed = Array.from({ length: n }, (_, i) => ({ idx: i, score: points[i] }));
+  const indexed = Array.from({ length: n }, (_, i) => ({
+    idx: i,
+    score: points[i]!, // i < n = points.length ⇒ in-bounds
+  }));
   indexed.sort((a, b) => b.score - a.score || a.idx - b.idx);
   return indexed.map((x) => x.idx);
 }

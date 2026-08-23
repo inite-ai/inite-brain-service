@@ -40,8 +40,8 @@ describe('predicate alias (W3 0082)', () => {
         companyId: 'co_x',
         logger,
       });
-      expect(facts[0].predicate).toBe('painted_seascape');
-      expect(facts[0].predicateAlias).toBe('painted');
+      expect(facts[0]!.predicate).toBe('painted_seascape');
+      expect(facts[0]!.predicateAlias).toBe('painted');
       expect(decisions).toEqual([
         {
           original: 'painted_seascape',
@@ -67,7 +67,7 @@ describe('predicate alias (W3 0082)', () => {
         companyId: 'co_x',
         logger,
       });
-      expect(facts[0].predicateAlias).toBeUndefined();
+      expect(facts[0]!.predicateAlias).toBeUndefined();
       expect(decisions).toEqual([]);
     });
 
@@ -84,8 +84,8 @@ describe('predicate alias (W3 0082)', () => {
         companyId: 'co_x',
         logger,
       });
-      expect(facts[0].predicateAlias).toBeUndefined();
-      expect(facts[0].predicate).toBe('painted_seascape');
+      expect(facts[0]!.predicateAlias).toBeUndefined();
+      expect(facts[0]!.predicate).toBe('painted_seascape');
     });
   });
 
@@ -114,8 +114,8 @@ describe('predicate alias (W3 0082)', () => {
       const facts = [fact('painted_seascape')];
       await svc.applyPredicateRefinements(facts, null as never, 'co_x');
       // Coinage kept, alias stamped, no local-override ranking ran.
-      expect(facts[0].predicate).toBe('painted_seascape');
-      expect(facts[0].predicateAlias).toBe('painted');
+      expect(facts[0]!.predicate).toBe('painted_seascape');
+      expect(facts[0]!.predicateAlias).toBe('painted');
       expect(localPredicates.rank).not.toHaveBeenCalled();
       expect(registry.canonicalize).toHaveBeenCalledTimes(1);
     });

@@ -777,8 +777,8 @@ describe('PackToolProxyService — against a real local http server', () => {
 
   it('signs the raw body with the install secret; installId (not companyId) on the wire', async () => {
     const out = await callOnce(proxy());
-    expect(out.content[0].text).toBe('ok');
-    const { headers, body } = received[0];
+    expect(out.content[0]!.text).toBe('ok');
+    const { headers, body } = received[0]!;
     expect(headers['x-brain-event']).toBe('mcp_tool_call');
     expect(headers['content-type']).toBe('application/json');
     const expected =
@@ -804,7 +804,7 @@ describe('PackToolProxyService — against a real local http server', () => {
     };
     const out = await callOnce(proxy());
     expect(out.structuredContent).toEqual({ verdict: 'clean', score: 0.9 });
-    expect(JSON.parse(out.content[0].text)).toEqual({ verdict: 'clean', score: 0.9 });
+    expect(JSON.parse(out.content[0]!.text)).toEqual({ verdict: 'clean', score: 0.9 });
   });
 
   it('timeout yields a clean 424 error, never a raw stack', async () => {

@@ -68,7 +68,7 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
       );
       const younger = (
         youngerRows as Array<{ status: string; corroborates: unknown }>
-      )[0];
+      )[0]!;
       expect(younger.status).toBe('corroborating');
       expect(String(younger.corroborates)).toBe(incumbentId);
 
@@ -95,7 +95,7 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
               sourceKeys: string[];
             };
           }>
-        )[0].corroboration;
+        )[0]!.corroboration;
       };
 
       const first = await readIncumbent();

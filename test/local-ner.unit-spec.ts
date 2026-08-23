@@ -70,7 +70,7 @@ describe('LocalNerService — with mocked classifier', () => {
       end: 12,
       score: 0.95,
     });
-    expect(out[1].type).toBe('ORG');
+    expect(out[1]!.type).toBe('ORG');
   });
 
   it('uppercases entity types', async () => {
@@ -81,7 +81,7 @@ describe('LocalNerService — with mocked classifier', () => {
       ]),
     );
     const out = await svc.extract('Berlin');
-    expect(out[0].type).toBe('LOC');
+    expect(out[0]!.type).toBe('LOC');
   });
 
   it('caches results per trimmed input', async () => {

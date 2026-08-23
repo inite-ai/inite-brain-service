@@ -207,8 +207,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
             `for ${missTexts.length} inputs`,
         );
       }
-      for (let j = 0; j < missTexts.length; j++) {
-        const text = missTexts[j];
+      for (const [j, text] of missTexts.entries()) {
         const vec = vecs[j];
         if (!Array.isArray(vec) || vec.length === 0) {
           throw new Error(
@@ -218,7 +217,8 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
         }
         const k = this.cacheKey(provider.providerId, text);
         this.cache.set(k, vec);
-        out[missIdx[j]] = vec;
+        const outIdx = missIdx[j]; // parallel to missTexts
+        if (outIdx !== undefined) out[outIdx] = vec;
       }
     }
     return out;

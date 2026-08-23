@@ -146,7 +146,7 @@ describe('agent-attributed recorder', () => {
       } as never,
     });
 
-    await handlers['record_fact']({
+    await handlers['record_fact']!({
       entityRef: { entityId: 'knowledge_entity:x' },
       predicate: 'works_at',
       object: 'acme',

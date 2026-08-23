@@ -136,7 +136,9 @@ describe('ABAC row filter across read surfaces', () => {
           { scopes: ['brain:read', 'brain:write'], policies: ['shadow-no-hr'] },
         ],
       });
-      [noHrKey, supportOnlyKey, shadowKey] = f.extraApiKeys;
+      noHrKey = f.extraApiKeys[0]!;
+      supportOnlyKey = f.extraApiKeys[1]!;
+      shadowKey = f.extraApiKeys[2]!;
       for (const doc of [NO_HR_DOC, SUPPORT_ONLY_DOC, SHADOW_DOC]) {
         const r = await f.http
           .post('/v1/admin/policy-sets')

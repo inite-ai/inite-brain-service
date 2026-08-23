@@ -261,7 +261,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   async ping(): Promise<boolean> {
     if (this.all.length === 0) return false;
     try {
-      await this.all[0].version();
+      await this.all[0]!.version(); // non-empty guaranteed by the guard above
       return true;
     } catch {
       return false;
@@ -701,7 +701,7 @@ export async function dbCreate<T extends Record<string, unknown>>(
   if (arr.length === 0) {
     throw new Error(`dbCreate(${table}) returned no row`);
   }
-  return arr[0];
+  return arr[0]!; // length > 0 guaranteed by the guard above
 }
 
 export async function dbMerge<T extends Record<string, unknown>>(
@@ -719,7 +719,7 @@ export async function dbMerge<T extends Record<string, unknown>>(
   if (arr.length === 0) {
     throw new Error(`dbMerge(${recordId}) matched no record`);
   }
-  return arr[0];
+  return arr[0]!; // length > 0 guaranteed by the guard above
 }
 
 function tableOf(rid: string): string {

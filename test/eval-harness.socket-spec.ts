@@ -220,8 +220,8 @@ describe('runWorlds', () => {
     // The V2 incident inverted: the poison is now a world-level error,
     // the row is NOT checkpointed, and a resume re-derives it.
     expect(scores).toHaveLength(1);
-    expect(String(scores[0].errored)).toContain('derive degraded');
-    expect(String(scores[0].errored)).toContain('insufficient_quota');
+    expect(String(scores[0]!.errored)).toContain('derive degraded');
+    expect(String(scores[0]!.errored)).toContain('insufficient_quota');
     expect(calls.some((c) => c.url.includes('multi-hop'))).toBe(false);
   });
 
@@ -246,10 +246,10 @@ describe('runWorlds', () => {
 
     const mentions = calls.filter((c) => c.url.includes('/v1/ingest/mention'));
     expect(mentions).toHaveLength(2);
-    expect(mentions[0].body.text).toHaveLength(TURN_CHAR_CAP); // cap applied
-    expect(mentions[0].body.emittedAt).toBe('2023-05-20T02:21:00.000Z');
-    expect(mentions[1].body.emittedAt).toBe('2023-05-20T02:21:30.000Z');
-    expect(mentions[0].body.knownEntities[0].name).toBe('q_1__user');
+    expect(mentions[0]!.body.text).toHaveLength(TURN_CHAR_CAP); // cap applied
+    expect(mentions[0]!.body.emittedAt).toBe('2023-05-20T02:21:00.000Z');
+    expect(mentions[1]!.body.emittedAt).toBe('2023-05-20T02:21:30.000Z');
+    expect(mentions[0]!.body.knownEntities[0].name).toBe('q_1__user');
 
     const derive = calls.find((c) => c.url.includes('/maintenance/derive'));
     expect(derive?.body).toEqual({ version: 'wd-v2', force: true });
@@ -259,8 +259,8 @@ describe('runWorlds', () => {
     expect(qa?.body.asOf).toBe('2023-06-01T00:00:00.000Z');
 
     expect(scores).toHaveLength(1);
-    expect(scores[0].abstained).toBe(true);
-    expect(scores[0].promptTokens).toBe(42);
+    expect(scores[0]!.abstained).toBe(true);
+    expect(scores[0]!.promptTokens).toBe(42);
   });
 
   it('skips fully checkpointed worlds without any HTTP calls', async () => {
@@ -289,7 +289,7 @@ describe('runWorlds', () => {
     });
     expect(calls).toHaveLength(0);
     expect(checkpointed).toBe(1);
-    expect(scores[0].judgeCorrect).toBe(true);
+    expect(scores[0]!.judgeCorrect).toBe(true);
   });
 });
 
@@ -368,7 +368,7 @@ describe('run provenance', () => {
     (out: Record<string, string>) =>
     (args: string[]): string => {
       const key = args.join(' ');
-      if (key in out) return out[key];
+      if (key in out) return out[key]!;
       throw new Error(`no fake for git ${key}`);
     };
 

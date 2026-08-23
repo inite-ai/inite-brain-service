@@ -95,12 +95,12 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
         embedding: number[] | null;
       }>;
       expect(summaries).toHaveLength(1);
-      expect(summaries[0].status).toBe('active');
-      expect(summaries[0].object.length).toBeGreaterThan(0);
-      expect(summaries[0].derivedFrom).toHaveLength(5);
+      expect(summaries[0]!.status).toBe('active');
+      expect(summaries[0]!.object.length).toBeGreaterThan(0);
+      expect(summaries[0]!.derivedFrom).toHaveLength(5);
       // Promotion summaries are embedded — they replace active memory
       // and must stay vector-reachable.
-      expect(Array.isArray(summaries[0].embedding)).toBe(true);
+      expect(Array.isArray(summaries[0]!.embedding)).toBe(true);
 
       const statusOf = async (id: string) => {
         const [rows] = await db.query<[Array<{ status: string }>]>(

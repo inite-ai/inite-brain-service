@@ -61,7 +61,7 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(true);
+    expect(out[0]!.passed).toBe(true);
   });
 
   it('no_search_match fails when expected ref still surfaces', async () => {
@@ -87,8 +87,8 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(false);
-    expect(out[0].detail).toContain('Forgotten One');
+    expect(out[0]!.passed).toBe(false);
+    expect(out[0]!.detail).toContain('Forgotten One');
   });
 
   it('search_object_present passes when ref surfaces with the object substring', async () => {
@@ -115,7 +115,7 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(true);
+    expect(out[0]!.passed).toBe(true);
   });
 
   it('search_object_present fails when ref surfaces but substring missing', async () => {
@@ -142,8 +142,8 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(false);
-    expect(out[0].detail).toContain('platinum');
+    expect(out[0]!.passed).toBe(false);
+    expect(out[0]!.detail).toContain('platinum');
   });
 
   it('search_object_absent passes when ref is missing entirely (stronger than required)', async () => {
@@ -159,7 +159,7 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(true);
+    expect(out[0]!.passed).toBe(true);
   });
 
   it('search_object_absent fails when ref surfaces with the (forbidden) substring', async () => {
@@ -186,8 +186,8 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(false);
-    expect(out[0].detail).toContain('gold');
+    expect(out[0]!.passed).toBe(false);
+    expect(out[0]!.detail).toContain('gold');
   });
 
   it('search_object_absent passes when ref surfaces but substring not in any fact', async () => {
@@ -214,7 +214,7 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(true);
+    expect(out[0]!.passed).toBe(true);
   });
 
   it('handles assertion-level exceptions gracefully', async () => {
@@ -233,8 +233,8 @@ describe('MemoryAssertionsChecker', () => {
         },
       ]),
     );
-    expect(out[0].passed).toBe(false);
-    expect(out[0].detail).toContain('surreal angry');
+    expect(out[0]!.passed).toBe(false);
+    expect(out[0]!.detail).toContain('surreal angry');
   });
 
   it('returns empty list when scenario has no memory assertions', async () => {
@@ -278,7 +278,7 @@ describe('MemoryAssertionsChecker', () => {
       ]),
     );
     expect(out.length).toBe(2);
-    expect(out[0].passed).toBe(false);
-    expect(out[1].passed).toBe(true);
+    expect(out[0]!.passed).toBe(false);
+    expect(out[1]!.passed).toBe(true);
   });
 });

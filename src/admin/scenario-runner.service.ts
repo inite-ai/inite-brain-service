@@ -81,8 +81,7 @@ export class ScenarioRunnerService {
     const factIdsByTag = new Map<string, string>();
 
     try {
-      for (let i = 0; i < scenario.setup.length; i++) {
-        const step = scenario.setup[i];
+      for (const [i, step] of scenario.setup.entries()) {
         try {
           await this.applyStep({
             companyId,

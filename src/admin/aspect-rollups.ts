@@ -131,12 +131,15 @@ function composeGroup(
       }
     }
     if (kept < minMembers) return null;
+    const first = unique[0];
+    const last = unique[unique.length - 1];
+    if (!first || !last) return null; // kept ≥ minMembers ⇒ unique non-empty
     const truncated = kept < unique.length ? `; …and ${unique.length - kept} more` : '';
     return {
-      entityId: unique[0].entityId,
-      predicate: `${unique[0].predicate}_rollup`,
-      object: `Complete ${unique[0].predicate} record (${kept}${truncated ? ` of ${unique.length}` : ''} items): ${parts.join('; ')}${truncated}`,
-      validFrom: unique[unique.length - 1].validFrom,
+      entityId: first.entityId,
+      predicate: `${first.predicate}_rollup`,
+      object: `Complete ${first.predicate} record (${kept}${truncated ? ` of ${unique.length}` : ''} items): ${parts.join('; ')}${truncated}`,
+      validFrom: last.validFrom,
       memberCount: unique.length,
       episodeIds,
     };
@@ -194,5 +197,6 @@ export function majorityEntityId(members: RollupMember[]): string {
   for (const m of members) {
     counts.set(m.entityId, (counts.get(m.entityId) ?? 0) + 1);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return ranked[0]?.[0] ?? ''; // empty only when members is empty
 }

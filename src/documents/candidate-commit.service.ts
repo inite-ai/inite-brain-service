@@ -201,6 +201,7 @@ function entityUpdates(
   return merge.entities.flatMap((me) => {
     const entityId = entityIds.get(me.key);
     const [leader, ...rest] = me.candidateIds;
+    if (leader === undefined) return []; // no candidate ids → nothing to update
     const leaderUpdate: StatusUpdate = {
       id: leader,
       kind: 'entity',

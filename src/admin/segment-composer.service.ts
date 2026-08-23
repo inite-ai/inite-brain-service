@@ -160,7 +160,7 @@ export class SegmentComposerService {
         seq: w.seq,
         episodeIds: w.turns.map((t) => new StringRecordId(String(t.id))),
         text: texts[i],
-        occurredAt: new Date(w.turns[0].occurredAt as string),
+        occurredAt: new Date(w.turns[0]!.occurredAt as string), // windows are non-empty
         piiClass: pii.length > 0 ? pii : undefined,
         userId: userIds.length === 1 ? userIds[0] : undefined,
         // G6 step 1: mirror the per-user scope as a scope tag (0093).

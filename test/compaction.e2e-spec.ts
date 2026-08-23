@@ -58,7 +58,7 @@ describe('compaction retention pass (real SurrealDB)', () => {
         `SELECT status, embedding FROM type::record('knowledge_fact', $tail)`,
         { tail: factId.split(':')[1] },
       );
-      const fact = (rows as Array<{ status: string; embedding: unknown }>)[0];
+      const fact = (rows as Array<{ status: string; embedding: unknown }>)[0]!;
       expect(fact.status).toBe('compacted');
       expect(fact.embedding ?? null).toBeNull();
     });

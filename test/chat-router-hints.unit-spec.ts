@@ -101,8 +101,8 @@ describe('extractPredicateHintsLocally', () => {
       maxHints: 3,
     });
     expect(hints).toHaveLength(1);
-    expect(hints[0].predicateId).toBe('address');
-    expect(hints[0].similarity).toBeCloseTo(1, 5);
+    expect(hints[0]!.predicateId).toBe('address');
+    expect(hints[0]!.similarity).toBeCloseTo(1, 5);
   });
 
   it('sorts hints by similarity descending and caps at maxHints', async () => {
@@ -121,8 +121,8 @@ describe('extractPredicateHintsLocally', () => {
       maxHints: 2,
     });
     expect(hints).toHaveLength(2);
-    expect(hints[0].predicateId).toBe('address');
-    expect(hints[1].predicateId).toBe('email');
+    expect(hints[0]!.predicateId).toBe('address');
+    expect(hints[1]!.predicateId).toBe('email');
   });
 
   it('drops predicates whose similarity is below threshold', async () => {
@@ -165,7 +165,7 @@ describe('extractPredicateHintsLocally', () => {
       threshold: 0.4,
       maxHints: 3,
     });
-    expect(hints[0].triggerSpan).toEqual({
+    expect(hints[0]!.triggerSpan).toEqual({
       text: 'where Maria lives',
       start: 0,
       end: 17,

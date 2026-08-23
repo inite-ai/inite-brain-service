@@ -66,8 +66,8 @@ describe('mention ingest user-scope pinning (audit 2026-08-21 P0)', () => {
     await runWithRequestContext({ correlationId: 't1' }, () =>
       svc.ingestMention('co_x', { ...baseDto, userId: 'user-42' }),
     );
-    expect(captured[0].userId).toBe('user-42');
-    expect(persisted[0].userId).toBe('user-42');
+    expect(captured[0]!.userId).toBe('user-42');
+    expect(persisted[0]!.userId).toBe('user-42');
   });
 
   it('M2M without an assertion stays tenant-global (unchanged behavior)', async () => {
@@ -76,8 +76,8 @@ describe('mention ingest user-scope pinning (audit 2026-08-21 P0)', () => {
     await runWithRequestContext({ correlationId: 't2' }, () =>
       svc.ingestMention('co_x', { ...baseDto }),
     );
-    expect(captured[0].userId).toBeUndefined();
-    expect(persisted[0].userId).toBeUndefined();
+    expect(captured[0]!.userId).toBeUndefined();
+    expect(persisted[0]!.userId).toBeUndefined();
   });
 
   it('a user-bound token defaults an omitted userId to its own user', async () => {
@@ -87,8 +87,8 @@ describe('mention ingest user-scope pinning (audit 2026-08-21 P0)', () => {
       { correlationId: 't3', authUserId: 'did:key:z6MkUser' },
       () => svc.ingestMention('co_x', { ...baseDto }),
     );
-    expect(captured[0].userId).toBe('did:key:z6MkUser');
-    expect(persisted[0].userId).toBe('did:key:z6MkUser');
+    expect(captured[0]!.userId).toBe('did:key:z6MkUser');
+    expect(persisted[0]!.userId).toBe('did:key:z6MkUser');
   });
 
   it('a user-bound token cannot write another user\'s scope (403)', async () => {
@@ -111,7 +111,7 @@ describe('mention ingest user-scope pinning (audit 2026-08-21 P0)', () => {
       { correlationId: 't5', authUserId: 'did:key:z6MkUser' },
       () => svc.ingestMention('co_x', { ...baseDto }),
     );
-    expect(captured[0].userId).toBe('did:key:z6MkUser');
+    expect(captured[0]!.userId).toBe('did:key:z6MkUser');
     expect(persisted).toHaveLength(0);
   });
 });

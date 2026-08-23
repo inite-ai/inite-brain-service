@@ -113,7 +113,7 @@ describe('deriver recall (V7)', () => {
       .mockResolvedValueOnce(ok(extra));
     const out = await callDeriver(makeSvc(create));
     expect(out).toHaveLength(2);
-    expect(out[1].proposition).toContain('Lisbon');
+    expect(out[1]!.proposition).toContain('Lisbon');
     // The follow-up turn carries the base list + the completion prompt.
     const followupMessages = create.mock.calls[1][0].messages;
     expect(followupMessages.at(-1).content).toBe(DERIVER_COMPLETION_PROMPT);

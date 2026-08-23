@@ -458,11 +458,11 @@ describe('/v1/registry — global pack registry (e2e)', () => {
               signed: false,
               verified: false,
               downloads: 0,
-              versionCount: upstreamPacks[packId].length,
+              versionCount: upstreamPacks[packId]!.length,
             })),
           });
         }
-        const rows = upstreamPacks[parts[3]];
+        const rows = upstreamPacks[parts[3]!];
         if (!rows) {
           res.statusCode = 404;
           return res.end('{}');
@@ -470,8 +470,8 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         if (parts.length === 4) {
           return json({
             packId: parts[3],
-            latestVersion: rows[0].manifest.version,
-            versions: rows.map((v) => versionRow(parts[3], v)),
+            latestVersion: rows[0]!.manifest.version,
+            versions: rows.map((v) => versionRow(parts[3]!, v)),
           });
         }
         const row = rows.find((v) => v.manifest.version === parts[4]);
@@ -543,8 +543,8 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     it('re-sync is idempotent and mirrors upstream yanks only onto origin-matching rows', async () => {
       // Upstream yanks BOTH versions; locally only the mirrored 0.1.0 may
       // follow — 0.2.0 is a local publish and must stay installable.
-      upstreamPacks.mirror_e2e[0].yanked = true;
-      upstreamPacks.mirror_e2e[1].yanked = true;
+      upstreamPacks.mirror_e2e![0]!.yanked = true;
+      upstreamPacks.mirror_e2e![1]!.yanked = true;
 
       const summary = await mirror.sync();
       expect(summary.imported).toBe(0);

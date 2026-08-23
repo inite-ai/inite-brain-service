@@ -99,7 +99,7 @@ function makeQueue(jobs: Record<string, number>) {
     async (input: { companyId: string; jobType: JobType }) => {
       const key = `${input.jobType}::${input.companyId}`;
       if ((counts[key] ?? 0) <= 0) return null;
-      counts[key] -= 1;
+      counts[key] = (counts[key] ?? 0) - 1;
       seq += 1;
       return {
         recordId: `job_run:${seq}`,
@@ -145,7 +145,7 @@ describe('WorkerPollerService.runLoop — default env stays serial', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(claimSvc.claimNext).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Dispatch resolved → the loop went around and claimed the second job.
     expect(claimSvc.claimNext.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -199,7 +199,7 @@ describe('WorkerPollerService.runLoop — per-jobType concurrency', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(claimSvc.claimNext).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Slot freed → the tenant is eligible again and its next job runs.
     expect(dispatch).toHaveBeenCalledTimes(2);
@@ -227,7 +227,7 @@ describe('WorkerPollerService.runLoop — per-jobType concurrency', () => {
     // Both loops have work available, but only one dispatch may fly.
     expect(dispatch).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Global slot freed → the other jobType's job goes out.
     expect(dispatch).toHaveBeenCalledTimes(2);

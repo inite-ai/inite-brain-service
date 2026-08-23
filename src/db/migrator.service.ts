@@ -137,22 +137,30 @@ export class SchemaMigrator {
         `No migration files found in ${this.migrationsDir}. Expected NNNN_description.surql`,
       );
     }
-    this.cached = await Promise.all(
-      eligible.map(async (name) => ({
-        id: name.match(FILE_NAME)![1],
-        name,
-        sql: await readFile(join(this.migrationsDir, name), 'utf-8'),
-      })),
+    const manifest: Migration[] = await Promise.all(
+      eligible.map(async (name) => {
+        const id = name.match(FILE_NAME)?.[1];
+        if (id === undefined) {
+          // Unreachable: `eligible` was filtered by FILE_NAME.test above.
+          throw new Error(`Migration file ${name} lacks an NNNN id prefix`);
+        }
+        return {
+          id,
+          name,
+          sql: await readFile(join(this.migrationsDir, name), 'utf-8'),
+        };
+      }),
     );
     // Reject duplicate IDs early — easier to debug than mid-apply.
     const ids = new Set<string>();
-    for (const m of this.cached) {
+    for (const m of manifest) {
       if (ids.has(m.id)) {
         throw new Error(`Duplicate migration id ${m.id} in ${this.migrationsDir}`);
       }
       ids.add(m.id);
     }
-    return this.cached;
+    this.cached = manifest;
+    return manifest;
   }
 
   private async fetchAppliedIds(conn: Surreal): Promise<string[]> {

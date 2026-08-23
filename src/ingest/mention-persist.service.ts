@@ -273,7 +273,8 @@ export class MentionPersistService {
     );
     const factIds: string[] = [];
     resolved.forEach((r, k) => {
-      const factId = this.emitFactOutcome(specs[k].f, r.result, r.semantics);
+      // resolved is 1:1 with specs (resolveMany preserves order) ⇒ in-bounds.
+      const factId = this.emitFactOutcome(specs[k]!.f, r.result, r.semantics);
       if (factId) factIds.push(factId);
     });
     return factIds;

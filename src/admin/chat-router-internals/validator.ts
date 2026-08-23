@@ -102,7 +102,7 @@ export function isValidIso(s: string): boolean {
 export function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
   const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const inner = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  const inner = fenceMatch?.[1]?.trim() ?? trimmed;
   const start = inner.indexOf('{');
   if (start < 0) throw new Error('no JSON object found in router response');
   let depth = 0;

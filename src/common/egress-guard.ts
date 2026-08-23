@@ -72,6 +72,7 @@ function isBlockedIPv4(ip: string): boolean {
     return true; // unparseable → fail closed
   }
   const [a, b] = parts;
+  if (a === undefined || b === undefined) return true; // fail closed
   return (
     a === 0 ||
     a === 127 ||
@@ -84,10 +85,10 @@ function isBlockedIPv4(ip: string): boolean {
 
 /** ::, ::1, fc00::/7 (ULA), fe80::/10 (link-local), IPv4-mapped. */
 function isBlockedIPv6(ip: string): boolean {
-  const bare = ip.toLowerCase().split('%')[0];
+  const bare = ip.toLowerCase().split('%')[0] ?? '';
   if (bare === '::' || bare === '::1') return true;
   const mapped = bare.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isBlockedIPv4(mapped[1]);
+  if (mapped) return isBlockedIPv4(mapped[1] ?? ''); // '' → parts≠4 → blocked
   const first = parseInt(bare.split(':')[0] || '0', 16);
   if (!Number.isFinite(first)) return true;
   if ((first & 0xfe00) === 0xfc00) return true;

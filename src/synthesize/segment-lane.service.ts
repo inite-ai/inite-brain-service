@@ -128,7 +128,10 @@ export class SegmentLaneService {
           body: s.text.slice(0, 600),
         })),
       );
-      return order.slice(0, topK).map((i) => fused[i]);
+      return order
+        .slice(0, topK)
+        .map((i) => fused[i])
+        .filter((s): s is SegmentRow => s !== undefined);
     } catch (e) {
       this.logger.warn(`segment rerank failed: ${(e as Error).message}`);
       return fused.slice(0, topK);

@@ -29,7 +29,7 @@ export class OperatorActionInterceptor implements NestInterceptor {
     const http = ctx.switchToHttp();
     const req = http.getRequest<Request & Partial<AuthenticatedRequest>>();
     const res = http.getResponse<Response>();
-    const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    const path = (req.originalUrl ?? req.url ?? '').split('?')[0] ?? '';
     const isAdminRoute = path.startsWith('/v1/admin/');
     const isSelf =
       path.startsWith('/v1/admin/operator-actions') ||

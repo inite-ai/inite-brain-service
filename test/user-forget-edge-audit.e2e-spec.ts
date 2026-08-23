@@ -33,8 +33,8 @@ describe('user-forget purges edge audit_event rows', () => {
         `CREATE knowledge_entity SET type='other', canonicalName='Global Y',
            externalRefs={} RETURN id`,
       );
-      const pid = String((personal as Array<{ id: unknown }>)[0].id);
-      const gid = String((global as Array<{ id: unknown }>)[0].id);
+      const pid = String((personal as Array<{ id: unknown }>)[0]!.id);
+      const gid = String((global as Array<{ id: unknown }>)[0]!.id);
 
       // An edge whose `in` endpoint is the personal entity — user-forget
       // matches it via in.userId = $u. knowledge_edge is TYPE RELATION,
@@ -45,7 +45,7 @@ describe('user-forget purges edge audit_event rows', () => {
            CONTENT { kind: 'related_to', weight: 1.0, source: {} } RETURN AFTER`,
         { from: new StringRecordId(pid), to: new StringRecordId(gid) },
       );
-      const eid = String((edge as Array<{ id: unknown }>)[0].id);
+      const eid = String((edge as Array<{ id: unknown }>)[0]!.id);
 
       // The changefeed mirror row the drain would have written for it.
       await db.query(

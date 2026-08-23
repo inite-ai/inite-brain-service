@@ -264,6 +264,9 @@ export class RecomposeService implements OnModuleInit {
   ): Promise<boolean> {
     const text = await this.summaryGenerator.generate(parents);
     if (!text) return false;
+    const first = parents[0];
+    const last = parents[parents.length - 1];
+    if (!first || !last) return false; // no parents to recompose from
     const meanConfidence =
       parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
     await db.query(
@@ -277,10 +280,8 @@ export class RecomposeService implements OnModuleInit {
         id: new StringRecordId(summaryId),
         object: text,
         confidence: meanConfidence,
-        validFrom: parents[0].validFrom,
-        validUntil:
-          parents[parents.length - 1].validUntil ??
-          parents[parents.length - 1].validFrom,
+        validFrom: first.validFrom,
+        validUntil: last.validUntil ?? last.validFrom,
         // Re-point at the CURRENT parents: a superseded parent we followed is
         // no longer what this summary is derived from, and leaving the old id
         // would make the next invalidation pass chase a dead row.

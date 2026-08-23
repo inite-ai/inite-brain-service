@@ -92,13 +92,13 @@ async function score(p: {
   const scores: number[] = new Array(p.documents.length).fill(
     Number.NEGATIVE_INFINITY,
   );
-  for (let i = 0; i < p.documents.length; i++) {
+  for (const [i, doc] of p.documents.entries()) {
     // Deadline check between pairs: a slow host must not blow the caller's
     // stage budget. Unscored docs keep -Infinity and sink to the tail (the
     // array length still matches, so the permutation stays valid).
     if (deadline !== undefined && Date.now() > deadline) break;
     const inputs = await tokenizer(p.query, {
-      text_pair: p.documents[i],
+      text_pair: doc,
       padding: true,
       truncation: true,
     });

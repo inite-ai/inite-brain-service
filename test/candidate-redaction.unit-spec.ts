@@ -55,13 +55,13 @@ const isRedacted = (c: CandidateRow) =>
 describe('redactGatedCandidates', () => {
   it('leaves a non-PII candidate visible when no scope/policy gates it', () => {
     const [c] = redactGatedCandidates([factCandidate('tier')], ['brain:read'], null);
-    expect(c.payload.object).toBe('secret value');
-    expect(c.payload.clause).toBe('the source sentence');
+    expect(c!.payload.object).toBe('secret value');
+    expect(c!.payload.clause).toBe('the source sentence');
   });
 
   it('redacts object AND clause of a PII candidate without brain:read_pii', () => {
     const [c] = redactGatedCandidates([factCandidate('dob')], ['brain:read'], null);
-    expect(isRedacted(c)).toBe(true);
+    expect(isRedacted(c!)).toBe(true);
   });
 
   it('shows the PII candidate to a caller holding brain:read_pii', () => {
@@ -70,7 +70,7 @@ describe('redactGatedCandidates', () => {
       ['brain:read', 'brain:read_pii'],
       null,
     );
-    expect(c.payload.object).toBe('secret value');
+    expect(c!.payload.object).toBe('secret value');
   });
 
   it('redacts a candidate an enforced ABAC rule denies (by predicate)', () => {
@@ -84,14 +84,14 @@ describe('redactGatedCandidates', () => {
       },
     ]);
     const [denied] = redactGatedCandidates([factCandidate('tier')], ['brain:read'], ctx);
-    expect(isRedacted(denied)).toBe(true);
+    expect(isRedacted(denied!)).toBe(true);
     // A different predicate the rule doesn't target stays visible.
     const [kept] = redactGatedCandidates(
       [factCandidate('preference')],
       ['brain:read'],
       ctx,
     );
-    expect(kept.payload.object).toBe('secret value');
+    expect(kept!.payload.object).toBe('secret value');
   });
 
   it('never touches non-fact candidates', () => {
@@ -114,7 +114,7 @@ describe('redactGatedCandidates', () => {
       },
     ]);
     const [c] = redactGatedCandidates([entity], ['brain:read'], denyAll);
-    expect(c.payload.name).toBe('Acme Corp');
-    expect(c.payload.redacted).toBeUndefined();
+    expect(c!.payload.name).toBe('Acme Corp');
+    expect(c!.payload.redacted).toBeUndefined();
   });
 });

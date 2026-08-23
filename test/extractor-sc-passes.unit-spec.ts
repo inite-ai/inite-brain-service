@@ -87,8 +87,8 @@ describe('ExtractorService N-pass driver', () => {
     ]);
     const res = await svc.extract('hello A', 'co_test');
     expect(res.facts).toHaveLength(1);
-    expect(res.facts[0].extractionEntropy).toBeUndefined();
-    expect(res.facts[0].extractionAgreement).toBeUndefined();
+    expect(res.facts[0]!.extractionEntropy).toBeUndefined();
+    expect(res.facts[0]!.extractionAgreement).toBeUndefined();
   });
 
   it('three-pass consensus → entropy ≈ 0, agreement = 1', async () => {
@@ -109,8 +109,8 @@ describe('ExtractorService N-pass driver', () => {
     const svc = mkExtractor(3, [allAgree, allAgree, allAgree]);
     const res = await svc.extract('hello A', 'co_test');
     expect(res.facts).toHaveLength(1);
-    expect(res.facts[0].extractionEntropy).toBeCloseTo(0, 3);
-    expect(res.facts[0].extractionAgreement).toBe(1);
+    expect(res.facts[0]!.extractionEntropy).toBeCloseTo(0, 3);
+    expect(res.facts[0]!.extractionAgreement).toBe(1);
   });
 
   it('three-pass disagreement → positive entropy + agreement = 1/3', async () => {

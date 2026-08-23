@@ -151,7 +151,7 @@ describe('computeFaithfulness', () => {
     });
     // Score = (1 + 0.5*1 + 0) / 3 = 0.5
     expect(out.faithfulness).toBeCloseTo(0.5, 6);
-    expect(out.claims[2].verdict).toBe('not_supported');
+    expect(out.claims[2]!.verdict).toBe('not_supported');
   });
 
   it('verifier returns invalid enum value → padded to not_supported', async () => {
@@ -164,7 +164,7 @@ describe('computeFaithfulness', () => {
       sourceFacts: [],
     });
     expect(out.faithfulness).toBe(0);
-    expect(out.claims[0].verdict).toBe('not_supported');
+    expect(out.claims[0]!.verdict).toBe('not_supported');
   });
 
   it('claim text round-trips through to the score', async () => {

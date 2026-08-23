@@ -22,7 +22,7 @@ export class InFlightInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = ctx.switchToHttp();
     const req = http.getRequest<Request & Partial<AuthenticatedRequest>>();
-    const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    const path = (req.originalUrl ?? req.url ?? '').split('?')[0] ?? '';
     // SSE handlers stay open by design — recording them as "in flight"
     // would make every connected admin browser look like a stuck request.
     if (path.endsWith('/stream')) return next.handle();

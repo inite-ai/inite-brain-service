@@ -123,11 +123,14 @@ export class ChangefeedDrainService {
             { events },
           );
         }
-        await this.advanceCursor(
-          db,
-          source,
-          batch[batch.length - 1].versionstamp as number,
-        );
+        const lastChange = batch[batch.length - 1];
+        if (lastChange) {
+          await this.advanceCursor(
+            db,
+            source,
+            lastChange.versionstamp as number,
+          );
+        }
         consumed[source] = batch.length;
       }
     });

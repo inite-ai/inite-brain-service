@@ -41,8 +41,8 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       limit: 5,
       includePii: true,
     });
-    expect(queries[0].sql).toContain(GLOBAL_ONLY);
-    expect(queries[0].params?.scopeUserId).toBeUndefined();
+    expect(queries[0]!.sql).toContain(GLOBAL_ONLY);
+    expect(queries[0]!.params?.scopeUserId).toBeUndefined();
   });
 
   it('searchText: scoped read sees global + own, never another user', async () => {
@@ -54,8 +54,8 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       includePii: true,
       userId: 'u1',
     });
-    expect(queries[0].sql).toContain(SCOPED);
-    expect(queries[0].params?.scopeUserId).toBe('u1');
+    expect(queries[0]!.sql).toContain(SCOPED);
+    expect(queries[0]!.params?.scopeUserId).toBe('u1');
   });
 
   it('byIds: fenced in both modes', async () => {
@@ -66,30 +66,30 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       ids: ['episode:e1'],
       includePii: false,
     });
-    expect(queries[0].sql).toContain(GLOBAL_ONLY);
+    expect(queries[0]!.sql).toContain(GLOBAL_ONLY);
     await svc.byIds({
       companyId: 'co_x',
       ids: ['episode:e1'],
       includePii: false,
       userId: 'u1',
     });
-    expect(queries[1].sql).toContain(SCOPED);
-    expect(queries[1].params?.scopeUserId).toBe('u1');
+    expect(queries[1]!.sql).toContain(SCOPED);
+    expect(queries[1]!.params?.scopeUserId).toBe('u1');
   });
 
   it('page (public API): fenced in both modes', async () => {
     const { surreal, queries } = recorder();
     const svc = new EpisodeReadStoreService(surreal);
     await svc.page({ companyId: 'co_x', includePii: false, limit: 10 });
-    expect(queries[0].sql).toContain('userId IS NONE');
+    expect(queries[0]!.sql).toContain('userId IS NONE');
     await svc.page({
       companyId: 'co_x',
       includePii: false,
       limit: 10,
       userId: 'u1',
     });
-    expect(queries[1].sql).toContain('userId = $scopeUserId');
-    expect(queries[1].params?.scopeUserId).toBe('u1');
+    expect(queries[1]!.sql).toContain('userId = $scopeUserId');
+    expect(queries[1]!.params?.scopeUserId).toBe('u1');
   });
 
   it('metaSince stays UNGATED by design (metadata only, no text)', async () => {
@@ -99,8 +99,8 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       sinceIso: '2026-08-01T00:00:00.000Z',
       limit: 10,
     });
-    expect(queries[0].sql).not.toContain('userId');
-    expect(queries[0].sql).not.toContain('text');
+    expect(queries[0]!.sql).not.toContain('userId');
+    expect(queries[0]!.sql).not.toContain('text');
   });
 });
 

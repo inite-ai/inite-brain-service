@@ -182,7 +182,7 @@ export class EpisodeSubscriptionService {
       });
       if (rows.length === 0) continue;
       const toIso = (v: Date | string): string => new Date(v as string).toISOString();
-      const watermark = toIso(rows[rows.length - 1].recordedAt);
+      const watermark = toIso(rows[rows.length - 1]!.recordedAt); // rows non-empty (checked)
       const event: EpisodesAvailableEvent = {
         event: 'episodes_available',
         delivery: 'at-least-once',

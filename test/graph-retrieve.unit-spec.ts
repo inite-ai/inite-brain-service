@@ -58,11 +58,11 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
     // Seed comes first (anchor), Maria as the neighbour with the hit.
     expect(out.map((r) => r.entityId)).toEqual(['e_acme', 'e_maria']);
     // Maria's fact is what answers the question.
-    expect(out[1].facts).toHaveLength(1);
-    expect(out[1].facts[0].predicate).toBe('status');
-    expect(out[1].facts[0].object).toBe('CTO at Acme');
+    expect(out[1]!.facts).toHaveLength(1);
+    expect(out[1]!.facts[0]!.predicate).toBe('status');
+    expect(out[1]!.facts[0]!.object).toBe('CTO at Acme');
     // Seed is lifted higher than neighbour.
-    expect(out[0].score).toBeGreaterThan(out[1].score);
+    expect(out[0]!.score).toBeGreaterThan(out[1]!.score);
   });
 
   it('seed with no facts + neighbour with non-hint facts → neighbour DROPPED', () => {
@@ -114,8 +114,8 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
     ] });
 
     expect(out).toHaveLength(1);
-    expect(out[0].entityId).toBe('e_acme');
-    expect(out[0].facts).toEqual([]);
+    expect(out[0]!.entityId).toBe('e_acme');
+    expect(out[0]!.facts).toEqual([]);
   });
 
   it('multiple seeds preserved in input order', () => {
@@ -146,8 +146,8 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
 
     const out = assembleGraphHits({ seedIds: ['e_maria'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
 
-    expect(out[0].facts).toHaveLength(1);
-    expect(out[0].facts[0].factId).toBe('f_new');
+    expect(out[0]!.facts).toHaveLength(1);
+    expect(out[0]!.facts[0]!.factId).toBe('f_new');
   });
 
   it('fact score is higher when predicate matches a hint', () => {
@@ -165,7 +165,7 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
 
     const out = assembleGraphHits({ seedIds: ['e_maria'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
 
-    const byPredicate = new Map(out[0].facts.map((f) => [f.predicate, f.score]));
+    const byPredicate = new Map(out[0]!.facts.map((f) => [f.predicate, f.score]));
     expect(byPredicate.get('status')).toBeGreaterThan(byPredicate.get('name')!);
   });
 

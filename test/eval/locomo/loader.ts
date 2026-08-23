@@ -72,7 +72,7 @@ function extractSessions(conv: LocomoRawConversation): LocomoSession[] {
   for (const key of Object.keys(conv)) {
     const match = key.match(/^session_(\d+)$/);
     if (!match) continue;
-    const idx = parseInt(match[1], 10);
+    const idx = parseInt(match[1]!, 10);
     const turnsValue = conv[key];
     if (!Array.isArray(turnsValue)) {
       throw new Error(

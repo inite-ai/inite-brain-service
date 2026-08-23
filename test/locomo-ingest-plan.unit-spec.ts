@@ -73,7 +73,7 @@ describe('LoCoMo ingest planner', () => {
         conversation: { ...fixture.conversation, speaker_a: 'M.A. Singer' },
       }),
     );
-    expect(plan.speakers[0].entityId).toBe('conv_1__m_a_singer');
+    expect(plan.speakers[0]!.entityId).toBe('conv_1__m_a_singer');
   });
 
   it('prefixes multiparty speakers under the same sample namespace', () => {

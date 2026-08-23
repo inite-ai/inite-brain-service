@@ -88,10 +88,10 @@ export class ReindexEngineService {
             if (page.length < batch) break;
             continue;
           }
-          for (let i = 0; i < page.length; i++) {
+          for (const [i, row] of page.entries()) {
             try {
               await db.query(`UPDATE $id SET embedding = $embedding`, {
-                id: page[i].id,
+                id: row.id,
                 embedding: embeddings[i],
               });
               factsUpdated += 1;

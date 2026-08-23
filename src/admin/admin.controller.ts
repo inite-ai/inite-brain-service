@@ -248,7 +248,7 @@ export class AdminController {
         binCount - 1,
         Math.floor(p.rawConfidence * binCount),
       );
-      const bin = bins[idx];
+      const bin = bins[idx]!; // idx ∈ [0, binCount-1] = bins index range
       bin.n += 1;
       bin.meanRaw += p.rawConfidence;
       bin.meanCorrect += p.correctness;

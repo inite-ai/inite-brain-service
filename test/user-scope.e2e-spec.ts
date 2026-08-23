@@ -56,7 +56,7 @@ describe('per-user memory scope', () => {
         `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
         { tail: (anchor.factId as string).split(':')[1] },
       );
-      return String((rows as Array<{ entityId: unknown }>)[0].entityId);
+      return String((rows as Array<{ entityId: unknown }>)[0]!.entityId);
     });
 
     await ingest({
@@ -114,7 +114,7 @@ describe('per-user memory scope', () => {
         `SELECT status FROM type::record('knowledge_fact', $tail)`,
         { tail: (globalTier.factId as string).split(':')[1] },
       );
-      expect((rows as Array<{ status: string }>)[0].status).toBe('active');
+      expect((rows as Array<{ status: string }>)[0]!.status).toBe('active');
     });
   });
 
@@ -135,7 +135,7 @@ describe('per-user memory scope', () => {
       );
       const row = (
         rows as Array<{ entityId: unknown; userId: string | null }>
-      )[0];
+      )[0]!;
       expect(String(row.entityId)).not.toBe(sharedEntityId);
       expect(row.userId).toBe('user_a');
     });

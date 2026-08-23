@@ -54,7 +54,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
       .fn()
       .mockResolvedValue(emptyRes({ answer: null, reason: 'no_results' }));
     const { checker, openai } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.expectedRefusal).toBe(true);
     expect(out.refused).toBe(true);
     expect(out.passed).toBe(true);
@@ -67,7 +67,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
       emptyRes({ answer: "I don't have grounded evidence for that." }),
     );
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.refused).toBe(true);
     expect(out.passed).toBe(true);
   });
@@ -77,7 +77,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
       emptyRes({ answer: 'Her brother said the intercom was fine.', citations: [] }),
     );
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.refused).toBe(false);
     expect(out.passed).toBe(false);
     expect(out.expectedRefusal).toBe(true);
@@ -86,7 +86,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
   it('an exception fails closed (not a false pass)', async () => {
     const synthesize = jest.fn().mockRejectedValue(new Error('boom'));
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.passed).toBe(false);
   });
 });

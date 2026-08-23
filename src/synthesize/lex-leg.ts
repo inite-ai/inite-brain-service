@@ -59,7 +59,8 @@ export function buildLexMatchLeg(opts: {
     const scores = fields.map((_, j) => `search::score(${j + 1})`);
     return {
       where: `(${matchers.join(' OR ')})`,
-      score: scores.length === 1 ? scores[0] : `math::max([${scores.join(', ')}])`,
+      score:
+        scores.length === 1 ? scores[0]! : `math::max([${scores.join(', ')}])`,
       params: { topic },
     };
   }
@@ -74,7 +75,7 @@ export function buildLexMatchLeg(opts: {
       return `search::score(${ref})`;
     });
     perTerm.push(
-      scores.length === 1 ? scores[0] : `math::max([${scores.join(', ')}])`,
+      scores.length === 1 ? scores[0]! : `math::max([${scores.join(', ')}])`,
     );
   });
   return {

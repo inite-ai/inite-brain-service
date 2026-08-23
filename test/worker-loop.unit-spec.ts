@@ -136,8 +136,8 @@ describe('JobDispatcherService.dispatch', () => {
     };
     await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.completed).toHaveLength(1);
-    expect(claimSvc.calls.completed[0].recordId).toBe('job_run:abc');
-    expect(claimSvc.calls.completed[0].result).toEqual({ ok: true });
+    expect(claimSvc.calls.completed[0]!.recordId).toBe('job_run:abc');
+    expect(claimSvc.calls.completed[0]!.result).toEqual({ ok: true });
     expect(claimSvc.calls.failed).toHaveLength(0);
   });
 
@@ -172,8 +172,8 @@ describe('JobDispatcherService.dispatch', () => {
     };
     await callDispatch(mkDispatcher(claimSvc), claim, reg);
     expect(claimSvc.calls.failed).toHaveLength(1);
-    expect(claimSvc.calls.failed[0].attempts).toBe(2);
-    expect((claimSvc.calls.failed[0].error as Error).message).toBe(
+    expect(claimSvc.calls.failed[0]!.attempts).toBe(2);
+    expect((claimSvc.calls.failed[0]!.error as Error).message).toBe(
       'handler boom',
     );
   });

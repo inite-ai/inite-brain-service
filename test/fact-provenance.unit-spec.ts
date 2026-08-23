@@ -287,8 +287,8 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
       occurredAt: '2026-07-01T10:00:00.000Z',
       text: 'I love hiking, we should plan a trip!',
     });
-    expect(res.episodes[1].text.length).toBe(600);
-    expect(res.episodes[1].text.endsWith('…')).toBe(true);
+    expect(res.episodes[1]!.text.length).toBe(600);
+    expect(res.episodes[1]!.text.endsWith('…')).toBe(true);
   });
 
   it('G3: a fact with source.charSpans serves span + textTruncated per episode', async () => {
@@ -330,17 +330,17 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
       scopes: READ,
     });
     // Wire span is {start, end, exact} only — prefix/suffix stay stored.
-    expect(res.episodes[0].span).toEqual({ start: 7, end: 13, exact: 'hiking' });
-    expect(res.episodes[0].textTruncated).toBe(false);
+    expect(res.episodes[0]!.span).toEqual({ start: 7, end: 13, exact: 'hiking' });
+    expect(res.episodes[0]!.textTruncated).toBe(false);
     // Truncated episode: offsets reference the FULL stored text, and
     // textTruncated says so.
-    expect(res.episodes[1].span).toEqual({
+    expect(res.episodes[1]!.span).toEqual({
       start: 700,
       end: 706,
       exact: 'routes',
     });
-    expect(res.episodes[1].textTruncated).toBe(true);
-    expect(res.episodes[1].text.length).toBe(600);
+    expect(res.episodes[1]!.textTruncated).toBe(true);
+    expect(res.episodes[1]!.text.length).toBe(600);
   });
 
   it('G3: a fact without charSpans keeps the pre-span episode shape', async () => {

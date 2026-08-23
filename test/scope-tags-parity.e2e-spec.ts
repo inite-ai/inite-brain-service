@@ -45,8 +45,8 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
         { scopes: READ, userId: 'user_b' },
       ],
     });
-    aToken = f.extraApiKeys[0];
-    bToken = f.extraApiKeys[1];
+    aToken = f.extraApiKeys[0]!;
+    bToken = f.extraApiKeys[1]!;
 
     // Seed via M2M asserting the scope in the body. The write path stamps
     // both userId (0055) AND scope (0093) regardless of the read flag, so

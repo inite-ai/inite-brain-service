@@ -289,7 +289,10 @@ export class SearchRerankService {
       { 'cross_encoder.candidates': xInputs.length },
     );
     this.metrics?.countCrossEncoder(timedOut ? 'error' : 'invoked');
-    return xPerm.map((i) => wideCandidates[i]).slice(0, rerankWindow);
+    return xPerm
+      .map((i) => wideCandidates[i])
+      .filter((c): c is EntityBucket => c !== undefined)
+      .slice(0, rerankWindow);
   }
 
   private async runLlmRerank({
@@ -352,6 +355,8 @@ export class SearchRerankService {
       { 'rerank.candidates': rerankInputs.length },
     );
     this.metrics?.countRerank(timedOut ? 'error' : 'invoked');
-    return permutation.map((i) => candidatesForRerank[i]);
+    return permutation
+      .map((i) => candidatesForRerank[i])
+      .filter((c): c is EntityBucket => c !== undefined);
   }
 }

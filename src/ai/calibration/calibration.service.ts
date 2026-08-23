@@ -81,7 +81,7 @@ export class CalibrationService implements OnModuleInit {
     if (this.disabled || !this.surreal || !this.apiKeys) return;
     const tenants = this.apiKeys.knownCompanyIds();
     if (tenants.length === 0) return;
-    const host = tenants[0];
+    const host = tenants[0]!; // non-empty guaranteed by the guard above
     try {
       const map = await this.loadPersistedBootstrap(host);
       if (map) {

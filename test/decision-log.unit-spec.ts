@@ -52,9 +52,9 @@ describe('buildDecisionLog', () => {
 
     expect(log).toHaveLength(2);
     expect(log[0]).toMatchObject({ factId: 'f1', picked: true });
-    expect(log[0].rejectReason).toBeUndefined();
+    expect(log[0]!.rejectReason).toBeUndefined();
     expect(log[1]).toMatchObject({ factId: 'f2', picked: false });
-    expect(log[1].rejectReason).toBe('not_relevant_to_query');
+    expect(log[1]!.rejectReason).toBe('not_relevant_to_query');
   });
 
   it('flags low-score rejections below the threshold', () => {
@@ -71,7 +71,7 @@ describe('buildDecisionLog', () => {
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(), { lowScoreThreshold: 0.1 });
-    expect(log[0].rejectReason).toBe('low_score');
+    expect(log[0]!.rejectReason).toBe('low_score');
   });
 
   it('flags second occurrence of a predicate as duplicate', () => {
@@ -131,7 +131,7 @@ describe('buildDecisionLog', () => {
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(['fg']));
-    expect(log[0].scoreBreakdown.stages).toEqual(['graph_neighbour', 'lexical']);
+    expect(log[0]!.scoreBreakdown.stages).toEqual(['graph_neighbour', 'lexical']);
   });
 
   it('falls back to a synthetic breakdown when one is missing', () => {
@@ -157,7 +157,7 @@ describe('buildDecisionLog', () => {
       },
     ];
     const log = buildDecisionLog(hits, new Set(['f1']));
-    expect(log[0].scoreBreakdown.finalScore).toBe(0.5);
-    expect(log[0].scoreBreakdown.stages).toEqual([]);
+    expect(log[0]!.scoreBreakdown.finalScore).toBe(0.5);
+    expect(log[0]!.scoreBreakdown.stages).toEqual([]);
   });
 });

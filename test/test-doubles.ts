@@ -155,6 +155,6 @@ function hashToVector(text: string, dim: number): number[] {
   let norm = 0;
   for (const v of out) norm += v * v;
   norm = Math.sqrt(norm) || 1;
-  for (let i = 0; i < dim; i++) out[i] /= norm;
+  for (let i = 0; i < dim; i++) out[i] = out[i]! / norm;
   return out;
 }

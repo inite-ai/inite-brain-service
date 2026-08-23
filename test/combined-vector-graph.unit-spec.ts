@@ -48,8 +48,8 @@ describe('buildNeighbourMap', () => {
     ];
     const map = buildNeighbourMap(rows)!;
     expect(map.size).toBe(2);
-    expect(map.get('knowledge_entity:e1')?.outNeighbours?.[0].peer?.id).toBe('knowledge_entity:n1');
-    expect(map.get('knowledge_entity:e2')?.inNeighbours?.[0].peer?.id).toBe('knowledge_entity:n2');
+    expect(map.get('knowledge_entity:e1')?.outNeighbours?.[0]?.peer?.id).toBe('knowledge_entity:n1');
+    expect(map.get('knowledge_entity:e2')?.inNeighbours?.[0]?.peer?.id).toBe('knowledge_entity:n2');
   });
 });
 

@@ -69,9 +69,9 @@ describe('LoCoMo HTTP shapes', () => {
       validFrom: '2023-05-01T12:00:00.000Z',
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0].method).toBe('POST');
-    expect(calls[0].url).toBe('http://brain/v1/ingest/fact');
-    const body = calls[0].body;
+    expect(calls[0]!.method).toBe('POST');
+    expect(calls[0]!.url).toBe('http://brain/v1/ingest/fact');
+    const body = calls[0]!.body;
     expect(body).toMatchObject({
       entityRef: { vertical: 'locomo', id: 'conv_1__alice' },
       predicate: 'name',
@@ -104,8 +104,8 @@ describe('LoCoMo HTTP shapes', () => {
       sourceMessageId: 'locomo:conv-1:D1:5',
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('http://brain/v1/ingest/mention');
-    const body = calls[0].body;
+    expect(calls[0]!.url).toBe('http://brain/v1/ingest/mention');
+    const body = calls[0]!.body;
     // Required by IngestMentionDto.
     expect(body).toMatchObject({
       text: 'I bought a cat last weekend.',
@@ -157,8 +157,8 @@ describe('LoCoMo HTTP shapes', () => {
       typeof answer === 'string' ? answer : answer.answer,
     ).toBe('Alice bought a cat in May 2023.');
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('http://brain/v1/search/multi-hop');
-    expect(calls[0].body).toMatchObject({
+    expect(calls[0]!.url).toBe('http://brain/v1/search/multi-hop');
+    expect(calls[0]!.body).toMatchObject({
       query: 'What did Alice buy in May?',
       maxHops: 3,
       synthesize: true,
@@ -186,6 +186,6 @@ describe('LoCoMo HTTP shapes', () => {
     expect(
       typeof answer === 'string' ? answer : answer.answer,
     ).toBe('no information available');
-    expect(calls[0].url).toBe('http://brain/v1/synthesize');
+    expect(calls[0]!.url).toBe('http://brain/v1/synthesize');
   });
 });

@@ -167,7 +167,11 @@ export interface ConflictConfig {
   rejectThreshold: number;
 }
 
-export const SOURCE_TRUST: Record<string, number> = {
+// `satisfies` (not a `Record<string, number>` annotation) so each key keeps
+// its concrete presence: static property access (SOURCE_TRUST.billing_event)
+// stays `number` under noUncheckedIndexedAccess. Never indexed by a dynamic
+// key — every read is a literal member.
+export const SOURCE_TRUST = {
   human_declared:           1.00,
   billing_event:            0.95,
   incidents_event:          0.90,
@@ -178,7 +182,7 @@ export const SOURCE_TRUST: Record<string, number> = {
   voice_transcript:         0.40,
   external_webhook:         0.50,
   default:                  0.50,
-};
+} satisfies Record<string, number>;
 
 export function recencyWeight(recordedAt: Date, now: Date = new Date()): number {
   const ageDays = (now.getTime() - recordedAt.getTime()) / (1000 * 60 * 60 * 24);

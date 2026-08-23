@@ -254,7 +254,7 @@ export class CrossEncoderService
       // NaN, which would otherwise make the comparator non-deterministic.
       return candidates
         .map((_, i) => i)
-        .sort((a, b) => scores[b] - scores[a] || 0);
+        .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || 0);
     } catch (e) {
       this.logger.warn(
         `Local cross-encoder failed: ${(e as Error).message} — falling back to identity`,

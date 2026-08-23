@@ -110,8 +110,8 @@ describe('edge expansion under the fence', () => {
     );
     expect(sql[0]).toContain('peer: out.{id, userId}');
     // The scoped peer never reaches the neighbour-fact fetch.
-    expect(String(params[1].entityIds)).toContain('global');
-    expect(String(params[1].entityIds)).not.toContain('alices');
+    expect(String(params[1]!.entityIds)).toContain('global');
+    expect(String(params[1]!.entityIds)).not.toContain('alices');
   });
 
   it('a scoped caller binds their id into the edge filter', async () => {
@@ -127,7 +127,7 @@ describe('edge expansion under the fence', () => {
       config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
     });
     expect(sql[0]).toContain('userId = $edgeScopeUserId');
-    expect(params[0].edgeScopeUserId).toBe('alice');
+    expect(params[0]!.edgeScopeUserId).toBe('alice');
   });
 
   it('fences prefetched neighbourhoods too (combined-leg path)', async () => {
@@ -249,7 +249,7 @@ describe('PPR under the fence', () => {
     expect(sql[0]).toContain(
       'invalidatedAt IS NONE AND (userId IS NONE OR userId = $edgeScopeUserId)',
     );
-    expect(params[0].edgeScopeUserId).toBe('alice');
+    expect(params[0]!.edgeScopeUserId).toBe('alice');
   });
 });
 

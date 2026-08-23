@@ -34,11 +34,11 @@ describe('withGenAiCall', () => {
     );
     expect((res as any).id).toBe('resp_abc');
     expect(m.recorded).toHaveLength(1);
-    expect(m.recorded[0].kind).toBe('chat');
-    expect(m.recorded[0].outcome).toBe('ok');
-    expect(m.recorded[0].promptTokens).toBe(12);
-    expect(m.recorded[0].completionTokens).toBe(4);
-    expect(m.recorded[0].durationSeconds).toBeGreaterThanOrEqual(0);
+    expect(m.recorded[0]!.kind).toBe('chat');
+    expect(m.recorded[0]!.outcome).toBe('ok');
+    expect(m.recorded[0]!.promptTokens).toBe(12);
+    expect(m.recorded[0]!.completionTokens).toBe(4);
+    expect(m.recorded[0]!.durationSeconds).toBeGreaterThanOrEqual(0);
   });
 
   it('folds embed response.usage.total_tokens into promptTokens', async () => {
@@ -48,8 +48,8 @@ describe('withGenAiCall', () => {
       m as any,
       async () => ({ usage: { total_tokens: 7 } }),
     );
-    expect(m.recorded[0].promptTokens).toBe(7);
-    expect(m.recorded[0].completionTokens).toBeUndefined();
+    expect(m.recorded[0]!.promptTokens).toBe(7);
+    expect(m.recorded[0]!.completionTokens).toBeUndefined();
   });
 
   it('records outcome=error and re-throws when the inner fn throws', async () => {
@@ -63,7 +63,7 @@ describe('withGenAiCall', () => {
         },
       ),
     ).rejects.toThrow('boom');
-    expect(m.recorded[0].outcome).toBe('error');
+    expect(m.recorded[0]!.outcome).toBe('error');
   });
 
   it('handles missing MetricsService gracefully (Optional inject)', async () => {
@@ -82,8 +82,8 @@ describe('withGenAiCall', () => {
       m as any,
       async () => ({ id: 'r' }),
     );
-    expect(m.recorded[0].outcome).toBe('ok');
-    expect(m.recorded[0].promptTokens).toBeUndefined();
-    expect(m.recorded[0].completionTokens).toBeUndefined();
+    expect(m.recorded[0]!.outcome).toBe('ok');
+    expect(m.recorded[0]!.promptTokens).toBeUndefined();
+    expect(m.recorded[0]!.completionTokens).toBeUndefined();
   });
 });

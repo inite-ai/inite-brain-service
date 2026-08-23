@@ -253,7 +253,7 @@ describe('strategy lane — both flags on (serving)', () => {
       .send({ query: 'engineer' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThanOrEqual(2);
-    const generatorCall = state.calls[0];
+    const generatorCall = state.calls[0]!;
     expect(generatorCall.user).toContain('=== ADVISORY STRATEGY NOTES');
     expect(generatorCall.user).toContain(STRATEGY_TEXT);
     expect(generatorCall.user).toContain('=== END ADVISORY STRATEGY NOTES ===');
@@ -308,7 +308,7 @@ describe('strategy lane — both flags on (serving)', () => {
     );
     // The strategy text may appear ONLY inside the fenced advisory
     // section of the generator prompt — never among the fact lines.
-    const generatorCall = state.calls[0];
+    const generatorCall = state.calls[0]!;
     const factSection = generatorCall.user.split(
       '=== ADVISORY STRATEGY NOTES',
     )[0];

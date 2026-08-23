@@ -245,19 +245,19 @@ function assertActiveIntervalContinuity(rows: SlotFactRow[]): void {
   const active = rows.filter((r) => r.status === 'active');
   for (let i = 0; i < active.length; i++) {
     for (let j = i + 1; j < active.length; j++) {
-      const aFrom = toDate(active[i].validFrom).getTime();
-      const aUntil = active[i].validUntil
-        ? toDate(active[i].validUntil as Date | string).getTime()
+      const aFrom = toDate(active[i]!.validFrom).getTime();
+      const aUntil = active[i]!.validUntil
+        ? toDate(active[i]!.validUntil as Date | string).getTime()
         : Infinity;
-      const bFrom = toDate(active[j].validFrom).getTime();
-      const bUntil = active[j].validUntil
-        ? toDate(active[j].validUntil as Date | string).getTime()
+      const bFrom = toDate(active[j]!.validFrom).getTime();
+      const bUntil = active[j]!.validUntil
+        ? toDate(active[j]!.validUntil as Date | string).getTime()
         : Infinity;
       const overlap = aFrom < bUntil && bFrom < aUntil;
       expect({
         overlap,
-        pair: [active[i].object, active[j].object],
-      }).toEqual({ overlap: false, pair: [active[i].object, active[j].object] });
+        pair: [active[i]!.object, active[j]!.object],
+      }).toEqual({ overlap: false, pair: [active[i]!.object, active[j]!.object] });
     }
   }
 }

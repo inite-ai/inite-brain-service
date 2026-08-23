@@ -110,7 +110,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
       await db.query(
         `UPDATE type::record('knowledge_fact', $a) SET status = 'competing';
          UPDATE type::record('knowledge_fact', $b) SET status = 'retracted';`,
-        { a: factIds[0].split(':')[1], b: factIds[1].split(':')[1] },
+        { a: factIds[0]!.split(':')[1], b: factIds[1]!.split(':')[1] },
       );
     });
 
@@ -124,7 +124,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
     await surreal.withCompany(f.companyId, async (db) => {
       await db.query(
         `UPDATE type::record('knowledge_fact', $a) SET status = 'active'`,
-        { a: factIds[0].split(':')[1] },
+        { a: factIds[0]!.split(':')[1] },
       );
     });
     expect(await viewCounts()).toEqual(await liveCounts());
@@ -134,7 +134,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
     const before = await viewCounts();
     await surreal.withCompany(f.companyId, async (db) => {
       await db.query(`DELETE type::record('knowledge_fact', $t)`, {
-        t: factIds[3].split(':')[1],
+        t: factIds[3]!.split(':')[1],
       });
     });
     const live = await liveCounts();

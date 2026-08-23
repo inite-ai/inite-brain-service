@@ -47,7 +47,7 @@ describe('mergeExtraHits (evidence union)', () => {
     const out = mergeExtraHits(base, extra, 2);
     expect(out.map((h) => h.entityId)).toEqual(['e1', 'e2']);
     // capped at 2, chosen by score: f3 (0.8), f4 (0.5); f2 dropped
-    expect(out[1].facts.map((f) => f.factId)).toEqual(['f3', 'f4']);
+    expect(out[1]!.facts.map((f) => f.factId)).toEqual(['f3', 'f4']);
   });
 
   it('never duplicates a fact already present in base', () => {
@@ -55,21 +55,21 @@ describe('mergeExtraHits (evidence union)', () => {
     const extra = [hit('e1', [['f1', 0.9], ['f2', 0.4]])];
     const out = mergeExtraHits(base, extra, 10);
     expect(out).toHaveLength(1);
-    expect(out[0].facts.map((f) => f.factId)).toEqual(['f1', 'f2']);
+    expect(out[0]!.facts.map((f) => f.factId)).toEqual(['f1', 'f2']);
   });
 
   it('merges extra facts into an existing base entity without reordering base facts', () => {
     const base = [hit('e1', [['f1', 0.9], ['f2', 0.8]])];
     const extra = [hit('e1', [['f9', 0.95]])];
     const out = mergeExtraHits(base, extra, 10);
-    expect(out[0].facts.map((f) => f.factId)).toEqual(['f1', 'f2', 'f9']);
+    expect(out[0]!.facts.map((f) => f.factId)).toEqual(['f1', 'f2', 'f9']);
   });
 
   it('does not mutate base hits', () => {
     const base = [hit('e1', [['f1', 0.9]])];
     const extra = [hit('e1', [['f2', 0.5]])];
     mergeExtraHits(base, extra, 10);
-    expect(base[0].facts).toHaveLength(1);
+    expect(base[0]!.facts).toHaveLength(1);
   });
 
   it('returns base unchanged for empty extras or zero cap', () => {
@@ -83,7 +83,7 @@ describe('mergeExtraHits (evidence union)', () => {
     const extra = [hit('e1', [['f1', 0.9]]), hit('e1', [['f1', 0.9]])];
     const out = mergeExtraHits(base, extra, 10);
     expect(out).toHaveLength(1);
-    expect(out[0].facts).toHaveLength(1);
+    expect(out[0]!.facts).toHaveLength(1);
   });
 });
 
@@ -143,8 +143,8 @@ describe('selectFactCentric', () => {
     ];
     const out = selectFactCentric(buckets, 2);
     expect(out.map((b) => b.entityId)).toEqual(['strong', 'weak']);
-    expect(out[0].facts).toHaveLength(1); // only the 0.9 made the cut
-    expect(out[1].facts).toHaveLength(1); // 0.8 beat 0.2/0.1
+    expect(out[0]!.facts).toHaveLength(1); // only the 0.9 made the cut
+    expect(out[1]!.facts).toHaveLength(1); // 0.8 beat 0.2/0.1
   });
 
   it('orders rebuilt buckets by their best selected fact', () => {

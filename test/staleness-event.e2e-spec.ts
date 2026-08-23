@@ -120,7 +120,7 @@ describe('0089 fact_staleness event', () => {
       // storm row.
       await db.query(`INSERT INTO knowledge_fact $rows`, {
         rows: stormIds.map((id, i) =>
-          factRow(canaryIds[i], { derivedFrom: [rid(id)] }),
+          factRow(canaryIds[i]!, { derivedFrom: [rid(id)] }),
         ),
       });
       // The final world: convA rows, 20 of them superseded-by-convB (the
@@ -137,7 +137,7 @@ describe('0089 fact_staleness event', () => {
             factRow(id, {
               derivedVersion: FINAL,
               status: 'superseded',
-              supersededBy: rid(convB[i]),
+              supersededBy: rid(convB[i]!),
               source: { vertical: 'e2e', conversationId: 'convA' },
             }),
           ),

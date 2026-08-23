@@ -54,7 +54,7 @@ describe('rrfFuse', () => {
       [row('a'), row('b'), row('c')],
       [row('c'), row('d')],
     ]);
-    expect(String(fused[0].id)).toBe('c');
+    expect(String(fused[0]!.id)).toBe('c');
     expect(fused).toHaveLength(4);
   });
 
@@ -101,10 +101,10 @@ describe('SegmentComposerService', () => {
     expect(swap?.sql).toContain('DELETE episode_segment');
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
-    expect(rows[0].recorder).toBe(SEGMENT_RECORDER);
-    expect(rows[0].piiClass).toEqual(['phone']);
-    expect(typeof rows[0].generation).toBe('string');
-    expect(String(rows[0].text)).toContain('[2023-05-01] A: q1');
+    expect(rows[0]!.recorder).toBe(SEGMENT_RECORDER);
+    expect(rows[0]!.piiClass).toEqual(['phone']);
+    expect(typeof rows[0]!.generation).toBe('string');
+    expect(String(rows[0]!.text)).toContain('[2023-05-01] A: q1');
   });
 });
 
@@ -156,17 +156,17 @@ describe('SegmentLaneService', () => {
       '[2023-05-01] B: sunset palm tree',
       '[2023-06-01] A: later',
     ]);
-    expect(queries[0].sql).toContain('vector::similarity::cosine');
-    expect(queries[1].sql).toContain('@1@');
+    expect(queries[0]!.sql).toContain('vector::similarity::cosine');
+    expect(queries[1]!.sql).toContain('@1@');
     // read_pii caller → no PII gate.
-    expect(queries[0].sql).not.toContain('piiClass IS NONE');
+    expect(queries[0]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('gates PII for callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([[], []]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('piiClass IS NONE');
-    expect(queries[1].sql).toContain('piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).toContain('piiClass IS NONE');
   });
 
   it('reranks the fused pool when asked and trims to topK', async () => {

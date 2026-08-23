@@ -59,7 +59,7 @@ describe('G2 L3 escalation e2e', () => {
     const m = body.match(
       new RegExp(`brain_l3_escalation_total\\{outcome="${outcome}"\\} (\\d+)`),
     );
-    return m ? parseInt(m[1], 10) : 0;
+    return m ? parseInt(m[1]!, 10) : 0;
   }
 
   beforeAll(async () => {
@@ -161,8 +161,8 @@ describe('G2 L3 escalation e2e', () => {
     // round-1 generate + verify, then L3 generate + verify.
     expect(state.calls.length).toBe(4);
     // The L3 generator saw the raw session turns (fenced-section style).
-    expect(state.calls[2].user).toContain('Full conversation transcripts');
-    expect(state.calls[2].user).toContain('conv_l3');
+    expect(state.calls[2]!.user).toContain('Full conversation transcripts');
+    expect(state.calls[2]!.user).toContain('conv_l3');
     expect(await l3Count(f, 'fired')).toBe(firedBefore + 1);
     expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
   });

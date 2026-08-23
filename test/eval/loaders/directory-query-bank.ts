@@ -165,7 +165,7 @@ function sampleDeterministic(
   const rand = mulberry32(seed);
   for (let i = 0; i < k; i++) {
     const j = i + Math.floor(rand() * (arr.length - i));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   }
   return arr.slice(0, k);
 }

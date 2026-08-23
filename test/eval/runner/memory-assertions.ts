@@ -228,5 +228,5 @@ export class MemoryAssertionsChecker {
  */
 function parseRefTag(ref: string): { refKey: string; id: string } {
   const [vertical, id] = ref.split('.', 2);
-  return { refKey: `${vertical}__${id}`, id };
+  return { refKey: `${vertical}__${id}`, id: id! };
 }

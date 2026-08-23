@@ -95,7 +95,7 @@ describe('BillingClientService', () => {
         }
         const ent = /^\/v1\/entitlements\/(.+)$/.exec(url);
         if (req.method === 'GET' && ent) {
-          return respond(200, entitlements[decodeURIComponent(ent[1])] ?? []);
+          return respond(200, entitlements[decodeURIComponent(ent[1]!)] ?? []);
         }
         return respond(404, { message: 'no such stub route' });
       });
@@ -142,7 +142,7 @@ describe('BillingClientService', () => {
 
   it('sends the service key as x-api-key on every call', async () => {
     await client.hasEntitlement({ companyId: 'co_a', key: 'domain_pack:x' });
-    expect(seen[0].headers['x-api-key']).toBe('svc-key-test');
+    expect(seen[0]!.headers['x-api-key']).toBe('svc-key-test');
   });
 
   describe('hasEntitlement + cache', () => {

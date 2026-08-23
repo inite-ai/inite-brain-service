@@ -157,7 +157,7 @@ export class HnswMaintenanceService {
         (info as { indexes?: Record<string, string> })?.indexes ?? {};
       for (const [name, ddl] of Object.entries(indexes)) {
         const m = /DIMENSION\s+(\d+)/i.exec(String(ddl));
-        if (m) out.set(name, parseInt(m[1], 10));
+        if (m) out.set(name, parseInt(m[1]!, 10)); // group 1 mandatory
       }
     }
     return out;

@@ -48,7 +48,7 @@ describe('scoreRows salience fold', () => {
       rows: [row(source)],
       now: FROZEN_NOW,
       salienceScoring: enabled,
-    })[0].score;
+    })[0]!.score;
 
   it('off → factor exactly 1.0 regardless of the stamp', () => {
     expect(score({ salience: 3 }, false)).toBeCloseTo(score({}, false), 12);
@@ -77,8 +77,8 @@ describe('scoreRows salience fold', () => {
       now: Date.now(),
       salienceScoring: true,
     });
-    expect(scored[0].breakdown.salience).toBeCloseTo(1.25, 12);
-    expect('salience' in scored[1].breakdown).toBe(false);
+    expect(scored[0]!.breakdown.salience).toBeCloseTo(1.25, 12);
+    expect('salience' in scored[1]!.breakdown).toBe(false);
   });
 });
 

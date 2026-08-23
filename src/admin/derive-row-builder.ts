@@ -80,7 +80,7 @@ export function buildDerivedRows({
       resolveExtractionProfile().deriveMentionStamp && firstTurn !== undefined
         ? {
             mentionedAt: new Date(
-              session[firstTurn].occurredAt as string,
+              session[firstTurn]!.occurredAt as string, // firstTurn < session.length
             ).toISOString(),
             turnIndex: firstTurn,
           }
@@ -113,7 +113,7 @@ export function buildDerivedRows({
     const scopeUsers = [
       ...new Set(
         groundingTurns
-          .map((t) => session[t].userId)
+          .map((t) => session[t]!.userId) // t < session.length (filtered)
           .filter((u): u is string => typeof u === 'string' && u.length > 0),
       ),
     ];
@@ -136,7 +136,7 @@ export function buildDerivedRows({
       vertical: 'derived',
       recorder: ns.final,
       conversationId,
-      episodeIds: groundingTurns.map((t) => String(session[t].id)),
+      episodeIds: groundingTurns.map((t) => String(session[t]!.id)), // t < session.length
       ...salience,
       ...mention,
       ...scene,
@@ -160,7 +160,7 @@ export function buildDerivedRows({
         vertical: 'derived',
         recorder: ns.final,
       }),
-      embedding: vectors[i],
+      embedding: vectors[i]!, // vectors is 1:1 with resolved ⇒ in-bounds
       derivedVersion: ns.staging,
     };
   });

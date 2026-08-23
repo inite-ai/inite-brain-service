@@ -65,13 +65,13 @@ describe('miniCheckConsistent', () => {
       ...REQ,
       fetchImpl: fakeFetch({ response: 'Yes' }, { captured }),
     });
-    expect(captured[0].model).toBe('bespoke-minicheck');
-    expect(captured[0].prompt).toBe(
+    expect(captured[0]!.model).toBe('bespoke-minicheck');
+    expect(captured[0]!.prompt).toBe(
       `Document: ${REQ.document}\nClaim: ${REQ.claim}`,
     );
-    expect(captured[0].stream).toBe(false);
-    expect(captured[0].options.temperature).toBe(0);
-    expect(captured[0].options.num_ctx).toBe(8192);
+    expect(captured[0]!.stream).toBe(false);
+    expect(captured[0]!.options.temperature).toBe(0);
+    expect(captured[0]!.options.num_ctx).toBe(8192);
   });
 
   it('throws on HTTP errors and unparseable verdicts', async () => {

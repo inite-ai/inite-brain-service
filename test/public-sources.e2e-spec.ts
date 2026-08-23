@@ -58,7 +58,8 @@ describe('public sources API (trust inputs)', () => {
       companyId: 'co_public_sources_e2e',
       extraKeys: [{ scopes: ['brain:read'] }, { scopes: ['brain:write'] }],
     });
-    [readKey, writeOnlyKey] = f.extraApiKeys;
+    readKey = f.extraApiKeys[0]!;
+    writeOnlyKey = f.extraApiKeys[1]!;
 
     // Declared identities — SENIOR carries the operator annotations the
     // public projection must never leak.
@@ -268,7 +269,7 @@ describe('public sources API — ABAC action gate', () => {
         },
       ],
     });
-    [restrictedKey] = f.extraApiKeys;
+    restrictedKey = f.extraApiKeys[0]!;
     const created = await f.http
       .post('/v1/admin/policy-sets')
       .set({ Authorization: `Bearer ${f.apiKey}` })

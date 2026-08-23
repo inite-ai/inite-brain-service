@@ -209,17 +209,17 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // (fn::resolve_facts via FactResolverService), not a raw INSERT.
     const rows = derived;
     expect(rows).toHaveLength(2);
-    expect(rows[0].predicate).toBe('pets');
-    expect(String(rows[0].derivedVersion).startsWith(`${staging}.`)).toBe(true);
-    expect(String(rows[0].object)).toContain('Luna and Oliver');
-    const source = rows[0].source as Record<string, unknown>;
+    expect(rows[0]!.predicate).toBe('pets');
+    expect(String(rows[0]!.derivedVersion).startsWith(`${staging}.`)).toBe(true);
+    expect(String(rows[0]!.object)).toContain('Luna and Oliver');
+    const source = rows[0]!.source as Record<string, unknown>;
     expect(source.recorder).toBe(WINDOW_DERIVER_VERSION);
     expect(source.episodeIds).toEqual(['episode:e1']);
     // Audit W3 #1: derived rows must carry the fields the read path
     // assumes; the resolver stamps the trust snapshot from sourceTrust.
-    expect(rows[0].lang).toBe('en');
-    expect(rows[0].script).toBeDefined();
-    expect(rows[0].sourceTrust as number).toBeGreaterThan(0);
+    expect(rows[0]!.lang).toBe('en');
+    expect(rows[0]!.script).toBeDefined();
+    expect(rows[0]!.sourceTrust as number).toBeGreaterThan(0);
   });
 
   it('DERIVER_MENTION_STAMP anchors source.mentionedAt to the first grounding turn', async () => {
@@ -240,7 +240,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     delete process.env.DERIVER_MENTION_STAMP;
     const off = makeSvc(props);
     await off.svc.run('co_x');
-    const offSource = off.derived[0].source as Record<string, unknown>;
+    const offSource = off.derived[0]!.source as Record<string, unknown>;
     expect(offSource.mentionedAt).toBeUndefined();
     expect(offSource.turnIndex).toBeUndefined();
 
@@ -248,7 +248,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     try {
       const on = makeSvc(props);
       await on.svc.run('co_x');
-      const src = on.derived[0].source as Record<string, unknown>;
+      const src = on.derived[0]!.source as Record<string, unknown>;
       expect(src.mentionedAt).toBe('2023-05-01T10:01:00.000Z');
       expect(src.turnIndex).toBe(1);
     } finally {
@@ -374,7 +374,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     });
     await svc.run('co_x');
     const rows = derived;
-    expect(rows[0].validFrom).toEqual(new Date('2022-06-15T00:00:00.000Z'));
+    expect(rows[0]!.validFrom).toEqual(new Date('2022-06-15T00:00:00.000Z'));
   });
 
   it('impossible calendar occurred_on falls back to the session date', async () => {
@@ -395,7 +395,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
     // whole conversation on conv-48).
     expect(res.propositions).toBe(1);
     const rows = derived;
-    expect(rows[0].validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
+    expect(rows[0]!.validFrom).toEqual(new Date('2023-05-01T10:00:00Z'));
   });
 
   it('conversationId filter derives only the requested conversation', async () => {
@@ -517,7 +517,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         q.sql.includes('DELETE knowledge_fact'),
       );
       expect(dels).toHaveLength(1);
-      expect(dels[0].params?.version).toBe('wd-v1');
+      expect(dels[0]!.params?.version).toBe('wd-v1');
     });
 
     it('gc REFUSES with no pin, no registry evidence, and no explicit keep', async () => {

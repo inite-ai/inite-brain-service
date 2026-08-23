@@ -77,7 +77,7 @@ export class ReadPinService {
     const union = ReadPinService.bootstrapUnion();
     if (!union) return single;
     const pins = single && !union.includes(single) ? [...union, single] : union;
-    return pins.length === 1 ? pins[0] : pins;
+    return pins.length === 1 ? pins[0]! : pins;
   }
 
   /**

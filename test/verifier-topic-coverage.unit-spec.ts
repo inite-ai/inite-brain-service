@@ -41,7 +41,7 @@ function mockOpenAi(response: Record<string, unknown>, captured: CapturedRequest
           max_completion_tokens?: number;
         }) => {
           captured.push({
-            system: req.messages[0].content,
+            system: req.messages[0]!.content,
             schema: req.response_format.json_schema.schema,
             temperature: req.temperature,
             maxCompletionTokens: req.max_completion_tokens,
@@ -76,9 +76,9 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     });
     expect(out.verdict).toBe('supported');
     expect(out.questionAnswered).toBeUndefined();
-    expect(captured[0].system).not.toContain('questionAnswered');
-    expect(captured[0].schema.properties).not.toHaveProperty('questionAnswered');
-    expect(captured[0].schema.required).toEqual(['verdict', 'unsupportedClaims']);
+    expect(captured[0]!.system).not.toContain('questionAnswered');
+    expect(captured[0]!.schema.properties).not.toHaveProperty('questionAnswered');
+    expect(captured[0]!.schema.required).toEqual(['verdict', 'unsupportedClaims']);
   });
 
   it('on — addendum in the system prompt, questionAnswered in the schema and output', async () => {
@@ -93,10 +93,10 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
     });
     expect(out).toMatchObject({ verdict: 'supported', questionAnswered: false });
     // Both tightenings present: relationship claims + the coverage judgment.
-    expect(captured[0].system).toContain('Relationship claims');
-    expect(captured[0].system).toContain('questionAnswered');
-    expect(captured[0].schema.properties).toHaveProperty('questionAnswered');
-    expect(captured[0].schema.required).toContain('questionAnswered');
+    expect(captured[0]!.system).toContain('Relationship claims');
+    expect(captured[0]!.system).toContain('questionAnswered');
+    expect(captured[0]!.schema.properties).toHaveProperty('questionAnswered');
+    expect(captured[0]!.schema.required).toContain('questionAnswered');
   });
 
   it('reasoning-model judge: no temperature param, widened completion cap', async () => {
@@ -112,8 +112,8 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
         captured,
       ),
     });
-    expect(captured[0].temperature).toBeUndefined();
-    expect(captured[0].maxCompletionTokens).toBe(2048);
+    expect(captured[0]!.temperature).toBeUndefined();
+    expect(captured[0]!.maxCompletionTokens).toBe(2048);
     // Non-reasoning models keep the deterministic byte-identical call.
     const classic: CapturedRequest[] = [];
     await runVerifier({
@@ -123,8 +123,8 @@ describe('runVerifier topic-coverage audit (V10 §5)', () => {
         classic,
       ),
     });
-    expect(classic[0].temperature).toBe(0);
-    expect(classic[0].maxCompletionTokens).toBe(256);
+    expect(classic[0]!.temperature).toBe(0);
+    expect(classic[0]!.maxCompletionTokens).toBe(256);
   });
 
   it('on — a response without the judgment is a contract violation', async () => {

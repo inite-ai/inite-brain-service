@@ -77,7 +77,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     expect(profile).not.toBeNull();
     const decided = activeOf(profile, 'decided');
     expect(decided).toHaveLength(1);
-    expect(decided[0].object).toMatch(/one fn::resolve_fact gateway/);
+    expect(decided[0]!.object).toMatch(/one fn::resolve_fact gateway/);
   });
 
   it('re-deciding the same anchor supersedes the prior decision (single_active)', async () => {
@@ -94,7 +94,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     const profile = await recall();
     const activeDecided = activeOf(profile, 'decided');
     expect(activeDecided).toHaveLength(1);
-    expect(activeDecided[0].object).toMatch(/HyPE alt-embedding/);
+    expect(activeDecided[0]!.object).toMatch(/HyPE alt-embedding/);
   });
 
   it('gotcha is append_only — accumulates instead of superseding', async () => {

@@ -306,9 +306,9 @@ describe('diffPackUpgrade', () => {
     const next = pack({ id: 'med', predicates: [bumped] });
     const { changed, removedIds } = diffPackUpgrade('med', prior, next);
     expect(changed).toHaveLength(1);
-    expect(changed[0].predicateId).toBe('med__dx');
-    expect(changed[0].piiClass).toBe('sensitive');
-    expect(changed[0].createdBy).toBe('admin');
+    expect(changed[0]!.predicateId).toBe('med__dx');
+    expect(changed[0]!.piiClass).toBe('sensitive');
+    expect(changed[0]!.createdBy).toBe('admin');
     expect(removedIds).toEqual([]);
   });
 

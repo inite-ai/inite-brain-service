@@ -133,7 +133,7 @@ export interface NuggetJudge {
 function parseJudgeJson(raw: string): { score?: unknown } {
   let text = raw.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/m.exec(text);
-  if (fenced) text = fenced[1];
+  if (fenced) text = fenced[1]!;
   return JSON.parse(text) as { score?: unknown };
 }
 
@@ -151,8 +151,8 @@ export function kendallTauB(x: number[], y: number[]): number | null {
   let tiesY = 0;
   for (let i = 0; i < x.length; i += 1) {
     for (let j = i + 1; j < x.length; j += 1) {
-      const dx = x[i] - x[j];
-      const dy = y[i] - y[j];
+      const dx = x[i]! - x[j]!;
+      const dy = y[i]! - y[j]!;
       if (dx === 0 && dy === 0) continue;
       if (dx === 0) tiesX += 1;
       else if (dy === 0) tiesY += 1;
@@ -189,7 +189,7 @@ async function alignWithLlm(
       }
     }
     if (matched !== null) {
-      systemCanon.push(reference[matched]);
+      systemCanon.push(reference[matched]!);
       used.add(matched);
     } else {
       systemCanon.push(s);

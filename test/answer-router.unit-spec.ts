@@ -276,8 +276,8 @@ describe('detectEvidenceConflicts (T3)', () => {
       ]),
     ], LANES);
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].label).toBe('has_api_key');
-    expect(conflicts[0].factIds).toEqual([
+    expect(conflicts[0]!.label).toBe('has_api_key');
+    expect(conflicts[0]!.factIds).toEqual([
       'knowledge_fact:f0',
       'knowledge_fact:f1',
     ]);

@@ -70,7 +70,7 @@ describe('Fat-tenant retrieval eval', () => {
       });
       const limitedClient = new HttpBrainClient({
         baseUrl: svc.baseUrl,
-        apiKey: svc.extras[0].plaintext,
+        apiKey: svc.extras[0]!.plaintext,
       });
 
       const runner = new EvalRunner(

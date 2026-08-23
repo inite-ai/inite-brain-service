@@ -147,7 +147,7 @@ function extractInlineCitations(answer: string): string[] {
   const ids: string[] = [];
   const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,})\]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(answer)) !== null) ids.push(m[1]);
+  while ((m = re.exec(answer)) !== null) ids.push(m[1]!); // group 1 is mandatory
   return ids;
 }
 

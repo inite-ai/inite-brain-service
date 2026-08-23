@@ -221,13 +221,15 @@ async function auditDates(
       ) {
         continue;
       }
+      // d.index validated in-bounds by the guard above ⇒ prop is present.
+      const prop = args.propositions[d.index]!;
       // Apply BOTH values and explicit nulls — clearing a fabricated
       // session-date default is the audit's whole point. The cleared
       // marker survives to the row builder, which renders "undated" as
       // the epoch sentinel instead of the session-date fallback.
       if (d.occurred_on === null) {
-        args.propositions[d.index].occurred_on = null;
-        args.propositions[d.index].dateCleared = true;
+        prop.occurred_on = null;
+        prop.dateCleared = true;
       } else if (
         typeof d.occurred_on === 'string' &&
         ISO_DAY_RE.test(d.occurred_on) &&
@@ -239,8 +241,8 @@ async function auditDates(
           .toISOString()
           .slice(0, 10) === d.occurred_on
       ) {
-        args.propositions[d.index].occurred_on = d.occurred_on;
-        args.propositions[d.index].dateCleared = false;
+        prop.occurred_on = d.occurred_on;
+        prop.dateCleared = false;
       }
     }
   } catch (e) {
@@ -533,7 +535,7 @@ async function gradeSalience(
         g.salience >= 0 &&
         g.salience <= 3
       ) {
-        propositions[g.index].salience = g.salience;
+        propositions[g.index]!.salience = g.salience; // g.index validated above
       }
     }
   } catch (e) {

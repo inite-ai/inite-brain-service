@@ -44,7 +44,7 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
       .send({ query: 'engineer', answerLang: 'ru' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThan(0);
-    expect(state.calls[0].user).toContain('write your answer in ru');
+    expect(state.calls[0]!.user).toContain('write your answer in ru');
   });
 
   it('falls back to detected query language when DTO omits answerLang', async () => {
@@ -58,6 +58,6 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
       .send({ query: 'кто здесь технический директор' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThan(0);
-    expect(state.calls[0].user).toContain('write your answer in ru');
+    expect(state.calls[0]!.user).toContain('write your answer in ru');
   });
 });

@@ -69,7 +69,9 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
         },
         { signal: getAbortSignal() },
       );
-      return { vector: res.data[0].embedding, usage: res.usage };
+      const first = res.data[0];
+      if (!first) throw new Error('openai embeddings returned no data');
+      return { vector: first.embedding, usage: res.usage };
     });
   }
 
@@ -115,7 +117,8 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
       // pre-sorted — positional assignment would map a vector to the
       // wrong text if the API ever reorders a batch.
       for (const d of res.data) {
-        out[sliceIdx[d.index]] = d.embedding;
+        const outIdx = sliceIdx[d.index];
+        if (outIdx !== undefined) out[outIdx] = d.embedding;
       }
     }
     return out;

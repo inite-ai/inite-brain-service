@@ -53,7 +53,7 @@ describe('runSegmentLegs', () => {
     });
     expect(vectorRows).toHaveLength(1);
     expect(lexicalRows).toHaveLength(1);
-    const row = vectorRows[0];
+    const row = vectorRows[0]!;
     expect(row.predicate).toBe('verbatim');
     expect(String(row.entityId)).toBe('episode_segment:s1');
     expect(row.entity?.type).toBe('segment');
@@ -61,7 +61,7 @@ describe('runSegmentLegs', () => {
     expect(row.confidence).toBe(1);
     expect(row.validFrom).toBe('2023-05-01T10:00:00Z');
     expect(row.simScore).toBe(0.9);
-    expect(lexicalRows[0].bm25Score).toBe(3.2);
+    expect(lexicalRows[0]!.bm25Score).toBe(3.2);
     // PII fence + fail-closed user scope on BOTH queries (0055 / W1 #14).
     for (const q of queries) {
       expect(q.sql).toContain('AND piiClass IS NONE');
@@ -98,7 +98,7 @@ describe('runSegmentLegs', () => {
       mode: 'lexical',
     });
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('search::score(1)');
+    expect(queries[0]!.sql).toContain('search::score(1)');
   });
 });
 
@@ -123,8 +123,8 @@ describe('SearchRetrievalService.runSegmentLegStage', () => {
     const buckets = await svc.runSegmentLegStage(db as Surreal, ctx);
     expect(buckets.size).toBe(1);
     const bucket = buckets.get('episode_segment:s1')!;
-    expect(bucket.facts[0].row.predicate).toBe('verbatim');
-    expect(bucket.facts[0].row.stages).toContain('segment');
+    expect(bucket.facts[0]!.row.predicate).toBe('verbatim');
+    expect(bucket.facts[0]!.row.stages).toContain('segment');
     expect(bucket.bestScore).toBeGreaterThan(0);
   });
 

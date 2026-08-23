@@ -55,8 +55,8 @@ describe('BEAM loader', () => {
     await fs.writeFile(file, JSON.stringify([conv]));
     const loaded = await loadBeam(file);
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].questions[0].ability).toBe('abstention');
-    expect(loaded[0].sessions[1].turns[0].content).toBe('later session');
+    expect(loaded[0]!.questions[0]!.ability).toBe('abstention');
+    expect(loaded[0]!.sessions[1]!.turns[0]!.content).toBe('later session');
   });
 
   it('rejects an empty dataset', async () => {

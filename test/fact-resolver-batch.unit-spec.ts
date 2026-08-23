@@ -71,7 +71,7 @@ describe('FactResolverService.resolveMany', () => {
       input('intent', 'c'),
     ]);
     expect(batchQ(queries)).toHaveLength(1);
-    expect(batchQ(queries)[0].params.facts).toHaveLength(3);
+    expect(batchQ(queries)[0]!.params.facts).toHaveLength(3);
     expect(perFactQ(queries)).toHaveLength(0);
     expect(out.map((o) => o.result.factId)).toEqual([
       'knowledge_fact:batch0_a',
@@ -88,12 +88,12 @@ describe('FactResolverService.resolveMany', () => {
       input('status', 's'),
       input('intent', 'c'),
     ]);
-    expect(batchQ(queries)[0].params.facts.map((f: any) => f.object)).toEqual([
+    expect(batchQ(queries)[0]!.params.facts.map((f: any) => f.object)).toEqual([
       'a',
       'c',
     ]);
     expect(perFactQ(queries)).toHaveLength(1);
-    expect(perFactQ(queries)[0].params.object).toBe('s');
+    expect(perFactQ(queries)[0]!.params.object).toBe('s');
     // Result order matches INPUT order: a(batch), s(single), c(batch).
     expect(out.map((o) => o.result.factId)).toEqual([
       'knowledge_fact:batch0_a',

@@ -39,10 +39,10 @@ function makeService(opts: {
           messages: Array<{ role: string; content: string }>;
         }) => {
           opts.captured.push({
-            system: req.messages[0].content,
-            user: req.messages[1].content,
+            system: req.messages[0]!.content,
+            user: req.messages[1]!.content,
           });
-          const isVerifier = req.messages[0].content.includes('auditor');
+          const isVerifier = req.messages[0]!.content.includes('auditor');
           return {
             choices: [
               {

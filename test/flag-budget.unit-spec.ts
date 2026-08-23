@@ -57,7 +57,7 @@ function currentEngineFlags(): Set<string> {
     /envFlag(?:Enabled|NotDisabled)\(\s*(?:process\.env\.|this\.configService\.get<string>\(.)([A-Z][A-Z0-9_]+)/g;
   for (const f of files) {
     const text = readFileSync(f, 'utf8');
-    for (const m of text.matchAll(parserRead)) keys.add(m[1]);
+    for (const m of text.matchAll(parserRead)) keys.add(m[1]!);
   }
   for (const entry of CONFIG_CATALOG) {
     if (entry.isBooleanFlag) keys.add(entry.key);

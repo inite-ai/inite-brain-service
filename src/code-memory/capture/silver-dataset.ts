@@ -188,7 +188,7 @@ async function runPool<T>(
       for (;;) {
         const i = next++;
         if (i >= items.length) break;
-        await worker(items[i], i);
+        await worker(items[i]!, i); // i < items.length ⇒ in-bounds
       }
     },
   );

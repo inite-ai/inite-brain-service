@@ -149,7 +149,7 @@ describe('strategy retrieval similarity floor', () => {
     );
     const out = await svc.retrieve('c1', 'q', 2);
     expect(out.map((i) => i.strategyId)).toEqual(['strategy_memory:a1']);
-    expect(out[0].similarity).toBeCloseTo(1.0);
+    expect(out[0]!.similarity).toBeCloseTo(1.0);
   });
 
   it('an irrelevant best-match serves nothing (floor wins over k)', async () => {

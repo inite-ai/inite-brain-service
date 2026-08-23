@@ -270,10 +270,10 @@ export class LocalCrossEncoderProvider {
     const scores: number[] = new Array(documents.length).fill(
       Number.NEGATIVE_INFINITY,
     );
-    for (let i = 0; i < documents.length; i++) {
+    for (const [i, doc] of documents.entries()) {
       if (deadline !== undefined && Date.now() > deadline) break;
       const inputs = await tokenizer(query, {
-        text_pair: documents[i],
+        text_pair: doc,
         padding: true,
         truncation: true,
       });

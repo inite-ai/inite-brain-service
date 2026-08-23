@@ -73,8 +73,9 @@ export function fitIsotonic(
     const c = clamp01(p.rawConfidence);
     let idx = Math.floor(c * binCount);
     if (idx >= binCount) idx = binCount - 1;
-    binSums[idx] += p.correctness;
-    binCounts[idx] += 1;
+    // idx ∈ [0, binCount) ⇒ in-bounds; the `?? 0` is a type-level formality.
+    binSums[idx] = (binSums[idx] ?? 0) + p.correctness;
+    binCounts[idx] = (binCounts[idx] ?? 0) + 1;
   }
 
   // 2. Compute means for non-empty bins. Empty bins are skipped entirely
@@ -83,28 +84,32 @@ export function fitIsotonic(
   // the bin whose upper bound covers the query confidence.
   const populated: Array<{ upper: number; mean: number; weight: number }> = [];
   for (let i = 0; i < binCount; i++) {
-    if (binCounts[i] === 0) continue;
+    // i < binCount = length of all three parallel bin arrays ⇒ in-bounds.
+    const count = binCounts[i]!;
+    if (count === 0) continue;
     populated.push({
-      upper: binUpperBounds[i],
-      mean: binSums[i] / binCounts[i],
-      weight: binCounts[i],
+      upper: binUpperBounds[i]!,
+      mean: binSums[i]! / count,
+      weight: count,
     });
   }
 
   // 3. PAV: collapse adjacent violators (mean[k] > mean[k+1]) by
   // weighted-merging until non-decreasing.
   for (let i = 0; i < populated.length - 1; ) {
-    if (populated[i].mean <= populated[i + 1].mean) {
+    // i < populated.length - 1 ⇒ both i and i+1 are in-bounds.
+    const a = populated[i]!;
+    const b = populated[i + 1]!;
+    if (a.mean <= b.mean) {
       i++;
       continue;
     }
     // Merge i and i+1.
-    const w1 = populated[i].weight;
-    const w2 = populated[i + 1].weight;
-    const mergedMean =
-      (populated[i].mean * w1 + populated[i + 1].mean * w2) / (w1 + w2);
+    const w1 = a.weight;
+    const w2 = b.weight;
+    const mergedMean = (a.mean * w1 + b.mean * w2) / (w1 + w2);
     populated[i] = {
-      upper: populated[i + 1].upper,
+      upper: b.upper,
       mean: mergedMean,
       weight: w1 + w2,
     };
@@ -118,7 +123,7 @@ export function fitIsotonic(
 
   // 4. Force the rightmost threshold to 1.0 so any raw confidence is
   // matched, even if the highest training bin happened to be < 1.0.
-  populated[populated.length - 1].upper = 1;
+  populated[populated.length - 1]!.upper = 1; // non-empty (checked above)
 
   return {
     thresholds: populated.map((p) => p.upper),
@@ -135,9 +140,10 @@ export function fitIsotonic(
 export function applyMap(map: CalibrationMap, rawConfidence: number): number {
   const c = clamp01(rawConfidence);
   for (let i = 0; i < map.thresholds.length; i++) {
-    if (c <= map.thresholds[i]) return clamp01(map.values[i]);
+    // thresholds/values are parallel; i < thresholds.length ⇒ in-bounds.
+    if (c <= map.thresholds[i]!) return clamp01(map.values[i] ?? 1);
   }
-  return clamp01(map.values[map.values.length - 1]);
+  return clamp01(map.values[map.values.length - 1] ?? 1);
 }
 
 function clamp01(x: number): number {
