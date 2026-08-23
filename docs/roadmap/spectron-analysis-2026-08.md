@@ -202,3 +202,55 @@ flag, measured as a cost tier on the LME stand; (b) L3 escalation lane build
 (already the top fovea candidate); (c) spans migration draft; (d) AGENTS.md
 shipped now; (e) a public one-pager contrasting our published protocol with
 unbenchmarked "promises" — without naming names.
+
+## 5. Landing-page intel (surrealdb.com/agent-memory, fetched 2026-08-22)
+
+The marketing landing adds material the docs don't carry:
+
+- **Launch status: waitlist / pre-launch** — "plans from $29/month at
+  launch". The window before general availability is still open.
+- **Pricing is token-metered:** Lite $29/mo (1M tokens), standard $299/mo
+  (10M), "+" $1,099/mo (40M), overage beyond; Enterprise = custom,
+  single-tenant SurrealDB Cloud, self-hosted/air-gapped for qualifying
+  accounts. All tiers get the full feature set — the ladder is pure volume.
+  This prices the category for everyone; our positioning gets to undercut on
+  self-hosting (AGPL) and native multi-tenancy economics.
+- **Hybrid recall is "eight signals fused in one auditable ranker":** vector,
+  BM25, graph traversal, keyword bridges, document links, PageRank,
+  geographic recall, **trace-derived features** (prior retrieval
+  success/failure feeding ranking). The last one we have machinery for and
+  never wired: `fact_usage.readCount` is written-and-never-read behind
+  default-off flags — flipping usage recording and feeding it to ranking is
+  a cheap parity move already listed as a fovea quick win.
+- **Provenance span is byte offsets** ("lexical span (byte offsets)") —
+  confirms the span-provenance steal; we should store both char and byte
+  offsets or normalize deliberately (unicode).
+- **`forget` is stronger than the docs implied:** removes derived rows,
+  optionally the originating turn/document and the object-store original;
+  `--purge` removes supersession history. Their GDPR gap vs us is narrower
+  than the docs read — the *default* is still soft, ours is a tested hard
+  cascade, but stop claiming they have no hard path.
+- **Prompt-injection scanning at ingest** is a listed feature on every tier —
+  table stakes for the category now; our MINJA red-team wave should ship a
+  defense (ingest sanitization + provenance-gated influence), not just tests.
+- **Integrations breadth:** MCP into Claude Code/Desktop, Cursor, Codex,
+  OpenClaw, Hermes, VS Code, Windsurf, Zed; frameworks LangChain, OpenAI
+  Agents, Vercel AI SDK, Mastra, n8n, Zapier; messaging (WhatsApp/Telegram/
+  Messenger/SMS) and connectors (Slack, Notion, Drive, GitHub, Linear,
+  Confluence, Databricks, Snowflake) both "Coming Soon". Their connector
+  roadmap is our document-pipeline + external-indexer protocol territory —
+  the consumer-runtime race now includes ingest sources, not just agent
+  runtimes.
+- **Compliance posture:** SOC 2 Type 2, GDPR, Cyber Essentials Plus,
+  ISO 27001; per-verb grants deny-by-default; API-key attenuation. Enterprise
+  buyers will ask us for the same list.
+- **Embedding model fixed at launch** (gemini-embedding-2), per-Context
+  selection "on the roadmap" — a real switching-cost weakness; our per-tenant
+  profiles already do this.
+- **Engine-roadmap signal:** they intend to "upstream foundational parts of
+  the Agent Memory model into SurrealDB over time" — sharpens risk #3
+  (engine gravity) AND is an opportunity: upstreamed primitives (e.g.
+  tri-temporal sugar, trace graphs) land in the engine we already run.
+- **Claimed logos** (Babcock, ING, British Airways, NVIDIA, Apple, SpaceX,
+  Walmart…) are SurrealDB-the-database customers presented on the memory
+  landing — category-credibility halo, not memory-product references.
