@@ -4,6 +4,7 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { IngestService } from '../ingest/ingest.service';
 import { SearchService } from '../search/search.service';
 import { DreamsService } from '../dreams/dreams.service';
+import type { DreamsOperation } from '../dreams/dto/run-dreams.dto';
 import type { ChatRoute } from './chat-router.service';
 
 /**
@@ -32,7 +33,7 @@ export class DemoPipelineService {
       text: body.text,
       contextRef: { vertical: body.vertical ?? 'shop' },
       emittedAt: new Date().toISOString(),
-    } as any);
+    });
   }
 
   async runSearch(
@@ -42,13 +43,13 @@ export class DemoPipelineService {
   ) {
     return this.search.search(
       tenant,
-      { query: body.query, limit: body.limit ?? 5, asOf: body.asOf } as any,
-      scopes as any,
+      { query: body.query, limit: body.limit ?? 5, asOf: body.asOf },
+      [...scopes],
     );
   }
 
-  async runDreams(tenant: string, operations: string[]) {
-    return this.dreams.runForTenant(tenant, operations as any);
+  async runDreams(tenant: string, operations: DreamsOperation[]) {
+    return this.dreams.runForTenant(tenant, operations);
   }
 
   /** Tell flow: ingest the mention, then best-effort inline dedup. */
@@ -58,7 +59,7 @@ export class DemoPipelineService {
       text: route.normalizedMessage,
       contextRef: { vertical: 'shop' },
       emittedAt,
-    } as any);
+    });
     // Lazy fast-path identity resolution. Mirrors how a brain SHOULD
     // behave in production: cheap inline dedup runs in the moment so an
     // obvious dupe (typo, alias) gets stitched immediately and the next
@@ -136,8 +137,8 @@ export class DemoPipelineService {
     });
     const search = await this.search.search(
       tenant,
-      { query: queryText, limit: 5, asOf } as any,
-      scopes as any,
+      { query: queryText, limit: 5, asOf },
+      [...scopes],
     );
     return {
       route,

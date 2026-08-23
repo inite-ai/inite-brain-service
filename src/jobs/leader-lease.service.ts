@@ -1,6 +1,23 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { hostname } from 'node:os';
-import { SurrealService, runTransaction, retryOnUniqueViolation } from '../db/surreal.service';
+import {
+  SurrealService,
+  runTransaction,
+  retryOnUniqueViolation,
+  queryRows,
+} from '../db/surreal.service';
+
+/** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
+type RawDateTime = string | number | Date;
+
+/** Raw leader_lease row for the read-only /admin/maintenance view. */
+interface LeaseRow {
+  name: string;
+  leaderId: string;
+  leaseUntil: RawDateTime;
+  heartbeatAt: RawDateTime;
+  acquiredAt: RawDateTime;
+}
 
 /**
  * Acquire / renew / release named leases in `leader_lease` (migration
@@ -131,10 +148,10 @@ export class LeaderLeaseService {
     if (!this.surreal) return [];
     try {
       return await this.surreal.withAdminDb(async (db) => {
-        const res = (await db.query<any[]>(
+        const rows = await queryRows<LeaseRow>(
+          db,
           `SELECT name, leaderId, leaseUntil, heartbeatAt, acquiredAt FROM leader_lease`,
-        )) as any[];
-        const rows = (res[0] ?? []) as any[];
+        );
         return rows.map((r) => ({
           name: r.name,
           leaderId: r.leaderId,

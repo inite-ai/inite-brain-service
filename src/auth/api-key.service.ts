@@ -47,8 +47,11 @@ export class ApiKeyService implements OnModuleInit {
       // malformed value is a boot error, not a silently ignored field —
       // an operator who typed `"policies": "readonly"` believes the key
       // is restricted.
-      if (k.policyNames !== undefined || (k as any).policies !== undefined) {
-        const names = (k as any).policies ?? k.policyNames;
+      // `policies` is a legacy field name the typed ApiKey no longer carries
+      // (it has `policyNames`); read it through a narrow local shape.
+      const legacy = k as { policies?: unknown };
+      if (k.policyNames !== undefined || legacy.policies !== undefined) {
+        const names = legacy.policies ?? k.policyNames;
         if (
           !Array.isArray(names) ||
           names.some((n: unknown) => typeof n !== 'string')
@@ -58,7 +61,7 @@ export class ApiKeyService implements OnModuleInit {
           );
         }
         k.policyNames = names;
-        delete (k as any).policies;
+        delete legacy.policies;
       }
       // Optional per-pack indexer binding: `"packIds": ["my_pack", …]`.
       // Same malformed-is-a-boot-error stance as policies — an operator

@@ -18,6 +18,7 @@ import {
   type ProgressReporter,
 } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
+import { asStructuredContent } from './structured';
 
 /**
  * Collaborators the read surface needs. Mirrors the constructor seam of
@@ -146,7 +147,7 @@ function registerSearchTools({
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -211,7 +212,7 @@ function registerSearchTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -265,7 +266,7 @@ function registerSearchTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -303,7 +304,7 @@ function registerSearchTools({
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -357,7 +358,7 @@ function registerGraphRetrieveTool({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -390,7 +391,7 @@ function registerEntityReadTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -418,7 +419,7 @@ function registerEntityReadTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -459,7 +460,7 @@ function registerEntityReadTools({
         });
         return {
           content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-          structuredContent: out as any,
+          structuredContent: asStructuredContent(out),
         };
       }
       const out = await deps.summarizer.summarize(
@@ -469,7 +470,10 @@ function registerEntityReadTools({
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { ...out, sampledBy: 'local_template' } as any,
+        structuredContent: {
+          ...out,
+          sampledBy: 'local_template',
+        } as Record<string, unknown>,
       };
     },
   );
@@ -504,7 +508,7 @@ function registerEntityReadTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -542,7 +546,7 @@ function registerEntityReadTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -588,7 +592,7 @@ function registerDetectContradictionTool({
       const out = await deps.predictor.predict(
         companyId,
         {
-          entityRef: args.entityRef as any,
+          entityRef: args.entityRef,
           predicate: args.predicate,
           object: args.object,
           validFrom: args.validFrom,
@@ -601,7 +605,7 @@ function registerDetectContradictionTool({
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

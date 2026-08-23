@@ -51,7 +51,7 @@ export interface InsightRow {
   score?: number;
   // Policy fields (audit 2026-08-19 P1): the insight lane's row filter
   // reads these — a projection without them judged rules over null.
-  source?: unknown;
+  source?: Record<string, unknown> | null;
   trustSnapshot?: {
     authority?: number;
     declaredTrust?: number;
@@ -85,6 +85,9 @@ function budgetText(text: string): string {
   return `${atWord.trimEnd()} […]`;
 }
 
+/** Synthetic source stamped on insight rows that carry none from the DB. */
+const INSIGHT_FALLBACK_SOURCE: Record<string, unknown> = { vertical: 'insight' };
+
 function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
   const valid = String(r.validFrom ?? '');
   return {
@@ -96,7 +99,7 @@ function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
     validFrom: valid,
     recordedAt: new Date().toISOString(),
     status: 'active',
-    source: r.source ?? { vertical: 'insight' },
+    source: r.source ?? INSIGHT_FALLBACK_SOURCE,
     ...(r.trustSnapshot !== undefined ? { trustSnapshot: r.trustSnapshot } : {}),
     ...(r.corroboration !== undefined ? { corroboration: r.corroboration } : {}),
     ...(r.userId !== undefined ? { userId: r.userId } : {}),

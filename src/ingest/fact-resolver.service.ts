@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
-import { retryOnUniqueViolation } from '../db/surreal.service';
+import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -121,7 +121,7 @@ export class FactResolverService {
       derivedVersion?: string;
       recordOutcomeMetric?: boolean;
     },
-  ): Promise<{ result: any; semantics: string }> {
+  ): Promise<{ result: ResolveOutcome; semantics: string }> {
     // Read policy from the per-tenant registry. Pre-warm the snapshot so the
     // cache is populated before the synchronous policyFor() lookup. Defensive:
     // a registry bootstrap failure must not 500 the ingest — policyFor falls
@@ -156,7 +156,7 @@ export class FactResolverService {
   async resolveMany(
     db: Surreal,
     inputs: Parameters<FactResolverService['resolve']>[1][],
-  ): Promise<Array<{ result: any; semantics: string }>> {
+  ): Promise<Array<{ result: ResolveOutcome; semantics: string }>> {
     if (inputs.length === 0) return [];
     const firstCompanyId = inputs[0]!.companyId; // inputs non-empty (checked)
     try {
@@ -170,7 +170,7 @@ export class FactResolverService {
     const prepared = await Promise.all(
       inputs.map((p) => this.buildResolveCall(p)),
     );
-    const results: any[] = new Array(inputs.length);
+    const results: ResolveOutcome[] = new Array(inputs.length);
     const appendIdx: number[] = [];
     const restIdx: number[] = [];
     prepared.forEach((c, i) =>
@@ -184,7 +184,7 @@ export class FactResolverService {
           // appendIdx holds valid indices into `prepared` (built above).
           appendIdx.map((i) => prepared[i]!),
         );
-        appendIdx.forEach((i, k) => (results[i] = batch[k]));
+        appendIdx.forEach((i, k) => (results[i] = batch[k]!));
       } catch (e) {
         this.logger.warn(
           `ingest: batched fact resolve fell back to per-fact: ${(e as Error).message}`,
@@ -200,13 +200,14 @@ export class FactResolverService {
     }
 
     // Post-call side effects (HyPE + metric) per fact, in order.
-    const out: Array<{ result: any; semantics: string }> = [];
+    const out: Array<{ result: ResolveOutcome; semantics: string }> = [];
     for (let i = 0; i < inputs.length; i++) {
       // prepared.length === inputs.length ⇒ both indices are in-bounds.
       const input = inputs[i]!;
       const prep = prepared[i]!;
-      await this.postResolve(db, input, results[i]);
-      out.push({ result: results[i], semantics: prep.semantics });
+      const res = results[i]!;
+      await this.postResolve(db, input, res);
+      out.push({ result: res, semantics: prep.semantics });
     }
     return out;
   }
@@ -257,7 +258,7 @@ export class FactResolverService {
   private async postResolve(
     db: Surreal,
     p: Parameters<FactResolverService['resolve']>[1],
-    result: any,
+    result: ResolveOutcome,
   ): Promise<void> {
     const outcome = result?.outcome;
     if (p.recordOutcomeMetric && outcome) {
@@ -327,7 +328,7 @@ export class FactResolverService {
   private async resolveAppendOnlyBatch(
     db: Surreal,
     prepared: Parameters<FactResolverService['resolveFactCall']>[1][],
-  ): Promise<any[]> {
+  ): Promise<ResolveOutcome[]> {
     const facts = prepared.map((c) => {
       const f: Record<string, unknown> = {
         eid: idTailOf(c.entityId),
@@ -364,11 +365,11 @@ export class FactResolverService {
       reject_threshold: this.conflict.rejectThreshold,
       margin_for_supersede: this.conflict.marginForSupersede,
     };
-    const [rows] = await db.query<[any[]]>(
+    const out = await queryRows<ResolveOutcome>(
+      db,
       `RETURN fn::resolve_facts($facts, $cfg)`,
       { facts, cfg },
     );
-    const out = (rows as any[]) ?? [];
     await this.stampFactScope(
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
@@ -507,7 +508,7 @@ export class FactResolverService {
       userId?: string;
       derivedVersion?: string;
     },
-  ): Promise<any> {
+  ): Promise<ResolveOutcome> {
     // Serialize resolves on the same (company, entity, predicate). Under
     // SurrealDB 3.x the OCC read-conflict that let racing single_active
     // resolves retry-and-supersede no longer fires for the function's
@@ -521,7 +522,7 @@ export class FactResolverService {
     const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicateAlias ?? p.predicate}`;
     const r = await this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
-        const [row] = await db.query<[any]>(
+        const [row] = await db.query<[ResolveOutcome]>(
           `RETURN fn::resolve_fact(
             type::record('knowledge_entity', $eid),
             $predicate, $object, $object_meta, $embedding,

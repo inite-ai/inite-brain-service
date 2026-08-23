@@ -36,9 +36,7 @@ export class ScenarioEvalService {
 
     let hits: SearchHit[] = [];
     let error: string | undefined;
-    let traceCapture:
-      | { requestId: string; totalMs: number; spans: any[] }
-      | undefined;
+    let traceCapture: NonNullable<ScenarioQueryResult['trace']> | undefined;
     try {
       // Capture the in-process debug trace so the demo deck can render
       // the per-stage waterfall (vector / lexical / fusion / reranker).
@@ -50,8 +48,8 @@ export class ScenarioEvalService {
             limit: 10,
             asOf: expectation.asOf,
             ...(expectation.predicates ? { predicates: expectation.predicates } : {}),
-          } as any,
-          callerScopes as any,
+          },
+          callerScopes,
         ),
       );
       hits = captured.result.results;
@@ -173,8 +171,8 @@ export class ScenarioEvalService {
           limit: 20,
           asOf: a.asOf,
           includeRetracted: a.includeRetracted ?? false,
-        } as any,
-        ['brain:read', 'brain:read_pii'] as any,
+        },
+        ['brain:read', 'brain:read_pii'],
       );
 
       if (a.kind === 'no_search_match') {
@@ -293,13 +291,13 @@ export class ScenarioEvalService {
     companyId: string,
     ref: string,
   ): Promise<string | null> {
-    const [, id] = ref.split('.', 2);
+    const [, id = ''] = ref.split('.', 2);
     const refTag = parseRefTag(ref).refKey;
     try {
       const res = await this.search.search(
         companyId,
-        { query: id, limit: 10 } as any,
-        ['brain:read', 'brain:read_pii'] as any,
+        { query: id, limit: 10 },
+        ['brain:read', 'brain:read_pii'],
       );
       const hit = res.results.find((r) => r.externalRefs?.[refTag] === id);
       return hit?.entityId ?? null;

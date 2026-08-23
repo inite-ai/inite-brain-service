@@ -3,10 +3,17 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
+import { queryRows } from '../db/surreal.service';
 import {
   makeRowPolicyFilter,
   type PredicatePolicyLookup,
 } from '../policy/row-filter';
+
+/** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
+interface ChangefeedShowRow {
+  versionstamp?: number | string;
+  changes?: unknown[];
+}
 
 /** One knowledge-fact change delivered to a subscriber. */
 export interface LiveFactEvent {
@@ -235,17 +242,17 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   async catchUp(companyId: string): Promise<number> {
     const channel = this.channels.get(companyId);
     if (!channel) return 0;
-    const [rows] = await channel.conn.query<[any[]]>(
+    const changes = await queryRows<ChangefeedShowRow>(
+      channel.conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE ${channel.versionstamp} LIMIT 1000`,
     );
-    const changes = (rows as any[]) ?? [];
     let emitted = 0;
     let highest = channel.versionstamp;
     for (const change of changes) {
-      const vs = Number(change?.versionstamp ?? 0);
+      const vs = Number(change.versionstamp ?? 0);
       if (vs <= channel.versionstamp) continue;
       if (vs > highest) highest = vs;
-      for (const item of (change?.changes as any[]) ?? []) {
+      for (const item of change.changes ?? []) {
         const event = toReplayEvent(item);
         if (!event) continue;
         // Already pushed over the socket — replay must not double-deliver.
@@ -341,12 +348,12 @@ export function dbNameFor(companyId: string): string {
  */
 async function currentVersionstamp(conn: Surreal): Promise<number> {
   try {
-    const [rows] = await conn.query<[any[]]>(
+    const changes = await queryRows<ChangefeedShowRow>(
+      conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE 0 LIMIT 100000`,
     );
-    const changes = (rows as any[]) ?? [];
     return changes.reduce(
-      (max, c) => Math.max(max, Number(c?.versionstamp ?? 0)),
+      (max, c) => Math.max(max, Number(c.versionstamp ?? 0)),
       0,
     );
   } catch {
@@ -360,7 +367,7 @@ export function toFactEvent(
   via: 'live' | 'replay',
 ): LiveFactEvent | null {
   const value = (msg?.value ?? {}) as Record<string, unknown>;
-  const factId = String((msg as any)?.recordId ?? value.id ?? '');
+  const factId = String(msg?.recordId ?? value.id ?? '');
   if (!factId || typeof value.predicate !== 'string') return null;
   return {
     kind: 'fact',

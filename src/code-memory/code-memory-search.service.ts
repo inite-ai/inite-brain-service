@@ -1,10 +1,13 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { BrainScope } from '../auth/api-key.types';
 import { CODE_MEMORY_PACK, codeMemoryKindOf } from '../ai/domain-packs';
-import { makeRowPolicyFilter } from '../policy/row-filter';
+import {
+  makeRowPolicyFilter,
+  type PolicyFilterableRow,
+} from '../policy/row-filter';
 
 export interface RecalledDecision {
   anchor: string;
@@ -12,6 +15,14 @@ export interface RecalledDecision {
   text: string;
   score: number;
   validFrom: string;
+}
+
+/** A code-memory fact row as read by recall (extends the row-policy shape). */
+interface RecallRow extends PolicyFilterableRow {
+  object: unknown;
+  validFrom?: string | Date | null;
+  refs?: Record<string, string> | null;
+  score?: unknown;
 }
 
 /**
@@ -56,7 +67,8 @@ export class CodeMemorySearchService {
         // without them an invalidated anchor's facts (retractedAt set but
         // status left 'active' by older writes) and future-dated decisions
         // would surface in recall while every other read path hides them.
-        const [rows] = await db.query<[any[]]>(
+        const rows = await queryRows<RecallRow>(
+          db,
           `SELECT
              predicate,
              object,
@@ -96,9 +108,7 @@ export class CodeMemorySearchService {
             opts.companyId,
           ),
         });
-        const visible = ((rows as any[]) ?? []).filter((r) =>
-          rowPolicy.filter(r as { predicate: string }),
-        );
+        const visible = rows.filter((r) => rowPolicy.filter(r));
         rowPolicy.finish();
         return visible.map((r) => ({
           anchor: anchorOf(r.refs),

@@ -100,7 +100,13 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
+      // Production code is typed — no `any` escape hatch. SurrealDB
+      // query results go through the generic `queryRows<T>` / typed
+      // `db.query<[Row[]]>()` idiom (see src/db/surreal.service.ts);
+      // genuinely-dynamic payloads use `unknown` + narrowing. The
+      // handful of unavoidable spots carry a per-line disable with a
+      // reason. Tests keep `any` for mocks/fixtures (override below).
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
@@ -167,6 +173,9 @@ export default tseslint.config(
     // ("explicit > clever" is the standing rule for tests).
     files: ['test/**/*.ts', '**/*.spec.ts', '**/*.unit-spec.ts'],
     rules: {
+      // Mocks/fixtures legitimately use `any` (partial stubs, cast doubles);
+      // typing them precisely is low-value churn. Kept ON for src only.
+      '@typescript-eslint/no-explicit-any': 'off',
       'max-lines': 'off',
       'max-lines-per-function': 'off',
       'max-classes-per-file': 'off',

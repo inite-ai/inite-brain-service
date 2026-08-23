@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
@@ -47,6 +47,26 @@ export interface AvailablePack {
   description: string;
   predicateCount: number;
   builtin: boolean;
+}
+
+/** Columns read back from `domain_pack` on install / upgrade / uninstall. */
+interface DomainPackRow {
+  id?: unknown;
+  version?: unknown;
+  manifest?: DomainPackManifest;
+  webhookSecret?: unknown;
+  installId?: unknown;
+  acceptedMcpTools?: unknown;
+  acceptedMcpToolsChecksum?: unknown;
+}
+
+/** `listInstalled` projection of `domain_pack`. */
+interface InstalledPackRow {
+  packId?: unknown;
+  version?: unknown;
+  installedAt: string | Date;
+  manifest?: { predicates?: unknown };
+  checksum?: unknown;
 }
 
 /** Outcome of the seed-documents install hook. Contract mirror:
@@ -114,18 +134,20 @@ export class DomainPackInstallService {
 
   async listInstalled(companyId: string): Promise<InstalledPack[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<InstalledPackRow>(
+        db,
         `SELECT packId, version, installedAt, manifest, checksum FROM domain_pack WHERE status = 'active'`,
       );
-      return ((rows as any[]) ?? []).map((r) => ({
-        packId: String(r.packId),
-        version: String(r.version),
-        installedAt: new Date(r.installedAt).toISOString(),
-        predicateCount: Array.isArray(r.manifest?.predicates)
-          ? r.manifest.predicates.length
-          : 0,
-        checksum: r.checksum ? String(r.checksum) : null,
-      }));
+      return rows.map((r) => {
+        const preds = r.manifest?.predicates;
+        return {
+          packId: String(r.packId),
+          version: String(r.version),
+          installedAt: new Date(r.installedAt).toISOString(),
+          predicateCount: Array.isArray(preds) ? preds.length : 0,
+          checksum: r.checksum ? String(r.checksum) : null,
+        };
+      });
     });
   }
 
@@ -214,11 +236,12 @@ export class DomainPackInstallService {
       : `, acceptedMcpTools = NONE, acceptedMcpToolsChecksum = NONE`;
     let mintedInstallId: string | undefined;
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
-      const [existing] = await db.query<[any[]]>(
+      const existing = await queryRows<DomainPackRow>(
+        db,
         `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
-      const row = ((existing as any[]) ?? [])[0];
+      const row = existing[0];
       const consentMessage = mcpConsentRequired({
         manifest,
         acceptMcpTools: opts.acceptMcpTools,
@@ -299,7 +322,7 @@ export class DomainPackInstallService {
    */
   private async applyPackUpgrade(opts: {
     db: Surreal;
-    row: any;
+    row: DomainPackRow;
     manifest: DomainPackManifest;
     checksum: string;
     newIds: string[];
@@ -517,17 +540,19 @@ export class DomainPackInstallService {
       );
     }
     const deprecated = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<DomainPackRow>(
+        db,
         `SELECT id FROM domain_pack WHERE packId = $packId AND status = 'active' LIMIT 1`,
         { packId },
       );
-      const row = ((rows as any[]) ?? [])[0];
+      const row = rows[0];
       if (!row) {
         throw new NotFoundException(`pack "${packId}" is not installed`);
       }
       // Deprecate the pack's predicates (status only — facts on them survive).
       const prefix = `${packId}__`;
-      const [updated] = await db.query<[any[]]>(
+      const updated = await queryRows<unknown>(
+        db,
         `UPDATE knowledge_predicate SET status = 'deprecated'
            WHERE string::starts_with(predicateId, $prefix) AND status != 'deprecated'
            RETURN AFTER`,
@@ -537,7 +562,7 @@ export class DomainPackInstallService {
         `UPDATE $id SET status = 'removed', updatedAt = time::now()`,
         { id: row.id },
       );
-      return ((updated as any[]) ?? []).length;
+      return updated.length;
     });
 
     this.registry.invalidate(companyId);

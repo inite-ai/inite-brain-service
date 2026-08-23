@@ -3,6 +3,8 @@ import { StringRecordId } from 'surrealdb';
 import {
   SurrealService,
   isUniqueViolation,
+  queryFirst,
+  queryRows,
   retryOnUniqueViolation,
 } from '../db/surreal.service';
 import { IngestLinkDto } from './dto/ingest-link.dto';
@@ -26,8 +28,8 @@ export class LinkIngestService {
 
   async ingestLink(companyId: string, dto: IngestLinkDto) {
     return this.surreal.withCompany(companyId, async (db) => {
-      const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from as any);
-      const toId = await this.entities.resolveOrCreateBareRef(db, dto.to as any);
+      const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from);
+      const toId = await this.entities.resolveOrCreateBareRef(db, dto.to);
 
       // identity_of merge. The merge sets toId.mergedInto = fromId.
       // If fromId already resolves (transitively) back to toId, both ends end
@@ -96,7 +98,8 @@ export class LinkIngestService {
       const toRid = new StringRecordId(toId);
       let edgeId: string | null = null;
       try {
-        const [edgeRows] = await db.query<[any[]]>(
+        const edgeRows = await queryRows<{ id: unknown }>(
+          db,
           `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
           {
             from: fromRid,
@@ -106,15 +109,15 @@ export class LinkIngestService {
             source: dto.source,
           },
         );
-        const edge = ((edgeRows as any[]) ?? [])[0];
+        const edge = edgeRows[0];
         edgeId = edge ? String(edge.id) : null;
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
-        const [existingRows] = await db.query<[any[]]>(
+        const existing = await queryFirst<{ id: unknown }>(
+          db,
           `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
           { from: fromRid, to: toRid, kind: dto.kind },
         );
-        const existing = ((existingRows as any[]) ?? [])[0];
         edgeId = existing ? String(existing.id) : null;
         this.logger.debug(
           `[knowledge.edge.idempotent] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId} (already existed)`,

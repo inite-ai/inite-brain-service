@@ -12,6 +12,7 @@ import { DOC_TEXT_HARD_CAP } from '../documents/dto/ingest-document.dto';
 import { docMaxChars } from '../documents/documents-gate';
 import type { BrainScope } from '../auth/api-key.types';
 import type { MetricsService } from '../metrics/metrics.service';
+import { asStructuredContent } from './structured';
 
 export interface WriteToolDeps {
   ingest: IngestService;
@@ -92,7 +93,7 @@ export function registerWriteTools({
       // `fact` path — query per-path, don't sum labels.
       deps.metrics?.countIngestWrite('mcp');
       const out = await deps.ingest.ingestFact(companyId, {
-        entityRef: args.entityRef as any,
+        entityRef: args.entityRef,
         predicate: args.predicate,
         object: args.object,
         validFrom: args.validFrom,
@@ -103,7 +104,7 @@ export function registerWriteTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -142,15 +143,15 @@ export function registerWriteTools({
     },
     async (args) => {
       const out = await deps.ingest.ingestLink(companyId, {
-        from: args.from as any,
-        to: args.to as any,
+        from: args.from,
+        to: args.to,
         kind: args.kind,
         weight: args.weight,
         source: { vertical: args.sourceVertical },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -193,7 +194,7 @@ export function registerWriteTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -228,7 +229,7 @@ export function registerWriteTools({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -250,7 +251,7 @@ export function registerWriteTools({
       const out = await deps.procedural.retire(companyId, args.procedureId);
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -299,7 +300,7 @@ function registerFeedbackTool({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -344,7 +345,7 @@ export function registerAdminTools(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -430,7 +431,7 @@ function registerIngestDocumentTool({
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

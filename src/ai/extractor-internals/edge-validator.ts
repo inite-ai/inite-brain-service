@@ -9,7 +9,7 @@ import type { ExtractedEdge } from './types';
  * Returns surviving edges + drop diagnostics for trace emission.
  */
 export function validateEdges(
-  parsed: any,
+  parsed: unknown,
   entityCount: number,
   clauses: string[],
 ): {
@@ -18,9 +18,13 @@ export function validateEdges(
 } {
   const edges: ExtractedEdge[] = [];
   const dropped: Array<{ kind?: string; reason: string }> = [];
-  if (!Array.isArray(parsed.edges)) return { edges, dropped };
+  const rawEdges =
+    typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>).edges
+      : undefined;
+  if (!Array.isArray(rawEdges)) return { edges, dropped };
 
-  for (const e of parsed.edges as Array<Record<string, unknown>>) {
+  for (const e of rawEdges as Array<Record<string, unknown>>) {
     if (!e || typeof e !== 'object') continue;
     const from = Number(e.fromEntityIndex);
     const to = Number(e.toEntityIndex);

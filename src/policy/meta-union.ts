@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { policyFor } from '../ingest/conflict-resolver';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { evaluateRow, toRowView } from './policy-engine';
 import { PolicyContext, PolicyRowView } from './policy.types';
 
@@ -37,6 +37,12 @@ const metaCache = new LRUCache<
   string,
   { meta: Record<string, unknown> | null; at: number }
 >(10_000);
+
+/** Raw source_document projection for the origin-meta batch lookup. */
+interface SourceDocMetaRow {
+  contentHash: unknown;
+  meta?: unknown;
+}
 
 export interface MetaUnionRow {
   predicate: string;
@@ -97,14 +103,14 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   if (wanted.size > 0) {
     try {
       const hashes = [...wanted].map((k) => k.slice('doc:'.length));
-      const found = await surreal.withCompany(companyId, async (db) => {
-        const [r] = await db.query<[any[]]>(
+      const found = await surreal.withCompany(companyId, (db) =>
+        queryRows<SourceDocMetaRow>(
+          db,
           `SELECT contentHash, meta FROM source_document
             WHERE contentHash INSIDE $hashes`,
           { hashes },
-        );
-        return (r as any[]) ?? [];
-      });
+        ),
+      );
       const at = Date.now();
       for (const doc of found) {
         metaCache.set(cacheKey(companyId, `doc:${String(doc.contentHash)}`), {

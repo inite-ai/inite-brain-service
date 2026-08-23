@@ -4,6 +4,7 @@ import type { IngestService } from '../ingest/ingest.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { CodeMemorySearchService } from '../code-memory/code-memory-search.service';
 import type { BrainScope } from '../auth/api-key.types';
+import { asStructuredContent } from './structured';
 import {
   CODE_MEMORY_KINDS,
   CODE_MEMORY_PREDICATE_IDS,
@@ -91,7 +92,7 @@ export function registerCodeMemoryReadTools(opts: {
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -117,7 +118,7 @@ export function registerCodeMemoryReadTools(opts: {
       const out = { query: args.query, found: decisions.length, decisions };
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -183,7 +184,7 @@ export function registerCodeMemoryWriteTools(opts: {
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

@@ -20,6 +20,7 @@ import {
   renderPackToolTitle,
   sanitizePackText,
 } from './pack-tool-render';
+import { asStructuredContent } from './structured';
 
 /**
  * Registration of pack-declared MCP tools (docs/mcp-pack-tools.md) on a
@@ -127,7 +128,7 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -170,7 +171,7 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -210,7 +211,7 @@ function registerExternalTool(ctx: ExternalToolContext): void {
       return {
         content: out.content,
         ...(out.structuredContent
-          ? { structuredContent: out.structuredContent as any }
+          ? { structuredContent: out.structuredContent }
           : {}),
       };
     },

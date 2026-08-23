@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
+import { asStructuredContent } from './structured';
 
 export interface ProceduralReadDeps {
   /** Caller scopes — routes these reads through the scoped pool. */
@@ -48,7 +49,7 @@ export function registerProceduralReadTools(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { matches: out } as any,
+        structuredContent: asStructuredContent({ matches: out }),
       };
     },
   );
@@ -73,7 +74,7 @@ export function registerProceduralReadTools(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { procedures: out } as any,
+        structuredContent: asStructuredContent({ procedures: out }),
       };
     },
   );

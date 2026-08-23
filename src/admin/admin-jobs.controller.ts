@@ -485,14 +485,15 @@ export class AdminJobsController {
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
       try {
-        const rows = (await this.dreams.emitsForRun(companyId, runId)) as Array<
-          Record<string, any>
-        >;
+        const rows = await this.dreams.emitsForRun(companyId, runId);
         for (const r of rows) {
           emits.push({
             runId: r.runId,
             kind: r.kind,
-            ts: typeof r.ts === 'string' ? r.ts : new Date(r.ts).toISOString(),
+            ts:
+              typeof r.ts === 'string'
+                ? r.ts
+                : new Date(r.ts as string | number | Date).toISOString(),
             subject: r.subject ?? null,
             object: r.object ?? null,
             detail: r.detail ?? null,

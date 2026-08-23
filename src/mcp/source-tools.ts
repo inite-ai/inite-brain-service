@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { SourcesService } from '../sources/sources.service';
+import { asStructuredContent } from './structured';
 
 export interface SourceToolDeps {
   sources: SourcesService;
@@ -35,7 +36,7 @@ export function registerSourceReadTools(opts: {
       const out = await deps.sources.detail(companyId, args.sourceKey);
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

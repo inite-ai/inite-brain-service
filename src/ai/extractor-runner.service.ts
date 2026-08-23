@@ -301,7 +301,7 @@ export class ExtractorRunnerService {
     companyId: string;
     trimmed: string;
     snapshot: Snapshot;
-    rawJson: any;
+    rawJson: unknown;
     context?: ConversationContext;
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, snapshot, rawJson, context } = args;

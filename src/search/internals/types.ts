@@ -4,6 +4,7 @@
  * (DB projection), so each stage can be typed precisely.
  */
 
+
 /**
  * Stage label identifying which retrieval leg surfaced a fact.
  * Carried end-to-end so DecisionLog can attribute each retrieved fact
@@ -42,7 +43,13 @@ export interface FactRow {
   recordedAt: string;
   retractedAt?: string;
   status: string;
-  source: any;
+  // The persisted fact `source` is an open, heterogeneous object: a
+  // FactSource core plus fields various write paths stamp on top
+  // (mentionedAt, scene, salience, originKey). Modelled as an open record
+  // (or null, for the insight/synthetic legs that carry no source);
+  // consumers read individual fields defensively (e.g. scoring reads
+  // `source?.evidence` via optional chaining).
+  source: Record<string, unknown> | null;
   // Hydrated via inline projection — entity record inlined.
   entity?: {
     id: unknown;

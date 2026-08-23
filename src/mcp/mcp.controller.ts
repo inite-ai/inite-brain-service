@@ -101,6 +101,6 @@ export class McpController {
     });
 
     await server.connect(transport);
-    await transport.handleRequest(req, res, (req as any).body);
+    await transport.handleRequest(req, res, req.body);
   }
 }

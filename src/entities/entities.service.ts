@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { ForgetEntityDto } from './dto/forget.dto';
@@ -10,7 +10,7 @@ import {
   blockedPredicates,
   activeFactWhere,
 } from './entity-read.helpers';
-import { makeRowPolicyFilter } from '../policy/row-filter';
+import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -138,6 +138,99 @@ const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEFAULT_LIMIT = 10;
 const AUTOCOMPLETE_MAX_LIMIT = 25;
 
+// --- Local DB row shapes: only the columns each SELECT actually returns.
+// Date-typed columns are `string | Date` (the JS SDK hands back a Date for
+// native datetime, a string for ISO literals) so they funnel through
+// `new Date(...)`; opaque passthrough columns are `unknown`. Fact rows
+// extend PolicyFilterableRow so they drop straight into rowPolicy.filter().
+
+interface EntityProfileRow {
+  id: unknown;
+  type: string;
+  canonicalName: string;
+  externalRefs?: Record<string, string>;
+  mergedAt?: string | Date;
+  mergedInto?: unknown;
+}
+
+interface FactProfileRow extends PolicyFilterableRow {
+  id: unknown;
+  object: string;
+  confidence: number;
+  validFrom: string | Date;
+  validUntil?: string | Date;
+  status: string;
+}
+
+interface FactTimelineRow extends PolicyFilterableRow {
+  id: unknown;
+  object: string;
+  confidence: number;
+  recordedAt: string | Date;
+  retractedAt?: string | Date | null;
+  retractedBy?: unknown;
+  retractionReason?: unknown;
+  supersededBy?: unknown;
+}
+
+interface EdgeEntityProjection {
+  id: unknown;
+  type: string;
+  canonicalName: string;
+}
+
+interface EdgeRow {
+  id: unknown;
+  in: unknown;
+  out: unknown;
+  kind: string;
+  weight: number;
+  source: unknown;
+  createdAt: string | Date;
+  invalidatedAt?: unknown;
+  toEntity?: EdgeEntityProjection | null;
+  fromEntity?: EdgeEntityProjection | null;
+}
+
+export interface TimelineRecordedEvent {
+  type: 'fact.recorded';
+  at: string;
+  factId: string;
+  predicate: string;
+  object: string;
+  source: unknown;
+  confidence: number;
+}
+
+export interface TimelineRetractedEvent {
+  type: 'fact.retracted';
+  at: string;
+  factId: string;
+  retractedBy: unknown;
+  reason: unknown;
+  supersededBy?: string;
+}
+
+export type TimelineEvent = TimelineRecordedEvent | TimelineRetractedEvent;
+
+export interface ConnectionNeighbour {
+  id: string;
+  type: string;
+  canonicalName: string;
+}
+
+export interface ConnectionEdge {
+  edgeId: string;
+  from: string;
+  to: string;
+  kind: string;
+  weight: number;
+  source: unknown;
+  createdAt: string;
+  neighbour?: ConnectionNeighbour;
+  direction: 'outbound' | 'inbound';
+}
+
 @Injectable()
 export class EntitiesService {
   // Fourth dep is the tenant predicate registry — the row fence must see
@@ -163,12 +256,12 @@ export class EntitiesService {
     const txAt = recordedAtRaw ? new Date(recordedAtRaw) : null;
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
-      const [entRows] = await db.query<any[][]>(
+      const entity = await queryFirst<EntityProfileRow>(
+        db,
         `SELECT ${ENTITY_PROFILE_FIELDS}
          FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      const entity = (entRows as any[])?.[0];
       if (!entity) {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
@@ -191,7 +284,8 @@ export class EntitiesService {
         ...asOfClauses,
       ];
       const params: Record<string, unknown> = { rid: ref.id, ...asOfParams };
-      const [factRows] = await db.query<any[][]>(
+      const factRows = await queryRows<FactProfileRow>(
+        db,
         `SELECT ${FACT_PROFILE_FIELDS}
          FROM knowledge_fact
          WHERE ${baseClauses.join(' AND ')}
@@ -205,9 +299,7 @@ export class EntitiesService {
         surface: 'entity_profile',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const facts = ((factRows as any[]) ?? []).filter((f) =>
-        rowPolicy.filter(f),
-      );
+      const facts = factRows.filter((f) => rowPolicy.filter(f));
       rowPolicy.finish();
 
       return {
@@ -261,12 +353,12 @@ export class EntitiesService {
       companyId,
       scopes,
       async (db) => {
-        const [rows] = await db.query<[any[]]>(
+        const rows = await queryRows<unknown>(
+          db,
           `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
           { key },
         );
-        const arr = (rows as any[]) ?? [];
-        return arr[0] ? String(arr[0]) : null;
+        return rows[0] ? String(rows[0]) : null;
       },
     );
     if (!entityId) return null;
@@ -320,7 +412,9 @@ export class EntitiesService {
       // check stays a single network hop. Avoids math::max aggregation,
       // which returns NONE over datetimes on this SurrealDB build.
       const where = baseClauses.join(' AND ');
-      const [recRows, valRows] = await db.query<[any[], any[]]>(
+      const [recRows, valRows] = await db.query<
+        [Array<{ recordedAt: unknown }>, Array<{ validFrom: unknown }>]
+      >(
         `SELECT recordedAt FROM knowledge_fact WHERE ${where}
            ORDER BY recordedAt DESC LIMIT 1;
          SELECT validFrom FROM knowledge_fact WHERE ${where}
@@ -334,8 +428,8 @@ export class EntitiesService {
             ? v.toISOString()
             : new Date(String(v)).toISOString();
       return {
-        maxRecordedAt: toIso((recRows as any[])?.[0]?.recordedAt),
-        maxValidFrom: toIso((valRows as any[])?.[0]?.validFrom),
+        maxRecordedAt: toIso(recRows[0]?.recordedAt),
+        maxValidFrom: toIso(valRows[0]?.validFrom),
       };
     });
   }
@@ -347,7 +441,7 @@ export class EntitiesService {
     untilRaw,
     recordedAtRaw,
     scopes,
-  }: GetTimelineOptions): Promise<{ entityId: string; events: any[] }> {
+  }: GetTimelineOptions): Promise<{ entityId: string; events: TimelineEvent[] }> {
     const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
@@ -371,7 +465,8 @@ export class EntitiesService {
       // a long-lived entity ships its entire history per request. Callers
       // page with since/until (the window params above); 1000 rows is
       // ~an order of magnitude beyond what any UI renders at once.
-      const [factRows] = await db.query<any[][]>(
+      const factRows = await queryRows<FactTimelineRow>(
+        db,
         `SELECT ${FACT_TIMELINE_FIELDS}
          FROM knowledge_fact
          WHERE ${clauses.join(' AND ')}
@@ -384,12 +479,10 @@ export class EntitiesService {
         surface: 'entity_timeline',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const rows = ((factRows as any[]) ?? []).filter((f) =>
-        rowPolicy.filter(f),
-      );
+      const rows = factRows.filter((f) => rowPolicy.filter(f));
       rowPolicy.finish();
 
-      const events: any[] = [];
+      const events: TimelineEvent[] = [];
       for (const f of rows) {
         events.push({
           type: 'fact.recorded',
@@ -426,7 +519,7 @@ export class EntitiesService {
     kind,
     scopes = [],
     asOf,
-  }: GetConnectionsOptions): Promise<{ entityId: string; edges: any[] }> {
+  }: GetConnectionsOptions): Promise<{ entityId: string; edges: ConnectionEdge[] }> {
     const ref = normalizeEntityId(entityIdRaw);
 
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
@@ -461,14 +554,12 @@ export class EntitiesService {
         FROM type::record('knowledge_entity', $rid)<-knowledge_edge
         WHERE 1=1${asOfParam}${kindParam}
       `;
-      const [outRowsResult, inRowsResult] = await Promise.all([
-        db.query<any[][]>(outSql, { rid: ref.id, kind, asOf }),
-        db.query<any[][]>(inSql, { rid: ref.id, kind, asOf }),
+      const [outRows, inRows] = await Promise.all([
+        queryRows<EdgeRow>(db, outSql, { rid: ref.id, kind, asOf }),
+        queryRows<EdgeRow>(db, inSql, { rid: ref.id, kind, asOf }),
       ]);
-      const outRows = ((outRowsResult[0] as any[]) ?? []) as any[];
-      const inRows = ((inRowsResult[0] as any[]) ?? []) as any[];
-      const edges = [
-        ...outRows.map((e: any) => ({
+      const edges: ConnectionEdge[] = [
+        ...outRows.map((e) => ({
           edgeId: String(e.id),
           from: String(e.in),
           to: String(e.out),
@@ -485,7 +576,7 @@ export class EntitiesService {
             : undefined,
           direction: 'outbound' as const,
         })),
-        ...inRows.map((e: any) => ({
+        ...inRows.map((e) => ({
           edgeId: String(e.id),
           from: String(e.in),
           to: String(e.out),
