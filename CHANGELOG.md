@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0](https://github.com/inite-ai/inite-brain-service/compare/v2.0.0...v2.1.0) (2026-08-23)
+
+
+### Features
+
+* **auth:** hierarchical scope-tag foundation — scope column + parity-proven visibility evaluator (default-off) ([#316](https://github.com/inite-ai/inite-brain-service/issues/316)) ([8e2af77](https://github.com/inite-ai/inite-brain-service/commit/8e2af77a77783b92cf3e641180f29bf4032ebfc4))
+* **db:** computed views for tenant counters behind STATS_VIEWS_ENABLED ([95cf3bb](https://github.com/inite-ai/inite-brain-service/commit/95cf3bbdd23546194b96a83c5e1cdcf1b80b1bfa))
+* **db:** validate stack on SurrealDB 3.2.4, bump CI/dev pins, add prod cutover runbook ([d5ee2a1](https://github.com/inite-ai/inite-brain-service/commit/d5ee2a16a0760cc9aec42e07cbbc768bbd21f945))
+* **db:** write-time derived-staleness event (0089) — closes the 0072 nightly-drain hole ([9a8bcdf](https://github.com/inite-ai/inite-brain-service/commit/9a8bcdf775ecb5fcd5869159d455ccb1565fc53a))
+* **provenance:** char-span grounding quotes — deriver emit + mechanical anchoring + provenance API spans ([#310](https://github.com/inite-ai/inite-brain-service/issues/310)) ([4125f7b](https://github.com/inite-ai/inite-brain-service/commit/4125f7b8381d881f0dba373af643adb0b8fabd27))
+* **search:** trace-derived usage ranking factor — readCount as a bounded, default-off ranking signal ([#314](https://github.com/inite-ai/inite-brain-service/issues/314)) ([ee14fe6](https://github.com/inite-ai/inite-brain-service/commit/ee14fe6e50334c1c4b1c1e80d2a433784ebaee56))
+* **security:** memory-injection red-team suite + opt-in ingest unicode sanitization ([#312](https://github.com/inite-ai/inite-brain-service/issues/312)) ([4a05c5c](https://github.com/inite-ai/inite-brain-service/commit/4a05c5c74ef2646ab900b75722558079ec828979))
+* **staleness:** 0089 fact_staleness event — write-time derived-fact marking ([f1b8cab](https://github.com/inite-ai/inite-brain-service/commit/f1b8cab48b4cf9ecac06583aea00b70e22c1a4f7))
+* **stats:** 0088 computed count() views for tenant counters behind STATS_VIEWS_ENABLED ([3bc1187](https://github.com/inite-ai/inite-brain-service/commit/3bc1187a7b5d8383320e515641a9fd3a82842f35))
+* **strategy:** ReasoningBank-shape strategy-memory lane — separate store, k=1 advisory retrieval, distill + lifecycle cron ([#313](https://github.com/inite-ai/inite-brain-service/issues/313)) ([7a83ba4](https://github.com/inite-ai/inite-brain-service/commit/7a83ba4aab82ad062bdcae3ec2ceb9902b786f9b))
+* **synthesize:** fact-lifecycle-gated answer cache — exact-match serving with check-on-read invalidation ([#311](https://github.com/inite-ai/inite-brain-service/issues/311)) ([51ebb53](https://github.com/inite-ai/inite-brain-service/commit/51ebb5357bafd25313d570d2a155bcfcedef682c))
+* **synthesize:** L3 confidence-gated escalation — full-session raw-context generation on verifier failure ([#315](https://github.com/inite-ai/inite-brain-service/issues/315)) ([f12f2b2](https://github.com/inite-ai/inite-brain-service/commit/f12f2b282a4e638035fd820210fffd11bc7abe2f))
+
 ## [2.0.0](https://github.com/inite-ai/inite-brain-service/compare/v1.1.0...v2.0.0) (2026-08-22)
 
 
