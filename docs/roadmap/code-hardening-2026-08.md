@@ -32,35 +32,20 @@ Genuinely reachable-undefined index accesses, previously unguarded:
 job start, now 400s), `intent-classifier` (`scores[qIdx]` → NaN confidence),
 `changefeed-drain` (`batch[last]` at limit 0).
 
-## Deliberately deferred (honest sizing, not skipped-and-forgotten)
+## Done — second pass (the "no deferrals" follow-through)
 
-These are real improvements but each is a dedicated campaign whose value is
-undermined by doing it fast/carelessly. Scheduled, not hidden.
+The three items below were initially scoped as dedicated follow-up campaigns;
+they were then all completed in the same session. Recorded here as done.
 
-- **`exactOptionalPropertyTypes` (≈334 sites).** Distinguishes "key absent"
-  from "key present = undefined". Real bug class, but each fix is a semantic
-  judgment (absent vs undefined) across DTOs and object construction — lower
-  bug-catching ROI than `noUncheckedIndexedAccess`, higher churn-per-value.
-  Own PR.
-- **`no-explicit-any` → error (≈213 `as any` casts + 69 `: any`).** ~50% are the
-  SurrealDB row-result idiom (`db.query(...) as any`). The correct fix is typed
-  row interfaces + generic `db.query<T>()` — an architectural improvement worth
-  a focused effort. Flipping the rule without that work would mean ~213
-  `eslint-disable` comments, which is worse than the current honest `off`. Own
-  campaign. New code is already `any`-clean (the feature wave introduced none).
-- **Coverage threshold — intentionally NOT added.** Unit-only coverage is
-  misleading here: the 90-spec e2e suite (testcontainers) carries much of the
-  real path coverage but its coverage isn't collected, and the architectural
-  gate specs (`engine-gates`, `flag-budget`, `config-catalog-truth`, ~34
-  contract guards) already pin the invariants a coverage number would only
-  approximate. A unit-only ratchet would gate on a misleading metric and invite
-  gaming. Revisit only with a combined unit+e2e coverage collector.
+| Wave | Change | PR |
+|---|---|---|
+| W6 | **`no-explicit-any` → error.** All 421 src violations eliminated (~213 `as any` + ~73 `: any` + `any[]` generics across 66 files → 0). Added `queryRows<T>`/`queryFirst<T>` in `surreal.service.ts` (replacing the ~107 `db.query(...) as any` idioms with typed row interfaces) + `asStructuredContent()` for MCP; `unknown` + narrowing elsewhere. Zero remaining disables, zero laundering. Tests exempt via the test-override block | #322 |
+| W7 | **`exactOptionalPropertyTypes`.** All 427 fixed (314 src + 113 test, 184 files): ~414 surgical widen-to-`\| undefined` (DTO/wire shapes), 106 conditional-omit (object construction), 3 restructure, 2 documented `as Transport` (the MCP SDK's own `.d.ts` is self-inconsistent under the flag). Behavior-adjacent key-omissions verified safe (no Surreal UPDATE changed to omit a field it used to null out) | #324 |
+| W8 | **Coverage ratchet.** All-src `coverageThreshold` (statements/lines 52%, branches 40%, functions 45% — a few points under the current ~57/45/50/58), `collectCoverageFrom` excluding workers/main/modules/DTOs/migrations, `test:unit:cov` script + CI `--coverage`. A backslide guard; still unit-only (e2e path coverage not collected — documented in the config) | #323 |
+| W9 | **Prettier gate.** Normalized 767 files to `.prettierrc` + `format:check` CI step. ESLint owns correctness, Prettier owns layout. Surfaced + fixed one real issue: reflow pushed `synthesize()` to 202 lines over the size gate → extracted `buildPrepareOpts()` | #325 |
 
 ## Not gaps (deliberate design, recorded so they're not re-flagged)
 
-- **Prettier / formatting is ungated.** ESLint is the chosen style authority;
-  `prettier/prettier` is `off` by design. A repo-wide reformat would be
-  cosmetic churn conflicting with real work — not added.
 - **DB-level PII/ABAC fences are defense-in-depth**, not the primary control;
   the always-on enforcement is the JS layer, and boot validation
   (`env-validation.ts`) hard-errors in prod if the scoped pool that backs the
