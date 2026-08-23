@@ -73,8 +73,15 @@ jobs:
       # conflict-explainer, chat-router gates, …). These were defined in
       # package.json but never wired into CI, so a regression in any of
       # them shipped green. Now a hard gate on every PR.
-      - name: Unit tests
-        run: pnpm test:unit
+      # --coverage activates the coverageThreshold floor in jest-unit.json
+      # (an all-src ratchet: statements/lines 52%, branches 40%, functions
+      # 45% — a few points under the current ~57/45/50/58 to prevent
+      # backslide without brittleness; the threshold is inert without
+      # --coverage, so local `pnpm test:unit` stays fast). Unit-only
+      # coverage — the e2e suite carries additional real path coverage
+      # that isn't collected here.
+      - name: Unit tests (+ coverage ratchet)
+        run: pnpm test:unit -- --coverage
 
       # Socket suite: the 6 specs that bind real loopback HTTP servers
       # (.listen(0, '127.0.0.1')) live behind their own *.socket-spec.ts
