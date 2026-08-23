@@ -134,7 +134,9 @@ export default tseslint.config(
       'sonarjs/no-identical-functions': 'error',
       'sonarjs/no-duplicated-branches': 'error',
 
-      // ── god-file / complexity warnings (advisory) ─────────────────
+      // ── god-file / complexity budgets ─────────────────────────────
+      // All 'error' — with lint:ci running `--max-warnings 0` these are
+      // hard, merge-blocking gates, not advisory warnings.
       ...sizeGates,
     },
   },

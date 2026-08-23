@@ -115,6 +115,35 @@ jobs:
         working-directory: brain-landing
         run: pnpm test
 
+  # Supply-chain CVE gate. scorecard.yml + dependency-review.yml are both
+  # gated on `repository.private == false`, so they no-op while this repo
+  # is private — a lockfile dependency with a known CVE could merge
+  # ungated despite SECURITY.md declaring supply-chain in scope. This job
+  # runs `pnpm audit` regardless of visibility and blocks on high/critical.
+  # `--ignore-workspace` matches the install: it audits THIS repo's
+  # lockfile only, never a stray parent pnpm workspace.
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      # Blocks the PR on any high/critical advisory in the resolved
+      # dependency tree. Dependabot (4 ecosystems) still opens the fix PRs;
+      # this is the gate that stops a known-vulnerable tree from merging.
+      - name: pnpm audit (high+ blocks)
+        run: pnpm audit --audit-level=high --ignore-workspace
+
   real-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
