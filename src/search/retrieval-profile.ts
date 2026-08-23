@@ -947,6 +947,16 @@ export interface SearchTuning {
   usageRecording: boolean;
   /** SEARCH_USAGE_DECAY_ENABLED — decay from lastReadAt. */
   usageDecay: boolean;
+  /**
+   * G8 trace-derived ranking: SEARCH_USAGE_RANKING_ENABLED gates reading
+   * fact_usage.readCount into the usage ranking factor;
+   * SEARCH_USAGE_BETA is its strength (0 = off), SEARCH_USAGE_SATURATION
+   * the readCount at which the saturating boost tops out. Needs recording
+   * ON first for readCount to accrue any data.
+   */
+  usageRanking: boolean;
+  usageBeta: number;
+  usageSaturation: number;
   /** SEARCH_PPR_ENABLED / SEARCH_PPR_AUTO_THRESHOLD. */
   pprEnabled: boolean;
   pprAutoThreshold: number;
@@ -1013,6 +1023,9 @@ export function resolveSearchTuning(
   return {
     usageRecording: envFlagEnabled(env.SEARCH_USAGE_RECORDING_ENABLED),
     usageDecay: envFlagEnabled(env.SEARCH_USAGE_DECAY_ENABLED),
+    usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
+    usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
+    usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
     pprEnabled: envFlagEnabled(env.SEARCH_PPR_ENABLED),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
     trustBeta: nonNegativeFloat(env, 'SEARCH_TRUST_BETA'),

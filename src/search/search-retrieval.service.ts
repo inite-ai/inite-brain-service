@@ -235,6 +235,12 @@ export class SearchRetrievalService {
       temporalAnchor: opts?.temporalAnchor ?? null,
       queryRange: opts?.queryRange ?? null,
       salienceScoring: opts?.salienceScoring ?? false,
+      // G8 usage factor: the flag gates the feature (also whether
+      // readCount was attached at all), β its strength. Ranking off →
+      // β 0 → factor 1.0 → byte-identical, belt-and-suspenders with the
+      // unattached readCount.
+      usageBeta: tuning.usageRanking ? tuning.usageBeta : 0,
+      usageSaturation: tuning.usageSaturation,
     });
     return bucketByEntity(scored);
   }

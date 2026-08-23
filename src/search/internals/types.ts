@@ -99,6 +99,13 @@ export interface FactRow {
    */
   lastReadAt?: string;
   /**
+   * Usage reinforcement (migration 0053): how many times search has
+   * surfaced this fact, attached by enrichWithUsage when
+   * SEARCH_USAGE_RANKING_ENABLED is on (G8 trace-derived ranking).
+   * Absent → treated as 0 → usageFactor exactly 1.0.
+   */
+  readCount?: number;
+  /**
    * Set of stages that surfaced this row. Multi-stage hits are common
    * (e.g. vector + graph_seed) — the set lets DecisionLog show every
    * contributing path without losing the dominant origin.
@@ -155,6 +162,18 @@ export interface ScoreBreakdown {
    * unstamped row, or the neutral grade.
    */
   salience?: number;
+  /**
+   * G8 trace-derived ranking (Spectron "eight signals"): the usage
+   * signal's "because" decomposition — the raw fact_usage.readCount and
+   * the multiplicative `1 + β·squash(readCount)` term it produced.
+   * Omitted when the factor is exactly 1.0 (SEARCH_USAGE_RANKING_ENABLED
+   * off, SEARCH_USAGE_BETA 0, or a fact search has never surfaced) so
+   * unaffected rows stay byte-identical.
+   */
+  usage?: {
+    readCount: number;
+    usageFactor: number;
+  };
   /**
    * Source-reputation track, Phase 5: the "because" decomposition of the
    * fact's trust as it entered ranking. sourceReputation is the
