@@ -143,8 +143,11 @@ export function cosineSimilarity(a: number[], b: number[], aNorm: number): numbe
   let dot = 0;
   let bNorm = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    bNorm += b[i] * b[i];
+    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    bNorm += bi * bi;
   }
   bNorm = Math.sqrt(bNorm);
   if (bNorm === 0) return 0;

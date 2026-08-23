@@ -50,8 +50,8 @@ describe('applyVerdicts', () => {
     });
     const out = applyVerdicts(cands, raw);
     expect(out).toHaveLength(1);
-    expect(out[0].text).toBe('real decision');
-    expect(out[0].confidence).toBe(0.8); // recalibrated by the judge
+    expect(out[0]!.text).toBe('real decision');
+    expect(out[0]!.confidence).toBe(0.8); // recalibrated by the judge
   });
 
   it('fails open on unparseable judge output (keeps raw)', () => {
@@ -67,7 +67,7 @@ describe('applyVerdicts', () => {
     const raw = JSON.stringify([{ keep: true }, { keep: true }]);
     const out = applyVerdicts(cands, raw);
     expect(out).toHaveLength(2);
-    expect(out[0].confidence).toBe(0.9); // unchanged
+    expect(out[0]!.confidence).toBe(0.9); // unchanged
   });
 });
 
@@ -103,7 +103,7 @@ describe('LlmDecisionVerifier.rescore', () => {
       candidate({ text: 'keep me' }),
     ]);
     expect(out.map((c) => c.text)).toEqual(['keep me']);
-    expect(out[0].confidence).toBe(0.7);
+    expect(out[0]!.confidence).toBe(0.7);
   });
 });
 
@@ -128,7 +128,7 @@ describe('labelCommits with a verifier', () => {
       },
     });
     expect(summary.labeled).toBe(1);
-    expect(emitted[0].label).toBe(0); // verifier turned an over-label into a negative
+    expect(emitted[0]!.label).toBe(0); // verifier turned an over-label into a negative
     expect(summary.positive).toBe(0);
   });
 });

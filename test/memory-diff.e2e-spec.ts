@@ -172,13 +172,13 @@ describe('MemoryDiffService.diff — window math', () => {
     // Changed = md_t1_2 → md_t2_replacement.
     expect(out.changedFacts).toHaveLength(1);
     const [changed] = out.changedFacts;
-    expect(changed.factId).toBe('knowledge_fact:md_t1_2');
-    expect(changed.replacedBy).toBe('knowledge_fact:md_t2_replacement');
-    expect(changed.before.predicate).toBe('tag');
-    expect(changed.before.object).toBe('tag_2');
-    expect(changed.after).toBeDefined();
-    expect(changed.after?.predicate).toBe('tier');
-    expect(changed.after?.object).toBe('platinum');
+    expect(changed!.factId).toBe('knowledge_fact:md_t1_2');
+    expect(changed!.replacedBy).toBe('knowledge_fact:md_t2_replacement');
+    expect(changed!.before.predicate).toBe('tag');
+    expect(changed!.before.object).toBe('tag_2');
+    expect(changed!.after).toBeDefined();
+    expect(changed!.after?.predicate).toBe('tier');
+    expect(changed!.after?.object).toBe('platinum');
 
     // newEntities = bystander created at T2.
     expect(out.newEntities.map((e) => e.entityId)).toContain(ENT_BYSTANDER_FULL);

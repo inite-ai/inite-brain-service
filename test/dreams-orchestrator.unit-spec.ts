@@ -234,9 +234,9 @@ describe('DreamsService', () => {
     );
     const out = await svc.runAll(['dedup']);
     expect(out).toHaveLength(3);
-    expect(out[0].error).toBeUndefined();
-    expect(out[1].error).toMatch(/only tenant b is sad/);
-    expect(out[2].error).toBeUndefined();
+    expect(out[0]!.error).toBeUndefined();
+    expect(out[1]!.error).toMatch(/only tenant b is sad/);
+    expect(out[2]!.error).toBeUndefined();
     // ok should fire for the two healthy tenants, failed for the bad one.
     const okCount = (
       metrics.countDreams as jest.Mock
@@ -299,6 +299,6 @@ describe('DreamsService', () => {
     // {enqueued} summary in queue mode); narrow before indexing.
     if (!Array.isArray(out)) throw new Error('expected per-tenant stats array');
     expect(out).toHaveLength(1);
-    expect(out[0].dedup?.identityLinksCreated).toBe(2);
+    expect(out[0]!.dedup?.identityLinksCreated).toBe(2);
   });
 });

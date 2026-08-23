@@ -73,7 +73,7 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
     // either-or AND that we surfaced the opposing fact.
     expect(['SUPERSEDED', 'COMPETING']).toContain(out.wouldOutcome);
     expect(out.opposingFacts.length).toBeGreaterThan(0);
-    expect(out.opposingFacts[0].object).toBe('Old Name');
+    expect(out.opposingFacts[0]!.object).toBe('Old Name');
     expect(out.predicatePolicy.semantics).toBe('single_active');
 
     // And the dry-run must NOT have written anything.

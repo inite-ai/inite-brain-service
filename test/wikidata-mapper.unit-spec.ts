@@ -70,7 +70,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({ predicate: 'dob', object: '1828-09-09' }),
     );
@@ -87,7 +87,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({
         predicate: 'address',
@@ -108,7 +108,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const objs = out.directory.entities[0].facts.map((f) => f.object);
+    const objs = out.directory.entities[0]!.facts.map((f) => f.object);
     expect(objs).toContain('country: United States');
     expect(objs).toContain('headquarters: San Francisco');
   });
@@ -146,7 +146,7 @@ describe('mapWikidataBindings', () => {
       template,
     );
     expect(out.directory.entities).toHaveLength(1);
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     const occupations = facts.filter(
       (f) => f.predicate === 'interacted_with' && f.object.startsWith('occupation:'),
     );
@@ -173,7 +173,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({
         predicate: 'interacted_with',
@@ -191,7 +191,7 @@ describe('mapWikidataBindings', () => {
       template,
     );
     expect(out.directory.entities).toHaveLength(1);
-    expect(out.directory.entities[0].id).toBe('q1');
+    expect(out.directory.entities[0]!.id).toBe('q1');
   });
 
   it('returns empty directory on empty bindings', () => {
@@ -212,7 +212,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({ predicate: 'name', object: 'Лев Толстой' }),
     );
@@ -248,6 +248,6 @@ describe('mapWikidataBindings', () => {
       [{ item: uri('Q987654'), itemLabel: v('Test') }],
       template,
     );
-    expect(out.directory.entities[0].id).toBe('q987654');
+    expect(out.directory.entities[0]!.id).toBe('q987654');
   });
 });

@@ -126,7 +126,7 @@ describe('S5.4 — layering: episodes ← derive ← search ← synthesize', () 
       const from = LAYER_OF(file);
       if (from === null) continue;
       for (const m of text.matchAll(/from '([^']+)'/g)) {
-        const to = layerOfImport(file, m[1]);
+        const to = layerOfImport(file, m[1]!);
         if (to !== null && to > from) {
           offenders.push(`${file} → ${m[1]}`);
         }
@@ -164,7 +164,7 @@ describe('S5.5 — dead exports in the engine dirs', () => {
       for (const m of text.matchAll(
         /^export (?:async )?(?:function|const|class) (\w+)/gm,
       )) {
-        const name = m[1];
+        const name = m[1]!;
         const re = new RegExp(`\\b${name}\\b`);
         const usedInSrc = [...SOURCES].some(
           ([g, gt]) => g !== file && re.test(gt),

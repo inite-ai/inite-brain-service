@@ -166,10 +166,10 @@ export class PredicateRegistryService {
           );
           embeddings = missing.map(() => null);
         }
-        for (let i = 0; i < missing.length; i++) {
+        for (const [i, def] of missing.entries()) {
           await db.query(`CREATE knowledge_predicate CONTENT $content`, {
             content: {
-              ...serializeForInsert(missing[i]),
+              ...serializeForInsert(def),
               ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
             },
           });
@@ -204,7 +204,7 @@ export class PredicateRegistryService {
           );
           embs = needBackfill.map(() => null);
         }
-        for (let i = 0; i < needBackfill.length; i++) {
+        for (const [i, def] of needBackfill.entries()) {
           const emb = embs[i];
           if (!emb) continue;
           try {
@@ -212,11 +212,11 @@ export class PredicateRegistryService {
               `UPDATE knowledge_predicate
                  SET embedding = $emb, updatedAt = time::now()
                WHERE predicateId = $pid`,
-              { emb, pid: needBackfill[i].predicateId },
+              { emb, pid: def.predicateId },
             );
           } catch (e) {
             this.logger.warn(
-              `Backfill UPDATE failed for ${needBackfill[i].predicateId}: ${(e as Error).message}`,
+              `Backfill UPDATE failed for ${def.predicateId}: ${(e as Error).message}`,
             );
           }
         }
@@ -406,7 +406,7 @@ export class PredicateRegistryService {
       );
       const existing = (existingRows as Array<Record<string, unknown>>) ?? [];
       if (existing.length === 0) return null;
-      const current = deserializeFromRow(existing[0]);
+      const current = deserializeFromRow(existing[0]!); // non-empty (checked)
       const next: PredicateDefinition = { ...current, ...patch };
       // Re-embed when text fields changed — keeps similarity search aligned
       // with operator-authored descriptions.

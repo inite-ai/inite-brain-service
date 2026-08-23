@@ -256,8 +256,8 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
     const requestId = req<string>(f, 'requestId', fTrail, 'string');
     const [vMaybe, idMaybe] = ref.split('.', 2);
     const entityRef = idMaybe
-      ? { vertical: vMaybe, id: idMaybe }
-      : { vertical: directoryName, id: vMaybe };
+      ? { vertical: vMaybe!, id: idMaybe }
+      : { vertical: directoryName, id: vMaybe! };
     setup.push({
       kind: 'forget',
       entityRef,

@@ -228,7 +228,7 @@ describe('documents pipeline (e2e)', () => {
       });
       const fact = (
         rows as Array<{ status: string; source: Record<string, unknown> }>
-      )[0];
+      )[0]!;
       expect(fact.status).toBe('active');
       expect(fact.source.provenancePurged).toBe(true);
     });

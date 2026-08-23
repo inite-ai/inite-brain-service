@@ -102,7 +102,7 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
       [derivedRow('work'), derivedRow('events')],
       { slotSemantics: true },
     );
-    const facts = calls[0].facts as Array<{ semantics: string }>;
+    const facts = calls[0]!.facts as Array<{ semantics: string }>;
     expect(facts.map((f) => f.semantics)).toEqual([
       'bitemporal_event',
       'append_only',
@@ -120,8 +120,8 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
       },
     };
     await svc.resolveDerivedBatch(db, [derivedRow('work')]);
-    const facts = calls[0].facts as Array<{ semantics: string }>;
-    expect(facts[0].semantics).toBe('append_only');
+    const facts = calls[0]!.facts as Array<{ semantics: string }>;
+    expect(facts[0]!.semantics).toBe('append_only');
   });
 
   it('fence: a failed batch degrades to per-row, skipping only the poisoned row', async () => {
@@ -134,7 +134,7 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
         if (facts.length > 1) {
           throw new Error('Cannot execute UPDATE statement using value: NONE');
         }
-        if (facts[0].object === 'poison') {
+        if (facts[0]!.object === 'poison') {
           throw new Error('Cannot execute UPDATE statement using value: NONE');
         }
         return [facts.map(() => ({ outcome: 'INSERTED' }))] as unknown as T;
@@ -151,7 +151,7 @@ describe('resolveDerivedBatch (V9 §1 semantics + phase 0 fence)', () => {
       'SKIPPED',
       'INSERTED',
     ]);
-    expect(out[1].reason).toContain('UPDATE statement using value: NONE');
+    expect(out[1]!.reason).toContain('UPDATE statement using value: NONE');
   });
 });
 

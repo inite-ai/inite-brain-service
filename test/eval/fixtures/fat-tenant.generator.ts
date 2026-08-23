@@ -142,7 +142,7 @@ export function buildFatTenant(opts: FatTenantOpts = {}): FatTenantFixture {
   const retractedComplaintsFrac = opts.retractedComplaintsFraction ?? 0.03;
   const forgottenCustomersFrac = opts.forgottenCustomersFraction ?? 0.01;
   const rand = mulberry32(seed);
-  const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
+  const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)]!;
 
   const setup: SetupStep[] = [];
   let factCount = 0;

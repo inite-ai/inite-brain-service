@@ -107,9 +107,13 @@ export function resolveEventTime(
 
   // chrono first (relative expressions, multilingual), English as a secondary
   // pass for a non-English clause that embeds a language-agnostic date.
+  const primary = PARSERS[langKey];
+  const english = PARSERS.en;
   const hit =
-    parseWith(PARSERS[langKey], clause, anchorRaw) ??
-    (langKey !== 'en' ? parseWith(PARSERS.en, clause, anchorRaw) : null);
+    (primary ? parseWith(primary, clause, anchorRaw) : null) ??
+    (langKey !== 'en' && english
+      ? parseWith(english, clause, anchorRaw)
+      : null);
   if (hit) {
     const clamped = clampPast(hit.date, anchor);
     if (clamped) return { date: clamped, expr: hit.expr };
@@ -118,7 +122,7 @@ export function resolveEventTime(
   // Fallback: explicit past year chrono didn't resolve.
   const yr = clause.match(YEAR_FALLBACK);
   if (yr) {
-    const year = parseInt(yr[1], 10);
+    const year = parseInt(yr[1]!, 10); // group 1 is mandatory on match
     if (year < anchor.getUTCFullYear()) {
       const clamped = clampPast(new Date(Date.UTC(year, 0, 1)), anchor);
       if (clamped) return { date: clamped, expr: `year ${year}` };

@@ -156,7 +156,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
       expect(tool).toBeDefined();
       // Before the fix the tool hardcoded indexers:'general' with no way to
       // opt into domain-pack routing that the REST twin accepts.
-      expect(Object.keys(tool.inputSchema?.shape ?? {})).toContain('indexers');
+      expect(Object.keys(tool!.inputSchema?.shape ?? {})).toContain('indexers');
     } finally {
       if (prev === undefined) delete process.env.DOCUMENT_INGEST_ENABLED;
       else process.env.DOCUMENT_INGEST_ENABLED = prev;
@@ -244,7 +244,7 @@ describe('retract_fact — caller scopes reach FactsService', () => {
       },
     });
 
-    await handlers['retract_fact']({ factId: 'x', reason: 'test' });
+    await handlers['retract_fact']!({ factId: 'x', reason: 'test' });
 
     expect(captured).toHaveLength(1);
     expect((captured[0] as { callerScopes?: unknown }).callerScopes).toEqual(

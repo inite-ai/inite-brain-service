@@ -114,8 +114,8 @@ describe('ExtractorService — prompt injection resistance', () => {
     });
     const res = await svc.extract('Anna is here', 'co_test');
     expect(res.facts.length).toBe(1);
-    expect(res.facts[0].predicate).toBe('name');
-    expect(res.facts[0].object).toBe('Anna');
+    expect(res.facts[0]!.predicate).toBe('name');
+    expect(res.facts[0]!.object).toBe('Anna');
   });
 
   it('does not emit anything when the LLM returns nothing (null response)', async () => {

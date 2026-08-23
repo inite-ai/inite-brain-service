@@ -60,7 +60,7 @@ describe('scoreRows queryRange factor (V13 RETRIEVAL_TIME_FILTER)', () => {
   };
 
   it('demotes out-of-period facts and leaves in-period facts intact', () => {
-    const [inRange, outOfRange] = scoreRows({
+    const scoredPair = scoreRows({
       rows: [
         row('2023-05-04T00:00:00.000Z'),
         row('2022-11-04T00:00:00.000Z'),
@@ -68,6 +68,8 @@ describe('scoreRows queryRange factor (V13 RETRIEVAL_TIME_FILTER)', () => {
       now,
       queryRange: range,
     });
+    const inRange = scoredPair[0]!;
+    const outOfRange = scoredPair[1]!;
     expect(inRange.score).toBeGreaterThan(outOfRange.score);
     expect(inRange.breakdown.timeRange).toBeUndefined();
     expect(outOfRange.breakdown.timeRange).toBeLessThan(1);
@@ -75,7 +77,7 @@ describe('scoreRows queryRange factor (V13 RETRIEVAL_TIME_FILTER)', () => {
   });
 
   it('is byte-identical with no range', () => {
-    const [a] = scoreRows({ rows: [row('2022-11-04T00:00:00.000Z')], now });
+    const a = scoreRows({ rows: [row('2022-11-04T00:00:00.000Z')], now })[0]!;
     expect(a.breakdown.timeRange).toBeUndefined();
   });
 
@@ -84,7 +86,7 @@ describe('scoreRows queryRange factor (V13 RETRIEVAL_TIME_FILTER)', () => {
     (r as { source: Record<string, unknown> }).source = {
       mentionedAt: '2023-05-10T00:00:00.000Z',
     };
-    const [scored] = scoreRows({ rows: [r], now, queryRange: range });
+    const scored = scoreRows({ rows: [r], now, queryRange: range })[0]!;
     expect(scored.breakdown.timeRange).toBeUndefined();
   });
 });

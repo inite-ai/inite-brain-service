@@ -288,13 +288,13 @@ describe('AnswerCacheService.begin — serving', () => {
   it('tenant + user double-fence in the lookup WHERE clause', async () => {
     const h = makeHarness({ cacheRow: null });
     await h.svc.begin(beginArgs({ userId: 'user_a' }));
-    const lookup = h.calls[0];
+    const lookup = h.calls[0]!;
     expect(lookup.sql).toContain('companyId = $companyId');
     expect(lookup.sql).toContain('userId = $userId');
     expect(lookup.params.userId).toBe('user_a');
     const h2 = makeHarness({ cacheRow: null });
     await h2.svc.begin(beginArgs());
-    expect(h2.calls[0].sql).toContain('userId IS NONE');
+    expect(h2.calls[0]!.sql).toContain('userId IS NONE');
   });
 });
 

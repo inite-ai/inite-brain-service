@@ -95,7 +95,7 @@ describe('registry marketplace (e2e)', () => {
         if (req.method === 'GET' && ent) {
           return json(
             200,
-            billing.entitlements[decodeURIComponent(ent[1])] ?? [],
+            billing.entitlements[decodeURIComponent(ent[1]!)] ?? [],
           );
         }
         return json(404, { message: 'no such stub route' });
@@ -121,7 +121,7 @@ describe('registry marketplace (e2e)', () => {
       scopes: ['brain:read', 'brain:write', 'brain:admin', 'registry:publish'],
       extraKeys: [{ scopes: ['registry:curate'] }],
     });
-    curateKey = owner.extraApiKeys[0];
+    curateKey = owner.extraApiKeys[0]!;
     rival = await createApp({
       companyId: `co_mkt_rival_${RUN}`,
       scopes: ['brain:read', 'brain:admin', 'registry:publish'],

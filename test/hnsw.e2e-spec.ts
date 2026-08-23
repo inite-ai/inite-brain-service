@@ -46,7 +46,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     delete process.env.SEARCH_HNSW_ENABLED;
     expect(results.length).toBeGreaterThan(0);
     // canonicalName defaults to the entityRef id at upsert time.
-    expect(results[0].canonicalName).toBe('hnsw_subject');
+    expect(results[0]!.canonicalName).toBe('hnsw_subject');
   });
 
   it('creates indexes with the live dimension and matches the exact scan', async () => {
@@ -77,7 +77,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     delete process.env.SEARCH_HNSW_ENABLED;
 
     expect(viaKnn.length).toBeGreaterThan(0);
-    expect(viaKnn[0].canonicalName).toBe(baseline[0].canonicalName);
+    expect(viaKnn[0]!.canonicalName).toBe(baseline[0]!.canonicalName);
   });
 
   it('drop removes the indexes and search still answers', async () => {

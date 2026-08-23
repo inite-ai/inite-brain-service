@@ -85,8 +85,8 @@ describe('renderArcLines', () => {
     const [line] = renderArcLines([
       { object: 'x'.repeat(500), validFrom: '2026-01-02' },
     ]);
-    expect(line.length).toBeLessThan(230);
-    expect(line.endsWith('…')).toBe(true);
+    expect(line!.length).toBeLessThan(230);
+    expect(line!.endsWith('…')).toBe(true);
   });
 });
 

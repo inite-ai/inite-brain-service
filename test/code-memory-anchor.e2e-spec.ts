@@ -82,6 +82,6 @@ describe('code-memory Phase 2b — anchor re-validation service', () => {
 
     const viaNew = await activeCodeFacts(ANCHOR_B_NEW);
     expect(viaNew.length).toBe(1);
-    expect(viaNew[0].object).toMatch(/subtle trap/);
+    expect(viaNew[0]!.object).toMatch(/subtle trap/);
   });
 });

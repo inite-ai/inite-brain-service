@@ -97,7 +97,7 @@ describe('UserProfileService — SQL contract', () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: 'wd-v1' });
     await svc.getProfile({ ...baseOpts });
-    const { sql, params } = capture[0];
+    const { sql, params } = capture[0]!;
     // Audit 2026-08-21: STRICT user scope — tenant-global rows are
     // knowledge about arbitrary entities, not facts OF this user, and
     // must never leak into a profile. The user's own derived facts
@@ -128,7 +128,7 @@ describe('UserProfileService — SQL contract', () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: null });
     await svc.getProfile({ ...baseOpts });
-    expect(capture[0].sql).toContain(
+    expect(capture[0]!.sql).toContain(
       '(derivedVersion IS NONE OR derivedVersion IS NONE)',
     );
   });
@@ -137,12 +137,12 @@ describe('UserProfileService — SQL contract', () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: null });
     await svc.getProfile({ ...baseOpts, lang: 'en' });
-    expect(capture[0].sql).toContain('(lang = $langFilter OR lang IS NONE)');
-    expect(capture[0].params?.langFilter).toBe('en');
+    expect(capture[0]!.sql).toContain('(lang = $langFilter OR lang IS NONE)');
+    expect(capture[0]!.params?.langFilter).toBe('en');
     const capture2: Capture[] = [];
     const svc2 = makeService({ rows: [], capture: capture2, readPin: null });
     await svc2.getProfile({ ...baseOpts });
-    expect(capture2[0].sql).not.toContain('langFilter');
+    expect(capture2[0]!.sql).not.toContain('langFilter');
   });
 });
 
@@ -233,13 +233,13 @@ describe('UserProfileService — assembly', () => {
       'events',
     ]);
     expect(
-      res.sections.find((s) => s.aspect === 'identity')?.facts[0].kind,
+      res.sections.find((s) => s.aspect === 'identity')?.facts[0]!.kind,
     ).toBe('persona_attr');
     expect(
-      res.sections.find((s) => s.aspect === 'events')?.facts[0].kind,
+      res.sections.find((s) => s.aspect === 'events')?.facts[0]!.kind,
     ).toBe('event');
     expect(
-      res.sections.find((s) => s.aspect === 'work')?.facts[0].kind,
+      res.sections.find((s) => s.aspect === 'work')?.facts[0]!.kind,
     ).toBeUndefined();
   });
 
@@ -278,10 +278,10 @@ describe('UserProfileService — assembly', () => {
       readPin: null,
     });
     const res = await svc.getProfile({ ...baseOpts });
-    const [first, second] = res.sections[0].facts;
+    const [first, second] = res.sections[0]!.facts;
     // Rows share validFrom → factId ASC keeps f001 (corroborated) first.
-    expect(first.lastSeenAt).toBe('2026-07-01T00:00:00.000Z');
-    expect(second.lastSeenAt).toBeUndefined();
+    expect(first!.lastSeenAt).toBe('2026-07-01T00:00:00.000Z');
+    expect(second!.lastSeenAt).toBeUndefined();
   });
 
   it('gates PII predicates on brain:read_pii — both ways', async () => {
@@ -387,8 +387,8 @@ describe('UserProfileController — flag gate + user-scope pin', () => {
     await runWithRequestContext({ correlationId: 't1' }, async () => {
       await controller.getProfile(req, 'someone-else');
     });
-    expect(calls[0].userId).toBe('someone-else');
-    expect(calls[0].maxFacts).toBe(60);
+    expect(calls[0]!.userId).toBe('someone-else');
+    expect(calls[0]!.maxFacts).toBe(60);
   });
 
   it('user-bound token: own profile passes, another user 403s', async () => {
@@ -404,14 +404,14 @@ describe('UserProfileController — flag gate + user-scope pin', () => {
       },
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0].userId).toBe('u1');
+    expect(calls[0]!.userId).toBe('u1');
   });
 
   it('clamps maxFacts to the hard cap and rejects garbage', async () => {
     process.env[FLAG] = '1';
     const { controller, calls } = makeController();
     await controller.getProfile(req, 'u1', '500');
-    expect(calls[0].maxFacts).toBe(200);
+    expect(calls[0]!.maxFacts).toBe(200);
     await expect(controller.getProfile(req, 'u1', '0')).rejects.toThrow(
       BadRequestException,
     );

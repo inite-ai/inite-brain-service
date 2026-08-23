@@ -48,8 +48,8 @@ describe('DigestLaneService', () => {
       'Conversation record (through 2026-03-15):\n[2026-03-12] UI wireframe done. [2026-03-15] API wired.',
     ]);
     // No registry pin in this fixture → the legacy-namespace gate.
-    expect(capture[0].sql).toContain('derivedVersion IS NONE');
-    expect(capture[0].sql).toContain('ORDER BY lastEventAt DESC');
+    expect(capture[0]!.sql).toContain('derivedVersion IS NONE');
+    expect(capture[0]!.sql).toContain('ORDER BY lastEventAt DESC');
   });
 
   it('drops empty summaries and degrades to [] on failure', async () => {
@@ -144,8 +144,8 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
       'OTHER-A',
       'MIXED-AB',
     ]);
-    expect(capture[0].sql).not.toContain('userScopes');
-    expect(capture[0].params).not.toHaveProperty('digestUserId');
+    expect(capture[0]!.sql).not.toContain('userScopes');
+    expect(capture[0]!.params).not.toHaveProperty('digestUserId');
   });
 
   it('user-scoped caller sees global + own only; other-user and mixed-scope excluded', async () => {
@@ -157,10 +157,10 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
     });
     expect(summaries(lines)).toEqual(['GLOBAL-NONE', 'GLOBAL-EMPTY', 'OWN-B']);
     // The fail-closed clause rides in SQL — exactly-[user] or empty/NONE.
-    expect(capture[0].sql).toContain('userScopes IS NONE');
-    expect(capture[0].sql).toContain('array::len(userScopes) = 0');
-    expect(capture[0].sql).toContain('userScopes = [$digestUserId]');
-    expect(capture[0].params).toMatchObject({ digestUserId: 'user-b' });
+    expect(capture[0]!.sql).toContain('userScopes IS NONE');
+    expect(capture[0]!.sql).toContain('array::len(userScopes) = 0');
+    expect(capture[0]!.sql).toContain('userScopes = [$digestUserId]');
+    expect(capture[0]!.params).toMatchObject({ digestUserId: 'user-b' });
   });
 });
 

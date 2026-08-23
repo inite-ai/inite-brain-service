@@ -44,16 +44,16 @@ describe('EpisodeLaneService (P2)', () => {
       '[2023-05-01] Caroline: Show me the horse painting',
       '[2023-06-01] Melanie: I painted a sunset',
     ]);
-    expect(queries[0].sql).toContain('FROM episode');
-    expect(queries[0].sql).toContain('@1@ $q');
+    expect(queries[0]!.sql).toContain('FROM episode');
+    expect(queries[0]!.sql).toContain('@1@ $q');
   });
 
   it('gates piiClass rows away from callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('AND piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('AND piiClass IS NONE');
     await svc.transcriptLines(base);
-    expect(queries[1].sql).not.toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('degrades to [] on query failure', async () => {
@@ -118,17 +118,17 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
       '[2023-06-01] Melanie: later turn',
     ]);
     // Fact fetch uses record-id binding, not string interpolation.
-    expect(queries[0].sql).toContain('INSIDE $ids');
-    expect(String((queries[0].params.ids as unknown[])[0])).toBe(
+    expect(queries[0]!.sql).toContain('INSIDE $ids');
+    expect(String((queries[0]!.params.ids as unknown[])[0])).toBe(
       'knowledge_fact:f1',
     );
     // Episode fetch got the deduped id set.
-    expect((queries[1].params.ids as unknown[]).map(String)).toEqual([
+    expect((queries[1]!.params.ids as unknown[]).map(String)).toEqual([
       'episode:e2',
       'episode:e1',
     ]);
     // read_pii caller → no PII gate in the episode query.
-    expect(queries[1].sql).not.toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('caps episodes first-seen and gates PII without brain:read_pii', async () => {
@@ -142,10 +142,10 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
       callerScopes: ['brain:read'],
     });
     expect(lines).toHaveLength(1);
-    expect((queries[1].params.ids as unknown[]).map(String)).toEqual([
+    expect((queries[1]!.params.ids as unknown[]).map(String)).toEqual([
       'episode:e1',
     ]);
-    expect(queries[1].sql).toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).toContain('piiClass IS NONE');
   });
 
   it('degrades to [] on DB failure and with empty factIds', async () => {
@@ -183,16 +183,16 @@ describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', (
     expect(lines).toEqual([
       '[2023-05-01] conv_1__assistant: Use the token bucket',
     ]);
-    expect(queries[0].sql).toContain(
+    expect(queries[0]!.sql).toContain(
       "string::ends_with(string::lowercase(speaker), $speakerSuffix)",
     );
-    expect(queries[0].params.speakerSuffix).toBe('assistant');
+    expect(queries[0]!.params.speakerSuffix).toBe('assistant');
   });
 
   it('lowercases the configured match before binding', async () => {
     const { svc, queries } = makeLane([]);
     await svc.assistantTurns({ ...base, match: 'Assistant' });
-    expect(queries[0].params.speakerSuffix).toBe('assistant');
+    expect(queries[0]!.params.speakerSuffix).toBe('assistant');
   });
 
   it('clamps runaway turns to the per-line budget (audit 2026-08-21 #7)', async () => {
@@ -204,14 +204,14 @@ describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', (
       },
     ]);
     const [line] = await svc.assistantTurns(base);
-    expect(line.length).toBeLessThan(700);
+    expect(line!.length).toBeLessThan(700);
     expect(line).toContain('…');
   });
 
   it('keeps the PII fence for callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([]);
     await svc.assistantTurns({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('AND piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('AND piiClass IS NONE');
   });
 
   it('degrades to [] on failure', async () => {

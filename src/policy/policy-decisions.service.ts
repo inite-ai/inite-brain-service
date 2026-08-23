@@ -115,7 +115,7 @@ export class PolicyDecisionsService {
     return {
       decisions,
       ...(rows.length > limit && decisions.length > 0
-        ? { nextCursor: decisions[decisions.length - 1].ts }
+        ? { nextCursor: decisions[decisions.length - 1]!.ts }
         : {}),
     };
   }
@@ -199,7 +199,7 @@ export class PolicyDecisionsService {
         count,
       })),
       topRules: top(rules, 10).map(([key, count]) => {
-        const [policySet, ruleId] = key.split('\u0000');
+        const [policySet = '', ruleId = ''] = key.split('\u0000');
         return { policySet, ruleId, count };
       }),
       byKey: [...byKey.entries()]

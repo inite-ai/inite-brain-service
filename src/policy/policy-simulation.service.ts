@@ -248,7 +248,7 @@ export class PolicySimulationService {
       });
     }
     const parsedRule = doc.data.rules[0];
-    if (parsedRule.kind !== 'source') {
+    if (!parsedRule || parsedRule.kind !== 'source') {
       throw new BadRequestException('preview-rule only applies to source rules');
     }
     const compiled = this.compile(doc.data);

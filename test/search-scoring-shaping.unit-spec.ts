@@ -94,7 +94,7 @@ describe('assembleHits requireProvenance', () => {
       requireProvenance: true,
     });
     expect(hits).toHaveLength(1);
-    const preds = hits[0].facts.map((f) => f.predicate);
+    const preds = hits[0]!.facts.map((f) => f.predicate);
     expect(preds).toContain('role');
     expect(preds).not.toContain('hobby');
   });
@@ -123,7 +123,7 @@ describe('assembleHits requireProvenance', () => {
       requireProvenance: false,
     });
     expect(hits).toHaveLength(1);
-    expect(hits[0].facts).toHaveLength(1);
+    expect(hits[0]!.facts).toHaveLength(1);
   });
 });
 
@@ -139,11 +139,13 @@ describe('scoreRows chatter penalty', () => {
   });
 
   it('demotes a said fact below a substantive fact at equal fusedScore', () => {
-    const [said, pref] = scoreRows({
+    const scoredPair = scoreRows({
       rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
       now: NOW,
       chatterPenalty: 0.35,
     });
+    const said = scoredPair[0]!;
+    const pref = scoredPair[1]!;
     expect(said.score).toBeLessThan(pref.score);
     expect(said.breakdown.chatterPenalty).toBe(0.35);
     // Substantive fact is untouched — no chatterPenalty field.
@@ -151,20 +153,22 @@ describe('scoreRows chatter penalty', () => {
   });
 
   it('penalty 1.0 (default/off) → byte-identical scores, no breakdown field', () => {
-    const [said, pref] = scoreRows({
+    const scoredPair = scoreRows({
       rows: [fused('said', 'Hey Mel!'), fused('preference', 'sunsets')],
       now: NOW,
     });
+    const said = scoredPair[0]!;
+    const pref = scoredPair[1]!;
     expect(said.score).toBeCloseTo(pref.score, 10);
     expect(said.breakdown.chatterPenalty).toBeUndefined();
   });
 
   it('an out-of-range penalty (≥1) is treated as off', () => {
-    const [said] = scoreRows({
+    const said = scoreRows({
       rows: [fused('said', 'x')],
       now: NOW,
       chatterPenalty: 1.5,
-    });
+    })[0]!;
     expect(said.breakdown.chatterPenalty).toBeUndefined();
   });
 });
@@ -185,14 +189,14 @@ describe('assembleHits fact-window shaping', () => {
       topEntities: [bucket(many)],
       entityTypes: undefined,
     });
-    expect(def[0].facts).toHaveLength(5);
+    expect(def[0]!.facts).toHaveLength(5);
 
     const wide = assembleHits({
       topEntities: [bucket(many)],
       entityTypes: undefined,
       factsPerEntity: 10,
     });
-    expect(wide[0].facts).toHaveLength(10);
+    expect(wide[0]!.facts).toHaveLength(10);
   });
 
 });

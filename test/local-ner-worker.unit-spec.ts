@@ -61,7 +61,7 @@ function mkConfig(over: Record<string, string> = {}): ConfigService {
 }
 
 function replyToLast(w: FakeWorkerT, ok: boolean, body: unknown): void {
-  const last = w.posted[w.posted.length - 1];
+  const last = w.posted[w.posted.length - 1]!;
   const msg = ok
     ? { id: last.id, ok: true, result: body }
     : { id: last.id, ok: false, error: String(body) };
@@ -81,8 +81,8 @@ describe('LocalNerService — worker runtime', () => {
     await expect(svc.extract('Maria works at Acme')).resolves.toEqual([]);
     // The not-ready call fired a background warmup: worker spawned, warmup RPC posted.
     expect(FakeWorker.instances).toHaveLength(1);
-    const w = FakeWorker.instances[0];
-    expect(w.posted[0].kind).toBe('warmup');
+    const w = FakeWorker.instances[0]!;
+    expect(w.posted[0]!.kind).toBe('warmup');
     // Complete warmup → ready; extract now round-trips through the worker.
     replyToLast(w, true, { ready: true });
     await flush();
@@ -92,7 +92,7 @@ describe('LocalNerService — worker runtime', () => {
   it('scores flow through the worker RPC with min-score filtering intact', async () => {
     const svc = new LocalNerService(mkConfig());
     svc.onModuleInit();
-    const w = FakeWorker.instances[0];
+    const w = FakeWorker.instances[0]!;
     replyToLast(w, true, { ready: true });
     await flush();
 
@@ -120,7 +120,7 @@ describe('LocalNerService — worker runtime', () => {
   it('a worker-side error degrades to [] (existing unavailable behavior)', async () => {
     const svc = new LocalNerService(mkConfig());
     svc.onModuleInit();
-    const w = FakeWorker.instances[0];
+    const w = FakeWorker.instances[0]!;
     replyToLast(w, true, { ready: true });
     await flush();
 
@@ -135,7 +135,7 @@ describe('LocalNerService — worker runtime', () => {
       mkConfig({ EXTRACTOR_LOCAL_NER_TIMEOUT_MS: '25' }),
     );
     svc.onModuleInit();
-    const w = FakeWorker.instances[0];
+    const w = FakeWorker.instances[0]!;
     replyToLast(w, true, { ready: true });
     await flush();
 
@@ -178,7 +178,7 @@ describe('LocalNerService — worker runtime', () => {
   it('onApplicationShutdown terminates the worker and rejects in-flight calls to []', async () => {
     const svc = new LocalNerService(mkConfig());
     svc.onModuleInit();
-    const w = FakeWorker.instances[0];
+    const w = FakeWorker.instances[0]!;
     replyToLast(w, true, { ready: true });
     await flush();
 

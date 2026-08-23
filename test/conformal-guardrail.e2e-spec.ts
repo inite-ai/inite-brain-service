@@ -64,7 +64,7 @@ describe('Phase 3.C e2e — conformal guardrail', () => {
     expect(res.status).toBe(201);
     // Generator was called — there's at least one above-floor fact.
     expect(state.calls.length).toBeGreaterThan(0);
-    const generatorUser = state.calls[0].user;
+    const generatorUser = state.calls[0]!.user;
     expect(generatorUser).toContain('high confidence claim');
     // And the low-confidence object never reaches the prompt.
     expect(generatorUser).not.toContain('low confidence claim');

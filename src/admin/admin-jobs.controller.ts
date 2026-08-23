@@ -339,6 +339,9 @@ export class AdminJobsController {
       );
     }
     const hostTenant = tenantFilter || tenants[0];
+    if (!hostTenant) {
+      throw new BadRequestException('No registered tenant to reindex');
+    }
     const row = await this.jobs.start({
       jobType: 'reindex_embeddings',
       companyId: hostTenant,
@@ -400,6 +403,9 @@ export class AdminJobsController {
         : all.map((s) => s.id);
     const tenants = this.apiKeys.knownCompanyIds();
     const hostTenant = tenants[0];
+    if (!hostTenant) {
+      throw new BadRequestException('No registered tenant to run scenarios');
+    }
     const row = await this.jobs.start({
       jobType: 'scenarios_batch',
       companyId: hostTenant,

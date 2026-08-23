@@ -72,14 +72,14 @@ export function applyVerdicts(
   // keep the raw candidates rather than drop by a misaligned index.
   if (!verdicts || verdicts.length !== candidates.length) return candidates;
   const out: DecisionCandidate[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const v = verdicts[i];
+  for (const [i, candidate] of candidates.entries()) {
+    const v = verdicts[i]!; // verdicts.length === candidates.length (checked)
     if (v.keep === false) continue;
     const confidence =
       typeof v.confidence === 'number' && v.confidence >= 0 && v.confidence <= 1
         ? v.confidence
-        : candidates[i].confidence;
-    out.push({ ...candidates[i], confidence });
+        : candidate.confidence;
+    out.push({ ...candidate, confidence });
   }
   return out;
 }
@@ -88,7 +88,7 @@ function parseVerdicts(
   raw: string,
 ): Array<{ keep?: boolean; confidence?: number }> | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
-  const body = fenced ? fenced[1] : raw;
+  const body = fenced?.[1] ?? raw;
   const start = body.search(/[[{]/);
   if (start === -1) return null;
   let parsed: unknown;

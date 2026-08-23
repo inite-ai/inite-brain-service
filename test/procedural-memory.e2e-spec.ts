@@ -55,9 +55,9 @@ describe('ProceduralMemoryService — record / match / list / retire', () => {
     // score cosine=1.0, so the priority-ASC tiebreaker picks the
     // priority=50 one before the priority=200 one.
     expect(matches.length).toBeGreaterThanOrEqual(2);
-    expect(matches[0].priority).toBe(50);
-    expect(matches[0].action).toBe('mention platinum tier 20% discount');
-    expect(matches[1].priority).toBe(200);
+    expect(matches[0]!.priority).toBe(50);
+    expect(matches[0]!.action).toBe('mention platinum tier 20% discount');
+    expect(matches[1]!.priority).toBe(200);
   });
 
   it('match excludes procedures below minSimilarity', async () => {

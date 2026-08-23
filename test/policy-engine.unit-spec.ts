@@ -280,9 +280,9 @@ describe('policy-engine row evaluation', () => {
     });
     const traces = explainRow(ctxOf(set), view({ source: { vertical: 'hr' } }));
     expect(traces).toHaveLength(1);
-    expect(traces[0].verdict).toBe('deny');
-    expect(traces[0].decidedBy).toBe('no-hr');
-    expect(traces[0].rules[0].fields?.[0]).toMatchObject({
+    expect(traces[0]!.verdict).toBe('deny');
+    expect(traces[0]!.decidedBy).toBe('no-hr');
+    expect(traces[0]!.rules[0]!.fields?.[0]).toMatchObject({
       attr: 'source.vertical',
       expected: 'hr',
       actual: 'hr',
@@ -358,7 +358,7 @@ describe('PolicyDocumentSchema validation', () => {
         },
       ],
     });
-    expect(parsed.rules[0].enabled).toBe(true);
+    expect(parsed.rules[0]!.enabled).toBe(true);
     expect(parsed.description).toBe('');
   });
 });

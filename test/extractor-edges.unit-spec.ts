@@ -141,7 +141,7 @@ describe('Extractor edge parsing — bounds + dedup', () => {
       2,
       clauses,
     );
-    expect(edges[0].kind).toBe('works_at');
+    expect(edges[0]!.kind).toBe('works_at');
   });
 
   it('clamps confidence to [0,1] and defaults when missing', () => {
@@ -154,8 +154,8 @@ describe('Extractor edge parsing — bounds + dedup', () => {
       clauses,
     );
     expect(edges).toHaveLength(2);
-    expect(edges[0].confidence).toBe(1);
-    expect(edges[1].confidence).toBe(0.7);
+    expect(edges[0]!.confidence).toBe(1);
+    expect(edges[1]!.confidence).toBe(0.7);
   });
 
   it('omits clause when clauseIndex out of bounds', () => {
@@ -164,7 +164,7 @@ describe('Extractor edge parsing — bounds + dedup', () => {
       2,
       clauses,
     );
-    expect(edges[0].clause).toBeUndefined();
+    expect(edges[0]!.clause).toBeUndefined();
   });
 
   it('returns [] on non-array input', () => {

@@ -153,9 +153,9 @@ function lcsLength(a: string[], b: string[]): number {
   const curr = new Array<number>(n + 1).fill(0);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1]);
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, curr[j - 1]!);
     }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+    for (let j = 0; j <= n; j++) prev[j] = curr[j]!;
   }
-  return prev[n];
+  return prev[n]!;
 }

@@ -213,14 +213,17 @@ export class CompactionRunnerService {
       );
       if (!summaryText) continue;
 
-      const earliest = sorted[0].validFrom;
-      const latest = sorted[sorted.length - 1].validUntil ?? sorted[sorted.length - 1].validFrom;
+      // group.length ≥ 2 (checked above) ⇒ sorted is non-empty.
+      const first = sorted[0]!;
+      const last = sorted[sorted.length - 1]!;
+      const earliest = first.validFrom;
+      const latest = last.validUntil ?? last.validFrom;
       const meanConfidence =
         sorted.reduce((acc, g) => acc + g.confidence, 0) / sorted.length;
 
       await dbCreate(db, 'knowledge_fact', {
-        entityId: sorted[0].entityId,
-        predicate: `summary_${sorted[0].predicate}`,
+        entityId: first.entityId,
+        predicate: `summary_${first.predicate}`,
         object: summaryText,
         confidence: meanConfidence,
         validFrom: earliest,
@@ -231,7 +234,7 @@ export class CompactionRunnerService {
         // The summary belongs to the same world as the facts it replaces
         // (audit W2 #10) — otherwise the pinned reader loses both.
         ...(derivedVersion ? { derivedVersion } : {}),
-        ...(sorted[0].userId ? { userId: sorted[0].userId } : {}),
+        ...(first.userId ? { userId: first.userId } : {}),
       });
       created++;
     }

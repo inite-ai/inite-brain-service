@@ -39,7 +39,7 @@ export async function applyLocalPredicateOverrides({
     if (!f.clause) continue;
     const ranked = await selector.rank(f.clause, snapshot, 3);
     if (ranked.length === 0) continue;
-    const top = ranked[0];
+    const top = ranked[0]!; // non-empty guaranteed by the guard above
     if (top.similarity < threshold) continue;
     if (top.predicateId === f.predicate) continue;
     overrides.push({

@@ -13,7 +13,7 @@ describe('splitClauses', () => {
   it('single sentence, no conjunction → 1 clause', () => {
     const out = splitClauses('Maria is the CTO at Acme.');
     expect(out).toHaveLength(1);
-    expect(out[0].text).toBe('Maria is the CTO at Acme');
+    expect(out[0]!.text).toBe('Maria is the CTO at Acme');
   });
 
   it('two sentences → 2 clauses', () => {
@@ -67,8 +67,8 @@ describe('splitClauses', () => {
   it('returns offsets that point at the original message slice', () => {
     const src = 'Maria is CTO. She lives in Berlin.';
     const out = splitClauses(src);
-    expect(src.slice(out[0].start, out[0].end)).toBe('Maria is CTO');
-    expect(src.slice(out[1].start, out[1].end)).toBe('She lives in Berlin');
+    expect(src.slice(out[0]!.start, out[0]!.end)).toBe('Maria is CTO');
+    expect(src.slice(out[1]!.start, out[1]!.end)).toBe('She lives in Berlin');
   });
 
   it('does not split on lowercase after period (URLs / abbreviations OK)', () => {
@@ -82,7 +82,7 @@ describe('splitClauses', () => {
     const out = splitClauses(
       'She moved from Berlin and prefers vegan lunch!!',
     );
-    expect(out[1].text).toBe('prefers vegan lunch');
+    expect(out[1]!.text).toBe('prefers vegan lunch');
   });
 
   it('preserves multiple inner conjunctions', () => {

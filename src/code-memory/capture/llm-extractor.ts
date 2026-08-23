@@ -81,7 +81,7 @@ export function parseCandidates(
     // model picked something else, fall back to the sole changed file, else drop.
     let anchor = typeof o.anchor === 'string' ? o.anchor : '';
     if (!changed.has(anchor)) {
-      if (commit.changedFiles.length === 1) anchor = commit.changedFiles[0];
+      if (commit.changedFiles.length === 1) anchor = commit.changedFiles[0]!;
       else continue;
     }
     const confidence =
@@ -107,7 +107,7 @@ export function parseCandidates(
 
 function safeParse(raw: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
-  const body = fenced ? fenced[1] : raw;
+  const body = fenced?.[1] ?? raw;
   const start = body.search(/[[{]/);
   if (start === -1) return null;
   try {

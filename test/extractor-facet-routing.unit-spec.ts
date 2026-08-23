@@ -127,7 +127,7 @@ describe('mergeExtractions', () => {
     ]);
     expect(merged.entities.map((e) => e.name)).toEqual(['Melanie', 'Caroline']);
     const adopted = merged.facts.find((f) => f.predicate === 'adopted');
-    expect(merged.entities[adopted!.entityIndex].name).toBe('Caroline');
+    expect(merged.entities[adopted!.entityIndex]!.name).toBe('Caroline');
   });
 
   it('remaps edge endpoints and dedupes edges by entity identity, not position', () => {
@@ -151,8 +151,8 @@ describe('mergeExtractions', () => {
       ),
     ]);
     expect(merged.edges).toHaveLength(1);
-    expect(merged.entities[merged.edges[0].fromEntityIndex].name).toBe('Melanie');
-    expect(merged.entities[merged.edges[0].toEntityIndex].name).toBe('Acme');
+    expect(merged.entities[merged.edges[0]!.fromEntityIndex]!.name).toBe('Melanie');
+    expect(merged.entities[merged.edges[0]!.toEntityIndex]!.name).toBe('Acme');
   });
 
   it('unions facts across passes and drops semantic duplicates', () => {
@@ -177,8 +177,8 @@ describe('mergeExtractions', () => {
       pass([['Tim', 'customer']], [[0, 'read', 'Dune']]),
       pass([['Tim', 'customer']], [[0, 'lives_in', 'Dublin']]),
     ]);
-    expect(merged.facts[0].extractionAgreement).toBeUndefined();
-    expect(merged.facts[0].extractionEntropy).toBeUndefined();
+    expect(merged.facts[0]!.extractionAgreement).toBeUndefined();
+    expect(merged.facts[0]!.extractionEntropy).toBeUndefined();
   });
 
   it('emits self-consistency stats when asked (multi-pass re-rolls)', () => {
@@ -189,7 +189,7 @@ describe('mergeExtractions', () => {
       ],
       { selfConsistency: true },
     );
-    expect(merged.facts[0].extractionAgreement).toBe(1);
+    expect(merged.facts[0]!.extractionAgreement).toBe(1);
   });
 
   it('handles a pass that produced nothing', () => {

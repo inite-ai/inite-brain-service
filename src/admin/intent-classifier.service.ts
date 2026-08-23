@@ -237,7 +237,7 @@ export class IntentClassifierService
     confidence: number;
   } {
     const qIdx = result.labels.indexOf('question');
-    const qScore = qIdx >= 0 ? result.scores[qIdx] : 0;
+    const qScore = qIdx >= 0 ? (result.scores[qIdx] ?? 0) : 0;
     if (qScore >= this.askThreshold) {
       return { intent: 'ask', confidence: qScore };
     }

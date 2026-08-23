@@ -141,8 +141,7 @@ export class CommunityBuilderService {
     const existing = await this.loadExistingCommunities(db);
     const matchedExistingIds = new Set<string>();
 
-    for (let i = 0; i < clusters.length; i++) {
-      const members = clusters[i];
+    for (const [i, members] of clusters.entries()) {
       result.entitiesClustered += members.length;
       const signature = members.join('|');
       const prior = existing.get(signature);
@@ -168,7 +167,7 @@ export class CommunityBuilderService {
       }
       await withSpan(
         'communities.build_one',
-        () => this.buildCommunity(db, members, maxEdgeAt[i], derivedVersion),
+        () => this.buildCommunity(db, members, maxEdgeAt[i] ?? null, derivedVersion),
         { 'community.size': members.length },
       );
       result.communitiesBuilt++;

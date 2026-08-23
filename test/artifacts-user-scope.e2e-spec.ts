@@ -49,7 +49,7 @@ describe('artifacts respect per-user scope', () => {
         `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
         { tail: (anchor.factId as string).split(':')[1] },
       );
-      return String((rows as Array<{ entityId: unknown }>)[0].entityId);
+      return String((rows as Array<{ entityId: unknown }>)[0]!.entityId);
     });
 
     // Personal name on the SAME shared entity (bare-entityId + userId).

@@ -236,8 +236,8 @@ describe('AgentQaService', () => {
         question: 'How many hikes?',
         callerScopes: ['brain:read'],
       });
-      expect(queries[0].sql).toContain('derivedVersion = $dv');
-      expect(queries[0].params?.dv).toBe('wd-v2');
+      expect(queries[0]!.sql).toContain('derivedVersion = $dv');
+      expect(queries[0]!.params?.dv).toBe('wd-v2');
       const rendered = toolMsgs.find((m) => m.includes('hike'));
       // Chronological: first hike before later hike.
       expect(rendered!.indexOf('first hike')).toBeLessThan(
@@ -305,8 +305,8 @@ describe('AgentQaService', () => {
         question: 'Who performed?',
         callerScopes: ['brain:read'],
       });
-      expect(queries[0].sql).toContain('@1@');
-      expect(queries[0].sql).toContain('piiClass IS NONE');
+      expect(queries[0]!.sql).toContain('@1@');
+      expect(queries[0]!.sql).toContain('piiClass IS NONE');
       expect(toolMsgs.some((m) => m.includes('Matt Patterson sang'))).toBe(
         true,
       );

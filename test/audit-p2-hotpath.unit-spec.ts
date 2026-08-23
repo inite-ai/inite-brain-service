@@ -56,7 +56,7 @@ describe('applyOutputShaping tokenBudget (one-pass)', () => {
       tokenBudget: 800,
     } as SearchDto);
     out.forEach((hit, i) => {
-      expect(hit.entityId).toBe(hits[i].entityId);
+      expect(hit.entityId).toBe(hits[i]!.entityId);
     });
   });
 

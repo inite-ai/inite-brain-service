@@ -120,8 +120,7 @@ export class MultiHopChainService {
     let runningIds: string[] = [];
     let runningHitsByEntity = new Map<string, SearchHit>();
 
-    for (let i = 0; i < plan.hops.length; i++) {
-      const hop = plan.hops[i];
+    for (const [i, hop] of plan.hops.entries()) {
       onProgress({
         stage: 'hop',
         index: i + 1,

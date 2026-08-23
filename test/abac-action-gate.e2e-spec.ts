@@ -48,7 +48,8 @@ describe('ABAC action gate (enforce + report_only)', () => {
         { scopes: ['brain:read', 'brain:write'], policies: ['watcher'] },
       ],
     });
-    [readonlyKey, watcherKey] = f.extraApiKeys;
+    readonlyKey = f.extraApiKeys[0]!;
+    watcherKey = f.extraApiKeys[1]!;
     for (const doc of [READONLY_DOC, WATCHER_DOC]) {
       const r = await f.http
         .post('/v1/admin/policy-sets')
@@ -210,7 +211,7 @@ describe('ABAC master switch off — attached policies are inert', () => {
         { scopes: ['brain:read', 'brain:write'], policies: ['readonly-agent'] },
       ],
     });
-    [restrictedKey] = f.extraApiKeys;
+    restrictedKey = f.extraApiKeys[0]!;
   });
 
   afterAll(async () => {

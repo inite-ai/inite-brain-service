@@ -261,7 +261,7 @@ describe('pack-declared MCP tools (e2e)', () => {
 
     // …the plain brain:read key gets zero rows from the SAME tool.
     const plain = await toolCall(
-      f.extraApiKeys[0],
+      f.extraApiKeys[0]!,
       'compliance__find_violations',
       { predicate: 'sanction_status' },
     );
@@ -276,7 +276,7 @@ describe('pack-declared MCP tools (e2e)', () => {
     expect(result.structuredContent).toEqual({ verdict: 'clean', hits: 0 });
 
     expect(endpointHits).toHaveLength(1);
-    const hit = endpointHits[0];
+    const hit = endpointHits[0]!;
     expect(hit.verified).toBe(true);
     const body = JSON.parse(hit.body);
     expect(body).toMatchObject({

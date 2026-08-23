@@ -45,8 +45,7 @@ export async function persistExtractionPatterns({
     list.push(rf);
     factsByClause.set(rf.clauseIndex, list);
   }
-  for (let i = 0; i < clauses.length; i++) {
-    const clauseText = clauses[i];
+  for (const [i, clauseText] of clauses.entries()) {
     const clauseFacts = (factsByClause.get(i) ?? []).map((f) => ({
       predicate:
         facts.find(

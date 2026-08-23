@@ -583,7 +583,7 @@ export class WindowDeriverService {
         { name: sp },
       );
       if (rows && rows.length === 1) {
-        entityBySpeaker.set(sp.toLowerCase(), String(rows[0].id));
+        entityBySpeaker.set(sp.toLowerCase(), String(rows[0]!.id));
       }
     }
 
@@ -643,7 +643,7 @@ export class WindowDeriverService {
     // session's first day. Off = the historical bare render.
     const turnHeaders = resolveExtractionProfile().deriveTurnHeaders;
     for (const session of segmentSessions(episodes)) {
-      const sessionDate = new Date(session[0].occurredAt as string);
+      const sessionDate = new Date(session[0]!.occurredAt as string); // sessions are non-empty
       const transcript = session.map((e, i) =>
         turnHeaders
           ? `[${i}] (${formatTurnStamp(e.occurredAt as string)}) ${e.speaker ?? 'unknown'}: ${e.text}`
@@ -660,7 +660,7 @@ export class WindowDeriverService {
           );
         }
         const last = new Date(
-          session[session.length - 1].occurredAt as string,
+          session[session.length - 1]!.occurredAt as string,
         );
         if (!digestEventAt || last > digestEventAt) digestEventAt = last;
       }
@@ -686,7 +686,7 @@ export class WindowDeriverService {
           const viaSpeaker =
             turn !== undefined
               ? entityBySpeaker.get(
-                  (session[turn].speaker ?? '').toLowerCase(),
+                  (session[turn]!.speaker ?? '').toLowerCase(), // turn validated in-bounds
                 )
               : undefined;
           const entityId = viaSpeaker ?? fallbackEntity;
@@ -733,7 +733,7 @@ export class WindowDeriverService {
             `and ${ungrounded} invalid-grounding proposition(s)`,
         );
       }
-      const keptResolved = resolved.filter((_, i) => !dropRow(builtRows[i]));
+      const keptResolved = resolved.filter((_, i) => !dropRow(builtRows[i]!)); // parallel to resolved
       const rows = builtRows.filter((r) => !dropRow(r));
       // V9 §1: value-bearing aspects take the bitemporal_event
       // lifecycle when the profile asks; V9 phase 0: the resolver
@@ -865,7 +865,7 @@ export class WindowDeriverService {
           vertical: 'derived',
           recorder: ns.final,
         }),
-        embedding: vectors[i],
+        embedding: vectors[i]!, // vectors is 1:1 with rollups ⇒ in-bounds
         derivedVersion: ns.staging,
       }));
       const outcomes = await this.factResolver.resolveDerivedBatch(db, rows, {
@@ -932,7 +932,8 @@ export class WindowDeriverService {
         compositions.map((c) => c.proposition),
       );
       const rows = compositions.map((c, i) => {
-        const members = c.members.map((m) => pool[m]);
+        // members were filtered to valid pool indices (0 ≤ m < pool.length).
+        const members = c.members.map((m) => pool[m]!);
         const aspect = c.aspect
           .toLowerCase()
           .replace(/[^a-z0-9_]+/g, '_')
@@ -966,7 +967,7 @@ export class WindowDeriverService {
             vertical: 'derived',
             recorder: ns.final,
           }),
-          embedding: vectors[i],
+          embedding: vectors[i]!, // vectors is 1:1 with compositions ⇒ in-bounds
           derivedVersion: ns.staging,
         };
       });

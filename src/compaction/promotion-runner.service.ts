@@ -234,13 +234,15 @@ export class PromotionRunnerService {
       );
     }
 
-    const earliest = members[0].validFrom;
+    const first = members[0];
     const last = members[members.length - 1];
+    if (!first || !last) return 0; // members non-empty (length ≥ minGroup)
+    const earliest = first.validFrom;
     const meanConfidence =
       members.reduce((acc, m) => acc + m.confidence, 0) / members.length;
 
     await dbCreate(db, 'knowledge_fact', {
-      entityId: members[0].entityId,
+      entityId: first.entityId,
       predicate: `summary_${group.predicate}`,
       object: summaryText,
       confidence: meanConfidence,

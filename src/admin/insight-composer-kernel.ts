@@ -185,7 +185,7 @@ async function composeEntity<P>(
     spec.buildRow(p, {
       entityId: new StringRecordId(entityId),
       facts,
-      vector: vectors[i],
+      vector: vectors[i]!, // vectors is 1:1 with valid (embedMany) ⇒ in-bounds
       version,
     }),
   );

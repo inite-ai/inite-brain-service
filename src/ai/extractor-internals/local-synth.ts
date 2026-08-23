@@ -25,8 +25,7 @@ function entityIndexForFact(
   clauseText: string,
 ): number {
   const clauseLower = clauseText.toLowerCase();
-  for (let i = 0; i < localEntities.length; i++) {
-    const en = localEntities[i];
+  for (const [i, en] of localEntities.entries()) {
     if (clauseLower.includes(en.text.toLowerCase())) {
       // Heuristic: the entity is the subject of the fact when its
       // name appears inside the clause. Multiple candidates are

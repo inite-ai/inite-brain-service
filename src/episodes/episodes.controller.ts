@@ -151,12 +151,13 @@ export class EpisodesController {
       userId: q.userId,
       after: q.cursor !== undefined ? decodeCursor(q.cursor) : undefined,
     });
+    const lastRow = rows[rows.length - 1];
     return {
       episodes: rows.map(toWire),
       // A full page may end exactly on the last row; the follow-up
       // request then returns [] with no cursor — offset-free and safe.
-      ...(rows.length === limit
-        ? { nextCursor: encodeCursor(rows[rows.length - 1]) }
+      ...(lastRow && rows.length === limit
+        ? { nextCursor: encodeCursor(lastRow) }
         : {}),
     };
   }
@@ -194,6 +195,7 @@ export class EpisodesController {
       }
       if (rows.length < EXPORT_CHUNK) break;
       const last = rows[rows.length - 1];
+      if (!last) break; // rows non-empty here; guard satisfies the checker
       after = { occurredAtIso: toIso(last.occurredAt), id: String(last.id) };
     }
     res.end();

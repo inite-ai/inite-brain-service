@@ -13,7 +13,7 @@ export async function runPool<T>(
     for (;;) {
       const i = next++;
       if (i >= items.length) return;
-      await worker(items[i], i);
+      await worker(items[i]!, i);
     }
   });
   await Promise.all(lanes);

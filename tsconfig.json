@@ -13,6 +13,7 @@
     "baseUrl": "./",
     "skipLibCheck": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,

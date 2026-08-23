@@ -108,7 +108,7 @@ describe('Communities — build + read surfaces', () => {
   it('find_entity_communities resolves an entity to its cluster', async () => {
     const out = await f.app.get(CommunityService).forEntity(f.companyId, entityA);
     expect(out).toHaveLength(1);
-    expect(out[0].memberCount).toBe(3);
+    expect(out[0]!.memberCount).toBe(3);
   });
 
   it('search returns a community for a topical query', async () => {
@@ -116,7 +116,7 @@ describe('Communities — build + read surfaces', () => {
       .get(CommunityService)
       .search(f.companyId, { query: 'Acme billing', minSimilarity: 0 });
     expect(out.length).toBeGreaterThanOrEqual(1);
-    expect(out[0].similarity).toBeGreaterThanOrEqual(0);
+    expect(out[0]!.similarity).toBeGreaterThanOrEqual(0);
   });
 
   it('REST: list / search / for-entity / stats resolve over HTTP', async () => {

@@ -27,10 +27,10 @@ describe('groundExternalBatch', () => {
       relations: [],
     });
     expect(out.entities).toHaveLength(1);
-    expect(out.entities[0].name).toBe('Acme Corp');
-    expect(out.entities[0].entityIndex).toBe(0); // compacted
+    expect(out.entities[0]!.name).toBe('Acme Corp');
+    expect(out.entities[0]!.entityIndex).toBe(0); // compacted
     expect(out.facts).toHaveLength(1);
-    expect(out.facts[0].entityIndex).toBe(0); // remapped 1 → 0
+    expect(out.facts[0]!.entityIndex).toBe(0); // remapped 1 → 0
     expect(out.dropped).toEqual([
       expect.objectContaining({ kind: 'entity', reason: 'ungrounded_entity' }),
     ]);

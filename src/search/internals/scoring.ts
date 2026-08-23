@@ -268,7 +268,7 @@ export function scoreRows({
     if (!salienceScoring) return 1;
     const s = (source as { salience?: unknown } | null)?.salience;
     return typeof s === 'number' && Number.isInteger(s) && s >= 0 && s <= 3
-      ? SALIENCE_WEIGHTS[s]
+      ? (SALIENCE_WEIGHTS[s] ?? 1)
       : 1;
   };
   // A penalty is only meaningful in (0,1]; anything else (unset, ≥1, invalid)

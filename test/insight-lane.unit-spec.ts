@@ -61,10 +61,10 @@ describe('runInsightLegs', () => {
     });
     expect(vectorRows).toHaveLength(1);
     expect(lexicalRows).toHaveLength(1);
-    expect(vectorRows[0].predicate).toBe('aggregate_hobbies');
-    expect(vectorRows[0].simScore).toBe(0.9);
-    expect(lexicalRows[0].bm25Score).toBe(3.2);
-    expect(vectorRows[0].source.vertical).toBe('insight');
+    expect(vectorRows[0]!.predicate).toBe('aggregate_hobbies');
+    expect(vectorRows[0]!.simScore).toBe(0.9);
+    expect(lexicalRows[0]!.bm25Score).toBe(3.2);
+    expect(vectorRows[0]!.source.vertical).toBe('insight');
     for (const q of queries) {
       // The pool filter — aggregates by recorder, summaries by prefix.
       expect(q.sql).toContain('source.recorder = $insightRecorder');
@@ -90,7 +90,7 @@ describe('runInsightLegs', () => {
       derivedVersion: null,
     });
     expect(queries).toHaveLength(1); // no vector → BM25 only
-    expect(queries[0].sql).toContain('AND derivedVersion IS NONE');
+    expect(queries[0]!.sql).toContain('AND derivedVersion IS NONE');
   });
 
   it('budgets long insight text at a word boundary', async () => {
@@ -104,8 +104,8 @@ describe('runInsightLegs', () => {
       callerScopes: [],
       derivedVersion: 'wd-v2',
     });
-    expect(vectorRows[0].object.length).toBeLessThan(820);
-    expect(vectorRows[0].object.endsWith('[…]')).toBe(true);
+    expect(vectorRows[0]!.object.length).toBeLessThan(820);
+    expect(vectorRows[0]!.object.endsWith('[…]')).toBe(true);
   });
 });
 

@@ -104,7 +104,8 @@ export class AggregateComposerService {
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: agg.members.map(
-          (m) => new StringRecordId(String(ctx.facts[m].id)),
+          // members are validated in-bounds by the `valid` predicate above.
+          (m) => new StringRecordId(String(ctx.facts[m]!.id)),
         ),
         ...(ctx.version ? { derivedVersion: ctx.version } : {}),
       };

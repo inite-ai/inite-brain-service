@@ -134,9 +134,9 @@ describe('computeCharSpans — quotes parallel to turns', () => {
       session,
     });
     expect(spans).toHaveLength(2);
-    expect(spans[0].episodeId).toBe('episode:e0');
-    expect(spans[0].exact).toBe('kitten named Luna');
-    expect(spans[1].episodeId).toBe('episode:e1');
+    expect(spans[0]!.episodeId).toBe('episode:e0');
+    expect(spans[0]!.exact).toBe('kitten named Luna');
+    expect(spans[1]!.episodeId).toBe('episode:e1');
   });
 
   it('null quotes, failing quotes and bad turn indices contribute no span', () => {
@@ -155,6 +155,6 @@ describe('computeCharSpans — quotes parallel to turns', () => {
       session,
     });
     expect(spans).toHaveLength(1);
-    expect(spans[0].episodeId).toBe('episode:e0');
+    expect(spans[0]!.episodeId).toBe('episode:e0');
   });
 });

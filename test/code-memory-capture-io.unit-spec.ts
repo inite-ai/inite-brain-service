@@ -66,7 +66,7 @@ describe('parseCandidates — grounding', () => {
     });
     const out = parseCandidates(raw, single);
     expect(out).toHaveLength(1);
-    expect(out[0].anchor).toBe('src/only.ts');
+    expect(out[0]!.anchor).toBe('src/only.ts');
   });
 
   it('parses fenced ```json``` and skips invalid kinds', () => {
@@ -74,7 +74,7 @@ describe('parseCandidates — grounding', () => {
       '```json\n{"decisions":[{"kind":"nonsense","text":"x","anchor":"src/ingest/ingest.service.ts"},{"kind":"because","text":"real","anchor":"src/ingest/ingest.service.ts"}]}\n```';
     const out = parseCandidates(raw, COMMIT);
     expect(out).toHaveLength(1);
-    expect(out[0].kind).toBe('because');
+    expect(out[0]!.kind).toBe('because');
   });
 
   it('returns [] on unparseable output', () => {
@@ -176,14 +176,14 @@ describe('parseGitLog', () => {
       `${RS}a1211e8${FS}2026-06-27T09:00:00Z${FS}chore: bump${FS}\npackage.json\n`;
     const commits = parseGitLog(raw);
     expect(commits).toHaveLength(2);
-    expect(commits[0].sha).toBe('f0e824b');
-    expect(commits[0].authorDate).toBe('2026-06-28T10:00:00Z');
-    expect(commits[0].message).toMatch(/split service/);
-    expect(commits[0].changedFiles).toEqual([
+    expect(commits[0]!.sha).toBe('f0e824b');
+    expect(commits[0]!.authorDate).toBe('2026-06-28T10:00:00Z');
+    expect(commits[0]!.message).toMatch(/split service/);
+    expect(commits[0]!.changedFiles).toEqual([
       'src/ingest/fact-resolver.service.ts',
       'src/ingest/ingest.service.ts',
     ]);
-    expect(commits[1].changedFiles).toEqual(['package.json']);
+    expect(commits[1]!.changedFiles).toEqual(['package.json']);
   });
 
   it('returns [] on empty input', () => {

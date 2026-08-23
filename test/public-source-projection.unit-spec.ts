@@ -140,7 +140,7 @@ describe('filterAndPage', () => {
   it('type filter matches the DECLARED type (undeclared never matches)', () => {
     const { items, total } = filterAndPage(corpus, { ...page, type: 'human' });
     expect(total).toBe(1);
-    expect(items[0].sourceKey).toBe('rent:human_big');
+    expect(items[0]!.sourceKey).toBe('rent:human_big');
   });
 
   it('minSamples judges the global row when no domain is active', () => {

@@ -32,7 +32,7 @@ export class QueryExecutor {
 
     const factPredicateMatched =
       expectation.expectedFactPredicate && rankOfExpected > 0
-        ? res.results[rankOfExpected - 1].facts.some(
+        ? res.results[rankOfExpected - 1]!.facts.some(
             (f) => f.predicate === expectation.expectedFactPredicate,
           )
         : null;

@@ -47,7 +47,7 @@ describe('mergeCandidates', () => {
     ];
     const out = mergeCandidates(rows);
     expect(out.entities).toHaveLength(1);
-    expect(out.entities[0].candidateIds).toHaveLength(2);
+    expect(out.entities[0]!.candidateIds).toHaveLength(2);
   });
 
   it('folds a bare-name entity with a canonical-bearing one via alias union', () => {
@@ -83,9 +83,9 @@ describe('mergeCandidates', () => {
     ];
     const out = mergeCandidates(rows);
     expect(out.entities).toHaveLength(1);
-    expect(out.entities[0].candidateIds).toHaveLength(2);
+    expect(out.entities[0]!.candidateIds).toHaveLength(2);
     expect(out.facts).toHaveLength(1);
-    expect(out.facts[0].contributors).toHaveLength(2);
+    expect(out.facts[0]!.contributors).toHaveLength(2);
     expect(out.rejected).toHaveLength(0);
   });
 
@@ -129,7 +129,7 @@ describe('mergeCandidates', () => {
     ];
     const out = mergeCandidates(rows);
     expect(out.facts).toHaveLength(1);
-    const f = out.facts[0];
+    const f = out.facts[0]!;
     expect(f.confidence).toBe(0.9); // max, not noisy-or
     expect(f.recorder).toBe('meetings'); // leader's indexer
     expect(f.contributors).toHaveLength(2);
@@ -182,7 +182,7 @@ describe('mergeCandidates', () => {
     const out = mergeCandidates(rows);
     expect(out.entities).toHaveLength(2);
     const globexKey = out.entities.find((e) => e.name === 'Globex')!.key;
-    expect(out.facts[0].entityKey).toBe(globexKey);
+    expect(out.facts[0]!.entityKey).toBe(globexKey);
   });
 
   it('dedupes relations by (from, to, kind) and rejects self-loops', () => {
@@ -209,7 +209,7 @@ describe('mergeCandidates', () => {
     ];
     const out = mergeCandidates(rows);
     expect(out.relations).toHaveLength(1);
-    expect(out.relations[0].confidence).toBe(0.8);
+    expect(out.relations[0]!.confidence).toBe(0.8);
     expect(out.rejected).toEqual([
       expect.objectContaining({ kind: 'relation', reason: 'orphan_relation' }),
     ]);

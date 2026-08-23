@@ -185,7 +185,7 @@ describe('RecomposeService', () => {
         },
       });
       await svc.recompute('co_x');
-      const group = generator.generate.mock.calls[0][0] as any[];
+      const group = generator.generate.mock.calls[0]![0] as any[];
       expect(group.map((g) => g.object)).toEqual(['Under Armour']);
     });
 
@@ -218,7 +218,7 @@ describe('RecomposeService', () => {
       });
       const out = await svc.recompute('co_x');
       expect(out.recomputed).toBe(1);
-      const group = generator.generate.mock.calls[0][0] as any[];
+      const group = generator.generate.mock.calls[0]![0] as any[];
       expect(group.map((g) => g.object)).toEqual(['Dublin']);
     });
 
@@ -253,7 +253,7 @@ describe('RecomposeService', () => {
         },
       });
       await svc.recompute('co_x');
-      const group = generator.generate.mock.calls[0][0] as any[];
+      const group = generator.generate.mock.calls[0]![0] as any[];
       expect(group.map((g) => g.object)).toEqual(['earlier', 'later']);
     });
 

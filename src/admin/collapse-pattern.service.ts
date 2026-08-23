@@ -203,8 +203,8 @@ export function extractCollapseEditsLocally(
       const idx = lower.indexOf(needle, from);
       if (idx < 0) break;
       const end = idx + needle.length;
-      const before = idx > 0 ? message[idx - 1] : ' ';
-      const after = end < message.length ? message[end] : ' ';
+      const before = idx > 0 ? message[idx - 1]! : ' ';
+      const after = end < message.length ? message[end]! : ' ';
       const isWordChar = (c: string) => /[\p{L}\p{N}]/u.test(c);
       if (isWordChar(before) || isWordChar(after)) {
         from = end;

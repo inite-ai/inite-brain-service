@@ -342,6 +342,6 @@ describe('JobClaimService', () => {
     const svc = new JobClaimService(mkSurreal(db));
     const rows = await svc.listActiveClaims(['co_x', 'co_y']);
     expect(rows).toHaveLength(2);
-    expect(rows[0].claimedBy).toBe('host#1');
+    expect(rows[0]!.claimedBy).toBe('host#1');
   });
 });

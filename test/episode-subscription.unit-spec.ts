@@ -54,13 +54,13 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
     expect(out.id).toBe('episode_subscription:new1');
     expect(out.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(Date.parse(out.watermark)).not.toBeNaN();
-    expect(queries[0].sql).toContain('CREATE episode_subscription');
+    expect(queries[0]!.sql).toContain('CREATE episode_subscription');
   });
 
   it('list never selects the secret column', async () => {
     const { svc, queries } = makeService({ subs: [] });
     await svc.list('co_x');
-    expect(queries[0].sql).not.toContain('secret');
+    expect(queries[0]!.sql).not.toContain('secret');
   });
 
   it('dispatchTick is inert when the flag is off', async () => {
@@ -105,7 +105,7 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
     await svc.dispatchTick();
 
     expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0].body);
+    const payload = JSON.parse(calls[0]!.body);
     expect(payload.event).toBe('episodes_available');
     expect(payload.episodes[0]).toEqual({
       id: 'episode:e1',
@@ -116,11 +116,11 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
       recordedAt: '2026-08-02T10:00:05.000Z',
     });
     // metadata only — never text
-    expect(calls[0].body).not.toContain('"text"');
+    expect(calls[0]!.body).not.toContain('"text"');
     const expected = createHmac('sha256', 'shh')
-      .update(calls[0].body)
+      .update(calls[0]!.body)
       .digest('hex');
-    expect(calls[0].sig).toBe(`sha256=${expected}`);
+    expect(calls[0]!.sig).toBe(`sha256=${expected}`);
     const advance = queries.find((q) => q.sql.includes('SET watermark'));
     expect(advance).toBeDefined();
     expect(advance?.sql).toContain('WHERE watermark = <datetime> $old');

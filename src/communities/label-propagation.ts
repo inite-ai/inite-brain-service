@@ -88,7 +88,13 @@ function groupByLabel(
   }
   return [...groups.values()]
     .map((g) => g.sort())
-    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    .sort((a, b) => {
+      // Every group is constructed with ≥1 member, so [0] is present;
+      // the `?? ''` is a type-level formality.
+      const x = a[0] ?? '';
+      const y = b[0] ?? '';
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
 }
 
 /**

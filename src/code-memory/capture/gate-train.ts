@@ -53,7 +53,8 @@ function mulberry32(seed: number): () => number {
 function shuffle<T>(arr: T[], rng: () => number): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    // i ∈ [1, len-1], j ∈ [0, i] ⇒ both indices are in-bounds.
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   }
 }
 
@@ -75,6 +76,8 @@ function trainLogistic(
     for (const i of order) {
       const f = feats[i];
       const y = targets[i];
+      // feats/targets are parallel; skip any row whose pair is missing.
+      if (f === undefined || y === undefined) continue;
       let z = bias;
       for (const [k, v] of f) z += (weights.get(k) ?? 0) * v;
       const p = 1 / (1 + Math.exp(-z));

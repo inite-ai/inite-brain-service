@@ -56,7 +56,7 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
     });
     const limitedClient = new HttpBrainClient({
       baseUrl: svc.baseUrl,
-      apiKey: svc.extras[0].plaintext,
+      apiKey: svc.extras[0]!.plaintext,
     });
 
     // Faithfulness verifier needs its own OpenAI client — runs in the

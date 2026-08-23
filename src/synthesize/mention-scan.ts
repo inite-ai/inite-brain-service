@@ -233,7 +233,7 @@ export function dedupeMentionLines(lines: string[]): string[] {
 export function pickMentionLine(segmentText: string, terms: string[]): string {
   const lines = (segmentText ?? '').split('\n').filter((l) => l.trim());
   if (lines.length === 0) return '';
-  let bestLine = lines[0];
+  let bestLine = lines[0]!; // non-empty guaranteed by the guard above
   let bestScore = 0;
   for (const line of lines) {
     const lower = line.toLowerCase();

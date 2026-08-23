@@ -19,8 +19,9 @@ export function shouldSkipRerankByMargin(
 ): boolean {
   if (marginThreshold <= 0) return false;
   if (candidates.length < 2) return false;
-  const top = candidates[0].rankScore;
+  // length ≥ 2 guaranteed by the guard above → indices 0 and 1 are in-bounds.
+  const top = candidates[0]!.rankScore;
   if (top <= 0) return false;
-  const gap = (top - candidates[1].rankScore) / top;
+  const gap = (top - candidates[1]!.rankScore) / top;
   return gap >= marginThreshold;
 }

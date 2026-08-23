@@ -43,7 +43,7 @@ describe('buildFeedbackTrustEvents', () => {
   });
 
   it('falls back to the _ recorder like the fact-status events', () => {
-    const [e] = buildFeedbackTrustEvents([{ ...row('helpful'), recorder: null }]);
+    const e = buildFeedbackTrustEvents([{ ...row('helpful'), recorder: null }])[0]!;
     expect(e.sourceKey).toBe('rent:_');
   });
 

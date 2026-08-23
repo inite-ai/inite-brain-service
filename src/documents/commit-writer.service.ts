@@ -105,8 +105,7 @@ export class CommitWriterService {
     },
   ): Promise<FactWriteOutcome[]> {
     const outcomes: FactWriteOutcome[] = [];
-    for (let i = 0; i < p.factsToWrite.length; i++) {
-      const mf = p.factsToWrite[i];
+    for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
         outcomes.push({ fact: mf, factId: null, outcome: null });

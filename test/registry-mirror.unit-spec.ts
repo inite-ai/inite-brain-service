@@ -55,7 +55,7 @@ function fakeUpstream(packs: Record<string, UpstreamVersionFixture[]>) {
       return json({ packs: ids.map((packId) => ({ packId })) });
     }
     const m = /^\/v1\/registry\/packs\/([^/?]+)(?:\/([^/?]+))?$/.exec(path);
-    const packId = m ? decodeURIComponent(m[1]) : '';
+    const packId = m ? decodeURIComponent(m[1]!) : '';
     const version = m?.[2] ? decodeURIComponent(m[2]) : undefined;
     const rows = packs[packId];
     if (!rows) return { ok: false, status: 404 } as Response;
@@ -146,9 +146,9 @@ describe('registry mirror — sync core', () => {
     expect(summary.imported).toBe(1);
     expect(summary.checksumMismatches).toBe(0);
     expect(local.published).toHaveLength(1);
-    expect(local.published[0].origin).toBe(BASE);
-    expect(local.published[0].manifest.id).toBe('alpha');
-    expect(local.published[0].expectedChecksum).toBe(
+    expect(local.published[0]!.origin).toBe(BASE);
+    expect(local.published[0]!.manifest.id).toBe('alpha');
+    expect(local.published[0]!.expectedChecksum).toBe(
       packChecksum(manifest('alpha', '1.0.0')),
     );
   });
@@ -193,7 +193,7 @@ describe('registry mirror — sync core', () => {
       packId: 'mirrored_pack',
       version: '1.0.0',
     });
-    expect(local.yanks[0].reason).toContain('CVE-2026-1');
+    expect(local.yanks[0]!.reason).toContain('CVE-2026-1');
     // Neither the local publish nor the foreign-origin row was touched.
     expect(local.yanks.some((y) => y.packId === 'local_pack')).toBe(false);
     expect(local.yanks.some((y) => y.packId === 'other_origin')).toBe(false);
@@ -308,7 +308,7 @@ describe('registry mirror — sync core', () => {
 
     expect(summary.failures).toBe(1);
     expect(summary.imported).toBe(1);
-    expect(local.published[0].manifest.id).toBe('beta');
+    expect(local.published[0]!.manifest.id).toBe('beta');
   });
 
   it('sends the bearer token when configured and omits it otherwise', async () => {

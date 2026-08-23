@@ -2,7 +2,7 @@
 // (write / lifecycle / eval) and the orchestrator.
 
 export function parseRefTag(ref: string): { refKey: string; id: string } {
-  const [vertical, id] = ref.split('.', 2);
+  const [vertical = '', id = ''] = ref.split('.', 2);
   return { refKey: `${safe(vertical)}__${safe(id)}`, id };
 }
 
@@ -12,7 +12,7 @@ export function formatTopRef(
   if (!refs) return null;
   const entries = Object.entries(refs);
   if (entries.length === 0) return null;
-  const [k, v] = entries[0];
+  const [k, v] = entries[0]!; // non-empty guaranteed by the guard above
   const dot = k.indexOf('__');
   if (dot === -1) return `${k}.${v}`;
   return `${k.slice(0, dot)}.${v}`;

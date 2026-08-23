@@ -37,7 +37,7 @@ export class TenantClient {
       } catch (e) {
         lastErr = e as Error;
         const m = /^HTTP (\d{3}) /.exec(lastErr.message);
-        const status = m ? parseInt(m[1], 10) : undefined;
+        const status = m ? parseInt(m[1]!, 10) : undefined;
         const retryable =
           status === undefined || status === 429 || status >= 500;
         if (!retryable || attempt === RETRIES) throw lastErr;

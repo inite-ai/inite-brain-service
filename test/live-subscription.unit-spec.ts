@@ -136,7 +136,7 @@ describe('LiveSubscriptionManager', () => {
       const emitted = await mgr.catchUp('co_x');
       expect(emitted).toBe(1);
       expect(received).toHaveLength(1);
-      expect(received[0].event).toMatchObject({ factId: 'knowledge_fact:b' });
+      expect(received[0]!.event).toMatchObject({ factId: 'knowledge_fact:b' });
     });
 
     it('advances the cursor so the next tick does not repeat the batch', async () => {
@@ -219,7 +219,7 @@ describe('LiveSubscriptionManager', () => {
       });
       addSubscriber('slow', ['brain:read']);
       await mgr.catchUp('co_x');
-      expect(received[0].event).toEqual({ kind: 'resync', reason: 'backpressure' });
+      expect(received[0]!.event).toEqual({ kind: 'resync', reason: 'backpressure' });
     });
 
     it('drops a subscriber whose sink throws, without killing the stream', async () => {

@@ -55,7 +55,7 @@ describe('ABAC meta union + backfill + temporal windows', () => {
         { scopes: ['brain:read', 'brain:write'], policies: ['no-pii-meta'] },
       ],
     });
-    [restrictedKey] = f.extraApiKeys;
+    restrictedKey = f.extraApiKeys[0]!;
     const created = await f.http
       .post('/v1/admin/policy-sets')
       .set(auth())

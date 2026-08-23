@@ -180,16 +180,16 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     // Audit 2026-08-21: facts AND digests flip in ONE transaction — a
     // committed fact-world can never be narrated by old digests.
     expect(flips.length).toBe(1);
-    expect(flips[0].sql).toContain(
+    expect(flips[0]!.sql).toContain(
       'DELETE knowledge_fact WHERE derivedVersion = $final',
     );
-    expect(flips[0].sql).toContain(
+    expect(flips[0]!.sql).toContain(
       'UPDATE knowledge_fact SET derivedVersion = $final',
     );
-    expect(flips[0].sql).toContain(
+    expect(flips[0]!.sql).toContain(
       'DELETE conversation_digest WHERE derivedVersion = $final',
     );
-    expect(flips[0].sql).toContain(
+    expect(flips[0]!.sql).toContain(
       'UPDATE conversation_digest SET derivedVersion = $final',
     );
     for (const flip of flips) {
@@ -283,7 +283,7 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     );
     expect(firstDelete).toBeGreaterThanOrEqual(0);
     expect(firstDelete).toBeLessThan(firstEpisodeRead);
-    expect(queries[firstDelete].params?.prefix).toBe(STAGING);
+    expect(queries[firstDelete]!.params?.prefix).toBe(STAGING);
   });
 
   it("registry becomes 'built' only AFTER the flip transactions", async () => {
@@ -312,17 +312,17 @@ describe('derive staging namespace (audit 2026-08-19 P1)', () => {
     expect(flips.length).toBe(1);
     // Conversation-scoped DELETE/UPDATE — a targeted flip must never
     // wipe the other conversations of the final world.
-    expect(flips[0].sql).toContain('source.conversationId = $conv');
-    expect(flips[0].sql).not.toMatch(
+    expect(flips[0]!.sql).toContain('source.conversationId = $conv');
+    expect(flips[0]!.sql).not.toMatch(
       /DELETE knowledge_fact WHERE derivedVersion = \$final;/,
     );
     // The 0014-shape revive of OTHER conversations' superseded losers
     // now runs against the FINAL world at flip time.
-    expect(flips[0].sql).toContain("status = 'superseded'");
-    expect(flips[0].sql).toContain('supersededBy IN');
+    expect(flips[0]!.sql).toContain("status = 'superseded'");
+    expect(flips[0]!.sql).toContain('supersededBy IN');
     // Digest slice flips inside the SAME transaction.
-    expect(flips[0].sql).toContain('DELETE conversation_digest');
-    expect(flips[0].params?.conv).toBe('conv-1');
+    expect(flips[0]!.sql).toContain('DELETE conversation_digest');
+    expect(flips[0]!.params?.conv).toBe('conv-1');
   });
 });
 
@@ -447,7 +447,7 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
     // Audit 2026-08-21: one transaction covers BOTH tables — a failure
     // can never leave a new fact-world narrated by old digests.
     expect(queries).toHaveLength(1);
-    const q = queries[0];
+    const q = queries[0]!;
     expect(q.sql).toContain('BEGIN TRANSACTION');
     expect(q.sql).toContain('COMMIT TRANSACTION');
     expect(q.params).toMatchObject({
@@ -470,15 +470,15 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
       conversationId: 'conv-7',
     });
     expect(queries).toHaveLength(1);
-    expect(queries[0].params?.conv).toBe('conv-7');
+    expect(queries[0]!.params?.conv).toBe('conv-7');
     // Revive of cross-conversation supersede losers runs first, inside
     // the same transaction as the replace.
-    expect(queries[0].sql.indexOf("status = 'active'")).toBeLessThan(
-      queries[0].sql.indexOf('DELETE knowledge_fact'),
+    expect(queries[0]!.sql.indexOf("status = 'active'")).toBeLessThan(
+      queries[0]!.sql.indexOf('DELETE knowledge_fact'),
     );
-    expect(queries[0].sql).toContain('source.conversationId = $conv');
+    expect(queries[0]!.sql).toContain('source.conversationId = $conv');
     // Digest slice flips inside the SAME transaction, same scoping.
-    expect(queries[0].sql).toContain(
+    expect(queries[0]!.sql).toContain(
       'DELETE conversation_digest\n            WHERE derivedVersion = $final AND conversationId = $conv',
     );
   });
@@ -492,8 +492,8 @@ describe('promoteStaging / sweepStagingRows primitives', () => {
       expect(d.params?.version).toBe('wd-v9.staging');
     }
     // Probe precedes each delete.
-    expect(queries[0].sql).toContain('SELECT id FROM knowledge_fact');
-    expect(queries[1].sql.startsWith('DELETE knowledge_fact')).toBe(true);
+    expect(queries[0]!.sql).toContain('SELECT id FROM knowledge_fact');
+    expect(queries[1]!.sql.startsWith('DELETE knowledge_fact')).toBe(true);
   });
 });
 

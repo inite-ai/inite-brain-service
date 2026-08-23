@@ -153,7 +153,7 @@ describe('runCapturePipeline', () => {
     expect(summary.recorded).toBe(1);
     expect(summary.failures).toBe(0);
     expect(sink.recorded).toHaveLength(1);
-    expect(sink.recorded[0].anchor).toMatch(/fact-resolver/);
+    expect(sink.recorded[0]!.anchor).toMatch(/fact-resolver/);
   });
 
   it('counts an extractor failure without aborting the run', async () => {

@@ -43,7 +43,7 @@ describe('ABAC simulation surface', () => {
         { scopes: ['brain:read', 'brain:write'], policies: ['support-reader'] },
       ],
     });
-    [attachedKey] = f.extraApiKeys;
+    attachedKey = f.extraApiKeys[0]!;
     void attachedKey;
     const created = await f.http
       .post('/v1/admin/policy-sets')

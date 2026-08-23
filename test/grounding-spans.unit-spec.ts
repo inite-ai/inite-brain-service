@@ -81,7 +81,7 @@ describe('applyGroundingGate value word-boundary', () => {
     ];
     const { facts, dropped } = applyGroundingGate('she is active', raw, { clauses: [] });
     expect(facts).toHaveLength(0);
-    expect(dropped[0].reason).toBe('not_grounded');
+    expect(dropped[0]!.reason).toBe('not_grounded');
   });
 });
 
@@ -104,7 +104,7 @@ describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () =>
       { clauses: [] },
     );
     expect(facts).toHaveLength(0);
-    expect(dropped[0].reason).toBe('not_grounded');
+    expect(dropped[0]!.reason).toBe('not_grounded');
   });
 
   it('KEEPS the normalized value when allowUngrounded=true', () => {
@@ -114,8 +114,8 @@ describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () =>
       { clauses: [], allowUngrounded: true },
     );
     expect(facts).toHaveLength(1);
-    expect(facts[0].object).toBe('single');
-    expect(facts[0].predicate).toBe('relationship_status');
+    expect(facts[0]!.object).toBe('single');
+    expect(facts[0]!.predicate).toBe('relationship_status');
     expect(dropped).toHaveLength(0);
   });
 
@@ -125,7 +125,7 @@ describe('applyGroundingGate allowUngrounded (dialogue profile, Phase 4)', () =>
     ];
     const { facts, dropped } = applyGroundingGate('anything', empty, { clauses: [], allowUngrounded: true });
     expect(facts).toHaveLength(0);
-    expect(dropped[0].reason).toBe('empty');
+    expect(dropped[0]!.reason).toBe('empty');
   });
 });
 
@@ -158,8 +158,8 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
       [{ ...camping, object: 'the mountains' }],
       { clauses: [], normalizeObjects: true },
     );
-    expect(facts[0].object).toBe('the mountains');
-    expect(facts[0].valueSpan).toBe('camped in the mountains with my kids');
+    expect(facts[0]!.object).toBe('the mountains');
+    expect(facts[0]!.valueSpan).toBe('camped in the mountains with my kids');
     expect(ungroundedObjects).toHaveLength(0);
   });
 
@@ -169,7 +169,7 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
       [{ ...camping, object: 'family hiking trip' }],
       { clauses: [], normalizeObjects: true },
     );
-    expect(facts[0].object).toBe('camped in the mountains with my kids');
+    expect(facts[0]!.object).toBe('camped in the mountains with my kids');
     expect(ungroundedObjects).toEqual([
       {
         predicate: 'activity',
@@ -185,7 +185,7 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
       [{ ...camping, object: 'the mountains' }],
       { clauses: [] },
     );
-    expect(facts[0].object).toBe('camped in the mountains with my kids');
+    expect(facts[0]!.object).toBe('camped in the mountains with my kids');
     expect(ungroundedObjects).toHaveLength(0);
   });
 

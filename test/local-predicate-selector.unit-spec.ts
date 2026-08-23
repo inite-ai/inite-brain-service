@@ -89,9 +89,9 @@ describe('LocalPredicateSelectorService.rank', () => {
       preference: [0, 0, 1],
     });
     const ranked = await svc.rank('Maria is the CTO at Acme', snap);
-    expect(ranked[0].predicateId).toBe('status');
-    expect(ranked[0].similarity).toBeCloseTo(1, 5);
-    expect(ranked[1].similarity).toBeLessThan(ranked[0].similarity);
+    expect(ranked[0]!.predicateId).toBe('status');
+    expect(ranked[0]!.similarity).toBeCloseTo(1, 5);
+    expect(ranked[1]!.similarity).toBeLessThan(ranked[0]!.similarity);
   });
 
   it('respects topN cap', async () => {
@@ -123,6 +123,6 @@ describe('LocalPredicateSelectorService.rank', () => {
       preference: [0, 0, 1],
     });
     const ranked = await svc.rank('She lives in Berlin', snap);
-    expect(ranked[0].predicateId).toBe('address');
+    expect(ranked[0]!.predicateId).toBe('address');
   });
 });

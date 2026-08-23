@@ -93,14 +93,18 @@ function daySpans(query: string): Array<[number, number]> {
     }
   }
   for (const m of collect(DAY_MONTH_YEAR_RE, query)) {
-    const [d, mo, y] = [Number(m[1]), MONTHS[m[2].toLowerCase()], Number(m[3])];
-    if (validDay(y, mo, d)) {
+    const d = Number(m[1]);
+    const mo = MONTHS[m[2]?.toLowerCase() ?? ''];
+    const y = Number(m[3]);
+    if (mo !== undefined && validDay(y, mo, d)) {
       spans.push([dayStartMs(y, mo, d), dayStartMs(y, mo, d) + DAY_MS]);
     }
   }
   for (const m of collect(MONTH_DAY_YEAR_RE, query)) {
-    const [mo, d, y] = [MONTHS[m[1].toLowerCase()], Number(m[2]), Number(m[3])];
-    if (validDay(y, mo, d)) {
+    const mo = MONTHS[m[1]?.toLowerCase() ?? ''];
+    const d = Number(m[2]);
+    const y = Number(m[3]);
+    if (mo !== undefined && validDay(y, mo, d)) {
       spans.push([dayStartMs(y, mo, d), dayStartMs(y, mo, d) + DAY_MS]);
     }
   }
@@ -108,13 +112,15 @@ function daySpans(query: string): Array<[number, number]> {
 }
 
 function monthSpans(query: string): Array<[number, number]> {
-  return collect(MONTH_YEAR_RE, query)
-    .map((m): [number, number] => {
-      const mo = MONTHS[m[1].toLowerCase()];
-      const y = Number(m[2]);
-      return [Date.UTC(y, mo, 1), Date.UTC(y, mo + 1, 1)];
-    })
-    .filter(([f]) => Number.isFinite(f));
+  const spans: Array<[number, number]> = [];
+  for (const m of collect(MONTH_YEAR_RE, query)) {
+    const mo = MONTHS[m[1]?.toLowerCase() ?? ''];
+    const y = Number(m[2]);
+    if (mo === undefined) continue;
+    const from = Date.UTC(y, mo, 1);
+    if (Number.isFinite(from)) spans.push([from, Date.UTC(y, mo + 1, 1)]);
+  }
+  return spans;
 }
 
 function yearSpans(query: string): Array<[number, number]> {

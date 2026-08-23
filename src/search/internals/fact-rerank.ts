@@ -69,8 +69,12 @@ export function remapWindowScores(
   // rows arrive sorted desc by fused score (collectFactWindow), so
   // rows[k].row.score IS the k-th highest original value.
   const ranked = rows.map((r) => r.row.score);
-  for (let k = 0; k < n; k++) {
-    rows[permutation[k]].row.score = ranked[k];
+  for (const [k, target] of permutation.entries()) {
+    const row = rows[target];
+    const score = ranked[k];
+    // Both are in-bounds: permutation is a validated 0..n-1 permutation
+    // and ranked has length n; the guard is a type-level formality.
+    if (row !== undefined && score !== undefined) row.row.score = score;
   }
   return true;
 }

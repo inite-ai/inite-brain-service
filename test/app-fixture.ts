@@ -61,7 +61,7 @@ export async function createApp(opts: {
     },
     ...(opts.extraKeys ?? []).map((k, i) => ({
       keyHash:
-        'sha256:' + createHash('sha256').update(extraApiKeys[i]).digest('hex'),
+        'sha256:' + createHash('sha256').update(extraApiKeys[i]!).digest('hex'),
       companyId,
       scopes: k.scopes,
       ...(k.policies ? { policies: k.policies } : {}),

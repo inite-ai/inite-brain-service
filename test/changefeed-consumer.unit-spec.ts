@@ -100,7 +100,7 @@ describe('ChangefeedDrainService', () => {
     );
     expect(inserts).toHaveLength(1);
     expect(
-      ((inserts[0].params?.events ?? []) as unknown[]).length,
+      ((inserts[0]!.params?.events ?? []) as unknown[]).length,
     ).toBe(2);
     // SHOW CHANGES must carry a LIMIT so a cold cursor can't materialise
     // the whole 30-day retention into the process.
@@ -146,7 +146,7 @@ describe('ChangefeedDrainService', () => {
     const inserts = calls.filter((c) =>
       c.sql.startsWith('INSERT INTO audit_event'),
     );
-    expect(((inserts[0].params?.events ?? []) as unknown[]).length).toBe(1);
+    expect(((inserts[0]!.params?.events ?? []) as unknown[]).length).toBe(1);
     const advance = calls.find((c) =>
       c.sql.startsWith('UPSERT changefeed_state'),
     );

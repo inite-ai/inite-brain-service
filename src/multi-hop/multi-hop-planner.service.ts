@@ -220,8 +220,10 @@ export class MultiHopPlannerService {
     // Defensive: enforce caps + first-hop=seed invariant. The schema
     // says combination is one of the four; we belt-and-braces force
     // hops[0] to be seed because executors downstream rely on it.
-    if (parsed.hops[0].combination !== 'seed') {
-      parsed.hops[0].combination = 'seed';
+    // hops is non-empty (checked above) ⇒ hops[0] is present.
+    const firstHop = parsed.hops[0]!;
+    if (firstHop.combination !== 'seed') {
+      firstHop.combination = 'seed';
     }
     if (parsed.hops.length > maxHops) {
       parsed.hops = parsed.hops.slice(0, maxHops);

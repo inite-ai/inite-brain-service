@@ -489,14 +489,14 @@ export class DomainPackInstallService {
     } catch {
       embeddings = changed.map(() => null);
     }
-    for (let i = 0; i < changed.length; i++) {
+    for (const [i, def] of changed.entries()) {
       await db.query(
         `UPDATE knowledge_predicate MERGE $content
            WHERE predicateId = $pid AND createdBy = 'admin'`,
         {
-          pid: changed[i].predicateId,
+          pid: def.predicateId,
           content: {
-            ...serializeForInsert(changed[i]),
+            ...serializeForInsert(def),
             ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
           },
         },

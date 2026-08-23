@@ -401,8 +401,8 @@ export function summarizeTokens(
     p90PromptTokens: prompts[Math.min(
       prompts.length - 1,
       Math.floor(prompts.length * 0.9),
-    )],
-    maxPromptTokens: prompts[prompts.length - 1],
+    )]!,
+    maxPromptTokens: prompts[prompts.length - 1]!,
     avgCompletionTokens: Math.round(
       reported.reduce((a, s) => a + (s.completionTokens ?? 0), 0) /
         reported.length,

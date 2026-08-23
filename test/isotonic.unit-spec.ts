@@ -15,7 +15,7 @@ describe('fitIsotonic + applyMap', () => {
   it('produces a non-decreasing values sequence (monotone)', () => {
     const m = fitIsotonic(BOOTSTRAP_GOLD_SET);
     for (let i = 1; i < m.values.length; i++) {
-      expect(m.values[i]).toBeGreaterThanOrEqual(m.values[i - 1]);
+      expect(m.values[i]).toBeGreaterThanOrEqual(m.values[i - 1]!);
     }
   });
 
@@ -60,7 +60,7 @@ describe('fitIsotonic + applyMap', () => {
     const m = fitIsotonic(pairs, 10);
     expect(m.values.length).toBeLessThanOrEqual(2);
     for (let i = 1; i < m.values.length; i++) {
-      expect(m.values[i]).toBeGreaterThanOrEqual(m.values[i - 1]);
+      expect(m.values[i]).toBeGreaterThanOrEqual(m.values[i - 1]!);
     }
   });
 

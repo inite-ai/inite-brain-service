@@ -27,7 +27,7 @@ export class ThrottlerObservabilityInterceptor implements NestInterceptor {
     const http = ctx.switchToHttp();
     const req = http.getRequest<Request & Partial<AuthenticatedRequest>>();
     const res = http.getResponse<Response>();
-    const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    const path = (req.originalUrl ?? req.url ?? '').split('?')[0] ?? '';
     if (
       path === '/health' ||
       path === '/ready' ||

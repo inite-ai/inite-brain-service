@@ -89,7 +89,7 @@ describe('G1 answer cache e2e', () => {
     expect(state1.calls.length).toBe(2); // generator + verifier ran
     const afterStore = await cacheRows();
     expect(afterStore).toHaveLength(1);
-    expect(afterStore[0].hitCount).toBe(0);
+    expect(afterStore[0]!.hitCount).toBe(0);
 
     // Second identical query (typographic variant): served from the
     // cache — the scripted DIFFERENT answer must never surface, and
@@ -107,7 +107,7 @@ describe('G1 answer cache e2e', () => {
     expect(state2.calls.length).toBe(0);
     const afterServe = await cacheRows();
     expect(afterServe).toHaveLength(1);
-    expect(afterServe[0].hitCount).toBe(1);
+    expect(afterServe[0]!.hitCount).toBe(1);
   });
 
   it('retracting a cited fact → check-on-read invalidates (cause=retracted) and re-synthesizes', async () => {
@@ -131,7 +131,7 @@ describe('G1 answer cache e2e', () => {
     // path) — the invalidated row must survive with its cause.
     const rows = await cacheRows();
     expect(rows).toHaveLength(1);
-    expect(rows[0].invalidationCause).toBe('retracted');
+    expect(rows[0]!.invalidationCause).toBe('retracted');
   });
 
   it('cross-user isolation: same query, different user scope → miss', async () => {

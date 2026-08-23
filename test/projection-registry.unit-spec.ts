@@ -33,9 +33,9 @@ describe('ProjectionRegistryService (driver surface 3)', () => {
       builder: 'window-deriver',
     });
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('UPSERT projection:[$name, $version]');
-    expect(queries[0].sql).toContain(`status = 'building'`);
-    expect(queries[0].params).toMatchObject({ name: 'facts', version: 'wd-v3' });
+    expect(queries[0]!.sql).toContain('UPSERT projection:[$name, $version]');
+    expect(queries[0]!.sql).toContain(`status = 'building'`);
+    expect(queries[0]!.params).toMatchObject({ name: 'facts', version: 'wd-v3' });
   });
 
   it('complete(live) demotes the previous live version first', async () => {
@@ -48,9 +48,9 @@ describe('ProjectionRegistryService (driver surface 3)', () => {
       stats: { propositions: 12 },
     });
     expect(queries).toHaveLength(2);
-    expect(queries[0].sql).toContain(`SET status = 'residual'`);
-    expect(queries[0].sql).toContain(`status = 'live'`);
-    expect(queries[1].params).toMatchObject({ status: 'live' });
+    expect(queries[0]!.sql).toContain(`SET status = 'residual'`);
+    expect(queries[0]!.sql).toContain(`status = 'live'`);
+    expect(queries[1]!.params).toMatchObject({ status: 'live' });
   });
 
   it('complete(non-live) writes built without touching other rows', async () => {
@@ -62,7 +62,7 @@ describe('ProjectionRegistryService (driver surface 3)', () => {
       live: false,
     });
     expect(queries).toHaveLength(1);
-    expect(queries[0].params).toMatchObject({ status: 'built' });
+    expect(queries[0]!.params).toMatchObject({ status: 'built' });
   });
 
   it('dropVersions deletes only the reaped versions, skips empty input', async () => {
@@ -74,8 +74,8 @@ describe('ProjectionRegistryService (driver surface 3)', () => {
       name: 'facts',
       versions: ['wd-old'],
     });
-    expect(queries[0].sql).toContain('DELETE projection');
-    expect(queries[0].params).toMatchObject({ versions: ['wd-old'] });
+    expect(queries[0]!.sql).toContain('DELETE projection');
+    expect(queries[0]!.params).toMatchObject({ versions: ['wd-old'] });
   });
 
   it('degrades to a warning when the DB is down (registry must not fail builders)', async () => {

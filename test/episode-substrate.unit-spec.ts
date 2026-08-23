@@ -113,8 +113,8 @@ describe('EpisodeStoreService (P1)', () => {
     const { svc, queries } = makeStore();
     expect(await svc.captureTurn('co_x', dto())).toBe(true);
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('INSERT IGNORE INTO episode');
-    const row = queries[0].params.row as Record<string, unknown>;
+    expect(queries[0]!.sql).toContain('INSERT IGNORE INTO episode');
+    const row = queries[0]!.params.row as Record<string, unknown>;
     expect(row.kind).toBe('turn');
     expect(row.conversationId).toBe('conv-1');
     expect(row.messageId).toBe('m-42');
@@ -145,7 +145,7 @@ describe('EpisodeStoreService (P1)', () => {
     process.env.EPISODE_SUBSTRATE_ENABLED = '1';
     const { svc, queries } = makeStore();
     await svc.captureTurn('co_x', dto({ text: 'call +7 921 123-45-67' }));
-    const row = queries[0].params.row as Record<string, unknown>;
+    const row = queries[0]!.params.row as Record<string, unknown>;
     expect(row.text).toBe('call [PHONE]');
     expect(row.piiClass).toEqual(['phone']);
   });
@@ -189,6 +189,6 @@ describe('MentionIngestService captures the episode before extraction', () => {
     );
     // The episode write happened first — the turn is not lost.
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('INSERT IGNORE INTO episode');
+    expect(queries[0]!.sql).toContain('INSERT IGNORE INTO episode');
   });
 });
