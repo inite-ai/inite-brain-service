@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
@@ -170,7 +171,7 @@ export class ChangefeedDrainService {
 
   // ── Wire-format helpers ──────────────────────────────────────────
 
-  private async loadCursor(db: any, source: string): Promise<number> {
+  private async loadCursor(db: Surreal, source: string): Promise<number> {
     const [rows] = await db.query(
       `SELECT lastVersionstamp FROM changefeed_state
         WHERE source = $s LIMIT 1`,
@@ -181,7 +182,7 @@ export class ChangefeedDrainService {
   }
 
   private async fetchChanges(
-    db: any,
+    db: Surreal,
     source: string,
     since: number,
   ): Promise<Array<Record<string, unknown>>> {
@@ -253,7 +254,7 @@ export class ChangefeedDrainService {
   }
 
   private async advanceCursor(
-    db: any,
+    db: Surreal,
     source: string,
     versionstamp: number,
   ): Promise<void> {

@@ -722,6 +722,46 @@ export async function dbMerge<T extends Record<string, unknown>>(
   return arr[0]!; // length > 0 guaranteed by the guard above
 }
 
+/**
+ * Run a single-statement SELECT/UPDATE/DELETE and return its row array,
+ * typed as `T[]`. `db.query<[T[]]>()` types the one result slot; the
+ * `?? []` guards the (impossible-in-practice, but typed-as-optional) empty
+ * response so callers always get an array to map/filter over.
+ *
+ * This is the typed replacement for the `(await db.query(sql)) as any` /
+ * `(rows as any[]) ?? []` idiom that used to litter the store services.
+ * Pass a row interface reflecting the columns the SELECT actually returns:
+ *
+ *   interface CountRow { c: number }
+ *   const [{ c }] = await queryRows<CountRow>(db, 'SELECT count() AS c ...');
+ *
+ * For multi-statement batches (LET/RETURN, several SELECTs), call
+ * `db.query<[A[], B[]]>()` directly and index the tuple — this helper is
+ * for the common single-statement case.
+ */
+export async function queryRows<T>(
+  db: Surreal,
+  sql: string,
+  vars?: Record<string, unknown>,
+): Promise<T[]> {
+  const [rows] = await db.query<[T[]]>(sql, vars);
+  return (rows as T[]) ?? [];
+}
+
+/**
+ * Run a single-statement query and return only its first row (or
+ * `undefined` when the query matched nothing). Typed convenience over
+ * `queryRows` for the `LIMIT 1` / by-id lookup shape.
+ */
+export async function queryFirst<T>(
+  db: Surreal,
+  sql: string,
+  vars?: Record<string, unknown>,
+): Promise<T | undefined> {
+  const rows = await queryRows<T>(db, sql, vars);
+  return rows[0];
+}
+
 function tableOf(rid: string): string {
   const idx = rid.indexOf(':');
   return idx === -1 ? rid : rid.slice(0, idx);

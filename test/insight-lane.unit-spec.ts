@@ -64,7 +64,7 @@ describe('runInsightLegs', () => {
     expect(vectorRows[0]!.predicate).toBe('aggregate_hobbies');
     expect(vectorRows[0]!.simScore).toBe(0.9);
     expect(lexicalRows[0]!.bm25Score).toBe(3.2);
-    expect(vectorRows[0]!.source.vertical).toBe('insight');
+    expect(vectorRows[0]!.source!.vertical).toBe('insight');
     for (const q of queries) {
       // The pool filter — aggregates by recorder, summaries by prefix.
       expect(q.sql).toContain('source.recorder = $insightRecorder');

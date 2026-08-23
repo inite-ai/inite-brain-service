@@ -1,12 +1,17 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { markFactsProvenancePurged } from './document-store.service';
 import { idTailOf as idTail } from '../ingest/ingest-utils';
+
+/** count()…GROUP ALL projection — `c` is the group count. */
+interface CountRow {
+  c?: number;
+}
 
 /**
  * Nightly hygiene for the Candidates layer — SurrealDB has no row TTL,
@@ -101,12 +106,15 @@ export class CandidateSweeperService implements OnModuleInit {
       });
       // Document retention leg: expired retainUntil → chunks go, header +
       // contentHash stay (idempotency + committed provenance survive).
-      const [purgedDocs] = await db.query<[any[]]>(
+      // SELECT VALUE id → a flat array of record ids; String() normalizes
+      // each (RecordId or bare string) to its 'source_document:<tail>' form.
+      const purgedDocs = await queryRows<unknown>(
+        db,
         `SELECT VALUE id FROM source_document
          WHERE retainUntil != NONE AND retainUntil < time::now()
            AND status != 'purged'`,
       );
-      const purgeIds = ((purgedDocs as any[]) ?? []).map(String);
+      const purgeIds = purgedDocs.map(String);
       let factsFlagged = 0;
       for (const docId of purgeIds) {
         const tail = docId.slice(docId.indexOf(':') + 1);
@@ -174,11 +182,12 @@ export class CandidateSweeperService implements OnModuleInit {
       params: Record<string, unknown>;
     },
   ): Promise<number> {
-    const [rows] = await db.query<[any[]]>(
+    const row = await queryFirst<CountRow>(
+      db,
       `SELECT count() AS c FROM candidate WHERE ${p.countWhere} GROUP ALL`,
       p.params,
     );
-    const count = ((rows as any[]) ?? [])[0]?.c ?? 0;
+    const count = row?.c ?? 0;
     if (count > 0) {
       await db.query(p.mutation, p.params);
     }

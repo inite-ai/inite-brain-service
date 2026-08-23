@@ -120,7 +120,7 @@ export class ExtractorLlmService {
      * containment. Empty/absent → byte-identical to the pre-coreference call.
      */
     contextPrefix?: string;
-  }): Promise<any> {
+  }): Promise<unknown> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
     const model = args.model ?? this.model;

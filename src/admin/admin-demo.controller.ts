@@ -23,6 +23,7 @@ import { DemoPipelineService } from './demo-pipeline.service';
 import { DemoStateService } from './demo-state.service';
 import { DemoChatService } from './demo-chat.service';
 import { policyFor } from '../ingest/conflict-resolver';
+import type { SearchHit } from '../search/search.types';
 
 /**
  * Default demo tenant — used when the admin overview / router-stats
@@ -182,18 +183,22 @@ export class AdminDemoController {
           scopes: askScopes,
         }),
       );
-      const result = captured.result as any;
-      if (result.search) {
-        result.search = {
-          results: enrichResults(
-            result.search.results,
-            captured.trace.artifacts,
-            result.strategy,
-          ),
-        };
-      }
+      const result = captured.result;
+      const shaped =
+        'search' in result
+          ? {
+              ...result,
+              search: {
+                results: enrichResults(
+                  result.search.results,
+                  captured.trace.artifacts,
+                  result.strategy,
+                ),
+              },
+            }
+          : result;
       return {
-        ...result,
+        ...shaped,
         trace: {
           requestId: captured.trace.requestId,
           totalMs: captured.trace.totalMs,
@@ -274,10 +279,10 @@ export class AdminDemoController {
  * fact.
  */
 function enrichResults(
-  results: any[],
+  results: SearchHit[],
   artifacts: Array<{ name: string; value: unknown }> = [],
   strategy: 'graph' | 'graph→vector' = 'graph→vector',
-): any[] {
+) {
   const vec = new Map<string, number>();
   const lex = new Map<string, number>();
   for (const a of artifacts) {
@@ -297,7 +302,7 @@ function enrichResults(
   }
   return results.map((r) => ({
     ...r,
-    facts: r.facts.map((f: any) => {
+    facts: r.facts.map((f) => {
       const policy = policyFor(f.predicate);
       const factId = String(f.factId);
       const vScore = vec.get(factId) ?? null;

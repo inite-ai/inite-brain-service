@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ApiKeyService } from '../auth/api-key.service';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 
 export interface OperatorActionRow {
   ts: string;
@@ -13,6 +13,19 @@ export interface OperatorActionRow {
   query?: Record<string, unknown> | null;
   bodySummary?: Record<string, unknown> | null;
   companyId: string;
+}
+
+/** Columns read back from `operator_action`. */
+interface OperatorActionDbRow {
+  ts: string | Date;
+  actor: string;
+  scopes?: unknown;
+  method: string;
+  path: string;
+  status: number;
+  durationMs?: number;
+  query?: Record<string, unknown> | null;
+  bodySummary?: Record<string, unknown> | null;
 }
 
 /**
@@ -67,16 +80,16 @@ export class OperatorActionService {
     const out: OperatorActionRow[] = [];
     for (const companyId of tenants) {
       try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
+        const rows = await this.surreal.withCompany(companyId, async (db) =>
+          queryRows<OperatorActionDbRow>(
+            db,
             `SELECT ts, actor, scopes, method, path, status, durationMs,
                     query, bodySummary
                FROM operator_action ${whereSql}
               ORDER BY ts DESC LIMIT ${limit}`,
             params,
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
+          ),
+        );
         for (const r of rows) {
           out.push({
             ts: typeof r.ts === 'string' ? r.ts : new Date(r.ts).toISOString(),

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Surreal } from 'surrealdb';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { ReadPinService } from '../episodes/read-pin.service';
@@ -177,7 +178,7 @@ export class CompactionRunnerService {
    * summaries created.
    */
   private async createSummaries(
-    db: any,
+    db: Surreal,
     candidates: CandidateFactRow[],
     derivedVersion: string | null,
   ): Promise<number> {

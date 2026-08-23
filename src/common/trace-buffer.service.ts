@@ -1,9 +1,27 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Subject } from 'rxjs';
-import type { DebugTraceSnapshot } from './debug-trace-core';
-import { SurrealService } from '../db/surreal.service';
+import type {
+  DebugTraceSnapshot,
+  DebugSpan,
+  DebugArtifact,
+} from './debug-trace-core';
+import { SurrealService, queryFirst } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
+
+/** A persisted debug_trace row as read by get() (columns it SELECTs). */
+interface DebugTraceRow {
+  requestId: string;
+  ts: string | number | Date;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  companyId?: string;
+  spans?: DebugSpan[];
+  artifacts?: DebugArtifact[];
+  errored?: { message: string; name?: string };
+}
 
 /**
  * Ring buffer of per-request debug snapshots.
@@ -147,15 +165,14 @@ export class TraceBufferService {
     if (!this.persistEnabled || !this.surreal || !companyId) return undefined;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const res = (await db.query<any[]>(
+        const row = await queryFirst<DebugTraceRow>(
+          db,
           `SELECT requestId, ts, method, path, status, durationMs, companyId,
                   spans, artifacts, errored
              FROM debug_trace
             WHERE requestId = $r AND companyId = $c LIMIT 1`,
           { r: requestId, c: companyId },
-        )) as any[];
-        const rows = (res[0] ?? []) as any[];
-        const row = rows[0];
+        );
         if (!row) return undefined;
         return {
           requestId: row.requestId,

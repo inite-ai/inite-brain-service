@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ExtractorService } from '../ai/extractor.service';
+import { ExtractorService, type ExtractionResult } from '../ai/extractor.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
@@ -18,7 +18,7 @@ export type MentionPrep =
   | { skip: 'empty' | 'no_entities' }
   | {
       skip: null;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       /** Per-fact embeddings aligned with extraction.facts; [] on failure. */
       factEmbeddings: number[][];

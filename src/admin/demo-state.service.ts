@@ -19,7 +19,7 @@ export class DemoStateService {
   ): Promise<{ entities: number; facts: number; lastIngestAt: string | null }> {
     try {
       return await this.surreal.withCompany(tenant, async (db) => {
-        const [eRows, fRows, lastRows] = (await db.query<
+        const [eRows, fRows, lastRows] = await db.query<
           [
             Array<{ c: number }>,
             Array<{ c: number }>,
@@ -29,11 +29,10 @@ export class DemoStateService {
           `SELECT count() AS c FROM knowledge_entity WHERE mergedInto IS NONE GROUP ALL;
            SELECT count() AS c FROM knowledge_fact WHERE retractedAt IS NONE GROUP ALL;
            SELECT recordedAt FROM knowledge_fact ORDER BY recordedAt DESC LIMIT 1;`,
-        )) as any;
-        const entities = (eRows as Array<{ c: number }>)?.[0]?.c ?? 0;
-        const facts = (fRows as Array<{ c: number }>)?.[0]?.c ?? 0;
-        const lastAt = (lastRows as Array<{ recordedAt?: string }>)?.[0]
-          ?.recordedAt;
+        );
+        const entities = eRows?.[0]?.c ?? 0;
+        const facts = fRows?.[0]?.c ?? 0;
+        const lastAt = lastRows?.[0]?.recordedAt;
         return { entities, facts, lastIngestAt: lastAt ?? null };
       });
     } catch {

@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
-import { SurrealService, dbMerge } from '../db/surreal.service';
+import { SurrealService, dbMerge, queryFirst, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
@@ -209,6 +209,34 @@ export interface ListCompetingResult {
    * still unretracted at `asOf` (or now if asOf is omitted).
    */
   groups: CompetingFactGroup[];
+}
+
+/**
+ * Columns retract() selects to run its authorization + revive logic.
+ * Superset of PolicyFilterableRow so the registry row-policy gate can
+ * filter it; datetime fields feed `new Date(...)`, hence string | Date.
+ */
+interface RetractExistingRow extends PolicyFilterableRow {
+  status?: unknown;
+  retractedAt?: string | Date;
+  validFrom?: string | Date;
+  validUntil?: string | Date;
+}
+
+/**
+ * Columns the competing / by-predicate fact reads select. Superset of
+ * PolicyFilterableRow so the row-policy filter and the response mapper
+ * share one row type; every value the mapper consumes funnels through
+ * String()/toIso()/typeof, so `unknown` is precise enough.
+ */
+interface CompetingReadRow extends PolicyFilterableRow {
+  entityId?: unknown;
+  object?: unknown;
+  confidence?: unknown;
+  validFrom?: unknown;
+  validUntil?: unknown;
+  recordedAt?: unknown;
+  status?: unknown;
 }
 
 @Injectable()
@@ -425,13 +453,13 @@ export class FactsService {
       // Verify the fact exists and is currently active. SELECT extra
       // predicate + source so the admin-scope gate below can read them,
       // and userId for the ownership fence.
-      const [existingRows] = await db.query<any[][]>(
+      const existing = await queryFirst<RetractExistingRow>(
+        db,
         `SELECT id, status, retractedAt, validFrom, predicate, source,
                 userId
            FROM type::record('knowledge_fact', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      const existing = (existingRows as any[])?.[0];
       if (!existing) {
         throw new NotFoundException(`Fact ${factId} not found`);
       }
@@ -567,7 +595,8 @@ export class FactsService {
     // on). Explicit `= NONE` — MERGE with JSON null does not unset an
     // option<datetime> field. With fact_superseded_by_idx (0059) the
     // WHERE is an index probe, not a table scan.
-    const [rows] = await db.query<any[][]>(
+    const rows = await queryRows<{ id: unknown }>(
+      db,
       `UPDATE knowledge_fact SET
           status = 'active',
           retractedAt = NONE,
@@ -582,7 +611,7 @@ export class FactsService {
         RETURN id`,
       { rid },
     );
-    return (((rows as Array<{ id: unknown }>) ?? [])).map((r) => String(r.id));
+    return rows.map((r) => String(r.id));
   }
 
   /**
@@ -676,7 +705,8 @@ export class FactsService {
         clauses.push(`retractedAt IS NONE`);
       }
 
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<CompetingReadRow>(
+        db,
         `SELECT id, entityId, predicate, object, confidence,
                 validFrom, validUntil, recordedAt, source,
                 trustSnapshot, corroboration
@@ -695,12 +725,10 @@ export class FactsService {
         surface: 'competing_facts',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
-        (r) => rowPolicy.filter(r),
-      );
+      const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
 
-      const records: CompetingFactRecord[] = (visible as any[]).map(
+      const records: CompetingFactRecord[] = visible.map(
         (r): CompetingFactRecord => ({
           factId: String(r.id),
           entityId: String(r.entityId),
@@ -788,7 +816,8 @@ export class FactsService {
       }
       // ×2 headroom so the scope/ABAC row fence doesn't starve the page.
       const overfetch = Math.min(limit * 2, 100);
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<CompetingReadRow>(
+        db,
         `SELECT id, entityId, predicate, object, confidence,
                 validFrom, validUntil, recordedAt, status,
                 source, trustSnapshot, corroboration, userId
@@ -803,11 +832,9 @@ export class FactsService {
         surface: 'pack_facts_by_predicate',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
-        (r) => rowPolicy.filter(r),
-      );
+      const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
-      const facts = (visible as any[]).slice(0, limit).map((r) => ({
+      const facts = visible.slice(0, limit).map((r) => ({
         factId: String(r.id),
         entityId: String(r.entityId),
         predicate: String(r.predicate),

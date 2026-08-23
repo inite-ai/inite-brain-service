@@ -218,7 +218,7 @@ function foldFactIntoGroup(p: {
     candidateId: row.id,
     indexerId: String(payload.indexerId ?? 'core'),
     packVersion: String(payload.packVersion ?? '0'),
-    model: payload.model ?? null,
+    model: typeof payload.model === 'string' ? payload.model : null,
     confidence: row.confidence,
     chunkSeq: row.chunkSeq,
   };
@@ -226,11 +226,14 @@ function foldFactIntoGroup(p: {
   if (!group) {
     p.factGroups.set(p.groupKey, {
       entityKey: p.entityKey,
-      predicate: payload.predicate,
-      object: payload.object,
+      // predicate/object are guaranteed strings by the guard in mergeFacts
+      // before this fold runs; String() is an identity coercion that keeps
+      // the assignment typed without an `any` payload.
+      predicate: String(payload.predicate),
+      object: String(payload.object),
       confidence: row.confidence,
       entropy: numOrUndefined(payload.extractionEntropy),
-      clause: payload.clause,
+      clause: typeof payload.clause === 'string' ? payload.clause : undefined,
       recorder: contributor.indexerId,
       leaderId: row.id,
       leaderChunkSeq: row.chunkSeq,
@@ -248,7 +251,9 @@ function foldFactIntoGroup(p: {
     group.confidence = row.confidence;
     group.recorder = contributor.indexerId;
     group.entropy = numOrUndefined(payload.extractionEntropy);
-    group.clause = payload.clause ?? group.clause;
+    group.clause =
+      (typeof payload.clause === 'string' ? payload.clause : undefined) ??
+      group.clause;
   } else {
     group.mergedIds.push(row.id);
   }

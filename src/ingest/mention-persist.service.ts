@@ -8,6 +8,8 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
+import type { ExtractionResult } from '../ai/extractor.service';
+import type { ResolveOutcome } from './conflict-resolver';
 import {
   isFirstPersonSelfReference,
   isSecondPersonReference,
@@ -43,7 +45,7 @@ export class MentionPersistService {
   async persistAll(p: {
     companyId: string;
     dto: IngestMentionDto;
-    extraction: any;
+    extraction: ExtractionResult;
     source: MentionSource;
     factEmbeddings: number[][];
   }): Promise<MentionPersistResult> {
@@ -105,7 +107,7 @@ export class MentionPersistService {
 
   private async persistEntities(
     db: Surreal,
-    p: { extraction: any; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, dto } = p;
     // Speaker/addressee anchors for coreference. The OLD code paired
@@ -119,7 +121,7 @@ export class MentionPersistService {
     const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
-      const e = extraction.entities[i];
+      const e = extraction.entities[i]!;
       const knownHint = this.hintFor(e, speakerHint, addresseeHint);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet).
@@ -148,7 +150,7 @@ export class MentionPersistService {
     p: {
       companyId: string;
       dto: IngestMentionDto;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       factEmbeddings: number[][];
       entityIds: string[];
@@ -163,7 +165,7 @@ export class MentionPersistService {
       return this.persistFactsBatched(db, p, eventTimeOn);
     }
     for (let i = 0; i < extraction.facts.length; i++) {
-      const f = extraction.facts[i];
+      const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       const validFrom = this.factValidFrom(f, dto, eventTimeOn);
@@ -226,7 +228,7 @@ export class MentionPersistService {
     p: {
       companyId: string;
       dto: IngestMentionDto;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       factEmbeddings: number[][];
       entityIds: string[];
@@ -239,7 +241,7 @@ export class MentionPersistService {
       input: Parameters<FactResolverService['resolve']>[1];
     }> = [];
     for (let i = 0; i < extraction.facts.length; i++) {
-      const f = extraction.facts[i];
+      const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       specs.push({
@@ -334,7 +336,7 @@ export class MentionPersistService {
    */
   private emitFactOutcome(
     f: { predicate: string; object: string },
-    result: any,
+    result: ResolveOutcome,
     semantics: string,
   ): string | null {
     const factId = result?.factId ? String(result.factId) : null;
@@ -363,7 +365,7 @@ export class MentionPersistService {
    */
   private async persistEdges(
     db: Surreal,
-    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
     if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
@@ -419,7 +421,7 @@ export class MentionPersistService {
    */
   private async persistEdgesBatched(
     db: Surreal,
-    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
     // Deduplicate candidates within the batch: the extraction can emit the

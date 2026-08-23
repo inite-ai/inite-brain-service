@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { CommunityService } from '../communities/community.service';
+import { asStructuredContent } from './structured';
 
 /**
  * Registers the topic-community read scope (graphiti-style communities)
@@ -48,7 +49,7 @@ export function registerCommunityTools(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { communities: out } as any,
+        structuredContent: asStructuredContent({ communities: out }),
       };
     },
   );
@@ -68,7 +69,7 @@ export function registerCommunityTools(
       const out = await communities.list(companyId, { limit: args.limit, callerScopes: scopes });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { communities: out } as any,
+        structuredContent: asStructuredContent({ communities: out }),
       };
     },
   );
@@ -88,7 +89,7 @@ export function registerCommunityTools(
       const out = await communities.forEntity(companyId, args.entityId, scopes);
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { communities: out } as any,
+        structuredContent: asStructuredContent({ communities: out }),
       };
     },
   );

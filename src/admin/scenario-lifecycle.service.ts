@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { FactsService } from '../facts/facts.service';
 import { EntitiesService } from '../entities/entities.service';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst } from '../db/surreal.service';
 import type { SetupRetractStep, SetupForgetStep } from '../eval/types';
 import { safe } from './scenario-runner-utils';
 
@@ -76,12 +76,12 @@ export class ScenarioLifecycleService {
     refKey: string,
   ): Promise<string | null> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const first = await queryFirst<unknown>(
+        db,
         `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
         { key: refKey },
       );
-      const arr = (rows as any[]) ?? [];
-      return arr[0] ? String(arr[0]) : null;
+      return first ? String(first) : null;
     });
   }
 }

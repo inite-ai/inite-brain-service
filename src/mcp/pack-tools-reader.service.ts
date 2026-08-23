@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { LRUCache } from '../common/lru-cache';
 import {
   composePredicateId,
@@ -75,15 +75,15 @@ export class PackToolsReaderService {
   }
 
   private async loadFresh(companyId: string): Promise<PackToolBinding[]> {
-    const rows = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<Record<string, unknown>>(
+        db,
         `SELECT packId, version, manifest, installId, webhookSecret,
                 acceptedMcpTools, acceptedMcpToolsChecksum
            FROM domain_pack
           WHERE status = 'active' AND manifest.mcpTools != NONE`,
-      );
-      return ((rows as any[]) ?? []) as Array<Record<string, unknown>>;
-    });
+      ),
+    );
     const bindings: PackToolBinding[] = [];
     for (const row of rows) {
       const binding = this.toBinding(row);

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { PredictScoringService } from './predict-scoring.service';
 import {
@@ -143,7 +143,8 @@ export class IngestPredictionService {
       const tail = entityId.startsWith('knowledge_entity:')
         ? entityId.slice('knowledge_entity:'.length)
         : entityId;
-      const [rows] = await db.query<any[][]>(
+      const priors = await queryRows<PriorRow>(
+        db,
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
                 recordedAt, ${isBitemporal ? 'embedding, ' : ''}source, status,
                 userId, trustSnapshot, corroboration
@@ -159,7 +160,6 @@ export class IngestPredictionService {
           ? { eid: tail, predicate: args.predicate, userId: args.userId }
           : { eid: tail, predicate: args.predicate },
       );
-      const priors = ((rows as any[]) ?? []) as PriorRow[];
 
       // The caller only sees an opposing fact it is allowed to read. The
       // priors themselves are untouched — the decision below runs on the
@@ -324,20 +324,20 @@ export class IngestPredictionService {
       const tail = ref.entityId.startsWith('knowledge_entity:')
         ? ref.entityId.slice('knowledge_entity:'.length)
         : ref.entityId;
-      const [rows] = await db.query<any[][]>(
+      const row = await queryFirst<{ id: unknown }>(
+        db,
         `SELECT id FROM type::record('knowledge_entity', $tail) LIMIT 1`,
         { tail },
       );
-      const row = (rows as any[])?.[0];
       return row ? String(row.id) : null;
     }
     const ext = ref as { vertical: string; id: string };
     const key = `${ext.vertical.replace(/\./g, '__')}__${ext.id.replace(/\./g, '__')}`;
-    const [rows] = await db.query<[any[]]>(
+    const arr = await queryRows<unknown>(
+      db,
       `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    const arr = (rows as any[]) ?? [];
     return arr[0] ? String(arr[0]) : null;
   }
 }

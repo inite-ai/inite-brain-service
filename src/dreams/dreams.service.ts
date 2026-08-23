@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import type { Surreal } from 'surrealdb';
 import { ApiKeyService } from '../auth/api-key.service';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -439,7 +440,7 @@ export class DreamsService implements OnModuleInit {
    *  under one tenant connection. Each leg is gated on the requested op set and
    *  writes progress to the job row. Extracted from runForTenantInner. */
   private async runGraphLegs(args: {
-    db: any;
+    db: Surreal;
     companyId: string;
     opSet: Set<DreamsOperation>;
     stats: DreamsTenantStats;
@@ -591,7 +592,7 @@ export class DreamsService implements OnModuleInit {
    * job_run.result are the source of truth.
    */
   private async writeEmits(
-    db: any,
+    db: Surreal,
     runId: string,
     stats: DreamsTenantStats,
   ): Promise<void> {

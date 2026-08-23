@@ -78,7 +78,7 @@ export class PredictScoringService {
             confidence: p.confidence ?? 0.7,
             sourceTrust:
               typeof p.source === 'object' && p.source !== null
-                ? sourceTrustFor(p.source as any)
+                ? sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0])
                 : SOURCE_TRUST.default,
             recordedAt: new Date(p.recordedAt),
             authority: 0,
@@ -119,7 +119,7 @@ export class PredictScoringService {
           confidence: p.confidence ?? 0.7,
           sourceTrust:
             typeof p.source === 'object' && p.source !== null
-              ? sourceTrustFor(p.source as any)
+              ? sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0])
               : SOURCE_TRUST.default,
           recordedAt: new Date(p.recordedAt),
           authority: 0,

@@ -7,9 +7,30 @@ import {
   runTransaction,
   retryOnUniqueViolation,
   isUniqueViolation,
+  queryRows,
+  queryFirst,
 } from '../db/surreal.service';
 import { withSpan } from '../common/tracing';
 import type { JobType, JobStatus } from './job-run.service';
+
+/** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
+type RawDateTime = string | number | Date;
+
+/** UPDATE … RETURN id ownership-guard rows — only the row COUNT is read. */
+interface IdRow {
+  id: unknown;
+}
+
+/** SELECT projection behind the /admin/leases active-claims snapshot. */
+interface ActiveClaimRow {
+  runId: string;
+  jobType: string;
+  claimedBy: string;
+  claimedAt: RawDateTime;
+  leaseUntil: RawDateTime;
+  heartbeatAt: RawDateTime;
+  attempts?: number;
+}
 
 export interface JobClaim {
   /** Surreal record id, e.g. `job_run:abcd1234`. */
@@ -265,7 +286,8 @@ export class JobClaimService {
     if (!this.surreal) return { stillOwned: true, cancelRequested: false };
     try {
       return await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<{ cancelRequested?: boolean }>(
+          db,
           `UPDATE type::record($rid) SET
               leaseUntil = type::datetime($until),
               heartbeatAt = time::now()
@@ -278,15 +300,14 @@ export class JobClaimService {
               Date.now() + input.ttlSeconds * 1000,
             ).toISOString(),
           },
-        )) as any[];
-        const arr = (rows ?? []) as Array<{ cancelRequested?: boolean }>;
-        if (arr.length === 0) {
+        );
+        if (rows.length === 0) {
           // Someone reaped us OR we never owned this row.
           return { stillOwned: false, cancelRequested: false };
         }
         return {
           stillOwned: true,
-          cancelRequested: arr[0]?.cancelRequested === true,
+          cancelRequested: rows[0]?.cancelRequested === true,
         };
       });
     } catch (e) {
@@ -320,7 +341,8 @@ export class JobClaimService {
     if (!this.surreal) return;
     try {
       await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<IdRow>(
+          db,
           // Ownership guard: only write the terminal status if WE still
           // own the running row. A worker that GC-paused past its lease,
           // got zombie-reaped, and had the row re-claimed by another pod
@@ -340,8 +362,8 @@ export class JobClaimService {
             me: this.workerId,
             result: input.result ?? null,
           },
-        )) as any[];
-        if (((rows ?? []) as unknown[]).length === 0) {
+        );
+        if (rows.length === 0) {
           this.logger.warn(
             `complete(${input.recordId}) no-op — claim no longer owned by ${this.workerId}; another worker re-claimed it`,
           );
@@ -391,7 +413,8 @@ export class JobClaimService {
             const visibleAfter = new Date(
               Date.now() + backoffMs,
             ).toISOString();
-            const [rows] = (await db.query<any[]>(
+            const rows = await queryRows<IdRow>(
+              db,
               `UPDATE type::record($rid) SET
                   status = 'pending',
                   error = $err,
@@ -405,10 +428,11 @@ export class JobClaimService {
                 err: input.error,
                 visibleAfter,
               },
-            )) as any[];
-            return ((rows ?? []) as unknown[]).length;
+            );
+            return rows.length;
           }
-          const [rows] = (await db.query<any[]>(
+          const rows = await queryRows<IdRow>(
+            db,
             `UPDATE type::record($rid) SET
                 status = 'failed',
                 finishedAt = time::now(),
@@ -417,8 +441,8 @@ export class JobClaimService {
               WHERE claimedBy = $me AND status = 'running'
               RETURN id`,
             { rid: input.recordId, me: this.workerId, err: input.error },
-          )) as any[];
-          return ((rows ?? []) as unknown[]).length;
+          );
+          return rows.length;
         },
       );
       if (affected === 0) {
@@ -449,7 +473,8 @@ export class JobClaimService {
     if (!this.surreal) return;
     try {
       await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<IdRow>(
+          db,
           // Ownership guard — same rationale as complete()/fail().
           `UPDATE type::record($rid) SET
               status = 'cancelled',
@@ -459,8 +484,8 @@ export class JobClaimService {
             WHERE claimedBy = $me AND status = 'running'
             RETURN id`,
           { rid: input.recordId, me: this.workerId, result: input.result ?? null },
-        )) as any[];
-        if (((rows ?? []) as unknown[]).length === 0) {
+        );
+        if (rows.length === 0) {
           this.logger.warn(
             `cancelled(${input.recordId}) no-op — claim no longer owned by ${this.workerId}; another worker re-claimed it`,
           );
@@ -545,16 +570,16 @@ export class JobClaimService {
     }> = [];
     for (const companyId of companyIds) {
       try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const [res] = (await db.query<any[]>(
+        const rows = await this.surreal.withCompany(companyId, (db) =>
+          queryRows<ActiveClaimRow>(
+            db,
             `SELECT runId, jobType, claimedBy, claimedAt, leaseUntil,
                     heartbeatAt, attempts
                FROM job_run
               WHERE status = 'running' AND claimedBy IS NOT NONE
               ORDER BY claimedAt DESC LIMIT 50`,
-          )) as any[];
-          return (res ?? []) as any[];
-        });
+          ),
+        );
         for (const r of rows) {
           out.push({
             runId: r.runId,
@@ -584,13 +609,13 @@ export class JobClaimService {
     if (!this.surreal) return null;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const row = await queryFirst<{ runId?: string }>(
+          db,
           `SELECT runId FROM job_run
              WHERE jobType = $jobType AND dedupKey = $dk LIMIT 1`,
           { jobType, dk: dedupKey },
-        )) as any[];
-        const arr = (rows ?? []) as Array<{ runId?: string }>;
-        return arr[0]?.runId ?? null;
+        );
+        return row?.runId ?? null;
       });
     } catch {
       return null;

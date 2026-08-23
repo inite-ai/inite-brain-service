@@ -4,6 +4,8 @@ import {
   SurrealService,
   dbCreate,
   isUniqueViolation,
+  queryFirst,
+  queryRows,
 } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { idTailOf } from '../ingest/ingest-utils';
@@ -20,7 +22,53 @@ export interface CandidateRow {
   status: string;
   statusReason?: string;
   commitRef?: string;
-  payload: Record<string, any>;
+  // A heterogeneous JSON blob whose shape differs by `kind`
+  // (entity / fact / relation). Each consumer narrows the fields it
+  // reads (candidate-merge.ts guards predicate/object as strings; the
+  // redaction path spreads it as a record) — `unknown` values keep those
+  // reads honest without an `any` escape hatch.
+  payload: Record<string, unknown>;
+}
+
+/** count()…GROUP ALL projection — `c` is the group count. */
+interface CountRow {
+  c?: number;
+}
+
+/**
+ * indexer_run row across the reopen/list/claim reads. Every field is a raw
+ * DB value funneled through String()/Number()/new Date(), so `unknown` +
+ * per-site coercion is the honest shape; individual SELECTs project a
+ * subset of these columns.
+ */
+interface RunLedgerRow {
+  id: unknown;
+  docId?: unknown;
+  packId?: unknown;
+  packVersion?: unknown;
+  status?: unknown;
+  external?: unknown;
+  claimToken?: unknown;
+  createdAt?: unknown;
+}
+
+/** candidate → parent-document status probe (findDocsNeedingCommit). */
+interface DocCommitRow {
+  docId?: unknown;
+  docStatus?: unknown;
+}
+
+/** A candidate row as `SELECT *` returns it, before coercion to CandidateRow. */
+interface CandidateDbRow {
+  id: unknown;
+  runId?: unknown;
+  chunkSeq?: unknown;
+  kind: CandidateKind;
+  confidence?: unknown;
+  status?: unknown;
+  statusReason?: unknown;
+  commitRef?: unknown;
+  payload?: Record<string, unknown>;
 }
 
 export interface RunHandle {
@@ -99,13 +147,13 @@ export class CandidateStoreService {
         return { runId: String(row.id), created: true };
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
-        const [rows] = await db.query<[any[]]>(
+        const existing = await queryFirst<RunLedgerRow>(
+          db,
           `SELECT id, status, createdAt FROM indexer_run
            WHERE docId = type::record('source_document', $doc)
              AND packId = $pack AND packVersion = $ver LIMIT 1`,
           { doc: idTailOf(p.docId), pack: p.packId, ver: p.packVersion },
         );
-        const existing = ((rows as any[]) ?? [])[0];
         if (!existing) throw err;
         const status = String(existing.status);
         const runId = String(existing.id);
@@ -123,7 +171,9 @@ export class CandidateStoreService {
           // fields clear with NONE (never NULL — 0049 is SCHEMAFULL).
           // Two statements → two result slots; the CAS verdict is the
           // UPDATE's (slot 1), not the DELETE's (slot 0).
-          const res = await db.query<[any[], any[]]>(
+          // Two statements → two result slots. The DELETE's rows (slot 0)
+          // are unread; the CAS verdict is the UPDATE's RETURN AFTER (slot 1).
+          const res = await db.query<[unknown[], unknown[]]>(
             `DELETE candidate WHERE runId = type::record('indexer_run', $run);
              UPDATE type::record('indexer_run', $run) SET
                status = 'running', createdAt = time::now(),
@@ -132,7 +182,7 @@ export class CandidateStoreService {
              RETURN AFTER`,
             { run: idTailOf(runId), observed: status },
           );
-          const swapped = (res[1] as any[]) ?? [];
+          const swapped = res[1] ?? [];
           if (swapped.length === 0) {
             // Lost the race — another job reopened it and is extracting.
             return { runId, created: false };
@@ -219,13 +269,13 @@ export class CandidateStoreService {
     const releaseWhere = `external = true AND status = 'running'
              AND createdAt < time::now() - duration::from_millis($ms)`;
     return this.surreal.withCompany(companyId, async (db) => {
-      const [failRows, releaseRows] = await db.query<[any[], any[]]>(
+      const [failRows, releaseRows] = await db.query<[CountRow[], CountRow[]]>(
         `SELECT count() AS c FROM indexer_run WHERE ${failWhere} GROUP ALL;
          SELECT count() AS c FROM indexer_run WHERE ${releaseWhere} GROUP ALL`,
         { ms: staleRunMs(), extMs: externalPendingTtlMs() },
       );
-      const failed = Number(((failRows as any[]) ?? [])[0]?.c ?? 0);
-      const released = Number(((releaseRows as any[]) ?? [])[0]?.c ?? 0);
+      const failed = Number(failRows?.[0]?.c ?? 0);
+      const released = Number(releaseRows?.[0]?.c ?? 0);
       if (failed > 0) {
         await db.query(
           `UPDATE indexer_run SET
@@ -274,13 +324,14 @@ export class CandidateStoreService {
     return this.surreal.withCompany(companyId, async (db) => {
       // Record-link traversal (docId.status) fetches the parent document's
       // status; dedup + cap happen in TS to avoid a GROUP-BY-VALUE idiom.
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<DocCommitRow>(
+        db,
         `SELECT docId, docId.status AS docStatus FROM candidate
            WHERE status = 'pending' LIMIT 5000`,
       );
       const seen = new Set<string>();
       const out: string[] = [];
-      for (const r of ((rows as any[]) ?? []) as any[]) {
+      for (const r of rows) {
         const docStatus = String(r.docStatus ?? '');
         // 'purged' facts have no source text left to commit against;
         // everything else with pending candidates is a lost commit —
@@ -423,13 +474,14 @@ export class CandidateStoreService {
     return this.surreal.withCompany(companyId, async (db) => {
       // SurrealDB 3.x: the ORDER BY field must be in the projection
       // ("Missing order idiom" otherwise) — createdAt rides along.
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<RunLedgerRow>(
+        db,
         `SELECT id, packId, packVersion, status, createdAt FROM indexer_run
          WHERE docId = type::record('source_document', $doc)
          ORDER BY createdAt ASC`,
         { doc: idTailOf(docId) },
       );
-      return (((rows as any[]) ?? []) as any[]).map((r) => ({
+      return rows.map((r) => ({
         runId: String(r.id),
         packId: String(r.packId),
         packVersion: String(r.packVersion),
@@ -442,13 +494,13 @@ export class CandidateStoreService {
   async getRun(companyId: string, runId: string): Promise<RunRow | null> {
     return this.surreal.withCompany(companyId, async (db) => {
       // Point-read by record id (no table scan under SSI — the #169 idiom).
-      const [rows] = await db.query<[any[]]>(
+      const r = await queryFirst<RunLedgerRow>(
+        db,
         `SELECT id, docId, packId, packVersion, status, external,
                 claimToken, createdAt
            FROM type::record('indexer_run', $run)`,
         { run: idTailOf(runId) },
       );
-      const r = ((rows as any[]) ?? [])[0];
       if (!r) return null;
       return {
         runId: String(r.id),
@@ -486,7 +538,8 @@ export class CandidateStoreService {
    */
   async countNonTerminalRuns(companyId: string, docId: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const row = await queryFirst<CountRow>(
+        db,
         `SELECT count() AS c FROM indexer_run
          WHERE docId = type::record('source_document', $doc)
            AND status IN ['pending', 'running']
@@ -494,7 +547,6 @@ export class CandidateStoreService {
          GROUP ALL`,
         { doc: idTailOf(docId) },
       );
-      const row = ((rows as any[]) ?? [])[0];
       return row ? Number(row.c) : 0;
     });
   }
@@ -554,14 +606,15 @@ export class CandidateStoreService {
     db: Surreal,
     p: { docId: string; onlyPending: boolean },
   ): Promise<CandidateRow[]> {
-    const [rows] = await db.query<[any[]]>(
+    const rows = await queryRows<CandidateDbRow>(
+      db,
       `SELECT * FROM candidate
        WHERE docId = type::record('source_document', $doc)
          ${p.onlyPending ? `AND status = 'pending'` : ''}
        ORDER BY chunkSeq ASC, createdAt ASC`,
       { doc: idTailOf(p.docId) },
     );
-    return (((rows as any[]) ?? []) as any[]).map((r) => ({
+    return rows.map((r) => ({
       id: String(r.id),
       runId: String(r.runId),
       chunkSeq: Number(r.chunkSeq),

@@ -41,7 +41,12 @@ export function selectEdgeExpansionSeeds(
  * Pure (mutates the map in place but no IO) — unit-testable.
  */
 export function mergeExpandedNeighbours<
-  T extends { entityId: string; rankScore: number; bestScore: number; facts: any[] },
+  T extends {
+    entityId: string;
+    rankScore: number;
+    bestScore: number;
+    facts: unknown[];
+  },
 >(
   byEntity: Map<string, T>,
   expansions: Array<{

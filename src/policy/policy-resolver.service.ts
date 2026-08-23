@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { MetricsService } from '../metrics/metrics.service';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { compilePolicySet, denyAllSet } from './policy-compile';
 import {
   CompiledPolicySet,
@@ -17,6 +17,19 @@ export interface PolicySubject {
   keyHash: string;
   claimNames?: readonly string[];
   actorId?: string;
+}
+
+/** Raw access_policy row: name is stringified, document is compiled. */
+interface AccessPolicyRow {
+  name: unknown;
+  mode?: unknown;
+  document: unknown;
+}
+
+/** Raw policy_binding row: subject → attached policy set names. */
+interface PolicyBindingRow {
+  subject: unknown;
+  policyNames?: unknown;
 }
 
 interface TenantPolicySnapshot {
@@ -185,22 +198,24 @@ export class PolicyResolverService {
 
   private async loadFresh(companyId: string): Promise<TenantPolicySnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [policyRows] = await db.query<[any[]]>(
+      const policyRows = await queryRows<AccessPolicyRow>(
+        db,
         `SELECT name, mode, document FROM access_policy`,
       );
-      const [bindingRows] = await db.query<[any[]]>(
+      const bindingRows = await queryRows<PolicyBindingRow>(
+        db,
         `SELECT subject, policyNames FROM policy_binding`,
       );
       const sets = new Map<string, CompiledPolicySet>();
       const knownNames = new Set<string>();
-      for (const r of (policyRows as any[]) ?? []) {
+      for (const r of policyRows) {
         const name = String(r.name);
         knownNames.add(name);
         const compiled = compilePolicySet(r.document as PolicyDocument);
         if (compiled) sets.set(name, compiled);
       }
       const bindings = new Map<string, string[]>();
-      for (const r of (bindingRows as any[]) ?? []) {
+      for (const r of bindingRows) {
         bindings.set(
           String(r.subject),
           ((r.policyNames as string[]) ?? []).map(String),

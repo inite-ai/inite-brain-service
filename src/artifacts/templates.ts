@@ -17,6 +17,8 @@
  * ARTIFACT_FIELD_TO_PREDICATE below.
  */
 
+import type { FactSource } from '../ingest/dto/ingest-fact.dto';
+
 export interface FactRow {
   id: unknown;
   predicate: string;
@@ -24,7 +26,7 @@ export interface FactRow {
   confidence: number;
   validFrom: string;
   recordedAt: string;
-  source: any;
+  source: FactSource;
   status: string;
 }
 
@@ -32,7 +34,7 @@ export interface Citation {
   factId: string;
   confidence: number;
   recordedAt: string;
-  source: any;
+  source: FactSource;
 }
 
 export interface CompiledArtifact {
