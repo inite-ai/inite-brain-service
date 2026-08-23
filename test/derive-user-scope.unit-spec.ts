@@ -111,3 +111,73 @@ describe('derive user scope (audit 2026-08-21 P0)', () => {
     expect(pool[0].entityId).toBe('knowledge_entity:alice');
   });
 });
+
+/**
+ * G3 char-span grounding quotes (DERIVER_SPANS): rows carry
+ * source.charSpans ONLY when the flag is on AND a quote mechanically
+ * verifies against its grounding turn's stored text; everything else
+ * (flag off, absent quote, failed verification) keeps the source shape
+ * byte-identical to today.
+ */
+describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
+  const OLD = process.env.DERIVER_SPANS;
+  afterEach(() => {
+    if (OLD === undefined) delete process.env.DERIVER_SPANS;
+    else process.env.DERIVER_SPANS = OLD;
+  });
+
+  function buildQuoted(
+    turns: number[],
+    quotes: Array<string | null> | undefined,
+  ) {
+    return buildDerivedRows({
+      resolved: [
+        { p: { ...prop(turns), quotes }, entityId: 'knowledge_entity:alice' },
+      ],
+      vectors: [[1, 0]],
+      sessionDate: new Date('2026-08-01T00:00:00Z'),
+      session: SESSION,
+      ns: NS,
+      conversationId: 'conv-1',
+    });
+  }
+
+  it('flag on: a verifying quote lands as source.charSpans with offsets', () => {
+    process.env.DERIVER_SPANS = '1';
+    // SESSION[1].text = 'a tenant-global turn'
+    const [row] = buildQuoted([1], ['tenant-global']);
+    expect(row.source.charSpans).toEqual([
+      {
+        episodeId: 'episode:g1',
+        start: 2,
+        end: 15,
+        exact: 'tenant-global',
+        prefix: 'a ',
+        suffix: ' turn',
+      },
+    ]);
+  });
+
+  it('flag on: an unverifiable quote drops silently, the fact still lands', () => {
+    process.env.DERIVER_SPANS = '1';
+    const [row] = buildQuoted([1], ['never said this']);
+    expect(row.source).not.toHaveProperty('charSpans');
+    expect(row.object).toBe('a derived plan');
+    expect(row.groundingInvalid).toBe(false);
+  });
+
+  it('flag on: null quote entries contribute no span', () => {
+    process.env.DERIVER_SPANS = '1';
+    const [row] = buildQuoted([0, 1], [null, 'tenant-global']);
+    expect(row.source.charSpans).toHaveLength(1);
+    expect((row.source.charSpans as Array<{ episodeId: string }>)[0].episodeId).toBe(
+      'episode:g1',
+    );
+  });
+
+  it('flag off: quotes are ignored — source shape is byte-identical', () => {
+    delete process.env.DERIVER_SPANS;
+    const [row] = buildQuoted([1], ['tenant-global']);
+    expect(row.source).not.toHaveProperty('charSpans');
+  });
+});

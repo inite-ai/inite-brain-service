@@ -291,6 +291,74 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
     expect(res.episodes[1].text.endsWith('…')).toBe(true);
   });
 
+  it('G3: a fact with source.charSpans serves span + textTruncated per episode', async () => {
+    const fact: Row = {
+      ...FACT_GLOBAL,
+      source: {
+        ...(FACT_GLOBAL.source as Row),
+        charSpans: [
+          {
+            // 'I love hiking, we should plan a trip!'
+            episodeId: 'episode:e1',
+            start: 7,
+            end: 13,
+            exact: 'hiking',
+            prefix: 'I love ',
+            suffix: ', we should plan a trip!',
+          },
+          {
+            // LONG_TEXT (~920 chars) — offsets past the 600-char cap.
+            episodeId: 'episode:e2',
+            start: 700,
+            end: 706,
+            exact: 'routes',
+            prefix: 'talked about ',
+            suffix: ' for hours',
+          },
+          // Malformed entry (FLEXIBLE source): ignored, never served.
+          { episodeId: 'episode:e1', exact: 'hiking' },
+        ],
+      },
+    };
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [fact] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    // Wire span is {start, end, exact} only — prefix/suffix stay stored.
+    expect(res.episodes[0].span).toEqual({ start: 7, end: 13, exact: 'hiking' });
+    expect(res.episodes[0].textTruncated).toBe(false);
+    // Truncated episode: offsets reference the FULL stored text, and
+    // textTruncated says so.
+    expect(res.episodes[1].span).toEqual({
+      start: 700,
+      end: 706,
+      exact: 'routes',
+    });
+    expect(res.episodes[1].textTruncated).toBe(true);
+    expect(res.episodes[1].text.length).toBe(600);
+  });
+
+  it('G3: a fact without charSpans keeps the pre-span episode shape', async () => {
+    const { svc } = makeStack({
+      factsByCompany: { co_a: [FACT_GLOBAL] },
+      episodesByCompany: { co_a: EPISODES },
+    });
+    const res = await svc.getProvenance({
+      companyId: 'co_a',
+      factId: 'f1',
+      scopes: READ,
+    });
+    for (const ep of res.episodes) {
+      expect(ep).not.toHaveProperty('span');
+      expect(ep).not.toHaveProperty('textTruncated');
+    }
+  });
+
   it('a fact with no grounding stamp serves an empty episode list', async () => {
     const { svc } = makeStack({
       factsByCompany: {

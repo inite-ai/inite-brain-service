@@ -3,6 +3,7 @@ import { detectLanguage } from '../ai/locale/language-detector';
 import { sourceTrustFor } from '../ingest/ingest-utils';
 import { accumulateLanded, type RollupMember } from './aspect-rollups';
 import { typedAtomKind, type DerivedProposition } from './deriver-client';
+import { computeCharSpans } from './span-anchor';
 import type { DeriveNamespace } from './derive-staging';
 import type { EpisodeRow } from '../episodes/session-window';
 
@@ -116,6 +117,19 @@ export function buildDerivedRows({
           .filter((u): u is string => typeof u === 'string' && u.length > 0),
       ),
     ];
+    // G3 char-span provenance (DERIVER_SPANS): verify each deriver
+    // quote mechanically against the turn text and stamp W3C-style
+    // spans on the same FLEXIBLE-source ride as salience/scene.
+    // INVARIANT: `session` rows are the STORED episode rows (already
+    // PII-redacted by captureTurn before storage) — the deriver's
+    // transcript, this anchoring, and the provenance API all read the
+    // same stored text, so offsets stay valid end-to-end. A quote that
+    // fails verification (absent/ambiguous) contributes no span; the
+    // fact always lands (spans are optional enrichment, fail-safe).
+    const charSpans =
+      resolveExtractionProfile().deriveSpans && Array.isArray(p.quotes)
+        ? computeCharSpans({ quotes: p.quotes, turns: p.turns, session })
+        : [];
     // Provenance (recorder / trust) carries the FINAL version — it
     // survives the flip untouched; only derivedVersion is staged.
     const source = {
@@ -126,6 +140,7 @@ export function buildDerivedRows({
       ...salience,
       ...mention,
       ...scene,
+      ...(charSpans.length > 0 ? { charSpans } : {}),
       // Multiworld §10: on-contract kinds only (off-enum → untyped).
       ...typedAtomKind(p),
     };

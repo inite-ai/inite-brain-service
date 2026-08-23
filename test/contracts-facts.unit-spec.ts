@@ -39,6 +39,9 @@ const fullEpisode: Required<FactProvenanceEpisode> = {
   speaker: 'user',
   occurredAt: '2026-08-01T12:00:00.000Z',
   text: 'I moved to Lisbon last month.',
+  // G3: code-point offsets over the NFC-normalized FULL stored text.
+  span: { start: 2, end: 22, exact: 'moved to Lisbon last' },
+  textTruncated: false,
 };
 
 const fullProvenance: FactProvenanceResult = {

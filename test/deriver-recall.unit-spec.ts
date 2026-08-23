@@ -136,4 +136,71 @@ describe('deriver recall (V7)', () => {
       propositionKey({ subject: ' Caroline ', proposition: 'Has  two cats.' }),
     ).toBe(propositionKey({ subject: 'caroline', proposition: 'has two cats' }));
   });
+
+  /**
+   * G3 (DERIVER_SPANS): quotes exist in the request schema and the
+   * system prompt ONLY under the flag — off must stay byte-identical
+   * to today's call (same conditional-schema idiom as scene/kind).
+   */
+  describe('DERIVER_SPANS schema gating (G3)', () => {
+    const OLD_SPANS = process.env.DERIVER_SPANS;
+    afterEach(() => {
+      if (OLD_SPANS === undefined) delete process.env.DERIVER_SPANS;
+      else process.env.DERIVER_SPANS = OLD_SPANS;
+    });
+
+    const itemSchema = (call: unknown) =>
+      (
+        call as {
+          response_format: {
+            json_schema: {
+              schema: {
+                properties: {
+                  propositions: {
+                    items: {
+                      properties: Record<string, unknown>;
+                      required: string[];
+                    };
+                  };
+                };
+              };
+            };
+          };
+        }
+      ).response_format.json_schema.schema.properties.propositions.items;
+
+    it('flag off (default): no quotes in schema, no span section in prompt', async () => {
+      delete process.env.DERIVER_SPANS;
+      const create = jest.fn().mockResolvedValue(ok([prop('A', 'A has a dog.')]));
+      await callDeriver(makeSvc(create));
+      const items = itemSchema(create.mock.calls[0][0]);
+      expect(items.properties).not.toHaveProperty('quotes');
+      expect(items.required).not.toContain('quotes');
+      expect(create.mock.calls[0][0].messages[0].content).not.toContain(
+        'GROUNDING QUOTES',
+      );
+    });
+
+    it('flag on: quotes required in schema, span section in the prompt, quotes ride through', async () => {
+      process.env.DERIVER_SPANS = '1';
+      const create = jest
+        .fn()
+        .mockResolvedValue(
+          ok([{ ...prop('A', 'A has a dog.'), quotes: ['has a dog'] }]),
+        );
+      const out = await callDeriver(makeSvc(create));
+      const items = itemSchema(create.mock.calls[0][0]);
+      expect(items.properties.quotes).toEqual({
+        type: 'array',
+        items: { type: ['string', 'null'] },
+      });
+      expect(items.required).toContain('quotes');
+      expect(create.mock.calls[0][0].messages[0].content).toContain(
+        'GROUNDING QUOTES',
+      );
+      expect(
+        (out[0] as { quotes?: Array<string | null> }).quotes,
+      ).toEqual(['has a dog']);
+    });
+  });
 });

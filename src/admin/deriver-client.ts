@@ -106,6 +106,22 @@ EVENT DATING
 
 
 /**
+ * G3 char-span provenance (DERIVER_SPANS, sota-gap-build-2026-08): the
+ * deriver also fills `quotes` — one verbatim supporting snippet per
+ * grounding turn, parallel to `turns`. The LLM cannot emit reliable
+ * character offsets, so it QUOTES; the row builder verifies each quote
+ * mechanically against the stored turn text and computes the offsets
+ * itself (span-anchor.ts). A quote that fails verification silently
+ * contributes no span — the fact always lands. Flag-gated, default
+ * off: a prompt + schema change confirms only on a FRESH
+ * derivedVersion.
+ */
+export const DERIVER_QUOTES_SECTION = `
+
+GROUNDING QUOTES
+For every proposition also fill "quotes" — an array PARALLEL to "turns": for each grounding turn, the shortest VERBATIM snippet from that turn's text that supports the proposition, copied character-for-character (never paraphrased, never spanning multiple turns, never including the [N] / speaker prefix). Use null for a turn with no single verbatim supporting snippet. "quotes" must have exactly as many entries as "turns".`;
+
+/**
  * V13 date audit (DERIVER_DATE_AUDIT) — the post-pass shape of the
  * failed in-prompt date rules. Measured lineage: prose rules inside
  * the extraction prompt moved NOTHING (wd-v4 date distribution
@@ -292,6 +308,7 @@ export function buildDeriverSystem(opts?: {
   turnHeaders?: boolean;
   sceneTrace?: boolean;
   typedAtoms?: boolean;
+  spans?: boolean;
 }): string {
   return (
     DERIVER_SYSTEM +
@@ -299,7 +316,8 @@ export function buildDeriverSystem(opts?: {
     (opts?.typedAtoms ? DERIVER_TYPED_SECTION : '') +
     (opts?.dateResolve ? DERIVER_DATE_SECTION : '') +
     (opts?.turnHeaders ? DERIVER_TURN_TIME_SECTION : '') +
-    (opts?.sceneTrace ? DERIVER_SCENE_SECTION : '')
+    (opts?.sceneTrace ? DERIVER_SCENE_SECTION : '') +
+    (opts?.spans ? DERIVER_QUOTES_SECTION : '')
   );
 }
 
@@ -343,6 +361,10 @@ export interface DerivedProposition {
    *  fall back to the session date it just removed. */
   dateCleared?: boolean;
   turns: number[];
+  /** G3 (DERIVER_SPANS): verbatim supporting snippet per grounding
+   *  turn, PARALLEL to `turns` (null = no snippet for that turn). The
+   *  row builder verifies each mechanically → source.charSpans. */
+  quotes?: Array<string | null>;
   /** 0-3 importance grade; present only under DERIVER_SALIENCE_STAMP. */
   salience?: number;
 }
@@ -380,6 +402,7 @@ export async function callDeriver(
         turnHeaders: profile.deriveTurnHeaders,
         sceneTrace: profile.deriveSceneTrace,
         typedAtoms: profile.deriveTypedAtoms,
+        spans: profile.deriveSpans,
       }),
     },
     {
@@ -659,9 +682,11 @@ function deriverRequest(
   // under DERIVER_SCENE_TRACE — off keeps the schema byte-identical.
   // Multiworld §10: `kind` exists ONLY under DERIVER_TYPED_ATOMS —
   // same conditional-schema idiom.
+  // G3: `quotes` exists ONLY under DERIVER_SPANS — same idiom again.
   const profile = resolveExtractionProfile();
   const sceneTrace = profile.deriveSceneTrace;
   const typedAtoms = profile.deriveTypedAtoms;
+  const spans = profile.deriveSpans;
   return deps.openai.chat.completions.create({
     model: deps.model,
     ...chatCallParams(deps.model, { temperature: 0.1, visibleCap: maxTokens }),
@@ -705,6 +730,16 @@ function deriverRequest(
                         },
                       }
                     : {}),
+                  // G3: one verbatim snippet (or null) per grounding
+                  // turn, parallel to `turns` — the server anchors.
+                  ...(spans
+                    ? {
+                        quotes: {
+                          type: 'array',
+                          items: { type: ['string', 'null'] },
+                        },
+                      }
+                    : {}),
                 },
                 required: [
                   'subject',
@@ -714,6 +749,7 @@ function deriverRequest(
                   'turns',
                   ...(sceneTrace ? ['scene'] : []),
                   ...(typedAtoms ? ['kind'] : []),
+                  ...(spans ? ['quotes'] : []),
                 ],
               },
             },

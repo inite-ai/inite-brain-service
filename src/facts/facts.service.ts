@@ -91,6 +91,45 @@ export interface RetractOptions {
  */
 const PROVENANCE_TEXT_CHAR_CAP = 600;
 
+/**
+ * Defensive read of source.charSpans (G3 — written by the derive row
+ * builder, but `source` is FLEXIBLE so shapes are never guaranteed).
+ * Keeps the first well-formed span per episode; malformed entries are
+ * ignored. Only {start, end, exact} go on the wire — prefix/suffix are
+ * re-anchoring context for the store, not the API.
+ */
+function indexCharSpans(
+  charSpans: unknown,
+): Map<string, { start: number; end: number; exact: string }> {
+  const byEpisode = new Map<
+    string,
+    { start: number; end: number; exact: string }
+  >();
+  if (!Array.isArray(charSpans)) return byEpisode;
+  for (const raw of charSpans) {
+    const s = raw as {
+      episodeId?: unknown;
+      start?: unknown;
+      end?: unknown;
+      exact?: unknown;
+    };
+    if (
+      typeof s?.episodeId === 'string' &&
+      typeof s.start === 'number' &&
+      typeof s.end === 'number' &&
+      typeof s.exact === 'string' &&
+      !byEpisode.has(s.episodeId)
+    ) {
+      byEpisode.set(s.episodeId, {
+        start: s.start,
+        end: s.end,
+        exact: s.exact,
+      });
+    }
+  }
+  return byEpisode;
+}
+
 /** Wire shape of GET /v1/facts/:id. */
 export interface FactReadResult {
   factId: string;
@@ -118,6 +157,16 @@ export interface FactProvenanceEpisode {
   occurredAt: string;
   /** Verbatim turn text, capped at PROVENANCE_TEXT_CHAR_CAP chars. */
   text: string;
+  /**
+   * G3 char-span grounding quote (source.charSpans, DERIVER_SPANS).
+   * Offsets are Unicode CODE POINTS over the NFC-normalized FULL stored
+   * episode text — NOT the possibly-truncated `text` field above (see
+   * textTruncated) and NOT UTF-16 units.
+   */
+  span?: { start: number; end: number; exact: string };
+  /** Present with `span`: true when `text` was truncated by the cap —
+   *  span offsets reference the FULL stored text, not the capped view. */
+  textTruncated?: boolean;
 }
 
 /** Wire shape of GET /v1/facts/:id/provenance. */
@@ -234,7 +283,11 @@ export class FactsService {
       opts.scopes,
       async (db) => {
         const fact = await this.loadVisibleFact(db, opts);
-        const source = (fact.source ?? {}) as { episodeIds?: unknown };
+        const source = (fact.source ?? {}) as {
+          episodeIds?: unknown;
+          charSpans?: unknown;
+        };
+        const spanByEpisode = indexCharSpans(source.charSpans);
         const ids = Array.isArray(source.episodeIds)
           ? [
               ...new Set(
@@ -262,8 +315,13 @@ export class FactsService {
               new Date(toIso(a.occurredAt)).getTime() -
               new Date(toIso(b.occurredAt)).getTime(),
           )
-          .map(
-            (r): FactProvenanceEpisode => ({
+          .map((r): FactProvenanceEpisode => {
+            // G3: attach the fact's stored char span for this turn.
+            // textTruncated rides along because span offsets reference
+            // the FULL stored episode text, not the capped `text` view.
+            // Span-less episodes keep the pre-G3 shape byte-identical.
+            const span = spanByEpisode.get(String(r.id));
+            return {
               episodeId: String(r.id),
               ...(r.conversationId !== undefined
                 ? { conversationId: r.conversationId }
@@ -274,8 +332,14 @@ export class FactsService {
                 r.text.length > PROVENANCE_TEXT_CHAR_CAP
                   ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
                   : r.text,
-            }),
-          );
+              ...(span
+                ? {
+                    span,
+                    textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
+                  }
+                : {}),
+            };
+          });
         return { factId: String(fact.id), episodes };
       },
     );

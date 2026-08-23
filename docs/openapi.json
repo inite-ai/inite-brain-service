@@ -804,11 +804,34 @@
           "occurredAt": {
             "type": "string"
           },
+          "span": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "type": "number"
+              },
+              "exact": {
+                "type": "string"
+              },
+              "start": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "exact"
+            ],
+            "type": "object"
+          },
           "speaker": {
             "type": "string"
           },
           "text": {
             "type": "string"
+          },
+          "textTruncated": {
+            "type": "boolean"
           }
         },
         "required": [

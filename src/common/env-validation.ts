@@ -542,6 +542,10 @@ const KNOWN_BOOLEAN_FLAGS = [
   // kind ∈ {fact, assistant_contribution, persona_attr, event}, stamped
   // as source.kind. Default off; fresh derivedVersion.
   'DERIVER_TYPED_ATOMS',
+  // G3: per-grounding-turn verbatim quotes from the deriver, verified
+  // mechanically into char spans (source.charSpans). Default off;
+  // prompt + schema change ⇒ fresh derivedVersion.
+  'DERIVER_SPANS',
   // V12 §2: rolling per-conversation digest fold (conversation_digest,
   // 0086). Default off.
   'DERIVER_DIGEST',
