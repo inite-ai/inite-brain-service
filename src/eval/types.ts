@@ -491,3 +491,159 @@ export interface EvalReport {
   overall: AggregateMetric[];
   outcomes: ScenarioOutcome[];
 }
+
+// ── Multilingual eval matrix (Tier 0) ─────────────────────────────────
+//
+// Pure data shapes for the multilingual program's measurable matrix.
+// A `MultilingualCase` carries LANGUAGE-NEUTRAL gold (canonical entity
+// refs / normalized values, never surface strings) for each metric
+// dimension. The matrix runner (test/eval/multilingual/) feeds a model
+// interface's predictions and this gold into the pure scorers in
+// test/eval/metrics/ and renders a per-language × direction table.
+//
+// No behaviour lives here — the scorers, the model interface, and the
+// runner are all under test/ (excluded from the prod build). These are
+// only the data contracts they share, mirroring how QueryResult /
+// ExtractionResult above are consumed by the retrieval harness.
+
+/** ISO 639-1 codes for the seven script/lang classes the matrix spans:
+ *  Latin (en/de/es), Cyrillic (ru), CJK (zh), RTL (ar), Devanagari (hi). */
+export type LanguageCode = 'en' | 'ru' | 'de' | 'es' | 'zh' | 'ar' | 'hi';
+
+/** mono = store-lang equals query-lang; cross = the boundary is crossed. */
+export type MatrixDirection = 'mono' | 'cross';
+
+/** The failure modes the roadmap names; every case is tagged with one so
+ *  the report can slice recall by failure mode, not just by language. */
+export type MultilingualFailureMode =
+  | 'cross_lingual_retrieval'
+  | 'short_string_mislabel'
+  | 'entity_fragmentation'
+  | 'temporal_locale'
+  | 'code_switching';
+
+/** One surface mention in a specific language — the atom entity-linking
+ *  gold is expressed over (the same real-world entity written in ru, zh,
+ *  ar … must collapse to one node). */
+export interface MultilingualSurface {
+  surface: string;
+  lang: LanguageCode;
+}
+
+/** A language-attribution telemetry sample. Definition only — Tier 1
+ *  wires emission into this shape; Tier 0 aggregates synthetic samples. */
+export interface LanguageAttributionSample {
+  /** Detected language label (ISO 639-1) or 'und' when undetermined. */
+  lang: string;
+  /** Detector confidence, 0..1. */
+  confidence: number;
+  /** Which surface the attribution was taken from. */
+  source: 'query' | 'fact' | 'answer' | 'mention';
+  /** Version tag of the detector that produced the label. */
+  detectorVersion: string;
+}
+
+/** Language-neutral gold for a single case. Every block is optional; the
+ *  runner scores only the dimensions a case declares and the metric layer
+ *  returns null for absent slices (same null-on-empty contract as the
+ *  retrieval metrics). */
+export interface MultilingualGold {
+  /** Cross-lingual retrieval: the canonical entity ref that must rank top
+   *  plus the full candidate corpus the model ranks — refs, not surface
+   *  strings, so the gold is script-agnostic. */
+  retrieval?: { goldRef: string; corpusRefs: string[] };
+  /** Extraction: canonical predicate=value keys the extractor should
+   *  surface (normalized, language-neutral). */
+  extraction?: { goldFacts: string[] };
+  /** Entity linking: every surface (across scripts) must resolve to the
+   *  one canonical goldEntity; placing them in >1 node is fragmentation. */
+  linking?: { surfaces: MultilingualSurface[]; goldEntity: string };
+  /** Temporal: a locale-specific date expression and its resolved gold
+   *  calendar day (YYYY-MM-DD). */
+  temporal?: { expression: string; lang: LanguageCode; goldDate: string };
+  /** Conflict-resolution label the system should assign. */
+  conflict?: { goldLabel: string };
+  /** Retrieval lane label the router should assign. */
+  lane?: { goldLabel: string };
+  /** Answer language the synthesizer must reply in (ISO 639-1). */
+  answerLang?: { intended: LanguageCode };
+  /** Abstention: whether the query is answerable (true) or a false-premise
+   *  the system should refuse (false). */
+  abstention?: { shouldAnswer: boolean };
+  /** Expected language-attribution telemetry samples for this case. */
+  telemetry?: LanguageAttributionSample[];
+}
+
+export interface MultilingualCase {
+  id: string;
+  failureMode: MultilingualFailureMode;
+  storeLang: LanguageCode;
+  queryLang: LanguageCode;
+  direction: MatrixDirection;
+  description: string;
+  gold: MultilingualGold;
+}
+
+/** What the model interface returns per case. Each block aligns to the
+ *  matching gold block; blocks a case doesn't declare are left undefined.
+ *  Linking arrays are index-aligned to gold.linking.surfaces. */
+export interface MultilingualPrediction {
+  retrieval?: { rankedRefs: string[] };
+  extraction?: { facts: string[] };
+  linking?: {
+    /** Canonical ref each surface was linked to (null = unlinked / new). */
+    linkedRefs: Array<string | null>;
+    /** Node id each surface was placed in — distinct ids = fragmentation. */
+    nodeIds: string[];
+  };
+  temporal?: { predictedDate: string | null };
+  conflict?: { label: string };
+  lane?: { label: string };
+  answer?: { text: string | null; langDetected: string | null };
+  abstention?: { abstained: boolean; confidence: number };
+  telemetry?: LanguageAttributionSample[];
+}
+
+// ── Multilingual matrix report shapes ─────────────────────────────────
+
+export interface MultilingualMetricCell {
+  metric: string;
+  /** null = no data for this metric in this slice. */
+  value: number | null;
+  /** Sample size the value was computed over. */
+  n: number;
+  /** Optional pass floor (value >= threshold). */
+  threshold?: number;
+}
+
+export interface MultilingualSliceReport {
+  /** ISO 639-1 code, or 'all' for the language-agnostic aggregate. */
+  language: string;
+  /** 'mono' | 'cross' | 'all'. */
+  direction: string;
+  cases: number;
+  metrics: MultilingualMetricCell[];
+}
+
+/** Distribution report over language-attribution telemetry. */
+export interface LanguageAttributionReport {
+  total: number;
+  byLanguage: Array<{ lang: string; count: number; meanConfidence: number }>;
+  bySource: Array<{ source: string; count: number }>;
+  byDetectorVersion: Array<{ detectorVersion: string; count: number }>;
+  meanConfidence: number | null;
+  lowConfidenceRate: number | null;
+  lowConfidenceThreshold: number;
+}
+
+export interface MultilingualMatrixReport {
+  generatedAt: string;
+  /** 'stub' in the CI/unit path; 'real' only under MULTILINGUAL_EVAL_LIVE. */
+  modelKind: 'stub' | 'real';
+  /** One slice per (language, direction) pair present in the matrix. */
+  slices: MultilingualSliceReport[];
+  /** Aggregate across the whole matrix. */
+  overall: MultilingualMetricCell[];
+  /** Language-attribution telemetry aggregated across all cases. */
+  telemetry: LanguageAttributionReport;
+}

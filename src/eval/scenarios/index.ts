@@ -16,6 +16,8 @@ import { demoTalkScenarios } from './demo-talk.scenarios';
 import { multilingualScenarios } from './multilingual.scenarios';
 import { falsePremiseScenarios } from './false-premise.scenarios';
 
+export { multilingualMatrix } from './multilingual.scenarios';
+
 export const allScenarios: Scenario[] = [
   ...demoTalkScenarios,
   ...rentScenarios,
