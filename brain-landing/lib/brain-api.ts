@@ -17,6 +17,15 @@
  * used for calls with no user in scope and as a graceful degrade while
  * the auth-service hasn't granted the token-exchange grant yet.
  * Tokens of both kinds are cached in-process until ~30s before expiry.
+ *
+ * SECURITY: the M2M credential holds tenant-wide authority and the brain
+ * backend lets it assert ANY userId (by design, for real M2M). So the
+ * graceful-degrade fallback must NEVER kick in for an end-user request —
+ * that would silently upgrade one user's session to cross-user authority.
+ * Callers on the end-user path pass `requireUserIdentity: true`, which
+ * makes a failed exchange throw {@link TokenExchangeError} (→ fail closed)
+ * instead of degrading. The fallback survives only for genuinely
+ * user-less / system / admin-operator calls.
  */
 
 // Hard server-only gate. The OAUTH_CLIENT_SECRET this module mints
@@ -209,20 +218,51 @@ async function getExchangedToken(
 }
 
 /**
+ * Thrown when an end-user request (`requireUserIdentity: true`) cannot
+ * obtain an identity-preserving token. Callers translate it into a
+ * fail-closed authorization error — the request is denied rather than
+ * executed with the anonymous, tenant-wide M2M credential.
+ */
+export class TokenExchangeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TokenExchangeError'
+  }
+}
+
+/**
  * Resolve the bearer token for a brain call. With a user session token,
  * prefer the identity-preserving exchange; degrade to the anonymous M2M
  * mint when exchange is unavailable (grant not provisioned yet, subject
  * token lacking brain scopes) so the dashboard keeps working during the
  * auth-service rollout.
+ *
+ * Fail-closed switch: when `requireUserIdentity` is set AND a `userToken`
+ * is present, a failed exchange throws {@link TokenExchangeError} instead
+ * of degrading to the tenant-wide M2M credential. The end-user BFF sets
+ * this so a broken/unprovisioned exchange can never elevate a user
+ * session to cross-user authority. It has no effect when no `userToken`
+ * is supplied (genuinely user-less / dev-bypass / system calls still mint
+ * M2M), and it is left off by the admin BFF, whose operator identity is
+ * legitimately tenant-wide.
  */
 export async function getBrainToken(opts: {
   scope: string
   userToken?: string | null
+  requireUserIdentity?: boolean
 }): Promise<string> {
   if (opts.userToken) {
     try {
       return await getExchangedToken(opts.userToken, opts.scope)
     } catch (err) {
+      if (opts.requireUserIdentity) {
+        // Fail closed: an authenticated end-user session must never be
+        // downgraded to the anonymous, tenant-wide M2M credential.
+        // Denying is safer than executing with cross-user authority.
+        throw new TokenExchangeError(
+          `token exchange failed for an end-user session; refusing to fall back to tenant-wide M2M authority: ${(err as Error).message}`,
+        )
+      }
       console.warn(
         `[brain-api] token exchange unavailable, falling back to client_credentials: ${(err as Error).message}`,
       )
@@ -260,6 +300,13 @@ export interface BrainFetchOptions {
    * anonymous M2M mint.
    */
   userToken?: string | null
+  /**
+   * Fail-closed switch for the end-user path. When true and
+   * {@link userToken} is present, a failed exchange makes this call
+   * return an authorization error (403) rather than silently degrading
+   * to the tenant-wide M2M credential. See {@link getBrainToken}.
+   */
+  requireUserIdentity?: boolean
 }
 
 export interface BrainResponse<T = unknown> {
@@ -289,8 +336,22 @@ export async function brainFetch<T = unknown>(
     token = options.apiKey
   } else {
     try {
-      token = await getBrainToken({ scope, userToken: options.userToken })
+      token = await getBrainToken({
+        scope,
+        userToken: options.userToken,
+        requireUserIdentity: options.requireUserIdentity,
+      })
     } catch (err) {
+      // Fail-closed exchange (end-user path): surface a denial and never
+      // issue the backend request with a fallback credential.
+      if (err instanceof TokenExchangeError) {
+        return {
+          ok: false,
+          status: 403,
+          data: null,
+          error: (err as Error).message,
+        }
+      }
       return {
         ok: false,
         status: 500,
