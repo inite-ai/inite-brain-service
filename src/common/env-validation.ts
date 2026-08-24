@@ -704,6 +704,11 @@ const KNOWN_BOOLEAN_FLAGS = [
   'STRATEGY_MEMORY_ENABLED',
   'STRATEGY_RETRIEVAL_ENABLED',
   'STRATEGY_DISTILL_CRON_ENABLED',
+  // Experience-memory extension (0098, bet #3 Part 3): the trajectory
+  // capture surface + trajectory column read/write, on top of the
+  // master. Default off ⇒ no trajectory column is written or selected
+  // and the capture endpoint 404s (byte-identical to pre-0098).
+  'STRATEGY_TRAJECTORIES_ENABLED',
   // Fovea optics (Optics-1, docs/roadmap/fovea-optics-2026-08.md): capture
   // the focus signal at the synthesize verdict point + expose the admin
   // fit/measure surface. SERVING-NEUTRAL — nothing consumes the calibrated

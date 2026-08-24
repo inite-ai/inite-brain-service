@@ -1905,6 +1905,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Nightly strategy-memory lifecycle sweep at 03:52 UTC (G7 host slot, requires STRATEGY_MEMORY_ENABLED): auto-deprecates items whose evidence.nContradict ≥ 2 or that went 90 days without validation (Memp/ExpeL lifecycle). Distillation itself stays operator-invoked via POST /v1/admin/strategy/distill in v1.',
   },
+  {
+    key: 'STRATEGY_TRAJECTORIES_ENABLED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      'Experience-memory extension of the strategy lane (migration 0098, bet #3 Part 3): store TOOL TRAJECTORIES + verified outcomes alongside the advice string. On (with STRATEGY_MEMORY_ENABLED) → the POST /v1/admin/strategy/trajectory capture endpoint answers (a completed tool-run + outcome distills into a trajectory-bearing item via the same Mem0 dedup), and served items render their past tool path into the GENERATOR advisory. Args/results are stored as one-way DIGESTS, never raw (no secrets/PII). The G4 verifier-parity exception is INVIOLABLE — a trajectory reaches the generator only, never the verifier or citations; it is more trap-exposed than the advice string, so enabling should ride §4.3 lens-suppression + the verifier answer-integrity arm. Off (default) → capture 404s, no trajectory column is written or read (byte-identical to pre-0098).',
+  },
   // ── Jobs ─────────────────────────────────────────────────
   {
     key: 'JOBS_QUEUE_MODE',
