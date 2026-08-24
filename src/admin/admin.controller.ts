@@ -72,8 +72,8 @@ export class AdminController {
 
   @Get('overview')
   @RequireScopes('brain:admin')
-  async overview(): Promise<OverviewResponse> {
-    return (await this.admin.buildOverview()) satisfies OverviewResponse;
+  async overview(@Req() req: AuthenticatedRequest): Promise<OverviewResponse> {
+    return (await this.admin.buildOverview(req)) satisfies OverviewResponse;
   }
 
   /**
@@ -89,6 +89,7 @@ export class AdminController {
   @Get('audit')
   @RequireScopes('brain:admin')
   async audit(
+    @Req() req: AuthenticatedRequest,
     @Query('companyId') companyId?: string,
     @Query('source') source?: string,
     @Query('op') op?: string,
@@ -97,14 +98,17 @@ export class AdminController {
     @Query('limit') limit?: string,
   ): Promise<AuditPageResponse> {
     const parsedLimit = limit ? parseInt(limit, 10) : undefined;
-    const page = await this.admin.listAuditEvents({
-      companyId: companyId?.trim() || undefined,
-      source: source?.trim() || undefined,
-      op: op?.trim() || undefined,
-      since: since?.trim() || undefined,
-      before: before?.trim() || undefined,
-      limit: parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined,
-    });
+    const page = await this.admin.listAuditEvents(
+      {
+        companyId: companyId?.trim() || undefined,
+        source: source?.trim() || undefined,
+        op: op?.trim() || undefined,
+        since: since?.trim() || undefined,
+        before: before?.trim() || undefined,
+        limit: parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      },
+      req,
+    );
     return page satisfies AuditPageResponse;
   }
 

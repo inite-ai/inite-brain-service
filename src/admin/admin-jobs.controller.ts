@@ -26,6 +26,11 @@ import { CalibrationRefitService } from '../ai/calibration/calibration-refit.ser
 import { CompactionService } from '../compaction/compaction.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import {
+  resolvePlatformTenant,
+  platformTenantCapable,
+  resolvePlatformTenantScope,
+} from '../auth/tenant-scope';
 import { ConfigService } from '@nestjs/config';
 import { HttpCode } from '@nestjs/common';
 import { ReindexEmbeddingsService } from '../ai/embedder/reindex-embeddings.service';
@@ -84,10 +89,11 @@ export class AdminJobsController {
     private readonly config: ConfigService,
   ) {}
 
-  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Query binding, cannot be folded into an options object without breaking Nest param resolution
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('jobs')
   @RequireScopes('brain:admin')
   async listJobs(
+    @Req() req: AuthenticatedRequest,
     @Query('jobType') jobType?: string,
     @Query('status') status?: string,
     @Query('since') since?: string,
@@ -98,7 +104,21 @@ export class AdminJobsController {
     const jobTypeVal = (jobType?.trim() as JobType) || undefined;
     const statusVal = (status?.trim() as JobStatus) || undefined;
     const sinceVal = since?.trim() || undefined;
-    const companyIdVal = companyId?.trim() || undefined;
+    // Tenant isolation: a caller-supplied companyId resolves through the
+    // platform gate (own tenant always ok; a foreign one is a 403 without
+    // brain:platform_admin + gate). Omitted → a platform operator lists
+    // every tenant's jobs; a plain brain:admin sees only its own tenant.
+    const requestedCompany = companyId?.trim();
+    let companyIdVal: string | undefined;
+    if (requestedCompany) {
+      companyIdVal = resolvePlatformTenant(req, requestedCompany, {
+        knownTenants: () => this.apiKeys.knownCompanyIds(),
+      });
+    } else if (platformTenantCapable(req.brainAuth.scopes)) {
+      companyIdVal = undefined;
+    } else {
+      companyIdVal = req.brainAuth.companyId;
+    }
     const limitVal =
       parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined;
     const rows = await this.jobs.list({
@@ -114,8 +134,9 @@ export class AdminJobsController {
   @Get('jobs/:runId')
   @RequireScopes('brain:admin')
   async getJob(@Req() req: AuthenticatedRequest, @Param('runId') runId: string): Promise<JobRow> {
-    // Try caller's company first; admins may also query across tenants
-    // via the explicit companyId query string on /jobs list endpoint.
+    // Scoped to the caller's own tenant: a job belonging to another tenant
+    // reads as not-found. Cross-tenant reach is the platform-operator path
+    // only (brain:platform_admin + gate), never plain brain:admin.
     const row = await this.jobs.get(runId, req.brainAuth.companyId);
     if (!row) throw new NotFoundException(`Job ${runId} not found`);
     return row satisfies JobRow;
@@ -257,13 +278,20 @@ export class AdminJobsController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { companyId?: string } = {},
   ): AcceptedCompactionResponse {
-    const known = this.apiKeys.knownCompanyIds();
-    if (body.companyId && !known.includes(body.companyId)) {
-      throw new BadRequestException(
-        `Unknown companyId '${body.companyId}' — not a registered tenant`,
-      );
-    }
-    const target = body.companyId ? [body.companyId] : known;
+    // Tenant isolation: a specific companyId resolves through the platform
+    // gate (own tenant always ok; a foreign one is a 403 without the
+    // platform scope + gate). Omitted → a platform operator fans out over
+    // every tenant; a plain brain:admin compacts only its own tenant.
+    const requested = body.companyId?.trim();
+    const target = requested
+      ? [
+          resolvePlatformTenant(req, requested, {
+            knownTenants: () => this.apiKeys.knownCompanyIds(),
+          }),
+        ]
+      : platformTenantCapable(req.brainAuth.scopes)
+        ? this.apiKeys.knownCompanyIds()
+        : [req.brainAuth.companyId];
     void (async () => {
       for (const companyId of target) {
         try {
@@ -275,7 +303,6 @@ export class AdminJobsController {
         }
       }
     })();
-    void req;
     return {
       accepted: true,
       jobType: 'compaction',
@@ -314,12 +341,26 @@ export class AdminJobsController {
     @Body()
     body: { tenant?: string; dryRun?: boolean; maxFacts?: number } = {},
   ): Promise<AcceptedReindexResponse> {
-    const tenants = this.apiKeys.knownCompanyIds();
-    const tenantFilter = body.tenant?.trim();
-    if (tenantFilter && !tenants.includes(tenantFilter)) {
-      throw new BadRequestException(`Unknown tenant '${tenantFilter}' — not a registered tenant`);
+    // Tenant isolation: a specific tenant resolves through the platform
+    // gate (own tenant always ok; a foreign one is a 403 without the
+    // platform scope + gate). Omitted → a platform operator re-embeds
+    // every tenant (reindexTenant undefined); a plain brain:admin
+    // re-embeds only its own tenant. hostTenant carries the job row.
+    const requested = body.tenant?.trim();
+    let reindexTenant: string | undefined;
+    let hostTenant: string | undefined;
+    if (requested) {
+      reindexTenant = resolvePlatformTenant(req, requested, {
+        knownTenants: () => this.apiKeys.knownCompanyIds(),
+      });
+      hostTenant = reindexTenant;
+    } else if (platformTenantCapable(req.brainAuth.scopes)) {
+      reindexTenant = undefined;
+      hostTenant = this.apiKeys.knownCompanyIds()[0];
+    } else {
+      reindexTenant = req.brainAuth.companyId;
+      hostTenant = req.brainAuth.companyId;
     }
-    const hostTenant = tenantFilter || tenants[0];
     if (!hostTenant) {
       throw new BadRequestException('No registered tenant to reindex');
     }
@@ -329,14 +370,13 @@ export class AdminJobsController {
       triggeredBy: 'manual',
       triggeredByActor: req.brainAuth.companyId,
       initialProgress: {
-        tenantFilter: body.tenant?.trim() ?? null,
+        tenantFilter: reindexTenant ?? null,
         dryRun: body.dryRun === true,
         maxFacts: body.maxFacts ?? null,
       },
     });
     void (async () => {
       try {
-        const reindexTenant = body.tenant?.trim() || undefined;
         const result = await this.reindex.run({
           ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
           dryRun: body.dryRun === true,
@@ -383,8 +423,13 @@ export class AdminJobsController {
       : body.vertical
         ? all.filter((s) => s.vertical === body.vertical).map((s) => s.id)
         : all.map((s) => s.id);
-    const tenants = this.apiKeys.knownCompanyIds();
-    const hostTenant = tenants[0];
+    // Tenant isolation: a plain brain:admin books the batch job under its
+    // own tenant; a platform operator may host it on the first registered
+    // tenant. The scenarios themselves run against synthetic scratch
+    // tenants — hostTenant only carries the job_run bookkeeping row.
+    const hostTenant = platformTenantCapable(req.brainAuth.scopes)
+      ? this.apiKeys.knownCompanyIds()[0]
+      : req.brainAuth.companyId;
     if (!hostTenant) {
       throw new BadRequestException('No registered tenant to run scenarios');
     }
@@ -450,18 +495,30 @@ export class AdminJobsController {
   }
 
   /**
-   * Per-run emit drill for Dreams. Returns the emit rows the
-   * specified run produced (identity_link / resolution / summary).
-   * If no runId is given, returns the most recent successful run's
-   * emits across known tenants.
+   * Per-run emit drill for Dreams. Returns the emit rows the specified
+   * run produced (identity_link / resolution / summary). Tenant-scoped:
+   * a caller-supplied companyId resolves through the platform gate (own
+   * tenant always ok; a foreign one is a 403 without brain:platform_admin
+   * + gate). Omitted → a platform operator scans every tenant; a plain
+   * brain:admin sees only its own tenant's emits.
    */
   @Get('dreams/runs/:runId/emits')
   @RequireScopes('brain:admin')
   async dreamEmits(
+    @Req() req: AuthenticatedRequest,
     @Param('runId') runId: string,
     @Query('companyId') companyIdQ?: string,
   ): Promise<DreamsEmitsResponse> {
-    const tenants = companyIdQ ? [companyIdQ] : this.apiKeys.knownCompanyIds();
+    const requestedCompany = companyIdQ?.trim();
+    const tenants: readonly string[] = requestedCompany
+      ? [
+          resolvePlatformTenant(req, requestedCompany, {
+            knownTenants: () => this.apiKeys.knownCompanyIds(),
+          }),
+        ]
+      : platformTenantCapable(req.brainAuth.scopes)
+        ? this.apiKeys.knownCompanyIds()
+        : [req.brainAuth.companyId];
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
       try {
@@ -494,10 +551,16 @@ export class AdminJobsController {
    */
   @Get('dreams/summary')
   @RequireScopes('brain:admin')
-  async dreamsSummary(): Promise<DreamsSummaryResponse> {
+  async dreamsSummary(@Req() req: AuthenticatedRequest): Promise<DreamsSummaryResponse> {
+    // Tenant isolation: a plain brain:admin sees only its own tenant's
+    // dreams runs + aggregates; a platform operator keeps the all-tenant
+    // rollup.
     const runs = await this.jobs.list({
       jobType: 'dreams',
       limit: 100,
+      ...(platformTenantCapable(req.brainAuth.scopes)
+        ? {}
+        : { companyId: req.brainAuth.companyId }),
     });
     let identityLinks = 0;
     let resolutions = 0;
@@ -540,10 +603,17 @@ export class AdminJobsController {
    */
   @Get('leases')
   @RequireScopes('brain:admin')
-  async leases(): Promise<LeasesResponse> {
+  async leases(@Req() req: AuthenticatedRequest): Promise<LeasesResponse> {
+    // Tenant isolation: the active-claim scan is tenant-scoped data — a
+    // plain brain:admin sees only its own tenant's claims; a platform
+    // operator keeps the all-tenant cockpit. Leader leases + pod identity
+    // are cluster-orchestration state (no tenant dimension), shown as-is.
+    const claimTenants = platformTenantCapable(req.brainAuth.scopes)
+      ? this.apiKeys.knownCompanyIds()
+      : [req.brainAuth.companyId];
     const [leaderLeases, activeClaims] = await Promise.all([
       this.leaderLease.list(),
-      this.claim.listActiveClaims(this.apiKeys.knownCompanyIds()),
+      this.claim.listActiveClaims(claimTenants),
     ]);
     const now = Date.now();
     const queueMode = (this.config.get<string>('JOBS_QUEUE_MODE', 'enqueue') ?? 'enqueue') as
@@ -583,12 +653,22 @@ export class AdminJobsController {
 
   @Get('changefeed/state')
   @RequireScopes('brain:admin')
-  async changefeedState(): Promise<ChangefeedStateResponse> {
+  async changefeedState(@Req() req: AuthenticatedRequest): Promise<ChangefeedStateResponse> {
     // stats() is synchronous (a plain snapshot getter); only cursorState() is
     // async — so read stats() directly and await the one Promise rather than
     // wrapping a non-Thenable in Promise.all.
     const stats = this.changefeed.stats();
-    const cursors = await this.changefeed.cursorState();
+    const allCursors = await this.changefeed.cursorState();
+    // Tenant isolation: the per-tenant cursors are scoped to the caller —
+    // a plain brain:admin sees only its own tenant's watermarks; a
+    // platform operator (scope + gate) keeps the all-tenant view. stats
+    // are process-wide consumer counters (no tenant dimension), shown as-is.
+    const scope = new Set(
+      resolvePlatformTenantScope(req, undefined, {
+        knownTenants: () => this.apiKeys.knownCompanyIds(),
+      }),
+    );
+    const cursors = allCursors.filter((c) => scope.has(c.companyId));
     // sources is readonly string[] on the service to keep callers from
     // mutating the constant; on the wire it's just an array.
     return {

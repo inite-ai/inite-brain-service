@@ -12,9 +12,26 @@
  */
 import { AdminController } from '../../src/admin/admin.controller';
 import { AdminInfraController } from '../../src/admin/admin-infra.controller';
+import type { AuthenticatedRequest, BrainScope } from '../../src/auth/api-key.types';
+import { PLATFORM_TENANT_SCOPE } from '../../src/auth/tenant-scope';
 
 const u = undefined as never;
 const as = <T>(v: unknown): T => v as T;
+
+export const ADMIN_SCOPES: BrainScope[] = ['brain:admin'];
+export const PLATFORM_SCOPES: BrainScope[] = ['brain:admin', PLATFORM_TENANT_SCOPE];
+
+/**
+ * A mock authenticated request for admin-controller unit specs. Defaults
+ * to a plain brain:admin key on tenant-a; pass PLATFORM_SCOPES (and turn
+ * BRAIN_TENANT_OVERRIDE_ENABLED on) to exercise the platform-operator path.
+ */
+export function adminReq(
+  scopes: BrainScope[] = ADMIN_SCOPES,
+  companyId = 'tenant-a',
+): AuthenticatedRequest {
+  return { brainAuth: { companyId, scopes, keyHash: 'h' } } as unknown as AuthenticatedRequest;
+}
 
 export interface AdminControllerDeps {
   admin?: unknown;

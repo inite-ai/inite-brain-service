@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiKeyService } from '../auth/api-key.service';
+import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { resolvePlatformTenantScope } from '../auth/tenant-scope';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { mapWithLimit } from '../common/parallel';
@@ -196,9 +198,14 @@ export class AdminService {
     private readonly metrics: MetricsService,
   ) {}
 
-  async buildOverview(): Promise<AdminOverview> {
+  async buildOverview(req: AuthenticatedRequest): Promise<AdminOverview> {
     const dbOk = await this.surreal.ping().catch(() => false);
-    const tenants = this.apiKeys.knownCompanyIds();
+    // Tenant isolation: a plain brain:admin sees only its own tenant in
+    // the overview; a platform operator (scope + gate) keeps the
+    // all-tenant console.
+    const tenants = resolvePlatformTenantScope(req, undefined, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const metricsSnapshot = await this.snapshotMetrics();
 
     const rows: AdminTenantRow[] = [];
@@ -447,12 +454,17 @@ export class AdminService {
    * Full DLQ listing with filter + pagination. Used by /admin/dlq
    * page; the overview already shows last 20.
    */
-  async listDeadLetter(filter: {
-    companyId?: string | undefined;
-    reason?: string | undefined;
-    limit?: number | undefined;
-  }): Promise<AdminDeadLetterRow[]> {
-    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
+  async listDeadLetter(
+    filter: {
+      companyId?: string | undefined;
+      reason?: string | undefined;
+      limit?: number | undefined;
+    },
+    req: AuthenticatedRequest,
+  ): Promise<AdminDeadLetterRow[]> {
+    const tenants = resolvePlatformTenantScope(req, filter.companyId, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const out: AdminDeadLetterRow[] = [];
     const where: string[] = [];
@@ -517,13 +529,18 @@ export class AdminService {
    * Full forgotten-entities list with filter. Used by /admin/forgotten
    * page; also drives the GDPR export endpoint.
    */
-  async listForgotten(filter: {
-    companyId?: string | undefined;
-    reason?: string | undefined;
-    since?: string | undefined;
-    limit?: number | undefined;
-  }): Promise<AdminForgottenRow[]> {
-    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
+  async listForgotten(
+    filter: {
+      companyId?: string | undefined;
+      reason?: string | undefined;
+      since?: string | undefined;
+      limit?: number | undefined;
+    },
+    req: AuthenticatedRequest,
+  ): Promise<AdminForgottenRow[]> {
+    const tenants = resolvePlatformTenantScope(req, filter.companyId, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 2000);
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -575,7 +592,7 @@ export class AdminService {
    * operator sees "how many sensitive rows do we hold for tenant X?"
    * Drives the /admin/pii page.
    */
-  async listPiiInventory(): Promise<
+  async listPiiInventory(req: AuthenticatedRequest): Promise<
     Array<{
       companyId: string;
       predicate: string;
@@ -585,7 +602,9 @@ export class AdminService {
       retractedCount: number;
     }>
   > {
-    const tenants = this.apiKeys.knownCompanyIds();
+    const tenants = resolvePlatformTenantScope(req, undefined, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const out: Array<{
       companyId: string;
       predicate: string;
@@ -654,9 +673,11 @@ export class AdminService {
    * window, hard limit (capped at 500). Always returns events sorted
    * desc by ts. Also returns aggregate totals for chart drawing.
    */
-  async listAuditEvents(q: AuditQuery): Promise<AuditPage> {
+  async listAuditEvents(q: AuditQuery, req: AuthenticatedRequest): Promise<AuditPage> {
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
-    const tenants = q.companyId ? [q.companyId] : this.apiKeys.knownCompanyIds();
+    const tenants = resolvePlatformTenantScope(req, q.companyId, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const events: AuditEventRow[] = [];
     const totalsBySource: Record<string, number> = {};
     const totalsByOp: Record<string, number> = {};

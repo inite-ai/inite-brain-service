@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
+import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { resolvePlatformTenantScope } from '../auth/tenant-scope';
 import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
 
 /**
@@ -31,9 +33,14 @@ export class AdminInfraService {
    * migration the others have). A tenant whose schema_migrations read
    * throws is reported as fully pending rather than failing the audit.
    */
-  async migrationsAudit(): Promise<MigrationsResponse> {
+  async migrationsAudit(req: AuthenticatedRequest): Promise<MigrationsResponse> {
     const manifest = await this.surreal.migrator.loadManifest();
-    const tenants = this.apiKeys.knownCompanyIds();
+    // Tenant isolation: a plain brain:admin audits only its own tenant's
+    // schema state (and never enumerates the tenant roster); a platform
+    // operator (scope + gate) keeps the cross-tenant drift audit.
+    const tenants = resolvePlatformTenantScope(req, undefined, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const perTenant: Array<{
       companyId: string;
       applied: string[];

@@ -1,5 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ApiKeyService } from '../auth/api-key.service';
+import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { resolvePlatformTenantScope } from '../auth/tenant-scope';
 import { SurrealService, queryRows } from '../db/surreal.service';
 
 export interface OperatorActionRow {
@@ -55,14 +57,23 @@ export class OperatorActionService {
     });
   }
 
-  async list(filter: {
-    actor?: string | undefined;
-    pathPrefix?: string | undefined;
-    since?: string | undefined;
-    limit?: number | undefined;
-  }): Promise<OperatorActionRow[]> {
+  async list(
+    filter: {
+      actor?: string | undefined;
+      pathPrefix?: string | undefined;
+      since?: string | undefined;
+      limit?: number | undefined;
+    },
+    req: AuthenticatedRequest,
+  ): Promise<OperatorActionRow[]> {
     if (!this.surreal || !this.apiKeys) return [];
-    const tenants = filter.actor ? [filter.actor] : this.apiKeys.knownCompanyIds();
+    // Tenant isolation: `actor` narrows to one tenant's action log; a
+    // plain brain:admin is confined to its own tenant, a platform
+    // operator (scope + gate) spans all.
+    const apiKeys = this.apiKeys;
+    const tenants = resolvePlatformTenantScope(req, filter.actor, {
+      knownTenants: () => apiKeys.knownCompanyIds(),
+    });
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const where: string[] = [];
     const params: Record<string, unknown> = {};

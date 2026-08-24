@@ -43,20 +43,25 @@ export class AdminOpsController {
 
   // ── Dead-letter ───────────────────────────────────────────
 
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('dlq')
   @RequireScopes('brain:admin')
   async dlq(
+    @Req() req: AuthenticatedRequest,
     @Query('companyId') companyId?: string,
     @Query('reason') reason?: string,
     @Query('limit') limit?: string,
   ): Promise<DlqResponse> {
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
-      rows: await this.admin.listDeadLetter({
-        companyId: companyId?.trim() || undefined,
-        reason: reason?.trim() || undefined,
-        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
-      }),
+      rows: await this.admin.listDeadLetter(
+        {
+          companyId: companyId?.trim() || undefined,
+          reason: reason?.trim() || undefined,
+          limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        },
+        req,
+      ),
     } satisfies DlqResponse;
   }
 
@@ -76,6 +81,7 @@ export class AdminOpsController {
   @Get('forgotten')
   @RequireScopes('brain:admin')
   async forgotten(
+    @Req() req: AuthenticatedRequest,
     @Query('companyId') companyId?: string,
     @Query('reason') reason?: string,
     @Query('since') since?: string,
@@ -83,12 +89,15 @@ export class AdminOpsController {
   ): Promise<ForgottenResponse> {
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
-      rows: await this.admin.listForgotten({
-        companyId: companyId?.trim() || undefined,
-        reason: reason?.trim() || undefined,
-        since: since?.trim() || undefined,
-        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
-      }),
+      rows: await this.admin.listForgotten(
+        {
+          companyId: companyId?.trim() || undefined,
+          reason: reason?.trim() || undefined,
+          since: since?.trim() || undefined,
+          limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        },
+        req,
+      ),
     } satisfies ForgottenResponse;
   }
 
@@ -100,18 +109,23 @@ export class AdminOpsController {
    * Note: payload contains only entityIdHash + counts + reason + ts.
    * The actual entity data is gone; that's the whole point.
    */
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Res/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get('forgotten/export')
   @RequireScopes('brain:admin')
   async forgottenExport(
+    @Req() req: AuthenticatedRequest,
     @Res() res: Response,
     @Query('companyId') companyId?: string,
     @Query('since') since?: string,
   ) {
-    const rows = await this.admin.listForgotten({
-      companyId: companyId?.trim() || undefined,
-      since: since?.trim() || undefined,
-      limit: 2000,
-    });
+    const rows = await this.admin.listForgotten(
+      {
+        companyId: companyId?.trim() || undefined,
+        since: since?.trim() || undefined,
+        limit: 2000,
+      },
+      req,
+    );
     const manifest = {
       generatedAt: new Date().toISOString(),
       filter: {
@@ -141,9 +155,9 @@ export class AdminOpsController {
 
   @Get('pii')
   @RequireScopes('brain:admin', 'brain:read_pii')
-  async piiInventory(): Promise<PiiInventoryResponse> {
+  async piiInventory(@Req() req: AuthenticatedRequest): Promise<PiiInventoryResponse> {
     return {
-      rows: await this.admin.listPiiInventory(),
+      rows: await this.admin.listPiiInventory(req),
     } satisfies PiiInventoryResponse;
   }
 
@@ -159,15 +173,17 @@ export class AdminOpsController {
     @Query('since') since?: string,
     @Query('limit') limit?: string,
   ): Promise<OperatorActionsResponse> {
-    void req; // reserved for future per-key scoping
     const parsed = limit ? parseInt(limit, 10) : undefined;
     return {
-      rows: await this.actions.list({
-        actor: actor?.trim() || undefined,
-        pathPrefix: pathPrefix?.trim() || undefined,
-        since: since?.trim() || undefined,
-        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
-      }),
+      rows: await this.actions.list(
+        {
+          actor: actor?.trim() || undefined,
+          pathPrefix: pathPrefix?.trim() || undefined,
+          since: since?.trim() || undefined,
+          limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        },
+        req,
+      ),
     } satisfies OperatorActionsResponse;
   }
 }

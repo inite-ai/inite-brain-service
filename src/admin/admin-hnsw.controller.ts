@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@ne
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
+import { resolvePlatformTenant } from '../auth/tenant-scope';
 import { HnswMaintenanceService, HnswMaintenanceResult } from './hnsw-maintenance.service';
 
 /**
@@ -28,10 +29,9 @@ export class AdminHnswController {
     if (action !== 'create' && action !== 'drop') {
       throw new BadRequestException(`action must be 'create' or 'drop'`);
     }
-    const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
-      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
-    }
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     return this.hnsw.apply(tenant, action);
   }
 }

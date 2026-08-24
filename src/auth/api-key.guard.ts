@@ -15,15 +15,21 @@ import { getRequestContext } from '../common/request-context';
 import { resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
+import { PLATFORM_TENANT_SCOPE } from './tenant-scope';
 import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
 
 /**
- * Tenant override (BRAIN_TENANT_OVERRIDE_ENABLED, default off): an
- * admin-scoped key may address another tenant via X-Brain-Tenant — the
- * per-call pinning the sink interfaces anticipated. Built for eval
+ * Tenant override (BRAIN_TENANT_OVERRIDE_ENABLED, default off): a
+ * PLATFORM-operator key may address another tenant via X-Brain-Tenant —
+ * the per-call pinning the sink interfaces anticipated. Built for eval
  * harnesses that need per-question tenant isolation (e.g. LongMemEval:
  * one haystack per question) without minting hundreds of keys; never
  * enable in multi-tenant prod without a policy review.
+ *
+ * Reaching another tenant requires the dedicated `brain:platform_admin`
+ * scope (NOT plain `brain:admin`) AND the gate — the same two-key rule
+ * the body/query path enforces via resolvePlatformTenant(). A plain
+ * `brain:admin` key can never cross tenants through this header.
  */
 function resolveTenantOverride(
   record: ApiKeyRecord,
@@ -36,7 +42,7 @@ function resolveTenantOverride(
   const allowed =
     requested !== '' &&
     requested !== record.companyId &&
-    record.scopes.includes('brain:admin') &&
+    record.scopes.includes(PLATFORM_TENANT_SCOPE) &&
     /^[a-z0-9_-]{2,64}$/.test(requested);
   return allowed ? requested : record.companyId;
 }
