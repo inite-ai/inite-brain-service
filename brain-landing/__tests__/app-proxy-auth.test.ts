@@ -119,6 +119,18 @@ describe('end-user proxy — fail-closed token exchange', () => {
     // Fail closed: authorization error, not a silent downgrade.
     expect(res.status).toBe(403)
 
+    // Stable, client-safe error shape: a fixed code + a generic message.
+    // Backend / auth-service internals must never reach the browser.
+    const body = (await res.json()) as { code?: string; error?: string }
+    expect(body.code).toBe('identity_exchange_failed')
+    expect(body.error).toBe('Not authorized for this request.')
+    const serialized = JSON.stringify(body)
+    // The auth-service's raw failure text (status/body from the token
+    // endpoint) is logged server-side only — it must not leak downstream.
+    expect(serialized).not.toContain('exchange grant denied')
+    expect(serialized).not.toContain('token exchange failed')
+    expect(serialized).not.toContain('M2M')
+
     // The anonymous, tenant-wide M2M credential was never minted…
     expect(tokenCalls(f, CLIENT_CREDENTIALS_GRANT)).toHaveLength(0)
     // …and the backend was never hit with an elevated credential.

@@ -12,11 +12,14 @@ export interface MemoryStats {
    * Tenant-wide community count. Communities are graph clusters built
    * over the WHOLE tenant entity graph — community_node carries no
    * userId (migrations 0036 / 0055), so a per-user community count is
-   * not derivable. OMITTED for a userId-pinned (end-user) caller: a
-   * tenant-global figure on a personal "Usage" page would be a metadata
-   * leak. Present (tenant-wide) only for M2M / admin callers.
+   * not derivable. For a userId-pinned (end-user) caller it is reported
+   * as an explicit `null` — "not applicable for this scope" — which the
+   * Usage UI renders as "N/A", distinct from a genuine measured `0`.
+   * Surfacing the tenant-global figure on a personal page would be a
+   * metadata leak (audit F3), so the real count is present (a number)
+   * only for M2M / admin callers.
    */
-  communities?: number;
+  communities?: number | null;
   /** Facts recorded (learned) in the last 7 days. */
   factsLast7d: number;
   asOf: string;
@@ -130,8 +133,9 @@ export class StatsService {
       // caller's own rows PLUS tenant-global rows via the SAME read
       // predicate the fact/entity/search lanes use. `gate` is a constant
       // literal; $userId is a bound parameter. community_node has no
-      // userId, so its tenant-wide count is OMITTED here (not leaked to an
-      // end user).
+      // userId, so its tenant-wide count is reported as an explicit null
+      // ("N/A" in the UI) rather than a misleading 0 or the leaked
+      // tenant-global figure.
       const gate = '(userId IS NONE OR userId = $userId)';
       const sql = `
         SELECT count() AS c FROM knowledge_entity WHERE ${gate} GROUP ALL;
@@ -146,6 +150,9 @@ export class StatsService {
         factsActive: countOf(res[1]),
         factsCompeting: countOf(res[2]),
         factsRetracted: countOf(res[3]),
+        // Explicit "not applicable for a per-user scope" — never 0, never
+        // the tenant-global figure. The Usage UI renders null as "N/A".
+        communities: null,
         factsLast7d: countOf(res[4]),
         asOf: new Date(nowMs).toISOString(),
       };

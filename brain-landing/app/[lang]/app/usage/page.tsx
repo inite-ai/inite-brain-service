@@ -18,7 +18,9 @@ interface MemoryStats {
   factsActive: number
   factsCompeting: number
   factsRetracted: number
-  communities: number
+  // Communities are tenant-wide (community_node has no userId), so a
+  // per-user caller gets `null` here — rendered as "N/A", not a misleading 0.
+  communities: number | null
   factsLast7d: number
   asOf: string
 }
@@ -86,6 +88,10 @@ export default function UsagePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {CARDS.map((c) => {
               const Icon = c.icon
+              // null/undefined = "not applicable for this scope" (e.g.
+              // communities on a per-user page) → render "N/A", which is
+              // distinct from a genuine measured 0.
+              const value = stats[c.key]
               return (
                 <div
                   key={c.key}
@@ -96,7 +102,7 @@ export default function UsagePage() {
                     <span className="text-xs">{c.label}</span>
                   </div>
                   <div className="mt-1 text-2xl font-semibold text-[var(--text)] tabular-nums">
-                    {(stats[c.key] ?? 0).toLocaleString()}
+                    {value == null ? 'N/A' : value.toLocaleString()}
                   </div>
                   <div className="text-[10px] text-[var(--text-faint)]">
                     {c.hint}

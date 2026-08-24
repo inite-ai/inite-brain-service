@@ -313,6 +313,14 @@ export interface BrainResponse<T = unknown> {
   ok: boolean
   status: number
   data: T | null
+  /**
+   * Stable, client-safe error code (e.g. `identity_exchange_failed`).
+   * Set on the error responses this module *synthesizes* (token minting /
+   * transport failures). It deliberately carries NO backend or
+   * auth-service internals — those are logged server-side only — so the
+   * browser gets a fixed machine-readable code, never a leaked detail.
+   */
+  code?: string
   error?: string
 }
 
@@ -342,21 +350,34 @@ export async function brainFetch<T = unknown>(
         requireUserIdentity: options.requireUserIdentity,
       })
     } catch (err) {
-      // Fail-closed exchange (end-user path): surface a denial and never
-      // issue the backend request with a fallback credential.
+      // Never leak backend / auth-service internals to the browser. The
+      // detail (which grant failed, the auth-service status, its response
+      // body) is logged server-side; the client gets a STABLE code + a
+      // generic message so it can branch on the failure class without
+      // seeing token-endpoint diagnostics.
       if (err instanceof TokenExchangeError) {
+        // Fail-closed exchange (end-user path, #342): surface a denial and
+        // never issue the backend request with a fallback credential.
+        console.error(
+          `[brain-api] identity-preserving token exchange failed; failing closed (403): ${(err as Error).message}`,
+        )
         return {
           ok: false,
           status: 403,
           data: null,
-          error: (err as Error).message,
+          code: 'identity_exchange_failed',
+          error: 'Not authorized for this request.',
         }
       }
+      console.error(
+        `[brain-api] could not obtain a brain access token (500): ${(err as Error).message}`,
+      )
       return {
         ok: false,
         status: 500,
         data: null,
-        error: (err as Error).message,
+        code: 'auth_unavailable',
+        error: 'Authorization is temporarily unavailable.',
       }
     }
   }

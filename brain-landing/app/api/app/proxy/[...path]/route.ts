@@ -147,7 +147,7 @@ async function forward(
     headers: forwardDebug ? { 'X-Brain-Debug': '1' } : undefined,
   })
 
-  return NextResponse.json(res.data ?? { error: res.error }, {
+  return NextResponse.json(res.data ?? { error: res.error, code: res.code }, {
     status: res.status || (res.ok ? 200 : 502),
   })
 }
