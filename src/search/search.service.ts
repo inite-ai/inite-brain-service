@@ -2,7 +2,8 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { detectLanguage } from '../ai/locale/language-detector';
+import { detectLanguage, DETECTOR_VERSION } from '../ai/locale/language-detector';
+import { MetricsService } from '../metrics/metrics.service';
 import { SearchDto, SearchMode } from './dto/search.dto';
 import { withSpan } from '../common/tracing';
 import { clampLlmInputText } from '../common/input-limits';
@@ -74,6 +75,16 @@ interface StagedPipeline {
   neighboursByEntity: Map<string, Neighbour[]>;
 }
 
+/**
+ * Query-language confidence floor for the multilingual Tier-1 soft boost
+ * (MULTILINGUAL_SOFT_LANG_FILTER). At/above it the detected query language
+ * is trusted enough to tilt ranking toward same-language facts; below it
+ * the boost is withheld (no exclusion either — soft mode never filters).
+ * An explicit dto.queryLang is treated as confidence 1, so it always
+ * clears the floor. Module-private (not a tunable knob in Tier 1).
+ */
+const LANG_QUERY_HIGH_CONFIDENCE = 0.5;
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
@@ -93,6 +104,11 @@ export class SearchService {
     // Sixth: the per-tenant derived-world pin (audit W2). Optional so
     // positionally-constructed unit tests fall back to the env default.
     @Optional() private readonly readPin?: ReadPinService,
+    // Seventh: metrics sink for multilingual Tier-1 query-surface
+    // attribution telemetry (behaviour-neutral; emitted only when
+    // MULTILINGUAL_LANG_ATTRIBUTION is on). Optional so positional unit
+    // constructions omit it.
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -114,17 +130,56 @@ export class SearchService {
   }
 
   /**
-   * Resolve the lang code to push into the WHERE builder. Honour an
-   * explicit dto.queryLang first; otherwise run the pure detector on
-   * the query text. Returns undefined when detection is `und` or the
-   * caller opted out via dto.disableLangFilter, so callers downstream
-   * fall back to the single-pass behaviour.
+   * Resolve the query-language signal — the code AND the detector's
+   * confidence — that drives the locale WHERE filter and the multilingual
+   * Tier-1 soft boost. Honour an explicit dto.queryLang first (treated as
+   * fully confident); otherwise run the pure detector on the query text.
+   * Returns undefined when detection is `und` or the caller opted out via
+   * dto.disableLangFilter, so callers fall back to the single-pass, no-lang
+   * behaviour. The confidence is what MULTILINGUAL_SOFT_LANG_FILTER gates
+   * on: the same-language boost only fires for a high-confidence query
+   * language (a bare `en` fallback carries confidence 0 and never boosts).
    */
-  private resolveLangFilter(dto: SearchDto): string | undefined {
+  private resolveLangSignal(dto: SearchDto): { lang: string; confidence: number } | undefined {
     if (dto.disableLangFilter) return undefined;
-    if (dto.queryLang) return dto.queryLang;
+    if (dto.queryLang) return { lang: dto.queryLang, confidence: 1 };
     const detected = detectLanguage(dto.query);
-    return detected.language === 'und' ? undefined : detected.language;
+    return detected.language === 'und'
+      ? undefined
+      : { lang: detected.language, confidence: detected.confidence };
+  }
+
+  /**
+   * Multilingual Tier 1 read-mode for one request. Resolves the query
+   * language, decides whether MULTILINGUAL_SOFT_LANG_FILTER's boost applies
+   * (soft flag on AND high-confidence query language), and emits the
+   * behaviour-neutral query-surface attribution telemetry (only when
+   * MULTILINGUAL_LANG_ATTRIBUTION is on). Both flags off ⇒ `softBoost`
+   * false, no telemetry ⇒ byte-identical. Extracted from runDbStages to
+   * hold that method under the complexity gate.
+   */
+  private resolveLangMode(ctx: PipelineContext): {
+    langFilter: string | undefined;
+    softBoost: boolean;
+  } {
+    const langSignal = this.resolveLangSignal(ctx.dto);
+    // The boost turns the hard same-language exclusion into a ranking
+    // signal (the where-builder drops the exclusion; scoreRows demotes
+    // cross-lingual rows) — but only for a confidently-detected query
+    // language; below the floor there is neither an exclusion nor a boost.
+    const softBoost =
+      ctx.tuning.softLangFilter &&
+      langSignal !== undefined &&
+      langSignal.confidence >= LANG_QUERY_HIGH_CONFIDENCE;
+    if (ctx.tuning.langAttribution && langSignal) {
+      this.metrics?.recordLangAttribution({
+        lang: langSignal.lang,
+        source: 'query',
+        confidence: langSignal.confidence,
+        detectorVersion: DETECTOR_VERSION,
+      });
+    }
+    return { langFilter: langSignal?.lang, softBoost };
   }
 
   /**
@@ -355,7 +410,7 @@ export class SearchService {
     // (or honour the explicit dto.queryLang) and apply a two-pass
     // filter → cross-lingual backoff strategy. `und` or disabled →
     // single-pass exactly as before.
-    const langFilter = this.resolveLangFilter(ctx.dto);
+    const { langFilter, softBoost } = this.resolveLangMode(ctx);
     const baseWhere = buildBaseWhere({
       dto: ctx.dto,
       asOf: ctx.asOf,
@@ -364,7 +419,7 @@ export class SearchService {
       derivedVersion: ctx.derivedVersion,
       temporalMode: ctx.profile.temporalMode,
       excludeInsightRows: ctx.profile.insightEvidence !== 'off',
-      opts: { langFilter },
+      opts: { langFilter, langBoost: softBoost },
     });
     traceArtifact('search.query', {
       query: ctx.dto.query,
@@ -375,8 +430,11 @@ export class SearchService {
     });
 
     // 1. Retrieval legs (parallel) + fusion, with cross-lingual backoff.
+    // The backoff only exists to recover recall lost to the HARD lang
+    // exclusion; under softBoost there is no exclusion (other-language
+    // rows are already retrieved and merely down-ranked), so skip it.
     const fused = await this.retrieval.runRetrievalStage(db, ctx, baseWhere);
-    if (langFilter && fused.length < ctx.candidateK / 2) {
+    if (langFilter && !softBoost && fused.length < ctx.candidateK / 2) {
       // Capture the first-pass size BEFORE the merge loop mutates `fused`.
       const firstPassCount = fused.length;
       const fallbackWhere = buildBaseWhere({
@@ -487,6 +545,9 @@ export class SearchService {
       tuning: ctx.tuning,
       salienceScoring: ctx.profile.salienceScoring,
       queryRange: ctx.queryRange ?? null,
+      // Multilingual Tier 1: same-language ranking boost, only in softBoost
+      // mode (soft flag on + high-confidence query language). Null → 1.0.
+      langBoost: softBoost && langFilter ? { lang: langFilter } : null,
     });
 
     // 5. Edge expansion (default ON) — graph-walk from top seeds. When the

@@ -21,6 +21,17 @@ export interface BaseWhereOptions {
    * avoids regressing recall while the corpus catches up).
    */
   langFilter?: string | undefined;
+  /**
+   * Multilingual Tier 1 (MULTILINGUAL_SOFT_LANG_FILTER + high query-lang
+   * confidence). When true the hard same-language EXCLUSION below is
+   * DROPPED — other-language rows survive retrieval — and the same-language
+   * preference becomes a RANKING boost applied downstream in the scoring
+   * stage (scoreRows langBoost) instead of an exclusion. Off/undefined ⇒
+   * the hard filter is emitted exactly as today (byte-identical). The
+   * caller (search.service) decides the mode: soft flag on AND the query
+   * language was detected with high confidence.
+   */
+  langBoost?: boolean | undefined;
 }
 
 export interface BuildBaseWhereOptions {
@@ -144,11 +155,16 @@ export function buildBaseWhere({
       return new StringRecordId(`knowledge_entity:${id}`);
     });
   }
-  if (opts.langFilter && !dto.disableLangFilter) {
+  if (opts.langFilter && !dto.disableLangFilter && !opts.langBoost) {
     // Pre-Phase-4 facts have lang IS NONE — keep them visible so
     // back-filling the corpus is a soft migration, not a recall
     // cliff. Recall-critical callers can disable via
     // `disableLangFilter: true`.
+    //
+    // Multilingual Tier 1: under langBoost (MULTILINGUAL_SOFT_LANG_FILTER
+    // + high query-lang confidence) this hard exclusion is SKIPPED — the
+    // same-language preference is applied as a ranking boost in scoring,
+    // never as a filter, so a cross-lingual answer is demoted, not hidden.
     clauses.push(`AND (lang = $langFilter OR lang IS NONE)`);
     params.langFilter = opts.langFilter;
   }

@@ -82,7 +82,7 @@ export async function runVectorLeg({
       SELECT
         id, entityId, predicate, predicateAlias, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration, userId,
+        trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
         vector::similarity::cosine(embedding, $q) AS simScore
@@ -126,7 +126,7 @@ async function runVectorLegKnn({
   const projection = `
         id, entityId, predicate, predicateAlias, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration, userId,
+        trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
   //
@@ -207,7 +207,7 @@ export async function runLexicalLeg({
       SELECT
         id, entityId, predicate, predicateAlias, object, confidence,
         validFrom, validUntil, recordedAt, retractedAt, status, source,
-        trustSnapshot, corroboration, userId,
+        trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${highlightProjection(tuning.highlightEnabled)}
         math::max([search::score(1), search::score(2)]) AS bm25Score

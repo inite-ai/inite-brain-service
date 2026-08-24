@@ -28,15 +28,45 @@
  * corpora ever land.
  */
 
+import { envFlagEnabled } from '../../common/env-validation';
+
 export type LanguageCode =
   'en' | 'ru' | 'es' | 'fr' | 'de' | 'pt' | 'it' | 'zh' | 'ja' | 'ko' | 'ar' | 'hi' | 'und';
 
 export type ScriptCode = 'Latn' | 'Cyrl' | 'Hani' | 'Hira' | 'Hang' | 'Arab' | 'Deva' | 'Zyyy';
 
+/**
+ * Version tag of THIS detector — the stopword + Unicode-block scheme.
+ * Stamped onto every DetectedLanguage and persisted (as `detectorVersion`)
+ * by the attribution write path so a re-fit / backfill can be attributed
+ * and telemetry can slice by detector generation. Bump when the scoring
+ * scheme or stopword tables change materially.
+ */
+export const DETECTOR_VERSION = 'stopword-v1';
+
 export interface DetectedLanguage {
   language: LanguageCode;
   script: ScriptCode;
   confidence: number;
+  /** Version of the detector that produced this label (DETECTOR_VERSION). */
+  detectorVersion: string;
+}
+
+/** Stamp the shared detectorVersion onto a result so no call site forgets it. */
+function det(language: LanguageCode, script: ScriptCode, confidence: number): DetectedLanguage {
+  return { language, script, confidence, detectorVersion: DETECTOR_VERSION };
+}
+
+/**
+ * Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
+ * off). When ON, the Latin stopword path returns `und` (not `en`) for
+ * short / stopword-less / numeric tokens — the honest "undetermined"
+ * label — instead of silently defaulting to English. When OFF the detector
+ * is byte-identical to Phase 4 (the `en` fallback). Read at call time so a
+ * live flip lands immediately; a caller can force the mode for tests.
+ */
+function attributionEnabled(): boolean {
+  return envFlagEnabled(process.env.MULTILINGUAL_LANG_ATTRIBUTION);
 }
 
 // Top-30 stopwords per Latin-script language. Ordered by frequency so
@@ -254,46 +284,49 @@ const STOPWORD_SETS: Map<string, Set<string>> = new Map(
   Object.entries(STOPWORDS_BY_LANG).map(([lang, words]) => [lang, new Set(words)]),
 );
 
-export function detectLanguage(text: string): DetectedLanguage {
+export function detectLanguage(
+  text: string,
+  attribution: boolean = attributionEnabled(),
+): DetectedLanguage {
   const trimmed = text.trim();
   if (!trimmed) {
-    return { language: 'und', script: 'Zyyy', confidence: 0 };
+    return det('und', 'Zyyy', 0);
   }
 
   const blocks = countUnicodeBlocks(trimmed);
   const total = blocks.total;
   if (total === 0) {
-    return { language: 'und', script: 'Zyyy', confidence: 0 };
+    return det('und', 'Zyyy', 0);
   }
 
   // Non-Latin scripts triage. Threshold 0.4 of letters in the script —
   // covers mixed-script input where the substantive content is in the
   // target script and the rest is whitespace, punctuation, or digits.
   if (blocks.cyrillic / total > 0.4) {
-    return { language: 'ru', script: 'Cyrl', confidence: blocks.cyrillic / total };
+    return det('ru', 'Cyrl', blocks.cyrillic / total);
   }
   if (blocks.hangul / total > 0.3) {
-    return { language: 'ko', script: 'Hang', confidence: blocks.hangul / total };
+    return det('ko', 'Hang', blocks.hangul / total);
   }
   if ((blocks.hiragana + blocks.katakana) / total > 0.2) {
     const c = (blocks.hiragana + blocks.katakana + blocks.han) / total;
-    return { language: 'ja', script: 'Hira', confidence: c };
+    return det('ja', 'Hira', c);
   }
   if (blocks.han / total > 0.3) {
-    return { language: 'zh', script: 'Hani', confidence: blocks.han / total };
+    return det('zh', 'Hani', blocks.han / total);
   }
   if (blocks.arabic / total > 0.3) {
-    return { language: 'ar', script: 'Arab', confidence: blocks.arabic / total };
+    return det('ar', 'Arab', blocks.arabic / total);
   }
   if (blocks.devanagari / total > 0.3) {
-    return { language: 'hi', script: 'Deva', confidence: blocks.devanagari / total };
+    return det('hi', 'Deva', blocks.devanagari / total);
   }
 
   // Latin path — stopword scoring.
-  return scoreLatinLanguage(trimmed);
+  return scoreLatinLanguage(trimmed, attribution);
 }
 
-function scoreLatinLanguage(text: string): DetectedLanguage {
+function scoreLatinLanguage(text: string, attribution: boolean): DetectedLanguage {
   const tokens = text
     .toLowerCase()
     .normalize('NFC')
@@ -301,7 +334,7 @@ function scoreLatinLanguage(text: string): DetectedLanguage {
     .filter((t) => t.length > 0);
 
   if (tokens.length === 0) {
-    return { language: 'und', script: 'Latn', confidence: 0 };
+    return det('und', 'Latn', 0);
   }
 
   let bestLang: LanguageCode = 'en';
@@ -315,11 +348,17 @@ function scoreLatinLanguage(text: string): DetectedLanguage {
     }
   }
 
-  return {
-    language: bestLang,
-    script: 'Latn',
-    confidence: bestScore / tokens.length,
-  };
+  // Confidence-aware attribution: with ZERO stopword hits there is no
+  // Latin-language signal at all — a bare `en` label is a systematic
+  // mislabel for numeric / short / code-switched objects. Under the flag
+  // we report `und` (undetermined) so the resolver can inherit the source
+  // language or record low confidence; off → the historical `en` fallback
+  // (byte-identical Phase 4 behaviour).
+  if (attribution && bestScore === 0) {
+    return det('und', 'Latn', 0);
+  }
+
+  return det(bestLang, 'Latn', bestScore / tokens.length);
 }
 
 interface UnicodeBlockCounts {

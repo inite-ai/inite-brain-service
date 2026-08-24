@@ -112,7 +112,26 @@ export interface ScoreRowsOptions {
    * Defaults to USAGE_SATURATION_DEFAULT.
    */
   usageSaturation?: number;
+  /**
+   * Multilingual Tier 1 same-language boost (MULTILINGUAL_SOFT_LANG_FILTER
+   * + high query-lang confidence). When set, a row whose `lang` equals
+   * `langBoost.lang` is multiplied by `1 + (beta ?? LANG_BOOST_BETA)` — a
+   * pure ranking signal that REPLACES the hard same-language WHERE filter
+   * (the exclusion is dropped in the where-builder under the same gate).
+   * Null/undefined, a row without `lang`, or a different language → factor
+   * exactly 1.0 → byte-identical ranking. Rows with `lang IS NONE`
+   * (pre-Phase-4) are never boosted, so they are neither hidden nor
+   * artificially demoted below a same-language match.
+   */
+  langBoost?: { lang: string; beta?: number } | null;
 }
+
+/**
+ * Default multiplicative strength of the same-language boost — a gentle
+ * nudge (matches the trust/usage β convention: a ranking tilt, never a
+ * gate). Module-private: not a tunable knob in Tier 1.
+ */
+const LANG_BOOST_BETA = 0.15;
 
 /**
  * Default readCount at which the usage squash saturates (~1.0). A read
@@ -245,7 +264,23 @@ export function scoreRows({
   salienceScoring = false,
   usageBeta = 0,
   usageSaturation = USAGE_SATURATION_DEFAULT,
+  langBoost = null,
 }: ScoreRowsOptions): ScoredRow[] {
+  // Multilingual Tier 1 same-language factor: `1 + β` when the row's stored
+  // content language matches the (high-confidence) query language; 1.0
+  // otherwise, for a langless row, or when the boost is off. Returns the
+  // breakdown fragment alongside (empty when the factor is 1.0) so the
+  // per-row map arrow stays under the complexity gate — the usageFactorFor
+  // shape.
+  const langFactorFor = (
+    rowLang: unknown,
+  ): { langFactor: number; langBreakdown: { langBoost: number } | object } => {
+    const langFactor =
+      langBoost && typeof rowLang === 'string' && rowLang === langBoost.lang
+        ? 1 + (langBoost.beta ?? LANG_BOOST_BETA)
+        : 1;
+    return { langFactor, langBreakdown: langFactor !== 1 ? { langBoost: langFactor } : {} };
+  };
   const salienceFactorFor = (source: unknown): number => {
     if (!salienceScoring) return 1;
     const s = (source as { salience?: unknown } | null)?.salience;
@@ -324,6 +359,7 @@ export function scoreRows({
     // strength gate. Either off, or a fact search never surfaced → 1.0 →
     // byte-identical ranking.
     const { usageFactor, usageBreakdown } = usageFactorFor(row, usageBeta, usageSaturation);
+    const { langFactor, langBreakdown } = langFactorFor(row.lang);
     const finalScore =
       row.fusedScore *
       decay *
@@ -335,7 +371,8 @@ export function scoreRows({
       temporalOverlap *
       timeRange *
       salienceFactor *
-      usageFactor;
+      usageFactor *
+      langFactor;
     return {
       row,
       score: finalScore,
@@ -348,6 +385,7 @@ export function scoreRows({
         ...(temporalOverlap !== 1 ? { temporalOverlap } : {}),
         ...(timeRange !== 1 ? { timeRange } : {}),
         ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
+        ...langBreakdown,
         ...usageBreakdown,
         factTrust,
         finalScore,

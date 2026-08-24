@@ -301,6 +301,34 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Language-attribution distribution (multilingual Tier 1,
+  // MULTILINGUAL_LANG_ATTRIBUTION). One series per (detected language ×
+  // surface × detector version) — the Prometheus mirror of the Tier-0
+  // aggregator's byLanguage / bySource / byDetectorVersion rollups
+  // (test/eval/metrics/language-attribution.ts). Labels are bounded:
+  // ~13 languages (incl. 'und') × 4 surfaces × a small detector-version
+  // set; no companyId (unbounded cardinality, same rule as every other
+  // domain counter). Emitted ONLY while attribution is on — off = no
+  // series, byte-identical.
+  //   lang: en|ru|es|…|und   source: query|fact|answer|mention
+  readonly langAttribution = new Counter({
+    name: 'brain_lang_attribution_total',
+    help: 'Language-attribution decisions by detected language, surface, and detector version',
+    labelNames: ['lang', 'source', 'detectorVersion'] as const,
+    registers: [this.registry],
+  });
+
+  // Confidence distribution of the same decisions, per surface — supplies
+  // the aggregator's meanConfidence (via _sum/_count) and lowConfidenceRate
+  // (the cumulative bucket at the 0.7 threshold). Bounded to the 4 surfaces.
+  readonly langAttributionConfidence = new Histogram({
+    name: 'brain_lang_attribution_confidence',
+    help: 'Detector confidence of language-attribution decisions, by surface',
+    labelNames: ['source'] as const,
+    buckets: [0.1, 0.3, 0.5, 0.7, 0.9, 1],
+    registers: [this.registry],
+  });
+
   readonly retracts = new Counter({
     name: 'brain_retract_total',
     help: 'Number of fact retractions',
@@ -637,6 +665,31 @@ export class MetricsService implements OnModuleInit {
     outcome: 'suppressed' | 'no_model' | 'low_confidence' | 'floor_kept' | 'no_op',
   ): void {
     this.lensSuppressionCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  /**
+   * Record one language-attribution decision (multilingual Tier 1). The
+   * argument is exactly the Tier-0 `LanguageAttributionSample` shape
+   * (src/eval/types.ts), so the emitted series roll up to the same
+   * distribution report the eval aggregator produces. Behaviour-neutral —
+   * callers invoke it only while MULTILINGUAL_LANG_ATTRIBUTION is on, so
+   * with the flag off nothing is emitted and serving is byte-identical.
+   */
+  recordLangAttribution(sample: {
+    lang: string;
+    source: 'query' | 'fact' | 'answer' | 'mention';
+    confidence: number;
+    detectorVersion: string;
+  }): void {
+    this.langAttribution.inc({
+      lang: sample.lang,
+      source: sample.source,
+      detectorVersion: sample.detectorVersion,
+    } as LabelValues<'lang' | 'source' | 'detectorVersion'>);
+    this.langAttributionConfidence.observe(
+      { source: sample.source } as LabelValues<'source'>,
+      sample.confidence,
+    );
   }
 
   countRetract(): void {

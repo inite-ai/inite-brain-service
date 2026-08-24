@@ -132,6 +132,26 @@ describe('UserProfileService — SQL contract', () => {
     await svc2.getProfile({ ...baseOpts });
     expect(capture2[0]!.sql).not.toContain('langFilter');
   });
+
+  it('MULTILINGUAL_SOFT_LANG_FILTER → drops the hard exclusion, orders by lang-match', async () => {
+    const FLAG = 'MULTILINGUAL_SOFT_LANG_FILTER';
+    const saved = process.env[FLAG];
+    process.env[FLAG] = '1';
+    try {
+      const capture: Capture[] = [];
+      const svc = makeService({ rows: [], capture, readPin: null });
+      await svc.getProfile({ ...baseOpts, lang: 'en' });
+      const { sql, params } = capture[0]!;
+      // Soft mode: no WHERE exclusion — the language becomes a ranking
+      // preference in the fetch order (same-language first), never a filter.
+      expect(sql).not.toContain('lang = $langFilter OR lang IS NONE');
+      expect(sql).toContain('ORDER BY (lang = $langFilter) DESC, validFrom DESC, id ASC');
+      expect(params?.langFilter).toBe('en');
+    } finally {
+      if (saved === undefined) delete process.env[FLAG];
+      else process.env[FLAG] = saved;
+    }
+  });
 });
 
 describe('UserProfileService — assembly', () => {

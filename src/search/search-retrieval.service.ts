@@ -213,6 +213,12 @@ export class SearchRetrievalService {
        * timeFilter). Null/omitted → factor 1.0, byte-identical.
        */
       queryRange?: QueryTimeRange | null;
+      /**
+       * Multilingual Tier 1 same-language boost (MULTILINGUAL_SOFT_LANG_FILTER
+       * + high query-lang confidence). Null/omitted → factor 1.0,
+       * byte-identical ranking.
+       */
+      langBoost?: { lang: string } | null;
     },
   ): Map<string, EntityBucket> {
     const tuning = opts?.tuning ?? resolveSearchTuning();
@@ -235,6 +241,7 @@ export class SearchRetrievalService {
       // unattached readCount.
       usageBeta: tuning.usageRanking ? tuning.usageBeta : 0,
       usageSaturation: tuning.usageSaturation,
+      langBoost: opts?.langBoost ?? null,
     });
     return bucketByEntity(scored);
   }
