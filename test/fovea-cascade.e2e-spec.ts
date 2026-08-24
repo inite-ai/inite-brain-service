@@ -301,7 +301,10 @@ describe('fovea cascade shakedown — full stack composed', () => {
     // Repeat (typographic variant): served from cache, LLM never called.
     const hitBefore = await cacheMetric('hit');
     const s2 = mockSynthesizeOpenAi(f.app, [
-      JSON.stringify({ answer: 'A DIFFERENT answer that must not surface.', citedFactIds: [cacheFactId] }),
+      JSON.stringify({
+        answer: 'A DIFFERENT answer that must not surface.',
+        citedFactIds: [cacheFactId],
+      }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
     const r2 = await synth({ query: `  ${CACHE_QUERY.toUpperCase()}?`, userId: 'u_cache' });
@@ -401,7 +404,10 @@ describe('fovea cascade shakedown — full stack composed', () => {
 
     // User A: grounded + admitted to the cache under user_a's partition.
     const sa = mockSynthesizeOpenAi(f.app, [
-      JSON.stringify({ answer: 'The secret is obsidian-scope-marker.', citedFactIds: [scopeFactId] }),
+      JSON.stringify({
+        answer: 'The secret is obsidian-scope-marker.',
+        citedFactIds: [scopeFactId],
+      }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const ra = await synth({ query: SCOPE_QUERY, userId: 'user_a' });
