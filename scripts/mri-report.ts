@@ -22,6 +22,7 @@ import { readerFromPromJson } from '../src/mri/metrics-reader';
 import { buildMriReport } from '../src/mri/mri-collectors';
 import { loadSuiteLedger } from '../src/mri/suite-status';
 import { renderMriMarkdown } from '../src/mri/mri-markdown';
+import { plausibilityCheckEnabled } from '../src/common/fovea-flags';
 import type { MriReport } from '../src/mri/mri.types';
 
 async function fetchLive(url: string, key: string): Promise<MriReport> {
@@ -36,9 +37,10 @@ async function fetchLive(url: string, key: string): Promise<MriReport> {
 
 function buildCold(): MriReport {
   // Empty reader → no counters/histograms; live dims render pending honestly.
+  // The premise-awareness DEFENSE state still reflects the real flag (read-only).
   const reader = readerFromPromJson([]);
   const ledger = loadSuiteLedger();
-  return buildMriReport(reader, ledger);
+  return buildMriReport(reader, ledger, { plausibilityCheckEnabled: plausibilityCheckEnabled() });
 }
 
 async function main(): Promise<void> {

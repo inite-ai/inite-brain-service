@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { MetricsService } from '../metrics/metrics.service';
+import { plausibilityCheckEnabled } from '../common/fovea-flags';
 import { readerFromPromJson, type PromMetricJson } from './metrics-reader';
 import { buildMriReport, type BuildMriReportOptions } from './mri-collectors';
 import { loadSuiteLedger, DEFAULT_LEDGER_PATH } from './suite-status';
@@ -24,12 +25,18 @@ export class MriService {
 
   constructor(private readonly metrics: MetricsService) {}
 
-  /** Build a fresh report from live telemetry + the ledger, persist, and return. */
+  /** Build a fresh report from live telemetry + the ledger, persist, and return.
+   *  Resolves the premise-awareness DEFENSE state (FOVEA_PLAUSIBILITY_CHECK) via
+   *  the common-layer flag reader — a read-only config read, no serving-path
+   *  touch — unless the caller pinned it explicitly (tests). */
   async generate(options: BuildMriReportOptions = {}): Promise<MriReport> {
     const json = (await this.metrics.registry.getMetricsAsJSON()) as unknown as PromMetricJson[];
     const reader = readerFromPromJson(json);
     const ledger = loadSuiteLedger(this.ledgerPath);
-    const report = buildMriReport(reader, ledger, options);
+    const report = buildMriReport(reader, ledger, {
+      ...options,
+      plausibilityCheckEnabled: options.plausibilityCheckEnabled ?? plausibilityCheckEnabled(),
+    });
     this.persist(report);
     return report;
   }

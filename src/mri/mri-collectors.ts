@@ -87,24 +87,73 @@ function structuralDim(
 }
 
 /**
- * Premise-awareness — structural. MemTrap shakedown pass status, enriched with
- * the FOVEA_PLAUSIBILITY_CHECK downgrade counter IF the serving path emits one
- * (it currently does not — noted in source, never fabricated).
+ * Premise-awareness — the actual belief-distortion DEFENSE posture, NOT merely
+ * "the MemTrap suite passed".
+ *
+ * The MemTrap shakedown suite DOCUMENTS AND ASSERTS current EXPOSURES — its
+ * class-4 case asserts that a cited counterfactual/sandbox premise makes a
+ * distorted answer verify as `supported` and be SERVED. So a passing suite means
+ * "the exposures are as documented / gated against regression", NOT "we are
+ * premise-aware". Rendering that as a green `pass` would be a false green.
+ *
+ * The real defense is FOVEA_PLAUSIBILITY_CHECK (the post-grounding plausibility
+ * judge that downgrades an implausible cited premise to an abstain). This cell
+ * therefore reflects that flag's state, resolved read-only by the service from
+ * `plausibilityCheckEnabled()` and passed in:
+ *   - defense OFF  → `exposed` (never a pass): the documented belief-distortion
+ *     answer is live. Backed by the suite that documents the exposure.
+ *   - defense ON   → `defended`: report the live downgrade activity from
+ *     brain_plausibility_downgrade_total (the metric prod actually emits).
  */
-function premiseAwarenessDim(
-  reader: MetricsReader,
-  ledger: SuiteLedger,
-  nowIso: string,
-): MriDimension {
-  const base = structuralDim(PREMISE_SUITE, { ledger, nowIso });
-  const plausibilitySeries = reader.counter('brain_fovea_plausibility_downgrade_total');
-  if (plausibilitySeries.length > 0) {
-    const downgrades = sumCounter(reader, 'brain_fovea_plausibility_downgrade_total');
-    return { ...base, source: `${base.source}; FOVEA_PLAUSIBILITY_CHECK downgrades=${downgrades}` };
+function premiseAwarenessDim(args: {
+  reader: MetricsReader;
+  ledger: SuiteLedger;
+  nowIso: string;
+  plausibilityCheckEnabled: boolean;
+}): MriDimension {
+  const { reader, ledger, nowIso, plausibilityCheckEnabled } = args;
+  const entry = ledger[PREMISE_SUITE.key];
+  const suiteRef = PREMISE_SUITE.files.join(', ');
+  const docRef = PREMISE_SUITE.doc ? ` (${PREMISE_SUITE.doc})` : '';
+  const suiteStatus = entry
+    ? `MemTrap shakedown suite ${suiteRef}${docRef} last-recorded ${entry.status}${
+        entry.commit ? ` @ ${entry.commit}` : ''
+      } (${entry.recordedAt}) — documents current EXPOSURES, not premise-awareness`
+    : `MemTrap shakedown suite ${suiteRef}${docRef} status unrecorded`;
+
+  if (!plausibilityCheckEnabled) {
+    return {
+      value: 'exposed',
+      source: `FOVEA_PLAUSIBILITY_CHECK OFF (no post-grounding plausibility judge); ${suiteStatus}`,
+      asOf: nowIso,
+      evalGated: false,
+      kind: 'structural',
+      reason:
+        'FOVEA_PLAUSIBILITY_CHECK is off, so the belief-distortion defense does not run: a cited ' +
+        'counterfactual/sandbox premise still makes a distorted answer verify as `supported` and be ' +
+        'served (MemTrap shakedown class 4, asserted as a CURRENT exposure). A passing MemTrap suite ' +
+        'only certifies the exposures are as documented, NOT that we are premise-aware — so this is ' +
+        'not a pass.',
+    };
   }
+
+  const downgradeSeries = reader.counter('brain_plausibility_downgrade_total');
+  const downgrades = sumCounter(reader, 'brain_plausibility_downgrade_total');
+  const noActivity =
+    downgradeSeries.length === 0
+      ? {
+          reason:
+            'FOVEA_PLAUSIBILITY_CHECK is on but no supported-answer downgrades have been observed ' +
+            'in the current window (brain_plausibility_downgrade_total absent/zero)',
+        }
+      : {};
   return {
-    ...base,
-    source: `${base.source}; FOVEA_PLAUSIBILITY_CHECK downgrade counter not emitted`,
+    value: 'defended',
+    source: `FOVEA_PLAUSIBILITY_CHECK ON; brain_plausibility_downgrade_total downgrades=${downgrades}; ${suiteStatus}`,
+    asOf: nowIso,
+    evalGated: false,
+    kind: 'live',
+    ...noActivity,
   };
 }
 
@@ -142,23 +191,35 @@ function citationCoverageDim(reader: MetricsReader, nowIso: string): MriDimensio
   });
 }
 
-/** Cost & latency — live (Part 1 axes). tokens/query off the token counters. */
-function tokensPerQueryDim(reader: MetricsReader, nowIso: string): MriDimension {
-  const synthTotal = sumCounter(reader, 'brain_synthesize_total');
+/**
+ * Tokens/query — live (Part 1 axis). All-AI tokens ÷ TERMINAL synthesize count
+ * (`point.sampleCount`, the per-request denominator — not the double-counting
+ * raw brain_synthesize_total). Like cost, this is an UPPER BOUND: the token
+ * counters carry no per-subsystem label, so non-synthesize AI tokens are
+ * attributed to synthesize requests. Labelled as such, never a per-answer count.
+ */
+function tokensPerQueryDim(
+  reader: MetricsReader,
+  point: PolicyOperatingPoint,
+  nowIso: string,
+): MriDimension {
+  const source =
+    'brain_openai_tokens_total (all-AI: embed+chat across derive/dreams/ingest/synthesize) ÷ terminal synthesize count — UPPER BOUND, not synthesize-only';
   const tokens = sumCounter(reader, 'brain_openai_tokens_total');
-  if (synthTotal <= 0) {
+  if (point.sampleCount <= 0) {
     return pendingCell({
-      source: 'brain_openai_tokens_total ÷ brain_synthesize_total',
-      reason: 'no synthesize traffic in the current window (0 queries) — no rate to report',
+      source,
+      reason:
+        'no terminal synthesize traffic in the current window (0 requests) — no rate to report',
       evalGated: false,
       kind: 'live',
       asOf: nowIso,
     });
   }
   return {
-    value: tokens / synthTotal,
-    unit: 'tokens/query',
-    source: 'brain_openai_tokens_total ÷ brain_synthesize_total',
+    value: tokens / point.sampleCount,
+    unit: 'tokens/query (all-AI upper bound)',
+    source,
     asOf: nowIso,
     evalGated: false,
     kind: 'live',
@@ -169,71 +230,66 @@ function costLatencyDims(
   point: PolicyOperatingPoint,
   nowIso: string,
 ): Record<string, MriDimension> {
+  // Cost is an UPPER BOUND: the token counters are not separable by subsystem,
+  // so global AI spend is divided by the synthesize request count. The cell key,
+  // unit, and source all say so — it is never presented as the per-answer cost.
   const costSource =
-    'brain_openai_tokens_total × assumed price table (tokens exact; USD conversion assumed) ÷ brain_synthesize_total';
+    'all-AI tokens (embed+chat across derive/dreams/ingest/synthesize — NOT synthesize-only; the token counters carry no per-subsystem label) × assumed price table ÷ terminal synthesize count. UPPER BOUND, not the true per-answer cost.';
+  // No per-query latency histogram is emitted on the serving path:
+  // brain_search_duration_seconds is defined in metrics.service.ts but
+  // observeSearchDuration() is never called outside a unit test. Adding a
+  // serving-path histogram is a separate follow-up (this layer is read-only), so
+  // latency renders `pending` with that reason — never a fabricated number.
+  const latencyReason = 'no per-query latency histogram is emitted on the serving path';
   const latencySource =
-    'brain_search_duration_seconds histogram quantile (search-stage; no end-to-end query histogram is emitted)';
+    'per-query latency histogram (brain_search_duration_seconds is defined but never observed on the serving path)';
 
   const cost: MriDimension =
-    point.costPerQuery === null
+    point.costPerQueryUpperBound === null
       ? pendingCell({
           source: costSource,
-          reason: 'no synthesize traffic in the current window (0 queries)',
+          reason: 'no terminal synthesize traffic in the current window (0 requests)',
           evalGated: false,
           kind: 'live',
           asOf: nowIso,
         })
       : {
-          value: point.costPerQuery,
-          unit: 'USD/query',
+          value: point.costPerQueryUpperBound,
+          unit: 'USD/query (all-AI upper bound)',
           source: costSource,
           asOf: nowIso,
           evalGated: false,
           kind: 'live',
         };
 
-  const p50: MriDimension =
-    point.latencyP50 === null
-      ? pendingCell({
-          source: latencySource,
-          reason: 'no search-latency samples in the current window',
-          evalGated: false,
-          kind: 'live',
-          asOf: nowIso,
-        })
-      : {
-          value: point.latencyP50,
-          unit: 'seconds',
-          source: latencySource,
-          asOf: nowIso,
-          evalGated: false,
-          kind: 'live',
-        };
+  const latencyPending = (): MriDimension =>
+    pendingCell({
+      source: latencySource,
+      reason: latencyReason,
+      evalGated: false,
+      kind: 'pending',
+      asOf: nowIso,
+    });
 
-  const p95: MriDimension =
-    point.latencyP95 === null
-      ? pendingCell({
-          source: latencySource,
-          reason: 'no search-latency samples in the current window',
-          evalGated: false,
-          kind: 'live',
-          asOf: nowIso,
-        })
-      : {
-          value: point.latencyP95,
-          unit: 'seconds',
-          source: latencySource,
-          asOf: nowIso,
-          evalGated: false,
-          kind: 'live',
-        };
-
-  return { costPerQueryUsd: cost, latencyP50Seconds: p50, latencyP95Seconds: p95 };
+  return {
+    costPerQueryUpperBoundUsd: cost,
+    latencyP50Seconds: latencyPending(),
+    latencyP95Seconds: latencyPending(),
+  };
 }
 
 export interface BuildMriReportOptions {
   now?: Date;
   operatingPoint?: CollectOperatingPointOptions;
+  /**
+   * Actual premise/belief-distortion DEFENSE state — whether
+   * FOVEA_PLAUSIBILITY_CHECK is enabled. Drives the premise-awareness cell (a
+   * passing MemTrap suite documents EXPOSURES, so suite-pass alone is NOT
+   * premise-awareness). Resolved read-only by the service from
+   * `plausibilityCheckEnabled()`. Defaults to `false` (conservative: an
+   * unknown/off defense never renders a green pass — it renders `exposed`).
+   */
+  plausibilityCheckEnabled?: boolean;
 }
 
 /**
@@ -249,16 +305,19 @@ export function buildMriReport(
   const now = options.now ?? new Date();
   const nowIso = now.toISOString();
   const point = collectOperatingPoint(reader, options.operatingPoint ?? {});
+  const plausibilityCheckEnabled = options.plausibilityCheckEnabled ?? false;
 
   const dimensions: Record<string, MriDimension> = {
+    // Defense posture (reflects the real defense state, not a suite pass) --
+    premiseAwareness: premiseAwarenessDim({ reader, ledger, nowIso, plausibilityCheckEnabled }),
+
     // Structural (suite-backed) ------------------------------------------
-    premiseAwareness: premiseAwarenessDim(reader, ledger, nowIso),
     poisoningResistance: structuralDim(POISONING_SUITE, { ledger, nowIso, preferNumericGap: true }),
     tenantUserIsolation: structuralDim(ISOLATION_SUITE, { ledger, nowIso }),
 
     // Live telemetry -----------------------------------------------------
     citationCoverage: citationCoverageDim(reader, nowIso),
-    tokensPerQuery: tokensPerQueryDim(reader, nowIso),
+    tokensPerQuery: tokensPerQueryDim(reader, point, nowIso),
     ...costLatencyDims(point, nowIso),
 
     // Pending — freshness is blocked on F1 (must land first; not built here)

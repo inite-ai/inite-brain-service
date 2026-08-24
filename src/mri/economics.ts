@@ -1,5 +1,5 @@
 import type { MetricsReader } from './metrics-reader';
-import { histogramQuantile, sumCounter } from './metrics-reader';
+import { sumCounter } from './metrics-reader';
 
 /**
  * Part 1 — the economics operating-point + Pareto reporter
@@ -7,17 +7,33 @@ import { histogramQuantile, sumCounter } from './metrics-reader';
  *
  * A policy operating-point is one row on the accuracy × cost × latency
  * surface: "with THIS flag set, over THIS window, the pipeline served at
- * this proxy-accuracy, this $/query, this p50/p95". Every axis except
- * accuracy comes straight off existing telemetry. The accuracy axis is a
+ * this proxy-accuracy, this $/query, this p50/p95". The accuracy axis is a
  * cheap ONLINE PROXY — the verifier `supported`-rate — NOT a true accuracy
  * claim; the field is named `accuracyProxy` and labelled "proxy" everywhere
  * so it can never be mistaken for the parked paid-eval number.
  *
+ * HONESTY FIXES over the first cut (all so a green cell means what it says):
+ *   - accuracyProxy denominator = TERMINAL synthesize outcomes only. A single
+ *     request can bump brain_synthesize_total more than once (the intermediate
+ *     `generator_truncated` / `search_loop_refined` tags), so the raw total is
+ *     NOT the request count. We sum only the per-request terminal set
+ *     (TERMINAL_SYNTHESIZE_OUTCOMES) for the denominator.
+ *   - cost is an UPPER BOUND, not the per-answer cost. The token counters carry
+ *     no per-subsystem label, so `costPerQueryUpperBound` divides GLOBAL AI
+ *     tokens (embed + chat across derive/dreams/ingest/synthesize) by the
+ *     synthesize request count — it over-attributes non-synthesize spend. The
+ *     field name + labels say so; it is never presented as the true answer cost.
+ *   - latency is `null` here: no per-query latency histogram is emitted on the
+ *     serving path (brain_search_duration_seconds is defined but its
+ *     observe() is never called outside a unit test), so the cell renders
+ *     `pending` with that reason rather than a fabricated number.
+ *
  * The reporter renders the Pareto frontier over a set of points and flags
  * the dominated ones (accuracy↑ better, cost↓ better, latency↓ better). The
  * ship-gate is ADVISORY ONLY (§1.3): it REPORTS that a candidate is
- * dominated; it never blocks. Latency/cost are real; only accuracy is a
- * proxy until the eval is unfrozen.
+ * dominated; it never blocks. Only the accuracy axis is a proxy; cost is an
+ * explicit upper bound and latency is pending until a serving-path histogram
+ * exists — so a live operating point lands in `insufficientData` until then.
  */
 
 /** USD per 1,000,000 tokens. Assumed list price — the token COUNTS are exact
@@ -38,31 +54,39 @@ export const DEFAULT_PRICE_TABLE: PriceTable = {
 };
 
 /**
- * One point on the accuracy × cost × latency surface. The literal shape from
- * §1: `flags`, `accuracyProxy`, `ece`, `latencyP50`, `latencyP95`,
- * `costPerQuery`. Measured axes are `number | null` — null means "no telemetry
- * in the window", never a fabricated zero (the inviolable rule). `ece` is null
- * until calibration labels exist. `sampleCount` carries the provenance (how
- * many synthesize calls the window saw) so a consumer can see an empty window.
+ * One point on the accuracy × cost × latency surface: `flags`, `accuracyProxy`,
+ * `ece`, `latencyP50`, `latencyP95`, `costPerQueryUpperBound`. Measured axes are
+ * `number | null` — null means "no telemetry / no serving-path signal", never a
+ * fabricated zero (the inviolable rule). `ece` is null until calibration labels
+ * exist. `sampleCount` carries the provenance (terminal synthesize requests the
+ * window saw) so a consumer can see an empty window.
  */
 export interface PolicyOperatingPoint {
   /** Flags that describe this operating point (caller-supplied — telemetry
    *  does not record which flags were live for a window). */
   flags: string[];
-  /** Verifier `supported`-rate in [0,1]. A PROXY, never a true-accuracy claim.
-   *  null when the window saw no synthesize traffic. */
+  /** Verifier `supported`-rate in [0,1] = ok ÷ TERMINAL synthesize outcomes. A
+   *  PROXY, never a true-accuracy claim. null when the window saw no terminal
+   *  synthesize traffic. */
   accuracyProxy: number | null;
   /** Expected Calibration Error. null until a labeled gold set exists. */
   ece: number | null;
-  /** Median query latency in seconds (search-stage histogram). null = no
-   *  samples. */
+  /** Median query latency in seconds. ALWAYS null today: no per-query latency
+   *  histogram is emitted on the serving path (brain_search_duration_seconds is
+   *  defined but never observed outside a unit test). Kept on the shape so a
+   *  future serving-path histogram fills it without a contract change. */
   latencyP50: number | null;
-  /** p95 query latency in seconds. null = no samples. */
+  /** p95 query latency in seconds. ALWAYS null today (see latencyP50). */
   latencyP95: number | null;
-  /** Estimated USD per query (exact token counters × assumed price table).
-   *  null = no traffic. */
-  costPerQuery: number | null;
-  /** synthesize invocations observed in the window (provenance for the axes). */
+  /** Estimated USD per query — UPPER BOUND, NOT the true per-answer cost. All-AI
+   *  tokens (embed + chat across derive/dreams/ingest/synthesize — the token
+   *  counters carry no per-subsystem label) × assumed price ÷ terminal
+   *  synthesize count, so it over-attributes non-synthesize AI spend to
+   *  synthesize requests. null = no terminal synthesize traffic. */
+  costPerQueryUpperBound: number | null;
+  /** Terminal synthesize requests observed in the window (each request lands in
+   *  exactly one terminal outcome; intermediate outcomes excluded). Provenance
+   *  for the axes and the per-request denominator. */
   sampleCount: number;
 }
 
@@ -74,12 +98,59 @@ export interface CollectOperatingPointOptions {
 }
 
 /**
- * Assemble ONE operating point from a telemetry reader over the current
- * window. accuracyProxy = supported-rate = synthesize{outcome=ok} ÷ synthesize
- * total. Cost = (prompt/completion/embed tokens × price) ÷ query count. Latency
- * = search-duration histogram quantiles (the only per-query latency histogram
- * the pipeline emits; there is no end-to-end synthesize histogram, and adding
- * one would touch the serving path). ece stays null — no labels here.
+ * The synthesize outcomes that fire EXACTLY ONCE per request — the request's
+ * terminal disposition. Each served request lands in exactly one of these, so
+ * their sum is the honest per-request denominator.
+ *
+ * EXCLUDED (intermediate — they fire ALONGSIDE a terminal outcome, so counting
+ * them double-counts the request):
+ *   - `generator_truncated`  — the generator hit the token cap and its partial
+ *      answer was salvaged (generator-client.ts); the salvaged answer still
+ *      flows on to a terminal verdict.
+ *   - `search_loop_refined`  — the V13 constrained refine round ran
+ *      (synthesize.service.ts); "the final outcome is still counted separately".
+ *
+ * Enumerated from metrics.service.ts `countSynthesize`. Keep in sync if a new
+ * TERMINAL outcome is added there — a missing terminal outcome would understate
+ * the denominator and INFLATE the proxy, so this list is the source of truth.
+ */
+export const TERMINAL_SYNTHESIZE_OUTCOMES = [
+  'ok',
+  'no_results',
+  'no_grounded_evidence',
+  'low_coverage',
+  'verifier_partial',
+  'verifier_failed',
+  'generator_error',
+  'verifier_error',
+] as const;
+
+const TERMINAL_SYNTHESIZE_SET: ReadonlySet<string> = new Set(TERMINAL_SYNTHESIZE_OUTCOMES);
+
+/**
+ * Count of TERMINAL synthesize outcomes in the window = number of requests that
+ * reached a final disposition (the honest per-request denominator). Series whose
+ * `outcome` is intermediate or absent are excluded.
+ */
+export function terminalSynthesizeCount(reader: MetricsReader): number {
+  let total = 0;
+  for (const s of reader.counter('brain_synthesize_total')) {
+    const outcome = s.labels['outcome'];
+    if (outcome !== undefined && TERMINAL_SYNTHESIZE_SET.has(outcome)) total += s.value;
+  }
+  return total;
+}
+
+/**
+ * Assemble ONE operating point from a telemetry reader over the current window.
+ *   - accuracyProxy = ok ÷ TERMINAL synthesize outcomes (per-request denominator,
+ *     never the double-counting raw total).
+ *   - costPerQueryUpperBound = (all-AI tokens × price) ÷ terminal count. An UPPER
+ *     BOUND: the token counters are not separable by subsystem, so global AI
+ *     spend is attributed to synthesize requests. NOT the per-answer cost.
+ *   - latency stays null: no per-query latency histogram is emitted on the
+ *     serving path (see the file header) — the dimension renders `pending`.
+ *   - ece stays null — no labels here.
  */
 export function collectOperatingPoint(
   reader: MetricsReader,
@@ -88,9 +159,9 @@ export function collectOperatingPoint(
   const pricing = options.pricing ?? DEFAULT_PRICE_TABLE;
   const flags = options.flags ?? [];
 
-  const synthTotal = sumCounter(reader, 'brain_synthesize_total');
+  const terminalTotal = terminalSynthesizeCount(reader);
   const synthOk = sumCounter(reader, 'brain_synthesize_total', { outcome: 'ok' });
-  const accuracyProxy = synthTotal > 0 ? synthOk / synthTotal : null;
+  const accuracyProxy = terminalTotal > 0 ? synthOk / terminalTotal : null;
 
   const chatPrompt = sumCounter(reader, 'brain_openai_tokens_total', {
     kind: 'chat',
@@ -109,39 +180,37 @@ export function collectOperatingPoint(
       chatCompletion * pricing.chatCompletionPerMillion +
       embedPrompt * pricing.embedPromptPerMillion) /
     1_000_000;
-  const costPerQuery = synthTotal > 0 ? totalCostUsd / synthTotal : null;
-
-  const latency = reader.histogram('brain_search_duration_seconds');
-  const latencyP50 = latency ? histogramQuantile(latency, 0.5) : null;
-  const latencyP95 = latency ? histogramQuantile(latency, 0.95) : null;
+  const costPerQueryUpperBound = terminalTotal > 0 ? totalCostUsd / terminalTotal : null;
 
   return {
     flags,
     accuracyProxy,
     ece: null,
-    latencyP50,
-    latencyP95,
-    costPerQuery,
-    sampleCount: synthTotal,
+    // No per-query latency histogram is emitted on the serving path — never a
+    // fabricated number; the cost/latency dims render this as `pending`.
+    latencyP50: null,
+    latencyP95: null,
+    costPerQueryUpperBound,
+    sampleCount: terminalTotal,
   };
 }
 
 /** True iff every axis the frontier compares is present (not null). */
 export function hasCompleteAxes(p: PolicyOperatingPoint): boolean {
-  return p.accuracyProxy !== null && p.costPerQuery !== null && p.latencyP95 !== null;
+  return p.accuracyProxy !== null && p.costPerQueryUpperBound !== null && p.latencyP95 !== null;
 }
 
 /**
- * Pareto domination over (accuracyProxy↑, costPerQuery↓, latencyP95↓): `a`
- * dominates `b` iff `a` is no worse on every axis and strictly better on at
- * least one. Only defined when both points have complete axes.
+ * Pareto domination over (accuracyProxy↑, costPerQueryUpperBound↓,
+ * latencyP95↓): `a` dominates `b` iff `a` is no worse on every axis and strictly
+ * better on at least one. Only defined when both points have complete axes.
  */
 export function dominates(a: PolicyOperatingPoint, b: PolicyOperatingPoint): boolean {
   if (!hasCompleteAxes(a) || !hasCompleteAxes(b)) return false;
   const aAcc = a.accuracyProxy as number;
   const bAcc = b.accuracyProxy as number;
-  const aCost = a.costPerQuery as number;
-  const bCost = b.costPerQuery as number;
+  const aCost = a.costPerQueryUpperBound as number;
+  const bCost = b.costPerQueryUpperBound as number;
   const aLat = a.latencyP95 as number;
   const bLat = b.latencyP95 as number;
 
@@ -224,7 +293,7 @@ export function shipGateAdvisory(
       dominatedBy: dominator,
       advisory:
         `advisory: candidate is DOMINATED (proxy-accuracy ${fmt(candidate.accuracyProxy)}, ` +
-        `$${fmt(candidate.costPerQuery)}/q, p95 ${fmt(candidate.latencyP95)}s) by an incumbent ` +
+        `$${fmt(candidate.costPerQueryUpperBound)}/q upper-bound, p95 ${fmt(candidate.latencyP95)}s) by an incumbent ` +
         `[${dominator.flags.join(',') || 'baseline'}]. Not blocking — accuracy is a proxy until eval is unfrozen.`,
       blocking: false,
     };

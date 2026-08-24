@@ -46,7 +46,7 @@ describe('GET /v1/admin/mri (admin-gated, read-only)', () => {
       .set({ Authorization: `Bearer ${f.apiKey}` });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('accuracyProxy');
-    expect(res.body).toHaveProperty('costPerQuery');
+    expect(res.body).toHaveProperty('costPerQueryUpperBound');
     expect(res.body).toHaveProperty('sampleCount');
   });
 
