@@ -727,6 +727,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // threshold knob (FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD) is a float, not a
   // boolean flag.
   'FOVEA_ADAPTIVE_ABSTAIN',
+  // Fovea optics (Optics §4.3): the subtractive lens-suppression governor —
+  // for the query class, REMOVE off-task / trap-inducing lanes from the
+  // effective active set before retrieval + before the answer-cache key.
+  // Requires a usable per-class lens_suppression model; with none — or off,
+  // or a low-confidence class match — routing is byte-identical to the static
+  // lane set. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off the
+  // flag budget). The min-cosine floor (FOVEA_LENS_SUPPRESS_MIN_COSINE) is a
+  // float, not a boolean flag.
+  'FOVEA_LENS_SUPPRESS',
 ];
 
 /**

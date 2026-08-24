@@ -444,6 +444,29 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (Optics §4.2): abstain (return NOT_IN_MEMORY) when the calibrated pre-answer focus confidence < this threshold in (0,1]. Ignored unless FOVEA_ADAPTIVE_ABSTAIN is on with a usable pre-answer model. Default 0.5.',
   },
+  {
+    key: 'FOVEA_LENS_SUPPRESS',
+    category: 'calibration',
+    // Read at call time (LensSuppressionService.suppressEnabled → fovea-flags)
+    // on the synthesize seam before the answer cache — never captured in a
+    // constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (Optics §4.3): subtractive lens-suppression governor — for the query class, REMOVE off-task / trap-inducing lanes from the effective active set (never add, never reorder) before retrieval and before the answer-cache key is computed. Requires a persisted per-class lens_suppression model (admin fit); with none — or the flag off, or a low-confidence class match — routing is byte-identical to the static lane set. Off = static.',
+  },
+  {
+    key: 'FOVEA_LENS_SUPPRESS_MIN_COSINE',
+    category: 'calibration',
+    // Read at call time (LensSuppressionService.minCosine → fovea-flags) per
+    // request; runtime-mutable.
+    defaultValue: '0.5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Fovea optics (Optics §4.3): suppress lanes only when the nearest class centroid cosine similarity to the query embedding is >= this floor in [-1,1]; below it the class match is uncertain and routing is left unchanged. Ignored unless FOVEA_LENS_SUPPRESS is on with a usable model. Default 0.5.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',

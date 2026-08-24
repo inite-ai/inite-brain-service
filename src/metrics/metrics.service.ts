@@ -245,6 +245,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Optics §4.3 (docs/roadmap/fovea-optics-2026-08.md §4.3): the
+  // lens-suppression governor's per-request outcome —
+  //   suppressed     — a confident class match removed ≥1 active lane
+  //   no_model       — flag on, no usable per-class suppression model
+  //   low_confidence — the nearest centroid's cosine is below the floor
+  //   floor_kept     — a match would empty the active set → original kept
+  //   no_op          — a confident match whose suppress set is disjoint
+  // Emitted only when the flag is on (nothing on the hot path when off).
+  // A separate series, distinct from the synthesize outcome counter.
+  readonly lensSuppressionCount = new Counter({
+    name: 'brain_lens_suppression_total',
+    help: 'Lens-suppression governor outcomes (Optics §4.3)',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
@@ -581,6 +597,12 @@ export class MetricsService implements OnModuleInit {
 
   countAbstainPath(path: 'adaptive' | 'static'): void {
     this.abstainPathCount.inc({ path } as LabelValues<'path'>);
+  }
+
+  countLensSuppression(
+    outcome: 'suppressed' | 'no_model' | 'low_confidence' | 'floor_kept' | 'no_op',
+  ): void {
+    this.lensSuppressionCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
   countRetract(): void {

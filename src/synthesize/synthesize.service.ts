@@ -48,6 +48,7 @@ import {
   queryClassOf,
 } from './focus-signal';
 import type { FocusVerdict, PerClassCalibration } from './focus-signal';
+import { LensSuppressionService } from './lens-suppression.service';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -126,6 +127,7 @@ export class SynthesizeService {
     @Optional() private readonly answerCache?: AnswerCacheService,
     @Optional() private readonly l3?: L3EscalationService,
     @Optional() private readonly focusSignal?: FocusSignalService,
+    @Optional() private readonly lensSuppression?: LensSuppressionService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -187,6 +189,16 @@ export class SynthesizeService {
     const model = dto.synthesisModel ?? this.defaultModel;
     const explain = dto.explain === true;
 
+    // Optics §4.3 lens-suppression governor: rebind `profile` to the EFFECTIVE
+    // profile — off-task / trap-inducing lanes SUBTRACTED for this query's
+    // learned class (never added, never reordered) — so EVERY downstream seam
+    // (routeLane, evidence collector, detectEvidenceConflicts, markRecency, L3,
+    // abstention) sees the reduced set. BEFORE the answer cache begins, so the
+    // cache key (profileHash includes profile.lanes) reflects the effective
+    // lanes. Flag off / deps absent / no-model / low-confidence → the SAME
+    // profile object (byte-identical, same cache key). See LensSuppressionService.
+    profile = (await this.lensSuppression?.effectiveProfile(companyId, profile, dto)) ?? profile;
+
     // G1 answer cache (SYNTHESIZE_ANSWER_CACHE): exact-key serve with
     // check-on-read fact-lifecycle gating, BEFORE retrieval; a miss
     // carries the key context to the admit hook (finalizeAndAdmit).
@@ -245,7 +257,6 @@ export class SynthesizeService {
     // `let`: the V13 search loop may replace the evidence set with the
     // refined round's union before citations resolve.
     let { results, factIndex } = prepared;
-    const { factLines } = prepared;
 
     // V9 §4 coverage abstention + Optics §4.2 pre-answer capture/gate (seam).
     const abstained = await this.maybeCoverageAbstain(companyId, lane, {
@@ -290,7 +301,7 @@ export class SynthesizeService {
     // suffix maps land on the SAME lines the generator and the
     // verifier read (prompt-side only; citations and ranking
     // untouched).
-    let promptFactLines = applyFactSuffixes(factLines, [updateStories, groundingQuotes]);
+    let promptFactLines = applyFactSuffixes(prepared.factLines, [updateStories, groundingQuotes]);
 
     // V13 answer-side frames, both profile-gated and both pure:
     // the computed date table (generator and verifier read the same
