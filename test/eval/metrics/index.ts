@@ -20,3 +20,33 @@ export type {
   FaithfulnessSourceFact,
   OpenAiLike,
 } from './faithfulness';
+
+// ── Multilingual matrix (Tier 0) pure scorers ─────────────────────────
+export { extractionF1, meanExtractionF1 } from './multilingual-extraction-f1';
+export type { PrecisionRecallF1, ExtractionF1Aggregate } from './multilingual-extraction-f1';
+export { entityLinkingAccuracy, fragmentationRate } from './entity-linking';
+export type { FragmentationResult } from './entity-linking';
+export {
+  recallAtKRanked,
+  ndcgAtKRanked,
+  aggregateRecallAtK,
+  aggregateNdcgAtK,
+} from './cross-lingual-retrieval';
+export type {
+  RetrievalDirection,
+  RetrievalQuery,
+  RetrievalAggregate,
+} from './cross-lingual-retrieval';
+export { temporalExactDayAccuracy, temporalAccuracyByLocale } from './temporal-accuracy';
+export type { TemporalRecord } from './temporal-accuracy';
+export { labelClassificationMetrics } from './label-f1';
+export type { LabelRecord, LabelClassMetrics, LabelClassificationResult } from './label-f1';
+export { answerLanguageCorrectness, answerLanguageMismatches } from './answer-language';
+export type { AnswerLangRecord } from './answer-language';
+export { expectedCalibrationError, abstentionSplit } from './abstention-calibration';
+export type {
+  CalibrationRecord,
+  AbstentionRecord,
+  AbstentionSplit,
+} from './abstention-calibration';
+export { aggregateLanguageAttribution } from './language-attribution';
