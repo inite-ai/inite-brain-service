@@ -40,7 +40,8 @@ import { EvidenceCollectorService } from './evidence-collector.service';
 import type { CollectedEvidence } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
-import type { FocusVerdict } from './focus-signal';
+import { hasUsableCalibration } from './focus-signal';
+import type { FocusVerdict, PerClassCalibration } from './focus-signal';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -502,6 +503,7 @@ export class SynthesizeService {
   }): Promise<SynthesizeResult | null> {
     const { profile } = args;
     if (!this.l3 || !profile.l3Escalation) return null;
+    const adaptiveL3 = await this.resolveAdaptiveL3(args.companyId);
     const l3 = await this.l3.escalate({
       openai: this.openai,
       model: args.model,
@@ -518,6 +520,7 @@ export class SynthesizeService {
       factLines: args.promptFactLines,
       answerLang: args.answerLang,
       dateMathLines: args.dateMathLines,
+      ...(adaptiveL3 ? { adaptiveL3 } : {}),
     });
     if (!l3) return null;
     return this.finalizeAndAdmit(args.cache, l3.verdict, {
@@ -530,6 +533,34 @@ export class SynthesizeService {
         : undefined,
       abstention: profile.abstentionCalibration,
     });
+  }
+
+  /**
+   * Optics-2 (§4.1) adaptive-L3 inputs. Returns the loaded per-class
+   * calibration + escalate threshold ONLY when FOVEA_ADAPTIVE_L3 is on AND
+   * a USABLE model (a class fit from real labeled samples) is persisted for
+   * the tenant; otherwise undefined so the L3 lane takes its static
+   * coverage-floor path. This is the load-bearing safety property: flag off
+   * → undefined → static; no/empty/bootstrap model → undefined → static —
+   * an unconfigured tenant serves byte-identically to the pre-Optics-2 L3.
+   * The env reads live in the common layer (fovea-flags, via the
+   * FocusSignalService statics), never in this engine dir (engine-gates
+   * S5.2). A load failure returns undefined (fail-safe to static).
+   */
+  private async resolveAdaptiveL3(
+    companyId: string,
+  ): Promise<{ calibration: PerClassCalibration; threshold: number } | undefined> {
+    if (!this.focusSignal || !FocusSignalService.adaptiveL3Enabled()) return undefined;
+    try {
+      const calibration = await this.focusSignal.loadCalibration(companyId);
+      if (!hasUsableCalibration(calibration)) return undefined;
+      return { calibration, threshold: FocusSignalService.adaptiveL3EscalateThreshold() };
+    } catch (e) {
+      this.logger.warn(
+        `adaptive-L3 calibration load failed; static fallback: ${(e as Error).message}`,
+      );
+      return undefined;
+    }
   }
 
   /**

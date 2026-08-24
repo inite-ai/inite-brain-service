@@ -212,6 +212,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Optics-2 (docs/roadmap/fovea-optics-2026-08.md §4.1): which sub-
+  // condition fired the L3 trigger —
+  //   adaptive — the calibrated-focus-confidence floor (FOVEA_ADAPTIVE_L3
+  //              on with a usable per-class calibration model)
+  //   static   — the coverage<floor floor (flag off, or no usable model:
+  //              the byte-identical fallback path)
+  // Counted once per fired trigger, in lockstep with the 'fired' branch of
+  // brain_l3_escalation_total. A separate metric (not a new label on the
+  // outcome counter) keeps the existing outcome series stable.
+  readonly l3TriggerPathCount = new Counter({
+    name: 'brain_l3_adaptive_trigger_total',
+    help: 'L3 escalation trigger path: adaptive (calibrated confidence) vs static (coverage floor)',
+    labelNames: ['path'] as const,
+    registers: [this.registry],
+  });
+
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
@@ -540,6 +556,10 @@ export class MetricsService implements OnModuleInit {
     outcome: 'fired' | 'flipped' | 'no_flip' | 'skipped_no_anchor' | 'over_budget_degraded',
   ): void {
     this.l3EscalationCount.inc({ outcome } as LabelValues<'outcome'>);
+  }
+
+  countL3TriggerPath(path: 'adaptive' | 'static'): void {
+    this.l3TriggerPathCount.inc({ path } as LabelValues<'path'>);
   }
 
   countRetract(): void {

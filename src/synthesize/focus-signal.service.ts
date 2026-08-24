@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { focusCaptureEnabled } from '../common/fovea-flags';
+import {
+  adaptiveL3Enabled,
+  adaptiveL3EscalateThreshold,
+  focusCaptureEnabled,
+} from '../common/fovea-flags';
 import { SurrealService } from '../db/surreal.service';
 import type { SearchHit } from '../search/search.types';
 import type { LaneId } from './answer-router';
@@ -41,6 +45,19 @@ export class FocusSignalService {
    *  call time so the knob is runtime-mutable (config-catalog runtimeMutable). */
   static captureEnabled(): boolean {
     return focusCaptureEnabled();
+  }
+
+  /** Optics-2 (§4.1) master flag — delegates to the common-layer reader
+   *  (engine dirs take no direct env reads). Read at call time so the knob
+   *  is runtime-mutable. Off ⇒ the L3 lane runs its static coverage path. */
+  static adaptiveL3Enabled(): boolean {
+    return adaptiveL3Enabled();
+  }
+
+  /** Optics-2 (§4.1) escalate threshold on calibrated confidence — the
+   *  common-layer reader (default 0.5). */
+  static adaptiveL3EscalateThreshold(): number {
+    return adaptiveL3EscalateThreshold();
   }
 
   /**

@@ -18,7 +18,24 @@ export type L3TriggerReason =
   | 'skip_flag_off'
   | 'skip_verdict_ok'
   | 'skip_covered'
+  | 'skip_confident'
   | 'skip_no_refine';
+
+/**
+ * Optics-2 confidence gate (docs/roadmap/fovea-optics-2026-08.md §4.1).
+ * When supplied, the per-class CALIBRATED confidence REPLACES the static
+ * coverage<floor sub-condition of the trigger: escalate only when
+ * confidence < threshold. The service supplies this ONLY when
+ * FOVEA_ADAPTIVE_L3 is on AND a usable per-class calibration model is
+ * loaded for the tenant — absent, the static coverage path runs, which is
+ * byte-identical to pre-Optics-2 L3.
+ */
+export interface L3AdaptiveGate {
+  /** Calibrated focus confidence in [0,1] for this query's class. */
+  confidence: number;
+  /** Escalate when confidence < threshold (a knob in (0,1]). */
+  threshold: number;
+}
 
 export interface L3TriggerInput {
   /** profile.l3Escalation. */
@@ -27,7 +44,8 @@ export interface L3TriggerInput {
   /** V10 §5 topic-coverage judgment, when the audit produced it. */
   questionAnswered?: boolean | undefined;
   /** Coverage floor result over the retrieved evidence (below floor →
-   *  covered=false, the escalation-eligible state). */
+   *  covered=false, the escalation-eligible state). Consulted only on the
+   *  STATIC path (when `adaptive` is absent). */
   covered: boolean;
   /** Whether the one search-loop refine round already ran this request. */
   refineAttempted: boolean;
@@ -40,26 +58,76 @@ export interface L3TriggerInput {
    * escalated state goes straight to abstain, never re-enters.
    */
   escalated: boolean;
+  /**
+   * Optics-2 (§4.1) adaptive gate. When set, it REPLACES the static
+   * `covered` sub-condition (escalate iff confidence < threshold); when
+   * absent, the static coverage floor runs. EVERYTHING else — the
+   * monotone `escalated` guard, the flag, the verdict-fail gate, the
+   * refine ordering, and (in the service) the anchor requirement — is
+   * unconditional and identical across both paths.
+   */
+  adaptive?: L3AdaptiveGate | undefined;
 }
 
 /**
  * The trigger matrix. Fires only when the fact-grounded answer failed
  * (verifier unsupported/partial, OR the supported-but-not-answering
- * abstain-intent) AND coverage is below floor AND a refine already ran
- * (or the search loop is off) AND nothing escalated yet. Any other
- * combination stays on the normal abstention path.
+ * abstain-intent) AND the escalation-eligibility sub-condition holds AND a
+ * refine already ran (or the search loop is off) AND nothing escalated
+ * yet. Any other combination stays on the normal abstention path.
+ *
+ * The eligibility sub-condition is the ONE thing Optics-2 (§4.1) swaps:
+ * with an `adaptive` gate present, it becomes "calibrated confidence below
+ * threshold"; without one, it stays the static "coverage below floor".
+ * The swap is confined to this sub-condition — every safety guard around
+ * it is shared by both paths, so flag-off / no-model is byte-identical to
+ * the pre-Optics-2 decision.
  */
 export function l3TriggerDecision(input: L3TriggerInput): L3TriggerReason {
   if (input.escalated) return 'skip_already_escalated';
   if (!input.l3Escalation) return 'skip_flag_off';
   const verdictFail = input.verdict !== 'supported' || input.questionAnswered === false;
   if (!verdictFail) return 'skip_verdict_ok';
-  // coverage < floor is required: escalation addresses the residual
-  // where the extracted facts are thin, not where a well-covered set
-  // merely phrased the answer past the auditor.
-  if (input.covered) return 'skip_covered';
+  if (input.adaptive) {
+    // Adaptive path: the calibrated-confidence floor replaces coverage.
+    // A confident answer (conf ≥ threshold) is NOT escalation-eligible.
+    if (input.adaptive.confidence >= input.adaptive.threshold) return 'skip_confident';
+  } else if (input.covered) {
+    // Static path: coverage < floor is required — escalation addresses the
+    // residual where the extracted facts are thin, not where a well-covered
+    // set merely phrased the answer past the auditor.
+    return 'skip_covered';
+  }
   if (input.searchLoop && !input.refineAttempted) return 'skip_no_refine';
   return 'fire';
+}
+
+/**
+ * Optics-2 (§4.1) depth scaling: map the confidence deficit below the
+ * escalate threshold to a session count, ∝ the deficit and BOUNDED by the
+ * static `maxSessions` cap. Lower confidence → more sessions; the result
+ * is always in [1, maxSessions].
+ *
+ *   nSessions = clamp(ceil((threshold − confidence) / threshold · maxSessions), 1, maxSessions)
+ *
+ * HARD SAFETY: the output can only REDISTRIBUTE depth WITHIN the existing
+ * budget — it never exceeds the static `l3MaxSessions` cap and never drops
+ * below one, so the adaptive path is never more resource-aggressive than
+ * static. A degenerate threshold (≤0, cannot scale) falls back to the full
+ * — still capped — budget rather than dividing by zero.
+ */
+export function adaptiveL3SessionCount(args: {
+  confidence: number;
+  threshold: number;
+  maxSessions: number;
+}): number {
+  const cap = Math.max(1, Math.floor(args.maxSessions));
+  if (!(args.threshold > 0)) return cap;
+  const deficit = (args.threshold - args.confidence) / args.threshold;
+  const scaled = Math.ceil(deficit * cap);
+  if (scaled < 1) return 1;
+  if (scaled > cap) return cap;
+  return scaled;
 }
 
 /** Coverage-floor helper bound to the profile knobs (reuses the V9 §4

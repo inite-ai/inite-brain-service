@@ -225,6 +225,19 @@ export function calibratedConfidence(cal: PerClassCalibration, sig: FocusSignal)
   return map ? applyMap(map, raw) : raw;
 }
 
+/**
+ * Whether a loaded calibration is a USABLE model — the Optics-2 gate (§4.1)
+ * that decides adaptive-vs-static. A model is usable only if at least one
+ * class map was fit from real labeled samples (sampleCount > 0). This is
+ * the load-bearing safety predicate: an EMPTY map ({} — nothing persisted)
+ * and a BOOTSTRAP map (fitIsotonic over zero pairs → sampleCount 0) both
+ * return false, so an unconfigured or freshly-bootstrapped tenant falls
+ * back to the static coverage path and serves byte-identically to today.
+ */
+export function hasUsableCalibration(cal: PerClassCalibration): boolean {
+  return Object.values(cal).some((m) => m.sampleCount > 0);
+}
+
 // ── §3 measurement: reliability diagram + ECE ──────────────────────
 
 export interface ReliabilityBin {

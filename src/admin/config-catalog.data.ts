@@ -398,6 +398,29 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (Optics-1): capture the per-query focus signal at the synthesize verdict point and expose the admin fit/measure surface. Serving-neutral — nothing consumes the calibrated signal yet. Off = byte-identical serving.',
   },
+  {
+    key: 'FOVEA_ADAPTIVE_L3',
+    category: 'calibration',
+    // Read at call time (FocusSignalService.adaptiveL3Enabled → fovea-flags)
+    // on the synthesize L3 seam — never captured in a constructor — so a
+    // flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (Optics-2): make the L3 escalation trigger + session-count adaptive to the calibrated focus confidence, replacing the static coverage floor and scaling #sessions to the deficit (bounded by RETRIEVAL_L3_MAX_SESSIONS). Requires a persisted per-class calibration model (FOVEA_FOCUS_CAPTURE + fit); with none — or the flag off — serving is byte-identical to the static L3. Off = static.',
+  },
+  {
+    key: 'FOVEA_ADAPTIVE_L3_THRESHOLD',
+    category: 'calibration',
+    // Read at call time (FocusSignalService.adaptiveL3EscalateThreshold →
+    // fovea-flags) per request; runtime-mutable.
+    defaultValue: '0.5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Fovea optics (Optics-2): escalate to L3 when calibrated focus confidence < this threshold in (0,1], and scale #sessions ∝ the deficit below it (capped at RETRIEVAL_L3_MAX_SESSIONS). Ignored unless FOVEA_ADAPTIVE_L3 is on with a usable model. Default 0.5.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',

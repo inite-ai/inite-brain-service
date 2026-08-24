@@ -17,8 +17,11 @@ import {
   rankL3Sessions,
   verifierPasses,
   estimateTokens,
+  adaptiveL3SessionCount,
   type L3SessionAnchor,
 } from '../src/synthesize/l3-escalation';
+import { hasUsableCalibration } from '../src/synthesize/focus-signal';
+import type { PerClassCalibration } from '../src/synthesize/focus-signal';
 import { L3EscalationService } from '../src/synthesize/l3-escalation.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
@@ -85,6 +88,143 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
   });
 });
 
+// ── pure: Optics-2 adaptive trigger (§4.1) ──────────────────────────
+describe('l3TriggerDecision — the adaptive confidence gate replaces coverage', () => {
+  const base = {
+    l3Escalation: true,
+    verdict: 'unsupported' as VerifierOutput['verdict'],
+    // `covered` set TRUE so a static run here would SKIP: this isolates
+    // that the adaptive gate — not the coverage floor — is what decides.
+    covered: true,
+    refineAttempted: false,
+    searchLoop: false,
+    escalated: false,
+  };
+
+  it('fires when calibrated confidence is below threshold (despite covered=true)', () => {
+    expect(l3TriggerDecision({ ...base, adaptive: { confidence: 0.2, threshold: 0.5 } })).toBe(
+      'fire',
+    );
+  });
+
+  it('skips (skip_confident) when confidence is at/above threshold', () => {
+    expect(l3TriggerDecision({ ...base, adaptive: { confidence: 0.5, threshold: 0.5 } })).toBe(
+      'skip_confident',
+    );
+    expect(l3TriggerDecision({ ...base, adaptive: { confidence: 0.9, threshold: 0.5 } })).toBe(
+      'skip_confident',
+    );
+  });
+
+  it('KEEPS the anchor-adjacent hard guards on the adaptive path', () => {
+    const low = { confidence: 0.1, threshold: 0.5 };
+    // monotone single-shot: already-escalated never re-enters, even low-conf.
+    expect(l3TriggerDecision({ ...base, escalated: true, adaptive: low })).toBe(
+      'skip_already_escalated',
+    );
+    // flag off short-circuits before the confidence gate.
+    expect(l3TriggerDecision({ ...base, l3Escalation: false, adaptive: low })).toBe(
+      'skip_flag_off',
+    );
+    // verdict-ok still wins: confidence only gates a verdict-FAIL.
+    expect(
+      l3TriggerDecision({
+        ...base,
+        verdict: 'supported',
+        questionAnswered: true,
+        adaptive: low,
+      }),
+    ).toBe('skip_verdict_ok');
+    // refine ordering still enforced when the search loop is on.
+    expect(
+      l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: false, adaptive: low }),
+    ).toBe('skip_no_refine');
+  });
+
+  it('no adaptive gate → IDENTICAL decision to the static coverage path', () => {
+    // The load-bearing safety property, at the decision core: for every
+    // combination of the shared inputs, omitting `adaptive` reproduces the
+    // static outcome exactly (adaptive undefined ⇒ the coverage branch).
+    for (const covered of [true, false]) {
+      for (const verdict of ['supported', 'partial', 'unsupported'] as const) {
+        for (const questionAnswered of [undefined, true, false] as const) {
+          for (const searchLoop of [true, false]) {
+            for (const refineAttempted of [true, false]) {
+              const shared = {
+                l3Escalation: true,
+                verdict,
+                questionAnswered,
+                covered,
+                refineAttempted,
+                searchLoop,
+                escalated: false,
+              };
+              // Static reference: today's core, no adaptive field.
+              const staticReason = l3TriggerDecision(shared);
+              // Same inputs, adaptive explicitly undefined → must match.
+              expect(l3TriggerDecision({ ...shared, adaptive: undefined })).toBe(staticReason);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+// ── pure: Optics-2 depth scaling (§4.1) ─────────────────────────────
+describe('adaptiveL3SessionCount — #sessions ∝ deficit, capped', () => {
+  it('lowest confidence → the full (capped) budget', () => {
+    expect(adaptiveL3SessionCount({ confidence: 0, threshold: 0.5, maxSessions: 3 })).toBe(3);
+  });
+
+  it('confidence just below threshold → the floor of one session', () => {
+    expect(adaptiveL3SessionCount({ confidence: 0.45, threshold: 0.5, maxSessions: 3 })).toBe(1);
+  });
+
+  it('scales monotonically with the deficit', () => {
+    const a = adaptiveL3SessionCount({ confidence: 0.4, threshold: 0.5, maxSessions: 10 });
+    const b = adaptiveL3SessionCount({ confidence: 0.2, threshold: 0.5, maxSessions: 10 });
+    const c = adaptiveL3SessionCount({ confidence: 0.05, threshold: 0.5, maxSessions: 10 });
+    expect(a).toBeLessThan(b);
+    expect(b).toBeLessThan(c);
+    expect(c).toBeLessThanOrEqual(10);
+  });
+
+  it('NEVER exceeds the static cap and NEVER drops below one', () => {
+    for (const conf of [0, 0.1, 0.3, 0.49, 0.5, 0.99]) {
+      const n = adaptiveL3SessionCount({ confidence: conf, threshold: 0.5, maxSessions: 4 });
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('degenerate threshold (≤0) falls back to the capped budget, no divide-by-zero', () => {
+    expect(adaptiveL3SessionCount({ confidence: 0.2, threshold: 0, maxSessions: 3 })).toBe(3);
+    expect(
+      Number.isFinite(adaptiveL3SessionCount({ confidence: 0.2, threshold: -1, maxSessions: 3 })),
+    ).toBe(true);
+  });
+});
+
+// ── pure: the no-model→static gate predicate ────────────────────────
+describe('hasUsableCalibration — the adaptive-vs-static gate', () => {
+  it('empty map (nothing persisted) → not usable', () => {
+    expect(hasUsableCalibration({})).toBe(false);
+  });
+
+  it('bootstrap-only (all sampleCount 0) → not usable', () => {
+    const boot: PerClassCalibration = { default: { thresholds: [1], values: [1], sampleCount: 0 } };
+    expect(hasUsableCalibration(boot)).toBe(false);
+  });
+
+  it('at least one class fit from real samples → usable', () => {
+    const real: PerClassCalibration = {
+      default: { thresholds: [1], values: [0.6], sampleCount: 120 },
+    };
+    expect(hasUsableCalibration(real)).toBe(true);
+  });
+});
+
 // ── pure: session selection ─────────────────────────────────────────
 describe('rankL3Sessions — density + temporal overlap', () => {
   it('ranks by fact-hit density, then summed score', () => {
@@ -146,6 +286,7 @@ describe('verifierPasses + estimateTokens', () => {
 // ── service: orchestration with mocked IO ───────────────────────────
 interface Mocks {
   outcomes: string[];
+  triggerPaths: string[];
   windowAroundCalls: number;
   conversationTurnsCalls: number;
 }
@@ -196,6 +337,7 @@ function makeService(opts: {
 }): { service: L3EscalationService; mocks: Mocks } {
   const mocks: Mocks = {
     outcomes: [],
+    triggerPaths: [],
     windowAroundCalls: 0,
     conversationTurnsCalls: 0,
   };
@@ -216,6 +358,7 @@ function makeService(opts: {
   } as unknown as EpisodeReadStoreService;
   const metrics = {
     countL3Escalation: (o: string) => mocks.outcomes.push(o),
+    countL3TriggerPath: (p: string) => mocks.triggerPaths.push(p),
     recordOpenAiCall: () => {},
   } as unknown as MetricsService;
   return { service: new L3EscalationService(surreal, episodes, metrics), mocks };
@@ -408,5 +551,142 @@ describe('L3EscalationService.escalate', () => {
     const out = await service.escalate(baseInput(openai, makeProfile({ l3Escalation: false })));
     expect(out).toBeNull();
     expect(mocks.outcomes).toEqual([]);
+  });
+
+  // ── Optics-2 adaptive path (§4.1) ─────────────────────────────────
+  // A flat single-bucket map → applyMap returns `value` for ANY raw
+  // confidence, so the calibrated confidence is deterministic in tests.
+  const flatCalibration = (value: number): PerClassCalibration => ({
+    default: { thresholds: [1], values: [value], sampleCount: 100 },
+  });
+
+  const oneFactSetup = () => ({
+    factEps: [{ id: FACT_ID, eps: ['episode:ep1'] }],
+    episodesByIds: [
+      { id: 'episode:ep1', conversationId: 'conv1', occurredAt: '2026-04-01T00:00:00Z' },
+    ],
+    sessionTurns: {
+      conv1: [
+        {
+          id: 'episode:ep1',
+          speaker: 'user',
+          text: 'my tier is sapphire',
+          occurredAt: '2026-04-01T00:00:00Z',
+        },
+      ],
+    },
+  });
+
+  const flipScript = () =>
+    fakeOpenAi([
+      JSON.stringify({ answer: 'The tier is sapphire.', citedFactIds: [FACT_ID] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+
+  it('no model supplied → the STATIC path, byte-identical fire+flip (safety)', async () => {
+    // adaptiveL3 absent ⇒ the service must reproduce today's static
+    // decision exactly, and label the fired trigger 'static'.
+    const { service, mocks } = makeService(oneFactSetup());
+    const out = await service.escalate(baseInput(flipScript(), makeProfile({})));
+    expect(out?.answer).toBe('The tier is sapphire.');
+    expect(mocks.outcomes).toEqual(['fired', 'flipped']);
+    expect(mocks.triggerPaths).toEqual(['static']);
+  });
+
+  it('adaptive + low confidence → fires via the ADAPTIVE path, flips', async () => {
+    const { service, mocks } = makeService(oneFactSetup());
+    const out = await service.escalate({
+      ...baseInput(flipScript(), makeProfile({})),
+      adaptiveL3: { calibration: flatCalibration(0.1), threshold: 0.5 },
+    });
+    expect(out?.answer).toBe('The tier is sapphire.');
+    expect(mocks.outcomes).toEqual(['fired', 'flipped']);
+    expect(mocks.triggerPaths).toEqual(['adaptive']);
+  });
+
+  it('adaptive + high confidence → skip_confident, suppresses a fire the static floor WOULD have made', async () => {
+    // results score 0.1 is below the coverage floor, so the static path
+    // fires here — but a calibrated confidence of 0.9 (≥ 0.5) suppresses
+    // it. Confidence REPLACES coverage: no generation, no metrics, no IO.
+    const { service, mocks } = makeService(oneFactSetup());
+    const out = await service.escalate({
+      ...baseInput(fakeOpenAi(['{}']), makeProfile({})),
+      adaptiveL3: { calibration: flatCalibration(0.9), threshold: 0.5 },
+    });
+    expect(out).toBeNull();
+    expect(mocks.outcomes).toEqual([]);
+    expect(mocks.triggerPaths).toEqual([]);
+    expect(mocks.conversationTurnsCalls).toBe(0);
+  });
+
+  it('adaptive depth scaling: near-threshold confidence narrows #sessions below the static cap', async () => {
+    const threeSessions = {
+      factEps: [
+        { id: 'knowledge_fact:a', eps: ['episode:ea'] },
+        { id: 'knowledge_fact:b', eps: ['episode:eb'] },
+        { id: 'knowledge_fact:c', eps: ['episode:ec'] },
+      ],
+      episodesByIds: [
+        { id: 'episode:ea', conversationId: 'ca', occurredAt: '2026-04-01T00:00:00Z' },
+        { id: 'episode:eb', conversationId: 'cb', occurredAt: '2026-04-01T00:00:00Z' },
+        { id: 'episode:ec', conversationId: 'cc', occurredAt: '2026-04-01T00:00:00Z' },
+      ],
+      sessionTurns: {
+        ca: [
+          { id: 'episode:ea', speaker: 'user', text: 'tier a', occurredAt: '2026-04-01T00:00:00Z' },
+        ],
+        cb: [
+          { id: 'episode:eb', speaker: 'user', text: 'tier b', occurredAt: '2026-04-01T00:00:00Z' },
+        ],
+        cc: [
+          { id: 'episode:ec', speaker: 'user', text: 'tier c', occurredAt: '2026-04-01T00:00:00Z' },
+        ],
+      },
+    };
+    const threeResults: SearchHit[] = [
+      { factId: 'knowledge_fact:a', score: 0.3 },
+      { factId: 'knowledge_fact:b', score: 0.2 },
+      { factId: 'knowledge_fact:c', score: 0.1 },
+    ].map((s, i) => ({
+      entityId: `knowledge_entity:e${i}`,
+      entityType: 'topic',
+      canonicalName: 'tier',
+      externalRefs: {},
+      facts: [
+        {
+          factId: s.factId,
+          predicate: 'tier',
+          object: 'sapphire',
+          confidence: 0.9,
+          validFrom: '2026-04-01T00:00:00Z',
+          status: 'active',
+          score: s.score,
+        },
+      ],
+      score: s.score,
+    }));
+
+    // Static baseline (no model): uses the full l3MaxSessions=3 cap.
+    {
+      const { service, mocks } = makeService(threeSessions);
+      await service.escalate({
+        ...baseInput(flipScript(), makeProfile({ l3MaxSessions: 3 })),
+        results: threeResults,
+      });
+      expect(mocks.conversationTurnsCalls).toBe(3);
+    }
+
+    // Adaptive: confidence 0.45 just below the 0.5 threshold → deficit 0.1
+    // → ceil(0.1·3)=1 session, even though 3 anchors are available.
+    {
+      const { service, mocks } = makeService(threeSessions);
+      await service.escalate({
+        ...baseInput(flipScript(), makeProfile({ l3MaxSessions: 3 })),
+        results: threeResults,
+        adaptiveL3: { calibration: flatCalibration(0.45), threshold: 0.5 },
+      });
+      expect(mocks.triggerPaths).toEqual(['adaptive']);
+      expect(mocks.conversationTurnsCalls).toBe(1);
+    }
   });
 });
