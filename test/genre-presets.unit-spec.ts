@@ -167,6 +167,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     timelineEvidence: 'off',
     coverageScanMode: 'brute',
     coverageLexMode: 'phrase',
+    cjkSegmentation: false,
     scanHnswEf: 400,
     scanHnswOverfetch: 4,
     dateAnchoring: 'absolute',

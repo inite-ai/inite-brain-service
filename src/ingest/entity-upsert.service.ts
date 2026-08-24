@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import {
   dbCreate,
@@ -11,6 +11,8 @@ import { EntityResolverService } from './entity-resolver.service';
 import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey } from './ingest-utils';
 import { scopeForUser } from '../auth/scope-tags';
+import { envFlagEnabled } from '../common/env-validation';
+import { analyzeConfusables } from '../common/text-sanitizer';
 
 /**
  * Entity-resolution slice of the ingest pipeline: turn a caller-supplied
@@ -24,6 +26,8 @@ import { scopeForUser } from '../auth/scope-tags';
  */
 @Injectable()
 export class EntityUpsertService {
+  private readonly logger = new Logger(EntityUpsertService.name);
+
   constructor(
     // @Optional: when the resolver isn't wired (or its flag is off), the
     // mention path simply skips inline resolution and creates new as before.
@@ -115,9 +119,19 @@ export class EntityUpsertService {
     _contextRef: { vertical: string };
     incomingFacts?: string[];
   }): Promise<string> {
+    // INGEST_CONFUSABLES_CHECK (Tier 3, default off): a homoglyph/mixed-
+    // script RISK SIGNAL over the entity name, logged for review. It NEVER
+    // blocks resolution and NEVER auto-merges — off ⇒ nothing computed.
+    this.flagConfusables(e.name);
+
     // 1. Caller hint wins — same atomic upsert as fact ingest.
     if (hint) {
       const hintKey = externalRefKey(hint.vertical, hint.id);
+      // Tier 3 reversible audit: a keyed reuse is deterministic (caller-
+      // authoritative externalRef), but still logged so the merge trail is
+      // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
+      // extra query, byte-identical).
+      await this.auditExternalRefReuse(db, hintKey, e);
       return this.upsertEntityByExternalRef(db, hintKey, () => ({
         type: this.normalizeEntityType(e.type),
         canonicalName: e.canonical ?? e.name,
@@ -149,7 +163,16 @@ export class EntityUpsertService {
        LIMIT 1`,
       { name: target, rawName: e.name },
     );
-    if (nRow) return String(nRow.id);
+    if (nRow) {
+      // Tier 3 reversible audit: an exact canonical/alias reuse is
+      // deterministic, but logged so every reuse is traceable/reversible.
+      await this.auditKeyedReuse(db, String(nRow.id), {
+        mention: e.name,
+        type: this.normalizeEntityType(e.type),
+        matchKind: 'exact',
+      });
+      return String(nRow.id);
+    }
 
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
     // a new entity, look for a near-duplicate that already exists and let
@@ -191,5 +214,57 @@ export class EntityUpsertService {
   private normalizeEntityType(t: string): string {
     const allowed = ['customer', 'staff', 'asset', 'project', 'topic', 'location', 'other'];
     return allowed.includes(t) ? t : 'other';
+  }
+
+  /** INGEST_CONFUSABLES_CHECK: log a homoglyph/mixed-script name for review.
+   *  RISK SIGNAL ONLY — never blocks, never auto-merges. Off ⇒ no-op. */
+  private flagConfusables(name: string): void {
+    if (!envFlagEnabled(process.env.INGEST_CONFUSABLES_CHECK)) return;
+    const risk = analyzeConfusables(name);
+    if (!risk.flagged) return;
+    this.logger.warn(
+      `[ingest.confusables] entity name "${name}" is a homoglyph risk ` +
+        `(skeleton="${risk.skeleton}", mixedScript=${risk.mixedScript}, ` +
+        `hasConfusables=${risk.hasConfusables}) — flagged for review; ` +
+        'resolution NOT blocked',
+    );
+  }
+
+  /** Audit a deterministic keyed reuse to entity_merge_log (0102), gated on
+   *  MULTILINGUAL_ENTITY_REVERSIBLE. No-op when the resolver isn't wired or
+   *  the flag is off. */
+  private async auditKeyedReuse(
+    db: Surreal,
+    targetEntity: string,
+    meta: { mention: string; type: string; matchKind: 'exact' | 'externalRef' },
+  ): Promise<void> {
+    if (!this.entityResolver?.isReversible()) return;
+    await this.entityResolver.recordMerge(db, {
+      mention: meta.mention,
+      type: meta.type,
+      targetEntity,
+      verdict: 'same',
+      cosine: 1,
+      matchKind: meta.matchKind,
+      decision: 'reused',
+    });
+  }
+
+  /** Audit an externalRef/hint reuse: only a PRE-EXISTING keyed entity is a
+   *  reuse (a fresh create is not), so existence is checked first — but only
+   *  under the reversible flag, so the off path adds no query. */
+  private async auditExternalRefReuse(
+    db: Surreal,
+    hintKey: string,
+    e: { name: string; type: string },
+  ): Promise<void> {
+    if (!this.entityResolver?.isReversible()) return;
+    const existing = await this.lookupExternalRef(db, hintKey);
+    if (!existing) return;
+    await this.auditKeyedReuse(db, existing, {
+      mention: e.name,
+      type: this.normalizeEntityType(e.type),
+      matchKind: 'externalRef',
+    });
   }
 }

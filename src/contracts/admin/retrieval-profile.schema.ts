@@ -20,6 +20,7 @@ export const RetrievalProfileWireSchema = z.object({
   timelineEvidence: z.enum(['off', 'routed', 'scan']),
   coverageScanMode: z.enum(['brute', 'hnsw']),
   coverageLexMode: z.enum(['phrase', 'or_terms']),
+  cjkSegmentation: z.boolean(),
   scanHnswEf: z.number().int(),
   scanHnswOverfetch: z.number().int(),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),

@@ -65,6 +65,10 @@ export class MentionScanService {
     scan?: CoverageScanTuning;
     /** Lexical-leg shape (V11 A2); omitted → the legacy phrase matcher. */
     lex?: CoverageLexMode;
+    /** MULTILINGUAL_CJK_SEGMENTATION (resolved in the profile boundary and
+     *  passed in — this service stays env-free): segment CJK topic terms
+     *  with Intl.Segmenter instead of dropping them. Omitted → legacy split. */
+    segmentCjk?: boolean;
   }): Promise<string[]> {
     const topic = extractOrderingTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
@@ -119,7 +123,7 @@ export class MentionScanService {
             `${MAX_MENTION_LINES} (topic="${topic.slice(0, 60)}")`,
         );
       }
-      const terms = topicTerms(topic);
+      const terms = topicTerms(topic, opts.segmentCjk ?? false);
       const lines = mentions
         .slice(0, MAX_MENTION_LINES)
         .map((m) => pickMentionLine(m.text, terms))
