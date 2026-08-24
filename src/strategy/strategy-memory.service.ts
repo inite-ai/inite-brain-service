@@ -71,6 +71,20 @@ export interface StrategyItem {
   trajectory?: ToolStep[] | undefined;
   verifiedOutcome?: VerifiedOutcome | undefined;
   outcomeEvidenceRef?: string | undefined;
+  /**
+   * Whether the outcomeEvidenceRef was resolved/verified. It is an opaque
+   * caller-asserted pointer with no tenant table to resolve against, so
+   * capture persists it stamped `false` (0099): the ref is a CLAIM, never
+   * proof. Absent on items that carry no ref.
+   */
+  outcomeEvidenceVerified?: boolean | undefined;
+  /**
+   * Revision provenance (0099): when this item is a candidate proposed to
+   * replace an already-serving `active` row (the capture path never mutates
+   * an active row in place), this points at the superseded active row's id.
+   * Absent on ordinary candidates/actives.
+   */
+  supersedesId?: string | undefined;
 }
 
 export interface ScoredStrategyItem extends StrategyItem {
@@ -93,6 +107,13 @@ export interface CreateStrategyArgs {
   trajectory?: ToolStep[] | undefined;
   verifiedOutcome?: VerifiedOutcome | undefined;
   outcomeEvidenceRef?: string | undefined;
+  /**
+   * Revision provenance (0099): set when this item is a candidate proposed
+   * to supersede an already-serving `active` row — capture proposes a
+   * revision rather than mutating the live row in place. The active row it
+   * points at is left byte-identical until a human promotes the revision.
+   */
+  supersedesId?: string | undefined;
 }
 
 /** Retrieval k is hard-capped: k=1 default, 2 absolute max (G4). */
@@ -158,20 +179,27 @@ interface RawStrategyRow {
   scope?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
+  // 0099 revision pointer — selected always (revision is master-gated, not
+  // trajectory-gated: the post-mortem distill path can propose one too).
+  supersedesId?: unknown;
   // 0098 columns — selected ONLY when the trajectories flag is on
   // (TRAJECTORY_ROW_FIELDS), so on the off path they are always absent
   // and the mapper leaves the item byte-identical to pre-0098.
   trajectory?: unknown;
   verifiedOutcome?: unknown;
   outcomeEvidenceRef?: unknown;
+  // 0099 caller-asserted-evidence label — trajectory-gated (written only
+  // alongside outcomeEvidenceRef), so on the off path it is always absent.
+  outcomeEvidenceVerified?: unknown;
 }
 
 const STRATEGY_ROW_FIELDS =
   'id, companyId, title, situation, strategy, polarity, status, ' +
-  'evidence, scope, createdAt, updatedAt';
+  'evidence, scope, createdAt, updatedAt, supersedesId';
 
-/** 0098 additive columns, appended to the SELECT only when serving trajectories. */
-const TRAJECTORY_ROW_FIELDS = 'trajectory, verifiedOutcome, outcomeEvidenceRef';
+/** 0098/0099 additive columns, appended to the SELECT only when serving trajectories. */
+const TRAJECTORY_ROW_FIELDS =
+  'trajectory, verifiedOutcome, outcomeEvidenceRef, outcomeEvidenceVerified';
 
 @Injectable()
 export class StrategyMemoryService {
@@ -250,6 +278,12 @@ export class StrategyMemoryService {
     if (fields.outcomeEvidenceRef !== undefined) {
       cols.push('outcomeEvidenceRef');
       params.outcomeEvidenceRef = fields.outcomeEvidenceRef;
+      // 0099: the ref is an opaque CALLER-ASSERTED pointer with no tenant
+      // table to resolve against — persist it explicitly stamped unverified
+      // so nothing downstream can mistake the claim for proof. Co-written
+      // with the ref (never without one), so it inherits the same gate.
+      cols.push('outcomeEvidenceVerified');
+      params.outcomeEvidenceVerified = false;
     }
     return {
       content: cols.map((c) => `,\n            ${c}: $${c}`).join(''),
@@ -270,6 +304,11 @@ export class StrategyMemoryService {
       // rather than passing null, so the option<string> ASSERT is never
       // handed a NULL it would reject.)
       const traj = this.trajectoryWriteFragment(args);
+      // 0099 revision pointer: master-gated (NOT trajectory-gated), included
+      // only when a supersedesId was supplied — a revision candidate points
+      // at the active row it proposes to replace. Absent otherwise ⇒ the
+      // CONTENT is byte-identical to a non-revision create.
+      const revisionContent = args.supersedesId ? ',\n            supersedesId: $supersedesId' : '';
       const [row] = await db.query<RawStrategyRow[]>(
         `CREATE ONLY strategy_memory CONTENT {
             companyId: $companyId,
@@ -282,7 +321,7 @@ export class StrategyMemoryService {
             embedding: $embedding,
             scope: $scope,
             createdAt: time::now(),
-            updatedAt: time::now()${traj.content}
+            updatedAt: time::now()${revisionContent}${traj.content}
          }`,
         {
           companyId,
@@ -294,6 +333,7 @@ export class StrategyMemoryService {
           evidence: args.evidence ?? {},
           embedding,
           scope: args.scope ?? 'tenant',
+          ...(args.supersedesId ? { supersedesId: args.supersedesId } : {}),
           ...traj.params,
         },
       );
@@ -348,7 +388,32 @@ export class StrategyMemoryService {
       if (!updated) {
         throw new NotFoundException(`Strategy ${strategyIdRaw} not found`);
       }
-      return mapStrategyRow(updated);
+      const item = mapStrategyRow(updated);
+      // 0099 promotion-deprecation: promoting a REVISION candidate (one that
+      // carries a supersedesId) to active deprecates the old active row it
+      // supersedes, so two actives never serve the same slot. Scoped by
+      // companyId and guarded on `status = 'active'` — idempotent, and it
+      // never demotes a row an operator has since re-activated for another
+      // reason. Best-effort: a failure here does not fail the promotion.
+      if (status === 'active' && item.supersedesId) {
+        try {
+          await db.query(
+            `UPDATE type::record('strategy_memory', $supTail)
+               SET status = 'deprecated', updatedAt = time::now()
+               WHERE companyId = $companyId AND status = 'active'`,
+            { supTail: idTail(item.supersedesId), companyId },
+          );
+          this.logger.log(
+            `[strategy.superseded] companyId=${companyId} promoted=${String(updated.id)} ` +
+              `deprecated=${item.supersedesId}`,
+          );
+        } catch (e) {
+          this.logger.warn(
+            `superseded-deprecate ${item.supersedesId} failed: ${(e as Error).message}`,
+          );
+        }
+      }
+      return item;
     });
   }
 
@@ -536,6 +601,16 @@ function mapStrategyRow(r: RawStrategyRow): StrategyItem {
   if (isVerifiedOutcome(r.verifiedOutcome)) item.verifiedOutcome = r.verifiedOutcome;
   if (typeof r.outcomeEvidenceRef === 'string' && r.outcomeEvidenceRef) {
     item.outcomeEvidenceRef = r.outcomeEvidenceRef;
+  }
+  // 0099: caller-asserted-evidence label — only present when a ref was
+  // stored (co-written), so the field pins the ref as an unverified claim.
+  if (typeof r.outcomeEvidenceVerified === 'boolean') {
+    item.outcomeEvidenceVerified = r.outcomeEvidenceVerified;
+  }
+  // 0099: revision pointer — present only on a candidate that supersedes an
+  // active row; absent (NONE → undefined) on ordinary items.
+  if (typeof r.supersedesId === 'string' && r.supersedesId) {
+    item.supersedesId = r.supersedesId;
   }
   return item;
 }

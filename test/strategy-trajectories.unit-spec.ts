@@ -278,3 +278,123 @@ describe('trajectory read gate (byte-identical serving when off)', () => {
     );
   });
 });
+
+// ── R3 P1: caller-asserted evidence label + revision pointer ──────────────
+
+describe('capture write-path labeling (R3 P1)', () => {
+  const ALL_ON = {
+    STRATEGY_MEMORY_ENABLED: '1',
+    STRATEGY_RETRIEVAL_ENABLED: '1',
+    STRATEGY_TRAJECTORIES_ENABLED: '1',
+  };
+
+  function createStub(calls: QueryCall[], env: Record<string, string> = ALL_ON) {
+    return new StrategyMemoryService(
+      stubSurreal(
+        (sql) => (sql.includes('CREATE ONLY strategy_memory') ? [trajRow()] : [[]]),
+        calls,
+      ),
+      stubEmbedder({}),
+      stubConfig(env),
+    );
+  }
+
+  it('create() stamps outcomeEvidenceVerified=false whenever an outcomeEvidenceRef is written', async () => {
+    const calls: QueryCall[] = [];
+    await createStub(calls).create('c1', {
+      title: 'x',
+      situation: '',
+      strategy: 's',
+      polarity: 'do',
+      outcomeEvidenceRef: 'run:abc',
+      verifiedOutcome: 'success',
+    });
+    const create = calls.find((c) => c.sql.includes('CREATE ONLY strategy_memory'))!;
+    // The opaque caller-asserted ref is co-written with an explicit
+    // "unverified" label so nothing downstream can mistake it for proof.
+    expect(create.sql).toContain('outcomeEvidenceRef: $outcomeEvidenceRef');
+    expect(create.sql).toContain('outcomeEvidenceVerified: $outcomeEvidenceVerified');
+    expect(create.params?.outcomeEvidenceRef).toBe('run:abc');
+    expect(create.params?.outcomeEvidenceVerified).toBe(false);
+  });
+
+  it('create() writes NO evidence label when the flag is off (byte-identical)', async () => {
+    const calls: QueryCall[] = [];
+    await createStub(calls, {
+      STRATEGY_MEMORY_ENABLED: '1',
+      STRATEGY_RETRIEVAL_ENABLED: '1',
+      // STRATEGY_TRAJECTORIES_ENABLED unset → off
+    }).create('c1', {
+      title: 'x',
+      situation: '',
+      strategy: 's',
+      polarity: 'do',
+      outcomeEvidenceRef: 'run:abc',
+    });
+    const create = calls.find((c) => c.sql.includes('CREATE ONLY strategy_memory'))!;
+    expect(create.sql).not.toContain('outcomeEvidenceRef');
+    expect(create.sql).not.toContain('outcomeEvidenceVerified');
+    expect(create.params).not.toHaveProperty('outcomeEvidenceVerified');
+  });
+
+  it('create() writes supersedesId into the CONTENT only for a revision candidate', async () => {
+    const withRev: QueryCall[] = [];
+    await createStub(withRev).create('c1', {
+      title: 'x',
+      situation: '',
+      strategy: 's',
+      polarity: 'do',
+      status: 'candidate',
+      supersedesId: 'strategy_memory:old',
+    });
+    const revCreate = withRev.find((c) => c.sql.includes('CREATE ONLY strategy_memory'))!;
+    expect(revCreate.sql).toContain('supersedesId: $supersedesId');
+    expect(revCreate.params?.supersedesId).toBe('strategy_memory:old');
+
+    // Ordinary (non-revision) create omits it entirely — byte-identical.
+    const noRev: QueryCall[] = [];
+    await createStub(noRev).create('c1', {
+      title: 'x',
+      situation: '',
+      strategy: 's',
+      polarity: 'do',
+    });
+    const plainCreate = noRev.find((c) => c.sql.includes('CREATE ONLY strategy_memory'))!;
+    expect(plainCreate.sql).not.toContain('supersedesId');
+    expect(plainCreate.params).not.toHaveProperty('supersedesId');
+  });
+
+  it('maps supersedesId + outcomeEvidenceVerified through the serving projection', async () => {
+    const svc = new StrategyMemoryService(
+      stubSurreal((sql) =>
+        sql.includes('FROM strategy_memory')
+          ? [[trajRow({ supersedesId: 'strategy_memory:prev', outcomeEvidenceVerified: false })]]
+          : [[]],
+      ),
+      stubEmbedder({ q: [1, 0] }),
+      stubConfig(ALL_ON),
+    );
+    const out = await svc.retrieve('c1', 'q');
+    expect(out[0]!.supersedesId).toBe('strategy_memory:prev');
+    expect(out[0]!.outcomeEvidenceVerified).toBe(false);
+  });
+
+  it('outcomeEvidenceRef is NEVER rendered into the advisory note (advice, not evidence)', () => {
+    const item = {
+      title: 't',
+      situation: 's',
+      strategy: 'strat',
+      polarity: 'do',
+      trajectory: [TRAJ_STEP],
+      verifiedOutcome: 'success',
+      outcomeEvidenceRef: 'eval:run-9#q1',
+      outcomeEvidenceVerified: false,
+    } as unknown as ScoredStrategyItem;
+    const note = renderStrategyNote(item);
+    // The past-tool-path suffix may render, but the ref (a claim) never does.
+    expect(note).toContain('past tool path');
+    expect(note).not.toContain('eval:run-9#q1');
+    expect(note).not.toContain('outcomeEvidence');
+    expect(renderTrajectorySuffix(item)).not.toContain('eval:run-9#q1');
+  });
+});

@@ -55,6 +55,13 @@ export interface DistillStats {
   proposed: number;
   added: number;
   updated: number;
+  /**
+   * A merge whose target was an already-serving `active` row: instead of
+   * mutating it in place, a NEW candidate revision was proposed (R3 P1).
+   * The active row is left byte-identical until a human promotes the
+   * revision. Distinct from `updated` (in-place merge of a candidate).
+   */
+  revised: number;
   noop: number;
 }
 
@@ -77,6 +84,12 @@ export interface TrajectoryCaptureStats {
   proposed: number;
   added: number;
   updated: number;
+  /**
+   * The captured trajectory's merge targeted an already-serving `active`
+   * row: a NEW candidate revision was proposed rather than mutating the
+   * live row (R3 P1). The active row stays byte-identical until promotion.
+   */
+  revised: number;
   noop: number;
 }
 
@@ -238,6 +251,7 @@ export class StrategyDistillService {
       proposed: 0,
       added: 0,
       updated: 0,
+      revised: 0,
       noop: 0,
     };
     if (postMortems.length === 0) return stats;
@@ -256,7 +270,8 @@ export class StrategyDistillService {
     }
     this.logger.log(
       `[strategy.distill] companyId=${companyId} postMortems=${stats.postMortems} ` +
-        `proposed=${stats.proposed} added=${stats.added} updated=${stats.updated} noop=${stats.noop}`,
+        `proposed=${stats.proposed} added=${stats.added} updated=${stats.updated} ` +
+        `revised=${stats.revised} noop=${stats.noop}`,
     );
     return stats;
   }
@@ -290,6 +305,7 @@ export class StrategyDistillService {
       proposed: 0,
       added: 0,
       updated: 0,
+      revised: 0,
       noop: 0,
     };
     // Defensive gate: never write trajectory columns when the flag is off
@@ -316,7 +332,7 @@ export class StrategyDistillService {
     this.logger.log(
       `[strategy.trajectory] companyId=${companyId} steps=${stats.steps} ` +
         `proposed=${stats.proposed} added=${stats.added} updated=${stats.updated} ` +
-        `noop=${stats.noop} outcome=${run.outcome}`,
+        `revised=${stats.revised} noop=${stats.noop} outcome=${run.outcome}`,
     );
     return stats;
   }
@@ -464,7 +480,7 @@ export class StrategyDistillService {
     companyId: string,
     item: DistilledItemShape,
     ctx: { evidence: StrategyEvidence; bundle?: TrajectoryBundle | undefined },
-  ): Promise<'added' | 'updated' | 'noop'> {
+  ): Promise<'added' | 'updated' | 'revised' | 'noop'> {
     const neighbors = await this.strategies.findSimilar(
       companyId,
       `${item.title}\n${item.situation}`,
@@ -476,6 +492,16 @@ export class StrategyDistillService {
         : await this.decideMerge(item, neighbors);
     if (decision.action === 'UPDATE' && decision.targetId) {
       const target = neighbors.find((n) => n.strategyId === decision.targetId);
+      // R3 P1 — active rows are IMMUTABLE to capture. A merge that targets an
+      // already-SERVING (`active`) row must NOT mutate it in place: that
+      // would silently change what retrieve() serves, bypassing candidate→
+      // active review. Propose a candidate REVISION instead and leave the
+      // active row byte-identical (a human promotes it via updateStatus).
+      if (target?.status === 'active') {
+        return this.reviseActive(companyId, { item, target, decision, ctx });
+      }
+      // Candidate target (the review buffer, not served): in-place merge is
+      // fine — that is exactly what candidates are for.
       await this.strategies.mergeUpdate(companyId, decision.targetId, {
         strategy: decision.strategy,
         situation: decision.situation,
@@ -489,6 +515,47 @@ export class StrategyDistillService {
       return 'added';
     }
     return 'noop';
+  }
+
+  /**
+   * Active-immutability arm (R3 P1): the merge target is an already-serving
+   * `active` row, so instead of mutating it we create a NEW `candidate`
+   * revision carrying the merged content + the experience bundle, pointing
+   * at the active row it supersedes (supersedesId). The active row is left
+   * untouched until a human promotes the revision (which then deprecates the
+   * superseded active row). A unique-title collision — a revision already
+   * pending, or an exact twin — degrades to NOOP rather than mutating the
+   * active row (the ADD-arm collision idiom).
+   */
+  private async reviseActive(
+    companyId: string,
+    args: {
+      item: DistilledItemShape;
+      target: ScoredStrategyItem;
+      decision: MergeDecision;
+      ctx: { evidence: StrategyEvidence; bundle?: TrajectoryBundle | undefined };
+    },
+  ): Promise<'revised' | 'noop'> {
+    const { item, target, decision, ctx } = args;
+    try {
+      await this.strategies.create(companyId, {
+        title: item.title,
+        situation: decision.situation ?? item.situation,
+        strategy: decision.strategy ?? item.strategy,
+        polarity: item.polarity,
+        status: 'candidate',
+        evidence: mergeEvidence(target.evidence ?? {}, ctx.evidence),
+        supersedesId: target.strategyId,
+        ...bundleFields(ctx.bundle),
+      });
+      return 'revised';
+    } catch (e) {
+      this.logger.warn(
+        `strategy revision skipped (title '${item.title}' supersedes ${target.strategyId}): ` +
+          `${(e as Error).message}`,
+      );
+      return 'noop';
+    }
   }
 
   /** ADD arm; a unique-title collision degrades to NOOP (exact twin). */

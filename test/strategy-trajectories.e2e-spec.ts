@@ -313,3 +313,105 @@ describe('strategy trajectories — all flags ON', () => {
     expect(JSON.stringify(res.body.citations ?? [])).not.toContain('past tool path');
   });
 });
+
+// ── R3 P1. Active rows are IMMUTABLE to capture: revision, not mutation ────
+//
+// The dedup-merge BRANCHING (active target → propose a revision; candidate
+// target → merge in place) is proved deterministically at the unit level in
+// test/strategy-revision.unit-spec.ts (the stub embedder's near-orthogonal
+// vectors make the distiller's floor-0 neighbor lookup non-deterministic, so
+// it is the wrong harness for that branch). Here we pin the SERVICE-LEVEL DB
+// guarantees against the real store: the 0099 columns round-trip, a candidate
+// revision is NOT served until promotion, and promotion deprecates the
+// superseded active row — all via retrieve()'s deterministic 0.4 floor.
+
+describe('strategy trajectories — active rows are immutable to capture (R3 P1)', () => {
+  let f: AppFixture;
+  const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
+
+  beforeAll(async () => {
+    clearStrategyEnv();
+    process.env.STRATEGY_MEMORY_ENABLED = '1';
+    process.env.STRATEGY_RETRIEVAL_ENABLED = '1';
+    process.env.STRATEGY_TRAJECTORIES_ENABLED = '1';
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    f = await createApp({ companyId: 'co_traj_revision_e2e' });
+  });
+  afterAll(async () => {
+    clearStrategyEnv();
+    if (f) await f.close();
+  });
+
+  it('a candidate revision is NOT served until promotion; supersedesId + unverified evidence label round-trip; promotion deprecates the superseded active row', async () => {
+    const strategy = f.app.get(StrategyMemoryService);
+
+    // The SERVING row: an ACTIVE, trajectory-bearing item whose retrieval key
+    // (title, empty situation) == 'onboarding lookup' (the stub embedder
+    // trims `title\n` to `title`, cosine 1.0 ≥ the 0.4 floor).
+    const ACTIVE_STRATEGY = 'Original active advice: check the profile record first.';
+    const active = await strategy.create(f.companyId, {
+      title: 'onboarding lookup',
+      situation: '',
+      strategy: ACTIVE_STRATEGY,
+      polarity: 'do',
+      status: 'active',
+      trajectory: [{ tool: 'profile_lookup', argsDigest: 'aaaa', resultDigest: 'bbbb', ok: true }],
+      verifiedOutcome: 'success',
+    });
+
+    // A candidate REVISION proposing to replace it — exactly the row the
+    // capture path (reviseActive) persists: merged content + the new
+    // experience, a supersedesId pointer, and a caller-asserted evidence ref.
+    const MERGED_STRATEGY = 'Merged advice: check the profile record, then confirm status.';
+    const revision = await strategy.create(f.companyId, {
+      title: 'onboarding lookup revised',
+      situation: '',
+      strategy: MERGED_STRATEGY,
+      polarity: 'do',
+      status: 'candidate',
+      supersedesId: active.strategyId,
+      trajectory: [{ tool: 'profile_lookup', argsDigest: 'cccc', resultDigest: 'dddd', ok: false }],
+      verifiedOutcome: 'failure',
+      outcomeEvidenceRef: 'eval:run-rev-1#q1',
+    });
+
+    // (1) The 0099 columns round-trip through the real store: the revision
+    // points at the active row it supersedes, and its caller-asserted
+    // evidence ref is persisted LABELED UNVERIFIED (a claim, not proof).
+    const revRead = (await strategy.findSimilar(f.companyId, 'onboarding lookup revised', 5)).find(
+      (i) => i.strategyId === revision.strategyId,
+    )!;
+    expect(revRead.supersedesId).toBe(active.strategyId);
+    expect(revRead.outcomeEvidenceRef).toBe('eval:run-rev-1#q1');
+    expect(revRead.outcomeEvidenceVerified).toBe(false);
+
+    // (2) retrieve() serves the ACTIVE row and NOT the candidate revision —
+    // even though the revision's own key scores 1.0, the status filter keeps
+    // it out until a human promotes it (the load-bearing serving guarantee).
+    expect(
+      (await strategy.retrieve(f.companyId, 'onboarding lookup', 2)).map((s) => s.strategyId),
+    ).toEqual([active.strategyId]);
+    expect(await strategy.retrieve(f.companyId, 'onboarding lookup revised', 2)).toEqual([]);
+
+    // (3) Promotion (candidate→active via PATCH) deprecates the superseded
+    // active row so two actives never serve one slot; the revision now serves.
+    const patch = await f.http
+      .patch(`/v1/admin/strategy/${encodeURIComponent(revision.strategyId)}`)
+      .set(auth())
+      .send({ status: 'active' });
+    expect(patch.status).toBe(200);
+    expect(patch.body.status).toBe('active');
+
+    const oldActive = (await strategy.list(f.companyId)).find(
+      (i) => i.strategyId === active.strategyId,
+    )!;
+    expect(oldActive.status).toBe('deprecated');
+    expect(
+      (await strategy.retrieve(f.companyId, 'onboarding lookup revised', 2)).map(
+        (s) => s.strategyId,
+      ),
+    ).toEqual([revision.strategyId]);
+    // The deprecated old active no longer serves its old key either.
+    expect(await strategy.retrieve(f.companyId, 'onboarding lookup', 2)).toEqual([]);
+  });
+});
