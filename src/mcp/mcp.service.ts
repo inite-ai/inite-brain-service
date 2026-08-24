@@ -17,7 +17,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
 import { MetricsService } from '../metrics/metrics.service';
-import { registerReadTools } from './read-tools';
+import { registerReadTools, READ_RESOURCE_ACTIONS } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
@@ -36,6 +36,17 @@ import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 
 const MCP_SERVER_VERSION = '0.3.0';
+
+/**
+ * Registration methods whose surface the resource/prompt gates patch.
+ * registerTool has its own dedicated gates (byte-identical, above); this
+ * covers registerResource today and a future registerPrompt with no code
+ * change beyond an action map + a call site.
+ */
+type RegistrationMethod = 'registerResource' | 'registerPrompt';
+
+/** A patched registration call returns a handle exposing remove(). */
+type RemovableRegistrar = (...args: unknown[]) => { remove(): void };
 
 const HEALTH_TOOLS = [
   'search_knowledge',
@@ -225,6 +236,126 @@ export class McpService {
   }
 
   /**
+   * Error wrapper for the resource surface (and any future
+   * registerPrompt) — the analogue of wrapToolErrors for registration
+   * methods whose handler is the LAST argument and whose result carries
+   * NO isError channel. Without it a thrown handler error reaches the
+   * SDK, which serializes error.message into the JSON-RPC error verbatim:
+   * the same raw SurrealDB leak (record ids, index names, FIELD VALUES)
+   * that wrapToolErrors closes for tools — the read-side gap this fix
+   * shuts.
+   *
+   * Deliberate client-facing errors (HttpException < 500 — not-found,
+   * validation, policy denials) pass through unchanged, matching the tool
+   * wrapper and the REST surface. Everything else is logged in full with
+   * a correlation id and replaced by a generic message.
+   *
+   * Applied BEFORE the policy/grant gates patch the same method, so the
+   * error wrapper ends up outermost and also covers the gate's enforce
+   * call (a policy deny surfaces as its ForbiddenException, never raw).
+   */
+  private wrapRegistrationErrors({
+    server,
+    method,
+  }: {
+    server: McpServer;
+    method: RegistrationMethod;
+  }): void {
+    const surface = method === 'registerResource' ? 'resource' : 'prompt';
+    const bag = server as unknown as Record<RegistrationMethod, RemovableRegistrar>;
+    const raw = bag[method].bind(server);
+    (server as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => {
+      const name = args[0] as string;
+      const handler = args[args.length - 1] as (...h: unknown[]) => unknown;
+      const wrapped = async (...h: unknown[]): Promise<unknown> => {
+        try {
+          return await handler(...h);
+        } catch (e) {
+          if (e instanceof HttpException && e.getStatus() < 500) throw e;
+          const ref = randomUUID().slice(0, 8);
+          this.logger.error(`${surface} ${name} failed (ref ${ref}): ${(e as Error).stack ?? e}`);
+          throw new Error(`internal error while reading ${surface} ${name} (ref ${ref})`);
+        }
+      };
+      return raw(...args.slice(0, -1), wrapped);
+    };
+  }
+
+  /**
+   * ABAC gate for the resource surface (and any future registerPrompt) —
+   * the exact analogue of applyPolicyToolGate. Resolves each
+   * registration's policy action via `actionOf` (a resource reuses its
+   * equivalent read tool's action), then mirrors the tool gate: an
+   * enforce-denied registration is removed immediately (gone from
+   * resources/list, a blind read gets the SDK's unknown-resource error),
+   * and an allowed one gets a per-call wrapper that runs enforceToolAction
+   * (emitting allow/would_deny decisions, throwing on an enforced deny)
+   * before the handler.
+   */
+  private applyPolicyRegistrationGate({
+    server,
+    method,
+    policy,
+    actionOf,
+  }: {
+    server: McpServer;
+    method: RegistrationMethod;
+    policy: PolicyContext;
+    actionOf: (name: string) => string;
+  }): void {
+    const bag = server as unknown as Record<RegistrationMethod, RemovableRegistrar>;
+    const raw = bag[method].bind(server);
+    (server as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => {
+      const action = actionOf(args[0] as string);
+      const handler = args[args.length - 1] as (...h: unknown[]) => unknown;
+      const denied = evaluateAction(policy, action).decision === 'deny';
+      const reg = raw(...args.slice(0, -1), (...h: unknown[]) => {
+        this.policyGate.enforceToolAction(policy, action);
+        return handler(...h);
+      });
+      // Enforce-denied resources unregister immediately, mirroring the
+      // tool gate: gone from resources/list, blind read → unknown-resource.
+      if (denied) reg.remove();
+      return reg;
+    };
+  }
+
+  /**
+   * RFC 9396 grant gate for the resource surface (and any future
+   * registerPrompt) — the analogue of applyGrantToolGate. A registration
+   * stays iff its resolved action is in the granted union or its kind is
+   * covered by a read/write macro grant. Applied AFTER the policy gate;
+   * the two removals are independent, so deny-overrides holds exactly as
+   * for tools (a policy deny removes what a grant allows, and a grant
+   * omission removes what a policy allows).
+   */
+  private applyGrantRegistrationGate({
+    server,
+    method,
+    granted,
+    actionOf,
+  }: {
+    server: McpServer;
+    method: RegistrationMethod;
+    granted: readonly string[];
+    actionOf: (name: string) => string;
+  }): void {
+    const grantSet = new Set(granted);
+    const allows = (action: string): boolean => {
+      if (grantSet.has(action)) return true;
+      const kind = ACTIONS[action]?.kind;
+      return kind !== undefined && grantSet.has(kind);
+    };
+    const bag = server as unknown as Record<RegistrationMethod, RemovableRegistrar>;
+    const raw = bag[method].bind(server);
+    (server as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => {
+      const reg = raw(...args);
+      if (!allows(actionOf(args[0] as string))) reg.remove();
+      return reg;
+    };
+  }
+
+  /**
    * Unauthenticated health probe payload — surfaces version + the
    * read-baseline tool list so setup scripts can confirm the MCP
    * endpoint is reachable BEFORE the operator pastes the API key.
@@ -302,10 +433,34 @@ export class McpService {
       name: 'inite-brain-service',
       version: MCP_SERVER_VERSION,
     });
+    // A resource read resolves to its equivalent read tool's action, so a
+    // grant/policy over get_entity_profile governs the brain://entity/<id>
+    // resource identically. An unmapped resource name falls through to
+    // itself → write-kind → fail-closed under any restriction.
+    const resourceActionOf = (name: string): string => READ_RESOURCE_ACTIONS.get(name) ?? name;
     this.wrapToolErrors(server);
-    if (policy) this.applyPolicyToolGate(server, policy, packToolKinds);
+    // Resources have no isError result channel; gate + error-wrap them
+    // with the SAME machinery as tools so a grant/policy that strips the
+    // entity-read tools also strips the entity resources, and a raw DB
+    // error never leaks through a resource read.
+    this.wrapRegistrationErrors({ server, method: 'registerResource' });
+    if (policy) {
+      this.applyPolicyToolGate(server, policy, packToolKinds);
+      this.applyPolicyRegistrationGate({
+        server,
+        method: 'registerResource',
+        policy,
+        actionOf: resourceActionOf,
+      });
+    }
     if (caller?.mcpGrantedActions !== undefined) {
       this.applyGrantToolGate(server, caller.mcpGrantedActions, packToolKinds);
+      this.applyGrantRegistrationGate({
+        server,
+        method: 'registerResource',
+        granted: caller.mcpGrantedActions,
+        actionOf: resourceActionOf,
+      });
     }
     registerReadTools({
       server,
