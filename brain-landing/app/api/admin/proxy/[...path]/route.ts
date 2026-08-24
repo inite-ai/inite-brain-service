@@ -442,7 +442,7 @@ async function forward(
     return NextResponse.json(parsed.data, { status: 200 })
   }
 
-  return NextResponse.json(res.data ?? { error: res.error }, {
+  return NextResponse.json(res.data ?? { error: res.error, code: res.code }, {
     status: res.status || (res.ok ? 200 : 502),
   })
 }

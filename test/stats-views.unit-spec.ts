@@ -163,10 +163,11 @@ describe('StatsService per-user scope (audit F3)', () => {
       factsRetracted: 0,
       factsLast7d: 2,
     });
-    // community_node carries no userId → the count is OMITTED (not 0, not
-    // the tenant figure) for an end-user caller.
-    expect(stats.communities).toBeUndefined();
-    expect('communities' in stats).toBe(false);
+    // community_node carries no userId → the count is reported as an
+    // explicit null ("N/A" in the UI) for an end-user caller — never a
+    // misleading 0, and never the leaked tenant-global figure.
+    expect(stats.communities).toBeNull();
+    expect(stats.communities).not.toBe(0);
 
     const call = query.mock.calls[0]!;
     const sql = call[0] as string;
@@ -230,9 +231,9 @@ describe('StatsService per-user scope (audit F3)', () => {
     expect(m2m).toMatchObject({ entities: 7, factsActive: 5, factsCompeting: 2 });
     expect(m2m.communities).toBe(3);
     // User caller got its OWN scoped numbers, NOT the M2M cache entry, and
-    // no community count.
+    // an explicit null community count (N/A), not the tenant figure.
     expect(user).toMatchObject({ entities: 4, factsActive: 3 });
-    expect(user.communities).toBeUndefined();
+    expect(user.communities).toBeNull();
     // Two distinct keys → two DB round-trips; a shared tenant-only key
     // would have served the M2M entry to the user (query called once).
     expect(query).toHaveBeenCalledTimes(2);

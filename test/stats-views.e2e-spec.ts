@@ -285,7 +285,9 @@ describe('stats overview per-user scope (audit F3, real SurrealDB)', () => {
     factsActive: number;
     factsCompeting: number;
     factsRetracted: number;
-    communities?: number;
+    // null (not undefined/0) for a per-user caller — communities are
+    // tenant-wide; a number only for the M2M / admin caller.
+    communities?: number | null;
     factsLast7d: number;
   }
 
@@ -301,15 +303,16 @@ describe('stats overview per-user scope (audit F3, real SurrealDB)', () => {
     expect(a.factsActive).toBe(A_FACTS + GLOBAL_FACTS); // 5, not 9
     expect(a.entities).toBe(A_FACTS + GLOBAL_FACTS);
     expect(a.factsLast7d).toBe(A_FACTS + GLOBAL_FACTS);
-    // community_node has no userId → the tenant figure is omitted.
-    expect(a.communities).toBeUndefined();
+    // community_node has no userId → the tenant figure is reported as an
+    // explicit null (N/A), never 0 and never the tenant-global count.
+    expect(a.communities).toBeNull();
   });
 
   it('user B sees only its own + tenant-global counts, never user A activity', async () => {
     const b = await overview(B());
     expect(b.factsActive).toBe(B_FACTS + GLOBAL_FACTS); // 6, not 9
     expect(b.entities).toBe(B_FACTS + GLOBAL_FACTS);
-    expect(b.communities).toBeUndefined();
+    expect(b.communities).toBeNull();
   });
 
   it('the two users never see each other: A ≠ B, and neither equals the tenant aggregate', async () => {

@@ -7,6 +7,7 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "testTimeout": 120000,
+  "//": "forceExit is retained deliberately and is NOT masking an app leak. --detectOpenHandles across a diverse spec sample (mcp-health, scoped-pool, staleness-event, communities, fact-usage, concurrent-single-active) reports ZERO open handles: app.close() + the OnModuleDestroy hooks (SurrealService et al.) release every resource, so the suite exits cleanly on its own. forceExit stays as the CI-termination backstop that pairs with workerIdleMemoryLimit below: an over-budget worker can be hard-killed (the #78 SIGABRT root cause), and forceExit guarantees the jest parent still terminates instead of hanging the runner. Drop it only after a FULL-suite run without it confirms every spec exits cleanly.",
   "forceExit": true,
   "maxWorkers": "50%",
   "workerIdleMemoryLimit": "1GB",
