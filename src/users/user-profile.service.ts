@@ -3,6 +3,7 @@ import { SurrealService } from '../db/surreal.service';
 import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
 import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { envFlagEnabled } from '../common/env-validation';
 import {
   PER_ASPECT_CAP,
   type ProfileFactWire,
@@ -192,10 +193,24 @@ export class UserProfileService {
       fetchCap: FETCH_CAP,
       ...fence.params,
     };
+    // Multilingual Tier 1: MULTILINGUAL_SOFT_LANG_FILTER turns the hard
+    // same-language exclusion into a RANKING preference. The caller-supplied
+    // `lang` is an explicit, high-confidence intent, so no separate
+    // confidence gate is applied here (unlike the detected-query search
+    // path). Off (default) → the byte-identical hard filter.
+    let langOrderPrefix = '';
     if (lang) {
-      // Locale filter, soft on unstamped rows (the where-builder idiom).
-      clauses.push(`(lang = $langFilter OR lang IS NONE)`);
-      params.langFilter = lang;
+      if (envFlagEnabled(process.env.MULTILINGUAL_SOFT_LANG_FILTER)) {
+        // Drop the exclusion; prefer same-language facts in the fetch order
+        // (a ranking signal within the FETCH_CAP, never an exclusion) so a
+        // cross-lingual fact is demoted, not hidden.
+        langOrderPrefix = '(lang = $langFilter) DESC, ';
+        params.langFilter = lang;
+      } else {
+        // Locale filter, soft on unstamped rows (the where-builder idiom).
+        clauses.push(`(lang = $langFilter OR lang IS NONE)`);
+        params.langFilter = lang;
+      }
     }
 
     // Predicate scope-fence (the PII gate) + ABAC row verdict — the
@@ -211,7 +226,7 @@ export class UserProfileService {
         `SELECT ${PROFILE_PROJECTION}
              FROM knowledge_fact
             WHERE ${clauses.join('\n              AND ')}
-            ORDER BY validFrom DESC, id ASC
+            ORDER BY ${langOrderPrefix}validFrom DESC, id ASC
             LIMIT $fetchCap`,
         params,
       );

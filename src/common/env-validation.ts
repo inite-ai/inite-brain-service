@@ -757,6 +757,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // default off. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off
   // the flag budget).
   'FOVEA_REQUIRE_CITATIONS',
+  // Multilingual Tier 1 (migration 0100). Confidence-aware attribution:
+  // the detector returns `und` (not `en`) for short/stopword-less objects
+  // and the resolver stamps langConfidence/langSource/detectorVersion/
+  // sourceLang. Default off ⇒ Phase-4 `en` fallback, no new fields written.
+  // Outside ENGINE_PREFIX by design (a cross-cutting locale concern, not an
+  // engine fork — sits off the flag budget alongside the FOVEA_ family).
+  'MULTILINGUAL_LANG_ATTRIBUTION',
+  // Multilingual Tier 1. Soft same-language filter: the hard
+  // `lang = q OR lang IS NONE` retrieval/profile exclusion becomes a
+  // confidence-gated ranking boost (cross-lingual facts demoted, never
+  // hidden). Default off ⇒ the hard filter is byte-identical.
+  'MULTILINGUAL_SOFT_LANG_FILTER',
 ];
 
 /**

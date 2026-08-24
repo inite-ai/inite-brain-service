@@ -31,6 +31,14 @@ export interface FactRow {
   predicateAlias?: string;
   object: string;
   confidence: number;
+  /**
+   * Stored content language (ISO 639-1) of the `object`, migration 0020;
+   * projected by the vector + lexical legs so the multilingual Tier-1
+   * same-language ranking boost (scoreRows langBoost) can read it. Absent /
+   * NONE on pre-Phase-4 rows and on legs that don't project it (segment /
+   * insight / graph) — the boost simply never fires for those (factor 1.0).
+   */
+  lang?: string | null;
   validFrom: string;
   validUntil?: string;
   recordedAt: string;
@@ -156,6 +164,13 @@ export interface ScoreBreakdown {
    * period parsed, or the filter is off.
    */
   timeRange?: number;
+  /**
+   * Multilingual Tier 1 same-language ranking boost (`1 + β`) applied when
+   * MULTILINGUAL_SOFT_LANG_FILTER is on with a high-confidence query
+   * language and the fact's `lang` matches it. Omitted when 1.0 — the flag
+   * is off, the languages differ, or the row carries no `lang`.
+   */
+  langBoost?: number;
   /**
    * V8 §4 importance factor from the deriver-stamped source.salience
    * (profile salienceScoring). Omitted when 1.0 — scoring off, an

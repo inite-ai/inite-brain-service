@@ -491,6 +491,31 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (verifier answer-integrity arm, Part C): treat a `supported` verdict whose answer carries ZERO citations as low_coverage/abstain instead of serving an uncited "supported" answer (audit F2(b)). LIVE-behavior change when enabled — prod answers can shift, so default off until the owner enables + validates. Off = byte-identical serving.',
   },
+  // ── Multilingual (Tier 1, migration 0100) ───────────
+  {
+    key: 'MULTILINGUAL_LANG_ATTRIBUTION',
+    category: 'pipeline',
+    // Read at call time (the language detector, fact-resolver buildResolveCall,
+    // and resolveSearchTuning) — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "Confidence-aware language attribution: the pure detector returns `und` (not `en`) for short / stopword-less / numeric objects, and the fact resolver stamps langConfidence + langSource (detected | inherited | explicit) + detectorVersion + sourceLang (the SOURCE turn's language, distinct from the object's own `lang`), inheriting the source-turn language onto an undetectable short object. Behaviour-neutral telemetry (brain_lang_attribution_total / _confidence) is emitted only while on. Off (default) → the Phase-4 `en` fallback and NO new columns written — byte-identical.",
+  },
+  {
+    key: 'MULTILINGUAL_SOFT_LANG_FILTER',
+    category: 'pipeline',
+    // Read at call time (resolveSearchTuning per request, user-profile
+    // getProfile) — never constructor-captured — so a flip takes effect
+    // without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (default) → the hard filter is byte-identical.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',

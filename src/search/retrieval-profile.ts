@@ -900,6 +900,18 @@ export interface SearchTuning {
   hnswOverfetch: number;
   highlightEnabled: boolean;
   edgeExpansion: ExpansionConfig;
+  /**
+   * Multilingual Tier 1. `softLangFilter` (MULTILINGUAL_SOFT_LANG_FILTER)
+   * turns the hard same-language WHERE exclusion into a confidence-gated
+   * ranking boost — the where-builder drops the exclusion and scoreRows
+   * applies the same-language factor, but ONLY when the query language was
+   * detected with high confidence (search.service gates on it).
+   * `langAttribution` (MULTILINGUAL_LANG_ATTRIBUTION) mirrors the detector
+   * flag so the search path can emit query-surface attribution telemetry
+   * only when attribution is on. Both default off ⇒ byte-identical.
+   */
+  softLangFilter: boolean;
+  langAttribution: boolean;
 }
 
 function tuningInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -955,5 +967,7 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
     highlightEnabled: envFlagEnabled(env.SEARCH_HIGHLIGHT_ENABLED),
     edgeExpansion: resolveExpansionConfig(env),
+    softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
+    langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),
   };
 }

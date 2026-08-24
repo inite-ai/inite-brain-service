@@ -5,6 +5,7 @@ import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
+import { envFlagEnabled } from '../common/env-validation';
 import { KeyedMutex } from '../common/keyed-mutex';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
@@ -32,6 +33,21 @@ export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
 /** Derive-internal semantics choice (V9 §1); pure, exported for tests. */
 export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): DerivedSemantics {
   return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect) ? 'bitemporal_event' : 'append_only';
+}
+
+/**
+ * Confidence-aware language-attribution metadata (multilingual Tier 1,
+ * migration 0100). Built ONLY when MULTILINGUAL_LANG_ATTRIBUTION is on and
+ * stamped onto the created fact by a follow-up UPDATE (the stampFactScope
+ * idiom) — kept OUT of fn::resolve_fact so the resolver signature and its
+ * pinned invariants are untouched. Undefined ⇒ no stamp ⇒ byte-identical.
+ */
+interface LangAttributionMeta {
+  langConfidence: number;
+  langSource: 'detected' | 'inherited' | 'explicit';
+  detectorVersion: string;
+  /** Language of the SOURCE turn (distinct from the object's `lang`). */
+  sourceLang?: string | undefined;
 }
 
 /**
@@ -96,6 +112,16 @@ export class FactResolverService {
       predicateAlias?: string | undefined;
       /** The string form stored in `object` and used for locale detection. */
       object: string;
+      /**
+       * Language (ISO 639-1) of the SOURCE message/turn this fact was
+       * extracted from, when the caller knows it. Under
+       * MULTILINGUAL_LANG_ATTRIBUTION it is (a) stamped as `sourceLang`
+       * (distinct from the object's own `lang`) and (b) inherited onto a
+       * short / stopword-less object whose own language can't be detected
+       * (recorded as langSource='inherited'). Absent ⇒ no inheritance and
+       * no sourceLang stamp — byte-identical.
+       */
+      sourceLang?: string | undefined;
       objectMeta?: object | undefined;
       /** Exact text to embed; defaults to `${predicate}: ${object}`. */
       embeddingText?: string | undefined;
@@ -209,9 +235,57 @@ export class FactResolverService {
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
     const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
     const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
-    const detLang = detectLanguage(p.object);
-    const lang = detLang.language !== 'und' ? detLang.language : undefined;
-    const script = detLang.language !== 'und' ? detLang.script : undefined;
+    // Confidence-aware attribution (MULTILINGUAL_LANG_ATTRIBUTION, default
+    // off). Off → detectLanguage keeps its Phase-4 `en` fallback and no new
+    // metadata is built, so `lang`/`script` and the whole call are
+    // byte-identical to today. On → the detector returns `und` for
+    // short/stopword-less objects and we record confidence + source, and
+    // inherit the source-turn language onto an undetectable object.
+    const attribution = envFlagEnabled(process.env.MULTILINGUAL_LANG_ATTRIBUTION);
+    const detLang = detectLanguage(p.object, attribution);
+    let lang: string | undefined = detLang.language !== 'und' ? detLang.language : undefined;
+    // Script is only ever the detected script — an inherited lang leaves it
+    // NONE (the source turn's script isn't carried on the fact input).
+    const script: string | undefined = detLang.language !== 'und' ? detLang.script : undefined;
+    let langMeta: LangAttributionMeta | undefined;
+    if (attribution) {
+      if (lang) {
+        langMeta = {
+          langConfidence: detLang.confidence,
+          langSource: 'detected',
+          detectorVersion: detLang.detectorVersion,
+          sourceLang: p.sourceLang,
+        };
+      } else if (p.sourceLang) {
+        // Undetectable object (short / stopword-less / numeric): inherit
+        // the source-message language as the contentLang — justified only
+        // because the object carries no signal of its own. Recorded as
+        // 'inherited'; script stays unknown (left NONE).
+        lang = p.sourceLang;
+        langMeta = {
+          langConfidence: detLang.confidence,
+          langSource: 'inherited',
+          detectorVersion: detLang.detectorVersion,
+          sourceLang: p.sourceLang,
+        };
+      } else {
+        // Undetermined and nothing to inherit — record the low-confidence
+        // `und` decision; `lang` stays NONE.
+        langMeta = {
+          langConfidence: detLang.confidence,
+          langSource: 'detected',
+          detectorVersion: detLang.detectorVersion,
+          sourceLang: undefined,
+        };
+      }
+      // Behaviour-neutral distribution telemetry (surface = 'fact').
+      this.metrics?.recordLangAttribution({
+        lang: lang ?? 'und',
+        source: 'fact',
+        confidence: detLang.confidence,
+        detectorVersion: detLang.detectorVersion,
+      });
+    }
     const embedding =
       p.precomputedEmbedding ??
       (await this.factEmbedding.embed(p.embeddingText ?? `${p.predicate}: ${p.object}`));
@@ -231,6 +305,7 @@ export class FactResolverService {
       semantics: policy.semantics,
       lang,
       script,
+      langMeta,
       entropy: p.entropy,
       userId: p.userId,
       derivedVersion: p.derivedVersion,
@@ -296,6 +371,53 @@ export class FactResolverService {
   }
 
   /**
+   * Multilingual Tier 1 (0100): stamp confidence-aware attribution metadata
+   * onto the created fact rows via a follow-up UPDATE — the stampFactScope
+   * idiom, kept OUT of fn::resolve_fact so the resolver's pinned invariants
+   * are untouched. Only rows whose langMeta is set (attribution on) are
+   * touched, so with the flag off this is a no-op and ingest is
+   * byte-identical. Best-effort: a stamp failure WARNs and never fails the
+   * ingest (the `lang` column proper is already set by the resolver; these
+   * are supplementary provenance fields). `sourceLang` is written only when
+   * known — omitted, not NULLed, matching the omit-when-undefined idiom.
+   */
+  private async stampLangAttribution(
+    db: {
+      query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
+    },
+    items: Array<{ factId: unknown; meta?: LangAttributionMeta | undefined }>,
+  ): Promise<void> {
+    const rows = items.filter(
+      (it): it is { factId: unknown; meta: LangAttributionMeta } =>
+        it.meta !== undefined && it.factId !== undefined && it.factId !== null,
+    );
+    if (rows.length === 0) return;
+    try {
+      for (const { factId, meta } of rows) {
+        const id = new StringRecordId(`knowledge_fact:${idTailOf(String(factId))}`);
+        const sets = [
+          'langConfidence = $langConfidence',
+          'langSource = $langSource',
+          'detectorVersion = $detectorVersion',
+        ];
+        const params: Record<string, unknown> = {
+          id,
+          langConfidence: meta.langConfidence,
+          langSource: meta.langSource,
+          detectorVersion: meta.detectorVersion,
+        };
+        if (meta.sourceLang !== undefined) {
+          sets.push('sourceLang = $sourceLang');
+          params.sourceLang = meta.sourceLang;
+        }
+        await db.query(`UPDATE $id SET ${sets.join(', ')}`, params);
+      }
+    } catch (e) {
+      this.logger.warn(`lang-attribution stamp failed (non-fatal): ${(e as Error).message}`);
+    }
+  }
+
+  /**
    * Resolve a set of append_only facts in ONE round-trip via the stored
    * `fn::resolve_facts` (migration 0071), which maps `fn::resolve_fact` over the
    * array server-side and returns the results in order. Safe without the resolve
@@ -355,6 +477,13 @@ export class FactResolverService {
     await this.stampFactScope(
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
+    );
+    // Multilingual Tier 1: per-fact attribution stamp (0100). No-op for
+    // every fact whose langMeta is undefined (attribution off, or the
+    // derived-batch path which builds no attribution meta) — byte-identical.
+    await this.stampLangAttribution(
+      db,
+      prepared.map((c, k) => ({ factId: out[k]?.factId, meta: c.langMeta })),
     );
     return out;
   }
@@ -481,6 +610,9 @@ export class FactResolverService {
       semantics: string;
       lang?: string | undefined;
       script?: string | undefined;
+      /** Attribution metadata (0100), stamped by a follow-up UPDATE; not
+       *  passed to fn::resolve_fact. Undefined ⇒ no stamp. */
+      langMeta?: LangAttributionMeta | undefined;
       entropy?: number | undefined;
       userId?: string | undefined;
       derivedVersion?: string | undefined;
@@ -545,6 +677,9 @@ export class FactResolverService {
     // Outside the retry closure so a stamp hiccup never re-runs the
     // resolver (which would double-create the fact).
     await this.stampFactScope(db, [{ userId: p.userId, factId: r?.factId }]);
+    // Multilingual Tier 1: stamp attribution metadata (0100). No-op when
+    // langMeta is undefined (attribution off) — byte-identical.
+    await this.stampLangAttribution(db, [{ factId: r?.factId, meta: p.langMeta }]);
     return r;
   }
 
