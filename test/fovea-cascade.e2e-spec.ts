@@ -298,7 +298,11 @@ describe('fovea cascade shakedown — full stack composed', () => {
     expect(r1.body.cached).toBeUndefined();
     expect(s1.calls.length).toBe(2);
 
-    // Repeat (typographic variant): served from cache, LLM never called.
+    // Repeat (whitespace variant): served from cache, LLM never called.
+    // Post-F1 the cache key normalizes NFC + whitespace ONLY — case and
+    // punctuation are now key-distinguishing (so `getUserById` never
+    // collides with `getuserbyid`), so the variant here only pads
+    // whitespace, which still normalizes to the same key.
     const hitBefore = await cacheMetric('hit');
     const s2 = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({
@@ -307,7 +311,7 @@ describe('fovea cascade shakedown — full stack composed', () => {
       }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
-    const r2 = await synth({ query: `  ${CACHE_QUERY.toUpperCase()}?`, userId: 'u_cache' });
+    const r2 = await synth({ query: `  ${CACHE_QUERY}  `, userId: 'u_cache' });
     expect(r2.status).toBe(201);
     expect(r2.body.cached).toBe(true);
     expect(r2.body.answer).toBe('The tier is sapphire-cache.');

@@ -92,6 +92,17 @@ const ENUMERATION_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Open-enumeration shape — the "list all X / how many / order" family
+ * whose answer set GROWS with additive writes (a new item on a NOT-yet-
+ * cited entity that the entity-scoped freshness probe cannot see). The
+ * answer cache keys a much shorter TTL on this so those answers do not
+ * outlive the next write. Shares ENUMERATION_PATTERNS with the routing
+ * lane; profile-independent (offline/pure), like detectOrderingShape. */
+export function detectEnumerationShape(query: string): boolean {
+  return ENUMERATION_PATTERNS.some((p) => p.test(query ?? ''));
+}
+
+/**
  * T4 preference/recommendation questions: the failure mode is a generic
  * suggestion that ignores stored preferences (PrefEval: verbatim
  * preference injection beats CoT — the fix is retrieval + conditioning,
