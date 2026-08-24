@@ -56,8 +56,8 @@ export class AdminInfraController {
    */
   @Get('migrations')
   @RequireScopes('brain:admin')
-  async migrations(): Promise<MigrationsResponse> {
-    return this.adminInfra.migrationsAudit();
+  async migrations(@Req() req: AuthenticatedRequest): Promise<MigrationsResponse> {
+    return this.adminInfra.migrationsAudit(req);
   }
 
   @Get('throttler')

@@ -19,6 +19,21 @@ import type { JobClaimService } from '../src/jobs/job-claim.service';
 import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
 import type { WorkerLoopService } from '../src/jobs/worker-loop.service';
 import type { JobWorkerPool } from '../src/jobs/job-worker-pool.service';
+import type { AuthenticatedRequest, BrainScope } from '../src/auth/api-key.types';
+import { PLATFORM_TENANT_SCOPE } from '../src/auth/tenant-scope';
+
+const ADMIN: BrainScope[] = ['brain:admin'];
+const PLATFORM: BrainScope[] = ['brain:admin', PLATFORM_TENANT_SCOPE];
+
+function req(scopes: BrainScope[], companyId = 'tenant-a'): AuthenticatedRequest {
+  return { brainAuth: { companyId, scopes, keyHash: 'h' } } as unknown as AuthenticatedRequest;
+}
+
+const OLD_GATE = process.env.BRAIN_TENANT_OVERRIDE_ENABLED;
+afterEach(() => {
+  if (OLD_GATE === undefined) delete process.env.BRAIN_TENANT_OVERRIDE_ENABLED;
+  else process.env.BRAIN_TENANT_OVERRIDE_ENABLED = OLD_GATE;
+});
 
 function makeController(): AdminJobsController {
   const claim = {
@@ -90,7 +105,7 @@ function makeController(): AdminJobsController {
 describe('AdminJobsController.leases() — wire contract', () => {
   it('matches LeasesResponseSchema', async () => {
     const controller = makeController();
-    const payload = await controller.leases();
+    const payload = await controller.leases(req(ADMIN));
     const parsed = LeasesResponseSchema.safeParse(payload);
     if (!parsed.success) {
       throw new Error(
@@ -130,7 +145,7 @@ describe('AdminJobsController.leases() — wire contract', () => {
       undefined as never,
       { get: () => 'inline' } as unknown as ConfigService,
     );
-    const payload = await controller.leases();
+    const payload = await controller.leases(req(ADMIN));
     const parsed = LeasesResponseSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
@@ -138,5 +153,63 @@ describe('AdminJobsController.leases() — wire contract', () => {
       expect(parsed.data.activeClaims).toHaveLength(0);
       expect(parsed.data.queueMode).toBe('inline');
     }
+  });
+});
+
+/** Controller whose claim.listActiveClaims records the tenant scope it got. */
+function capturingController() {
+  const seen: { tenants: readonly string[] } = { tenants: [] };
+  const claim = {
+    identity: () => 'pod-1#42',
+    listActiveClaims: async (tenants: readonly string[]) => {
+      seen.tenants = tenants;
+      return [];
+    },
+  } as unknown as JobClaimService;
+  const leaderLease = { list: async () => [] } as unknown as LeaderLeaseService;
+  const workerLoop = {
+    leader: () => true,
+    registeredTypes: () => [],
+  } as unknown as WorkerLoopService;
+  const workerPool = {
+    enabled: () => false,
+    stats: () => ({ size: 0, idle: 0, busy: 0, waiters: 0 }),
+  } as unknown as JobWorkerPool;
+  const apiKeys = {
+    knownCompanyIds: () => ['tenant-a', 'tenant-b'],
+  } as unknown as ApiKeyService;
+  const config = { get: () => 'enqueue' } as unknown as ConfigService;
+  const undef = undefined as unknown as never;
+  const ctrl = new AdminJobsController(
+    undef,
+    undef,
+    undef,
+    undef,
+    undef,
+    apiKeys,
+    undef,
+    undef,
+    claim,
+    leaderLease,
+    workerLoop,
+    workerPool,
+    undef,
+    config,
+  );
+  return { ctrl, seen };
+}
+
+describe('AdminJobsController.leases() — tenant isolation (P0)', () => {
+  it('plain brain:admin → own tenant claims only', async () => {
+    const { ctrl, seen } = capturingController();
+    await ctrl.leases(req(ADMIN));
+    expect(seen.tenants).toEqual(['tenant-a']);
+  });
+
+  it('platform scope + gate → all-tenant claim scan', async () => {
+    process.env.BRAIN_TENANT_OVERRIDE_ENABLED = '1';
+    const { ctrl, seen } = capturingController();
+    await ctrl.leases(req(PLATFORM));
+    expect(seen.tenants).toEqual(['tenant-a', 'tenant-b']);
   });
 });

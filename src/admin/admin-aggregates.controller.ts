@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@ne
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
+import { resolvePlatformTenant } from '../auth/tenant-scope';
 import { AggregateComposerService, AggregateRunResult } from './aggregate-composer.service';
 import { ArcComposerService, ArcRunResult } from './arc-composer.service';
 
@@ -52,10 +53,9 @@ export class AdminAggregatesController {
     req: AuthenticatedRequest,
     body: { tenant?: string; version?: string },
   ): { tenant: string; version?: string | undefined } {
-    const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
-      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
-    }
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const version = body.version?.trim() || undefined;
     if (version && !/^[a-z0-9-]{2,32}$/.test(version)) {
       throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');

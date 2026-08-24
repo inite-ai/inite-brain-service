@@ -197,7 +197,9 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
   it('admin fan-out reads the same counters from the views', async () => {
     process.env.STATS_VIEWS_ENABLED = '1';
     const live = await liveCounts();
-    const overview = await f.app.get(AdminService).buildOverview();
+    const overview = await f.app.get(AdminService).buildOverview({
+      brainAuth: { companyId: f.companyId, scopes: ['brain:admin'], keyHash: 'h' },
+    } as never);
     const row = overview.tenants.find((t) => t.companyId === f.companyId);
     expect(row).toEqual({
       companyId: f.companyId,

@@ -13,7 +13,18 @@
  */
 import { ChangefeedStateResponseSchema } from '../src/contracts/admin/changefeed-state.schema';
 import { AdminJobsController } from '../src/admin/admin-jobs.controller';
+import { adminReq, PLATFORM_SCOPES } from './helpers/admin-controllers';
 import type { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
+import type { ApiKeyService } from '../src/auth/api-key.service';
+
+const KNOWN = ['tenant-a', 'tenant-b'];
+const apiKeys = { knownCompanyIds: () => KNOWN } as unknown as ApiKeyService;
+
+const OLD_GATE = process.env.BRAIN_TENANT_OVERRIDE_ENABLED;
+afterEach(() => {
+  if (OLD_GATE === undefined) delete process.env.BRAIN_TENANT_OVERRIDE_ENABLED;
+  else process.env.BRAIN_TENANT_OVERRIDE_ENABLED = OLD_GATE;
+});
 
 function makeChangefeed(): ChangefeedConsumerService {
   const SOURCES = ['attribution', 'fact_state'] as const;
@@ -44,7 +55,7 @@ function makeController(changefeed: ChangefeedConsumerService): AdminJobsControl
     undef,
     changefeed,
     undef,
-    undef,
+    apiKeys, // 5 apiKeys
     undef,
     undef,
     undef,
@@ -59,7 +70,9 @@ function makeController(changefeed: ChangefeedConsumerService): AdminJobsControl
 describe('AdminJobsController.changefeedState() — wire contract', () => {
   it('matches ChangefeedStateResponseSchema', async () => {
     const controller = makeController(makeChangefeed());
-    const payload = await controller.changefeedState();
+    // tenant-a caller: both mock cursors belong to tenant-a, so own-scoping
+    // keeps them.
+    const payload = await controller.changefeedState(adminReq(undefined, 'tenant-a'));
     const parsed = ChangefeedStateResponseSchema.safeParse(payload);
     if (!parsed.success) {
       throw new Error(
@@ -90,7 +103,25 @@ describe('AdminJobsController.changefeedState() — wire contract', () => {
       cursorState: async () => [],
     } as unknown as ChangefeedConsumerService;
     const controller = makeController(cold);
-    const parsed = ChangefeedStateResponseSchema.safeParse(await controller.changefeedState());
+    const parsed = ChangefeedStateResponseSchema.safeParse(
+      await controller.changefeedState(adminReq()),
+    );
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe('AdminJobsController.changefeedState() — tenant isolation (P0)', () => {
+  it('plain brain:admin sees only its own tenant cursors', async () => {
+    const controller = makeController(makeChangefeed());
+    // caller is tenant-b; the mock cursors are all tenant-a → filtered out.
+    const payload = await controller.changefeedState(adminReq(undefined, 'tenant-b'));
+    expect(payload.cursors).toHaveLength(0);
+  });
+
+  it('platform scope + gate keeps the all-tenant cursor view', async () => {
+    process.env.BRAIN_TENANT_OVERRIDE_ENABLED = '1';
+    const controller = makeController(makeChangefeed());
+    const payload = await controller.changefeedState(adminReq(PLATFORM_SCOPES, 'tenant-b'));
+    expect(payload.cursors).toHaveLength(2);
   });
 });

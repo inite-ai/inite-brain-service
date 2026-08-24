@@ -1628,7 +1628,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Allow an admin-scoped key to address another tenant via the X-Brain-Tenant header (slug-validated). Built for eval harnesses needing per-question tenant isolation (LongMemEval/BEAM: one haystack per tenant) without minting hundreds of keys. Never enable in multi-tenant prod without a policy review.',
+      'Unlock the platform-operator cross-tenant path: a key holding the dedicated brain:platform_admin scope may address a tenant other than its own — via the X-Brain-Tenant header (guard) or a tenant/companyId body/query field on admin endpoints (resolvePlatformTenant). BOTH the scope and this gate are required; with either missing, a plain brain:admin key can only ever operate on its own tenant (a foreign tenant is a 403). Built for eval harnesses needing per-question tenant isolation (LongMemEval/BEAM: one haystack per tenant) without minting hundreds of keys. Never enable in multi-tenant prod without a policy review.',
   },
   {
     key: 'INGEST_EPISODE_ONLY',

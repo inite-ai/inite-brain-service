@@ -14,6 +14,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
+import { resolvePlatformTenant } from '../auth/tenant-scope';
 import {
   StrategyMemoryService,
   type StrategyItem,
@@ -81,14 +82,9 @@ export class StrategyAdminController {
   }
 
   private resolveTenant(req: AuthenticatedRequest, tenant?: string): string {
-    const resolved = tenant?.trim() || req.brainAuth.companyId;
-    if (
-      resolved !== req.brainAuth.companyId &&
-      !this.apiKeys.knownCompanyIds().includes(resolved)
-    ) {
-      throw new BadRequestException(`Unknown tenant '${resolved}' — not a registered tenant`);
-    }
-    return resolved;
+    return resolvePlatformTenant(req, tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
   }
 
   @Post('distill')

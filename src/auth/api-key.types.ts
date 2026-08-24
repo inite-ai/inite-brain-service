@@ -3,6 +3,13 @@ export type BrainScope =
   | 'brain:write'
   | 'brain:admin'
   | 'brain:read_pii'
+  // Cross-tenant (company-level) operator authority — distinct from and
+  // strictly HIGHER than brain:admin ("operate MY tenant"). Required for
+  // any admin op that addresses a tenant other than the credential's own
+  // (with BRAIN_TENANT_OVERRIDE_ENABLED). Hosting-operator only: granted
+  // via env-key config like registry:curate, deliberately NOT added to
+  // the jwks VALID_SCOPES set (never mintable through the token path).
+  | 'brain:platform_admin'
   // Publish/yank in the GLOBAL pack registry — distinct from brain:admin
   // ("operate my tenant") because it mutates the catalogue shared across all
   // tenants. Discovery reads use brain:read; installing from the registry into

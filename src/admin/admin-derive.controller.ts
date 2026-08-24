@@ -11,6 +11,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
+import { resolvePlatformTenant } from '../auth/tenant-scope';
 import {
   WindowDeriverService,
   DeriveRunResult,
@@ -68,10 +69,9 @@ export class AdminDeriveController {
       force?: boolean;
     } = {},
   ): Promise<DeriveRunResult> {
-    const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
-      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
-    }
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const version = body.version?.trim() || WINDOW_DERIVER_VERSION;
     if (!/^[a-z0-9-]{2,32}$/.test(version)) {
       throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
@@ -113,10 +113,9 @@ export class AdminDeriveController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { tenant?: string; keep?: string[] } = {},
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
-    const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
-      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
-    }
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
     const keep = (body.keep ?? []).filter(
       (v) => typeof v === 'string' && /^[a-z0-9-]{2,32}$/.test(v),
     );
