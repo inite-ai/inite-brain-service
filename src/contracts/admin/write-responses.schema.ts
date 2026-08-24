@@ -152,6 +152,18 @@ export const ReindexRunResponseSchema = z.object({
   durationMs: z.number(),
   dryRun: z.boolean(),
   provider: z.string(),
+  // Tier 2: per-table sweep counts, present ONLY when the opt-in
+  // all-tables reindex ran. Absent on the default knowledge_fact-only
+  // path so the response stays byte-identical.
+  tables: z
+    .array(
+      z.object({
+        table: z.string(),
+        scanned: z.number(),
+        updated: z.number(),
+      }),
+    )
+    .optional(),
 });
 
 // ── Scenarios + baselines write responses ────────────────────────

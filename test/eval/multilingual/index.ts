@@ -5,3 +5,5 @@ export type { MultilingualModel, StubMode, StubModelOptions, MultilingualModelEn
 export { MultilingualMatrixRunner } from './matrix-runner';
 export { MultilingualReporter } from './matrix-reporter';
 export type { SerializedMultilingualReport } from './matrix-reporter';
+export { MultilingualAbHarness, DEFAULT_AB_ARMS } from './ab-harness';
+export type { AbArm, AbArmResult, AbComparison, AbMetricRow } from './ab-harness';

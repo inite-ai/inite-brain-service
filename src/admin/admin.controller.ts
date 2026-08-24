@@ -162,25 +162,27 @@ export class AdminController {
    *   POST /v1/admin/reindex/embeddings?dryRun=true
    *
    * Query params:
-   *   tenant   — limit to a single companyId (default: every known)
-   *   dryRun   — when "true" count rows but write nothing
-   *   maxFacts — hard cap on facts processed across all tenants
+   *   tenant    — limit to a single companyId (default: every known)
+   *   dryRun    — when "true" count rows but write nothing
+   *   maxFacts  — hard cap on facts processed across all tenants
+   *   allTables — when "true" ALSO sweep entity / predicate / episode /
+   *               segment / strategy_memory (Tier 2). Default (absent) =
+   *               the historical knowledge_fact-only reindex.
    */
   @Post('reindex/embeddings')
   @RequireScopes('brain:admin')
   async reindexEmbeddings(
-    @Query('tenant') tenant?: string,
-    @Query('dryRun') dryRun?: string,
-    @Query('maxFacts') maxFacts?: string,
+    @Query() q: { tenant?: string; dryRun?: string; maxFacts?: string; allTables?: string } = {},
   ): Promise<ReindexRunResponse> {
-    const parsedMaxFacts = maxFacts ? parseInt(maxFacts, 10) : undefined;
-    const reindexTenant = tenant?.trim() || undefined;
+    const parsedMaxFacts = q.maxFacts ? parseInt(q.maxFacts, 10) : undefined;
+    const reindexTenant = q.tenant?.trim() || undefined;
     const reindexMaxFacts =
       parsedMaxFacts !== undefined && Number.isFinite(parsedMaxFacts) ? parsedMaxFacts : undefined;
     return (await this.reindex.run({
       ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
-      dryRun: dryRun === 'true',
+      dryRun: q.dryRun === 'true',
       ...(reindexMaxFacts !== undefined ? { maxFacts: reindexMaxFacts } : {}),
+      ...(q.allTables === 'true' ? { allTables: true } : {}),
     })) satisfies ReindexRunResponse;
   }
 

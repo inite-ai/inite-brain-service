@@ -769,6 +769,26 @@ const KNOWN_BOOLEAN_FLAGS = [
   // confidence-gated ranking boost (cross-lingual facts demoted, never
   // hidden). Default off ⇒ the hard filter is byte-identical.
   'MULTILINGUAL_SOFT_LANG_FILTER',
+  // Multilingual Tier 2 (migration 0101). The embedding-space family stamps
+  // + guards the (model, dim, norm) space a vector lives in so flipping the
+  // embedder can't silently mix vector spaces. All default off; each is a
+  // cross-cutting embedding concern (EMBEDDING_ prefix), so — like the
+  // MULTILINGUAL_ / FOVEA_ families — it sits OFF the ENGINE flag budget.
+  //
+  // Stamp `embeddingSpaceId` on rewrite (reindex sweep). Off ⇒ no column
+  // written, serving byte-identical.
+  'EMBEDDING_SPACE_TRACKING',
+  // Strict-space serving guard: refuse a query embedded in a space
+  // incompatible with the target rows (no cross-space cosine, no warmup
+  // failover across incompatible dims). Off ⇒ the existing warmup failover
+  // is byte-identical.
+  'EMBEDDING_SPACE_STRICT',
+  // Shadow dual-write: arm a migration to write BOTH the active and the
+  // target space. Off ⇒ no target-space write is armed.
+  'EMBEDDING_SPACE_DUAL_WRITE',
+  // Per-tenant active-space selection + atomic cutover. Off ⇒ reads use the
+  // current provider space and the cutover admin surface refuses.
+  'EMBEDDING_SPACE_ACTIVE',
 ];
 
 /**

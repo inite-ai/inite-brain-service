@@ -22,6 +22,7 @@ import { CalibrationRefitQueueService } from './calibration/calibration-refit-qu
 import { CalibrationRefitJobService } from './calibration/calibration-refit-job.service';
 import { ReindexEmbeddingsService } from './embedder/reindex-embeddings.service';
 import { ReindexEngineService } from './embedder/reindex-engine.service';
+import { EmbeddingSpaceService } from './embedder/embedding-space.service';
 import { EntityJudgeService } from './entity-judge.service';
 
 @Global()
@@ -72,6 +73,7 @@ import { EntityJudgeService } from './entity-judge.service';
     CalibrationRefitService,
     ReindexEngineService,
     ReindexEmbeddingsService,
+    EmbeddingSpaceService,
     EntityJudgeService,
   ],
   exports: [
@@ -91,6 +93,7 @@ import { EntityJudgeService } from './entity-judge.service';
     CalibrationService,
     CalibrationRefitService,
     ReindexEmbeddingsService,
+    EmbeddingSpaceService,
     EntityJudgeService,
   ],
 })

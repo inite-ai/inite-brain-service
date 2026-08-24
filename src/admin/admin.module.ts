@@ -34,6 +34,7 @@ import { AdminPolicyDecisionsController } from './admin-policy-decisions.control
 import { AdminKeysController } from './admin-keys.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
+import { AdminEmbeddingSpaceController } from './admin-embedding-space.controller';
 import { AdminAggregatesController } from './admin-aggregates.controller';
 import { AggregateComposerService } from './aggregate-composer.service';
 import { ArcComposerService } from './arc-composer.service';
@@ -104,6 +105,7 @@ import { ConfigInspectorService } from './config-inspector.service';
     AdminKeysController,
     AdminCodeMemoryController,
     AdminHnswController,
+    AdminEmbeddingSpaceController,
     AdminAggregatesController,
     AdminDeriveController,
     AdminSegmentsController,
