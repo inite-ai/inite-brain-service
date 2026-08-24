@@ -36,6 +36,8 @@
     "test:eval": "pnpm build && jest --config ./test/jest-e2e-real.json --runInBand --testPathPatterns=quality",
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
     "openapi:build": "ts-node -T scripts/build-openapi.ts",
+    "mri:report": "ts-node -T scripts/mri-report.ts",
+    "mri:record-suite": "ts-node -T scripts/mri-record-suite.ts",
     "bench:router": "ts-node -r tsconfig-paths/register scripts/bench-chat-router.ts",
     "capture:decisions": "ts-node -r tsconfig-paths/register scripts/capture-decisions.ts",
     "label:decisions": "ts-node -r tsconfig-paths/register scripts/label-decisions.ts",
