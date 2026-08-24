@@ -36,6 +36,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { UsersModule } from './users/users.module';
 import { StrategyModule } from './strategy/strategy.module';
+import { MriModule } from './mri/mri.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { StrategyModule } from './strategy/strategy.module';
     EpisodesModule,
     UsersModule,
     StrategyModule,
+    MriModule,
   ],
   controllers: [HealthController],
   providers: [
