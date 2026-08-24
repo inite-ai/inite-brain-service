@@ -37,9 +37,19 @@ export type InvalidationCause =
   'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact';
 
 /** Cap on freshness-probe candidate rows pulled per read. The probe only
- *  needs existence of ONE scope+policy-visible newer fact; a bounded scan
- *  keeps the read cheap, and >cap newer facts on a cited entity is itself
- *  overwhelming evidence of an additive write (fail-closed: invalidate). */
+ *  needs existence of ONE scope+policy-visible newer fact.
+ *
+ *  Gap 1 (cap-before-scope): the DB query applies the user-scope gate in
+ *  SQL, but the ABAC row policy + predicate-scope gate can only be applied
+ *  in JS, AFTER the DB LIMIT. So a naive `LIMIT cap` could hand back `cap`
+ *  rows that the row policy will all discard while a genuinely visible
+ *  newer fact sits beyond the cap — a stale serve. The fix: fetch cap + 1
+ *  and treat a FULL page (> cap candidates) as fail-closed evidence of an
+ *  additive write (invalidate), because the JS fences ran only over the
+ *  returned page and a visible fact could sit past it. A false invalidation
+ *  costs one cache miss; a stale serve is a correctness bug. Under the cap,
+ *  the page is EXHAUSTIVE — every newer fact was seen — so the visible-fact
+ *  check is exact. See hasNewerVisibleFact. */
 const FRESHNESS_PROBE_CAP = 25;
 
 /**
@@ -211,8 +221,17 @@ interface CitedFactRow {
  * fresh synthesis. The `newer_fact` axis (audit F1) closes the additive
  * hole: an answer whose cited facts all stay active is still invalidated
  * when a NEW active fact lands on one of its entities (the cat→dog case).
- * Open-enumeration answers additionally carry a much shorter TTL, since
- * their additive item can land on an entity the probe does not cover.
+ * The probe is fetched cap+1 and a full page fails closed, so a
+ * row-policy-visible newer fact can never be hidden behind a crowd of
+ * fenced-away rows past the cap (hardening gap 1). It only covers the
+ * answer's CITED entities: a newly-relevant fact on a BRAND-NEW entity
+ * cannot be seen without re-retrieval, so that residual is bounded — for
+ * EVERY answer — only by the TTL (the operator-set new-entity staleness
+ * knob, hardening gap 2; no claim of full freshness beyond it).
+ * Open-enumeration answers — detected by query shape OR, language-
+ * agnostically, by a broad cited-fact count (hardening gap 3) —
+ * additionally carry a much shorter TTL, since their additive item most
+ * often lands on an entity the probe does not cover.
  * Fail-closed: there are no events on the serving path, so a lost event
  * can never serve a dead fact. Poisoning posture: admission only from
  * verified grounded answers, per-user key partitioning (NDSS'26
@@ -305,11 +324,24 @@ export class AnswerCacheService {
     ) {
       return;
     }
-    const ttlHours = this.ttlHours(ctx.isEnumeration);
-    const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     const answer = result.answer;
     const citedFactIds = result.citations.map((c) => c.factId);
     const entityIds = [...new Set(result.citations.map((c) => c.entityId).filter(Boolean))];
+    // Gap 3 — language-agnostic enum guard. ctx.isEnumeration keys on the
+    // English ENUMERATION_PATTERNS ("list all X" / "how many …"), so a
+    // non-English enumeration (the service answers 12 languages; see
+    // ai/locale/language-detector.ts) misses the short-TTL guard while
+    // carrying the SAME new-entity exposure. Add a LANGUAGE-AGNOSTIC
+    // answer-shape signal that needs no query-language regex: an answer
+    // that enumerated many items (cited-fact count ≥ threshold) is an open
+    // list whatever the query's language, and its next item is exactly the
+    // kind of additive write that lands on a not-yet-cited entity the
+    // freshness probe can't see. Either signal drops the entry to the short
+    // TTL. Off (default threshold) never shortens a small factoid answer.
+    const broadAnswer =
+      citedFactIds.length >= this.readPositiveInt('SYNTHESIZE_ANSWER_CACHE_ENUM_MIN_CITATIONS', 5);
+    const ttlHours = this.ttlHours(ctx.isEnumeration || broadAnswer);
+    const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     try {
       await this.surreal.withCompany(ctx.companyId, async (db) => {
         // Record id = queryHash, so re-admission after invalidation or
@@ -362,25 +394,43 @@ export class AnswerCacheService {
   }
 
   /**
-   * TTL in hours. Regular answers get SYNTHESIZE_ANSWER_CACHE_TTL_HOURS
-   * (default 24). Open-enumeration answers ("list all X" / counting /
-   * ordering) get min(regular, SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS,
-   * default 1): an additive write most often adds an item on an entity
-   * NOT among this answer's citations, which the entity-scoped freshness
-   * probe cannot see — so a short TTL bounds how long a now-incomplete
-   * list keeps serving. The min() guarantees the enumeration TTL can only
-   * ever be SHORTER than the regular one, whatever the operator sets.
+   * TTL in hours — the bounded staleness window.
+   *
+   * Gap 2 (the new-entity residual): the freshness probe scans only the
+   * answer's CITED entities. A newly-relevant fact on a BRAND-NEW entity —
+   * one the original retrieval never touched, so it is not in entityIds —
+   * cannot be probed without re-running retrieval, which the cache exists
+   * to avoid. That residual is real for EVERY cached answer (a new entity
+   * is always possible), and it is bounded ONLY by the TTL. So the regular
+   * TTL (SYNTHESIZE_ANSWER_CACHE_TTL_HOURS, default 24) is not just a reaper
+   * — it is the operator-set global new-entity staleness bound. Lower it to
+   * tighten that bound; there is no claim of full freshness beyond it.
+   *
+   * `shortWindow` answers (open enumerations by query shape OR by the
+   * language-agnostic broad-answer signal — see admit()) get
+   * min(regular, SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS, default 1): their
+   * additive item most often lands on an entity NOT among the citations,
+   * exactly the new-entity blind spot, so they carry a tighter bound. The
+   * min() guarantees the short window can only ever be SHORTER than the
+   * regular one, whatever the operator sets.
    */
-  private ttlHours(isEnumeration: boolean): number {
+  private ttlHours(shortWindow: boolean): number {
     const regular = this.readPositiveHours('SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', '24', 24);
-    if (!isEnumeration) return regular;
-    const enumeration = this.readPositiveHours('SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS', '1', 1);
-    return Math.min(regular, enumeration);
+    if (!shortWindow) return regular;
+    const short = this.readPositiveHours('SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS', '1', 1);
+    return Math.min(regular, short);
   }
 
   private readPositiveHours(key: string, dflt: string, fallback: number): number {
     const raw = this.configService.get<string>(key, dflt);
     const v = parseInt(raw ?? dflt, 10);
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+  }
+
+  /** Positive-integer env read with a numeric fallback (invalid → fallback). */
+  private readPositiveInt(key: string, fallback: number): number {
+    const raw = this.configService.get<string>(key, String(fallback));
+    const v = parseInt(raw ?? String(fallback), 10);
     return Number.isFinite(v) && v > 0 ? v : fallback;
   }
 
@@ -538,7 +588,7 @@ export class AnswerCacheService {
               AND status = 'active'
               AND recordedAt > $answerCreatedAt
               ${probeUserGate}
-            LIMIT ${FRESHNESS_PROBE_CAP}`,
+            LIMIT ${FRESHNESS_PROBE_CAP + 1}`,
           {
             ids: ids.map((id) => new StringRecordId(id)),
             entityIds: entityIds.map((id) => new StringRecordId(id)),
@@ -625,9 +675,21 @@ export class AnswerCacheService {
    * candidate newer fact on a cited entity survives the SAME JS-side
    * fences the cited-fact re-check applies (user-scope pin + row policy).
    * The DB query already scoped candidates to the answer's user partition
-   * and to recordedAt newer than the answer's createdAt.
+   * (in SQL) and to recordedAt newer than the answer's createdAt.
+   *
+   * Gap-1 overflow guard (fail-closed): the DB fetched FRESHNESS_PROBE_CAP
+   * + 1 candidates. The ABAC row policy + predicate-scope gate can only be
+   * evaluated here, in JS, AFTER that DB LIMIT — so if the DB returned a
+   * FULL page (> cap rows), more newer facts exist on the cited entities
+   * than we can scope-check, and a row-policy-VISIBLE newer fact could sit
+   * beyond the cap where the fences never reached it. We cannot prove
+   * freshness, so we invalidate. This is what stops the cap from ever
+   * HIDING a visible newer fact behind a crowd of fenced-away rows: a full
+   * page is itself the additive-write signal. Under the cap the page is
+   * exhaustive, so the per-row visible check below is exact.
    */
   private hasNewerVisibleFact(newer: CitedFactRow[], fences: ReadFences): boolean {
+    if (newer.length > FRESHNESS_PROBE_CAP) return true; // full page — fail closed
     for (const f of newer) {
       if (this.fencedAway(f, fences.scopeUserId)) continue; // invisible to this caller
       if (!fences.rowPolicy.filter(f)) continue; // policy-denied — caller can't see it

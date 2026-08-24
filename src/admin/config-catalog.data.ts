@@ -1601,7 +1601,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'TTL backstop for SYNTHESIZE_ANSWER_CACHE entries, in hours (positive integer, default 24). An expired entry is a plain miss and is overwritten in place by the next admission; check-on-read remains the correctness backbone — the TTL only bounds how long an entry whose facts never change keeps serving without a fresh synthesis.',
+      "TTL backstop for SYNTHESIZE_ANSWER_CACHE entries, in hours (positive integer, default 24). An expired entry is a plain miss and is overwritten in place by the next admission; check-on-read remains the correctness backbone. It is ALSO the operator-set new-entity staleness bound: the additive-write freshness probe only scans an answer's CITED entities, so a newly-relevant fact on a BRAND-NEW entity (one the original retrieval never touched) cannot be probed without re-retrieval — that residual is bounded, for every cached answer, ONLY by this TTL. Lower it to tighten the new-entity window; there is no claim of full freshness beyond it.",
   },
   {
     key: 'SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS',
@@ -1610,7 +1610,16 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Shorter TTL (hours, positive integer, default 1) for OPEN-ENUMERATION answers in SYNTHESIZE_ANSWER_CACHE — the 'list all X' / counting / ordering shapes. The additive-write freshness probe (audit F1) invalidates a cached answer when a newer fact lands on one of its CITED entities, but an enumeration's new item often lands on an entity that was not yet cited, which the entity-scoped probe cannot see; the short TTL bounds how long such a now-incomplete list keeps serving. Applied as min(this, SYNTHESIZE_ANSWER_CACHE_TTL_HOURS) so it is never longer than the regular TTL.",
+      "Shorter TTL (hours, positive integer, default 1) for OPEN-ENUMERATION answers in SYNTHESIZE_ANSWER_CACHE — the 'list all X' / counting / ordering shapes. The additive-write freshness probe (audit F1) invalidates a cached answer when a newer fact lands on one of its CITED entities, but an enumeration's new item often lands on an entity that was not yet cited, which the entity-scoped probe cannot see; the short TTL bounds how long such a now-incomplete list keeps serving. An answer is treated as enumeration-shaped when the query matches the enumeration lexicon OR — language-agnostically — the answer cites at least SYNTHESIZE_ANSWER_CACHE_ENUM_MIN_CITATIONS facts. Applied as min(this, SYNTHESIZE_ANSWER_CACHE_TTL_HOURS) so it is never longer than the regular TTL.",
+  },
+  {
+    key: 'SYNTHESIZE_ANSWER_CACHE_ENUM_MIN_CITATIONS',
+    category: 'pipeline',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Language-agnostic enum guard for SYNTHESIZE_ANSWER_CACHE (positive integer, default 5). The query-shape enum detector keys on English 'list all X' / counting phrasing, so a non-English enumeration would miss the shorter enum TTL despite carrying the same new-entity exposure. This threshold adds a language-independent answer-shape signal: an admitted answer that cites at least this many facts is treated as enumeration-shaped (open list) whatever the query language, and drops to SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS. Raise it to short-TTL only very broad answers; a small factoid answer (few citations) always keeps the regular TTL.",
   },
   {
     key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
