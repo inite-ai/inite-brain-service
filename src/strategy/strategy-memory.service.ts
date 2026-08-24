@@ -4,6 +4,12 @@ import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { cosineSimilarity } from '../common/vector-math';
+import {
+  isVerifiedOutcome,
+  renderTrajectorySuffix,
+  type ToolStep,
+  type VerifiedOutcome,
+} from './trajectory-digest';
 
 /**
  * StrategyMemoryService — the ReasoningBank-shape strategy store
@@ -52,6 +58,19 @@ export interface StrategyItem {
   scope: StrategyScope;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Experience-memory extension (0098, STRATEGY_TRAJECTORIES_ENABLED):
+   * the concrete tool path + verified outcome distilled alongside the
+   * advice. Present ONLY when the trajectories flag is on AND the row
+   * carries one — the read path does not even select these columns when
+   * the flag is off, so an item is byte-identical to pre-0098 otherwise.
+   * Rendered for the GENERATOR advisory only, never the verifier /
+   * citations (the G4 verifier-parity exception; more trap-exposed than
+   * the advice string — see trajectory-digest.ts).
+   */
+  trajectory?: ToolStep[] | undefined;
+  verifiedOutcome?: VerifiedOutcome | undefined;
+  outcomeEvidenceRef?: string | undefined;
 }
 
 export interface ScoredStrategyItem extends StrategyItem {
@@ -66,6 +85,14 @@ export interface CreateStrategyArgs {
   status?: StrategyStatus;
   evidence?: StrategyEvidence;
   scope?: StrategyScope;
+  /**
+   * Experience-memory fields (0098). Written ONLY when the trajectories
+   * flag is on (a hard service-side gate — see create()); when off they
+   * are silently dropped so no trajectory column is ever written.
+   */
+  trajectory?: ToolStep[] | undefined;
+  verifiedOutcome?: VerifiedOutcome | undefined;
+  outcomeEvidenceRef?: string | undefined;
 }
 
 /** Retrieval k is hard-capped: k=1 default, 2 absolute max (G4). */
@@ -101,10 +128,21 @@ export function shouldDeprecate(
   return ageDays > STRATEGY_STALE_DAYS;
 }
 
-/** One advisory prompt line per served item (title + preconditions + lesson). */
+/**
+ * One advisory prompt line per served item (title + preconditions +
+ * lesson). When the served item carries a tool trajectory (0098,
+ * STRATEGY_TRAJECTORIES_ENABLED) a compact past-path suffix is appended
+ * — GENERATOR-only guidance, never evidence. Without a trajectory the
+ * output is byte-identical to pre-0098 (the suffix is ''), which is why
+ * an item read with the flag off — where the columns are never selected
+ * and `trajectory` stays undefined — renders exactly as it did before.
+ */
 export function renderStrategyNote(item: ScoredStrategyItem): string {
   const tag = item.polarity === 'avoid' ? 'AVOID' : 'DO';
-  return `[${tag}] ${item.title} — applies when: ${item.situation}. ${item.strategy}`;
+  return (
+    `[${tag}] ${item.title} — applies when: ${item.situation}. ${item.strategy}` +
+    renderTrajectorySuffix(item)
+  );
 }
 
 interface RawStrategyRow {
@@ -120,11 +158,20 @@ interface RawStrategyRow {
   scope?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
+  // 0098 columns — selected ONLY when the trajectories flag is on
+  // (TRAJECTORY_ROW_FIELDS), so on the off path they are always absent
+  // and the mapper leaves the item byte-identical to pre-0098.
+  trajectory?: unknown;
+  verifiedOutcome?: unknown;
+  outcomeEvidenceRef?: unknown;
 }
 
 const STRATEGY_ROW_FIELDS =
   'id, companyId, title, situation, strategy, polarity, status, ' +
   'evidence, scope, createdAt, updatedAt';
+
+/** 0098 additive columns, appended to the SELECT only when serving trajectories. */
+const TRAJECTORY_ROW_FIELDS = 'trajectory, verifiedOutcome, outcomeEvidenceRef';
 
 @Injectable()
 export class StrategyMemoryService {
@@ -134,6 +181,7 @@ export class StrategyMemoryService {
   // template) — catalogued runtimeMutable:false.
   private readonly enabled: boolean;
   private readonly retrievalEnabled: boolean;
+  private readonly trajectoriesEnabled: boolean;
   private readonly similarityFloor: number;
 
   constructor(
@@ -143,6 +191,11 @@ export class StrategyMemoryService {
   ) {
     this.enabled = envFlagEnabled(config.get<string>('STRATEGY_MEMORY_ENABLED'));
     this.retrievalEnabled = envFlagEnabled(config.get<string>('STRATEGY_RETRIEVAL_ENABLED'));
+    // Experience-memory extension (0098): mirrors how STRATEGY_MEMORY_
+    // ENABLED is read — constructor-captured, runtimeMutable:false. Off
+    // (default) ⇒ trajectory columns are never written or selected, so
+    // serving is byte-identical to pre-0098.
+    this.trajectoriesEnabled = envFlagEnabled(config.get<string>('STRATEGY_TRAJECTORIES_ENABLED'));
     // Unset/blank must NOT collapse to Number('')===0 (the
     // nonNegativeFloatEnv lesson): an absent knob means DEFAULT 0.4,
     // not "no floor".
@@ -161,11 +214,62 @@ export class StrategyMemoryService {
     return this.enabled && this.retrievalEnabled;
   }
 
+  /**
+   * Experience-memory switch (0098): gates trajectory capture (write)
+   * and trajectory column serving (read) on top of the master. Off ⇒ no
+   * trajectory column is written or selected → byte-identical to pre-0098.
+   */
+  isTrajectoriesEnabled(): boolean {
+    return this.enabled && this.trajectoriesEnabled;
+  }
+
+  /**
+   * Build the SurrealQL fragment + params for the 0098 experience columns
+   * shared by create() (CONTENT `key: $key`) and mergeUpdate() (SET
+   * `key = $key`). Returns EMPTY fragments when the trajectories flag is
+   * off — the load-bearing "no trajectory written when off" guarantee —
+   * and includes only the fields actually supplied (so the option<string>
+   * ASSERT is never handed a NULL).
+   */
+  private trajectoryWriteFragment(fields: {
+    trajectory?: ToolStep[] | undefined;
+    verifiedOutcome?: VerifiedOutcome | undefined;
+    outcomeEvidenceRef?: string | undefined;
+  }): { content: string; set: string; params: Record<string, unknown> } {
+    if (!this.trajectoriesEnabled) return { content: '', set: '', params: {} };
+    const cols: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (fields.trajectory !== undefined) {
+      cols.push('trajectory');
+      params.trajectory = fields.trajectory;
+    }
+    if (fields.verifiedOutcome !== undefined) {
+      cols.push('verifiedOutcome');
+      params.verifiedOutcome = fields.verifiedOutcome;
+    }
+    if (fields.outcomeEvidenceRef !== undefined) {
+      cols.push('outcomeEvidenceRef');
+      params.outcomeEvidenceRef = fields.outcomeEvidenceRef;
+    }
+    return {
+      content: cols.map((c) => `,\n            ${c}: $${c}`).join(''),
+      set: cols.map((c) => `${c} = $${c}`).join(', '),
+      params,
+    };
+  }
+
   async create(companyId: string, args: CreateStrategyArgs): Promise<StrategyItem> {
     return this.surreal.withCompany(companyId, async (db) => {
       // Embed the retrieval key: situation carries the preconditions
       // the query is matched against; title disambiguates near-twins.
       const embedding = await this.embedder.embed(`${args.title}\n${args.situation}`);
+      // 0098 experience fields: a HARD service-side gate — only when the
+      // trajectories flag is on AND a field was supplied does it enter the
+      // CONTENT. Off ⇒ this fragment is empty and the CREATE is
+      // byte-identical to pre-0098. (Each field is included individually
+      // rather than passing null, so the option<string> ASSERT is never
+      // handed a NULL it would reject.)
+      const traj = this.trajectoryWriteFragment(args);
       const [row] = await db.query<RawStrategyRow[]>(
         `CREATE ONLY strategy_memory CONTENT {
             companyId: $companyId,
@@ -178,7 +282,7 @@ export class StrategyMemoryService {
             embedding: $embedding,
             scope: $scope,
             createdAt: time::now(),
-            updatedAt: time::now()
+            updatedAt: time::now()${traj.content}
          }`,
         {
           companyId,
@@ -190,6 +294,7 @@ export class StrategyMemoryService {
           evidence: args.evidence ?? {},
           embedding,
           scope: args.scope ?? 'tenant',
+          ...traj.params,
         },
       );
       if (!row) throw new Error('strategy_memory CREATE returned nothing');
@@ -255,15 +360,23 @@ export class StrategyMemoryService {
       strategy?: string | undefined;
       situation?: string | undefined;
       evidence: StrategyEvidence;
+      // 0098: the UPDATE arm of a trajectory capture attaches the latest
+      // experience. Written only when the trajectories flag is on (the
+      // shared write-fragment gate); dropped otherwise.
+      trajectory?: ToolStep[] | undefined;
+      verifiedOutcome?: VerifiedOutcome | undefined;
+      outcomeEvidenceRef?: string | undefined;
     },
   ): Promise<StrategyItem> {
     return this.surreal.withCompany(companyId, async (db) => {
       const tail = idTail(strategyIdRaw);
+      const traj = this.trajectoryWriteFragment(patch);
       const sets = [
         'evidence = $evidence',
         'updatedAt = time::now()',
         ...(patch.strategy ? ['strategy = $strategy'] : []),
         ...(patch.situation ? ['situation = $situation'] : []),
+        ...(traj.set ? [traj.set] : []),
       ].join(', ');
       const [rows] = await db.query<RawStrategyRow[][]>(
         `UPDATE type::record('strategy_memory', $tail)
@@ -276,6 +389,7 @@ export class StrategyMemoryService {
           evidence: patch.evidence,
           ...(patch.strategy ? { strategy: patch.strategy } : {}),
           ...(patch.situation ? { situation: patch.situation } : {}),
+          ...traj.params,
         },
       );
       const updated = (rows as RawStrategyRow[])?.[0];
@@ -322,8 +436,15 @@ export class StrategyMemoryService {
   ): Promise<ScoredStrategyItem[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const q = await this.embedder.embed(text);
+      // 0098: the trajectory columns are appended to the projection ONLY
+      // when the flag is on. Off ⇒ the SELECT is character-identical to
+      // pre-0098, the rows carry no trajectory, and every served/mapped
+      // item is byte-identical (mapStrategyRow leaves the fields off).
+      const projection = this.trajectoriesEnabled
+        ? `${STRATEGY_ROW_FIELDS}, ${TRAJECTORY_ROW_FIELDS}, embedding`
+        : `${STRATEGY_ROW_FIELDS}, embedding`;
       const [rows] = await db.query<RawStrategyRow[][]>(
-        `SELECT ${STRATEGY_ROW_FIELDS}, embedding
+        `SELECT ${projection}
            FROM strategy_memory
            WHERE companyId = $companyId
              AND status INSIDE $statuses
@@ -391,7 +512,7 @@ function idTail(raw: string): string {
 }
 
 function mapStrategyRow(r: RawStrategyRow): StrategyItem {
-  return {
+  const item: StrategyItem = {
     strategyId: String(r.id),
     companyId: String(r.companyId ?? ''),
     title: String(r.title ?? ''),
@@ -406,6 +527,34 @@ function mapStrategyRow(r: RawStrategyRow): StrategyItem {
     createdAt: toIso(r.createdAt),
     updatedAt: toIso(r.updatedAt),
   };
+  // 0098: attach experience fields ONLY when the row actually carries
+  // them. On the flag-off path they are never selected, so they are
+  // undefined here and the item is byte-identical to pre-0098. (An empty
+  // stored trajectory also maps to "absent" so it never renders.)
+  const trajectory = mapTrajectory(r.trajectory);
+  if (trajectory) item.trajectory = trajectory;
+  if (isVerifiedOutcome(r.verifiedOutcome)) item.verifiedOutcome = r.verifiedOutcome;
+  if (typeof r.outcomeEvidenceRef === 'string' && r.outcomeEvidenceRef) {
+    item.outcomeEvidenceRef = r.outcomeEvidenceRef;
+  }
+  return item;
+}
+
+/** Parse a stored trajectory column into typed ToolStep[]; undefined when absent/empty. */
+function mapTrajectory(raw: unknown): ToolStep[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const steps: ToolStep[] = [];
+  for (const s of raw) {
+    if (!s || typeof s !== 'object') continue;
+    const o = s as Record<string, unknown>;
+    steps.push({
+      tool: typeof o.tool === 'string' ? o.tool : '',
+      argsDigest: typeof o.argsDigest === 'string' ? o.argsDigest : '',
+      resultDigest: typeof o.resultDigest === 'string' ? o.resultDigest : '',
+      ok: o.ok === true,
+    });
+  }
+  return steps.length > 0 ? steps : undefined;
 }
 
 function toIso(v: unknown): string {
