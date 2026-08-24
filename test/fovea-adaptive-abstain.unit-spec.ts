@@ -73,6 +73,8 @@ function fakeDeps(): DepsCapture {
       metrics: {
         countSynthesize: ((o: string) => synth.push(o)) as never,
         countAbstainPath: (p: 'adaptive' | 'static') => paths.push(p),
+        countPlausibilityDowngrade: () => {},
+        countCitationGuardAbstain: () => {},
       },
       logger: { debug: () => {} },
     },

@@ -467,6 +467,30 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (Optics §4.3): suppress lanes only when the nearest class centroid cosine similarity to the query embedding is >= this floor in [-1,1]; below it the class match is uncertain and routing is left unchanged. Ignored unless FOVEA_LENS_SUPPRESS is on with a usable model. Default 0.5.',
   },
+  {
+    key: 'FOVEA_PLAUSIBILITY_CHECK',
+    category: 'calibration',
+    // Read at call time (fovea-flags.plausibilityCheckEnabled) on the
+    // synthesize verdict seam — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (verifier answer-integrity arm, Part A): after a `supported` verifier verdict, run ONE extra LLM plausibility judge over the CITED premises — does the premise contradict general world knowledge, or is it a counterfactual/sandbox premise applied out of its original context (belief distortion) — and DOWNGRADE an implausible answer to an abstain (NOT_IN_MEMORY / low_coverage). Adds one LLM call per supported answer WHEN ON. Off = NO extra call, byte-identical serving.',
+  },
+  {
+    key: 'FOVEA_REQUIRE_CITATIONS',
+    category: 'calibration',
+    // Read at call time (fovea-flags.requireCitationsEnabled) on the
+    // synthesize verdict seam — never captured in a constructor — so a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (verifier answer-integrity arm, Part C): treat a `supported` verdict whose answer carries ZERO citations as low_coverage/abstain instead of serving an uncited "supported" answer (audit F2(b)). LIVE-behavior change when enabled — prod answers can shift, so default off until the owner enables + validates. Off = byte-identical serving.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',

@@ -218,3 +218,103 @@ export async function runVerifier(req: VerifyRequest): Promise<VerifierOutput> {
   traceArtifact('synthesize.verifier_output', parsed);
   return parsed;
 }
+
+/**
+ * Verifier answer-integrity arm, Part A (FOVEA_PLAUSIBILITY_CHECK). A DISTINCT
+ * defense from runVerifier: the grounding auditor asks "is the answer ⊆ the
+ * cited evidence"; this judge asks the orthogonal question the grounding audit
+ * never covers — "are the CITED PREMISES themselves trustworthy world
+ * knowledge, or is a supported answer merely faithfully restating a
+ * counterfactual/sandbox premise out of its original context" (belief
+ * distortion, docs/roadmap/memtrap-shakedown-2026-08.md class 4).
+ *
+ * It runs ONLY after a `supported` verdict, ONLY when the flag is on, and is a
+ * separate LLM call — reusing the SAME OpenAI client + model idiom as
+ * runVerifier (chatCallParams temperature/caps, withGenAiCall span, strict
+ * json_schema, the shared abort signal). `plausible: false` ⇒ the service
+ * downgrades the answer to an abstain.
+ */
+export interface PlausibilityOutput {
+  /**
+   * false ⇒ at least one cited premise contradicts general world knowledge OR
+   * is a counterfactual/sandbox/hypothetical premise being applied as if it
+   * were a general truth outside its original context. true ⇒ the cited
+   * premises are plausible general knowledge (or in-context by construction).
+   */
+  plausible: boolean;
+  /** The offending premise / reason, for the trace. Empty when plausible. */
+  rationale?: string;
+}
+
+const PLAUSIBILITY_SYSTEM = `You are a world-knowledge plausibility auditor for a memory-grounded answer system.
+
+The answer you are shown has ALREADY passed a separate grounding audit: every claim in it is faithfully taken from the CITED PREMISES below. Do NOT re-check grounding. Your job is the orthogonal question grounding never covers: are the CITED PREMISES themselves trustworthy as general world knowledge, or is this a case where a premise is only true inside some narrow, counterfactual, or sandboxed context and is now being applied out of that context?
+
+Output "plausible": false when EITHER holds for at least one cited premise:
+- Contradiction: the premise directly contradicts well-established, general world knowledge (a widely-known scientific, factual, or safety fact).
+- Out-of-context counterfactual: the premise is explicitly hypothetical, sandbox-, role-play-, game-, or scenario-specific ("in this sandbox", "pretend that", "for this exercise", "assume X even though"), and the answer applies it as if it were a general truth for the user's real question.
+
+Otherwise output "plausible": true. Be conservative — flag only CLEAR contradictions or CLEARLY out-of-context counterfactual premises; ordinary personal facts, preferences, and domain-specific but true statements are plausible. When flagging, quote the offending premise in "rationale"; leave it empty when plausible.
+
+Output strictly the JSON shape requested by the schema.`;
+
+export interface PlausibilityRequest {
+  openai: OpenAI;
+  metrics?: MetricsService | undefined;
+  query: string;
+  answer: string;
+  /** The cited premises the supported answer rests on — one line each. */
+  citedPremises: string[];
+  model: string;
+}
+
+export async function runPlausibilityJudge(req: PlausibilityRequest): Promise<PlausibilityOutput> {
+  const { openai, metrics, model, query, answer, citedPremises } = req;
+  const user = `Query: ${query}\n\nAnswer:\n${answer}\n\nCited premises:\n${citedPremises.join('\n')}`;
+  traceArtifact('synthesize.plausibility_prompt', { system: PLAUSIBILITY_SYSTEM, user, model });
+  const res = await withGenAiCall(
+    {
+      kind: 'chat',
+      spanName: 'gen_ai.chat.synthesize_plausibility',
+      system: 'openai',
+      model,
+    },
+    metrics,
+    () =>
+      openai.chat.completions.create(
+        {
+          model,
+          messages: [
+            { role: 'system', content: PLAUSIBILITY_SYSTEM },
+            { role: 'user', content: user },
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'plausibility_verdict',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  plausible: { type: 'boolean' },
+                  rationale: { type: 'string' },
+                },
+                required: ['plausible', 'rationale'],
+              },
+            },
+          },
+          ...chatCallParams(model, { temperature: 0, visibleCap: 256, reasoningCap: 2048 }),
+        },
+        { signal: getAbortSignal() },
+      ),
+  );
+  const content = res.choices[0]?.message?.content;
+  if (!content) throw new Error('empty plausibility response');
+  const parsed = JSON.parse(content) as PlausibilityOutput;
+  if (typeof parsed.plausible !== 'boolean') {
+    throw new Error('plausibility judge returned no boolean verdict');
+  }
+  traceArtifact('synthesize.plausibility_output', parsed);
+  return parsed;
+}

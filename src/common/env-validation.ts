@@ -736,6 +736,18 @@ const KNOWN_BOOLEAN_FLAGS = [
   // flag budget). The min-cosine floor (FOVEA_LENS_SUPPRESS_MIN_COSINE) is a
   // float, not a boolean flag.
   'FOVEA_LENS_SUPPRESS',
+  // Fovea optics (verifier answer-integrity arm, Part A): after a `supported`
+  // verifier verdict, run an extra LLM plausibility judge over the cited
+  // premises and downgrade an implausible/out-of-context (belief-distortion)
+  // answer to an abstain. Off = NO extra call, byte-identical serving. Outside
+  // ENGINE_PREFIX by design (the FOVEA_ family sits off the flag budget).
+  'FOVEA_PLAUSIBILITY_CHECK',
+  // Fovea optics (verifier answer-integrity arm, Part C): treat a `supported`
+  // answer with ZERO citations as low_coverage/abstain instead of serving an
+  // uncited "supported" answer (audit F2(b)). LIVE-behavior change when on —
+  // default off. Outside ENGINE_PREFIX by design (the FOVEA_ family sits off
+  // the flag budget).
+  'FOVEA_REQUIRE_CITATIONS',
 ];
 
 /**
