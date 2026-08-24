@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiKeyService } from '../../auth/api-key.service';
-import { ReindexEngineService } from './reindex-engine.service';
+import { ReindexEngineService, type TableReindexCount } from './reindex-engine.service';
 
 export interface ReindexResult {
   tenantsScanned: number;
@@ -9,6 +9,9 @@ export interface ReindexResult {
   durationMs: number;
   dryRun: boolean;
   provider: string;
+  /** Per-table breakdown, present ONLY when the opt-in all-tables sweep
+   *  ran; absent on the default knowledge_fact-only path. */
+  tables?: TableReindexCount[];
 }
 
 export interface ReindexOptions {
@@ -18,6 +21,12 @@ export interface ReindexOptions {
   dryRun?: boolean;
   /** Cap on facts processed per tenant; protects against runaway batches. */
   maxFacts?: number;
+  /**
+   * Opt-in: also sweep the non-fact embedding tables (entity, predicate,
+   * episode, segment, strategy_memory). Default (undefined/false) = the
+   * historical knowledge_fact-only reindex, byte-identical.
+   */
+  allTables?: boolean;
 }
 
 /**
@@ -53,16 +62,26 @@ export class ReindexEmbeddingsService {
     const maxFacts = opts.maxFacts ?? Number.MAX_SAFE_INTEGER;
     const tenants = opts.tenant ? [opts.tenant] : this.apiKeys.knownCompanyIds();
 
+    const allTables = opts.allTables === true;
     let factsScanned = 0;
     let factsUpdated = 0;
+    // Aggregate the per-table sweep counts across tenants (all-tables only).
+    const tableTotals = new Map<string, TableReindexCount>();
     for (const companyId of tenants) {
       try {
         const tenantResult = await this.engine.reindexTenant(companyId, {
           dryRun,
           remaining: maxFacts - factsScanned,
+          allTables,
         });
         factsScanned += tenantResult.factsScanned;
         factsUpdated += tenantResult.factsUpdated;
+        for (const t of tenantResult.tables ?? []) {
+          const acc = tableTotals.get(t.table) ?? { table: t.table, scanned: 0, updated: 0 };
+          acc.scanned += t.scanned;
+          acc.updated += t.updated;
+          tableTotals.set(t.table, acc);
+        }
         if (factsScanned >= maxFacts) break;
       } catch (e) {
         this.logger.warn(`reindex failed for ${companyId}: ${(e as Error).message}`);
@@ -76,6 +95,7 @@ export class ReindexEmbeddingsService {
       durationMs: Date.now() - started,
       dryRun,
       provider: this.engine.providerId(),
+      ...(allTables ? { tables: [...tableTotals.values()] } : {}),
     };
     this.logger.log(
       `reindex done — provider=${result.provider} tenants=${result.tenantsScanned} scanned=${result.factsScanned} updated=${result.factsUpdated} dryRun=${dryRun}`,

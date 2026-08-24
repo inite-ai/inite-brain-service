@@ -1,4 +1,11 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LRUCache } from '../common/lru-cache';
@@ -9,6 +16,12 @@ import { createOpenAiClientOrThrow } from './openai-client';
 import { OpenAIEmbedderProvider } from './embedder/openai-embedder.provider';
 import { BgeM3EmbedderProvider } from './embedder/bge-m3-embedder.provider';
 import { envFlagEnabled } from '../common/env-validation';
+import {
+  describeSpaceIncompatibility,
+  embeddingSpaceIdFromProviderId,
+  spacesCompatible,
+  type EmbeddingNorm,
+} from './embedder/embedding-space';
 
 /**
  * EmbedderService — thin facade in front of an EmbedderProvider.
@@ -31,6 +44,14 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private readonly cache: LRUCache<string, number[]>;
   private readonly primary: EmbedderProvider;
   private readonly fallback: EmbedderProvider | null;
+  /**
+   * The canonical space id of the PRIMARY (configured) provider — the space
+   * a tenant's rows are expected to be in once reindexed. Computed once at
+   * boot from the provider's model+dim+norm; the strict-space guard compares
+   * the serving provider's space against this. Not a boolean flag, so it is
+   * safe to capture in the constructor.
+   */
+  private readonly primarySpaceIdValue: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -50,6 +71,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       this.fallback = null;
       this.logger.log(`Embedder primary=openai`);
     }
+    this.primarySpaceIdValue = this.spaceIdOf(this.primary);
   }
 
   async onModuleInit(): Promise<void> {
@@ -105,7 +127,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     const trimmed = text.trim();
     if (!trimmed) return new Array(this.getDimensions()).fill(0);
 
-    const provider = this.activeProvider();
+    const provider = this.serveProvider();
     const key = this.cacheKey(provider.providerId, trimmed);
     const hit = this.cache.get(key);
     if (hit) return hit;
@@ -155,7 +177,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
    */
   async embedMany(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const provider = this.activeProvider();
+    const provider = this.serveProvider();
     const out: number[][] = new Array(texts.length);
     const missIdx: number[] = [];
     const missTexts: string[] = [];
@@ -246,6 +268,79 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     if (this.primary.isReady()) return this.primary;
     if (this.fallback) return this.fallback;
     return this.primary;
+  }
+
+  /**
+   * The canonical space id of the provider that would serve RIGHT NOW.
+   * Used by the reindex sweep to stamp `embeddingSpaceId` on rewritten
+   * rows (behind EMBEDDING_SPACE_TRACKING) so a row declares the space it
+   * was embedded in.
+   */
+  activeSpaceId(): string {
+    return this.spaceIdOf(this.activeProvider());
+  }
+
+  /**
+   * The space id of the PRIMARY (configured) provider — the space a
+   * tenant's rows are expected to be in once reindex completes. Stable for
+   * the life of the process (embedder config is boot-time).
+   */
+  primarySpaceId(): string {
+    return this.primarySpaceIdValue;
+  }
+
+  /**
+   * The serving provider for an actual embed call. Byte-identical to
+   * `activeProvider()` UNLESS EMBEDDING_SPACE_STRICT is on: then a query
+   * that would be embedded in a space INCOMPATIBLE with the primary
+   * (configured) space — the warmup-window failover from bge-m3 (1024) to
+   * the OpenAI fallback (1536) is the canonical case — is refused rather
+   * than silently cross-space-compared against the target rows. Read the
+   * flag per-call so an operator flip takes effect without a restart.
+   */
+  private serveProvider(): EmbedderProvider {
+    const provider = this.activeProvider();
+    if (!envFlagEnabled(this.configService.get<string>('EMBEDDING_SPACE_STRICT'))) {
+      return provider; // default: the existing warmup failover, unchanged
+    }
+    const servingSpace = this.spaceIdOf(provider);
+    if (!spacesCompatible(servingSpace, this.primarySpaceIdValue)) {
+      const reason = describeSpaceIncompatibility(servingSpace, this.primarySpaceIdValue);
+      // 503, not 500: this is transient — the primary provider is warming
+      // up (or has failed warmup); the query is refused ONLY because a
+      // cross-space compare would be meaningless, not because of a bug.
+      throw new ServiceUnavailableException(
+        `embedding space strict-guard: refusing to serve a query in '${servingSpace}' ` +
+          `against rows in '${this.primarySpaceIdValue}' (${reason}). The primary ` +
+          `embedder is not ready; retry once warmup completes or reindex the tenant ` +
+          `into the serving space.`,
+      );
+    }
+    return provider;
+  }
+
+  /**
+   * The canonical embedding-space id of a provider: its providerId
+   * (`vendor:model:dim`) plus normalization. A provider whose id is not the
+   * expected three-part shape (e.g. a test stub) falls back to its raw
+   * providerId, which is only ever compatible with a byte-identical id — so
+   * the guard never guesses a cross-space compare is safe.
+   */
+  private spaceIdOf(provider: EmbedderProvider): string {
+    return (
+      embeddingSpaceIdFromProviderId(provider.providerId, this.normOf(provider)) ??
+      provider.providerId
+    );
+  }
+
+  /**
+   * Output normalization of a provider. Both shipped providers emit unit
+   * vectors (OpenAI by API contract; bge-m3 via `normalize:true`), so `l2`
+   * is the house default. A genuinely non-normalized provider must be a
+   * DISTINCT space, so it would override this before shipping.
+   */
+  private normOf(_provider: EmbedderProvider): EmbeddingNorm {
+    return 'l2';
   }
 
   private buildOpenAIProvider(): OpenAIEmbedderProvider {

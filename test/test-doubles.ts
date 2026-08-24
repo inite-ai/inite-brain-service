@@ -13,9 +13,20 @@ import { SynthesizeService } from '../src/synthesize/synthesize.service';
  */
 export class StubEmbedder implements Pick<
   EmbedderService,
-  'embed' | 'embedMany' | 'getDimensions'
+  'embed' | 'embedMany' | 'getDimensions' | 'primarySpaceId' | 'activeSpaceId'
 > {
   constructor(private readonly dimensions = 1536) {}
+
+  // Tier 2: the canonical space of the stub's vectors. The stub emulates the
+  // default OpenAI 1536-dim provider, so EmbeddingSpaceService's resolver /
+  // reindex stamp see a coherent `openai:...:l2` descriptor in e2e.
+  primarySpaceId(): string {
+    return `openai:text-embedding-3-small:${this.dimensions}:l2`;
+  }
+
+  activeSpaceId(): string {
+    return this.primarySpaceId();
+  }
 
   async embed(text: string): Promise<number[]> {
     const trimmed = text.trim();

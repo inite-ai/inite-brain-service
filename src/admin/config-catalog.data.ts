@@ -516,6 +516,48 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (default) → the hard filter is byte-identical.',
   },
+  // ── Embedding space (Tier 2, migration 0101) ────────
+  {
+    key: 'EMBEDDING_SPACE_TRACKING',
+    category: 'embedder',
+    // Read at call time inside the reindex engine (spaceStampId), never
+    // constructor-captured — a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Stamp `embeddingSpaceId` (canonical `provider:model:dim:norm`, e.g. openai:text-embedding-3-small:1536:l2) on the active reindex rewrite so each row declares which vector space it lives in. Off (default) → the reindex UPDATE is the pre-Tier-2 `SET embedding = $embedding` and the column is never written — byte-identical.',
+  },
+  {
+    key: 'EMBEDDING_SPACE_STRICT',
+    category: 'embedder',
+    // Read per-call in EmbedderService.serveProvider(), not the constructor.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Strict-space serving guard: when on, EmbedderService refuses (503) to serve a query embedded in a space INCOMPATIBLE (different dim / model / norm) with the primary configured space — the warmup-window failover from bge-m3 (1024) to the OpenAI fallback (1536) is the canonical case — instead of silently cross-space-comparing against the target rows. Off (default) → the existing warmup failover is byte-identical.',
+  },
+  {
+    key: 'EMBEDDING_SPACE_DUAL_WRITE',
+    category: 'embedder',
+    // Read per-call in EmbeddingSpaceService, not the constructor.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Zero-downtime migration phase 1: arm shadow dual-write so a begun migration keeps the target space warm (new writes produced in BOTH the active and target space) while the reindex backfills history. Off (default) → no target-space write is armed and beginMigration refuses.',
+  },
+  {
+    key: 'EMBEDDING_SPACE_ACTIVE',
+    category: 'embedder',
+    // Read per-call in EmbeddingSpaceService, not the constructor.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Zero-downtime migration phase 3: per-tenant active-space selection + ATOMIC cutover. When on, reads resolve the tenant’s active space from embedding_space_state and the admin cutover flips it all-or-nothing after reindex. Off (default) → reads use the current provider space and the cutover surface refuses — byte-identical serving.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',
