@@ -1,6 +1,8 @@
 import type { SearchHit } from '../search/search.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
+import { routeLane, detectEvidenceConflicts } from './answer-router';
+import type { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
 import type { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import type { SearchDto } from '../search/dto/search.dto';
 import type { DecisionLogEntry } from './decision-log';
@@ -17,6 +19,34 @@ import type { MetricsService } from '../metrics/metrics.service';
  * the service over 800). No IO, no DI; type-only imports back into the
  * service module, so there is no runtime cycle.
  */
+
+/**
+ * Route a query to a typed lane. Multilingual Tier 4 (MULTILINGUAL_LANE_ROUTING):
+ * when the English-regex router MISSES (null) and the flag is on, a language-
+ * agnostic nearest-centroid classifier proposes a lane for a non-English query
+ * — abstain-safe (low confidence ⇒ null ⇒ the generic path). Flag off /
+ * classifier absent ⇒ the regex route, byte-identical.
+ */
+export async function resolveRoutedLane(
+  profile: RetrievalProfile,
+  query: string,
+  classifier?: MultilingualLaneClassifierService,
+): Promise<LaneId | null> {
+  const lane = routeLane(profile, query);
+  if (lane !== null || !profile.multilingualLaneRouting || !classifier) return lane;
+  return classifier.augmentLane(query, profile.lanes);
+}
+
+/**
+ * Evidence-conflict detection, threaded with the Tier 4 typed-compare flag
+ * (MULTILINGUAL_CONFLICT). Off ⇒ byte-identical surface-string comparison.
+ */
+export function evidenceConflicts(
+  results: SearchHit[],
+  profile: RetrievalProfile,
+): Array<{ factIds: string[]; label: string }> {
+  return detectEvidenceConflicts(results, profile.lanes, profile.multilingualConflict);
+}
 
 /**
  * Serve an answer-cache hit — and count it as the terminal `ok` it is. admit()

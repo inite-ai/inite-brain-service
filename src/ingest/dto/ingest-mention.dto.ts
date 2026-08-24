@@ -68,4 +68,17 @@ export class IngestMentionDto {
 
   @IsISO8601()
   emittedAt!: string;
+
+  /**
+   * IANA timezone of the speaker's session (e.g. 'Asia/Tokyo'). Multilingual
+   * Tier 4 (MULTILINGUAL_TEMPORAL): when event-time extraction resolves a
+   * relative expression ("yesterday", "3 days ago"), this anchors it to the
+   * speaker's LOCAL calendar day so a message near a UTC day boundary isn't
+   * shifted. Ignored when MULTILINGUAL_TEMPORAL is off or the zone is unknown
+   * (falls back to UTC-day behavior — never rejects the ingest).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string | undefined;
 }

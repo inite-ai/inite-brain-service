@@ -25,6 +25,27 @@ export interface MentionPersistResult {
   extractedEdgeIds: string[];
 }
 
+/** Resolved event-time knobs for a mention, computed once per persist. */
+interface EventTimeResolveOpts {
+  /** INGEST_EVENT_TIME_EXTRACTION — resolve occurrence dates at all. */
+  on: boolean;
+  /** MULTILINGUAL_TEMPORAL — ar/hi/ko relative expressions + day-shift fix. */
+  localeTime: boolean;
+  /** IANA session timezone (dto.timezone), only used when localeTime. */
+  timeZone?: string;
+}
+
+/** Read the event-time flags for this mention. The MULTILINGUAL_TEMPORAL
+ *  branch is a separable concern (locale-time decomposition); when off, the
+ *  resolver is called exactly as before (byte-identical). */
+function resolveEventTimeOpts(dto: IngestMentionDto): EventTimeResolveOpts {
+  return {
+    on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
+    localeTime: envFlagEnabled(process.env.MULTILINGUAL_TEMPORAL),
+    ...(dto.timezone ? { timeZone: dto.timezone } : {}),
+  };
+}
+
 /**
  * Persistence stage of mention ingest, run INSIDE the db session: resolve each
  * extracted entity, write each extracted fact through FactResolverService
@@ -156,15 +177,15 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
-    const eventTimeOn = envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION);
+    const timeOpts = resolveEventTimeOpts(dto);
     if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
-      return this.persistFactsBatched(db, p, eventTimeOn);
+      return this.persistFactsBatched(db, p, timeOpts);
     }
     for (let i = 0; i < extraction.facts.length; i++) {
       const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
-      const validFrom = this.factValidFrom(f, dto, eventTimeOn);
+      const validFrom = this.factValidFrom(f, dto, timeOpts);
       const factId = await traceSpan(
         'ingest.fact.upsert',
         () =>
@@ -199,9 +220,20 @@ export class MentionPersistService {
   private factValidFrom(
     f: { predicate: string; clause?: string | undefined },
     dto: IngestMentionDto,
-    eventTimeOn: boolean,
+    timeOpts: EventTimeResolveOpts,
   ): Date {
-    const event = eventTimeOn ? resolveEventTime(f.clause, dto.emittedAt) : null;
+    const event = timeOpts.on
+      ? resolveEventTime(
+          f.clause,
+          dto.emittedAt,
+          // MULTILINGUAL_TEMPORAL off ⇒ no options object at all (byte-identical
+          // to the historical no-opts call). On ⇒ locale-time decomposition
+          // (ar/hi/ko relative expressions + the session-timezone day-shift fix).
+          timeOpts.localeTime
+            ? { localeTime: true, ...(timeOpts.timeZone ? { timeZone: timeOpts.timeZone } : {}) }
+            : {},
+        )
+      : null;
     if (!event) return new Date(dto.emittedAt);
     traceArtifact('ingest.fact.event_time', {
       predicate: f.predicate,
@@ -229,7 +261,7 @@ export class MentionPersistService {
       factEmbeddings: number[][];
       entityIds: string[];
     },
-    eventTimeOn: boolean,
+    timeOpts: EventTimeResolveOpts,
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const specs: Array<{
@@ -249,7 +281,7 @@ export class MentionPersistService {
           predicateAlias: f.predicateAlias,
           object: f.object,
           confidence: f.confidence,
-          validFrom: this.factValidFrom(f, dto, eventTimeOn),
+          validFrom: this.factValidFrom(f, dto, timeOpts),
           source,
           entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],

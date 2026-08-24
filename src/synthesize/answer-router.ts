@@ -1,5 +1,6 @@
 import type { SearchHit } from '../search/search.service';
 import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
+import { normalizeDigits } from '../common/locale-digits';
 
 /**
  * Typed Answer Dispatch (docs/roadmap/typed-answer-dispatch-2026-07.md):
@@ -505,6 +506,99 @@ export function formatElapsed(validFromIso: string | undefined, asOfIso: string)
 }
 
 /**
+ * Multilingual Tier 4 typed-value normalization. Reduce a surface object to a
+ * language-agnostic TYPED value so cross-lingual VALUE conflicts on typed
+ * slots are comparable and cosmetic differences (digit script, case,
+ * diacritics, thousands separators) don't read as conflicts.
+ *
+ * Deliberately FREE / rule-based — model-based multilingual NLI (that would
+ * resolve semantic string equivalence like "tea" ≡ "чай") needs a model and
+ * is DEFERRED (see MULTILINGUAL_CONFLICT note). So typed comparison catches
+ * numeric and boolean disagreement across languages; free-text strings only
+ * collapse on formatting, never on translation.
+ */
+type TypedValue =
+  | { kind: 'boolean'; bool: boolean }
+  | { kind: 'number'; magnitude: number; unit: string }
+  | { kind: 'string'; str: string };
+
+const BOOL_TRUE_RE = /^(?:yes|yeah|true|да|sí|si|oui|ja|sim|はい|예|네|نعم|हाँ|हां)$/;
+const BOOL_FALSE_RE = /^(?:no|nope|false|нет|non|nein|não|nao|いいえ|아니(?:요|오)?|لا|नहीं)$/;
+
+/** Parse a locale-formatted number: handles both "1,000.50" (en) and
+ *  "1.000,50" (de) grouping/decimal conventions. Null when no digits. */
+function parseLocaleNumber(s: string): number | null {
+  if (!/\d/.test(s)) return null;
+  let x = s.replace(/[^\d.,-]/g, '');
+  const hasDot = x.includes('.');
+  const hasComma = x.includes(',');
+  if (hasDot && hasComma) {
+    // The LAST separator is the decimal mark; the other groups thousands.
+    x =
+      x.lastIndexOf(',') > x.lastIndexOf('.')
+        ? x.replace(/\./g, '').replace(',', '.')
+        : x.replace(/,/g, '');
+  } else if (hasComma) {
+    x = x.replace(',', '.'); // lone comma = decimal
+  }
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** First number in the value + the unit token IMMEDIATELY adjacent to it
+ *  (trailing "kg"/"%"/"°c" or a leading currency symbol) — NOT every letter in
+ *  the phrase, so "weighs 70 kg" and "весит 75 kg" share the unit "kg". */
+const NUM_UNIT_RE = /(-?[\d.,]*\d)\s*([a-z°%µ‰]{1,8})?/u;
+const LEADING_CURRENCY_RE = /([$€£¥₽₹])\s*-?[\d.,]*\d/u;
+
+function normalizeTypedValue(object: string): TypedValue {
+  const norm = normalizeDigits(object).normalize('NFC').trim().toLowerCase();
+  if (BOOL_TRUE_RE.test(norm)) return { kind: 'boolean', bool: true };
+  if (BOOL_FALSE_RE.test(norm)) return { kind: 'boolean', bool: false };
+  const m = norm.match(NUM_UNIT_RE);
+  if (m) {
+    const magnitude = parseLocaleNumber(m[1]!);
+    if (magnitude !== null) {
+      // A shared unit with a different magnitude is a conflict; a different
+      // unit is left alone (no unit conversion — conservative, avoids false
+      // positives across kg/lb, °c/°f, …).
+      const unit = m[2] ?? norm.match(LEADING_CURRENCY_RE)?.[1] ?? '';
+      return { kind: 'number', magnitude, unit };
+    }
+  }
+  const str = norm
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, ' ');
+  return { kind: 'string', str };
+}
+
+function typedKey(v: TypedValue): string {
+  if (v.kind === 'boolean') return `b:${v.bool}`;
+  if (v.kind === 'number') return `n:${v.magnitude}:${v.unit}`;
+  return `s:${v.str}`;
+}
+
+/** A typed conflict = two facts that disagree on a NUMBER (same unit) or a
+ *  BOOLEAN. Free-text disagreement is NOT a typed conflict here (needs NLI). */
+function hasTypedConflict(objects: string[]): boolean {
+  const vals = objects.map(normalizeTypedValue);
+  const bools = new Set(
+    vals.filter((v) => v.kind === 'boolean').map((v) => (v as { bool: boolean }).bool),
+  );
+  if (bools.size >= 2) return true;
+  const byUnit = new Map<string, Set<number>>();
+  for (const v of vals) {
+    if (v.kind !== 'number') continue;
+    const set = byUnit.get(v.unit) ?? new Set<number>();
+    set.add(v.magnitude);
+    byUnit.set(v.unit, set);
+  }
+  for (const set of byUnit.values()) if (set.size >= 2) return true;
+  return false;
+}
+
+/**
  * T3: detect write-side-adjudicated conflicts inside the retrieved
  * evidence. Conservative by design: a slot counts as conflicted ONLY
  * when its facts disagree on the object AND at least one carries the
@@ -512,10 +606,20 @@ export function formatElapsed(validFromIso: string | undefined, asOfIso: string)
  * ordinary multi-value slots (works_at, likes, …) never trigger. Pure,
  * exported for tests. `lanes` is the profile's active set — the
  * contradiction lane must be live for the notice to render.
+ *
+ * Multilingual Tier 4 (`typedCompare`, MULTILINGUAL_CONFLICT): compare
+ * NORMALIZED TYPED VALUES rather than surface strings. This is presentation
+ * of already-COMPETING facts, NOT the write-side adjudicator — it decides
+ * which slots to SURFACE. On ⇒ (a) formatting-only differences (digit script,
+ * case, diacritics) no longer read as two objects, and (b) a numeric/boolean
+ * disagreement is flagged even on derived rows without a COMPETING status or a
+ * negation polarity split (the cross-lingual "70 kg" vs "75 kg" case).
+ * Off (default) ⇒ byte-identical surface-string behavior.
  */
 export function detectEvidenceConflicts(
   results: SearchHit[],
   lanes: ReadonlySet<LaneId>,
+  typedCompare = false,
 ): Array<{ factIds: string[]; label: string }> {
   if (!lanes.has('contradiction')) return [];
   const bySlot = new Map<
@@ -536,8 +640,14 @@ export function detectEvidenceConflicts(
   }
   const conflicts: Array<{ factIds: string[]; label: string }> = [];
   for (const [slot, facts] of bySlot) {
-    const objects = new Set(facts.map((f) => f.object));
-    if (objects.size < 2) continue;
+    const objects = facts.map((f) => f.object);
+    // Distinctness: typed comparison collapses formatting-equivalent values
+    // (so a slot with one true value in two scripts is NOT "two objects");
+    // off = raw surface distinctness (byte-identical).
+    const distinct = typedCompare
+      ? new Set(objects.map((o) => typedKey(normalizeTypedValue(o))))
+      : new Set(objects);
+    if (distinct.size < 2) continue;
     const hasCompeting = facts.some((f) => (f.status ?? '').toUpperCase() === 'COMPETING');
     // Second tier for DERIVED worlds: the window deriver batch-INSERTs
     // propositions past the conflict predictor, so contradictions sit as
@@ -547,7 +657,10 @@ export function detectEvidenceConflicts(
     // slots: two affirmative objects share polarity.
     const negated = facts.filter((f) => NEGATION_RE.test(f.object));
     const polaritySplit = negated.length > 0 && negated.length < facts.length;
-    if (hasCompeting || polaritySplit) {
+    // Third tier (typedCompare only): a numeric/boolean disagreement that
+    // neither COMPETING status nor English negation would catch.
+    const typedSplit = typedCompare && hasTypedConflict(objects);
+    if (hasCompeting || polaritySplit || typedSplit) {
       conflicts.push({
         factIds: facts.map((f) => f.factId),
         label: slot.split('::')[1] ?? slot,

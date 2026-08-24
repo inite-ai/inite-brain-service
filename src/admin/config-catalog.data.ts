@@ -540,6 +540,41 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'CJK segmentation for the mention-scan topic: segment the topic with the Intl.Segmenter built-in (ICU-backed word boundaries — no new dependency) so CJK / other non-space-delimited scripts yield real terms instead of being split to nothing by the ASCII/Cyrillic character class. Resolved into the RetrievalProfile and threaded to the mention-scan lane. Off (default) → the legacy split — byte-identical.',
   },
+  // ── Multilingual (Tier 4) ───────────────────────────
+  {
+    key: 'MULTILINGUAL_LANE_ROUTING',
+    category: 'pipeline',
+    // Resolved into the RetrievalProfile (multilingualLaneRouting) by
+    // resolveRetrievalProfile — read per request, never constructor-captured.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Language-agnostic lane classifier: a nearest-centroid classifier over a small in-repo multilingual exemplar set (reusing the shared cosine primitive) AUGMENTS the English-regex answer router for queries it returns null/generic for, so a non-English temporal/enumeration/preference/summary question can still reach its typed lane. Abstain-safe (a low-confidence or ambiguous match declines to the generic path) and only ever ADDS a route where the regex router found none. Resolved into the RetrievalProfile and threaded to the synthesize boundary. Off (default) → the regex router is byte-identical.',
+  },
+  {
+    key: 'MULTILINGUAL_TEMPORAL',
+    category: 'pipeline',
+    // Read per-call on the ingest path (MentionPersistService.persistFacts via
+    // process.env), never constructor-captured — a flip takes effect on the
+    // next ingest without restart (re-ingest to backfill).
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Locale-time decomposition for event-time extraction: (1) ar/hi/ko relative-expression recognition (chrono has no parser for those scripts — they otherwise fall to the English parser and silently miss), (2) locale-aware digit parsing (native ٣/५ digits), and (3) the atUtcMidnight day-shift fix — a relative event ("yesterday", "3 days ago") near a UTC day boundary is anchored to the speaker’s LOCAL calendar day via the session timezone (dto.timezone), then stored as language-neutral ISO-8601. An unknown timezone degrades to UTC-day behavior (never rejects the ingest). Off (default) → byte-identical UTC-day chrono behavior.',
+  },
+  {
+    key: 'MULTILINGUAL_CONFLICT',
+    category: 'pipeline',
+    // Resolved into the RetrievalProfile (multilingualConflict) by
+    // resolveRetrievalProfile — read per request, never constructor-captured.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Typed conflict detection: detectEvidenceConflicts compares NORMALIZED TYPED VALUES (numbers/booleans, digit-script- and case-folded, locale number parsing) instead of surface strings, so a cross-lingual numeric/boolean disagreement on a typed slot ("70 kg" vs "75 kg") is caught even on derived rows without a COMPETING status, and cosmetic differences (digit script, case) no longer false-flag. Presentation of already-flagged COMPETING facts only — never the write-side adjudicator; model-based multilingual NLI (semantic string equivalence like "tea" ≡ "чай") is deliberately deferred (needs a model). Resolved into the RetrievalProfile. Off (default) → byte-identical string-equality behavior.',
+  },
   {
     key: 'INGEST_CONFUSABLES_CHECK',
     category: 'pipeline',
