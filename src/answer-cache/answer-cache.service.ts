@@ -5,10 +5,11 @@ import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
-import { makeRowPolicyFilter } from '../policy/row-filter';
+import { makeRowPolicyFilter, type RowPolicyFilter } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { ReadPinService, type ReadPin } from '../episodes/read-pin.service';
+import { detectEnumerationShape } from '../synthesize/answer-router';
 import type { RetrievalProfile } from '../search/retrieval-profile';
 import type { SynthesizeDto } from '../synthesize/dto/synthesize.dto';
 import type { SynthesizeResult } from '../synthesize/synthesize.types';
@@ -29,24 +30,32 @@ export const ANSWER_CACHE_PROMPT_VERSION = 1;
 /** Table + record-id namespace of the cache rows (migration 0091). */
 const TABLE = 'answer_cache';
 
-/** Mirrors the migration-0091 ASSERT on answer_cache.invalidationCause. */
-export type InvalidationCause = 'superseded' | 'retracted' | 'expired_validity' | 'missing';
+/** Mirrors the migration-0091/0097 ASSERT on answer_cache.invalidationCause.
+ *  `newer_fact` (0097) = the additive-write freshness cause: a NEW active
+ *  fact appeared on a cited entity after the answer was built. */
+export type InvalidationCause =
+  'superseded' | 'retracted' | 'expired_validity' | 'missing' | 'newer_fact';
+
+/** Cap on freshness-probe candidate rows pulled per read. The probe only
+ *  needs existence of ONE scope+policy-visible newer fact; a bounded scan
+ *  keeps the read cheap, and >cap newer facts on a cited entity is itself
+ *  overwhelming evidence of an additive write (fail-closed: invalidate). */
+const FRESHNESS_PROBE_CAP = 25;
 
 /**
- * Exact-match key normalization: NFC unicode form, lowercase, collapsed
- * whitespace, trailing punctuation stripped. Deliberately conservative
- * — two queries share a key only when they are the same question up to
- * typography. NO stemming, NO stopwords, NO embeddings (v1 doctrine:
- * zero false-hit surface by construction).
+ * Exact-match key normalization: Unicode NFC form + whitespace collapse
+ * ONLY. Deliberately conservative — two queries share a key only when
+ * they are byte-identical up to unicode composition and runs of
+ * whitespace. NO case-folding (F1: `getUserById` and `getuserbyid` are
+ * distinct identifiers and must not collide), NO trailing-punctuation
+ * stripping ("do it." vs "do it?" can be different questions), NO
+ * stemming, NO stopwords, NO embeddings (v1 doctrine: zero false-hit
+ * surface by construction). The key already partitions on
+ * company/user/profile/model/prompt-version/derived-pin, so tightening
+ * the text normalization only ever narrows a hit, never widens one.
  */
 export function normalizeQuery(query: string): string {
-  return query
-    .normalize('NFC')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[.,;:!?…]+$/u, '')
-    .trim();
+  return query.normalize('NFC').replace(/\s+/g, ' ').trim();
 }
 
 /** Recursively key-sorted JSON — Sets become sorted arrays, undefined
@@ -135,6 +144,10 @@ export interface AnswerCacheStoreContext {
   profileHash: string;
   model: string;
   normalizedQuery: string;
+  /** Open-enumeration query shape ("list all X" / counting / ordering) —
+   *  admit() keys a shorter TTL on it (additive writes on NOT-yet-cited
+   *  entities escape the entity-scoped freshness probe). */
+  isEnumeration: boolean;
 }
 
 export interface AnswerCacheBeginResult {
@@ -149,8 +162,18 @@ interface CacheRow {
   answer: string;
   citedFactIds: string[];
   entityIds: string[];
+  /** Answer admission time — the freshness probe's "newer than" cutoff. */
+  createdAt: Date | string;
   expiresAt: Date | string;
   invalidatedAt?: Date | string | null;
+}
+
+/** The two read fences the fact read path applies, threaded together
+ *  into the cited-fact check and the freshness probe so both enforce the
+ *  IDENTICAL user-scope pin + row policy. */
+interface ReadFences {
+  scopeUserId: string | undefined;
+  rowPolicy: RowPolicyFilter;
 }
 
 interface CitedFactRow {
@@ -175,17 +198,26 @@ interface CitedFactRow {
  * AnswerCacheService — G1 fact-lifecycle-gated answer reuse
  * (docs/roadmap/sota-gap-build-2026-08.md).
  *
- * Serving tier: EXACT normalized-key match only, gated by CHECK-ON-READ
- * — one batch re-read of the cited facts through the same user-scope
- * pin and row-policy fences the fact read path applies. The entry
- * serves only while every cited fact is still `active` and inside its
- * validity window; any failure (superseded / retracted / expired
- * validity / missing-or-fenced) stamps the entry invalidated with its
- * cause and the request falls through to fresh synthesis. Fail-closed:
- * there are no events on the serving path, so a lost event can never
- * serve a dead fact. Poisoning posture: admission only from verified
- * grounded answers, per-user key partitioning (NDSS'26 semantic-cache
- * poisoning + CacheAttack both exploit shared/unverified admission).
+ * Serving tier: EXACT normalized-key match only (NFC + whitespace-
+ * collapse; case- and punctuation-preserving so distinct identifiers
+ * never collide), gated by CHECK-ON-READ — one batch re-read of the
+ * cited facts PLUS an additive-write freshness probe, all through the
+ * same user-scope pin and row-policy fences the fact read path applies.
+ * The entry serves only while every cited fact is still `active` and
+ * inside its validity window AND no newer visible fact has appeared on a
+ * cited entity since the answer was built; any failure (superseded /
+ * retracted / expired validity / missing-or-fenced / newer_fact) stamps
+ * the entry invalidated with its cause and the request falls through to
+ * fresh synthesis. The `newer_fact` axis (audit F1) closes the additive
+ * hole: an answer whose cited facts all stay active is still invalidated
+ * when a NEW active fact lands on one of its entities (the cat→dog case).
+ * Open-enumeration answers additionally carry a much shorter TTL, since
+ * their additive item can land on an entity the probe does not cover.
+ * Fail-closed: there are no events on the serving path, so a lost event
+ * can never serve a dead fact. Poisoning posture: admission only from
+ * verified grounded answers, per-user key partitioning (NDSS'26
+ * semantic-cache poisoning + CacheAttack both exploit shared/unverified
+ * admission).
  *
  * v2 (deferred by design): embedding-similarity candidates promoted to
  * servable only after async judge verification — never served
@@ -273,7 +305,7 @@ export class AnswerCacheService {
     ) {
       return;
     }
-    const ttlHours = this.ttlHours();
+    const ttlHours = this.ttlHours(ctx.isEnumeration);
     const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     const answer = result.answer;
     const citedFactIds = result.citations.map((c) => c.factId);
@@ -329,10 +361,27 @@ export class AnswerCacheService {
     }
   }
 
-  private ttlHours(): number {
-    const raw = this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', '24');
-    const v = parseInt(raw, 10);
-    return Number.isFinite(v) && v > 0 ? v : 24;
+  /**
+   * TTL in hours. Regular answers get SYNTHESIZE_ANSWER_CACHE_TTL_HOURS
+   * (default 24). Open-enumeration answers ("list all X" / counting /
+   * ordering) get min(regular, SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS,
+   * default 1): an additive write most often adds an item on an entity
+   * NOT among this answer's citations, which the entity-scoped freshness
+   * probe cannot see — so a short TTL bounds how long a now-incomplete
+   * list keeps serving. The min() guarantees the enumeration TTL can only
+   * ever be SHORTER than the regular one, whatever the operator sets.
+   */
+  private ttlHours(isEnumeration: boolean): number {
+    const regular = this.readPositiveHours('SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', '24', 24);
+    if (!isEnumeration) return regular;
+    const enumeration = this.readPositiveHours('SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS', '1', 1);
+    return Math.min(regular, enumeration);
+  }
+
+  private readPositiveHours(key: string, dflt: string, fallback: number): number {
+    const raw = this.configService.get<string>(key, dflt);
+    const v = parseInt(raw ?? dflt, 10);
+    return Number.isFinite(v) && v > 0 ? v : fallback;
   }
 
   private async buildContext(
@@ -382,6 +431,7 @@ export class AnswerCacheService {
       profileHash,
       model: opts.model,
       normalizedQuery,
+      isEnumeration: detectEnumerationShape(normalizedQuery),
     };
   }
 
@@ -395,7 +445,7 @@ export class AnswerCacheService {
       // clause double-fences both (a user-scoped query must never hit
       // a global entry and vice versa).
       const [rows] = await db.query<[CacheRow[]]>(
-        `SELECT id, answer, citedFactIds, entityIds, expiresAt,
+        `SELECT id, answer, citedFactIds, entityIds, createdAt, expiresAt,
                 invalidatedAt
            FROM type::record($tb, $key)
           WHERE companyId = $companyId
@@ -434,13 +484,20 @@ export class AnswerCacheService {
   }
 
   /**
-   * CHECK-ON-READ — the correctness core. One batch SELECT of the
-   * cited facts through the SAME fences the fact read path applies
-   * (facts.service.ts loadVisibleFact): user-scope pin via
+   * CHECK-ON-READ — the correctness core. One batch SELECT of (1) the
+   * cited facts, (2) their entity names, and (3) the ADDITIVE-WRITE
+   * freshness probe — all through the SAME fences the fact read path
+   * applies (facts.service.ts loadVisibleFact): user-scope pin via
    * pinUserScope + registry-backed row policy via makeRowPolicyFilter.
-   * Fail-closed: a fact that is absent OR fenced away from this caller
-   * is 'missing' (indistinguishable by design — existence never
-   * leaks); any fence uncertainty is a miss, never a serve.
+   *
+   * The entry serves only when EVERY cited fact is still active + valid
+   * AND no newer visible fact has appeared on a cited entity since the
+   * answer was built. Fail-closed on both axes: a cited fact that is
+   * absent OR fenced away is 'missing' (existence never leaks); a newer
+   * scope+policy-visible fact on a cited entity is 'newer_fact' (audit
+   * F1 — the additive cat→dog case: the cited 'cat' fact stays active,
+   * but a 'dog' fact was added, so the cached answer is stale). Any fence
+   * uncertainty is a miss, never a serve.
    */
   private async checkOnRead(
     ctx: AnswerCacheStoreContext,
@@ -449,24 +506,51 @@ export class AnswerCacheService {
   ): Promise<{ cause: InvalidationCause } | { citations: Citation[] }> {
     const ids = row.citedFactIds ?? [];
     if (ids.length === 0) return { cause: 'missing' };
-    const { facts, names } = await this.surreal.withScopedCompany(
+    const entityIds = row.entityIds ?? [];
+    const answerCreatedAt =
+      row.createdAt instanceof Date ? row.createdAt : new Date(String(row.createdAt));
+    // Freshness-probe user gate — mirrors the retrieval where-builder
+    // EXACTLY (search/internals/where-builder.ts): a user-scoped answer
+    // saw global + its OWN facts; a tenant-global answer saw global only.
+    // This DB-level gate (keyed on the answer's ctx.userId partition) is
+    // what keeps an M2M answer for user_a immune to a new user_b fact and
+    // a global answer immune to any per-user fact — the probe can only
+    // fire on a fact the answer's scope would actually have retrieved.
+    const probeUserGate = ctx.userId
+      ? 'AND (userId IS NONE OR userId = $probeScopeUserId)'
+      : 'AND userId IS NONE';
+    const { facts, names, newer } = await this.surreal.withScopedCompany(
       ctx.companyId,
       callerScopes,
       async (db) => {
-        const [factRows, entityRows] = await db.query<
-          [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>]
+        const [factRows, entityRows, newerRows] = await db.query<
+          [CitedFactRow[], Array<{ id: unknown; canonicalName: string }>, CitedFactRow[]]
         >(
           `SELECT id, predicate, object, entityId, status, validUntil,
                   retractedAt, userId, source, trustSnapshot, corroboration
              FROM knowledge_fact WHERE id INSIDE $ids;
            SELECT id, canonicalName FROM knowledge_entity
-            WHERE id INSIDE $entityIds`,
+            WHERE id INSIDE $entityIds;
+           SELECT id, predicate, object, entityId, status, userId, source,
+                  trustSnapshot, corroboration
+             FROM knowledge_fact
+            WHERE entityId INSIDE $entityIds
+              AND status = 'active'
+              AND recordedAt > $answerCreatedAt
+              ${probeUserGate}
+            LIMIT ${FRESHNESS_PROBE_CAP}`,
           {
             ids: ids.map((id) => new StringRecordId(id)),
-            entityIds: (row.entityIds ?? []).map((id) => new StringRecordId(id)),
+            entityIds: entityIds.map((id) => new StringRecordId(id)),
+            answerCreatedAt,
+            ...(ctx.userId ? { probeScopeUserId: ctx.userId } : {}),
           },
         );
-        return { facts: factRows ?? [], names: entityRows ?? [] };
+        return {
+          facts: factRows ?? [],
+          names: entityRows ?? [],
+          newer: newerRows ?? [],
+        };
       },
     );
     const byId = new Map(facts.map((f) => [String(f.id), f]));
@@ -479,44 +563,51 @@ export class AnswerCacheService {
       surface: 'answer_cache_read',
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(ctx.companyId),
     });
+    const fences: ReadFences = { scopeUserId, rowPolicy };
+    const cited = this.evaluateCitedFacts(ids, { byId, nameById }, fences);
+    // Additive-write freshness probe (audit F1) runs ONLY when every cited
+    // fact still validated — a more specific lifecycle cause
+    // (retracted/superseded/…) takes precedence over 'newer_fact' for
+    // observability. A newer visible fact on a cited entity means the
+    // store changed under this answer: fail closed to a fresh synthesis.
+    const result: { cause: InvalidationCause } | { citations: Citation[] } =
+      'cause' in cited
+        ? cited
+        : this.hasNewerVisibleFact(newer, fences)
+          ? { cause: 'newer_fact' }
+          : cited;
+    rowPolicy.finish();
+    return result;
+  }
+
+  /**
+   * Per-cited-fact lifecycle gate (extracted from checkOnRead). Every
+   * cited fact must be visible under the user-scope + row-policy fences
+   * AND still `active` inside its validity window; the FIRST failure
+   * returns its cause, fail-closed. On success the citations are rebuilt
+   * from the LIVE fact rows.
+   */
+  private evaluateCitedFacts(
+    ids: string[],
+    lookups: { byId: Map<string, CitedFactRow>; nameById: Map<string, string> },
+    fences: ReadFences,
+  ): { cause: InvalidationCause } | { citations: Citation[] } {
+    const { byId, nameById } = lookups;
+    const { scopeUserId, rowPolicy } = fences;
     const citations: Citation[] = [];
-    let cause: InvalidationCause | undefined;
     for (const id of ids) {
       const fact = byId.get(id);
-      if (!fact) {
-        cause = 'missing';
-        break;
+      if (!fact) return { cause: 'missing' };
+      // fenced/denied = absent (existence never leaks to a caller).
+      if (this.fencedAway(fact, scopeUserId) || !rowPolicy.filter(fact)) {
+        return { cause: 'missing' };
       }
-      if (
-        scopeUserId !== undefined &&
-        typeof fact.userId === 'string' &&
-        fact.userId.length > 0 &&
-        fact.userId !== scopeUserId
-      ) {
-        cause = 'missing'; // fenced = absent, existence never leaks
-        break;
-      }
-      if (!rowPolicy.filter(fact)) {
-        cause = 'missing';
-        break;
-      }
-      if (fact.status === 'retracted' || fact.retractedAt) {
-        cause = 'retracted';
-        break;
-      }
-      if (fact.status === 'superseded') {
-        cause = 'superseded';
-        break;
-      }
-      if (fact.status !== 'active') {
-        // competing/compacted — the fact left the servable lifecycle
-        // state the answer was verified against; fail closed.
-        cause = 'missing';
-        break;
-      }
+      if (fact.status === 'retracted' || fact.retractedAt) return { cause: 'retracted' };
+      if (fact.status === 'superseded') return { cause: 'superseded' };
+      // competing/compacted — left the servable lifecycle state; fail closed.
+      if (fact.status !== 'active') return { cause: 'missing' };
       if (fact.validUntil && toMs(fact.validUntil) <= Date.now()) {
-        cause = 'expired_validity';
-        break;
+        return { cause: 'expired_validity' };
       }
       citations.push({
         factId: id,
@@ -526,8 +617,37 @@ export class AnswerCacheService {
         object: fact.object,
       });
     }
-    rowPolicy.finish();
-    return cause ? { cause } : { citations };
+    return { citations };
+  }
+
+  /**
+   * Additive-write freshness probe (audit F1): true when at least one
+   * candidate newer fact on a cited entity survives the SAME JS-side
+   * fences the cited-fact re-check applies (user-scope pin + row policy).
+   * The DB query already scoped candidates to the answer's user partition
+   * and to recordedAt newer than the answer's createdAt.
+   */
+  private hasNewerVisibleFact(newer: CitedFactRow[], fences: ReadFences): boolean {
+    for (const f of newer) {
+      if (this.fencedAway(f, fences.scopeUserId)) continue; // invisible to this caller
+      if (!fences.rowPolicy.filter(f)) continue; // policy-denied — caller can't see it
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Shared user-scope fence (loadVisibleFact semantics): a fact bound to
+   * ANOTHER user is invisible — existence never leaks. M2M (scopeUserId
+   * undefined) sees all. Used by both the cited-fact check and the probe.
+   */
+  private fencedAway(fact: { userId?: string | null }, scopeUserId: string | undefined): boolean {
+    return (
+      scopeUserId !== undefined &&
+      typeof fact.userId === 'string' &&
+      fact.userId.length > 0 &&
+      fact.userId !== scopeUserId
+    );
   }
 
   private async invalidate(ctx: AnswerCacheStoreContext, cause: InvalidationCause): Promise<void> {

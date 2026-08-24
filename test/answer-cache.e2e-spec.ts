@@ -86,14 +86,16 @@ describe('G1 answer cache e2e', () => {
     expect(afterStore).toHaveLength(1);
     expect(afterStore[0]!.hitCount).toBe(0);
 
-    // Second identical query (typographic variant): served from the
-    // cache — the scripted DIFFERENT answer must never surface, and
-    // the OpenAI stub must never be called.
+    // Second query, a WHITESPACE-only variant (leading/trailing/internal
+    // runs collapse under NFC + whitespace normalization): served from
+    // the cache — the scripted DIFFERENT answer must never surface, and
+    // the OpenAI stub must never be called. Case/punctuation now DO
+    // partition the key (F1), so the variant keeps both identical.
     const state2 = mockRound('A DIFFERENT answer that must not surface.', factId);
     const res2 = await f.http
       .post('/v1/synthesize')
       .set(auth())
-      .send({ query: `  ${QUERY.toUpperCase()}?`, limit: 5 });
+      .send({ query: '   tier:    sapphire-crest  ', limit: 5 });
     expect(res2.status).toBe(201);
     expect(res2.body.cached).toBe(true);
     expect(res2.body.answer).toBe('The tier is sapphire-crest.');
@@ -175,5 +177,121 @@ describe('G1 answer cache e2e', () => {
 
     const userRows = (await cacheRows()).filter((r) => r.userId);
     expect(userRows.map((r) => r.userId).sort()).toEqual(['user_a', 'user_b']);
+  });
+
+  it('additive write on a cited entity → freshness probe invalidates (newer_fact) and re-synthesizes', async () => {
+    // Cited fact on entity E (the cat→dog scenario's "cat").
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_additive' },
+        predicate: 'tier',
+        object: 'topaz-01',
+        validFrom: new Date('2026-04-03').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_add_1' },
+        confidence: 0.9,
+      });
+    const addFactId = ingest.body.factId as string;
+    expect(addFactId).toBeTruthy();
+    const addQuery = 'tier: topaz-01';
+
+    // 1) miss → store.
+    mockRound('Additive tier is topaz-01.', addFactId);
+    const r1 = await f.http.post('/v1/synthesize').set(auth()).send({ query: addQuery, limit: 5 });
+    expect(r1.status).toBe(201);
+    expect(r1.body.cached).toBeUndefined();
+    expect(r1.body.answer).toBe('Additive tier is topaz-01.');
+
+    // 2) identical read serves cached — no additive write yet (the
+    //    freshness probe must NOT over-invalidate a still-fresh answer).
+    const s2 = mockRound('MUST NOT SURFACE (no additive write yet).', addFactId);
+    const r2 = await f.http.post('/v1/synthesize').set(auth()).send({ query: addQuery, limit: 5 });
+    expect(r2.status).toBe(201);
+    expect(r2.body.cached).toBe(true);
+    expect(r2.body.answer).toBe('Additive tier is topaz-01.');
+    expect(s2.calls.length).toBe(0);
+
+    // 3) ADDITIVE write: a NEW active fact on the SAME entity, a DIFFERENT
+    //    predicate — the cited 'tier' fact stays active (nothing cited is
+    //    touched), exactly the case the cited-fact re-check cannot catch.
+    const add2 = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_additive' },
+        predicate: 'plan',
+        object: 'premium',
+        validFrom: new Date('2026-04-10').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_add_2' },
+        confidence: 0.9,
+      });
+    expect(add2.body.factId).toBeTruthy();
+
+    // 4) read again: the entity-scoped freshness probe finds the newer
+    //    fact → MISS (the stale cached answer must NOT surface) → a fresh
+    //    synthesis runs (generator + verifier both called).
+    const s4 = mockRound('Fresh answer after the additive write.', addFactId);
+    const r4 = await f.http.post('/v1/synthesize').set(auth()).send({ query: addQuery, limit: 5 });
+    expect(r4.status).toBe(201);
+    expect(r4.body.cached).toBeUndefined();
+    expect(r4.body.answer).toBe('Fresh answer after the additive write.');
+    expect(s4.calls.length).toBe(2);
+  });
+
+  it('M2M explicit-user scope: a new fact for another user does not invalidate a user-scoped hit', async () => {
+    // User A's answer cites a fact scoped to scope_user_a on entity E.
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_scope' },
+        predicate: 'tier',
+        object: 'jade-07',
+        validFrom: new Date('2026-04-04').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_scope_1' },
+        confidence: 0.9,
+        userId: 'scope_user_a',
+      });
+    const aFactId = ingest.body.factId as string;
+    expect(aFactId).toBeTruthy();
+    const scopeQuery = 'tier: jade-07';
+
+    mockRound('Jade-07 for user A.', aFactId);
+    const rA1 = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: scopeQuery, limit: 5, userId: 'scope_user_a' });
+    expect(rA1.status).toBe(201);
+    expect(rA1.body.cached).toBeUndefined();
+
+    // A NEW active fact on the SAME entity but for a DIFFERENT user — out
+    // of user A's scope (the retrieval that built A's answer never saw it).
+    const addB = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_scope' },
+        predicate: 'plan',
+        object: 'gold',
+        validFrom: new Date('2026-04-11').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_scope_2' },
+        confidence: 0.9,
+        userId: 'scope_user_b',
+      });
+    expect(addB.body.factId).toBeTruthy();
+
+    // User A reads again: the probe's user gate excludes user B's fact, so
+    // it does NOT fire — the cached answer still serves (no cross-scope
+    // invalidation).
+    const sA2 = mockRound('MUST NOT SURFACE (cross-scope fact).', aFactId);
+    const rA2 = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: scopeQuery, limit: 5, userId: 'scope_user_a' });
+    expect(rA2.status).toBe(201);
+    expect(rA2.body.cached).toBe(true);
+    expect(rA2.body.answer).toBe('Jade-07 for user A.');
+    expect(sA2.calls.length).toBe(0);
   });
 });

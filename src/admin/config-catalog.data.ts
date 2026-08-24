@@ -1604,6 +1604,15 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'TTL backstop for SYNTHESIZE_ANSWER_CACHE entries, in hours (positive integer, default 24). An expired entry is a plain miss and is overwritten in place by the next admission; check-on-read remains the correctness backbone — the TTL only bounds how long an entry whose facts never change keeps serving without a fresh synthesis.',
   },
   {
+    key: 'SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS',
+    category: 'pipeline',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Shorter TTL (hours, positive integer, default 1) for OPEN-ENUMERATION answers in SYNTHESIZE_ANSWER_CACHE — the 'list all X' / counting / ordering shapes. The additive-write freshness probe (audit F1) invalidates a cached answer when a newer fact lands on one of its CITED entities, but an enumeration's new item often lands on an entity that was not yet cited, which the entity-scoped probe cannot see; the short TTL bounds how long such a now-incomplete list keeps serving. Applied as min(this, SYNTHESIZE_ANSWER_CACHE_TTL_HOURS) so it is never longer than the regular TTL.",
+  },
+  {
     key: 'BRAIN_TENANT_OVERRIDE_ENABLED',
     category: 'auth',
     defaultValue: '0',

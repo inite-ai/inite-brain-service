@@ -145,6 +145,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // ── G1 answer cache (fact-lifecycle-gated answer reuse) ────────────
   positiveInt(env, 'SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', errors);
+  positiveInt(env, 'SYNTHESIZE_ANSWER_CACHE_ENUM_TTL_HOURS', errors);
 
   // ── Agent-in-loop QA ───────────────────────────────────────────────
   positiveInt(env, 'AGENT_QA_MAX_ROUNDS', errors);
