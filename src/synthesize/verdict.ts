@@ -18,7 +18,15 @@ import type { GeneratorOutput, SynthesisReason, SynthesizeResult } from './synth
  */
 
 export interface VerdictDeps {
-  metrics?: Pick<MetricsService, 'countSynthesize' | 'countAbstainPath'> | undefined;
+  metrics?:
+    | Pick<
+        MetricsService,
+        | 'countSynthesize'
+        | 'countAbstainPath'
+        | 'countPlausibilityDowngrade'
+        | 'countCitationGuardAbstain'
+      >
+    | undefined;
   logger?: { debug(message: string): void } | undefined;
 }
 
@@ -45,6 +53,18 @@ export interface AbstainAdaptiveGate {
  * verdict (or a supported-but-not-answering judgment, V10 §5) IS the
  * coverage signal and returns the explicit decline. Supported is the
  * ok path.
+ *
+ * Verifier answer-integrity arm (default-off, resolved by the service and
+ * passed in — this function stays pure): two orthogonal downgrades on the
+ * supported serve-path, each byte-identical to today when its input is
+ * absent/false.
+ *  - Part A `plausibilityDowngrade` (FOVEA_PLAUSIBILITY_CHECK): the
+ *    post-grounding plausibility judge flagged the CITED premise as
+ *    implausible / out-of-context (belief distortion) — abstain instead of
+ *    serving the grounded-but-false answer.
+ *  - Part C `requireCitations` (FOVEA_REQUIRE_CITATIONS): a supported answer
+ *    carrying ZERO citations (audit F2(b)) is abstained rather than served as
+ *    an uncited "supported" answer.
  */
 export function finalizeVerdict(
   deps: VerdictDeps,
@@ -57,6 +77,8 @@ export function finalizeVerdict(
     guardrails,
     decisionLog,
     abstention,
+    plausibilityDowngrade,
+    requireCitations,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
     questionAnswered?: boolean | undefined;
@@ -66,6 +88,10 @@ export function finalizeVerdict(
     guardrails: SynthesisGuardrails;
     decisionLog?: DecisionLogEntry[] | undefined;
     abstention?: RetrievalProfile['abstentionCalibration'] | undefined;
+    /** Part A: the plausibility judge downgraded this supported answer. */
+    plausibilityDowngrade?: boolean | undefined;
+    /** Part C: abstain a supported answer with zero citations. */
+    requireCitations?: boolean | undefined;
   },
 ): SynthesizeResult {
   if (verdict === 'supported') {
@@ -76,6 +102,38 @@ export function finalizeVerdict(
     // abstention mode consumes it.
     if (guardrails === 'lenient' && abstention === 'verifier' && questionAnswered === false) {
       deps.metrics?.countSynthesize('low_coverage');
+      return attachDecisionLog(
+        {
+          answer: NOT_IN_MEMORY_ANSWER,
+          reason: 'low_coverage',
+          citations: [],
+          results,
+        },
+        decisionLog,
+      );
+    }
+    // Part A (FOVEA_PLAUSIBILITY_CHECK): grounding passed but the cited
+    // premise is not trustworthy — abstain rather than serve the
+    // belief-distorted answer. Absent/false ⇒ byte-identical.
+    if (plausibilityDowngrade) {
+      deps.metrics?.countSynthesize('low_coverage');
+      deps.metrics?.countPlausibilityDowngrade();
+      return attachDecisionLog(
+        {
+          answer: NOT_IN_MEMORY_ANSWER,
+          reason: 'low_coverage',
+          citations: [],
+          results,
+        },
+        decisionLog,
+      );
+    }
+    // Part C (FOVEA_REQUIRE_CITATIONS): a supported answer with zero
+    // citations breaks the citation-bearing promise (audit F2(b)) — abstain
+    // rather than serve an uncited "supported" answer. Off ⇒ byte-identical.
+    if (requireCitations && citations.length === 0) {
+      deps.metrics?.countSynthesize('low_coverage');
+      deps.metrics?.countCitationGuardAbstain();
       return attachDecisionLog(
         {
           answer: NOT_IN_MEMORY_ANSWER,

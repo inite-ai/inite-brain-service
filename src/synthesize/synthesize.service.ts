@@ -29,16 +29,15 @@ import { routeLane, laneProbeDto, detectEvidenceConflicts, type LaneId } from '.
 export { detectEvidenceConflicts } from './answer-router';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
+import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
 import { applyFactSuffixes } from './update-story';
 import { buildDateMathLines } from './date-math';
 export { buildFactIndex } from './fact-index';
-import { runGenerator } from './generator-client';
-import type { GenerateRequest } from './generator-client';
+import { runGenerator, type GenerateRequest } from './generator-client';
 import { runVerifier, type VerifierOutput } from './verifier';
 import { miniCheckConsistent } from './minicheck-client';
 export { buildGeneratorUserMessage } from './generator-prompt';
-import { EvidenceCollectorService } from './evidence-collector.service';
-import type { CollectedEvidence } from './evidence-collector.service';
+import { EvidenceCollectorService, type CollectedEvidence } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
 import {
@@ -445,6 +444,8 @@ export class SynthesizeService {
     // and returns the L3 answer when re-verification flips fail→pass;
     // else (null) the normal abstention/decline exit runs. Trigger matrix
     // + anchor requirement live in tryL3Escalation / the L3 service.
+    // On no-flip, finalizePrimary runs (resolving the default-off verifier
+    // answer-integrity arm, Parts A + C); the L3 flip path skips it.
     return (
       (await this.tryL3Escalation({
         cache,
@@ -464,7 +465,7 @@ export class SynthesizeService {
         guardrails,
         explain,
       })) ??
-      this.finalizeAndAdmit(cache, verdict, {
+      this.finalizeAndAdmit({ cache, dto, profile, model }, verdict, {
         answer: generated.answer,
         citations,
         results,
@@ -539,7 +540,7 @@ export class SynthesizeService {
       ...(adaptiveL3 ? { adaptiveL3 } : {}),
     });
     if (!l3) return null;
-    return this.finalizeAndAdmit(args.cache, l3.verdict, {
+    return this.finalizeAndAdmit({ cache: args.cache }, l3.verdict, {
       answer: l3.answer,
       citations: l3.citations,
       results: args.results,
@@ -602,10 +603,7 @@ export class SynthesizeService {
     try {
       const calibration = await this.focusSignal.loadCalibration(companyId, 'preanswer');
       if (!hasUsableCalibration(calibration)) return undefined;
-      const factScores: number[] = [];
-      for (const hit of args.results) {
-        for (const f of hit.facts) factScores.push(f.score);
-      }
+      const factScores = args.results.flatMap((hit) => hit.facts.map((f) => f.score));
       const signal = buildFocusSignal({
         queryClass: queryClassOf(args.lane),
         factScores,
@@ -622,25 +620,36 @@ export class SynthesizeService {
   }
 
   /**
-   * Verdict exit + G1 write-through admission, one seam (extracted
-   * from synthesize() for the function-size gates). Only a
-   * verifier-supported grounded answer reaches the cache — admit()
-   * re-checks verdict/answer/reason/citations and no-ops otherwise,
-   * so abstentions, unverified returns, low_coverage and partial
-   * verdicts are never cached.
+   * Verdict exit + G1 write-through admission, one seam. Only a
+   * verifier-supported grounded answer reaches the cache — admit() re-checks
+   * verdict/answer/reason/citations and no-ops otherwise, so abstentions,
+   * unverified returns, low_coverage and partial verdicts are never cached.
+   *
+   * `ctx.dto`+`ctx.profile` are supplied ONLY on the PRIMARY serving path;
+   * when present they resolve the default-off verifier answer-integrity arm
+   * (Parts A + C — answer-integrity.ts) over the supported verdict and merge
+   * the gate flags into finalizeVerdict. The L3 fail-flip path omits them, so
+   * its raw-transcript answer is untouched. BOTH flags off ⇒ empty gate ⇒
+   * byte-identical serve either way. The auditor model (profile.verifierModel
+   * || synthesis model) is resolved here so the caller carries no branch.
    */
   private async finalizeAndAdmit(
-    cache: AnswerCacheBeginResult | undefined,
+    ctx: FinalizeContext,
     verdict: VerifierOutput,
     args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
+    const gate = await resolveAnswerIntegrity(
+      { openai: this.openai, metrics: this.metrics, logger: this.logger, limiter: this.limiter },
+      { ctx, verdict, args, defaultModel: this.defaultModel },
+    );
     const final = this.finalizeVerdict({
       verdict: verdict.verdict,
       questionAnswered: verdict.questionAnswered,
       ...args,
+      ...gate,
     });
-    if (cache?.ctx) {
-      await this.answerCache?.admit(cache.ctx, final, verdict.verdict);
+    if (ctx.cache?.ctx) {
+      await this.answerCache?.admit(ctx.cache.ctx, final, verdict.verdict);
     }
     return final;
   }

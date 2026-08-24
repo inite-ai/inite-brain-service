@@ -114,3 +114,42 @@ export function lensSuppressMinCosine(): number {
   const v = Number(raw);
   return Number.isFinite(v) && v >= -1 && v <= 1 ? v : DEFAULT_LENS_SUPPRESS_MIN_COSINE;
 }
+
+/**
+ * Fovea optics — verifier answer-integrity arm, Part A master flag —
+ * FOVEA_PLAUSIBILITY_CHECK.
+ *
+ * The verifier audits GROUNDING (answer ⊆ cited evidence), never TRUTH. The
+ * MemTrapBench trap shakedown's key finding: a cited counterfactual / sandbox
+ * premise makes a distorted answer verify as `supported` (belief distortion,
+ * docs/roadmap/memtrap-shakedown-2026-08.md class 4). When this flag is on, a
+ * `supported` verdict triggers ONE extra LLM plausibility judge over the CITED
+ * premises — does the premise contradict general world knowledge, or is it a
+ * counterfactual/sandbox premise applied out of its original context — and an
+ * implausible verdict DOWNGRADES the answer to an abstain (NOT_IN_MEMORY /
+ * low_coverage). The env read lives here in the common layer, NOT inside the
+ * engine dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ NO extra LLM call, serving byte-identical.
+ */
+export function plausibilityCheckEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_PLAUSIBILITY_CHECK);
+}
+
+/**
+ * Fovea optics — verifier answer-integrity arm, Part C master flag —
+ * FOVEA_REQUIRE_CITATIONS.
+ *
+ * Audit F2(b): the verdict.ts supported branch serves `{answer, citations,
+ * results}` with WHATEVER citations were passed, EMPTY INCLUDED, so a
+ * `supported` answer with zero citations can serve and break the
+ * citation-bearing promise. When this flag is on, a `supported` verdict whose
+ * answer carries ZERO citations is treated as low_coverage/abstain instead of
+ * emitting an uncited "supported" answer. This is a LIVE-behavior change when
+ * enabled — hence default off, so prod answers don't shift until the owner
+ * enables + validates. The env read lives here in the common layer, NOT inside
+ * the engine dirs (engine-gates S5.2). Read at call time so a flip is
+ * runtime-mutable. Default off ⇒ today's behavior byte-identical.
+ */
+export function requireCitationsEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_REQUIRE_CITATIONS);
+}

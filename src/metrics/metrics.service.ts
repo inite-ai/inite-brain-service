@@ -245,6 +245,32 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Verifier answer-integrity arm, Part A (FOVEA_PLAUSIBILITY_CHECK): a
+  // `supported` verdict was DOWNGRADED to an abstain because the
+  // post-grounding plausibility judge flagged the cited premise as
+  // implausible / out-of-context (belief distortion,
+  // docs/roadmap/memtrap-shakedown-2026-08.md class 4). Counted once per
+  // downgrade, alongside the existing countSynthesize('low_coverage') outcome
+  // tag. A separate series (not a new outcome value) keeps the synthesize
+  // outcome series stable. Incremented only when the flag is on.
+  readonly plausibilityDowngradeCount = new Counter({
+    name: 'brain_plausibility_downgrade_total',
+    help: 'Supported answers downgraded to abstain by the post-grounding plausibility judge (FOVEA_PLAUSIBILITY_CHECK)',
+    registers: [this.registry],
+  });
+
+  // Verifier answer-integrity arm, Part C (FOVEA_REQUIRE_CITATIONS): a
+  // `supported` verdict carrying ZERO citations was abstained rather than
+  // served as an uncited answer (audit F2(b)). Counted once per abstain,
+  // alongside the existing countSynthesize('low_coverage') outcome tag. A
+  // separate series keeps the synthesize outcome series stable. Incremented
+  // only when the flag is on.
+  readonly citationGuardAbstainCount = new Counter({
+    name: 'brain_citation_guard_abstain_total',
+    help: 'Zero-citation supported answers abstained by the require-citations guard (FOVEA_REQUIRE_CITATIONS)',
+    registers: [this.registry],
+  });
+
   // Optics §4.3 (docs/roadmap/fovea-optics-2026-08.md §4.3): the
   // lens-suppression governor's per-request outcome —
   //   suppressed     — a confident class match removed ≥1 active lane
@@ -597,6 +623,14 @@ export class MetricsService implements OnModuleInit {
 
   countAbstainPath(path: 'adaptive' | 'static'): void {
     this.abstainPathCount.inc({ path } as LabelValues<'path'>);
+  }
+
+  countPlausibilityDowngrade(): void {
+    this.plausibilityDowngradeCount.inc();
+  }
+
+  countCitationGuardAbstain(): void {
+    this.citationGuardAbstainCount.inc();
   }
 
   countLensSuppression(
