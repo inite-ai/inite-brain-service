@@ -386,6 +386,18 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: true,
   },
+  {
+    key: 'FOVEA_FOCUS_CAPTURE',
+    category: 'calibration',
+    defaultValue: '0',
+    // Read at call time (FocusSignalService.captureEnabled / the admin
+    // 404 guard) — never captured in a constructor — so a flip takes
+    // effect without restart.
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (Optics-1): capture the per-query focus signal at the synthesize verdict point and expose the admin fit/measure surface. Serving-neutral — nothing consumes the calibrated signal yet. Off = byte-identical serving.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',

@@ -704,6 +704,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   'STRATEGY_MEMORY_ENABLED',
   'STRATEGY_RETRIEVAL_ENABLED',
   'STRATEGY_DISTILL_CRON_ENABLED',
+  // Fovea optics (Optics-1, docs/roadmap/fovea-optics-2026-08.md): capture
+  // the focus signal at the synthesize verdict point + expose the admin
+  // fit/measure surface. SERVING-NEUTRAL — nothing consumes the calibrated
+  // signal yet. Default off = byte-identical serving (guarded no-op capture,
+  // admin routes 404). Outside ENGINE_PREFIX by design (a measurement
+  // scaffold, not an engine fork), so it sits off the flag budget.
+  'FOVEA_FOCUS_CAPTURE',
 ];
 
 /**

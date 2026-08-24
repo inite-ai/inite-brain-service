@@ -39,6 +39,8 @@ export { buildGeneratorUserMessage } from './generator-prompt';
 import { EvidenceCollectorService } from './evidence-collector.service';
 import type { CollectedEvidence } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
+import { FocusSignalService } from './focus-signal.service';
+import type { FocusVerdict } from './focus-signal';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -116,6 +118,7 @@ export class SynthesizeService {
     @Optional() private readonly evidenceCollector?: EvidenceCollectorService,
     @Optional() private readonly answerCache?: AnswerCacheService,
     @Optional() private readonly l3?: L3EscalationService,
+    @Optional() private readonly focusSignal?: FocusSignalService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -223,9 +226,8 @@ export class SynthesizeService {
       profile.extraEvidenceCap,
     );
 
-    const answerMode = guardrails === 'answer';
     const prepareOpts = this.buildPrepareOpts({
-      answerMode,
+      answerMode: guardrails === 'answer',
       explain,
       lane,
       asOf: dto.asOf,
@@ -418,6 +420,9 @@ export class SynthesizeService {
       });
     }
 
+    // Optics-1 focus capture — SERVING-NEUTRAL guarded no-op (see method).
+    await this.maybeCaptureFocusSignal(companyId, { results, verdict: verdict.verdict, lane });
+
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
     // an anchoring session it escalates ONCE to full-raw-session context
     // and returns the L3 answer when re-verification flips fail→pass;
@@ -451,6 +456,20 @@ export class SynthesizeService {
         abstention: profile.abstentionCalibration,
       })
     );
+  }
+
+  /**
+   * Optics-1 focus-signal capture — a guarded no-op when the flag is off
+   * (or the service is absent). Extracted so synthesize() keeps a single
+   * capture call on the serving path and stays within its line budget.
+   * SERVING-NEUTRAL: nothing consumes the captured signal yet.
+   */
+  private async maybeCaptureFocusSignal(
+    companyId: string,
+    signal: { results: SearchHit[]; verdict: FocusVerdict; lane: LaneId | null },
+  ): Promise<void> {
+    if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
+    await this.focusSignal.maybeCapture(companyId, signal);
   }
 
   /**

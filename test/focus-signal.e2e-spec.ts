@@ -1,0 +1,175 @@
+/**
+ * e2e — fovea focus-signal capture + admin fit/measure surface (Optics-1).
+ *
+ * Verifies the serving-neutral contract:
+ *   - FOVEA_FOCUS_CAPTURE off → a /v1/synthesize writes NO focus_signal_sample
+ *     row (guarded no-op) and the admin surface 404s.
+ *   - FOVEA_FOCUS_CAPTURE on → a /v1/synthesize records exactly one sample,
+ *     companyId-scoped, at the verdict decision point.
+ *   - The admin fit endpoint persists a per-class CalibrationMap and the
+ *     reliability endpoint returns the §3 ECE report.
+ */
+import { randomUUID } from 'node:crypto';
+import type { AppFixture } from './app-fixture';
+import { createApp } from './app-fixture';
+import { mockSynthesizeOpenAi } from './test-doubles';
+import { SurrealService } from '../src/db/surreal.service';
+
+describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => {
+  let f: AppFixture;
+  let surreal: SurrealService;
+  const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
+
+  const sampleCount = async (): Promise<number> =>
+    surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ sampleId: string }>]>(
+        'SELECT sampleId FROM focus_signal_sample',
+      );
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+
+  const runSynthesize = async (query: string): Promise<void> => {
+    const searchRes = await f.http.post('/v1/search').set(auth()).send({ query, limit: 5 });
+    const factId = searchRes.body.results[0]?.facts[0]?.factId;
+    expect(factId).toBeTruthy();
+    mockSynthesizeOpenAi(f.app, [
+      JSON.stringify({ answer: `Answer [${factId}].`, citedFactIds: [factId] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+    ]);
+    const res = await f.http.post('/v1/synthesize').set(auth()).send({ query, limit: 5 });
+    expect(res.status).toBe(201);
+  };
+
+  beforeAll(async () => {
+    delete process.env.FOVEA_FOCUS_CAPTURE;
+    f = await createApp();
+    surreal = f.app.get(SurrealService);
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'focus_tenant' },
+        predicate: 'status',
+        object: 'engineer',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+        confidence: 0.9,
+      });
+  });
+
+  afterAll(async () => {
+    delete process.env.FOVEA_FOCUS_CAPTURE;
+    if (f) await f.close();
+  });
+
+  it('writes NO sample when the flag is off (serving-neutral)', async () => {
+    delete process.env.FOVEA_FOCUS_CAPTURE;
+    const before = await sampleCount();
+    await runSynthesize('engineer');
+    const after = await sampleCount();
+    expect(after).toBe(before);
+  });
+
+  it('404s the admin surface when the master flag is off', async () => {
+    delete process.env.FOVEA_FOCUS_CAPTURE;
+    const rel = await f.http.get('/v1/admin/focus/reliability').set(auth());
+    expect(rel.status).toBe(404);
+    const fit = await f.http.post('/v1/admin/focus/fit').set(auth()).send({});
+    expect(fit.status).toBe(404);
+  });
+
+  it('records exactly one companyId-scoped sample when the flag is on', async () => {
+    process.env.FOVEA_FOCUS_CAPTURE = '1';
+    const before = await sampleCount();
+    await runSynthesize('engineer');
+    const after = await sampleCount();
+    expect(after).toBe(before + 1);
+
+    const row = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<
+        [
+          Array<{
+            companyId: string;
+            queryClass: string;
+            verifierVerdict: string;
+            correct: number | null;
+          }>,
+        ]
+      >(
+        'SELECT companyId, queryClass, verifierVerdict, correct, createdAt FROM focus_signal_sample ORDER BY createdAt DESC LIMIT 1',
+      );
+      return rows?.[0];
+    });
+    expect(row?.companyId).toBe(f.companyId);
+    expect(typeof row?.queryClass).toBe('string');
+    // Unlabeled at capture time — correctness is backfilled by the harness.
+    expect(row?.correct == null).toBe(true);
+  });
+
+  it('fits a per-class CalibrationMap and returns an ECE report', async () => {
+    process.env.FOVEA_FOCUS_CAPTURE = '1';
+    // Seed ~40 labeled samples directly so the default class earns a map.
+    await surreal.withCompany(f.companyId, async (db) => {
+      for (let i = 0; i < 40; i++) {
+        const x = (i + 0.5) / 40;
+        await db.query(
+          `CREATE focus_signal_sample CONTENT {
+              companyId: $c, sampleId: $s, queryClass: 'default',
+              topScore: $x, coverageScore: $x, retrievalGap: $x,
+              verifierVerdict: 'none', rawConfidence: $r, correct: $correct
+           }`,
+          {
+            c: f.companyId,
+            s: randomUUID(),
+            x,
+            r: 0.65 * x,
+            correct: x > 0.5 ? 1 : 0,
+          },
+        );
+      }
+    });
+
+    const fit = await f.http.post('/v1/admin/focus/fit').set(auth()).send({});
+    expect(fit.status).toBe(201);
+    expect(fit.body.sampleCount).toBeGreaterThanOrEqual(40);
+    expect(Array.isArray(fit.body.classes)).toBe(true);
+    expect(fit.body.classes.some((c: { queryClass: string }) => c.queryClass === 'default')).toBe(
+      true,
+    );
+
+    // A CalibrationMap row was persisted.
+    const persisted = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ queryClass: string; thresholds: number[]; values: number[] }>]
+      >('SELECT queryClass, thresholds, values FROM focus_calibration');
+      return rows ?? [];
+    });
+    const def = persisted.find((r) => r.queryClass === 'default');
+    expect(def).toBeDefined();
+    expect(Array.isArray(def!.thresholds)).toBe(true);
+    expect(def!.thresholds.length).toBe(def!.values.length);
+
+    // §3 measurement returns a numeric ECE + diagram.
+    const rel = await f.http.get('/v1/admin/focus/reliability').set(auth());
+    expect(rel.status).toBe(200);
+    expect(typeof rel.body.ece).toBe('number');
+    expect(Array.isArray(rel.body.diagram)).toBe(true);
+    expect(rel.body.sampleCount).toBeGreaterThanOrEqual(40);
+  });
+
+  it('backfills outcome labels by sampleId', async () => {
+    process.env.FOVEA_FOCUS_CAPTURE = '1';
+    // The one captured (unlabeled) sample from the flag-on test.
+    const list = await f.http.get('/v1/admin/focus/samples?unlabeled=1').set(auth());
+    expect(list.status).toBe(200);
+    const target = list.body.samples[0];
+    expect(target?.sampleId).toBeTruthy();
+
+    const res = await f.http
+      .post('/v1/admin/focus/label')
+      .set(auth())
+      .send({ labels: [{ sampleId: target.sampleId, correct: 1 }] });
+    expect(res.status).toBe(201);
+    expect(res.body.updated).toBe(1);
+  });
+});

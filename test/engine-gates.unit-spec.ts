@@ -152,6 +152,11 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     'detectLane',
     'mergeExtraHits',
     'rrfFuse',
+    // Fovea optics (Optics-1) documented constants — the per-class fit
+    // threshold and the shared/fallback class key. Pinned by the
+    // focus-signal unit spec; no serving consumer yet (Optics-2/3).
+    'MIN_CLASS_SAMPLES',
+    'DEFAULT_CLASS',
   ]);
   const TESTS = walk(join(ROOT, 'test'))
     .map((f) => readFileSync(f, 'utf8'))
