@@ -1,6 +1,6 @@
 import type { MetricsReader } from './metrics-reader';
 import { sumCounter } from './metrics-reader';
-import type { MriDimension, MriReport } from './mri.types';
+import type { MriDimension, MriReport, MriWindow } from './mri.types';
 import {
   collectOperatingPoint,
   type CollectOperatingPointOptions,
@@ -61,13 +61,19 @@ function structuralDim(
     };
   }
   const commitRef = entry.commit ? ` @ ${entry.commit}` : '';
-  const gapNote = entry.gapCount !== undefined ? `, gapCount=${entry.gapCount}` : '';
+  const passed = entry.status === 'pass';
+  // gapCount is a HEALTH value only on a PASS. On a failed run a `0` gap reads
+  // as "0 gaps → healthy" — a false green — while the suite that establishes it
+  // actually went red. So the numeric gap (both the reported value AND the
+  // source note) is suppressed unless the run passed; a failed entry renders
+  // its `fail` status instead. (R3 P1: gapCount must be omitted on a red entry.)
+  const gapNote = passed && entry.gapCount !== undefined ? `, gapCount=${entry.gapCount}` : '';
   const countNote =
     entry.numPassed !== undefined || entry.numFailed !== undefined
       ? `, tests ${entry.numPassed ?? 0} passed/${entry.numFailed ?? 0} failed`
       : '';
   const source = `suite ${suiteRef} — status ${entry.status}, recorded ${entry.recordedAt}${commitRef}${gapNote}${countNote}`;
-  if (args.preferNumericGap && entry.gapCount !== undefined) {
+  if (args.preferNumericGap && passed && entry.gapCount !== undefined) {
     return {
       value: entry.gapCount,
       unit: 'gaps',
@@ -97,13 +103,18 @@ function structuralDim(
  * premise-aware". Rendering that as a green `pass` would be a false green.
  *
  * The real defense is FOVEA_PLAUSIBILITY_CHECK (the post-grounding plausibility
- * judge that downgrades an implausible cited premise to an abstain). This cell
- * therefore reflects that flag's state, resolved read-only by the service from
- * `plausibilityCheckEnabled()` and passed in:
+ * judge that downgrades an implausible cited premise to an abstain). But a
+ * flag being ON is NOT evidence the exposure is closed — "the defense code
+ * runs" ≠ "we are premise-aware". So this cell is EVIDENCE-gated, never
+ * flag-gated (R3 P1):
  *   - defense OFF  → `exposed` (never a pass): the documented belief-distortion
  *     answer is live. Backed by the suite that documents the exposure.
- *   - defense ON   → `defended`: report the live downgrade activity from
- *     brain_plausibility_downgrade_total (the metric prod actually emits).
+ *   - defense ON   → `pending-eval` (eval-gated), NOT `defended`: the judge
+ *     runs, but no eval asserts the documented class-4 belief-distortion case
+ *     is actually downgraded with the defense on. The live downgrade count
+ *     (brain_plausibility_downgrade_total) is surfaced as ACTIVITY, not proof.
+ *     A green `defended` is only earned by such eval evidence, which does not
+ *     yet exist.
  */
 function premiseAwarenessDim(args: {
   reader: MetricsReader;
@@ -137,23 +148,25 @@ function premiseAwarenessDim(args: {
     };
   }
 
-  const downgradeSeries = reader.counter('brain_plausibility_downgrade_total');
+  // Flag ON does NOT earn a green `defended`. Report honest-pending (eval-gated):
+  // the plausibility judge runs, but no eval proves the documented belief-
+  // distortion exposure is actually closed. The live downgrade count is
+  // surfaced as ACTIVITY (the judge is firing), never as proof of defense.
   const downgrades = sumCounter(reader, 'brain_plausibility_downgrade_total');
-  const noActivity =
-    downgradeSeries.length === 0
-      ? {
-          reason:
-            'FOVEA_PLAUSIBILITY_CHECK is on but no supported-answer downgrades have been observed ' +
-            'in the current window (brain_plausibility_downgrade_total absent/zero)',
-        }
-      : {};
   return {
-    value: 'defended',
-    source: `FOVEA_PLAUSIBILITY_CHECK ON; brain_plausibility_downgrade_total downgrades=${downgrades}; ${suiteStatus}`,
+    value: 'pending-eval',
+    source:
+      `FOVEA_PLAUSIBILITY_CHECK ON; brain_plausibility_downgrade_total downgrades=${downgrades} ` +
+      `(activity, not proof of defense); ${suiteStatus}`,
     asOf: nowIso,
-    evalGated: false,
-    kind: 'live',
-    ...noActivity,
+    evalGated: true,
+    kind: 'pending',
+    reason:
+      'FOVEA_PLAUSIBILITY_CHECK is enabled, so the post-grounding plausibility judge runs — but ' +
+      'flag-state is not premise-awareness. No eval asserts the documented belief-distortion exposure ' +
+      '(MemTrap shakedown class 4) is actually downgraded with the defense on, so the defense is ' +
+      'enabled-but-UNVERIFIED. Reported pending until such a labeled case exists — never a green ' +
+      '`defended`.',
   };
 }
 
@@ -189,6 +202,52 @@ function citationCoverageDim(reader: MetricsReader, nowIso: string): MriDimensio
     kind: 'live',
     asOf: nowIso,
   });
+}
+
+/**
+ * Freshness — the stale-answer catch rate off the answer-cache invalidation
+ * telemetry. F1 (answer-cache additive-write invalidation, #339) is MERGED, so
+ * this is now a REAL read-only signal rather than the stale "blocked on F1"
+ * pending: of the cache-backed reads (an entry existed), the fraction the
+ * check-on-read invalidated as stale = rejected_stale ÷ (hit + rejected_stale).
+ * A `miss`/`bypass` had no entry to be stale, so it is excluded from the
+ * denominator.
+ *
+ * When the window saw no cache-backed reads — the DEFAULT, since
+ * SYNTHESIZE_ANSWER_CACHE is off so `begin()` short-circuits and emits nothing —
+ * the rate is unobservable and renders honest-pending with that reason, never a
+ * fabricated 0 (which would read as "never stale → healthy").
+ */
+function freshnessDim(reader: MetricsReader, nowIso: string): MriDimension {
+  const series = reader.counter('brain_answer_cache_total');
+  const hit = sumCounter(reader, 'brain_answer_cache_total', { outcome: 'hit' });
+  const rejectedStale = sumCounter(reader, 'brain_answer_cache_total', {
+    outcome: 'rejected_stale',
+  });
+  const reads = hit + rejectedStale;
+  const source =
+    'brain_answer_cache_total{outcome=rejected_stale} ÷ (hit + rejected_stale) — check-on-read ' +
+    'staleness catch rate (F1 additive-write invalidation, #339)';
+  if (series.length === 0 || reads <= 0) {
+    return pendingCell({
+      source,
+      reason:
+        'no answer-cache read traffic in the current window: SYNTHESIZE_ANSWER_CACHE is default-off, ' +
+        'so the cache serves no reads and the stale-answer rate is unobservable. Auto-fills once the ' +
+        'cache is enabled and serves hits / stale-rejections.',
+      evalGated: false,
+      kind: 'live',
+      asOf: nowIso,
+    });
+  }
+  return {
+    value: rejectedStale / reads,
+    unit: 'ratio (stale-rejected ÷ cache-backed reads)',
+    source,
+    asOf: nowIso,
+    evalGated: false,
+    kind: 'live',
+  };
 }
 
 /**
@@ -290,6 +349,13 @@ export interface BuildMriReportOptions {
    * unknown/off defense never renders a green pass — it renders `exposed`).
    */
   plausibilityCheckEnabled?: boolean;
+  /**
+   * The rolling window the LIVE rate cells cover, when the caller (the service)
+   * deltas process-lifetime counters against a baseline snapshot. Embedded in
+   * the report so a consumer sees the numbers are windowed, not lifetime. Absent
+   * for a pure buildMriReport call over a raw reader (unit tests).
+   */
+  window?: MriWindow;
 }
 
 /**
@@ -320,16 +386,9 @@ export function buildMriReport(
     tokensPerQuery: tokensPerQueryDim(reader, point, nowIso),
     ...costLatencyDims(point, nowIso),
 
-    // Pending — freshness is blocked on F1 (must land first; not built here)
-    freshnessStaleAnswerRate: pendingCell({
-      source: 'answer-cache invalidation telemetry (brain_answer_cache_total{rejected_stale})',
-      reason:
-        'blocked on F1 answer-cache additive-write invalidation — the stale-answer rate is only ' +
-        'meaningful once F1 lands; F1 is out of scope for this measurement layer',
-      evalGated: false,
-      kind: 'pending',
-      asOf: nowIso,
-    }),
+    // Freshness — REAL signal now F1 (answer-cache invalidation, #339) is
+    // merged; honest-pending only when there is no cache read traffic.
+    freshnessStaleAnswerRate: freshnessDim(reader, nowIso),
 
     // Pending — eval-gated (need a labeled gold set)
     abstentionCalibration: pendingCell({
@@ -351,5 +410,10 @@ export function buildMriReport(
     }),
   };
 
-  return { generatedAt: nowIso, dimensions, operatingPoint: point };
+  return {
+    generatedAt: nowIso,
+    dimensions,
+    operatingPoint: point,
+    ...(options.window ? { window: options.window } : {}),
+  };
 }

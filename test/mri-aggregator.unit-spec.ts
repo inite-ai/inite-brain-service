@@ -125,6 +125,25 @@ describe('buildMriReport — structural (suite-backed) dimensions', () => {
       expect(d.reason).toMatch(/mri:record-suite/);
     }
   });
+
+  it('a FAILED poisoning entry renders `fail`, never the gapCount (no "0 gaps → healthy" green)', () => {
+    // R3 P1: a red run with gapCount=0 must NOT render `0 gaps` (reads healthy).
+    const failedLedger: SuiteLedger = {
+      'minja-redteam': {
+        status: 'fail',
+        gapCount: 0,
+        numPassed: 4,
+        numFailed: 2,
+        recordedAt: '2026-08-24T00:00:00.000Z',
+      },
+    };
+    const d = buildMriReport(busyReader(), failedLedger, {}).dimensions.poisoningResistance!;
+    expect(d.value).toBe('fail');
+    expect(d.value).not.toBe(0);
+    expect(d.unit).toBeUndefined();
+    // The misleading "gapCount=0" note is suppressed on a red entry.
+    expect(d.source).not.toMatch(/gapCount=/);
+  });
 });
 
 describe('buildMriReport — premiseAwareness reflects the DEFENSE state, not a suite pass', () => {
@@ -146,36 +165,67 @@ describe('buildMriReport — premiseAwareness reflects the DEFENSE state, not a 
     expect(d.value).toBe('exposed');
   });
 
-  it('renders `defended` + live downgrade count when the defense is on', () => {
+  it('flag ON is NOT a green `defended` — pending-eval with the downgrade count as ACTIVITY', () => {
+    // R3 P1: "the defense code runs" is not evidence the exposure is closed.
+    // With no eval proving the class-4 case is downgraded, the cell is
+    // honest-pending (eval-gated), never `defended`.
     const withCounter = busyReader({
       brain_plausibility_downgrade_total: [{ labels: {}, value: 7 }],
     });
     const d = buildMriReport(withCounter, GREEN_LEDGER, {
       plausibilityCheckEnabled: true,
     }).dimensions.premiseAwareness!;
-    expect(d.value).toBe('defended');
-    expect(d.kind).toBe('live');
+    expect(d.value).toBe('pending-eval');
+    expect(d.value).not.toBe('defended');
+    expect(d.kind).toBe('pending');
+    expect(d.evalGated).toBe(true);
+    // The live downgrade count is surfaced as activity, not proof.
     expect(d.source).toMatch(/downgrades=7/);
+    expect(d.source).toMatch(/not proof/);
+    expect(d.reason).toMatch(/enabled-but-UNVERIFIED|flag-state is not premise-awareness/);
   });
 
-  it('defense on but no downgrades observed → `defended` with an activity note', () => {
+  it('defense on but no downgrades observed → still pending-eval (never `defended`)', () => {
     const d = buildMriReport(busyReader(), GREEN_LEDGER, {
       plausibilityCheckEnabled: true,
     }).dimensions.premiseAwareness!;
-    expect(d.value).toBe('defended');
+    expect(d.value).toBe('pending-eval');
+    expect(d.value).not.toBe('defended');
     expect(d.source).toMatch(/downgrades=0/);
-    expect(d.reason).toMatch(/no supported-answer downgrades/);
+    expect(d.evalGated).toBe(true);
   });
 });
 
 describe('buildMriReport — pending dimensions carry an honest reason', () => {
   const report = buildMriReport(busyReader(), GREEN_LEDGER, {});
 
-  it('freshness is F1-blocked (not built here)', () => {
+  it('freshness renders pending (no cache read traffic) with an ACCURATE reason — not "blocked on F1"', () => {
     const d = report.dimensions.freshnessStaleAnswerRate!;
     expect(d.value).toBe('pending-eval');
-    expect(d.reason).toMatch(/F1 answer-cache/);
-    expect(d.kind).toBe('pending');
+    // Resolves via LIVE telemetry once the cache serves reads (like citation
+    // coverage), so it auto-fills rather than staying feature-gated.
+    expect(d.kind).toBe('live');
+    // F1 is merged (#339); the stale "blocked on F1" reason must be gone.
+    expect(d.reason).not.toMatch(/blocked on F1/);
+    expect(d.reason).toMatch(/no answer-cache read traffic|default-off/);
+    expect(d.source).toMatch(/rejected_stale/);
+  });
+
+  it('freshness auto-fills a LIVE stale-rejection rate once the cache serves reads (F1 #339)', () => {
+    // 10 stale-rejections ÷ (90 hits + 10 stale) = 0.1; miss/bypass excluded.
+    const withCache = busyReader({
+      brain_answer_cache_total: [
+        { labels: { outcome: 'hit' }, value: 90 },
+        { labels: { outcome: 'rejected_stale' }, value: 10 },
+        { labels: { outcome: 'miss' }, value: 5 },
+        { labels: { outcome: 'bypass' }, value: 3 },
+      ],
+    });
+    const d = buildMriReport(withCache, GREEN_LEDGER, {}).dimensions.freshnessStaleAnswerRate!;
+    expect(d.value as number).toBeCloseTo(0.1, 6);
+    expect(d.kind).toBe('live');
+    expect(d.evalGated).toBe(false);
+    expect(d.unit).toMatch(/stale-rejected/);
   });
 
   it('correctness + abstention are eval-gated', () => {

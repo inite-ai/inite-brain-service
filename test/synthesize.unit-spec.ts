@@ -96,6 +96,56 @@ describe('SynthesizeService', () => {
     });
   });
 
+  it('counts a served cache hit as a terminal `ok` so the MRI denominator includes it (R3 P1)', async () => {
+    // A cache hit early-returns BEFORE the fresh path's countSynthesize, so it
+    // used to be excluded from brain_synthesize_total — skewing every "per
+    // query" rate the MRI reader derives from the terminal count. It must be
+    // counted as the terminal `ok` it is (admit() only caches supported+cited).
+    const cachedResult = {
+      answer: 'cached answer',
+      citations: [],
+      results: [],
+    } as unknown as SynthesizeResult;
+    const outcomes: string[] = [];
+    const metrics = {
+      countSynthesize: (o: string) => outcomes.push(o),
+    } as unknown as ConstructorParameters<typeof SynthesizeService>[2];
+    const answerCache = {
+      begin: async () => ({ hit: cachedResult }),
+    } as unknown as ConstructorParameters<typeof SynthesizeService>[4];
+    const cfg = makeConfig({ OPENAI_API_KEY: 'sk-stub' });
+    const svc = new SynthesizeService(makeSearch([]), cfg, metrics, undefined, answerCache);
+
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
+
+    // Served as-is (no verdict/serving change) …
+    expect(out).toBe(cachedResult);
+    // … and counted exactly once as the terminal `ok`.
+    expect(outcomes).toEqual(['ok']);
+  });
+
+  it('never enters the cache-count branch when the cache is off (default) — byte-identical', async () => {
+    // No answerCache dep → the cache-hit branch is unreachable; the normal
+    // no_results terminal fires exactly once (proves the off path is unchanged).
+    const outcomes: string[] = [];
+    const metrics = {
+      countSynthesize: (o: string) => outcomes.push(o),
+    } as unknown as ConstructorParameters<typeof SynthesizeService>[2];
+    const cfg = makeConfig({ OPENAI_API_KEY: 'sk-stub' });
+    const svc = new SynthesizeService(makeSearch([]), cfg, metrics);
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
+    expect(out.reason).toBe('no_results');
+    expect(outcomes).toEqual(['no_results']);
+  });
+
   it('returns no_grounded_evidence on the generator sentinel', async () => {
     const search = makeSearch([
       makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),

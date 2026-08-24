@@ -21,6 +21,7 @@ import {
   resolveAnswerLang,
   resolveCitations,
   resolveLaneDateContext,
+  serveCacheHit,
   verifierErrorResult,
 } from './synthesize.helpers';
 import { resolvePromptFrames, wantsTimelineEvidence } from './evidence-gates';
@@ -203,7 +204,9 @@ export class SynthesizeService {
     // carries the key context to the admit hook (finalizeAndAdmit).
     const cacheArgs = { companyId, dto, callerScopes, profile, model, guardrails };
     const cache = await this.answerCache?.begin(cacheArgs);
-    if (cache?.hit) return cache.hit;
+    // A served cache hit is a terminal `ok` (admit() only caches supported+cited);
+    // count it so the MRI per-request denominator includes cache hits (R3 P1).
+    if (cache?.hit) return serveCacheHit(this.metrics, cache.hit);
 
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic

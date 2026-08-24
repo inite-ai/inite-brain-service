@@ -37,10 +37,20 @@ export const MriDimensionSchema = z.object({
   kind: z.enum(['live', 'structural', 'pending']),
 });
 
+/** The rolling window the LIVE rate cells cover — the counters are deltaed
+ *  against a baseline snapshot so rates are bounded to recent traffic, never the
+ *  whole process lifetime. Optional: absent for a raw (un-windowed) build. */
+export const MriWindowSchema = z.object({
+  startedAt: z.string(),
+  endedAt: z.string(),
+  windowMs: z.number(),
+});
+
 export const MriReportSchema = z.object({
   generatedAt: z.string(),
   dimensions: z.record(z.string(), MriDimensionSchema),
   operatingPoint: PolicyOperatingPointSchema,
+  window: MriWindowSchema.optional(),
 });
 
 export type MriReportContract = z.infer<typeof MriReportSchema>;
