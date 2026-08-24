@@ -711,6 +711,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // admin routes 404). Outside ENGINE_PREFIX by design (a measurement
   // scaffold, not an engine fork), so it sits off the flag budget.
   'FOVEA_FOCUS_CAPTURE',
+  // Fovea optics (Optics-2, §4.1): make the L3 escalation trigger +
+  // session-count adaptive to the calibrated focus confidence. Requires a
+  // usable per-class calibration model; with none — or off — serving is
+  // byte-identical to the static L3. Outside ENGINE_PREFIX by design (the
+  // FOVEA_ family sits off the flag budget). The escalate threshold knob
+  // (FOVEA_ADAPTIVE_L3_THRESHOLD) is a float, not a boolean flag.
+  'FOVEA_ADAPTIVE_L3',
 ];
 
 /**

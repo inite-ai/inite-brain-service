@@ -21,9 +21,17 @@ import {
   l3Covered,
   verifierPasses,
   rankL3Sessions,
+  adaptiveL3SessionCount,
   estimateTokens,
   type L3SessionAnchor,
+  type L3AdaptiveGate,
 } from './l3-escalation';
+import {
+  buildFocusSignal,
+  calibratedConfidence,
+  queryClassOf,
+  type PerClassCalibration,
+} from './focus-signal';
 
 /**
  * G2 L3 escalation lane (docs/roadmap/sota-gap-build-2026-08.md).
@@ -81,6 +89,15 @@ export interface L3EscalateInput {
   factLines: string[];
   answerLang: string | null;
   dateMathLines?: string[] | undefined;
+  /**
+   * Optics-2 (§4.1) adaptive gate inputs, supplied by synthesize.service
+   * ONLY when FOVEA_ADAPTIVE_L3 is on AND a usable per-class calibration
+   * model is loaded for the tenant. Absent ⇒ the static coverage-floor
+   * path runs (byte-identical to pre-Optics-2 L3). `calibration` is the
+   * loaded per-class map; `threshold` the escalate cutoff on calibrated
+   * confidence.
+   */
+  adaptiveL3?: { calibration: PerClassCalibration; threshold: number } | undefined;
 }
 
 /** A flipped L3 answer to finalise; null = fall through to abstention. */
@@ -123,6 +140,9 @@ export class L3EscalationService {
    */
   async escalate(input: L3EscalateInput): Promise<L3EscalateResult | null> {
     const { profile } = input;
+    // Optics-2 (§4.1): resolve the adaptive confidence gate when the
+    // service was handed a usable model; undefined ⇒ the static path.
+    const adaptive = this.resolveAdaptiveGate(input);
     const reason = l3TriggerDecision({
       l3Escalation: profile.l3Escalation,
       verdict: input.verdict.verdict,
@@ -134,10 +154,14 @@ export class L3EscalationService {
       refineAttempted: input.refineAttempted,
       searchLoop: profile.searchLoop,
       escalated: input.escalated,
+      adaptive,
     });
     if (reason !== 'fire') return null;
+    // Which sub-condition fired — the observability that tells the operator
+    // whether the adaptive optic or the static floor is doing the gating.
+    this.metrics?.countL3TriggerPath(adaptive ? 'adaptive' : 'static');
     try {
-      return await this.runEscalation(input);
+      return await this.runEscalation(input, adaptive);
     } catch (e) {
       // Fail-closed to abstention — the lane must never break synthesis.
       this.logger.warn(
@@ -147,7 +171,43 @@ export class L3EscalationService {
     }
   }
 
-  private async runEscalation(input: L3EscalateInput): Promise<L3EscalateResult | null> {
+  /**
+   * Optics-2 (§4.1) adaptive gate: build the focus signal from the same
+   * per-fact scores + verdict the capture path uses, apply the loaded
+   * per-class calibration, and return {confidence, threshold}. Returns
+   * undefined when no model was supplied (adaptiveL3 absent) — the static
+   * coverage path then runs. Also records the calibrated confidence on the
+   * existing L3 ladder trace for observability. Pure math over pure
+   * helpers (buildFocusSignal / calibratedConfidence); no IO.
+   */
+  private resolveAdaptiveGate(input: L3EscalateInput): L3AdaptiveGate | undefined {
+    const a = input.adaptiveL3;
+    if (!a) return undefined;
+    const factScores: number[] = [];
+    for (const hit of input.results) {
+      for (const f of hit.facts) factScores.push(f.score);
+    }
+    const signal = buildFocusSignal({
+      queryClass: queryClassOf(input.lane),
+      factScores,
+      verifierVerdict: input.verdict.verdict,
+    });
+    const confidence = calibratedConfidence(a.calibration, signal);
+    traceArtifact('synthesize.l3_adaptive', {
+      queryClass: signal.queryClass,
+      confidence,
+      threshold: a.threshold,
+      coverageScore: signal.coverageScore,
+      topScore: signal.topScore,
+      retrievalGap: signal.retrievalGap,
+    });
+    return { confidence, threshold: a.threshold };
+  }
+
+  private async runEscalation(
+    input: L3EscalateInput,
+    adaptive?: L3AdaptiveGate,
+  ): Promise<L3EscalateResult | null> {
     const { profile, dto } = input;
     const includePii = input.callerScopes.includes('brain:read_pii');
     const userId = dto.userId || undefined;
@@ -162,8 +222,19 @@ export class L3EscalationService {
     this.metrics?.countL3Escalation('fired');
 
     const window = input.lane === 'temporal' ? parseQueryTimeRange(dto.query) : null;
+    // Optics-2 (§4.1) depth scaling: on the adaptive path #sessions scales
+    // with the confidence deficit, BOUNDED by the static l3MaxSessions cap;
+    // on the static path it IS l3MaxSessions (byte-identical). Never above
+    // the cap either way — the token cap (assembleContext) is untouched.
+    const maxSessions = adaptive
+      ? adaptiveL3SessionCount({
+          confidence: adaptive.confidence,
+          threshold: adaptive.threshold,
+          maxSessions: profile.l3MaxSessions,
+        })
+      : profile.l3MaxSessions;
     const sessionIds = rankL3Sessions(anchors, {
-      max: profile.l3MaxSessions,
+      max: maxSessions,
       window,
     });
     const ctx = await this.assembleContext(input, {
