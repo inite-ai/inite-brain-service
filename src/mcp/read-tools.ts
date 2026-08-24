@@ -609,6 +609,25 @@ function registerDetectContradictionTool({
 }
 
 /**
+ * Policy-action identity for each read-only MCP resource, keyed by the
+ * resource NAME passed to server.registerResource. A resource is an
+ * entity read, so it reuses the SAME action name as its equivalent read
+ * tool: a grant or ABAC policy that allows (or denies) get_entity_profile
+ * governs the brain://entity/<id> resource identically, and vice versa —
+ * closing the gap where the tool gate covered tools but never resources.
+ *
+ * McpService's resource gate resolves a resource name through this map,
+ * so the ABAC + RFC 9396 grant machinery covers resources exactly as it
+ * covers tools. Keep this in lockstep with the registerResource calls
+ * below — a new resource needs an entry here (an unmapped name falls
+ * through to itself → write-kind → fail-closed under any restriction).
+ */
+export const READ_RESOURCE_ACTIONS: ReadonlyMap<string, string> = new Map([
+  ['entity-profile', 'get_entity_profile'],
+  ['entity-timeline', 'get_entity_timeline'],
+]);
+
+/**
  * Resources are the MCP-native "read-once" surface alongside tools.
  * Clients can list and read URIs without going through a tool call —
  * an LLM can drop a resource ref straight into context. Brain exposes:
@@ -620,6 +639,9 @@ function registerDetectContradictionTool({
  * server-side per-client session state; brain runs in stateless
  * Streamable HTTP mode, so subscribe is a no-op for v1. Streaming via a
  * server-pushed changefeed resource is the v2 lift.
+ *
+ * Each resource's policy action lives in READ_RESOURCE_ACTIONS above so
+ * the McpService resource gate can ABAC/grant-check it like a tool.
  */
 function registerReadResources({
   server,

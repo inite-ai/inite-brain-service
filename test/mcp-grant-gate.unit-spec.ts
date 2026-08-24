@@ -59,6 +59,20 @@ function toolNames(server: McpServer): string[] {
   return Object.keys(internals._registeredTools);
 }
 
+// Resources register under _registeredResourceTemplates (ResourceTemplate
+// path) / _registeredResources (static URI). Same private-field
+// inspection the tool tests use — production code never touches it.
+function resourceNames(server: McpServer): string[] {
+  const internals = server as unknown as {
+    _registeredResources?: Record<string, unknown>;
+    _registeredResourceTemplates?: Record<string, unknown>;
+  };
+  return [
+    ...Object.keys(internals._registeredResources ?? {}),
+    ...Object.keys(internals._registeredResourceTemplates ?? {}),
+  ];
+}
+
 function ctxFromDoc(doc: Record<string, unknown>): PolicyContext {
   const parsed: PolicyDocument = PolicyDocumentSchema.parse(doc);
   const compiled = compilePolicySet(parsed);
@@ -94,6 +108,50 @@ describe('MCP RFC 9396 grant gate', () => {
     const names = toolNames(await build({}));
     expect(names).toContain('record_fact');
     expect(names).toContain('search_knowledge');
+  });
+
+  // ── resources ride the SAME grant gate as tools ───────────────────────
+  // A resource read (brain://entity/<id>[/timeline]) reuses its equivalent
+  // read tool's action, so the grant that governs the tool governs the
+  // resource. These pin the read-side gap the fix closes: before it, a
+  // grant that stripped every tool still left the two entity resources
+  // callable (base brain:read + tenant fence only, no consent/ABAC check).
+
+  it('an empty grant strips every tool AND every resource', async () => {
+    const server = await build({ mcpGrantedActions: [] });
+    expect(toolNames(server)).toEqual([]);
+    expect(resourceNames(server)).toEqual([]);
+  });
+
+  it('a foreign grant (different action) exposes zero entity resources', async () => {
+    // search_knowledge is a real action, but it is neither entity resource's
+    // action (get_entity_profile / get_entity_timeline) nor a read macro.
+    const server = await build({ mcpGrantedActions: ['search_knowledge'] });
+    expect(toolNames(server)).toEqual(['search_knowledge']);
+    expect(resourceNames(server)).not.toContain('entity-profile');
+    expect(resourceNames(server)).not.toContain('entity-timeline');
+    expect(resourceNames(server)).toEqual([]);
+  });
+
+  it("the 'read' macro grant keeps both entity resources (normal read access)", async () => {
+    const names = resourceNames(await build({ mcpGrantedActions: ['read'] }));
+    expect(names).toContain('entity-profile');
+    expect(names).toContain('entity-timeline');
+  });
+
+  it('a named get_entity_profile grant keeps only that resource', async () => {
+    const server = await build({ mcpGrantedActions: ['get_entity_profile'] });
+    // Tool + resource for the granted entity read stay; the timeline
+    // resource (get_entity_timeline) is gone, same as its tool.
+    expect(toolNames(server)).toEqual(['get_entity_profile']);
+    expect(resourceNames(server)).toContain('entity-profile');
+    expect(resourceNames(server)).not.toContain('entity-timeline');
+  });
+
+  it('no grant claim = full resource surface (gate inactive)', async () => {
+    const names = resourceNames(await build({}));
+    expect(names).toContain('entity-profile');
+    expect(names).toContain('entity-timeline');
   });
 
   it('policy deny overrides a grant allow', async () => {
