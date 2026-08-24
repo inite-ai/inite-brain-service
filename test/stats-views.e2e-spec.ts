@@ -208,3 +208,138 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
     delete process.env.STATS_VIEWS_ENABLED;
   });
 });
+
+/**
+ * Per-user scope on /v1/stats/overview (audit F3): a userId-pinned
+ * end-user token must see only its OWN + tenant-global counts, never the
+ * tenant aggregate spanning every user. Two user-bound tokens (user_a /
+ * user_b) plus the M2M fixture key exercise the three cases in one boot.
+ */
+describe('stats overview per-user scope (audit F3, real SurrealDB)', () => {
+  let f: AppFixture;
+  const M2M = () => ({ Authorization: `Bearer ${f.apiKey}` });
+  const A = () => ({ Authorization: `Bearer ${f.extraApiKeys[0]}` });
+  const B = () => ({ Authorization: `Bearer ${f.extraApiKeys[1]}` });
+  const savedFlag = process.env.STATS_VIEWS_ENABLED;
+
+  // Fresh tenant DB → counts start at 0, so the expectations are exact.
+  const GLOBAL_FACTS = 2;
+  const A_FACTS = 3;
+  const B_FACTS = 4;
+
+  beforeAll(async () => {
+    // Flag off: the M2M path uses the live tenant-wide counts. User
+    // callers ignore the flag regardless (views are tenant-wide).
+    delete process.env.STATS_VIEWS_ENABLED;
+    f = await createApp({
+      companyId: 'co_stats_userscope_e2e',
+      extraKeys: [
+        { scopes: ['brain:read', 'brain:write'], userId: 'user_a' },
+        { scopes: ['brain:read', 'brain:write'], userId: 'user_b' },
+      ],
+    });
+
+    // The M2M key mints tenant-global rows (userId IS NONE); each
+    // user-bound key mints rows stamped with its own userId. Distinct
+    // entity ids so every ingest INSERTs a fresh active fact + entity.
+    for (let i = 0; i < GLOBAL_FACTS; i++) {
+      await ingestAs(M2M(), `g_subject_${i}`, `g_claim_${i}`, `global claim ${i}`);
+    }
+    for (let i = 0; i < A_FACTS; i++) {
+      await ingestAs(A(), `a_subject_${i}`, `a_claim_${i}`, `user a claim ${i}`);
+    }
+    for (let i = 0; i < B_FACTS; i++) {
+      await ingestAs(B(), `b_subject_${i}`, `b_claim_${i}`, `user b claim ${i}`);
+    }
+  });
+
+  afterAll(async () => {
+    if (savedFlag === undefined) delete process.env.STATS_VIEWS_ENABLED;
+    else process.env.STATS_VIEWS_ENABLED = savedFlag;
+    if (f) await f.close();
+  });
+
+  async function ingestAs(
+    header: Record<string, string>,
+    id: string,
+    predicate: string,
+    object: string,
+  ) {
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(header)
+      .send({
+        entityRef: { vertical: 'rent', id },
+        predicate,
+        object,
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+    expect([200, 201]).toContain(res.status);
+    return res.body.factId as string;
+  }
+
+  interface Overview {
+    entities: number;
+    factsActive: number;
+    factsCompeting: number;
+    factsRetracted: number;
+    communities?: number;
+    factsLast7d: number;
+  }
+
+  async function overview(header: Record<string, string>): Promise<Overview> {
+    const res = await f.http.get('/v1/stats/overview').set(header);
+    expect(res.status).toBe(200);
+    return res.body as Overview;
+  }
+
+  it('user A sees only its own + tenant-global counts, never user B activity', async () => {
+    const a = await overview(A());
+    // A's own facts PLUS the tenant-global facts — and nothing of B's.
+    expect(a.factsActive).toBe(A_FACTS + GLOBAL_FACTS); // 5, not 9
+    expect(a.entities).toBe(A_FACTS + GLOBAL_FACTS);
+    expect(a.factsLast7d).toBe(A_FACTS + GLOBAL_FACTS);
+    // community_node has no userId → the tenant figure is omitted.
+    expect(a.communities).toBeUndefined();
+  });
+
+  it('user B sees only its own + tenant-global counts, never user A activity', async () => {
+    const b = await overview(B());
+    expect(b.factsActive).toBe(B_FACTS + GLOBAL_FACTS); // 6, not 9
+    expect(b.entities).toBe(B_FACTS + GLOBAL_FACTS);
+    expect(b.communities).toBeUndefined();
+  });
+
+  it('the two users never see each other: A ≠ B, and neither equals the tenant aggregate', async () => {
+    const a = await overview(A());
+    const b = await overview(B());
+    const tenant = await overview(M2M());
+    // Each user is strictly below the tenant total by exactly the OTHER
+    // user's contribution — proof that no cross-user rows bleed in.
+    expect(tenant.factsActive).toBe(GLOBAL_FACTS + A_FACTS + B_FACTS); // 9
+    expect(tenant.factsActive - a.factsActive).toBe(B_FACTS); // A excludes all of B
+    expect(tenant.factsActive - b.factsActive).toBe(A_FACTS); // B excludes all of A
+    expect(a.factsActive).not.toBe(b.factsActive);
+  });
+
+  it('M2M / admin caller (no pinned userId) still sees tenant-wide counts incl. communities', async () => {
+    const tenant = await overview(M2M());
+    expect(tenant.factsActive).toBe(GLOBAL_FACTS + A_FACTS + B_FACTS); // 9
+    expect(tenant.entities).toBe(GLOBAL_FACTS + A_FACTS + B_FACTS); // 9
+    // Tenant-global community count is present (a number) for M2M.
+    expect(typeof tenant.communities).toBe('number');
+  });
+
+  it('the cache key does not cross users: back-to-back A/B calls stay scoped', async () => {
+    // A is fetched first (populating the per-user cache entry), then B. A
+    // shared tenant-only cache key would serve A's cached numbers to B.
+    const a1 = await overview(A());
+    const b = await overview(B());
+    const a2 = await overview(A());
+    expect(a1.factsActive).toBe(A_FACTS + GLOBAL_FACTS); // 5
+    expect(b.factsActive).toBe(B_FACTS + GLOBAL_FACTS); // 6 — NOT A's 5
+    expect(a2.factsActive).toBe(a1.factsActive); // A's own cached entry
+  });
+});

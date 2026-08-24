@@ -6,7 +6,10 @@ import { StatsService } from './stats.service';
 
 /**
  * Per-company memory stats for the end-user "Usage" page. Read-scope;
- * companyId comes from the authenticated credential.
+ * companyId comes from the authenticated credential. A userId-pinned
+ * (end-user) token scopes the counts to its own + tenant-global memory
+ * (audit F3) — brainAuth.userId is absent for M2M / admin callers, who
+ * still see the tenant-wide aggregate.
  */
 @Controller('v1/stats')
 @UseGuards(ApiKeyGuard)
@@ -17,6 +20,6 @@ export class StatsController {
   @RequireScopes('brain:read')
   @PolicyAction('rest.stats.overview')
   async overview(@Req() req: AuthenticatedRequest) {
-    return this.stats.overview(req.brainAuth.companyId, req.brainAuth.scopes);
+    return this.stats.overview(req.brainAuth.companyId, req.brainAuth.scopes, req.brainAuth.userId);
   }
 }

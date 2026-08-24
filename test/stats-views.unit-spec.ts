@@ -128,6 +128,120 @@ describe('StatsService view gating (STATS_VIEWS_ENABLED)', () => {
   });
 });
 
+describe('StatsService per-user scope (audit F3)', () => {
+  const savedFlag = process.env.STATS_VIEWS_ENABLED;
+
+  afterEach(() => {
+    if (savedFlag === undefined) delete process.env.STATS_VIEWS_ENABLED;
+    else process.env.STATS_VIEWS_ENABLED = savedFlag;
+  });
+
+  /** Per-statement results for the USER-scoped live query (5 statements,
+   *  no community_node). */
+  function userScopedResults(): unknown[] {
+    return [
+      [{ c: 4 }], // entities (own + tenant-global)
+      [{ c: 3 }], // active
+      [{ c: 1 }], // competing
+      [{ c: 0 }], // retracted
+      [{ c: 2 }], // last 7d
+    ];
+  }
+
+  it('scopes every count to own+global, omits the tenant-global community count, keys cache by user', async () => {
+    delete process.env.STATS_VIEWS_ENABLED;
+    const query = jest.fn(async (_sql: string, _binds?: Record<string, unknown>) =>
+      userScopedResults(),
+    );
+    const { svc } = makeStatsService(query);
+
+    const stats = await svc.overview('t1', ['brain:read'], 'user_a');
+    expect(stats).toMatchObject({
+      entities: 4,
+      factsActive: 3,
+      factsCompeting: 1,
+      factsRetracted: 0,
+      factsLast7d: 2,
+    });
+    // community_node carries no userId → the count is OMITTED (not 0, not
+    // the tenant figure) for an end-user caller.
+    expect(stats.communities).toBeUndefined();
+    expect('communities' in stats).toBe(false);
+
+    const call = query.mock.calls[0]!;
+    const sql = call[0] as string;
+    const binds = call[1] as Record<string, unknown>;
+    expect(sql).toContain('(userId IS NONE OR userId = $userId)');
+    expect(sql).not.toContain('community_node');
+    expect(binds).toMatchObject({ userId: 'user_a' });
+
+    // Cached under the per-user key: a second identical call hits the LRU.
+    await svc.overview('t1', ['brain:read'], 'user_a');
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('cache key is per-user: user B is never served user A cached counts', async () => {
+    delete process.env.STATS_VIEWS_ENABLED;
+    const perUser: Record<string, unknown[]> = {
+      user_a: [[{ c: 4 }], [{ c: 3 }], [{ c: 1 }], [{ c: 0 }], [{ c: 2 }]],
+      user_b: [[{ c: 9 }], [{ c: 8 }], [{ c: 0 }], [{ c: 1 }], [{ c: 5 }]],
+    };
+    let current = 'user_a';
+    const query = jest.fn(async (_sql: string) => perUser[current]!);
+    const { svc } = makeStatsService(query);
+
+    const a = await svc.overview('t1', ['brain:read'], 'user_a');
+    current = 'user_b';
+    const b = await svc.overview('t1', ['brain:read'], 'user_b');
+
+    expect(a.factsActive).toBe(3);
+    expect(b.factsActive).toBe(8); // B's own numbers, NOT A's cached 3
+    // Distinct cache keys → two DB round-trips; a tenant-only key would
+    // have served A's cached entry to B on the second call.
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes the live user-scoped path even when STATS_VIEWS_ENABLED=on (views are tenant-wide)', async () => {
+    process.env.STATS_VIEWS_ENABLED = '1';
+    const query = jest.fn(async (_sql: string) => userScopedResults());
+    const { svc } = makeStatsService(query);
+
+    const stats = await svc.overview('t1', ['brain:read'], 'user_a');
+    expect(stats.factsActive).toBe(3);
+    const sql = query.mock.calls[0]![0];
+    // A userId-pinned caller must NOT read the tenant-wide rollup views.
+    expect(sql).not.toContain('stats_entity_total');
+    expect(sql).not.toContain('stats_fact_by_status');
+    expect(sql).toContain('(userId IS NONE OR userId = $userId)');
+  });
+
+  it('M2M and user callers use different cache keys AND different queries', async () => {
+    delete process.env.STATS_VIEWS_ENABLED;
+    // One mock, two shapes: the user path is recognisable by its gate.
+    const query = jest.fn(async (sql: string) =>
+      sql.includes('userId = $userId') ? userScopedResults() : legacyStatsResults(),
+    );
+    const { svc } = makeStatsService(query);
+
+    const m2m = await svc.overview('t1', ['brain:read']); // cache key 't1'
+    const user = await svc.overview('t1', ['brain:read'], 'user_a'); // key 't1 user_a'
+
+    // M2M is unchanged: tenant-wide counts, community count still present.
+    expect(m2m).toMatchObject({ entities: 7, factsActive: 5, factsCompeting: 2 });
+    expect(m2m.communities).toBe(3);
+    // User caller got its OWN scoped numbers, NOT the M2M cache entry, and
+    // no community count.
+    expect(user).toMatchObject({ entities: 4, factsActive: 3 });
+    expect(user.communities).toBeUndefined();
+    // Two distinct keys → two DB round-trips; a shared tenant-only key
+    // would have served the M2M entry to the user (query called once).
+    expect(query).toHaveBeenCalledTimes(2);
+    const m2mSql = query.mock.calls[0]![0];
+    expect(m2mSql).toContain('FROM community_node');
+    expect(m2mSql).not.toContain('(userId IS NONE OR userId = $userId)');
+  });
+});
+
 /** Per-statement results for the LEGACY admin collectTenant query. */
 function legacyAdminResults(): unknown[] {
   return [
