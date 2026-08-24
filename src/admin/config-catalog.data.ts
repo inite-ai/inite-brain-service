@@ -516,6 +516,41 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (default) → the hard filter is byte-identical.',
   },
+  // ── Multilingual (Tier 3, migration 0102) ───────────
+  {
+    key: 'MULTILINGUAL_ENTITY_REVERSIBLE',
+    category: 'pipeline',
+    // Read per-call in EntityResolverService.isReversible() +
+    // EntityUpsertService (process.env), never constructor-captured — a flip
+    // takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Reversible entity resolution: a WEAK inline-resolution match (embedding-only, no exact-canonical / externalRef signal) is NOT auto-merged — it becomes a reviewable entity_merge_log candidate (migration 0102) and a fresh entity is minted, so the fuse is deferred to explicit review. STRONG matches (exact canonical / externalRef) still auto-reuse but write an auditable merge row, so any wrong fuse can be found by target entity and split. Off (default) → the resolver reuses immediately with no log — byte-identical.',
+  },
+  {
+    key: 'MULTILINGUAL_CJK_SEGMENTATION',
+    category: 'pipeline',
+    // Resolved into the RetrievalProfile (cjkSegmentation) by
+    // resolveRetrievalProfile — read per request, never constructor-captured.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'CJK segmentation for the mention-scan topic: segment the topic with the Intl.Segmenter built-in (ICU-backed word boundaries — no new dependency) so CJK / other non-space-delimited scripts yield real terms instead of being split to nothing by the ASCII/Cyrillic character class. Resolved into the RetrievalProfile and threaded to the mention-scan lane. Off (default) → the legacy split — byte-identical.',
+  },
+  {
+    key: 'INGEST_CONFUSABLES_CHECK',
+    category: 'pipeline',
+    // Read per-call in EntityUpsertService (process.env), never
+    // constructor-captured — a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Unicode identifier policy: on an entity-name ingest, compute a curated UTS-39-style confusables skeleton (a small vendored Latin↔Cyrillic↔Greek homoglyph map + zero-width strip — NOT the full UTS-39 table) plus a mixed-script check as a RISK SIGNAL ONLY. A homoglyph/mixed-script name is logged for review; it NEVER auto-blocks and NEVER auto-merges, and the original surface is always preserved. Off (default) → no skeleton computed, no flagging — byte-identical.',
+  },
   // ── Embedding space (Tier 2, migration 0101) ────────
   {
     key: 'EMBEDDING_SPACE_TRACKING',

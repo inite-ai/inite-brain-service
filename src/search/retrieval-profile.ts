@@ -259,6 +259,15 @@ export interface RetrievalProfile {
   /** Lexical-leg query shape of the scan lanes (see CoverageLexMode);
    *  'phrase' = the legacy AND-semantics matcher. */
   coverageLexMode: CoverageLexMode;
+  /**
+   * Multilingual Tier 3 (MULTILINGUAL_CJK_SEGMENTATION). Segment the
+   * mention-scan topic with Intl.Segmenter so CJK / non-space-delimited
+   * scripts yield real terms instead of being split to nothing by the
+   * ASCII/Cyrillic character class. Off (default) ⇒ the legacy split,
+   * byte-identical. Resolved here (the one env-reading module below the
+   * boundary) and threaded to the mention-scan lane.
+   */
+  cjkSegmentation: boolean;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -627,6 +636,9 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       enumEnv(env, 'RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw'] as const) ?? 'brute',
     coverageLexMode:
       enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms'] as const) ?? 'phrase',
+    // Cross-cutting locale flag (MULTILINGUAL_ family, off the RETRIEVAL_
+    // budget); resolved directly from env here, no genre preset.
+    cjkSegmentation: envFlagEnabled(env.MULTILINGUAL_CJK_SEGMENTATION),
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -824,6 +836,7 @@ export function resolveRetrievalProfileFor(
     'l3Escalation',
     'assistantLane',
     'factsAsKeys',
+    'cjkSegmentation',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }

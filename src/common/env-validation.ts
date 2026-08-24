@@ -664,6 +664,13 @@ const KNOWN_BOOLEAN_FLAGS = [
   // bidi/zero-width/control chars from ingest text (mention/fact/
   // document/candidate) before storage. Default off = byte-identical.
   'INGEST_SANITIZE_UNICODE',
+  // Multilingual Tier 3 (docs/roadmap/multilingual-2026-08.md). On an
+  // entity-name ingest, compute a curated UTS-39-style confusables skeleton
+  // (Latin↔Cyrillic↔Greek homoglyphs) + mixed-script check as a RISK SIGNAL
+  // ONLY — logged for review, never blocks and never auto-merges. Default
+  // off = byte-identical (no skeleton computed). ENGINE (INGEST_) prefix, so
+  // this one IS on the flag budget golden (a deliberate owner decision).
+  'INGEST_CONFUSABLES_CHECK',
   // Realtime fact subscriptions (SSE at /v1/live/facts). On → a dedicated
   // per-tenant connection outside both pools holds a LIVE SELECT, with the
   // 30-day changefeed as the gap-replay bridge and the per-row ABAC gate
@@ -769,6 +776,20 @@ const KNOWN_BOOLEAN_FLAGS = [
   // confidence-gated ranking boost (cross-lingual facts demoted, never
   // hidden). Default off ⇒ the hard filter is byte-identical.
   'MULTILINGUAL_SOFT_LANG_FILTER',
+  // Multilingual Tier 3 (migration 0102). Reversible entity resolution: a
+  // weak embedding-only inline-resolution match is NOT auto-merged — it
+  // becomes a reviewable entity_merge_log candidate — and every strong
+  // (exact/externalRef) reuse writes an auditable merge row so a wrong fuse
+  // can be found and split. Default off ⇒ immediate reuse, no log (byte-
+  // identical). MULTILINGUAL_ family, off the ENGINE flag budget.
+  'MULTILINGUAL_ENTITY_REVERSIBLE',
+  // Multilingual Tier 3. CJK segmentation: the mention-scan topic is
+  // segmented with the Intl.Segmenter built-in (ICU-backed, no new dep) so
+  // CJK / non-space-delimited scripts yield real terms instead of being
+  // split to nothing. Resolved into the RetrievalProfile (cjkSegmentation).
+  // Default off ⇒ the legacy split (byte-identical). MULTILINGUAL_ family,
+  // off the ENGINE flag budget.
+  'MULTILINGUAL_CJK_SEGMENTATION',
   // Multilingual Tier 2 (migration 0101). The embedding-space family stamps
   // + guards the (model, dim, norm) space a vector lives in so flipping the
   // embedder can't silently mix vector spaces. All default off; each is a

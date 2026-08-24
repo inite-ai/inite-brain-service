@@ -434,6 +434,7 @@ export class EvidenceCollectorService {
               dedupeAspects: profile.orderingFrame,
               scan: scanTuning(profile),
               lex: profile.coverageLexMode,
+              segmentCjk: profile.cjkSegmentation,
             })
             .then((v) => v ?? [])
         : [],
