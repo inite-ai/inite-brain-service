@@ -79,3 +79,38 @@ export function adaptiveAbstainThreshold(): number {
   const v = Number(raw);
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : DEFAULT_ADAPTIVE_ABSTAIN_THRESHOLD;
 }
+
+/** Default nearest-centroid cosine floor for lens suppression (Optics §4.3). */
+const DEFAULT_LENS_SUPPRESS_MIN_COSINE = 0.5;
+
+/**
+ * Fovea optics (Optics §4.3) master flag — FOVEA_LENS_SUPPRESS.
+ *
+ * When on AND a usable per-class suppression model is loaded, the
+ * lens-suppression governor SUBTRACTS off-task / trap-inducing lanes from a
+ * query's effective active lane set BEFORE retrieval and before the
+ * answer-cache key is computed (docs/roadmap/fovea-optics-2026-08.md §4.3).
+ * Subtractive only — it can never add a lane or reorder. The env read lives
+ * here in the common layer, NOT inside the engine dirs (engine-gates S5.2).
+ * Read at call time so a flip is runtime-mutable. Default off, AND with no
+ * usable model — or a low-confidence class match — routing is byte-identical
+ * to the static lane set (the load-bearing safety property).
+ */
+export function lensSuppressEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_LENS_SUPPRESS);
+}
+
+/**
+ * Optics §4.3 confidence floor (FOVEA_LENS_SUPPRESS_MIN_COSINE): suppress
+ * lanes only when the nearest class centroid's cosine similarity to the query
+ * embedding is ≥ this value; below it the class match is uncertain and the
+ * lane set is left unchanged. A non-boolean knob resolved here in the common
+ * layer so the engine dirs take a resolved number. Cosine lives in [-1,1], so
+ * the full range is accepted; unset, blank, or out of range → the 0.5 default.
+ */
+export function lensSuppressMinCosine(): number {
+  const raw = process.env.FOVEA_LENS_SUPPRESS_MIN_COSINE;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_LENS_SUPPRESS_MIN_COSINE;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= -1 && v <= 1 ? v : DEFAULT_LENS_SUPPRESS_MIN_COSINE;
+}
