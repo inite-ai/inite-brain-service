@@ -10,7 +10,14 @@
  * Importing the script must NOT execute its `main()` — it is guarded by
  * `require.main === module`, the same idiom as scripts/init-pack.ts.
  */
-import { parseArgs, decideEntry, MAX_GAP, type JestRun } from '../scripts/mri-record-suite';
+import {
+  parseArgs,
+  decideEntry,
+  exitCodeForEntry,
+  MAX_GAP,
+  type JestRun,
+} from '../scripts/mri-record-suite';
+import type { SuiteLedgerEntry } from '../src/mri/suite-status';
 
 const NOW = new Date('2026-08-24T00:00:00.000Z');
 
@@ -100,5 +107,38 @@ describe('decideEntry — a pass is only ever a real green run', () => {
   it('carries a validated gap onto the entry', () => {
     const entry = decideEntry(green, { now: NOW, gap: 0 });
     expect(entry.gapCount).toBe(0);
+  });
+});
+
+describe('exitCodeForEntry — FAIL-CLOSED process exit (R3 P1)', () => {
+  it('exits 0 only for a recorded pass', () => {
+    const pass: SuiteLedgerEntry = {
+      status: 'pass',
+      numPassed: 6,
+      numFailed: 0,
+      recordedAt: NOW.toISOString(),
+    };
+    expect(exitCodeForEntry(pass)).toBe(0);
+  });
+
+  it('exits NON-ZERO on a recorded fail — a red suite never greens the process', () => {
+    const fail: SuiteLedgerEntry = {
+      status: 'fail',
+      numPassed: 4,
+      numFailed: 2,
+      recordedAt: NOW.toISOString(),
+      note: 'jest exited 1',
+    };
+    expect(exitCodeForEntry(fail)).toBe(1);
+    // End-to-end: decideEntry turns a red Jest run into a `fail` entry, and
+    // exitCodeForEntry turns that into a non-zero exit — so the recorder cannot
+    // record `fail` yet exit 0 (the leak #343 left behind).
+    const redRun: JestRun = {
+      exitCode: 1,
+      json: { success: false, numPassedTests: 4, numFailedTests: 2 },
+    };
+    const entry = decideEntry(redRun, { now: NOW });
+    expect(entry.status).toBe('fail');
+    expect(exitCodeForEntry(entry)).toBe(1);
   });
 });

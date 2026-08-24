@@ -52,6 +52,14 @@ export function renderMriMarkdown(report: MriReport, pareto?: ParetoReport): str
   lines.push('# Memory Reliability Index (MRI) snapshot');
   lines.push('');
   lines.push(`Generated: ${report.generatedAt}`);
+  if (report.window) {
+    const w = report.window;
+    lines.push('');
+    lines.push(
+      `Live-cell window: ${w.startedAt} → ${w.endedAt} (rolling, ≤ ${Math.round(w.windowMs / 1000)}s). ` +
+        'Rates are deltaed against a baseline snapshot — NOT the process lifetime.',
+    );
+  }
   lines.push('');
   lines.push(
     '> Honest scaffold (measurable-economics-mri-2026-08.md). Every cell is a real value or the ' +

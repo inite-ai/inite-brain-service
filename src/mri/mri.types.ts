@@ -33,10 +33,28 @@ export interface MriDimension {
   kind: 'live' | 'structural' | 'pending';
 }
 
+/**
+ * The bounded, rolling window the LIVE rate cells cover. Prometheus counters are
+ * process-lifetime accumulators; the MRI reader deltas them against a baseline
+ * snapshot so "per query" rates reflect only recent traffic, never the whole
+ * process lifetime. `startedAt`..`endedAt` is what the numbers are as-of.
+ */
+export interface MriWindow {
+  /** Window start — the baseline snapshot the delta is taken against (ISO). */
+  startedAt: string;
+  /** Window end — the report's generation time (ISO). */
+  endedAt: string;
+  /** Configured rolling-window bound in milliseconds. */
+  windowMs: number;
+}
+
 export interface MriReport {
   generatedAt: string;
   /** The seven §2 dimensions plus the split cost/latency cells. */
   dimensions: Record<string, MriDimension>;
   /** Part 1 live operating point (proxy-accuracy × cost × latency). */
   operatingPoint: PolicyOperatingPoint;
+  /** The rolling window the LIVE rate cells cover (absent for a pure
+   *  buildMriReport call that does not window — e.g. unit tests). */
+  window?: MriWindow;
 }

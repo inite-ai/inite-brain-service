@@ -215,7 +215,21 @@ function loadLedger(path: string): SuiteLedger {
   }
 }
 
-function main(): void {
+/**
+ * FAIL-CLOSED process exit code for a recorded entry. A `pass` exits 0; ANY
+ * other recorded status (a real red run recorded as `fail`) exits NON-ZERO so a
+ * CI wrapper (`pnpm mri:record-suite … && …`) never mistakes a recorded red for
+ * success. decideEntry already refuses to write a green on red (it throws, or
+ * records `fail`); this closes the remaining leak — the recorder used to write
+ * the `fail` entry and STILL exit 0, greening a red suite at the process level.
+ */
+export function exitCodeForEntry(entry: SuiteLedgerEntry): number {
+  return entry.status === 'pass' ? 0 : 1;
+}
+
+/** Runs the recorder end-to-end and returns the fail-closed exit code (writes
+ *  the entry — even a `fail` — so the ledger reflects the real last run). */
+function main(): number {
   const args = parseArgs(process.argv.slice(2));
   const spec = ALL_SUITE_SPECS.find((s) => s.key === args.key);
   if (!spec) {
@@ -241,11 +255,19 @@ function main(): void {
   process.stdout.write(
     `recorded ${args.key}: ${entry.status} (${entry.numPassed}/${entry.numFailed}) → ${DEFAULT_LEDGER_PATH}\n`,
   );
+  const code = exitCodeForEntry(entry);
+  if (code !== 0) {
+    process.stderr.write(
+      `✗ mri:record-suite: suite '${args.key}' did NOT pass (status=${entry.status}) — recorded the ` +
+        'red status; failing closed with a non-zero exit\n',
+    );
+  }
+  return code;
 }
 
 if (require.main === module) {
   try {
-    main();
+    process.exit(main());
   } catch (e) {
     process.stderr.write(`✗ mri:record-suite failed: ${(e as Error).message}\n`);
     process.exit(1);

@@ -9,6 +9,7 @@ import type { Citation } from './fact-index';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import { buildDateMathLines } from './date-math';
 import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
+import type { MetricsService } from '../metrics/metrics.service';
 
 /**
  * Pure helpers of the synthesize orchestrator, split out of
@@ -16,6 +17,23 @@ import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
  * the service over 800). No IO, no DI; type-only imports back into the
  * service module, so there is no runtime cycle.
  */
+
+/**
+ * Serve an answer-cache hit — and count it as the terminal `ok` it is. admit()
+ * only ever caches a verifier-`supported`, cited answer, so a served hit is an
+ * `ok`; recording it in the SAME brain_synthesize_total counter the fresh path
+ * bumps keeps the MRI per-request denominator (terminal synthesize count)
+ * inclusive of cache hits instead of silently dropping them and skewing every
+ * "per query" rate (R3 P1). Read-only accounting: no verdict/serving change, and
+ * the caller only reaches here when the cache is on (off by default).
+ */
+export function serveCacheHit(
+  metrics: MetricsService | undefined,
+  hit: SynthesizeResult,
+): SynthesizeResult {
+  metrics?.countSynthesize('ok');
+  return hit;
+}
 
 /**
  * V13 answer-side frames, both profile-gated and both pure: the
