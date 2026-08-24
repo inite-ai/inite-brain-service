@@ -60,6 +60,24 @@ describe('G2 L3 escalation e2e', () => {
     return m ? parseInt(m[1]!, 10) : 0;
   }
 
+  async function counter(app: AppFixture, name: string): Promise<number> {
+    const metrics = app.app.get(MetricsService);
+    const { body } = await metrics.serialize();
+    const m = body.match(new RegExp(`^${name} (\\d+)`, 'm'));
+    return m ? parseInt(m[1]!, 10) : 0;
+  }
+
+  // A flipping L3 re-verification (supported + answering).
+  const L3_VERIFY_PASS = JSON.stringify({
+    verdict: 'supported',
+    unsupportedClaims: [],
+    questionAnswered: true,
+  });
+  const JUDGE_IMPLAUSIBLE = JSON.stringify({
+    plausible: false,
+    rationale: 'the cited transcript premise is a sandbox-only counterfactual',
+  });
+
   beforeAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
     f = await createApp();
@@ -119,8 +137,15 @@ describe('G2 L3 escalation e2e', () => {
     });
   });
 
+  afterEach(() => {
+    delete process.env.FOVEA_PLAUSIBILITY_CHECK;
+    delete process.env.FOVEA_REQUIRE_CITATIONS;
+  });
+
   afterAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
+    delete process.env.FOVEA_PLAUSIBILITY_CHECK;
+    delete process.env.FOVEA_REQUIRE_CITATIONS;
     if (f) await f.close();
     if (f2) await f2.close();
   });
@@ -183,5 +208,93 @@ describe('G2 L3 escalation e2e', () => {
     // Trigger fired but no session anchor → no generation escalation.
     expect(state.calls.length).toBe(2);
     expect(await l3Count(f2, 'skipped_no_anchor')).toBe(skipBefore + 1);
+  });
+
+  // ── Answer-integrity gate on the L3 flip path ─────────────────────
+  // The L3 answer grounds on the RAW TRANSCRIPT, so it MUST pass through the
+  // same default-off Part A + Part C guards as the primary serve.
+
+  it('L3 flip + FOVEA_PLAUSIBILITY_CHECK on + implausible judge → downgraded to abstain (not served)', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.FOVEA_PLAUSIBILITY_CHECK = '1';
+    const flippedBefore = await l3Count(f, 'flipped');
+    const downgradeBefore = await counter(f, 'brain_plausibility_downgrade_total');
+    // gen → verify(fail) → L3 gen(cited) → L3 verify(pass) → plausibility judge.
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer: L3_ANSWER, citedFactIds: [anchoredFactId] }),
+      L3_VERIFY_PASS,
+      JUDGE_IMPLAUSIBLE,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    // The L3 supported answer is withheld — abstain instead of serving the
+    // belief-distorted, transcript-grounded answer.
+    expect(res.body.answer).not.toBe(L3_ANSWER);
+    expect(res.body.reason).toBe('low_coverage');
+    expect(res.body.citations ?? []).toEqual([]);
+    // The L3 still flipped (the ladder is untouched); the gate ran AFTER.
+    expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
+    // The fifth call is the plausibility auditor over the L3 answer's premise.
+    expect(state.calls.length).toBe(5);
+    expect(state.calls[4]!.system).toContain('plausibility auditor');
+    expect(await counter(f, 'brain_plausibility_downgrade_total')).toBe(downgradeBefore + 1);
+  });
+
+  it('L3 flip + FOVEA_REQUIRE_CITATIONS on + uncited L3 answer → abstain', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    process.env.FOVEA_REQUIRE_CITATIONS = '1';
+    const flippedBefore = await l3Count(f, 'flipped');
+    const guardBefore = await counter(f, 'brain_citation_guard_abstain_total');
+    // The L3 raw-transcript answer is UNCITED by design; require-citations then
+    // abstains it (the correct end-to-end reading of the citation promise). No
+    // plausibility judge — Part C is a pure post-verdict decision → 4 calls.
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer: L3_ANSWER, citedFactIds: [] as string[] }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.answer).not.toBe(L3_ANSWER);
+    expect(res.body.reason).toBe('low_coverage');
+    expect(res.body.citations ?? []).toEqual([]);
+    expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
+    expect(state.calls.length).toBe(4);
+    expect(await counter(f, 'brain_citation_guard_abstain_total')).toBe(guardBefore + 1);
+  });
+
+  it('both integrity flags off → L3 serves byte-identical (cited answer, no reason, no extra call)', async () => {
+    process.env.RETRIEVAL_L3_ESCALATION = '1';
+    // FOVEA_PLAUSIBILITY_CHECK + FOVEA_REQUIRE_CITATIONS both unset (afterEach).
+    const flippedBefore = await l3Count(f, 'flipped');
+    const downgradeBefore = await counter(f, 'brain_plausibility_downgrade_total');
+    const state = mockSynthesizeOpenAi(f.app, [
+      R1_GEN,
+      R1_VERIFY,
+      JSON.stringify({ answer: L3_ANSWER, citedFactIds: [anchoredFactId] }),
+      L3_VERIFY_PASS,
+    ]);
+    const res = await f.http
+      .post('/v1/synthesize')
+      .set(auth())
+      .send({ query: ANCHOR_QUERY, limit: 5 });
+    expect(res.status).toBe(201);
+    // The L3 answer serves exactly as before, with its citation intact.
+    expect(res.body.answer).toBe(L3_ANSWER);
+    expect(res.body.reason).toBeUndefined();
+    expect(res.body.citations?.map((c: { factId: string }) => c.factId)).toContain(anchoredFactId);
+    // Exactly gen + verify + L3 gen + L3 verify — NO fifth (judge) call.
+    expect(state.calls.length).toBe(4);
+    expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
+    expect(await counter(f, 'brain_plausibility_downgrade_total')).toBe(downgradeBefore);
   });
 });
