@@ -43,6 +43,22 @@ import type { LaneId } from './answer-router';
 export type FocusVerdict = 'supported' | 'partial' | 'unsupported' | 'none';
 
 /**
+ * Capture/calibration stage — the population a sample (and the calibrator
+ * fit from it) belongs to. fit-shape MUST equal apply-shape, so the two are
+ * never pooled (docs/roadmap/fovea-optics-2026-08.md §4.2):
+ *   - 'verdict'   — captured at the synthesize verdict point WITH a real
+ *     verifier verdict (Optics-1 capture, Optics-2 L3 consume).
+ *   - 'preanswer' — captured at the pre-generation coverage-abstention gate,
+ *     where no verifier has run yet, so verifierVerdict is a CONSTANT 'none'
+ *     (Optics §4.2 capture + consume). The constant offset is absorbed by
+ *     the isotonic fit; mixing the two populations would miscalibrate both.
+ *
+ * A stored row with stage=NONE is read as 'verdict' — the only population
+ * that existed before the stage column (migration 0095).
+ */
+export type FocusStage = 'preanswer' | 'verdict';
+
+/**
  * The focus signal at the verdict/abstention decision point — the three
  * inputs §2 identifies, plus the query class that keys calibration.
  */

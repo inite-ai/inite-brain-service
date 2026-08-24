@@ -421,6 +421,29 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     description:
       'Fovea optics (Optics-2): escalate to L3 when calibrated focus confidence < this threshold in (0,1], and scale #sessions ∝ the deficit below it (capped at RETRIEVAL_L3_MAX_SESSIONS). Ignored unless FOVEA_ADAPTIVE_L3 is on with a usable model. Default 0.5.',
   },
+  {
+    key: 'FOVEA_ADAPTIVE_ABSTAIN',
+    category: 'calibration',
+    // Read at call time (FocusSignalService.adaptiveAbstainEnabled →
+    // fovea-flags) on the synthesize coverage-abstention seam — never
+    // captured in a constructor — so a flip takes effect without restart.
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Fovea optics (Optics §4.2): make the pre-generation memory-coverage abstention decision adaptive to the calibrated PRE-ANSWER focus confidence — abstain (NOT_IN_MEMORY) when confidence < threshold — replacing the static coverage floor. Only applies where RETRIEVAL_ABSTENTION_CALIBRATION=coverage. Requires a persisted per-class PRE-ANSWER calibration model (FOVEA_FOCUS_CAPTURE + fit); with none — or the flag off — serving is byte-identical to the static coverage abstention. Off = static.',
+  },
+  {
+    key: 'FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD',
+    category: 'calibration',
+    // Read at call time (FocusSignalService.adaptiveAbstainThreshold →
+    // fovea-flags) per request; runtime-mutable.
+    defaultValue: '0.5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Fovea optics (Optics §4.2): abstain (return NOT_IN_MEMORY) when the calibrated pre-answer focus confidence < this threshold in (0,1]. Ignored unless FOVEA_ADAPTIVE_ABSTAIN is on with a usable pre-answer model. Default 0.5.',
+  },
   // ── Cost ────────────────────────────────────────────
   {
     key: 'COST_CHAT_PROMPT_USD_PER_MTOK',
