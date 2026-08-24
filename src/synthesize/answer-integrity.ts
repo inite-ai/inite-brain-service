@@ -27,9 +27,12 @@ export interface AnswerIntegrityDeps {
 
 /**
  * The finalize context handed to finalizeAndAdmit. `dto`+`profile` are present
- * ONLY on the primary serving path; when both are set the answer-integrity arm
- * resolves. The L3 fail-flip path passes just `cache`, so its raw-transcript
- * answer is never gated.
+ * on BOTH serving paths — the primary serve AND the L3 fail-flip — so both
+ * resolve the answer-integrity arm. (Historically the L3 path passed just
+ * `cache` and bypassed the gate; it now carries dto/profile/model so its
+ * raw-transcript answer — the most exposed to belief distortion and to uncited
+ * "supported" answers — is gated end-to-end. `cache`-only remains supported and
+ * simply yields an empty gate.)
  */
 export interface FinalizeContext {
   cache: AnswerCacheBeginResult | undefined;
@@ -40,11 +43,19 @@ export interface FinalizeContext {
 
 /**
  * Resolve the Part A + Part C gate flags for finalizeVerdict. Returns an empty
- * object — no LLM call — unless the primary path supplied dto+profile AND the
- * verdict is `supported`. Part C (FOVEA_REQUIRE_CITATIONS) is a pure flag; Part
- * A (FOVEA_PLAUSIBILITY_CHECK) runs ONE extra LLM plausibility judge over the
+ * object — no LLM call — unless the caller supplied dto+profile AND the verdict
+ * is `supported`. Both the primary serve and the L3 flip supply dto+profile, so
+ * both are gated. Part C (FOVEA_REQUIRE_CITATIONS) is a pure flag; Part A
+ * (FOVEA_PLAUSIBILITY_CHECK) runs ONE extra LLM plausibility judge over the
  * cited premises (see resolvePlausibilityDowngrade). The auditor model is
  * profile.verifierModel || the synthesis model.
+ *
+ * Consequence on L3: an L3 answer that grounds on the raw transcript may be
+ * UNCITED by design ("claims from transcript need no citation"). With
+ * FOVEA_REQUIRE_CITATIONS on, such an answer therefore abstains — the correct
+ * end-to-end reading of the citation-bearing promise. An operator enabling
+ * require-citations is explicitly opting into "no uncited answers, including
+ * L3". (Default-off, so no prod impact.)
  *
  * NOTE on the serving-cost boundary: the judge fires on a `supported` verdict
  * when the flag is on and cited premises exist. In the narrow lenient +

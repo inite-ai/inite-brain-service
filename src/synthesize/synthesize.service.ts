@@ -444,8 +444,10 @@ export class SynthesizeService {
     // and returns the L3 answer when re-verification flips fail→pass;
     // else (null) the normal abstention/decline exit runs. Trigger matrix
     // + anchor requirement live in tryL3Escalation / the L3 service.
-    // On no-flip, finalizePrimary runs (resolving the default-off verifier
-    // answer-integrity arm, Parts A + C); the L3 flip path skips it.
+    // BOTH exits resolve the default-off verifier answer-integrity arm (Parts
+    // A + C): on no-flip the primary finalizeAndAdmit runs it, and the L3 flip
+    // path runs it too (its raw-transcript answer is the most exposed, so the
+    // gate is end-to-end).
     return (
       (await this.tryL3Escalation({
         cache,
@@ -540,16 +542,30 @@ export class SynthesizeService {
       ...(adaptiveL3 ? { adaptiveL3 } : {}),
     });
     if (!l3) return null;
-    return this.finalizeAndAdmit({ cache: args.cache }, l3.verdict, {
-      answer: l3.answer,
-      citations: l3.citations,
-      results: args.results,
-      guardrails: args.guardrails,
-      decisionLog: args.explain
-        ? buildDecisionLog(args.results, new Set(l3.citations.map((c) => c.factId)))
-        : undefined,
-      abstention: profile.abstentionCalibration,
-    });
+    // Route the L3 supported answer through the SAME answer-integrity gate as
+    // the primary serve (Parts A + C) by carrying dto/profile/model into the
+    // finalize context. The L3 answer grounds on the RAW TRANSCRIPT — the path
+    // most exposed to belief distortion and to uncited "supported" answers — so
+    // the gate MUST be end-to-end here. Both flags off ⇒ empty gate ⇒ the L3
+    // serve is byte-identical to before (resolveAnswerIntegrity makes no LLM
+    // call and returns {} when PLAUSIBILITY_CHECK is off, and REQUIRE_CITATIONS
+    // off is a no-op). Cache-admit ordering is unchanged: gate → finalizeVerdict
+    // → admit(final); a downgraded L3 abstain (reason=low_coverage, citations=[])
+    // is rejected by admit()'s existing gate, so it is never cached.
+    return this.finalizeAndAdmit(
+      { cache: args.cache, dto: args.dto, profile: args.profile, model: args.model },
+      l3.verdict,
+      {
+        answer: l3.answer,
+        citations: l3.citations,
+        results: args.results,
+        guardrails: args.guardrails,
+        decisionLog: args.explain
+          ? buildDecisionLog(args.results, new Set(l3.citations.map((c) => c.factId)))
+          : undefined,
+        abstention: profile.abstentionCalibration,
+      },
+    );
   }
 
   /**
@@ -625,13 +641,15 @@ export class SynthesizeService {
    * verdict/answer/reason/citations and no-ops otherwise, so abstentions,
    * unverified returns, low_coverage and partial verdicts are never cached.
    *
-   * `ctx.dto`+`ctx.profile` are supplied ONLY on the PRIMARY serving path;
-   * when present they resolve the default-off verifier answer-integrity arm
-   * (Parts A + C — answer-integrity.ts) over the supported verdict and merge
-   * the gate flags into finalizeVerdict. The L3 fail-flip path omits them, so
-   * its raw-transcript answer is untouched. BOTH flags off ⇒ empty gate ⇒
-   * byte-identical serve either way. The auditor model (profile.verifierModel
-   * || synthesis model) is resolved here so the caller carries no branch.
+   * `ctx.dto`+`ctx.profile` are supplied by BOTH serving paths — the primary
+   * serve AND the L3 flip — so both resolve the default-off verifier
+   * answer-integrity arm (Parts A + C — answer-integrity.ts) over the supported
+   * verdict and merge the gate flags into finalizeVerdict. BOTH flags off ⇒
+   * empty gate ⇒ byte-identical serve on either path (no LLM call, no flag
+   * effect). A gate downgrade produces a low_coverage/zero-citation result that
+   * admit() rejects, so a downgraded answer is never cached. The auditor model
+   * (profile.verifierModel || synthesis model) is resolved here so the caller
+   * carries no branch.
    */
   private async finalizeAndAdmit(
     ctx: FinalizeContext,
