@@ -45,3 +45,37 @@ export function adaptiveL3EscalateThreshold(): number {
   const v = Number(raw);
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : DEFAULT_ADAPTIVE_L3_THRESHOLD;
 }
+
+/** Default abstain cutoff on calibrated (pre-answer) confidence (Optics §4.2). */
+const DEFAULT_ADAPTIVE_ABSTAIN_THRESHOLD = 0.5;
+
+/**
+ * Fovea optics (Optics §4.2) master flag — FOVEA_ADAPTIVE_ABSTAIN.
+ *
+ * When on AND a usable per-class PRE-ANSWER calibration model is loaded, the
+ * pre-generation memory-coverage abstention decision
+ * (verdict.ts:coverageAbstention) becomes adaptive to the calibrated focus
+ * confidence — abstain when confidence < threshold — replacing the static
+ * coverage floor (docs/roadmap/fovea-optics-2026-08.md §4.2). The env read
+ * lives here in the common layer, NOT inside the engine dirs (engine-gates
+ * S5.2). Read at call time so a flip is runtime-mutable. Default off, AND
+ * with no usable pre-answer model the serving path is byte-identical to the
+ * static coverage abstention — the load-bearing safety property.
+ */
+export function adaptiveAbstainEnabled(): boolean {
+  return envFlagEnabled(process.env.FOVEA_ADAPTIVE_ABSTAIN);
+}
+
+/**
+ * Optics §4.2 abstain threshold (FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD): abstain
+ * (return NOT_IN_MEMORY) when the calibrated pre-answer confidence < this
+ * value. A non-boolean knob resolved here in the common layer so the engine
+ * dirs take a resolved number. Must be in (0,1]; unset, blank, or out of
+ * range → the 0.5 default.
+ */
+export function adaptiveAbstainThreshold(): number {
+  const raw = process.env.FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_ADAPTIVE_ABSTAIN_THRESHOLD;
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 && v <= 1 ? v : DEFAULT_ADAPTIVE_ABSTAIN_THRESHOLD;
+}

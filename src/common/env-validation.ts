@@ -718,6 +718,15 @@ const KNOWN_BOOLEAN_FLAGS = [
   // FOVEA_ family sits off the flag budget). The escalate threshold knob
   // (FOVEA_ADAPTIVE_L3_THRESHOLD) is a float, not a boolean flag.
   'FOVEA_ADAPTIVE_L3',
+  // Fovea optics (Optics §4.2): make the pre-generation coverage-abstention
+  // decision adaptive to the calibrated PRE-ANSWER focus confidence,
+  // replacing the static coverage floor. Requires a usable per-class
+  // pre-answer calibration model; with none — or off — serving is
+  // byte-identical to the static coverage abstention. Outside ENGINE_PREFIX
+  // by design (the FOVEA_ family sits off the flag budget). The abstain
+  // threshold knob (FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD) is a float, not a
+  // boolean flag.
+  'FOVEA_ADAPTIVE_ABSTAIN',
 ];
 
 /**

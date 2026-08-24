@@ -13,6 +13,7 @@ import { SynthesisGuardrails, SynthesizeDto } from './dto/synthesize.dto';
 import { buildDecisionLog } from './decision-log';
 import { applyConformalGuardrail } from './conformal-guardrail';
 import { coverageAbstention, finalizeVerdict, unverifiedReturn } from './verdict';
+import type { AbstainAdaptiveGate } from './verdict';
 import {
   attachDecisionLog,
   buildSecondaryDto,
@@ -40,7 +41,12 @@ import { EvidenceCollectorService } from './evidence-collector.service';
 import type { CollectedEvidence } from './evidence-collector.service';
 import { L3EscalationService } from './l3-escalation.service';
 import { FocusSignalService } from './focus-signal.service';
-import { hasUsableCalibration } from './focus-signal';
+import {
+  buildFocusSignal,
+  calibratedConfidence,
+  hasUsableCalibration,
+  queryClassOf,
+} from './focus-signal';
 import type { FocusVerdict, PerClassCalibration } from './focus-signal';
 import {
   AnswerCacheService,
@@ -241,9 +247,8 @@ export class SynthesizeService {
     let { results, factIndex } = prepared;
     const { factLines } = prepared;
 
-    // V9 §4 memory-coverage abstention (strict/lenient only — 'answer'
-    // is a caller-level never-abstain contract).
-    const abstained = this.coverageAbstention({
+    // V9 §4 coverage abstention + Optics §4.2 pre-answer capture/gate (seam).
+    const abstained = await this.maybeCoverageAbstain(companyId, lane, {
       profile,
       guardrails,
       results,
@@ -564,6 +569,48 @@ export class SynthesizeService {
   }
 
   /**
+   * Optics §4.2 adaptive-abstention gate. Returns the calibrated pre-answer
+   * {confidence, threshold} for the coverage-abstention decision ONLY when
+   * FOVEA_ADAPTIVE_ABSTAIN is on AND a USABLE per-class PRE-ANSWER model is
+   * persisted for the tenant; otherwise undefined so the gate takes its
+   * static coverage-floor path. The confidence is computed from the SAME
+   * per-fact scores the pre-answer capture used, with verdict='none' (the
+   * constant that keys the pre-answer stage — fit-shape = apply-shape §4.2)
+   * and the loaded PRE-ANSWER calibration. Load-bearing safety property: flag
+   * off → undefined → static; no/empty/bootstrap model → undefined → static
+   * — an unconfigured tenant serves byte-identically to the static coverage
+   * abstention. The env reads live in the common layer (fovea-flags, via the
+   * FocusSignalService statics), never in this engine dir (engine-gates
+   * S5.2). A load failure returns undefined (fail-safe to static).
+   */
+  private async resolveAdaptiveAbstain(
+    companyId: string,
+    args: { results: SearchHit[]; lane: LaneId | null },
+  ): Promise<AbstainAdaptiveGate | undefined> {
+    if (!this.focusSignal || !FocusSignalService.adaptiveAbstainEnabled()) return undefined;
+    try {
+      const calibration = await this.focusSignal.loadCalibration(companyId, 'preanswer');
+      if (!hasUsableCalibration(calibration)) return undefined;
+      const factScores: number[] = [];
+      for (const hit of args.results) {
+        for (const f of hit.facts) factScores.push(f.score);
+      }
+      const signal = buildFocusSignal({
+        queryClass: queryClassOf(args.lane),
+        factScores,
+        verifierVerdict: 'none',
+      });
+      const confidence = calibratedConfidence(calibration, signal);
+      return { confidence, threshold: FocusSignalService.adaptiveAbstainThreshold() };
+    } catch (e) {
+      this.logger.warn(
+        `adaptive-abstain calibration load failed; static fallback: ${(e as Error).message}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Verdict exit + G1 write-through admission, one seam (extracted
    * from synthesize() for the function-size gates). Only a
    * verifier-supported grounded answer reaches the cache — admit()
@@ -826,6 +873,35 @@ export class SynthesizeService {
     args: Parameters<typeof coverageAbstention>[1],
   ): SynthesizeResult | null {
     return coverageAbstention({ metrics: this.metrics, logger: this.logger }, args);
+  }
+
+  /**
+   * The coverage-abstention seam (extracted from synthesize() for the
+   * function-size gate). First the Optics §4.2 pre-answer focus capture — a
+   * SERVING-NEUTRAL guarded no-op with verdict='none' / stage='preanswer', so
+   * the abstention calibrator is fit on the same no-verifier signal it is
+   * applied to (fit-shape = apply-shape §4.2). Then, ONLY in coverage mode,
+   * resolve the adaptive gate (else undefined → the static floor,
+   * byte-identical), and return the abstention result or null.
+   */
+  private async maybeCoverageAbstain(
+    companyId: string,
+    lane: LaneId | null,
+    args: Parameters<typeof coverageAbstention>[1],
+  ): Promise<SynthesizeResult | null> {
+    const { profile, results } = args;
+    if (this.focusSignal && FocusSignalService.captureEnabled()) {
+      await this.focusSignal.maybeCapture(
+        companyId,
+        { results, verdict: 'none', lane },
+        'preanswer',
+      );
+    }
+    const adaptive =
+      profile.abstentionCalibration === 'coverage'
+        ? await this.resolveAdaptiveAbstain(companyId, { results, lane })
+        : undefined;
+    return this.coverageAbstention({ ...args, ...(adaptive ? { adaptive } : {}) });
   }
 
   /**

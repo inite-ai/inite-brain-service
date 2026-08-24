@@ -228,6 +228,23 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Optics §4.2 (docs/roadmap/fovea-optics-2026-08.md §4.2): which sub-
+  // condition fired the pre-generation memory-coverage ABSTAIN decision —
+  //   adaptive — the calibrated-pre-answer-confidence floor
+  //              (FOVEA_ADAPTIVE_ABSTAIN on with a usable per-class
+  //              pre-answer calibration model)
+  //   static   — the coverage<floor floor (flag off, or no usable model:
+  //              the byte-identical fallback path)
+  // Counted once per abstain decision, alongside the existing
+  // countSynthesize('low_coverage') outcome tag. A separate metric (not a
+  // new outcome value) keeps the synthesize outcome series stable.
+  readonly abstainPathCount = new Counter({
+    name: 'brain_abstain_path_total',
+    help: 'Coverage-abstain decision path: adaptive (calibrated confidence) vs static (coverage floor)',
+    labelNames: ['path'] as const,
+    registers: [this.registry],
+  });
+
   // Cross-encoder outcomes:
   //   invoked          — Cohere call returned a non-identity permutation
   //   error            — Cohere fallback to identity (timeout / 4xx / 5xx)
@@ -560,6 +577,10 @@ export class MetricsService implements OnModuleInit {
 
   countL3TriggerPath(path: 'adaptive' | 'static'): void {
     this.l3TriggerPathCount.inc({ path } as LabelValues<'path'>);
+  }
+
+  countAbstainPath(path: 'adaptive' | 'static'): void {
+    this.abstainPathCount.inc({ path } as LabelValues<'path'>);
   }
 
   countRetract(): void {

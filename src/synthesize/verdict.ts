@@ -18,8 +18,24 @@ import type { GeneratorOutput, SynthesisReason, SynthesizeResult } from './synth
  */
 
 export interface VerdictDeps {
-  metrics?: Pick<MetricsService, 'countSynthesize'> | undefined;
+  metrics?: Pick<MetricsService, 'countSynthesize' | 'countAbstainPath'> | undefined;
   logger?: { debug(message: string): void } | undefined;
+}
+
+/**
+ * Optics §4.2 pre-answer confidence gate
+ * (docs/roadmap/fovea-optics-2026-08.md §4.2). When supplied to
+ * `coverageAbstention`, the per-class CALIBRATED pre-answer confidence
+ * REPLACES the static coverage floor: abstain when confidence < threshold.
+ * The service supplies this ONLY when FOVEA_ADAPTIVE_ABSTAIN is on AND a
+ * usable per-class PRE-ANSWER calibration model is loaded for the tenant —
+ * absent, the static coverage floor runs, byte-identical to today.
+ */
+export interface AbstainAdaptiveGate {
+  /** Calibrated pre-answer focus confidence in [0,1] for this query's class. */
+  confidence: number;
+  /** Abstain when confidence < threshold (a knob in (0,1]). */
+  threshold: number;
 }
 
 /**
@@ -158,6 +174,16 @@ export function unverifiedReturn(
  * permitted (strict/lenient — 'answer' is a caller-level never-abstain
  * contract), the evidence must clear the coverage floor before we
  * spend a generator call. Returns null when generation should proceed.
+ *
+ * Optics §4.2: the eligibility sub-condition is the ONE thing the adaptive
+ * gate swaps. With an `adaptive` gate present, the abstain condition becomes
+ * "calibrated pre-answer confidence < threshold"; without one, it stays the
+ * static "coverage below floor". The swap is confined to that sub-condition
+ * — the `abstentionCalibration !== 'coverage'` early return, the guardrails
+ * strict/lenient gate, and the abstain-response shape are all unconditional
+ * and shared, so flag-off / no-model is byte-identical to the pre-Optics
+ * decision. Adaptive abstention only applies where coverage-abstention is
+ * already the configured mode; a tenant with abstention off is untouched.
  */
 export function coverageAbstention(
   deps: VerdictDeps,
@@ -166,11 +192,13 @@ export function coverageAbstention(
     guardrails,
     results,
     explain,
+    adaptive,
   }: {
     profile: RetrievalProfile;
     guardrails: SynthesisGuardrails;
     results: SearchHit[];
     explain: boolean;
+    adaptive?: AbstainAdaptiveGate | undefined;
   },
 ): SynthesizeResult | null {
   if (profile.abstentionCalibration !== 'coverage') return null;
@@ -179,12 +207,21 @@ export function coverageAbstention(
     minTopScore: profile.abstentionMinTopScore,
     minEvidence: profile.abstentionMinEvidence,
   });
-  if (coverage.covered) return null;
+  // The eligibility swap: adaptive present → confidence < threshold; absent
+  // → the static coverage floor (identical to today).
+  const shouldAbstain = adaptive ? adaptive.confidence < adaptive.threshold : !coverage.covered;
+  if (!shouldAbstain) return null;
   deps.logger?.debug(
-    `coverage floor abstained (top=${coverage.topScore.toFixed(3)}, ` +
-      `facts=${coverage.factCount})`,
+    adaptive
+      ? `adaptive coverage abstained (conf=${adaptive.confidence.toFixed(3)} < ` +
+          `thr=${adaptive.threshold.toFixed(3)})`
+      : `coverage floor abstained (top=${coverage.topScore.toFixed(3)}, ` +
+          `facts=${coverage.factCount})`,
   );
+  // The abstain OUTCOME series is unchanged (kept firing on every abstain);
+  // the NEW path counter records which sub-condition decided.
   deps.metrics?.countSynthesize('low_coverage');
+  deps.metrics?.countAbstainPath(adaptive ? 'adaptive' : 'static');
   return attachDecisionLog(
     {
       answer: NOT_IN_MEMORY_ANSWER,
