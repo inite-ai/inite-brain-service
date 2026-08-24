@@ -23,12 +23,24 @@ function fmtNum(v: number | null, digits = 4): string {
 function operatingPointTable(p: PolicyOperatingPoint): string {
   const rows: Array<[string, string]> = [
     ['flags', p.flags.length ? p.flags.join(', ') : '(baseline)'],
-    ['accuracyProxy (verifier supported-rate — PROXY, not true accuracy)', fmtNum(p.accuracyProxy)],
+    [
+      'accuracyProxy (ok ÷ terminal synthesize — PROXY, not true accuracy)',
+      fmtNum(p.accuracyProxy),
+    ],
     ['ece', p.ece === null ? 'pending-eval (needs labels)' : fmtNum(p.ece)],
-    ['latencyP50 (s)', fmtNum(p.latencyP50)],
-    ['latencyP95 (s)', fmtNum(p.latencyP95)],
-    ['costPerQuery (USD, estimate)', fmtNum(p.costPerQuery)],
-    ['sampleCount (synthesize calls in window)', String(p.sampleCount)],
+    [
+      'latencyP50 (s)',
+      p.latencyP50 === null ? 'pending (no serving-path histogram)' : fmtNum(p.latencyP50),
+    ],
+    [
+      'latencyP95 (s)',
+      p.latencyP95 === null ? 'pending (no serving-path histogram)' : fmtNum(p.latencyP95),
+    ],
+    [
+      'costPerQueryUpperBound (USD, all-AI upper bound — NOT per-answer cost)',
+      fmtNum(p.costPerQueryUpperBound),
+    ],
+    ['sampleCount (terminal synthesize requests in window)', String(p.sampleCount)],
   ];
   return ['| Axis | Value |', '| --- | --- |', ...rows.map(([k, v]) => `| ${k} | ${v} |`)].join(
     '\n',
@@ -71,7 +83,7 @@ export function renderMriMarkdown(report: MriReport, pareto?: ParetoReport): str
     for (const p of pareto.frontier) {
       lines.push(
         `- [${p.flags.join(',') || 'baseline'}] proxy=${fmtNum(p.accuracyProxy)} ` +
-          `$${fmtNum(p.costPerQuery)}/q p95=${fmtNum(p.latencyP95)}s`,
+          `$${fmtNum(p.costPerQueryUpperBound)}/q (upper bound) p95=${fmtNum(p.latencyP95)}s`,
       );
     }
     if (pareto.dominated.length) {

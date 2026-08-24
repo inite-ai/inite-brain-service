@@ -73,41 +73,44 @@ describe('buildMriReport — free (live telemetry) dimensions', () => {
     now: new Date('2026-08-24T12:00:00.000Z'),
   });
 
-  it('tokens/query is a real number off the token counters', () => {
+  it('tokens/query is a real number off the token counters (÷ terminal count)', () => {
     const d = report.dimensions.tokensPerQuery!;
-    expect(d.value).toBe(1250); // 125,000 tokens / 100 queries
-    expect(d.unit).toBe('tokens/query');
+    expect(d.value).toBe(1250); // 125,000 tokens / 100 terminal requests
+    expect(d.unit).toBe('tokens/query (all-AI upper bound)');
     expect(d.kind).toBe('live');
     expect(d.evalGated).toBe(false);
   });
 
-  it('cost/query is derived from exact token counts × the price table', () => {
-    const d = report.dimensions.costPerQueryUsd!;
-    // (100000*0.15 + 20000*0.6 + 5000*0.02)/1e6 / 100 queries = 0.000271
+  it('cost/query is an UPPER BOUND off exact token counts × the price table', () => {
+    const d = report.dimensions.costPerQueryUpperBoundUsd!;
+    // (100000*0.15 + 20000*0.6 + 5000*0.02)/1e6 / 100 terminal = 0.000271
     expect(typeof d.value).toBe('number');
     expect(d.value as number).toBeCloseTo(0.000271, 9);
-    expect(d.unit).toBe('USD/query');
+    expect(d.unit).toBe('USD/query (all-AI upper bound)');
+    expect(d.source).toMatch(/UPPER BOUND/);
   });
 
-  it('p50/p95 latency are histogram-quantile numbers', () => {
-    expect(report.dimensions.latencyP50Seconds!.value as number).toBeCloseTo(0.1, 6);
-    expect(report.dimensions.latencyP95Seconds!.value as number).toBeCloseTo(0.40625, 6);
+  it('p50/p95 latency render pending — no serving-path histogram is emitted', () => {
+    for (const key of ['latencyP50Seconds', 'latencyP95Seconds'] as const) {
+      const d = report.dimensions[key]!;
+      expect(d.value).toBe('pending-eval');
+      expect(d.kind).toBe('pending');
+      expect(d.reason).toMatch(/no per-query latency histogram is emitted on the serving path/);
+    }
   });
 
-  it('exposes a live operating point (proxy-accuracy = supported-rate)', () => {
+  it('exposes a live operating point (proxy-accuracy = ok ÷ terminal); latency null', () => {
     const p = report.operatingPoint;
     expect(p.accuracyProxy).toBeCloseTo(0.8, 6);
     expect(p.ece).toBeNull();
     expect(p.sampleCount).toBe(100);
-    expect(p.latencyP95).toBeCloseTo(0.40625, 6);
+    expect(p.latencyP95).toBeNull();
   });
 });
 
 describe('buildMriReport — structural (suite-backed) dimensions', () => {
   it('renders the ledger status for a recorded suite', () => {
     const report = buildMriReport(busyReader(), GREEN_LEDGER, {});
-    expect(report.dimensions.premiseAwareness!.value).toBe('pass');
-    expect(report.dimensions.premiseAwareness!.kind).toBe('structural');
     expect(report.dimensions.tenantUserIsolation!.value).toBe('pass');
     // Poisoning prefers the numeric GAP count (0 = no gaps).
     expect(report.dimensions.poisoningResistance!.value).toBe(0);
@@ -116,19 +119,52 @@ describe('buildMriReport — structural (suite-backed) dimensions', () => {
 
   it('renders `unrecorded` (never a guessed pass) when the ledger is empty', () => {
     const report = buildMriReport(busyReader(), {}, {});
-    for (const key of ['premiseAwareness', 'poisoningResistance', 'tenantUserIsolation'] as const) {
+    for (const key of ['poisoningResistance', 'tenantUserIsolation'] as const) {
       const d = report.dimensions[key]!;
       expect(d.value).toBe('unrecorded');
       expect(d.reason).toMatch(/mri:record-suite/);
     }
   });
+});
 
-  it('notes the FOVEA_PLAUSIBILITY_CHECK counter when present', () => {
-    const withCounter = busyReader({
-      brain_fovea_plausibility_downgrade_total: [{ labels: {}, value: 7 }],
+describe('buildMriReport — premiseAwareness reflects the DEFENSE state, not a suite pass', () => {
+  it('renders `exposed` (never a green pass) when FOVEA_PLAUSIBILITY_CHECK is off', () => {
+    // A GREEN MemTrap suite documents current EXPOSURES (incl. the served
+    // belief-distortion answer). Suite-pass is NOT premise-awareness.
+    const report = buildMriReport(busyReader(), GREEN_LEDGER, {
+      plausibilityCheckEnabled: false,
     });
-    const report = buildMriReport(withCounter, GREEN_LEDGER, {});
-    expect(report.dimensions.premiseAwareness!.source).toMatch(/downgrades=7/);
+    const d = report.dimensions.premiseAwareness!;
+    expect(d.value).toBe('exposed');
+    expect(d.value).not.toBe('pass');
+    expect(d.reason).toMatch(/belief-distortion/);
+    expect(d.reason).toMatch(/not a pass/);
+  });
+
+  it('defaults to `exposed` when the defense state is unknown (conservative)', () => {
+    const d = buildMriReport(busyReader(), GREEN_LEDGER, {}).dimensions.premiseAwareness!;
+    expect(d.value).toBe('exposed');
+  });
+
+  it('renders `defended` + live downgrade count when the defense is on', () => {
+    const withCounter = busyReader({
+      brain_plausibility_downgrade_total: [{ labels: {}, value: 7 }],
+    });
+    const d = buildMriReport(withCounter, GREEN_LEDGER, {
+      plausibilityCheckEnabled: true,
+    }).dimensions.premiseAwareness!;
+    expect(d.value).toBe('defended');
+    expect(d.kind).toBe('live');
+    expect(d.source).toMatch(/downgrades=7/);
+  });
+
+  it('defense on but no downgrades observed → `defended` with an activity note', () => {
+    const d = buildMriReport(busyReader(), GREEN_LEDGER, {
+      plausibilityCheckEnabled: true,
+    }).dimensions.premiseAwareness!;
+    expect(d.value).toBe('defended');
+    expect(d.source).toMatch(/downgrades=0/);
+    expect(d.reason).toMatch(/no supported-answer downgrades/);
   });
 });
 
@@ -180,7 +216,7 @@ describe('buildMriReport — empty window never fabricates a number', () => {
 
   it('live cells render pending (0 queries), not a fake zero', () => {
     expect(report.dimensions.tokensPerQuery!.value).toBe('pending-eval');
-    expect(report.dimensions.costPerQueryUsd!.value).toBe('pending-eval');
+    expect(report.dimensions.costPerQueryUpperBoundUsd!.value).toBe('pending-eval');
     expect(report.dimensions.latencyP95Seconds!.value).toBe('pending-eval');
     expect(report.operatingPoint.accuracyProxy).toBeNull();
     expect(report.operatingPoint.sampleCount).toBe(0);

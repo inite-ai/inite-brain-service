@@ -20,7 +20,10 @@ export const PolicyOperatingPointSchema = z.object({
   ece: z.number().nullable(),
   latencyP50: z.number().nullable(),
   latencyP95: z.number().nullable(),
-  costPerQuery: z.number().nullable(),
+  // Renamed from `costPerQuery`: the value is an UPPER BOUND (all-AI tokens ÷
+  // synthesize count), not the true per-answer cost — the token counters are not
+  // separable by subsystem. The name says so to prevent misreading.
+  costPerQueryUpperBound: z.number().nullable(),
   sampleCount: z.number(),
 });
 
