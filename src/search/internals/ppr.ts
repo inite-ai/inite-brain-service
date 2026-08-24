@@ -10,11 +10,7 @@ type PprEdge = { in: unknown; out: unknown; weight?: number };
 
 /** PPR step 1 — fetch in-subgraph edges. Both endpoints are already in
  *  the (fact-fenced) candidate set, so only the edge-row fence applies. */
-async function fetchPprEdges(
-  db: Surreal,
-  ids: string[],
-  userId?: string,
-): Promise<PprEdge[]> {
+async function fetchPprEdges(db: Surreal, ids: string[], userId?: string): Promise<PprEdge[]> {
   const ridIds = ids.map((s) => new StringRecordId(s));
   const fence = buildEdgeFence(userId);
   const [edgeRows] = await db.query<[PprEdge[]]>(
@@ -47,15 +43,16 @@ export function buildPprAdjacency(
   }
   const outWeight = new Map<string, number>();
   for (const [src, nbrs] of adj) {
-    outWeight.set(src, nbrs.reduce((acc, n) => acc + n.w, 0));
+    outWeight.set(
+      src,
+      nbrs.reduce((acc, n) => acc + n.w, 0),
+    );
   }
   return { adj, outWeight };
 }
 
 /** PPR step 3 — bestScore-weighted seed, Σ = 1. Null on zero mass. */
-function buildPprSeed(
-  byEntity: Map<string, { bestScore: number }>,
-): Map<string, number> | null {
+function buildPprSeed(byEntity: Map<string, { bestScore: number }>): Map<string, number> | null {
   const seedRaw = new Map<string, number>();
   let seedSum = 0;
   for (const [id, b] of byEntity) {
@@ -112,10 +109,7 @@ function runPprIterations({
 }
 
 /** PPR step 5 — multiply rankScore by (1 + β·r_norm). */
-function applyPprBoost(
-  byEntity: Map<string, EntityBucket>,
-  r: Map<string, number>,
-): void {
+function applyPprBoost(byEntity: Map<string, EntityBucket>, r: Map<string, number>): void {
   let maxR = 0;
   for (const v of r.values()) if (v > maxR) maxR = v;
   if (maxR === 0) return;

@@ -1,8 +1,7 @@
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SearchDto } from '../src/search/dto/search.dto';
 
-const dto = (extra: Partial<SearchDto> = {}): SearchDto =>
-  ({ query: 'x', ...extra }) as SearchDto;
+const dto = (extra: Partial<SearchDto> = {}): SearchDto => ({ query: 'x', ...extra }) as SearchDto;
 
 describe('buildBaseWhere default-now bitemporal visibility', () => {
   it('admits a future-supersede prior whose interval still covers now', () => {
@@ -17,9 +16,7 @@ describe('buildBaseWhere default-now bitemporal visibility', () => {
     // …replaced by a compacted exclusion plus a guarded superseded clause
     // so a superseded fact still visible-now (validUntil > now) survives.
     expect(sql).toContain("status != 'compacted'");
-    expect(sql).toContain(
-      "(status != 'superseded' OR validUntil > time::now())",
-    );
+    expect(sql).toContain("(status != 'superseded' OR validUntil > time::now())");
   });
 
   it('asOf path is unchanged (validity-axis only, no status gap clause)', () => {
@@ -41,6 +38,6 @@ describe('buildBaseWhere default-now bitemporal visibility', () => {
       includeRetracted: false,
       includeContested: false,
     });
-    expect(sql).not.toContain("validUntil > time::now()");
+    expect(sql).not.toContain('validUntil > time::now()');
   });
 });

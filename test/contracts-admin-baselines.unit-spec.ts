@@ -29,9 +29,7 @@ describe('AdminEvalController.listBaselines() — wire contract', () => {
     expect(Array.isArray(payload)).toBe(true);
     const parsed = BaselinesResponseSchema.safeParse(payload);
     if (!parsed.success) {
-      throw new Error(
-        `baselines drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`baselines drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

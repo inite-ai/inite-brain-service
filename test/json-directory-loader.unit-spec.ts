@@ -1,10 +1,7 @@
 import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  loadDirectoryJson,
-  parseDirectoryObject,
-} from './eval/loaders/json-directory.loader';
+import { loadDirectoryJson, parseDirectoryObject } from './eval/loaders/json-directory.loader';
 
 /**
  * Loader unit coverage. Exercises the parser shape + error messages
@@ -97,9 +94,7 @@ describe('json-directory loader', () => {
           ],
         },
       ],
-      forgetEntities: [
-        { ref: 'a', reason: 'gdpr_request', requestId: 'GDPR-1' },
-      ],
+      forgetEntities: [{ ref: 'a', reason: 'gdpr_request', requestId: 'GDPR-1' }],
     });
     // Expect: fact-a, fact-b, forget-a (forget AFTER all facts so
     // cascade has the full footprint).
@@ -149,15 +144,15 @@ describe('json-directory loader', () => {
   });
 
   it('rejects a missing directoryName', () => {
-    expect(() =>
-      parseDirectoryObject({ entities: [{ id: 'a', facts: [] }] }),
-    ).toThrow(/missing required 'directoryName'/);
+    expect(() => parseDirectoryObject({ entities: [{ id: 'a', facts: [] }] })).toThrow(
+      /missing required 'directoryName'/,
+    );
   });
 
   it('rejects an empty entities array with a clear message', () => {
-    expect(() =>
-      parseDirectoryObject({ directoryName: 'd', entities: [] }),
-    ).toThrow(/zero entities/);
+    expect(() => parseDirectoryObject({ directoryName: 'd', entities: [] })).toThrow(
+      /zero entities/,
+    );
   });
 
   it('rejects an entity with zero facts', () => {
@@ -233,9 +228,7 @@ describe('json-directory loader', () => {
             ],
           },
         ],
-        forgetEntities: [
-          { ref: 'a', reason: 'bogus', requestId: 'r' },
-        ],
+        forgetEntities: [{ ref: 'a', reason: 'bogus', requestId: 'r' }],
       }),
     ).toThrow(/reason must be one of/);
   });

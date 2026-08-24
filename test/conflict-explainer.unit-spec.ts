@@ -3,9 +3,7 @@ import {
   type ResolverConflictPayload,
 } from '../src/ingest/conflict-explainer';
 
-function makePayload(
-  overrides: Partial<ResolverConflictPayload> = {},
-): ResolverConflictPayload {
+function makePayload(overrides: Partial<ResolverConflictPayload> = {}): ResolverConflictPayload {
   return {
     outcome: 'SUPERSEDED',
     factId: 'fact:new',
@@ -61,7 +59,6 @@ describe('buildConflictExplanation', () => {
     const e = buildConflictExplanation(
       makePayload({
         outcome: 'COMPETING',
-        supersededFactIds: undefined,
         competingFactIds: ['fact:old', 'fact:older'],
       }),
     );
@@ -100,7 +97,6 @@ describe('buildConflictExplanation', () => {
     const e = buildConflictExplanation(
       makePayload({
         outcome: 'COMPETING',
-        supersededFactIds: undefined,
         competingFactIds: ['fact:old'],
       }),
     );
@@ -108,9 +104,7 @@ describe('buildConflictExplanation', () => {
   });
 
   it('honours dominantDimension=recency in the rendered phrase', () => {
-    const e = buildConflictExplanation(
-      makePayload({ dominantDimension: 'recency' }),
-    );
+    const e = buildConflictExplanation(makePayload({ dominantDimension: 'recency' }));
     expect(e.narrativeBullet).toContain('recency');
   });
 

@@ -45,12 +45,14 @@ describe('scoreRows — G8 usage ranking factor', () => {
   });
 
   it('readCount 0 / absent is factor exactly 1 at ANY beta (no breakdown)', () => {
-    const [absent, zero] = scoreRows({
+    const ranked = scoreRows({
       rows: [row(), row({ readCount: 0 })],
       now: NOW,
       usageBeta: 5,
     });
-    const baseline = scoreRows({ rows: [row()], now: NOW })[0];
+    const absent = ranked[0]!;
+    const zero = ranked[1]!;
+    const baseline = scoreRows({ rows: [row()], now: NOW })[0]!;
     expect(absent.score).toBe(baseline.score);
     expect(zero.score).toBe(baseline.score);
     expect(absent.breakdown.usage).toBeUndefined();
@@ -58,37 +60,41 @@ describe('scoreRows — G8 usage ranking factor', () => {
   });
 
   it('a used fact outranks its identical-otherwise never-used twin', () => {
-    const [used, unused] = scoreRows({
+    const rankedUsed = scoreRows({
       rows: [row({ readCount: 10 }), row()],
       now: NOW,
       usageBeta: 0.5,
     });
+    const used = rankedUsed[0]!;
+    const unused = rankedUsed[1]!;
     expect(used.score).toBeGreaterThan(unused.score);
     expect(used.breakdown.usage?.readCount).toBe(10);
     expect(used.breakdown.usage?.usageFactor).toBeGreaterThan(1);
   });
 
   it('more reads rank higher (monotonic in readCount below saturation)', () => {
-    const [few, many] = scoreRows({
+    const rankedReads = scoreRows({
       rows: [row({ readCount: 2 }), row({ readCount: 15 })],
       now: NOW,
       usageBeta: 0.5,
       usageSaturation: 20,
     });
+    const few = rankedReads[0]!;
+    const many = rankedReads[1]!;
     expect(many.score).toBeGreaterThan(few.score);
-    expect(many.breakdown.usage!.usageFactor).toBeGreaterThan(
-      few.breakdown.usage!.usageFactor,
-    );
+    expect(many.breakdown.usage!.usageFactor).toBeGreaterThan(few.breakdown.usage!.usageFactor);
   });
 
   it('saturation caps the boost: usageFactor never exceeds 1 + beta', () => {
     const beta = 0.5;
-    const [atSat, farBeyond] = scoreRows({
+    const rankedSat = scoreRows({
       rows: [row({ readCount: 20 }), row({ readCount: 100_000 })],
       now: NOW,
       usageBeta: beta,
       usageSaturation: 20,
     });
+    const atSat = rankedSat[0]!;
+    const farBeyond = rankedSat[1]!;
     // At readCount === saturation the squash is ~1.0 → factor ~1 + beta.
     expect(atSat.breakdown.usage!.usageFactor).toBeCloseTo(1 + beta, 5);
     // A hot fact is clamped: squash capped at 1 → factor === 1 + beta exactly.
@@ -97,12 +103,12 @@ describe('scoreRows — G8 usage ranking factor', () => {
   });
 
   it('surfaces raw readCount + usageFactor in the breakdown (explain/debug)', () => {
-    const [scored] = scoreRows({
+    const scored = scoreRows({
       rows: [row({ readCount: 7 })],
       now: NOW,
       usageBeta: 0.3,
       usageSaturation: 20,
-    });
+    })[0]!;
     // log1p(7)/log1p(20) = ln(8)/ln(21) ≈ 0.6830; factor ≈ 1 + 0.3·0.6830 ≈ 1.2049.
     expect(scored.breakdown.usage).toMatchObject({ readCount: 7 });
     expect(scored.breakdown.usage!.usageFactor).toBeCloseTo(1.2049, 4);

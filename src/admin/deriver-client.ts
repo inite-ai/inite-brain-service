@@ -1,8 +1,6 @@
 import type OpenAI from 'openai';
 import { chatCallParams } from '../ai/openai-client';
-import {
-  resolveExtractionProfile,
-} from '../ai/extraction-profile';
+import { resolveExtractionProfile } from '../ai/extraction-profile';
 
 /**
  * Deriver client — the session-extraction LLM calls, split out of
@@ -67,9 +65,7 @@ export const TYPED_ATOM_KINDS: ReadonlySet<string> = new Set([
 /** The row builder's stamp gate (FLEXIBLE-source ride): flag on AND an
  *  on-contract kind, else the row stays untyped. */
 export function typedAtomKind(p: { kind?: string }): { kind?: string } {
-  return resolveExtractionProfile().deriveTypedAtoms &&
-    p.kind &&
-    TYPED_ATOM_KINDS.has(p.kind)
+  return resolveExtractionProfile().deriveTypedAtoms && p.kind && TYPED_ATOM_KINDS.has(p.kind)
     ? { kind: p.kind }
     : {};
 }
@@ -103,7 +99,6 @@ EVENT DATING
 - Planned or future events: date the planned occurrence when it is stated or derivable ("next Friday" → that Friday's date).
 - Month-only knowledge resolves to the FIRST day of that month ("in June" → 2023-06-01); year-only to January 1st. This is a rendering convention, not a precision claim.
 - When the event time is genuinely undeterminable, use null — a wrong default is worse than no date.`;
-
 
 /**
  * G3 char-span provenance (DERIVER_SPANS, sota-gap-build-2026-08): the
@@ -208,26 +203,22 @@ async function auditDates(
     // NEIGHBOR'S date — strictly worse than the un-audited baseline the
     // degrade contract promises. Abort the whole application.
     if (dates.some((d) => d.index === args.propositions.length)) {
-      deps.logger.warn(
-        'date audit reply looks 1-based (index === length) — discarding the audit',
-      );
+      deps.logger.warn('date audit reply looks 1-based (index === length) — discarding the audit');
       return;
     }
     for (const d of dates) {
-      if (
-        !Number.isInteger(d.index) ||
-        d.index < 0 ||
-        d.index >= args.propositions.length
-      ) {
+      if (!Number.isInteger(d.index) || d.index < 0 || d.index >= args.propositions.length) {
         continue;
       }
+      // d.index validated in-bounds by the guard above ⇒ prop is present.
+      const prop = args.propositions[d.index]!;
       // Apply BOTH values and explicit nulls — clearing a fabricated
       // session-date default is the audit's whole point. The cleared
       // marker survives to the row builder, which renders "undated" as
       // the epoch sentinel instead of the session-date fallback.
       if (d.occurred_on === null) {
-        args.propositions[d.index].occurred_on = null;
-        args.propositions[d.index].dateCleared = true;
+        prop.occurred_on = null;
+        prop.dateCleared = true;
       } else if (
         typeof d.occurred_on === 'string' &&
         ISO_DAY_RE.test(d.occurred_on) &&
@@ -235,18 +226,14 @@ async function auditDates(
         // shape-only acceptance let an impossible date ('2023-02-30')
         // overwrite a CORRECT one and then silently collapse to the
         // session date downstream.
-        new Date(`${d.occurred_on}T00:00:00.000Z`)
-          .toISOString()
-          .slice(0, 10) === d.occurred_on
+        new Date(`${d.occurred_on}T00:00:00.000Z`).toISOString().slice(0, 10) === d.occurred_on
       ) {
-        args.propositions[d.index].occurred_on = d.occurred_on;
-        args.propositions[d.index].dateCleared = false;
+        prop.occurred_on = d.occurred_on;
+        prop.dateCleared = false;
       }
     }
   } catch (e) {
-    deps.logger.warn(
-      `date audit turn failed (${(e as Error).message}); dates stay un-audited`,
-    );
+    deps.logger.warn(`date audit turn failed (${(e as Error).message}); dates stay un-audited`);
   }
 }
 
@@ -333,10 +320,7 @@ export function buildDeriverSystem(opts?: {
 export const DERIVER_COMPLETION_PROMPT = `Review the transcript once more against the propositions you just emitted. Emit ONLY durable propositions that are MISSING from your list: facts, events, dates, plans, preferences, media titles, list members, and (when the assistance rules above apply) contributed content that no emitted proposition captures. Do NOT repeat or rephrase anything already emitted. Same output contract (subject / aspect / proposition / occurred_on / turns). Up to 20 additional propositions; return an empty list if nothing was missed.`;
 
 /** Dedup key for the completion-pass union: subject + normalized text. */
-export function propositionKey(p: {
-  subject: string;
-  proposition: string;
-}): string {
+export function propositionKey(p: { subject: string; proposition: string }): string {
   const norm = p.proposition
     .toLowerCase()
     .replace(/\s+/g, ' ')
@@ -376,7 +360,6 @@ export interface DeriverClientDeps {
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-
 
 /**
  * One session's full extraction: base pass → optional completion-pass
@@ -482,9 +465,7 @@ async function gradeSalience(
   propositions: DerivedProposition[],
 ): Promise<void> {
   try {
-    const list = propositions
-      .map((p, i) => `${i}. [${p.subject}] ${p.proposition}`)
-      .join('\n');
+    const list = propositions.map((p, i) => `${i}. [${p.subject}] ${p.proposition}`).join('\n');
     const res = await deps.openai.chat.completions.create({
       model: deps.model,
       ...chatCallParams(deps.model, { temperature: 0, visibleCap: 4000 }),
@@ -533,13 +514,11 @@ async function gradeSalience(
         g.salience >= 0 &&
         g.salience <= 3
       ) {
-        propositions[g.index].salience = g.salience;
+        propositions[g.index]!.salience = g.salience; // g.index validated above
       }
     }
   } catch (e) {
-    deps.logger.warn(
-      `salience grading turn failed (${(e as Error).message}); rows stay unstamped`,
-    );
+    deps.logger.warn(`salience grading turn failed (${(e as Error).message}); rows stay unstamped`);
   }
 }
 
@@ -669,11 +648,7 @@ async function deriverPass(
   throw new Error('deriver response truncated at 16000 tokens');
 }
 
-function deriverRequest(
-  deps: DeriverClientDeps,
-  messages: ChatMessage[],
-  maxTokens: number,
-) {
+function deriverRequest(deps: DeriverClientDeps, messages: ChatMessage[], maxTokens: number) {
   // V9 §5: the extraction schema no longer carries salience — grades
   // come from the separate post-emission turn (gradeSalience), so
   // the extraction call is byte-identical with the stamp flag on or
@@ -719,9 +694,7 @@ function deriverRequest(
                     items: { type: 'integer' },
                     minItems: 1,
                   },
-                  ...(sceneTrace
-                    ? { scene: { type: ['string', 'null'] } }
-                    : {}),
+                  ...(sceneTrace ? { scene: { type: ['string', 'null'] } } : {}),
                   ...(typedAtoms
                     ? {
                         kind: {
@@ -814,9 +787,7 @@ export async function foldDigest(
   // the whole "digest"). Markup/code output is ALWAYS wrong here —
   // keep the previous state instead of poisoning every later fold.
   if (/```|\{%|<\/?[a-z][a-z0-9]*[\s>]/i.test(text)) {
-    deps.logger.warn(
-      'digest fold returned code/markup — keeping the previous state',
-    );
+    deps.logger.warn('digest fold returned code/markup — keeping the previous state');
     return args.existing;
   }
   if (text.length <= DIGEST_CHAR_CAP) return text;
@@ -844,7 +815,5 @@ export async function foldDigest(
     .then((r) => (r.choices[0]?.message?.content ?? '').trim())
     .catch(() => '');
   const final = compressed && compressed.length <= text.length ? compressed : text;
-  return final.length > DIGEST_CHAR_CAP
-    ? `${final.slice(0, DIGEST_CHAR_CAP - 1)}…`
-    : final;
+  return final.length > DIGEST_CHAR_CAP ? `${final.slice(0, DIGEST_CHAR_CAP - 1)}…` : final;
 }

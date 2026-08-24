@@ -29,46 +29,61 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
   let entityId: string;
 
   const seed = async () => {
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'art_cust' },
-      predicate: 'name',
-      object: 'Anya Volkova',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'auth.profile_created' },
-      confidence: 0.95,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'art_cust' },
-      predicate: 'tier',
-      object: 'gold',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'billing.tier_set' },
-      confidence: 0.9,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'art_cust' },
-      predicate: 'email',
-      object: 'anya@example.com',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'auth.email_set' },
-      confidence: 0.95,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'art_cust' },
-      predicate: 'complained_about',
-      object: 'broken heating in apartment 3B',
-      validFrom: new Date('2026-04-15').toISOString(),
-      source: { vertical: 'rent', messageId: 'msg_av_1' },
-      confidence: 0.8,
-    });
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'art_cust' },
-      predicate: 'interacted_with',
-      object: 'on-site maintenance visit',
-      validFrom: new Date('2026-04-20').toISOString(),
-      source: { vertical: 'rent', eventId: 'incidents.visit_completed' },
-      confidence: 0.9,
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_cust' },
+        predicate: 'name',
+        object: 'Anya Volkova',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'auth.profile_created' },
+        confidence: 0.95,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_cust' },
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'billing.tier_set' },
+        confidence: 0.9,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_cust' },
+        predicate: 'email',
+        object: 'anya@example.com',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'auth.email_set' },
+        confidence: 0.95,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_cust' },
+        predicate: 'complained_about',
+        object: 'broken heating in apartment 3B',
+        validFrom: new Date('2026-04-15').toISOString(),
+        source: { vertical: 'rent', messageId: 'msg_av_1' },
+        confidence: 0.8,
+      });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_cust' },
+        predicate: 'interacted_with',
+        object: 'on-site maintenance visit',
+        validFrom: new Date('2026-04-20').toISOString(),
+        source: { vertical: 'rent', eventId: 'incidents.visit_completed' },
+        confidence: 0.9,
+      });
 
     const v = await f.http
       .post('/v1/search')
@@ -139,13 +154,16 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
       const beforeBuiltAt = before.body.builtAt;
 
       // Mutate: ingest a new fact for the same entity.
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'art_cust' },
-        predicate: 'said',
-        object: 'Thanks for the quick fix',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'msg_av_2' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'art_cust' },
+          predicate: 'said',
+          object: 'Thanks for the quick fix',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'msg_av_2' },
+        });
 
       // Next read should recompile (same builtAt would be a bug).
       const after = await f.http
@@ -164,9 +182,7 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
       // Pause to ensure builtAt timestamps can differ.
       await new Promise((r) => setTimeout(r, 30));
       const recompiled = await f.http
-        .post(
-          `/v1/artifacts/customer_profile/${encodeURIComponent(entityId)}/recompile`,
-        )
+        .post(`/v1/artifacts/customer_profile/${encodeURIComponent(entityId)}/recompile`)
         .set(auth());
       expect(recompiled.status).toBe(201);
       expect(new Date(recompiled.body.builtAt).getTime()).toBeGreaterThan(
@@ -203,28 +219,32 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
       try {
         const lAuth = () => ({ Authorization: `Bearer ${limited.apiKey}` });
         // Seed the same entity in this tenant.
-        await limited.http.post('/v1/ingest/fact').set(lAuth()).send({
-          entityRef: { vertical: 'rent', id: 'pii_cust' },
-          predicate: 'name',
-          object: 'Bob Test',
-          validFrom: new Date('2026-04-01').toISOString(),
-          source: { vertical: 'rent' },
-        });
-        await limited.http.post('/v1/ingest/fact').set(lAuth()).send({
-          entityRef: { vertical: 'rent', id: 'pii_cust' },
-          predicate: 'address',
-          object: '42 Some Street',
-          validFrom: new Date('2026-04-01').toISOString(),
-          source: { vertical: 'rent', eventId: 'billing.address_set' },
-        });
+        await limited.http
+          .post('/v1/ingest/fact')
+          .set(lAuth())
+          .send({
+            entityRef: { vertical: 'rent', id: 'pii_cust' },
+            predicate: 'name',
+            object: 'Bob Test',
+            validFrom: new Date('2026-04-01').toISOString(),
+            source: { vertical: 'rent' },
+          });
+        await limited.http
+          .post('/v1/ingest/fact')
+          .set(lAuth())
+          .send({
+            entityRef: { vertical: 'rent', id: 'pii_cust' },
+            predicate: 'address',
+            object: '42 Some Street',
+            validFrom: new Date('2026-04-01').toISOString(),
+            source: { vertical: 'rent', eventId: 'billing.address_set' },
+          });
 
         const v = await limited.http
           .post('/v1/search')
           .set(lAuth())
           .send({ query: 'name: Bob Test', limit: 50, searchMode: 'vector' });
-        const eId = v.body.results.find(
-          (r: any) => r.canonicalName === 'pii_cust',
-        )?.entityId;
+        const eId = v.body.results.find((r: any) => r.canonicalName === 'pii_cust')?.entityId;
         expect(eId).toBeTruthy();
 
         const dossier = await limited.http
@@ -246,36 +266,43 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
     it('rent: tenant_dossier surfaces rental + payment + incident facts', async () => {
       // Seed rent-vertical predicates (domain extensions; treated under
       // default policy until knowledge.yaml registers them).
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'rent_tenant' },
-        predicate: 'name',
-        object: 'Maria Renter',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'rent_tenant' },
-        predicate: 'rented_vehicle',
-        object: 'Toyota Corolla 2024 (rental #4821)',
-        validFrom: new Date('2026-04-15').toISOString(),
-        source: { vertical: 'rent', eventId: 'billing.rental_started' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'rent_tenant' },
-        predicate: 'paid_invoice',
-        object: 'invoice INV-9821 paid',
-        validFrom: new Date('2026-04-16').toISOString(),
-        source: { vertical: 'rent', eventId: 'billing.invoice_paid' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'rent_tenant' },
+          predicate: 'name',
+          object: 'Maria Renter',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'rent_tenant' },
+          predicate: 'rented_vehicle',
+          object: 'Toyota Corolla 2024 (rental #4821)',
+          validFrom: new Date('2026-04-15').toISOString(),
+          source: { vertical: 'rent', eventId: 'billing.rental_started' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'rent_tenant' },
+          predicate: 'paid_invoice',
+          object: 'invoice INV-9821 paid',
+          validFrom: new Date('2026-04-16').toISOString(),
+          source: { vertical: 'rent', eventId: 'billing.invoice_paid' },
+        });
 
       const v = await f.http.post('/v1/search').set(auth()).send({
         query: 'name: Maria Renter',
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find(
-        (r: any) => r.canonicalName === 'rent_tenant',
-      )?.entityId;
+      const eId = v.body.results.find((r: any) => r.canonicalName === 'rent_tenant')?.entityId;
       expect(eId).toBeTruthy();
 
       const dossier = await f.http
@@ -292,36 +319,43 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
     });
 
     it('shop: order_history with returns + reviews', async () => {
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'shop', id: 'shop_buyer' },
-        predicate: 'name',
-        object: 'Felix Buyer',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'shop' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'shop', id: 'shop_buyer' },
-        predicate: 'placed_order',
-        object: 'order #SHP-1234',
-        validFrom: new Date('2026-04-15').toISOString(),
-        source: { vertical: 'shop', eventId: 'billing.order_placed' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'shop', id: 'shop_buyer' },
-        predicate: 'returned_item',
-        object: 'returned: SKU-99 from order #SHP-1234',
-        validFrom: new Date('2026-04-20').toISOString(),
-        source: { vertical: 'shop', eventId: 'billing.return_received' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'shop', id: 'shop_buyer' },
+          predicate: 'name',
+          object: 'Felix Buyer',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'shop' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'shop', id: 'shop_buyer' },
+          predicate: 'placed_order',
+          object: 'order #SHP-1234',
+          validFrom: new Date('2026-04-15').toISOString(),
+          source: { vertical: 'shop', eventId: 'billing.order_placed' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'shop', id: 'shop_buyer' },
+          predicate: 'returned_item',
+          object: 'returned: SKU-99 from order #SHP-1234',
+          validFrom: new Date('2026-04-20').toISOString(),
+          source: { vertical: 'shop', eventId: 'billing.return_received' },
+        });
 
       const v = await f.http.post('/v1/search').set(auth()).send({
         query: 'name: Felix Buyer',
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find(
-        (r: any) => r.canonicalName === 'shop_buyer',
-      )?.entityId;
+      const eId = v.body.results.find((r: any) => r.canonicalName === 'shop_buyer')?.entityId;
       expect(eId).toBeTruthy();
 
       const history = await f.http
@@ -337,36 +371,43 @@ describe('Compilation stage — artifacts + KnowQL-lite', () => {
     });
 
     it('education: learner_progress with courses + scores', async () => {
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'education', id: 'edu_student' },
-        predicate: 'name',
-        object: 'Alice Learner',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'education' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'education', id: 'edu_student' },
-        predicate: 'enrolled_in',
-        object: 'CS101 Intro to AI',
-        validFrom: new Date('2026-04-10').toISOString(),
-        source: { vertical: 'education', eventId: 'auth.enrollment' },
-      });
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'education', id: 'edu_student' },
-        predicate: 'scored',
-        object: '92% on midterm',
-        validFrom: new Date('2026-05-01').toISOString(),
-        source: { vertical: 'education', eventId: 'incidents.exam_graded' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'education', id: 'edu_student' },
+          predicate: 'name',
+          object: 'Alice Learner',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'education' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'education', id: 'edu_student' },
+          predicate: 'enrolled_in',
+          object: 'CS101 Intro to AI',
+          validFrom: new Date('2026-04-10').toISOString(),
+          source: { vertical: 'education', eventId: 'auth.enrollment' },
+        });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'education', id: 'edu_student' },
+          predicate: 'scored',
+          object: '92% on midterm',
+          validFrom: new Date('2026-05-01').toISOString(),
+          source: { vertical: 'education', eventId: 'incidents.exam_graded' },
+        });
 
       const v = await f.http.post('/v1/search').set(auth()).send({
         query: 'name: Alice Learner',
         limit: 50,
         searchMode: 'vector',
       });
-      const eId = v.body.results.find(
-        (r: any) => r.canonicalName === 'edu_student',
-      )?.entityId;
+      const eId = v.body.results.find((r: any) => r.canonicalName === 'edu_student')?.entityId;
       expect(eId).toBeTruthy();
 
       const progress = await f.http

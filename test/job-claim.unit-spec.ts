@@ -10,7 +10,7 @@ import { JobClaimService } from '../src/jobs/job-claim.service';
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function mkDbScript(steps: Array<(call: QueryCall) => unknown[] | Error>) {
@@ -41,9 +41,7 @@ describe('JobClaimService', () => {
     // per statement INCLUDING BEGIN and COMMIT → [BEGIN, LET,
     // RETURN NONE, COMMIT]. runTransaction detects the stmts+2 shape
     // and reads the slot before COMMIT.
-    const { db } = mkDbScript([
-      () => [null, null, null, null],
-    ]);
+    const { db } = mkDbScript([() => [null, null, null, null]]);
     const svc = new JobClaimService(mkSurreal(db));
     const got = await svc.claimNext({
       companyId: 'co_x',
@@ -132,9 +130,7 @@ describe('JobClaimService', () => {
   it('enqueue collapses a dedup collision onto the existing row', async () => {
     // Simulate retryOnUniqueViolation exhausting on a UNIQUE-violation
     // error message, then findByDedup returning the existing runId.
-    const dupErr = new Error(
-      "Database index `job_run_dedup_idx` already contains a record",
-    );
+    const dupErr = new Error('Database index `job_run_dedup_idx` already contains a record');
     const calls: QueryCall[] = [];
     let cursor = 0;
     const db = {
@@ -178,9 +174,7 @@ describe('JobClaimService', () => {
   });
 
   it('renew bubbles cancelRequested up to the caller', async () => {
-    const { db } = mkDbScript([
-      () => [[{ cancelRequested: true }]],
-    ]);
+    const { db } = mkDbScript([() => [[{ cancelRequested: true }]]]);
     const svc = new JobClaimService(mkSurreal(db));
     const out = await svc.renew({
       companyId: 'co_x',
@@ -238,8 +232,7 @@ describe('JobClaimService', () => {
 
   it('fail reports requeued=false when the guarded UPDATE matches no row (claim lost to a re-claim)', async () => {
     const db = {
-      query: async (_sql: string, _params?: Record<string, unknown>) =>
-        [[]], // 0 rows affected ⇒ we no longer own the running claim
+      query: async (_sql: string, _params?: Record<string, unknown>) => [[]], // 0 rows affected ⇒ we no longer own the running claim
     };
     const svc = new JobClaimService(mkSurreal(db));
     const out = await svc.fail({
@@ -271,17 +264,13 @@ describe('JobClaimService', () => {
   });
 
   it('complete()/cancelled() no-op + warn when the guarded UPDATE matches no row', async () => {
-    const warn = jest
-      .spyOn(Logger.prototype, 'warn')
-      .mockImplementation(() => undefined as any);
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
     const db = { query: async () => [[]] }; // 0 rows ⇒ claim lost
     const svc = new JobClaimService(mkSurreal(db));
     await svc.complete({ companyId: 'co_x', recordId: 'job_run:abc' });
     await svc.cancelled({ companyId: 'co_x', recordId: 'job_run:abc' });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no-op'));
-    expect(
-      warn.mock.calls.filter((c) => String(c[0]).includes('no-op')).length,
-    ).toBe(2);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('no-op')).length).toBe(2);
     warn.mockRestore();
   });
 
@@ -291,8 +280,10 @@ describe('JobClaimService', () => {
     // atomic statement — so no concurrent reaper can read-then-write the same
     // expired row. The service is now a thin caller: pass the knobs, return
     // the counts. We assert the wiring (fn name + params + result mapping).
-    let captured: { sql: string; params?: Record<string, unknown> } | null =
-      null;
+    let captured: {
+      sql: string;
+      params?: Record<string, unknown> | undefined;
+    } | null = null;
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         captured = { sql, params };
@@ -342,6 +333,6 @@ describe('JobClaimService', () => {
     const svc = new JobClaimService(mkSurreal(db));
     const rows = await svc.listActiveClaims(['co_x', 'co_y']);
     expect(rows).toHaveLength(2);
-    expect(rows[0].claimedBy).toBe('host#1');
+    expect(rows[0]!.claimedBy).toBe('host#1');
   });
 });

@@ -1,7 +1,4 @@
-import {
-  collectFactWindow,
-  remapWindowScores,
-} from '../src/search/internals/fact-rerank';
+import { collectFactWindow, remapWindowScores } from '../src/search/internals/fact-rerank';
 import { selectFactCentric } from '../src/search/internals/fact-centric';
 import type { EntityBucket } from '../src/search/internals/types';
 
@@ -27,13 +24,10 @@ function bucket(id: string, scores: number[]): EntityBucket {
 
 describe('collectFactWindow', () => {
   it('flattens across buckets and keeps the top-N by score, descending', () => {
-    const rows = collectFactWindow(
-      [bucket('a', [0.9, 0.2]), bucket('b', [0.7, 0.5])],
-      3,
-    );
+    const rows = collectFactWindow([bucket('a', [0.9, 0.2]), bucket('b', [0.7, 0.5])], 3);
     expect(rows.map((r) => r.row.score)).toEqual([0.9, 0.7, 0.5]);
-    expect(rows[0].bucket.entityId).toBe('a');
-    expect(rows[1].bucket.entityId).toBe('b');
+    expect(rows[0]!.bucket.entityId).toBe('a');
+    expect(rows[1]!.bucket.entityId).toBe('b');
   });
 
   it('window larger than the pool returns the whole pool', () => {
@@ -100,7 +94,7 @@ describe('fact rerank feeding the fact-centric cut', () => {
     const rows = collectFactWindow([a], 2);
     remapWindowScores(rows, [1, 0]);
     // Tail fact keeps its score; window min (0.8) still above it.
-    expect(a.facts[2].score).toBe(0.3);
+    expect(a.facts[2]!.score).toBe(0.3);
     expect(Math.min(...a.facts.slice(0, 2).map((f) => f.score))).toBe(0.8);
   });
 });

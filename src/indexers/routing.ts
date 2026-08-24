@@ -14,9 +14,9 @@ export interface IndexerBinding {
   packVersion: string;
   mode: 'virtual' | 'dedicated' | 'external';
   description: string;
-  relevance?: IndexerRelevance;
-  dedicated?: IndexerDescriptor['dedicated'];
-  external?: IndexerDescriptor['external'];
+  relevance?: IndexerRelevance | undefined;
+  dedicated?: IndexerDescriptor['dedicated'] | undefined;
+  external?: IndexerDescriptor['external'] | undefined;
 }
 
 export interface RoutingInput {
@@ -24,7 +24,7 @@ export interface RoutingInput {
   /** Document head (first few KB) — the cheap trigger surface. */
   head: string;
   /** Explicit per-request indexer selection (L0). */
-  requested?: string[];
+  requested?: string[] | undefined;
 }
 
 export interface RuleRoutingResult {
@@ -63,8 +63,7 @@ export function routeByRules(
       requested.has(b.indexerId) ||
       r?.alwaysRun === true ||
       (r?.verticals?.includes(input.vertical) ?? false);
-    const l1 =
-      !l0 && (r?.keywords?.some((kw) => headMatchesKeyword(head, kw)) ?? false);
+    const l1 = !l0 && (r?.keywords?.some((kw) => headMatchesKeyword(head, kw)) ?? false);
     if (l0 || l1) {
       selected.push(b);
     } else if (r?.description) {
@@ -88,9 +87,7 @@ export function headMatchesKeyword(head: string, keyword: string): boolean {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return false;
   const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(
-    head,
-  );
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(head);
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -100,9 +97,12 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   let na = 0;
   let nb = 0;
   for (let i = 0; i < n; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    // i < n = min(a.length, b.length) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    na += ai * ai;
+    nb += bi * bi;
   }
   const denom = Math.sqrt(na) * Math.sqrt(nb);
   return denom === 0 ? 0 : dot / denom;

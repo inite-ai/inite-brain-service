@@ -4,7 +4,7 @@ export interface InFlightRequest {
   id: string;
   method: string;
   path: string;
-  companyId?: string;
+  companyId?: string | undefined;
   startedAtMs: number;
 }
 
@@ -30,8 +30,6 @@ export class ActivityTrackerService {
   }
 
   list(): InFlightRequest[] {
-    return [...this.inFlight.values()].sort(
-      (a, b) => a.startedAtMs - b.startedAtMs,
-    );
+    return [...this.inFlight.values()].sort((a, b) => a.startedAtMs - b.startedAtMs);
   }
 }

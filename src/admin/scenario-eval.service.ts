@@ -21,24 +21,18 @@ export class ScenarioEvalService {
 
   constructor(private readonly search: SearchService) {}
 
-  async runQuery(
-    companyId: string,
-    expectation: QueryExpectation,
-  ): Promise<ScenarioQueryResult> {
+  async runQuery(companyId: string, expectation: QueryExpectation): Promise<ScenarioQueryResult> {
     const t0 = Date.now();
     const isPiiGated = expectation.mustNotLeakPredicate !== undefined;
     // PII-gating expectations simulate a non-PII caller — brain strips
     // read_pii-scoped facts server-side, so the gated predicate must NOT
     // come back. Non-gated queries default to the full-access scope set.
     const callerScopes =
-      expectation.callerScopes ??
-      (isPiiGated ? ['brain:read'] : ['brain:read', 'brain:read_pii']);
+      expectation.callerScopes ?? (isPiiGated ? ['brain:read'] : ['brain:read', 'brain:read_pii']);
 
     let hits: SearchHit[] = [];
     let error: string | undefined;
-    let traceCapture:
-      | { requestId: string; totalMs: number; spans: any[] }
-      | undefined;
+    let traceCapture: NonNullable<ScenarioQueryResult['trace']> | undefined;
     try {
       // Capture the in-process debug trace so the demo deck can render
       // the per-stage waterfall (vector / lexical / fusion / reranker).
@@ -48,10 +42,10 @@ export class ScenarioEvalService {
           {
             query: expectation.query,
             limit: 10,
-            asOf: expectation.asOf,
+            ...(expectation.asOf !== undefined ? { asOf: expectation.asOf } : {}),
             ...(expectation.predicates ? { predicates: expectation.predicates } : {}),
-          } as any,
-          callerScopes as any,
+          },
+          callerScopes,
         ),
       );
       hits = captured.result.results;
@@ -60,10 +54,10 @@ export class ScenarioEvalService {
         totalMs: captured.trace.totalMs,
         spans: captured.trace.spans.map((s) => ({
           id: s.id,
-          parentId: s.parentId,
           name: s.name,
           startedAt: s.startedAt,
-          durationMs: s.durationMs,
+          ...(s.parentId !== undefined ? { parentId: s.parentId } : {}),
+          ...(s.durationMs !== undefined ? { durationMs: s.durationMs } : {}),
           ...(s.error ? { error: s.error } : {}),
         })),
       };
@@ -71,7 +65,7 @@ export class ScenarioEvalService {
       error = (e as Error).message;
     }
 
-    const [vertical, id] = expectation.expectedTopEntityRef.split('.', 2);
+    const [vertical = '', id = ''] = expectation.expectedTopEntityRef.split('.', 2);
     const refTag = `${safe(vertical)}__${safe(id)}`;
     const rank = hits.findIndex((r) => r.externalRefs?.[refTag] === id);
     const rankOfExpected = rank === -1 ? 0 : rank + 1;
@@ -80,7 +74,8 @@ export class ScenarioEvalService {
 
     const factPredicateMatched =
       expectation.expectedFactPredicate && rankOfExpected > 0
-        ? hits[rankOfExpected - 1].facts.some(
+        ? hits[rankOfExpected - 1]!.facts.some(
+            // rankOfExpected>0 ⇒ valid rank
             (f) => f.predicate === expectation.expectedFactPredicate,
           )
         : null;
@@ -91,9 +86,7 @@ export class ScenarioEvalService {
     let piiGatedCorrectly: boolean | null = null;
     if (isPiiGated) {
       const hit = rankOfExpected > 0 ? hits[rankOfExpected - 1] : null;
-      const leaked = hit?.facts.some(
-        (f) => f.predicate === expectation.mustNotLeakPredicate,
-      );
+      const leaked = hit?.facts.some((f) => f.predicate === expectation.mustNotLeakPredicate);
       piiGatedCorrectly = !leaked;
     }
 
@@ -109,7 +102,7 @@ export class ScenarioEvalService {
       rankOfExpected,
       topEntityRef,
       factPredicateMatched,
-      asOf: expectation.asOf,
+      ...(expectation.asOf !== undefined ? { asOf: expectation.asOf } : {}),
       durationMs: Date.now() - t0,
       hitCount: hits.length,
       topHits: hits.slice(0, 3).map((h) => ({
@@ -147,14 +140,11 @@ export class ScenarioEvalService {
     a: NonNullable<Scenario['memoryAssertions']>[number],
   ): Promise<MemoryAssertionResult> {
     const t0 = Date.now();
-    const finalize = (
-      passed: boolean,
-      detail?: string,
-    ): MemoryAssertionResult => ({
+    const finalize = (passed: boolean, detail?: string): MemoryAssertionResult => ({
       description: a.description,
       kind: a.kind,
       passed,
-      detail,
+      ...(detail !== undefined ? { detail } : {}),
       durationMs: Date.now() - t0,
     });
 
@@ -168,10 +158,10 @@ export class ScenarioEvalService {
         {
           query: a.query,
           limit: 20,
-          asOf: a.asOf,
+          ...(a.asOf !== undefined ? { asOf: a.asOf } : {}),
           includeRetracted: a.includeRetracted ?? false,
-        } as any,
-        ['brain:read', 'brain:read_pii'] as any,
+        },
+        ['brain:read', 'brain:read_pii'],
       );
 
       if (a.kind === 'no_search_match') {
@@ -204,9 +194,7 @@ export class ScenarioEvalService {
           );
         }
         const needle = a.objectSubstring.toLowerCase();
-        const hasObj = matched.facts.some((f) =>
-          f.object.toLowerCase().includes(needle),
-        );
+        const hasObj = matched.facts.some((f) => f.object.toLowerCase().includes(needle));
         if (!hasObj) {
           return finalize(
             false,
@@ -226,9 +214,7 @@ export class ScenarioEvalService {
       );
       if (!matched) return finalize(true);
       const needle = a.objectSubstring.toLowerCase();
-      const offending = matched.facts.find((f) =>
-        f.object.toLowerCase().includes(needle),
-      );
+      const offending = matched.facts.find((f) => f.object.toLowerCase().includes(needle));
       if (offending) {
         return finalize(
           false,
@@ -286,18 +272,14 @@ export class ScenarioEvalService {
     };
   }
 
-  private async findEntityIdByRef(
-    companyId: string,
-    ref: string,
-  ): Promise<string | null> {
-    const [, id] = ref.split('.', 2);
+  private async findEntityIdByRef(companyId: string, ref: string): Promise<string | null> {
+    const [, id = ''] = ref.split('.', 2);
     const refTag = parseRefTag(ref).refKey;
     try {
-      const res = await this.search.search(
-        companyId,
-        { query: id, limit: 10 } as any,
-        ['brain:read', 'brain:read_pii'] as any,
-      );
+      const res = await this.search.search(companyId, { query: id, limit: 10 }, [
+        'brain:read',
+        'brain:read_pii',
+      ]);
       const hit = res.results.find((r) => r.externalRefs?.[refTag] === id);
       return hit?.entityId ?? null;
     } catch (e) {

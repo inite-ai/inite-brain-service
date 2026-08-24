@@ -15,10 +15,7 @@ import { WorkerPollerService } from '../src/jobs/worker-poller.service';
 import { JobDispatcherService } from '../src/jobs/job-dispatcher.service';
 import type { JobClaim } from '../src/jobs/job-claim.service';
 import type { JobType } from '../src/jobs/job-run.service';
-import type {
-  PollControl,
-  RegisteredHandler,
-} from '../src/jobs/worker-loop.types';
+import type { PollControl, RegisteredHandler } from '../src/jobs/worker-loop.types';
 
 const ENV_KEYS = [
   'WORKER_LOOP_POLL_MS',
@@ -95,23 +92,21 @@ function makeParkedDispatcher() {
 function makeQueue(jobs: Record<string, number>) {
   const counts = { ...jobs };
   let seq = 0;
-  const claimNext = jest.fn(
-    async (input: { companyId: string; jobType: JobType }) => {
-      const key = `${input.jobType}::${input.companyId}`;
-      if ((counts[key] ?? 0) <= 0) return null;
-      counts[key] -= 1;
-      seq += 1;
-      return {
-        recordId: `job_run:${seq}`,
-        runId: `run-${seq}`,
-        jobType: input.jobType,
-        companyId: input.companyId,
-        attempts: 1,
-        payload: null,
-        leaseUntil: '2030-01-01T00:05:00Z',
-      } as JobClaim;
-    },
-  );
+  const claimNext = jest.fn(async (input: { companyId: string; jobType: JobType }) => {
+    const key = `${input.jobType}::${input.companyId}`;
+    if ((counts[key] ?? 0) <= 0) return null;
+    counts[key] = (counts[key] ?? 0) - 1;
+    seq += 1;
+    return {
+      recordId: `job_run:${seq}`,
+      runId: `run-${seq}`,
+      jobType: input.jobType,
+      companyId: input.companyId,
+      attempts: 1,
+      payload: null,
+      leaseUntil: '2030-01-01T00:05:00Z',
+    } as JobClaim;
+  });
   return { claimNext };
 }
 
@@ -145,7 +140,7 @@ describe('WorkerPollerService.runLoop — default env stays serial', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(claimSvc.claimNext).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Dispatch resolved → the loop went around and claimed the second job.
     expect(claimSvc.claimNext.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -174,10 +169,7 @@ describe('WorkerPollerService.runLoop — per-jobType concurrency', () => {
     // Both tenants' jobs are in flight at the same time — neither has
     // resolved yet (they're parked), so this is real concurrency.
     expect(dispatch).toHaveBeenCalledTimes(2);
-    expect(parked.map((p) => p.claim.companyId).sort()).toEqual([
-      'co_a',
-      'co_b',
-    ]);
+    expect(parked.map((p) => p.claim.companyId).sort()).toEqual(['co_a', 'co_b']);
 
     abort();
     releaseAll();
@@ -199,7 +191,7 @@ describe('WorkerPollerService.runLoop — per-jobType concurrency', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(claimSvc.claimNext).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Slot freed → the tenant is eligible again and its next job runs.
     expect(dispatch).toHaveBeenCalledTimes(2);
@@ -227,7 +219,7 @@ describe('WorkerPollerService.runLoop — per-jobType concurrency', () => {
     // Both loops have work available, but only one dispatch may fly.
     expect(dispatch).toHaveBeenCalledTimes(1);
 
-    parked[0].release();
+    parked[0]!.release();
     await settle();
     // Global slot freed → the other jobType's job goes out.
     expect(dispatch).toHaveBeenCalledTimes(2);

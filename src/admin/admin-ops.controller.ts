@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Query,
-  Req,
-  Res,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
@@ -64,8 +55,7 @@ export class AdminOpsController {
       rows: await this.admin.listDeadLetter({
         companyId: companyId?.trim() || undefined,
         reason: reason?.trim() || undefined,
-        limit:
-          parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
     } satisfies DlqResponse;
   }
@@ -97,8 +87,7 @@ export class AdminOpsController {
         companyId: companyId?.trim() || undefined,
         reason: reason?.trim() || undefined,
         since: since?.trim() || undefined,
-        limit:
-          parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
     } satisfies ForgottenResponse;
   }
@@ -177,8 +166,7 @@ export class AdminOpsController {
         actor: actor?.trim() || undefined,
         pathPrefix: pathPrefix?.trim() || undefined,
         since: since?.trim() || undefined,
-        limit:
-          parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+        limit: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
       }),
     } satisfies OperatorActionsResponse;
   }

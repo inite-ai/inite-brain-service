@@ -8,10 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { ProtectedResourceController } from '../src/auth/protected-resource.controller';
-import {
-  requestBaseUrl,
-  resourceMetadataUrl,
-} from '../src/auth/resource-metadata';
+import { requestBaseUrl, resourceMetadataUrl } from '../src/auth/resource-metadata';
 
 class StubConfig {
   constructor(private readonly map: Record<string, string>) {}
@@ -83,11 +80,9 @@ describe('ApiKeyGuard — WWW-Authenticate challenge', () => {
     } as unknown as ExecutionContext;
 
     // Credential resolver is never reached on the missing-header path.
-    const guard = new ApiKeyGuard(
-      { resolve: async () => null } as never,
-      new Reflector(),
-      { gate: async () => undefined } as never,
-    );
+    const guard = new ApiKeyGuard({ resolve: async () => null } as never, new Reflector(), {
+      gate: async () => undefined,
+    } as never);
 
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
     expect(headersSet['WWW-Authenticate']).toBe(

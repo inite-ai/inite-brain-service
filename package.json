@@ -18,6 +18,7 @@
     "build": "nest build",
     "typecheck": "tsc -p tsconfig.spec.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -26,6 +27,7 @@
     "lint:ci": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
     "test": "jest --config ./test/jest-unit.json",
     "test:unit": "jest --config ./test/jest-unit.json",
+    "test:unit:cov": "jest --config ./test/jest-unit.json --coverage",
     "test:socket": "jest --config ./test/jest-socket.json",
     "test:watch": "jest --config ./test/jest-unit.json --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
@@ -149,22 +151,5 @@
       "protobufjs@7": "^7.6.5",
       "protobufjs@8": "^8.6.6"
     }
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
   }
 }

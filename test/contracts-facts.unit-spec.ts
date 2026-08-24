@@ -56,9 +56,7 @@ describe('facts wire contracts', () => {
   });
 
   it('FactReadResponseSchema covers every service field — both directions', () => {
-    expect(Object.keys(FactReadResponseSchema.shape).sort()).toEqual(
-      Object.keys(fullFact).sort(),
-    );
+    expect(Object.keys(FactReadResponseSchema.shape).sort()).toEqual(Object.keys(fullFact).sort());
   });
 
   it('FactProvenanceResponseSchema parses a fully-populated result', () => {

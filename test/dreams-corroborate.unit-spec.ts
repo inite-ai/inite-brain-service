@@ -105,7 +105,7 @@ describe('DreamsCorroborateService', () => {
     const out = await svc.run(db(GROUP, [a, b]) as never);
     expect(out.llmJudgements).toBe(1);
     expect(out.corroborationsApplied).toBe(1);
-    expect(out.corroborations[0].method).toBe('llm');
+    expect(out.corroborations[0]!.method).toBe('llm');
     expect(applied).toHaveLength(1);
   });
 
@@ -200,9 +200,7 @@ describe('DreamsCorroborateService', () => {
   });
 
   it('is a no-op when disabled', async () => {
-    const svc = new DreamsCorroborateService(
-      new ConfigService({ OPENAI_API_KEY: 'sk-test' }),
-    );
+    const svc = new DreamsCorroborateService(new ConfigService({ OPENAI_API_KEY: 'sk-test' }));
     const out = await svc.run({
       query: jest.fn(),
     } as never);

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiKeyService } from '../auth/api-key.service';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { mapWithLimit } from '../common/parallel';
 import { envFlagEnabled } from '../common/env-validation';
@@ -77,12 +77,12 @@ export interface AuditEventRow {
 }
 
 export interface AuditQuery {
-  companyId?: string;
-  source?: string;
-  op?: string;
-  since?: string;
-  before?: string;
-  limit?: number;
+  companyId?: string | undefined;
+  source?: string | undefined;
+  op?: string | undefined;
+  since?: string | undefined;
+  before?: string | undefined;
+  limit?: number | undefined;
 }
 
 export interface CostBucket {
@@ -108,6 +108,71 @@ export interface AuditPage {
   totalsBySource: Record<string, number>;
   totalsByOp: Record<string, number>;
   hourly: Array<{ hour: string; count: number }>;
+}
+
+// ── Local DB row shapes ────────────────────────────────────────────────
+// Column projections of the SurrealDB reads below. Fields carry the type
+// the mapping code depends on; genuinely-dynamic columns funnelled through
+// String()/Number()/new Date() are typed `unknown`.
+
+/** `count() AS c ... GROUP ALL` result row. */
+interface CountRow {
+  c?: number;
+}
+
+/** `SELECT n FROM stats_entity_total` computed-view row. */
+interface ViewCountRow {
+  n?: number;
+}
+
+/** `SELECT n, status FROM stats_fact_by_status` computed-view row. */
+interface StatusCountRow {
+  n?: number;
+  status?: string;
+}
+
+/** Columns read from `ingest_dead_letter`. */
+interface DeadLetterRow {
+  id?: unknown;
+  reason: string;
+  rejectedAt: string | Date;
+  payload?: Record<string, unknown>;
+}
+
+/** Columns read from `forgotten_entity`. */
+interface ForgottenRow {
+  entityIdHash: string;
+  reason: string;
+  forgottenAt: string | Date;
+  factsDeleted?: number;
+  edgesDeleted?: number;
+}
+
+/** Columns read from `audit_event`. */
+interface AuditEventDbRow {
+  id?: unknown;
+  source?: unknown;
+  recordId?: unknown;
+  op?: unknown;
+  ts: string | Date;
+  versionstamp?: unknown;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  consumedBy?: unknown;
+}
+
+/** PII-classed predicate rows from `knowledge_predicate`. */
+interface PiiPredicateRow {
+  predicateId: string;
+  piiClass: string;
+  requiresScope?: string;
+}
+
+/** Per-(predicate,status) fact counts for the PII inventory. */
+interface PiiCountRow {
+  predicate?: string;
+  status?: string;
+  c?: unknown;
 }
 
 /**
@@ -152,9 +217,7 @@ export class AdminService {
       concurrency: TENANT_FANOUT,
       fn: (companyId) => this.collectTenant(companyId, dayAgoIso),
       onError: (err, companyId) =>
-        this.logger.warn(
-          `Failed to collect admin overview for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`Failed to collect admin overview for ${companyId}: ${err.message}`),
     });
     tenants.forEach((companyId, i) => {
       const data = tenantResults[i];
@@ -203,14 +266,18 @@ export class AdminService {
    * Prometheus.
    */
   private async snapshotMetrics(): Promise<AdminMetrics> {
-    type Bucket = { name: string; labels?: Record<string, string>; value: number };
+    type Bucket = {
+      name: string;
+      labels?: Partial<Record<string, string | number>>;
+      value: number;
+    };
     const byName: Record<string, Bucket[]> = {};
     try {
       const all = await this.metrics.registry.getMetricsAsJSON();
       for (const m of all) {
         if (!m.name.startsWith('brain_')) continue;
-        const values = (m as { values?: any[] }).values ?? [];
-        byName[m.name] = values.map((v: any) => ({
+        const values = m.values ?? [];
+        byName[m.name] = values.map((v) => ({
           name: m.name,
           labels: v.labels ?? {},
           value: typeof v.value === 'number' ? v.value : 0,
@@ -223,10 +290,7 @@ export class AdminService {
     const sumBuckets = (name: string): number =>
       (byName[name] ?? []).reduce((acc, b) => acc + b.value, 0);
 
-    const groupByLabel = (
-      name: string,
-      labelKey: string,
-    ): Record<string, number> => {
+    const groupByLabel = (name: string, labelKey: string): Record<string, number> => {
       const out: Record<string, number> = {};
       for (const b of byName[name] ?? []) {
         const k = b.labels?.[labelKey] ?? '_unknown';
@@ -268,10 +332,8 @@ export class AdminService {
   async buildCostBreakdown(): Promise<CostBreakdown> {
     const pricing = this.resolvePricing();
     type Sample = { value: number; labels: Record<string, string> };
-    const tokens = (await this.collectMetric('brain_openai_tokens_total')) as
-      Sample[];
-    const calls = (await this.collectMetric('brain_openai_calls_total')) as
-      Sample[];
+    const tokens = (await this.collectMetric('brain_openai_tokens_total')) as Sample[];
+    const calls = (await this.collectMetric('brain_openai_calls_total')) as Sample[];
     const perModelMap = new Map<string, CostBucket>();
     const perOpMap = new Map<string, CostBucket>();
     let totalTokens = 0;
@@ -370,8 +432,8 @@ export class AdminService {
     try {
       const all = await this.metrics.registry.getMetricsAsJSON();
       const m = all.find((x) => x.name === name);
-      const values = (m as { values?: any[] })?.values ?? [];
-      return values.map((v: any) => ({
+      const values = m?.values ?? [];
+      return values.map((v) => ({
         value: typeof v.value === 'number' ? v.value : 0,
         labels: (v.labels as Record<string, string>) ?? {},
       }));
@@ -386,13 +448,11 @@ export class AdminService {
    * page; the overview already shows last 20.
    */
   async listDeadLetter(filter: {
-    companyId?: string;
-    reason?: string;
-    limit?: number;
+    companyId?: string | undefined;
+    reason?: string | undefined;
+    limit?: number | undefined;
   }): Promise<AdminDeadLetterRow[]> {
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
     const out: AdminDeadLetterRow[] = [];
     const where: string[] = [];
@@ -406,15 +466,15 @@ export class AdminService {
       items: tenants,
       concurrency: TENANT_FANOUT,
       fn: async (companyId) => {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
+        const rows = await this.surreal.withCompany(companyId, async (db) =>
+          queryRows<DeadLetterRow>(
+            db,
             `SELECT id, reason, rejectedAt, payload
                FROM ingest_dead_letter ${whereSql}
               ORDER BY rejectedAt DESC LIMIT ${limit}`,
             params,
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
+          ),
+        );
         return rows.map((r) => ({
           companyId,
           id: String(r.id),
@@ -424,9 +484,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `dead-letter list failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`dead-letter list failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
@@ -442,17 +500,15 @@ export class AdminService {
   async deleteDeadLetter(companyId: string, id: string): Promise<boolean> {
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const res = (await db.query<any[]>(
+        const rows = await queryRows<unknown>(
+          db,
           `DELETE ingest_dead_letter WHERE id = $id RETURN BEFORE`,
           { id },
-        )) as any[];
-        const rows = (res[0] ?? []) as any[];
+        );
         return rows.length > 0;
       });
     } catch (e) {
-      this.logger.warn(
-        `dead-letter delete failed (${companyId}/${id}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`dead-letter delete failed (${companyId}/${id}): ${(e as Error).message}`);
       return false;
     }
   }
@@ -462,14 +518,12 @@ export class AdminService {
    * page; also drives the GDPR export endpoint.
    */
   async listForgotten(filter: {
-    companyId?: string;
-    reason?: string;
-    since?: string;
-    limit?: number;
+    companyId?: string | undefined;
+    reason?: string | undefined;
+    since?: string | undefined;
+    limit?: number | undefined;
   }): Promise<AdminForgottenRow[]> {
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 2000);
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -487,15 +541,15 @@ export class AdminService {
       items: tenants,
       concurrency: TENANT_FANOUT,
       fn: async (companyId) => {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
+        const rows = await this.surreal.withCompany(companyId, async (db) =>
+          queryRows<ForgottenRow>(
+            db,
             `SELECT entityIdHash, reason, forgottenAt, factsDeleted, edgesDeleted
                FROM forgotten_entity ${whereSql}
               ORDER BY forgottenAt DESC LIMIT ${limit}`,
             params,
-          )) as any[];
-          return (res[0] ?? []) as any[];
-        });
+          ),
+        );
         return rows.map((r) => ({
           companyId,
           entityIdHash: r.entityIdHash,
@@ -506,9 +560,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `forgotten list failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`forgotten list failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (batch) out.push(...batch);
@@ -548,31 +600,33 @@ export class AdminService {
         // a fresh withCompany and ran two GROUP ALL counts PER PII
         // predicate — 50 tenants × 10 predicates ≈ 1000+ serial round
         // trips inside one admin HTTP request.
-        const { rows, counts } = await this.surreal.withCompany(
-          companyId,
-          async (db) => {
-            const res = (await db.query<any[]>(
-              `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
+        const { rows, counts } = await this.surreal.withCompany(companyId, async (db) => {
+          const predRows = await queryRows<PiiPredicateRow>(
+            db,
+            `SELECT predicateId, piiClass, requiresScope FROM knowledge_predicate
                 WHERE piiClass != 'none'`,
-            )) as any[];
-            const preds = ((res[0] ?? []) as any[]).map((p) => p.predicateId);
-            if (preds.length === 0) {
-              return { rows: [] as any[], counts: new Map<string, number>() };
-            }
-            const [countRows] = (await db.query<any[]>(
-              `SELECT predicate, status, count() AS c FROM knowledge_fact
+          );
+          const preds = predRows.map((p) => p.predicateId);
+          if (preds.length === 0) {
+            return {
+              rows: [] as PiiPredicateRow[],
+              counts: new Map<string, number>(),
+            };
+          }
+          const countRows = await queryRows<PiiCountRow>(
+            db,
+            `SELECT predicate, status, count() AS c FROM knowledge_fact
                 WHERE predicate INSIDE $preds
                   AND status INSIDE ['active', 'retracted']
                 GROUP BY predicate, status`,
-              { preds },
-            )) as any[];
-            const counts = new Map<string, number>();
-            for (const r of (countRows as any[]) ?? []) {
-              counts.set(`${r.predicate}|${r.status}`, Number(r.c) || 0);
-            }
-            return { rows: (res[0] ?? []) as any[], counts };
-          },
-        );
+            { preds },
+          );
+          const counts = new Map<string, number>();
+          for (const r of countRows) {
+            counts.set(`${r.predicate}|${r.status}`, Number(r.c) || 0);
+          }
+          return { rows: predRows, counts };
+        });
         for (const p of rows) {
           out.push({
             companyId,
@@ -584,9 +638,7 @@ export class AdminService {
           });
         }
       } catch (e) {
-        this.logger.warn(
-          `pii inventory failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`pii inventory failed for ${companyId}: ${(e as Error).message}`);
       }
     }
     return out;
@@ -604,9 +656,7 @@ export class AdminService {
    */
   async listAuditEvents(q: AuditQuery): Promise<AuditPage> {
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
-    const tenants = q.companyId
-      ? [q.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = q.companyId ? [q.companyId] : this.apiKeys.knownCompanyIds();
     const events: AuditEventRow[] = [];
     const totalsBySource: Record<string, number> = {};
     const totalsByOp: Record<string, number> = {};
@@ -630,9 +680,7 @@ export class AdminService {
       whereClauses.push('ts < type::datetime($before)');
       bindings.before = q.before;
     }
-    const whereSql = whereClauses.length
-      ? `WHERE ${whereClauses.join(' AND ')}`
-      : '';
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const perTenant = await mapWithLimit({
       items: tenants,
@@ -644,8 +692,7 @@ export class AdminService {
               FROM audit_event ${whereSql}
               ORDER BY ts DESC LIMIT ${limit};
           `;
-          const out = (await db.query<any[]>(sql, bindings)) as any[];
-          return (out[0] ?? []) as any[];
+          return queryRows<AuditEventDbRow>(db, sql, bindings);
         });
         return rows.map((r) => ({
           row: {
@@ -663,9 +710,7 @@ export class AdminService {
         }));
       },
       onError: (err, companyId) =>
-        this.logger.warn(
-          `listAuditEvents failed for ${companyId}: ${err.message}`,
-        ),
+        this.logger.warn(`listAuditEvents failed for ${companyId}: ${err.message}`),
     });
     for (const batch of perTenant) {
       if (!batch) continue;
@@ -734,14 +779,24 @@ export class AdminService {
         SELECT count() AS c FROM forgotten_entity
           WHERE forgottenAt > type::datetime($dayAgoIso) GROUP ALL;
       `;
-      const res = (await db.query<any[]>(sql, { dayAgoIso })) as any[];
+      const res = await db.query<
+        [
+          CountRow[],
+          CountRow[],
+          CountRow[],
+          DeadLetterRow[],
+          CountRow[],
+          ForgottenRow[],
+          CountRow[],
+        ]
+      >(sql, { dayAgoIso });
 
       const c0 = countOf(res[0]);
       const c1 = countOf(res[1]);
       const c2 = countOf(res[2]);
-      const deadLetterRows = (res[3] ?? []) as any[];
+      const deadLetterRows = res[3] ?? [];
       const dl24 = countOf(res[4]);
-      const forgottenRows = (res[5] ?? []) as any[];
+      const forgottenRows = res[5] ?? [];
       const fg24 = countOf(res[6]);
 
       return {
@@ -800,13 +855,15 @@ export class AdminService {
         SELECT count() AS c FROM forgotten_entity
           WHERE forgottenAt > type::datetime($dayAgoIso) GROUP ALL;
       `;
-      const res = (await db.query<any[]>(sql, { dayAgoIso })) as any[];
+      const res = await db.query<
+        [ViewCountRow[], StatusCountRow[], DeadLetterRow[], CountRow[], ForgottenRow[], CountRow[]]
+      >(sql, { dayAgoIso });
 
       const entities = viewCountOf(res[0]);
       const byStatus = statusCountsOf(res[1]);
-      const deadLetterRows = (res[2] ?? []) as any[];
+      const deadLetterRows = res[2] ?? [];
       const dl24 = countOf(res[3]);
-      const forgottenRows = (res[4] ?? []) as any[];
+      const forgottenRows = res[4] ?? [];
       const fg24 = countOf(res[5]);
 
       return {
@@ -847,24 +904,24 @@ export class AdminService {
   }
 }
 
-function countOf(stmtResult: any): number {
+function countOf(stmtResult: CountRow[]): number {
   if (!Array.isArray(stmtResult) || stmtResult.length === 0) return 0;
   const first = stmtResult[0];
   return typeof first?.c === 'number' ? first.c : 0;
 }
 
 /** Single-row GROUP ALL view: absent row (empty source) reads as 0. */
-function viewCountOf(stmtResult: any): number {
+function viewCountOf(stmtResult: ViewCountRow[]): number {
   if (!Array.isArray(stmtResult) || stmtResult.length === 0) return 0;
   const first = stmtResult[0];
   return typeof first?.n === 'number' ? first.n : 0;
 }
 
 /** GROUP BY status view rows → status → n. Missing groups read as 0. */
-function statusCountsOf(stmtResult: any): Map<string, number> {
+function statusCountsOf(stmtResult: StatusCountRow[]): Map<string, number> {
   const out = new Map<string, number>();
   if (!Array.isArray(stmtResult)) return out;
-  for (const row of stmtResult as Array<{ n?: unknown; status?: unknown }>) {
+  for (const row of stmtResult) {
     if (typeof row?.status === 'string' && typeof row?.n === 'number') {
       out.set(row.status, row.n);
     }

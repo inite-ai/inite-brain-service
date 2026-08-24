@@ -4,11 +4,7 @@
  * eval fixtures through the live extractor endpoint. Proves the library is a
  * real, installable, self-verifying set — not just TS constants.
  */
-import {
-  FINTECH_PACK,
-  LEGAL_PACK,
-  MEDICAL_PACK,
-} from '../src/ai/domain-packs';
+import { FINTECH_PACK, LEGAL_PACK, MEDICAL_PACK } from '../src/ai/domain-packs';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 
@@ -47,9 +43,7 @@ describe('industry domain packs (e2e)', () => {
   it('lists them installed alongside the builtin', async () => {
     const r = await f.http.get('/v1/admin/packs').set(auth());
     const installed = (r.body.installed ?? []).map((p: any) => p.packId);
-    expect(installed).toEqual(
-      expect.arrayContaining(['fintech', 'medical', 'legal']),
-    );
+    expect(installed).toEqual(expect.arrayContaining(['fintech', 'medical', 'legal']));
   });
 
   it('runs an industry pack eval fixture through the live extractor', async () => {

@@ -23,18 +23,10 @@ import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { retryOnUniqueViolation } from '../src/db/surreal-retry';
 
-const deg = (d: number): number[] => [
-  Math.cos((d * Math.PI) / 180),
-  Math.sin((d * Math.PI) / 180),
-];
+const deg = (d: number): number[] => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)];
 
 type Outcome =
-  | 'INSERTED'
-  | 'SUPERSEDED'
-  | 'COMPETING'
-  | 'INSERTED_HISTORICAL'
-  | 'CORROBORATED'
-  | 'REJECTED';
+  'INSERTED' | 'SUPERSEDED' | 'COMPETING' | 'INSERTED_HISTORICAL' | 'CORROBORATED' | 'REJECTED';
 
 interface Write {
   object: string;
@@ -72,7 +64,12 @@ const SCENARIOS: Scenario[] = [
     entity: 'lc_backdated',
     sequence: [
       { object: 'moved to the Berlin office', day: '2026-02-10', deg: 20, expect: 'INSERTED' },
-      { object: 'was hired in the Lisbon office', day: '2026-01-05', deg: 22, expect: 'INSERTED_HISTORICAL' },
+      {
+        object: 'was hired in the Lisbon office',
+        day: '2026-01-05',
+        deg: 22,
+        expect: 'INSERTED_HISTORICAL',
+      },
     ],
     expectActive: ['moved to the Berlin office'],
     expectCounts: { active: 1, superseded: 1 },
@@ -176,11 +173,7 @@ type Db = {
 /** The triangle e2e's production write path, verbatim (25-arg 0085
  *  signature, bitemporal_event, slot gate 0.9, shared deriver source
  *  → one origin, so corroboration never masks a scenario). */
-async function resolveFact(
-  db: Db,
-  entity: string,
-  w: Write,
-): Promise<ResolveResult> {
+async function resolveFact(db: Db, entity: string, w: Write): Promise<ResolveResult> {
   const [r] = await db.query<[ResolveResult]>(
     `RETURN fn::resolve_fact(
       type::record('knowledge_entity', $entity),
@@ -207,11 +200,9 @@ async function slotRows(db: Db, entity: string): Promise<SlotFactRow[]> {
   return rows ?? [];
 }
 
-const toDate = (v: Date | string): Date =>
-  v instanceof Date ? v : new Date(v);
+const toDate = (v: Date | string): Date => (v instanceof Date ? v : new Date(v));
 
-const dayOf = (v: Date | string): string =>
-  toDate(v).toISOString().slice(0, 10);
+const dayOf = (v: Date | string): string => toDate(v).toISOString().slice(0, 10);
 
 // ---------------------------------------------------------------------------
 // Invariants — reusable checks so the sequences above stay declarative.
@@ -245,19 +236,19 @@ function assertActiveIntervalContinuity(rows: SlotFactRow[]): void {
   const active = rows.filter((r) => r.status === 'active');
   for (let i = 0; i < active.length; i++) {
     for (let j = i + 1; j < active.length; j++) {
-      const aFrom = toDate(active[i].validFrom).getTime();
-      const aUntil = active[i].validUntil
-        ? toDate(active[i].validUntil as Date | string).getTime()
+      const aFrom = toDate(active[i]!.validFrom).getTime();
+      const aUntil = active[i]!.validUntil
+        ? toDate(active[i]!.validUntil as Date | string).getTime()
         : Infinity;
-      const bFrom = toDate(active[j].validFrom).getTime();
-      const bUntil = active[j].validUntil
-        ? toDate(active[j].validUntil as Date | string).getTime()
+      const bFrom = toDate(active[j]!.validFrom).getTime();
+      const bUntil = active[j]!.validUntil
+        ? toDate(active[j]!.validUntil as Date | string).getTime()
         : Infinity;
       const overlap = aFrom < bUntil && bFrom < aUntil;
       expect({
         overlap,
-        pair: [active[i].object, active[j].object],
-      }).toEqual({ overlap: false, pair: [active[i].object, active[j].object] });
+        pair: [active[i]!.object, active[j]!.object],
+      }).toEqual({ overlap: false, pair: [active[i]!.object, active[j]!.object] });
     }
   }
 }
@@ -284,64 +275,62 @@ describe('0085 lifecycle state machine (real SurrealDB, table-driven)', () => {
   });
 
   for (const scenario of SCENARIOS) {
-    it(scenario.name, async () => {
-      const surreal = f.app.get(SurrealService);
-      await surreal.withCompany(f.companyId, async (db) => {
-        // Literal id, the triangle's idiom (slugs are [a-z_] constants).
-        await db.query(
-          `CREATE knowledge_entity:${scenario.entity} SET
+    it(
+      scenario.name,
+      async () => {
+        const surreal = f.app.get(SurrealService);
+        await surreal.withCompany(f.companyId, async (db) => {
+          // Literal id, the triangle's idiom (slugs are [a-z_] constants).
+          await db.query(
+            `CREATE knowledge_entity:${scenario.entity} SET
              type = 'staff', canonicalName = $entity,
              canonicalNameLc = $entity`,
-          { entity: scenario.entity },
-        );
+            { entity: scenario.entity },
+          );
 
-        for (const step of scenario.sequence) {
-          if ('concurrent' in step) {
-            // The production race: parallel resolves converge via the
-            // same OCC-retry wrapper the ingest service uses.
-            const results = await Promise.all(
-              step.concurrent.map((w) =>
-                retryOnUniqueViolation(() =>
-                  resolveFact(db as Db, scenario.entity, w),
+          for (const step of scenario.sequence) {
+            if ('concurrent' in step) {
+              // The production race: parallel resolves converge via the
+              // same OCC-retry wrapper the ingest service uses.
+              const results = await Promise.all(
+                step.concurrent.map((w) =>
+                  retryOnUniqueViolation(() => resolveFact(db as Db, scenario.entity, w)),
                 ),
-              ),
-            );
-            const outcomes = results.map((r) => r.outcome).sort();
-            expect(step.expectOutcomes.map((o) => [...o].sort())).toContainEqual(
-              outcomes,
-            );
-          } else {
-            const r = await resolveFact(db as Db, scenario.entity, step);
-            if (step.expect) {
-              expect({ object: step.object, outcome: r.outcome }).toEqual({
-                object: step.object,
-                outcome: step.expect,
-              });
+              );
+              const outcomes = results.map((r) => r.outcome).sort();
+              expect(step.expectOutcomes.map((o) => [...o].sort())).toContainEqual(outcomes);
+            } else {
+              const r = await resolveFact(db as Db, scenario.entity, step);
+              if (step.expect) {
+                expect({ object: step.object, outcome: r.outcome }).toEqual({
+                  object: step.object,
+                  outcome: step.expect,
+                });
+              }
             }
           }
-        }
 
-        const rows = await slotRows(db as Db, scenario.entity);
-        assertLifecycleInvariants(rows);
+          const rows = await slotRows(db as Db, scenario.entity);
+          assertLifecycleInvariants(rows);
 
-        const activeObjects = rows
-          .filter((r) => r.status === 'active')
-          .map((r) => r.object)
-          .sort();
-        expect(activeObjects).toEqual([...scenario.expectActive].sort());
+          const activeObjects = rows
+            .filter((r) => r.status === 'active')
+            .map((r) => r.object)
+            .sort();
+          expect(activeObjects).toEqual([...scenario.expectActive].sort());
 
-        const counts: Record<string, number> = {};
-        for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
-        expect(counts).toEqual(scenario.expectCounts);
+          const counts: Record<string, number> = {};
+          for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
+          expect(counts).toEqual(scenario.expectCounts);
 
-        for (const [loser, winner] of Object.entries(
-          scenario.expectSupersededBy ?? {},
-        )) {
-          const loserRow = rows.find((r) => r.object === loser);
-          const winnerRow = rows.find((r) => r.object === winner);
-          expect(String(loserRow?.supersededBy)).toBe(String(winnerRow?.id));
-        }
-      });
-    }, 60_000);
+          for (const [loser, winner] of Object.entries(scenario.expectSupersededBy ?? {})) {
+            const loserRow = rows.find((r) => r.object === loser);
+            const winnerRow = rows.find((r) => r.object === winner);
+            expect(String(loserRow?.supersededBy)).toBe(String(winnerRow?.id));
+          }
+        });
+      },
+      60_000,
+    );
   }
 });

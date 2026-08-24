@@ -14,9 +14,9 @@ import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
  */
 function recorder(): {
   surreal: SurrealService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const surreal = {
     withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({
@@ -41,8 +41,8 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       limit: 5,
       includePii: true,
     });
-    expect(queries[0].sql).toContain(GLOBAL_ONLY);
-    expect(queries[0].params?.scopeUserId).toBeUndefined();
+    expect(queries[0]!.sql).toContain(GLOBAL_ONLY);
+    expect(queries[0]!.params?.scopeUserId).toBeUndefined();
   });
 
   it('searchText: scoped read sees global + own, never another user', async () => {
@@ -54,8 +54,8 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       includePii: true,
       userId: 'u1',
     });
-    expect(queries[0].sql).toContain(SCOPED);
-    expect(queries[0].params?.scopeUserId).toBe('u1');
+    expect(queries[0]!.sql).toContain(SCOPED);
+    expect(queries[0]!.params?.scopeUserId).toBe('u1');
   });
 
   it('byIds: fenced in both modes', async () => {
@@ -66,30 +66,30 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       ids: ['episode:e1'],
       includePii: false,
     });
-    expect(queries[0].sql).toContain(GLOBAL_ONLY);
+    expect(queries[0]!.sql).toContain(GLOBAL_ONLY);
     await svc.byIds({
       companyId: 'co_x',
       ids: ['episode:e1'],
       includePii: false,
       userId: 'u1',
     });
-    expect(queries[1].sql).toContain(SCOPED);
-    expect(queries[1].params?.scopeUserId).toBe('u1');
+    expect(queries[1]!.sql).toContain(SCOPED);
+    expect(queries[1]!.params?.scopeUserId).toBe('u1');
   });
 
   it('page (public API): fenced in both modes', async () => {
     const { surreal, queries } = recorder();
     const svc = new EpisodeReadStoreService(surreal);
     await svc.page({ companyId: 'co_x', includePii: false, limit: 10 });
-    expect(queries[0].sql).toContain('userId IS NONE');
+    expect(queries[0]!.sql).toContain('userId IS NONE');
     await svc.page({
       companyId: 'co_x',
       includePii: false,
       limit: 10,
       userId: 'u1',
     });
-    expect(queries[1].sql).toContain('userId = $scopeUserId');
-    expect(queries[1].params?.scopeUserId).toBe('u1');
+    expect(queries[1]!.sql).toContain('userId = $scopeUserId');
+    expect(queries[1]!.params?.scopeUserId).toBe('u1');
   });
 
   it('metaSince stays UNGATED by design (metadata only, no text)', async () => {
@@ -99,16 +99,15 @@ describe('L0 user-scope fence (0055) — episode read store', () => {
       sinceIso: '2026-08-01T00:00:00.000Z',
       limit: 10,
     });
-    expect(queries[0].sql).not.toContain('userId');
-    expect(queries[0].sql).not.toContain('text');
+    expect(queries[0]!.sql).not.toContain('userId');
+    expect(queries[0]!.sql).not.toContain('text');
   });
 });
 
 describe('L0 user-scope fence (0055) — segment lane', () => {
-
   function makeLane(): {
     svc: SegmentLaneService;
-    queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+    queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
   } {
     const { surreal, queries } = recorder();
     const embedder = {
@@ -118,7 +117,6 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
   }
 
   it('both legs carry the fence; unscoped is global-only', async () => {
-
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
@@ -132,7 +130,6 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
   });
 
   it('scoped read passes the param to both legs', async () => {
-
     const { svc, queries } = makeLane();
     await svc.transcriptLines({
       companyId: 'co_x',
@@ -152,8 +149,7 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
 describe('episode subscriptions — single-writer + per-subscription breaker', () => {
   const savedFlag = process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
   afterEach(() => {
-    if (savedFlag === undefined)
-      delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
+    if (savedFlag === undefined) delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
     else process.env.EPISODE_SUBSCRIPTIONS_ENABLED = savedFlag;
   });
 
@@ -169,12 +165,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
     const lease = {
       tryAcquire: async () => false,
     } as unknown as LeaderLeaseService;
-    const svc = new EpisodeSubscriptionService(
-      surreal,
-      episodes,
-      apiKeys,
-      lease,
-    );
+    const svc = new EpisodeSubscriptionService(surreal, episodes, apiKeys, lease);
     await svc.dispatchTick();
     expect(queries).toHaveLength(0);
   });
@@ -195,12 +186,7 @@ describe('episode subscriptions — single-writer + per-subscription breaker', (
         return true;
       },
     } as unknown as LeaderLeaseService;
-    const svc = new EpisodeSubscriptionService(
-      surreal,
-      episodes,
-      apiKeys,
-      lease,
-    );
+    const svc = new EpisodeSubscriptionService(surreal, episodes, apiKeys, lease);
     await svc.dispatchTick();
     expect(names).toEqual(['episode_subscriptions']);
     expect(queries.length).toBeGreaterThan(0);

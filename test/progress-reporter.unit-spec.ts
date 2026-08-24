@@ -13,12 +13,8 @@ import { NOOP_REPORTER, type ProgressEvent } from '../src/mcp/progress-reporter'
 
 describe('ProgressReporter — wire shape', () => {
   it('NOOP_REPORTER swallows any event without throwing', () => {
-    expect(() =>
-      NOOP_REPORTER({ stage: 'planning', message: 'test' }),
-    ).not.toThrow();
-    expect(() =>
-      NOOP_REPORTER({ stage: 'hop', index: 1, total: 3 }),
-    ).not.toThrow();
+    expect(() => NOOP_REPORTER({ stage: 'planning', message: 'test' })).not.toThrow();
+    expect(() => NOOP_REPORTER({ stage: 'hop', index: 1, total: 3 })).not.toThrow();
     expect(() => NOOP_REPORTER({ stage: 'done' })).not.toThrow();
   });
 

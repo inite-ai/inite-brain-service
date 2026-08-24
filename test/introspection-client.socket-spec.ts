@@ -6,10 +6,7 @@
  */
 import * as http from 'node:http';
 import { ConfigService } from '@nestjs/config';
-import {
-  IntrospectionClient,
-  mapIntrospectionRecord,
-} from '../src/auth/introspection.client';
+import { IntrospectionClient, mapIntrospectionRecord } from '../src/auth/introspection.client';
 
 class StubConfig {
   constructor(private readonly map: Record<string, string>) {}
@@ -23,7 +20,13 @@ describe('mapIntrospectionRecord', () => {
 
   it('maps an org-bound key: tenant = org, no userId', () => {
     const rec = mapIntrospectionRecord(
-      { active: true, sub: 'co_acme', org: 'co_acme', aud: 'brain', scope: 'brain:read brain:write' },
+      {
+        active: true,
+        sub: 'co_acme',
+        org: 'co_acme',
+        aud: 'brain',
+        scope: 'brain:read brain:write',
+      },
       hash,
       'brain',
     );
@@ -62,9 +65,7 @@ describe('mapIntrospectionRecord', () => {
   });
 
   it('rejects inactive, foreign-audience, and scope-less answers', () => {
-    expect(
-      mapIntrospectionRecord({ active: false }, hash, 'brain'),
-    ).toBeNull();
+    expect(mapIntrospectionRecord({ active: false }, hash, 'brain')).toBeNull();
     expect(
       mapIntrospectionRecord(
         { active: true, sub: 'co_a', org: 'co_a', aud: 'inbox', scope: 'brain:read' },
@@ -93,11 +94,7 @@ describe('mapIntrospectionRecord', () => {
       hash,
       'brain',
     );
-    expect(rec?.scopes).toEqual([
-      'indexer:write',
-      'registry:publish',
-      'registry:curate',
-    ]);
+    expect(rec?.scopes).toEqual(['indexer:write', 'registry:publish', 'registry:curate']);
   });
 });
 
@@ -144,9 +141,7 @@ describe('IntrospectionClient (HTTP + cache)', () => {
   });
 
   it('fromConfig returns null when credentials are missing', () => {
-    const none = IntrospectionClient.fromConfig(
-      new StubConfig({}) as unknown as ConfigService,
-    );
+    const none = IntrospectionClient.fromConfig(new StubConfig({}) as unknown as ConfigService);
     expect(none).toBeNull();
 
     const configured = IntrospectionClient.fromConfig(

@@ -97,10 +97,12 @@ describe('multi-label kinds heads', () => {
 
   it('a v1 model (no kinds) yields no kind predictions', () => {
     const v1 = trainGate(
-      trainExamples(GATE_GOLDEN).map((e) => ({ ...e, kinds: undefined })),
+      trainExamples(GATE_GOLDEN).map(({ kinds: _kinds, ...rest }) => rest),
       { epochs: 20, seed: 7 },
     );
     expect(v1.version).toBe(1);
-    expect(new TrainedDecisionClassifier(v1).classifyKinds(goldenCommit(GATE_GOLDEN[0]))).toEqual([]);
+    expect(new TrainedDecisionClassifier(v1).classifyKinds(goldenCommit(GATE_GOLDEN[0]!))).toEqual(
+      [],
+    );
   });
 });

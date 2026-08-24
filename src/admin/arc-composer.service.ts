@@ -76,7 +76,8 @@ export function validArc(arc: ArcProposal, facts: FactRowLite[]): boolean {
   if (arc.members.length < 2) return false;
   if (!arc.members.every((m) => m >= 0 && m < facts.length)) return false;
   if (arc.narrative.trim().length === 0) return false;
-  const days = new Set(arc.members.map((m) => factDay(facts[m].validFrom)));
+  // members validated in-bounds by the check above.
+  const days = new Set(arc.members.map((m) => factDay(facts[m]!.validFrom)));
   return days.size >= 2;
 }
 
@@ -85,8 +86,7 @@ export function arcValidFrom(arc: ArcProposal, facts: FactRowLite[]): Date {
   let best = 0;
   for (const m of arc.members) {
     const v = facts[m]?.validFrom;
-    const t =
-      v instanceof Date ? v.getTime() : new Date(String(v ?? 0)).getTime();
+    const t = v instanceof Date ? v.getTime() : new Date(String(v ?? 0)).getTime();
     if (Number.isFinite(t) && t > best) best = t;
   }
   return best > 0 ? new Date(best) : new Date();
@@ -142,7 +142,8 @@ export class ArcComposerService {
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: arc.members.map(
-          (m) => new StringRecordId(String(ctx.facts[m].id)),
+          // members are validated in-bounds by validArc.
+          (m) => new StringRecordId(String(ctx.facts[m]!.id)),
         ),
         ...(ctx.version ? { derivedVersion: ctx.version } : {}),
       };
@@ -156,7 +157,7 @@ export class ArcComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number; version?: string } = {},
+    opts: { entities?: number | undefined; version?: string | undefined } = {},
   ): Promise<ArcRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
@@ -166,10 +167,7 @@ export class ArcComposerService {
     return { entities: r.entities, arcsWritten: r.written, skipped: r.skipped };
   }
 
-  private async callComposer(
-    name: string,
-    factLines: string[],
-  ): Promise<ArcProposal[]> {
+  private async callComposer(name: string, factLines: string[]): Promise<ArcProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,

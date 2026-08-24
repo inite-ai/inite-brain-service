@@ -29,7 +29,7 @@ export async function fetchNeighbours({
   logger: { warn: (msg: string) => void };
   entityIds: string[];
   /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
-  userId?: string;
+  userId?: string | undefined;
 }): Promise<Map<string, Neighbour[]>> {
   const out = new Map<string, Neighbour[]>();
   if (entityIds.length === 0) return out;
@@ -134,13 +134,11 @@ export async function expandEntityIdsViaEdges({
   logger: { warn: (msg: string) => void };
   entityIds: string[];
   /** Caller's end-user scope; omitted → tenant-global edges/peers only. */
-  userId?: string;
+  userId?: string | undefined;
 }): Promise<string[]> {
   if (entityIds.length === 0) return entityIds;
   const rids = entityIds.map((raw) => {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
+    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return new StringRecordId(`knowledge_entity:${id}`);
   });
   const fence = buildEdgeFence(userId);

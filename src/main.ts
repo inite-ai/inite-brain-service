@@ -46,10 +46,7 @@ async function bootstrap() {
   const procLog = new Logger('Process');
   process.on('unhandledRejection', (reason) => {
     const e = reason as Error;
-    procLog.error(
-      `unhandledRejection: ${e?.message ?? reason}`,
-      e?.stack,
-    );
+    procLog.error(`unhandledRejection: ${e?.message ?? reason}`, e?.stack);
   });
   process.on('uncaughtExceptionMonitor', (err) => {
     procLog.error(`uncaughtException: ${err?.message ?? err}`, err?.stack);
@@ -73,19 +70,21 @@ async function bootstrap() {
   // inline scripts; everything else is JSON. Enforce a CSP that allows that
   // one page's inline styles, pins scripts/objects to same-origin/none, and
   // forbids framing. (Leaving CSP off entirely is what CodeQL flagged.)
-  app.use(helmet({
-    contentSecurityPolicy: {
-      useDefaults: true,
-      directives: {
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'none'"],
-        frameAncestors: ["'none'"],
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
       },
-    },
-    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-  }));
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    }),
+  );
 
   // correlationIdMiddleware runs FIRST so the ALS store is set before
   // any other middleware (request-logger, debug-trace) reads it. The
@@ -134,12 +133,20 @@ async function bootstrap() {
     clearTimeout(t);
     process.exit(0);
   };
-  process.on('SIGTERM', onTerm);
-  process.on('SIGINT', onTerm);
+  // process.on's listener type is (...args) => void, but onTerm is async.
+  // Wrap it so a rejection (e.g. shutdownTracing throwing) is logged and
+  // forces exit instead of surfacing as an unhandledRejection mid-shutdown.
+  const onTermListener = () => {
+    void onTerm().catch((err) => {
+      logger.error(`Shutdown handler failed: ${(err as Error).message}`);
+      process.exit(1);
+    });
+  };
+  process.on('SIGTERM', onTermListener);
+  process.on('SIGINT', onTermListener);
 }
 
 bootstrap().catch((err) => {
-   
   console.error(err.message ?? err);
   process.exit(1);
 });

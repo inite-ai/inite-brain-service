@@ -52,9 +52,9 @@ describe('buildDecisionLog', () => {
 
     expect(log).toHaveLength(2);
     expect(log[0]).toMatchObject({ factId: 'f1', picked: true });
-    expect(log[0].rejectReason).toBeUndefined();
+    expect(log[0]!.rejectReason).toBeUndefined();
     expect(log[1]).toMatchObject({ factId: 'f2', picked: false });
-    expect(log[1].rejectReason).toBe('not_relevant_to_query');
+    expect(log[1]!.rejectReason).toBe('not_relevant_to_query');
   });
 
   it('flags low-score rejections below the threshold', () => {
@@ -71,7 +71,7 @@ describe('buildDecisionLog', () => {
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(), { lowScoreThreshold: 0.1 });
-    expect(log[0].rejectReason).toBe('low_score');
+    expect(log[0]!.rejectReason).toBe('low_score');
   });
 
   it('flags second occurrence of a predicate as duplicate', () => {
@@ -103,17 +103,34 @@ describe('buildDecisionLog', () => {
   it('orders picked facts before rejected, both by finalScore desc', () => {
     const hits = [
       makeHit('e1', [
-        { factId: 'low_pick', predicate: 'p1', object: 'o1', confidence: 0.5, score: 0.3, finalScore: 0.3 },
-        { factId: 'high_pick', predicate: 'p2', object: 'o2', confidence: 0.9, score: 0.8, finalScore: 0.8 },
-        { factId: 'high_reject', predicate: 'p3', object: 'o3', confidence: 0.95, score: 0.7, finalScore: 0.7 },
+        {
+          factId: 'low_pick',
+          predicate: 'p1',
+          object: 'o1',
+          confidence: 0.5,
+          score: 0.3,
+          finalScore: 0.3,
+        },
+        {
+          factId: 'high_pick',
+          predicate: 'p2',
+          object: 'o2',
+          confidence: 0.9,
+          score: 0.8,
+          finalScore: 0.8,
+        },
+        {
+          factId: 'high_reject',
+          predicate: 'p3',
+          object: 'o3',
+          confidence: 0.95,
+          score: 0.7,
+          finalScore: 0.7,
+        },
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(['low_pick', 'high_pick']));
-    expect(log.map((e) => e.factId)).toEqual([
-      'high_pick',
-      'low_pick',
-      'high_reject',
-    ]);
+    expect(log.map((e) => e.factId)).toEqual(['high_pick', 'low_pick', 'high_reject']);
   });
 
   it('carries provenance stages through to each entry', () => {
@@ -131,7 +148,7 @@ describe('buildDecisionLog', () => {
       ]),
     ];
     const log = buildDecisionLog(hits, new Set(['fg']));
-    expect(log[0].scoreBreakdown.stages).toEqual(['graph_neighbour', 'lexical']);
+    expect(log[0]!.scoreBreakdown.stages).toEqual(['graph_neighbour', 'lexical']);
   });
 
   it('falls back to a synthetic breakdown when one is missing', () => {
@@ -157,7 +174,7 @@ describe('buildDecisionLog', () => {
       },
     ];
     const log = buildDecisionLog(hits, new Set(['f1']));
-    expect(log[0].scoreBreakdown.finalScore).toBe(0.5);
-    expect(log[0].scoreBreakdown.stages).toEqual([]);
+    expect(log[0]!.scoreBreakdown.finalScore).toBe(0.5);
+    expect(log[0]!.scoreBreakdown.stages).toEqual([]);
   });
 });

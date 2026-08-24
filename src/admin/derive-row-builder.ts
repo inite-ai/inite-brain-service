@@ -14,6 +14,24 @@ import type { EpisodeRow } from '../episodes/session-window';
  * functions of (propositions, session, namespace) — no service state.
  */
 
+/**
+ * exactOptionalPropertyTypes-safe scope fields: present only when defined.
+ * Downstream resolveAppendOnlyBatch (fact-resolver) already treats an absent
+ * key identically to an explicit undefined value (`if (c.lang !== undefined)
+ * f.lang = c.lang`, same for script/userId), so omitting is behavior-neutral.
+ */
+function derivedScopeFields(
+  lang: string | undefined,
+  script: string | undefined,
+  userId: string | undefined,
+): { lang?: string; script?: string; userId?: string } {
+  return {
+    ...(lang !== undefined ? { lang } : {}),
+    ...(script !== undefined ? { script } : {}),
+    ...(userId !== undefined ? { userId } : {}),
+  };
+}
+
 /** Row construction for one session's resolved propositions. */
 export function buildDerivedRows({
   resolved,
@@ -80,7 +98,7 @@ export function buildDerivedRows({
       resolveExtractionProfile().deriveMentionStamp && firstTurn !== undefined
         ? {
             mentionedAt: new Date(
-              session[firstTurn].occurredAt as string,
+              session[firstTurn]!.occurredAt as string, // firstTurn < session.length
             ).toISOString(),
             turnIndex: firstTurn,
           }
@@ -101,19 +119,16 @@ export function buildDerivedRows({
     // along) → that user's fact; grounded in turns of TWO OR MORE
     // users → the row is poisoned for any single scope and must be
     // dropped (crossUserScope; the caller filters and warns).
-    const groundingTurns = p.turns.filter(
-      (t) => t >= 0 && t < session.length,
-    );
+    const groundingTurns = p.turns.filter((t) => t >= 0 && t < session.length);
     // Fail-closed (audit 2026-08-21 P0 round 2): a proposition with NO
     // turns, or with ANY out-of-range index, has unreliable grounding —
     // its scope cannot be trusted, so the row is dropped rather than
     // published tenant-global (groundingInvalid; the caller filters).
-    const groundingInvalid =
-      p.turns.length === 0 || groundingTurns.length !== p.turns.length;
+    const groundingInvalid = p.turns.length === 0 || groundingTurns.length !== p.turns.length;
     const scopeUsers = [
       ...new Set(
         groundingTurns
-          .map((t) => session[t].userId)
+          .map((t) => session[t]!.userId) // t < session.length (filtered)
           .filter((u): u is string => typeof u === 'string' && u.length > 0),
       ),
     ];
@@ -136,7 +151,7 @@ export function buildDerivedRows({
       vertical: 'derived',
       recorder: ns.final,
       conversationId,
-      episodeIds: groundingTurns.map((t) => String(session[t].id)),
+      episodeIds: groundingTurns.map((t) => String(session[t]!.id)), // t < session.length
       ...salience,
       ...mention,
       ...scene,
@@ -144,24 +159,23 @@ export function buildDerivedRows({
       // Multiworld §10: on-contract kinds only (off-enum → untyped).
       ...typedAtomKind(p),
     };
+    const scopeUserId = scopeUsers.length === 1 ? scopeUsers[0] : undefined;
     return {
-      userId: scopeUsers.length === 1 ? scopeUsers[0] : undefined,
       crossUserScope: scopeUsers.length > 1,
       groundingInvalid,
       entityId: subjectEntity,
       predicate: aspect || 'other',
       object: p.proposition,
       confidence: 0.85,
-      lang,
-      script,
       validFrom,
       source,
       sourceTrust: sourceTrustFor({
         vertical: 'derived',
         recorder: ns.final,
       }),
-      embedding: vectors[i],
+      embedding: vectors[i]!, // vectors is 1:1 with resolved ⇒ in-bounds
       derivedVersion: ns.staging,
+      ...derivedScopeFields(lang, script, scopeUserId),
     };
   });
 }
@@ -197,9 +211,7 @@ export function collectRollupPool({
         : null;
     return {
       dated:
-        !!occ &&
-        !Number.isNaN(occ.getTime()) &&
-        occ.toISOString().slice(0, 10) === p.occurred_on,
+        !!occ && !Number.isNaN(occ.getTime()) && occ.toISOString().slice(0, 10) === p.occurred_on,
     };
   });
   accumulateLanded(rollupPool, rows, { outcomes, meta });

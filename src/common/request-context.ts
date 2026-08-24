@@ -30,7 +30,7 @@ export interface RequestContext {
    * their OpenAI / fetch calls so a cancelled request stops burning
    * tokens. Undefined for background contexts (cron, startup).
    */
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
   /**
    * ABAC policy context for the authenticated key, stamped by
    * ApiKeyGuard after credential + action gating. Read surfaces pick
@@ -45,9 +45,7 @@ export interface RequestContext {
    * Kept as a closure so pure modules (policy/row-filter) never touch
    * DI. Set iff `policy` is set.
    */
-  recordPolicyRows?: (
-    summary: import('../policy/row-filter').RowDecisionSummary,
-  ) => void;
+  recordPolicyRows?: (summary: import('../policy/row-filter').RowDecisionSummary) => void;
   /**
    * End-user identity of a user-bound access token (auth-service `sub`
    * when the token carries an `org` claim), stamped by ApiKeyGuard.
@@ -73,10 +71,7 @@ export interface RequestContext {
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
-export function runWithRequestContext<T>(
-  ctx: RequestContext,
-  fn: () => T,
-): T {
+export function runWithRequestContext<T>(ctx: RequestContext, fn: () => T): T {
   return storage.run(ctx, fn);
 }
 
@@ -107,15 +102,12 @@ export function getAbortSignal(): AbortSignal | undefined {
 }
 
 /** Active ABAC policy context, or undefined outside a policied request. */
-export function getPolicyContext():
-  | import('../policy/policy.types').PolicyContext
-  | undefined {
+export function getPolicyContext(): import('../policy/policy.types').PolicyContext | undefined {
   return storage.getStore()?.policy;
 }
 
 /** Row-decision recorder bound by the guard; undefined without a policy. */
 export function getPolicyRowRecorder():
-  | ((summary: import('../policy/row-filter').RowDecisionSummary) => void)
-  | undefined {
+  ((summary: import('../policy/row-filter').RowDecisionSummary) => void) | undefined {
   return storage.getStore()?.recordPolicyRows;
 }

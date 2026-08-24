@@ -107,9 +107,7 @@ export function applyProcessRole(env: NodeJS.ProcessEnv): string[] {
       continue;
     }
     env[def.name] = def.value;
-    lines.push(
-      `PROCESS_ROLE=${role}: applied ${def.name}=${def.value} (${def.reason})`,
-    );
+    lines.push(`PROCESS_ROLE=${role}: applied ${def.name}=${def.value} (${def.reason})`);
   }
   return lines;
 }

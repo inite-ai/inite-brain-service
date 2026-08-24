@@ -37,20 +37,14 @@ export class StatsService {
    *  users refresh. Keyed by tenant only (the counts are not
    *  scope-dependent; the scoped connection matters for row reads, not
    *  aggregates over statuses). */
-  private readonly cache = new LRUCache<
-    string,
-    { stats: MemoryStats; at: number }
-  >(500);
+  private readonly cache = new LRUCache<string, { stats: MemoryStats; at: number }>(500);
   private static readonly CACHE_TTL_MS = 30_000;
   /** Tenants whose view-read failure has already been logged (log once). */
   private readonly viewFallbackLogged = new Set<string>();
 
   constructor(private readonly surreal: SurrealService) {}
 
-  async overview(
-    companyId: string,
-    scopes: readonly string[],
-  ): Promise<MemoryStats> {
+  async overview(companyId: string, scopes: readonly string[]): Promise<MemoryStats> {
     const nowMs = Date.now();
     if (envFlagEnabled(process.env.STATS_VIEWS_ENABLED)) {
       try {

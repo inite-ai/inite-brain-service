@@ -41,20 +41,26 @@ describe('Scoped pool — DB-level PII enforcement', () => {
 
   it('DB-level: address fact `object` is hidden for non-PII caller via scoped pool PERMISSIONS', async () => {
     // Seed a non-PII fact and a PII fact on the same entity.
-    await full.http.post('/v1/ingest/fact').set(fullAuth()).send({
-      entityRef: { vertical: 'rent', id: 'pii_fence_cust' },
-      predicate: 'name',
-      object: 'Sasha Tester',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent' },
-    });
-    await full.http.post('/v1/ingest/fact').set(fullAuth()).send({
-      entityRef: { vertical: 'rent', id: 'pii_fence_cust' },
-      predicate: 'address',
-      object: '42 Hidden Lane',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'billing.address_set' },
-    });
+    await full.http
+      .post('/v1/ingest/fact')
+      .set(fullAuth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'pii_fence_cust' },
+        predicate: 'name',
+        object: 'Sasha Tester',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent' },
+      });
+    await full.http
+      .post('/v1/ingest/fact')
+      .set(fullAuth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'pii_fence_cust' },
+        predicate: 'address',
+        object: '42 Hidden Lane',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'billing.address_set' },
+      });
 
     // Resolve entityId.
     const v = await full.http
@@ -71,9 +77,7 @@ describe('Scoped pool — DB-level PII enforcement', () => {
       .get(`/v1/entities/${encodeURIComponent(entityId)}`)
       .set(fullAuth());
     expect(fullProfile.status).toBe(200);
-    const addressInFull = fullProfile.body.facts.find(
-      (f: any) => f.predicate === 'address',
-    );
+    const addressInFull = fullProfile.body.facts.find((f: any) => f.predicate === 'address');
     expect(addressInFull?.object).toBe('42 Hidden Lane');
 
     // Limited-scope caller — the app-layer filter strips the address
@@ -93,35 +97,42 @@ describe('Scoped pool — DB-level PII enforcement', () => {
 
   it('DB-level: artifact PII gate strips identity_dossier.address for non-PII caller', async () => {
     // Use a fresh entity to avoid bleed from prior test ordering.
-    await full.http.post('/v1/ingest/fact').set(fullAuth()).send({
-      entityRef: { vertical: 'rent', id: 'art_pii_cust' },
-      predicate: 'name',
-      object: 'Iris Test',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent' },
-    });
-    await full.http.post('/v1/ingest/fact').set(fullAuth()).send({
-      entityRef: { vertical: 'rent', id: 'art_pii_cust' },
-      predicate: 'address',
-      object: '99 Secret Way',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'billing.address_set' },
-    });
-    await full.http.post('/v1/ingest/fact').set(fullAuth()).send({
-      entityRef: { vertical: 'rent', id: 'art_pii_cust' },
-      predicate: 'email',
-      object: 'iris@example.com',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', eventId: 'auth.email_set' },
-    });
+    await full.http
+      .post('/v1/ingest/fact')
+      .set(fullAuth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_pii_cust' },
+        predicate: 'name',
+        object: 'Iris Test',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent' },
+      });
+    await full.http
+      .post('/v1/ingest/fact')
+      .set(fullAuth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_pii_cust' },
+        predicate: 'address',
+        object: '99 Secret Way',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'billing.address_set' },
+      });
+    await full.http
+      .post('/v1/ingest/fact')
+      .set(fullAuth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'art_pii_cust' },
+        predicate: 'email',
+        object: 'iris@example.com',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', eventId: 'auth.email_set' },
+      });
 
     const v = await full.http
       .post('/v1/search')
       .set(fullAuth())
       .send({ query: 'name: Iris Test', limit: 5, searchMode: 'vector' });
-    const entityId = v.body.results.find(
-      (r: any) => r.canonicalName === 'art_pii_cust',
-    )?.entityId;
+    const entityId = v.body.results.find((r: any) => r.canonicalName === 'art_pii_cust')?.entityId;
     expect(entityId).toBeTruthy();
 
     const fullDossier = await full.http

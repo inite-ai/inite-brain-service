@@ -9,23 +9,26 @@ import type { ExtractedEdge } from './types';
  * Returns surviving edges + drop diagnostics for trace emission.
  */
 export function validateEdges(
-  parsed: any,
+  parsed: unknown,
   entityCount: number,
   clauses: string[],
 ): {
   edges: ExtractedEdge[];
-  dropped: Array<{ kind?: string; reason: string }>;
+  dropped: Array<{ kind?: string | undefined; reason: string }>;
 } {
   const edges: ExtractedEdge[] = [];
-  const dropped: Array<{ kind?: string; reason: string }> = [];
-  if (!Array.isArray(parsed.edges)) return { edges, dropped };
+  const dropped: Array<{ kind?: string | undefined; reason: string }> = [];
+  const rawEdges =
+    typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>).edges
+      : undefined;
+  if (!Array.isArray(rawEdges)) return { edges, dropped };
 
-  for (const e of parsed.edges as Array<Record<string, unknown>>) {
+  for (const e of rawEdges as Array<Record<string, unknown>>) {
     if (!e || typeof e !== 'object') continue;
     const from = Number(e.fromEntityIndex);
     const to = Number(e.toEntityIndex);
-    const kind =
-      typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
+    const kind = typeof e.kind === 'string' ? e.kind.trim().toLowerCase() : '';
     if (
       !Number.isInteger(from) ||
       !Number.isInteger(to) ||
@@ -53,13 +56,9 @@ export function validateEdges(
         ? (e.clauseIndex as number)
         : undefined;
     const clauseText =
-      clauseIndex !== undefined && clauseIndex < clauses.length
-        ? clauses[clauseIndex]
-        : undefined;
+      clauseIndex !== undefined && clauseIndex < clauses.length ? clauses[clauseIndex] : undefined;
     const confidence =
-      typeof e.confidence === 'number'
-        ? Math.max(0, Math.min(1, e.confidence))
-        : 0.7;
+      typeof e.confidence === 'number' ? Math.max(0, Math.min(1, e.confidence)) : 0.7;
     edges.push({
       fromEntityIndex: from,
       toEntityIndex: to,

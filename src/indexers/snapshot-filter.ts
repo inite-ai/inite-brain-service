@@ -20,32 +20,25 @@ import type {
 
 export function filterSnapshotForPack(
   full: PredicateSnapshot,
-  opts: { packId: string; includeCorePredicates?: boolean },
+  opts: { packId: string; includeCorePredicates?: boolean | undefined },
 ): PredicateSnapshot {
   const includeCore = opts.includeCorePredicates !== false;
   const prefix = opts.packId + PACK_NAMESPACE_SEP;
   const keep = (predicateId: string) =>
-    predicateId.startsWith(prefix) ||
-    (includeCore && !isPackNamespaced(predicateId));
+    predicateId.startsWith(prefix) || (includeCore && !isPackNamespaced(predicateId));
 
   const active = full.active.filter((p) => keep(p.predicateId));
   const byId = new Map(active.map((p) => [p.predicateId, p] as const));
   // Aliases only survive when their canonical target survives — a chain
   // pointing outside the pack view would resolve to a missing predicate.
-  const aliasMap = new Map(
-    [...full.aliasMap].filter(([, canonical]) => byId.has(canonical)),
+  const aliasMap = new Map([...full.aliasMap].filter(([, canonical]) => byId.has(canonical)));
+  const embeddings = new Map([...full.embeddings].filter(([predicateId]) => byId.has(predicateId)));
+  const extractionProfiles: PackExtractionProfile[] = (full.extractionProfiles ?? []).filter(
+    (p) => p.packId === opts.packId,
   );
-  const embeddings = new Map(
-    [...full.embeddings].filter(([predicateId]) => byId.has(predicateId)),
-  );
-  const extractionProfiles: PackExtractionProfile[] = (
-    full.extractionProfiles ?? []
-  ).filter((p) => p.packId === opts.packId);
 
   const versionHash = createHash('sha256')
-    .update(
-      `${full.versionHash}:${opts.packId}:${includeCore ? 'core' : 'nocore'}`,
-    )
+    .update(`${full.versionHash}:${opts.packId}:${includeCore ? 'core' : 'nocore'}`)
     .digest('hex')
     .slice(0, 16);
 

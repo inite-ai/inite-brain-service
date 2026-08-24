@@ -32,10 +32,12 @@ function row(over: Partial<FusedRow> = {}): FusedRow {
 
 describe('scoreRows — usage-aware decay', () => {
   it('restarts the decay clock at lastReadAt', () => {
-    const [stale, used] = scoreRows({
+    const ranked = scoreRows({
       rows: [row(), row({ lastReadAt: new Date(NOW - DAY).toISOString() })],
       now: NOW,
     });
+    const stale = ranked[0]!;
+    const used = ranked[1]!;
     // 120 days at half-life 60 → 0.25; read a day ago → ~0.988.
     expect(stale.breakdown.decay).toBeCloseTo(0.25, 2);
     expect(used.breakdown.decay).toBeGreaterThan(0.95);
@@ -43,7 +45,7 @@ describe('scoreRows — usage-aware decay', () => {
   });
 
   it('a lastReadAt older than recordedAt never penalizes', () => {
-    const [fresh, freshWithStaleRead] = scoreRows({
+    const ranked = scoreRows({
       rows: [
         row({ recordedAt: new Date(NOW).toISOString() }),
         row({
@@ -53,17 +55,16 @@ describe('scoreRows — usage-aware decay', () => {
       ],
       now: NOW,
     });
+    const fresh = ranked[0]!;
+    const freshWithStaleRead = ranked[1]!;
     expect(freshWithStaleRead.score).toBe(fresh.score);
   });
 
   it('no usage stamp → byte-identical to the pre-0053 formula', () => {
-    const [scored] = scoreRows({
+    const scored = scoreRows({
       rows: [row()],
       now: NOW,
-    });
-    expect(scored.breakdown.decay).toBeCloseTo(
-      Math.exp((-Math.LN2 * 120) / 60),
-      10,
-    );
+    })[0]!;
+    expect(scored.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 60), 10);
   });
 });

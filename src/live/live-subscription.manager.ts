@@ -3,10 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
 import { envFlagEnabled } from '../common/env-validation';
-import {
-  makeRowPolicyFilter,
-  type PredicatePolicyLookup,
-} from '../policy/row-filter';
+import { queryRows } from '../db/surreal.service';
+import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
+
+/** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
+interface ChangefeedShowRow {
+  versionstamp?: number | string;
+  changes?: unknown[];
+}
 
 /** One knowledge-fact change delivered to a subscriber. */
 export interface LiveFactEvent {
@@ -51,7 +55,7 @@ interface Subscriber {
   id: string;
   callerScopes: readonly string[];
   sink: (event: LiveEvent) => void;
-  policyLookup?: PredicatePolicyLookup;
+  policyLookup?: PredicatePolicyLookup | undefined;
   /** Bounded outbox depth; overflow → resync signal, never unbounded memory. */
   queued: number;
 }
@@ -115,9 +119,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   private seq = 0;
 
   constructor(private readonly config: ConfigService) {
-    this.enabled = envFlagEnabled(
-      config.get<string>('LIVE_SUBSCRIPTIONS_ENABLED'),
-    );
+    this.enabled = envFlagEnabled(config.get<string>('LIVE_SUBSCRIPTIONS_ENABLED'));
     this.url = config.get<string>('SURREALDB_URL', '');
     this.namespace = config.get<string>('SURREALDB_NAMESPACE', 'brain');
     this.creds = {
@@ -132,10 +134,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
       config.get<string>('LIVE_MAX_QUEUE_PER_SUBSCRIBER', '500'),
       10,
     );
-    this.catchUpMs = parseInt(
-      config.get<string>('LIVE_CATCHUP_INTERVAL_MS', '10000'),
-      10,
-    );
+    this.catchUpMs = parseInt(config.get<string>('LIVE_CATCHUP_INTERVAL_MS', '10000'), 10);
   }
 
   isEnabled(): boolean {
@@ -147,16 +146,11 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
    * tenant opens the connection + LIVE query; the last one to leave closes
    * them, so an idle tenant holds no socket.
    */
-  async subscribe(
-    companyId: string,
-    opts: LiveSubscribeOptions,
-  ): Promise<LiveHandle> {
+  async subscribe(companyId: string, opts: LiveSubscribeOptions): Promise<LiveHandle> {
     if (!this.enabled) throw new Error('live subscriptions are disabled');
     const channel = await this.channelFor(companyId);
     if (channel.subscribers.size >= this.maxSubscribersPerTenant) {
-      throw new Error(
-        `live subscription cap reached for tenant (${this.maxSubscribersPerTenant})`,
-      );
+      throw new Error(`live subscription cap reached for tenant (${this.maxSubscribersPerTenant})`);
     }
     const id = `sub_${++this.seq}`;
     channel.subscribers.set(id, {
@@ -235,17 +229,17 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   async catchUp(companyId: string): Promise<number> {
     const channel = this.channels.get(companyId);
     if (!channel) return 0;
-    const [rows] = await channel.conn.query<[any[]]>(
+    const changes = await queryRows<ChangefeedShowRow>(
+      channel.conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE ${channel.versionstamp} LIMIT 1000`,
     );
-    const changes = (rows as any[]) ?? [];
     let emitted = 0;
     let highest = channel.versionstamp;
     for (const change of changes) {
-      const vs = Number(change?.versionstamp ?? 0);
+      const vs = Number(change.versionstamp ?? 0);
       if (vs <= channel.versionstamp) continue;
       if (vs > highest) highest = vs;
-      for (const item of (change?.changes as any[]) ?? []) {
+      for (const item of change.changes ?? []) {
         const event = toReplayEvent(item);
         if (!event) continue;
         // Already pushed over the socket — replay must not double-deliver.
@@ -292,19 +286,13 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   }
 
   /** A sink that throws is a broken consumer — drop it rather than the stream. */
-  private safeSend(
-    channel: TenantChannel,
-    s: Subscriber,
-    event: LiveEvent,
-  ): void {
+  private safeSend(channel: TenantChannel, s: Subscriber, event: LiveEvent): void {
     try {
       s.queued += 1;
       s.sink(event);
       s.queued -= 1;
     } catch (e) {
-      this.logger.warn(
-        `live subscriber ${s.id} sink threw, dropping: ${(e as Error).message}`,
-      );
+      this.logger.warn(`live subscriber ${s.id} sink threw, dropping: ${(e as Error).message}`);
       channel.subscribers.delete(s.id);
     }
   }
@@ -341,14 +329,11 @@ export function dbNameFor(companyId: string): string {
  */
 async function currentVersionstamp(conn: Surreal): Promise<number> {
   try {
-    const [rows] = await conn.query<[any[]]>(
+    const changes = await queryRows<ChangefeedShowRow>(
+      conn,
       `SHOW CHANGES FOR TABLE ${TABLE} SINCE 0 LIMIT 100000`,
     );
-    const changes = (rows as any[]) ?? [];
-    return changes.reduce(
-      (max, c) => Math.max(max, Number(c?.versionstamp ?? 0)),
-      0,
-    );
+    return changes.reduce((max, c) => Math.max(max, Number(c.versionstamp ?? 0)), 0);
   } catch {
     return 0;
   }
@@ -360,7 +345,7 @@ export function toFactEvent(
   via: 'live' | 'replay',
 ): LiveFactEvent | null {
   const value = (msg?.value ?? {}) as Record<string, unknown>;
-  const factId = String((msg as any)?.recordId ?? value.id ?? '');
+  const factId = String(msg?.recordId ?? value.id ?? '');
   if (!factId || typeof value.predicate !== 'string') return null;
   return {
     kind: 'fact',

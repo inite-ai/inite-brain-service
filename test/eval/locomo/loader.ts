@@ -22,14 +22,10 @@ import type {
  * the split form requires a one-shot merge (see docs/locomo.md).
  */
 
-export async function loadLocomoDataset(
-  path: string,
-): Promise<NormalizedConversation[]> {
+export async function loadLocomoDataset(path: string): Promise<NormalizedConversation[]> {
   const raw = await fs.readFile(path, 'utf-8');
   const parsed = JSON.parse(raw) as LocomoDataset | LocomoSample[];
-  const samples: LocomoSample[] = Array.isArray(parsed)
-    ? parsed
-    : parsed.samples;
+  const samples: LocomoSample[] = Array.isArray(parsed) ? parsed : parsed.samples;
   if (!Array.isArray(samples) || samples.length === 0) {
     throw new Error(
       `Locomo loader: no samples found in ${path} — expected { samples: [...] } or top-level array`,
@@ -72,19 +68,15 @@ function extractSessions(conv: LocomoRawConversation): LocomoSession[] {
   for (const key of Object.keys(conv)) {
     const match = key.match(/^session_(\d+)$/);
     if (!match) continue;
-    const idx = parseInt(match[1], 10);
+    const idx = parseInt(match[1]!, 10);
     const turnsValue = conv[key];
     if (!Array.isArray(turnsValue)) {
-      throw new Error(
-        `Locomo loader: session_${idx} is not an array — got ${typeof turnsValue}`,
-      );
+      throw new Error(`Locomo loader: session_${idx} is not an array — got ${typeof turnsValue}`);
     }
     const dateKey = `${key}_date_time`;
     const dateValue = conv[dateKey];
     const dateTime =
-      typeof dateValue === 'string'
-        ? toIsoOrPassthrough(dateValue)
-        : new Date(0).toISOString();
+      typeof dateValue === 'string' ? toIsoOrPassthrough(dateValue) : new Date(0).toISOString();
     sessions.push({
       index: idx,
       dateTime,

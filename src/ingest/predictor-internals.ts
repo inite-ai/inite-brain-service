@@ -10,12 +10,7 @@
 // 0006-era subset — otherwise detect_contradiction reports the wrong
 // outcome for corroboration and backdated ingests.
 export type IngestOutcome =
-  | 'INSERTED'
-  | 'INSERTED_HISTORICAL'
-  | 'CORROBORATED'
-  | 'SUPERSEDED'
-  | 'COMPETING'
-  | 'REJECTED';
+  'INSERTED' | 'INSERTED_HISTORICAL' | 'CORROBORATED' | 'SUPERSEDED' | 'COMPETING' | 'REJECTED';
 
 /**
  * JS mirror of `fn::origin_key_of` (migration 0050) composed with
@@ -34,15 +29,12 @@ export function originKeyOf(source: unknown): string {
   };
   if (s.originKey != null && s.originKey !== '') return String(s.originKey);
   if (s.vertical == null || s.vertical === '') return 'system_seed';
-  const recorder =
-    s.recorder == null || s.recorder === '' ? '_' : String(s.recorder);
+  const recorder = s.recorder == null || s.recorder === '' ? '_' : String(s.recorder);
   return `${String(s.vertical)}:${recorder}`;
 }
 
 export interface PredictResolveArgs {
-  entityRef:
-    | { vertical: string; id: string }
-    | { entityId: string };
+  entityRef: { vertical: string; id: string } | { entityId: string };
   predicate: string;
   object: string;
   validFrom: string;
@@ -61,7 +53,7 @@ export interface PredictResolveArgs {
    * record_fact. Omitted = tenant-global only (fail-closed), which is
    * the wrong opponent set for user-scoped candidates.
    */
-  userId?: string;
+  userId?: string | undefined;
 }
 
 export interface OpposingFact {
@@ -70,7 +62,7 @@ export interface OpposingFact {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
 }
 
@@ -143,8 +135,11 @@ export function cosineSimilarity(a: number[], b: number[], aNorm: number): numbe
   let dot = 0;
   let bNorm = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    bNorm += b[i] * b[i];
+    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    bNorm += bi * bi;
   }
   bNorm = Math.sqrt(bNorm);
   if (bNorm === 0) return 0;

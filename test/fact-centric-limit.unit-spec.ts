@@ -47,7 +47,7 @@ describe('selectFactCentric layers over the ranking (W4 #15)', () => {
 
   it('buckets outside the reranked window follow by best fact score', () => {
     const out = selectFactCentric(buckets, 48, { priority: ['e4'] });
-    expect(out[0].entityId).toBe('e4');
+    expect(out[0]!.entityId).toBe('e4');
     expect(out.slice(1).map((b) => b.entityId)).toEqual(['e1', 'e2', 'e3']);
   });
 
@@ -55,7 +55,7 @@ describe('selectFactCentric layers over the ranking (W4 #15)', () => {
     const out = selectFactCentric(buckets, 2, {});
     const facts = out.reduce((a, b) => a + b.facts.length, 0);
     expect(facts).toBe(2);
-    expect(out[0].entityId).toBe('e1');
+    expect(out[0]!.entityId).toBe('e1');
   });
 
   it('no limit → legacy behaviour (every surviving bucket)', () => {

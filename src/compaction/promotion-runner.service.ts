@@ -4,11 +4,7 @@ import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
-import {
-  ConcatSummaryGenerator,
-  FactToSummarize,
-  SummaryGenerator,
-} from './summary-generator';
+import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { envFlagEnabled } from '../common/env-validation';
 
@@ -79,20 +75,10 @@ export class PromotionRunnerService {
     private readonly embedder: EmbedderService,
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
   ) {
-    this.enabled =
-      envFlagEnabled(config.get<string>('COMPACTION_PROMOTION_ENABLED'));
-    this.ageDays = parseInt(
-      config.get<string>('COMPACTION_PROMOTION_AGE_DAYS', '180'),
-      10,
-    );
-    this.minGroup = parseInt(
-      config.get<string>('COMPACTION_PROMOTION_MIN_GROUP', '5'),
-      10,
-    );
-    this.maxGroups = parseInt(
-      config.get<string>('COMPACTION_PROMOTION_MAX_GROUPS', '20'),
-      10,
-    );
+    this.enabled = envFlagEnabled(config.get<string>('COMPACTION_PROMOTION_ENABLED'));
+    this.ageDays = parseInt(config.get<string>('COMPACTION_PROMOTION_AGE_DAYS', '180'), 10);
+    this.minGroup = parseInt(config.get<string>('COMPACTION_PROMOTION_MIN_GROUP', '5'), 10);
+    this.maxGroups = parseInt(config.get<string>('COMPACTION_PROMOTION_MAX_GROUPS', '20'), 10);
     this.summaryGenerator = injectedGenerator ?? new ConcatSummaryGenerator();
   }
 
@@ -144,9 +130,7 @@ export class PromotionRunnerService {
   private async findPromotableGroups(
     db: Surreal,
     cutoff: Date,
-  ): Promise<
-    Array<{ entityId: unknown; predicate: string; userId?: string | null }>
-  > {
+  ): Promise<Array<{ entityId: unknown; predicate: string; userId?: string | null }>> {
     // User scope (0055) is part of the group key — a user's episodic
     // history folds into THAT user's summary, never a blended one.
     const [rows] = (await db.query(
@@ -184,9 +168,7 @@ export class PromotionRunnerService {
     group: { entityId: unknown; predicate: string; userId?: string | null },
     cutoff: Date,
   ): Promise<number> {
-    const scopeClause = group.userId
-      ? 'AND userId = $scopeUser'
-      : 'AND userId IS NONE';
+    const scopeClause = group.userId ? 'AND userId = $scopeUser' : 'AND userId IS NONE';
     const [rows] = (await db.query(
       `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId
        FROM knowledge_fact
@@ -234,13 +216,14 @@ export class PromotionRunnerService {
       );
     }
 
-    const earliest = members[0].validFrom;
+    const first = members[0];
     const last = members[members.length - 1];
-    const meanConfidence =
-      members.reduce((acc, m) => acc + m.confidence, 0) / members.length;
+    if (!first || !last) return 0; // members non-empty (length ≥ minGroup)
+    const earliest = first.validFrom;
+    const meanConfidence = members.reduce((acc, m) => acc + m.confidence, 0) / members.length;
 
     await dbCreate(db, 'knowledge_fact', {
-      entityId: members[0].entityId,
+      entityId: first.entityId,
       predicate: `summary_${group.predicate}`,
       object: summaryText,
       confidence: meanConfidence,

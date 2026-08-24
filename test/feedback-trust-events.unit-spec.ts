@@ -17,10 +17,7 @@ describe('buildFeedbackTrustEvents', () => {
   });
 
   it('maps helpful → win, incorrect → loss, keyed by (source, predicate)', () => {
-    const events = buildFeedbackTrustEvents([
-      row('helpful'),
-      row('incorrect'),
-    ]);
+    const events = buildFeedbackTrustEvents([row('helpful'), row('incorrect')]);
     expect(events).toEqual([
       expect.objectContaining({
         sourceKey: 'rent:bot',
@@ -43,22 +40,16 @@ describe('buildFeedbackTrustEvents', () => {
   });
 
   it('falls back to the _ recorder like the fact-status events', () => {
-    const [e] = buildFeedbackTrustEvents([{ ...row('helpful'), recorder: null }]);
+    const e = buildFeedbackTrustEvents([{ ...row('helpful'), recorder: null }])[0]!;
     expect(e.sourceKey).toBe('rent:_');
   });
 
   it('caps one actor at a single vote per (source, predicate, verdict)', () => {
     // key_a votes incorrect on THREE different facts of the same source —
     // the farming vector. Only one loss should land.
-    const farmed = buildFeedbackTrustEvents([
-      row('incorrect'),
-      row('incorrect'),
-      row('incorrect'),
-    ]);
+    const farmed = buildFeedbackTrustEvents([row('incorrect'), row('incorrect'), row('incorrect')]);
     expect(farmed).toHaveLength(1);
-    expect(farmed[0]).toEqual(
-      expect.objectContaining({ sourceKey: 'rent:bot', loss: 1 }),
-    );
+    expect(farmed[0]).toEqual(expect.objectContaining({ sourceKey: 'rent:bot', loss: 1 }));
   });
 
   it('counts distinct actors separately (genuine crowd signal)', () => {

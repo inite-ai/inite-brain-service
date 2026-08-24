@@ -10,10 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { parseFlags } from '../test/eval/harness/flags';
 import { runPool } from '../test/eval/harness/pool';
-import {
-  buildAxisReport,
-  estimateHaystackTokens,
-} from '../test/eval/harness/report';
+import { buildAxisReport, estimateHaystackTokens } from '../test/eval/harness/report';
 import {
   runWorlds,
   speakerEntityName,
@@ -37,11 +34,12 @@ describe('parseFlags', () => {
   } as const;
 
   it('parses each type over defaults', () => {
-    const args = parseFlags(
-      ['--name', 'x', '--n', '7', '--on', '--list', 'a,b'],
-      spec,
-      { name: '', n: 1, on: false, list: [] as string[] },
-    );
+    const args = parseFlags(['--name', 'x', '--n', '7', '--on', '--list', 'a,b'], spec, {
+      name: '',
+      n: 1,
+      on: false,
+      list: [] as string[],
+    });
     expect(args).toEqual({ name: 'x', n: 7, on: true, list: ['a', 'b'] });
   });
 
@@ -100,9 +98,7 @@ describe('buildAxisReport', () => {
 describe('driver helpers', () => {
   it('mirrors the deriver speaker slug (suffix after ":", "-"→"_")', () => {
     expect(speakerEntityName('beam:100k-1', 'user')).toBe('100k_1__user');
-    expect(speakerEntityName('lme:abc_def', 'assistant')).toBe(
-      'abc_def__assistant',
-    );
+    expect(speakerEntityName('lme:abc_def', 'assistant')).toBe('abc_def__assistant');
   });
 
   it('schedules turns 30s apart, jumping past the gap per chunk', () => {
@@ -143,7 +139,7 @@ describe('runWorlds', () => {
 
   interface RecordedCall {
     url: string;
-    tenant?: string;
+    tenant?: string | undefined;
     body: Record<string, any>;
   }
 
@@ -162,9 +158,7 @@ describe('runWorlds', () => {
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
-        const body = chunks.length
-          ? JSON.parse(Buffer.concat(chunks).toString('utf-8'))
-          : {};
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf-8')) : {};
         calls.push({
           url: req.url ?? '',
           tenant: req.headers['x-brain-tenant'] as string | undefined,
@@ -220,8 +214,8 @@ describe('runWorlds', () => {
     // The V2 incident inverted: the poison is now a world-level error,
     // the row is NOT checkpointed, and a resume re-derives it.
     expect(scores).toHaveLength(1);
-    expect(String(scores[0].errored)).toContain('derive degraded');
-    expect(String(scores[0].errored)).toContain('insufficient_quota');
+    expect(String(scores[0]!.errored)).toContain('derive degraded');
+    expect(String(scores[0]!.errored)).toContain('insufficient_quota');
     expect(calls.some((c) => c.url.includes('multi-hop'))).toBe(false);
   });
 
@@ -246,10 +240,10 @@ describe('runWorlds', () => {
 
     const mentions = calls.filter((c) => c.url.includes('/v1/ingest/mention'));
     expect(mentions).toHaveLength(2);
-    expect(mentions[0].body.text).toHaveLength(TURN_CHAR_CAP); // cap applied
-    expect(mentions[0].body.emittedAt).toBe('2023-05-20T02:21:00.000Z');
-    expect(mentions[1].body.emittedAt).toBe('2023-05-20T02:21:30.000Z');
-    expect(mentions[0].body.knownEntities[0].name).toBe('q_1__user');
+    expect(mentions[0]!.body.text).toHaveLength(TURN_CHAR_CAP); // cap applied
+    expect(mentions[0]!.body.emittedAt).toBe('2023-05-20T02:21:00.000Z');
+    expect(mentions[1]!.body.emittedAt).toBe('2023-05-20T02:21:30.000Z');
+    expect(mentions[0]!.body.knownEntities[0].name).toBe('q_1__user');
 
     const derive = calls.find((c) => c.url.includes('/maintenance/derive'));
     expect(derive?.body).toEqual({ version: 'wd-v2', force: true });
@@ -259,15 +253,12 @@ describe('runWorlds', () => {
     expect(qa?.body.asOf).toBe('2023-06-01T00:00:00.000Z');
 
     expect(scores).toHaveLength(1);
-    expect(scores[0].abstained).toBe(true);
-    expect(scores[0].promptTokens).toBe(42);
+    expect(scores[0]!.abstained).toBe(true);
+    expect(scores[0]!.promptTokens).toBe(42);
   });
 
   it('skips fully checkpointed worlds without any HTTP calls', async () => {
-    const ckpt = path.join(
-      await fs.mkdtemp(path.join(os.tmpdir(), 'harness-')),
-      'run.jsonl',
-    );
+    const ckpt = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'harness-')), 'run.jsonl');
     await appendCheckpoint(ckpt, {
       questionId: 'q-1',
       group: 'temporal-reasoning',
@@ -289,7 +280,7 @@ describe('runWorlds', () => {
     });
     expect(calls).toHaveLength(0);
     expect(checkpointed).toBe(1);
-    expect(scores[0].judgeCorrect).toBe(true);
+    expect(scores[0]!.judgeCorrect).toBe(true);
   });
 });
 
@@ -368,7 +359,7 @@ describe('run provenance', () => {
     (out: Record<string, string>) =>
     (args: string[]): string => {
       const key = args.join(' ');
-      if (key in out) return out[key];
+      if (key in out) return out[key]!;
       throw new Error(`no fake for git ${key}`);
     };
 

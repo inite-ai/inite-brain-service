@@ -8,10 +8,7 @@ import type { FactRow, FusedRow, RetrievalStage } from './types';
  * first contributor is also the "dominant" one for DecisionLog
  * provenance display.
  */
-function addStage<T extends { stages?: RetrievalStage[] }>(
-  row: T,
-  stage: RetrievalStage,
-): T {
+function addStage<T extends { stages?: RetrievalStage[] }>(row: T, stage: RetrievalStage): T {
   const existing = row.stages ?? [];
   if (existing.includes(stage)) return row;
   row.stages = [...existing, stage];
@@ -55,11 +52,7 @@ function normalizeLex(s: number): number {
  * Returns a unified row list keyed by factId with `fusedScore`
  * attached for downstream scoring.
  */
-export function fuse(
-  vectorRows: FactRow[],
-  lexicalRows: FactRow[],
-  mode: SearchMode,
-): FusedRow[] {
+export function fuse(vectorRows: FactRow[], lexicalRows: FactRow[], mode: SearchMode): FusedRow[] {
   const merged = new Map<string, FusedRow>();
 
   if (mode === 'vector') {
@@ -76,10 +69,7 @@ export function fuse(
     for (const r of lexicalRows) {
       merged.set(
         String(r.id),
-        addStage(
-          { ...r, fusedScore: normalizeLex(r.bm25Score ?? 0) },
-          'lexical',
-        ),
+        addStage({ ...r, fusedScore: normalizeLex(r.bm25Score ?? 0) }, 'lexical'),
       );
     }
     return [...merged.values()];
@@ -103,10 +93,7 @@ export function fuse(
     } else {
       merged.set(
         key,
-        addStage(
-          { ...r, fusedScore: (1 - w) * normalizeLex(r.bm25Score ?? 0) },
-          'lexical',
-        ),
+        addStage({ ...r, fusedScore: (1 - w) * normalizeLex(r.bm25Score ?? 0) }, 'lexical'),
       );
     }
   }

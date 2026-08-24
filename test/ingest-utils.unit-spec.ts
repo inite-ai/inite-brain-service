@@ -33,9 +33,7 @@ describe('externalRefKey', () => {
 
 describe('redactPii', () => {
   it('masks email addresses', () => {
-    expect(redactPii('reach me at jane.doe@example.com please')).toBe(
-      'reach me at [EMAIL] please',
-    );
+    expect(redactPii('reach me at jane.doe@example.com please')).toBe('reach me at [EMAIL] please');
   });
 
   it('masks phone-like numbers', () => {
@@ -49,9 +47,7 @@ describe('redactPii', () => {
   });
 
   it('leaves non-PII text untouched', () => {
-    expect(redactPii('moved to Berlin, tier gold')).toBe(
-      'moved to Berlin, tier gold',
-    );
+    expect(redactPii('moved to Berlin, tier gold')).toBe('moved to Berlin, tier gold');
   });
 });
 
@@ -69,15 +65,11 @@ describe('sourceTrustFor', () => {
   });
 
   it('maps auth events', () => {
-    expect(sourceTrustFor({ vertical: 'x', eventId: 'auth.login' })).toBe(
-      SOURCE_TRUST.auth_event,
-    );
+    expect(sourceTrustFor({ vertical: 'x', eventId: 'auth.login' })).toBe(SOURCE_TRUST.auth_event);
   });
 
   it('maps a message id (no event) to inbox extraction', () => {
-    expect(sourceTrustFor({ vertical: 'x', messageId: 'm1' })).toBe(
-      SOURCE_TRUST.inbox_extraction,
-    );
+    expect(sourceTrustFor({ vertical: 'x', messageId: 'm1' })).toBe(SOURCE_TRUST.inbox_extraction);
   });
 
   it('falls back to the default trust for an unrecognised shape', () => {
@@ -85,9 +77,9 @@ describe('sourceTrustFor', () => {
   });
 
   it('prefers the eventId branch over messageId', () => {
-    expect(
-      sourceTrustFor({ vertical: 'x', eventId: 'billing.x', messageId: 'm1' }),
-    ).toBe(SOURCE_TRUST.billing_event);
+    expect(sourceTrustFor({ vertical: 'x', eventId: 'billing.x', messageId: 'm1' })).toBe(
+      SOURCE_TRUST.billing_event,
+    );
   });
 });
 
@@ -116,26 +108,18 @@ describe('evidenceValidationError', () => {
   });
 
   it('rejects an unknown kind', () => {
-    expect(evidenceValidationError([{ kind: 'rumor', ref: 'x' }])).toMatch(
-      /kind must be one of/,
-    );
+    expect(evidenceValidationError([{ kind: 'rumor', ref: 'x' }])).toMatch(/kind must be one of/);
   });
 
   it('rejects a missing / empty / oversized ref', () => {
     expect(evidenceValidationError([{ kind: 'url' }])).toMatch(/ref/);
     expect(evidenceValidationError([{ kind: 'url', ref: '' }])).toMatch(/ref/);
-    expect(
-      evidenceValidationError([{ kind: 'url', ref: 'a'.repeat(513) }]),
-    ).toMatch(/ref/);
+    expect(evidenceValidationError([{ kind: 'url', ref: 'a'.repeat(513) }])).toMatch(/ref/);
   });
 
   it('rejects a non-string or oversized note', () => {
-    expect(
-      evidenceValidationError([{ ...good, note: 42 as unknown as string }]),
-    ).toMatch(/note/);
-    expect(
-      evidenceValidationError([{ ...good, note: 'a'.repeat(513) }]),
-    ).toMatch(/note/);
+    expect(evidenceValidationError([{ ...good, note: 42 as unknown as string }])).toMatch(/note/);
+    expect(evidenceValidationError([{ ...good, note: 'a'.repeat(513) }])).toMatch(/note/);
   });
 
   it('rejects non-object entries', () => {

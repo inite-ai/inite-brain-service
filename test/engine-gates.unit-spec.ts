@@ -126,7 +126,7 @@ describe('S5.4 — layering: episodes ← derive ← search ← synthesize', () 
       const from = LAYER_OF(file);
       if (from === null) continue;
       for (const m of text.matchAll(/from '([^']+)'/g)) {
-        const to = layerOfImport(file, m[1]);
+        const to = layerOfImport(file, m[1]!);
         if (to !== null && to > from) {
           offenders.push(`${file} → ${m[1]}`);
         }
@@ -161,14 +161,10 @@ describe('S5.5 — dead exports in the engine dirs', () => {
     const offenders: string[] = [];
     for (const [file, text] of SOURCES) {
       if (!SCOPE_PREFIXES.some((p) => file.startsWith(p))) continue;
-      for (const m of text.matchAll(
-        /^export (?:async )?(?:function|const|class) (\w+)/gm,
-      )) {
-        const name = m[1];
+      for (const m of text.matchAll(/^export (?:async )?(?:function|const|class) (\w+)/gm)) {
+        const name = m[1]!;
         const re = new RegExp(`\\b${name}\\b`);
-        const usedInSrc = [...SOURCES].some(
-          ([g, gt]) => g !== file && re.test(gt),
-        );
+        const usedInSrc = [...SOURCES].some(([g, gt]) => g !== file && re.test(gt));
         if (usedInSrc) continue;
         if (TEST_SEAMS.has(name) && re.test(TESTS)) continue;
         offenders.push(`${file} :: ${name}`);
@@ -179,9 +175,7 @@ describe('S5.5 — dead exports in the engine dirs', () => {
 
   it('the test-seam golden only shrinks', () => {
     const allText = [...SOURCES.values()].join('\n');
-    const stale = [...TEST_SEAMS].filter(
-      (name) => !new RegExp(`\\b${name}\\b`).test(allText),
-    );
+    const stale = [...TEST_SEAMS].filter((name) => !new RegExp(`\\b${name}\\b`).test(allText));
     expect(stale).toEqual([]);
   });
 });

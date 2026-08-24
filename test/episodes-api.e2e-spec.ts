@@ -14,11 +14,7 @@ describe('episodes API (e2e)', () => {
 
   const saved: Record<string, string | undefined> = {};
   beforeAll(async () => {
-    for (const k of [
-      'EPISODE_SUBSTRATE_ENABLED',
-      'INGEST_EPISODE_ONLY',
-      'EPISODES_API_ENABLED',
-    ]) {
+    for (const k of ['EPISODE_SUBSTRATE_ENABLED', 'INGEST_EPISODE_ONLY', 'EPISODES_API_ENABLED']) {
       saved[k] = process.env[k];
       process.env[k] = '1';
     }
@@ -50,9 +46,7 @@ describe('episodes API (e2e)', () => {
             conversationId: 'proj:tracker',
             messageId: `m${i}`,
           },
-          knownEntities: [
-            { vertical: 'proj', id: 'mika', role: 'speaker', name: 'mika' },
-          ],
+          knownEntities: [{ vertical: 'proj', id: 'mika', role: 'speaker', name: 'mika' }],
           emittedAt: turn.t,
         });
       expect(res.status).toBe(201);
@@ -82,9 +76,7 @@ describe('episodes API (e2e)', () => {
       .get(`/v1/episodes?limit=4&cursor=${encodeURIComponent(p1.body.nextCursor)}`)
       .set(auth());
     expect(p2.status).toBe(200);
-    const texts = [...p1.body.episodes, ...p2.body.episodes].map(
-      (e: { text: string }) => e.text,
-    );
+    const texts = [...p1.body.episodes, ...p2.body.episodes].map((e: { text: string }) => e.text);
     expect(texts).toHaveLength(6);
     expect(new Set(texts).size).toBe(6); // no repeats across pages
     const dates = [...p1.body.episodes, ...p2.body.episodes].map(
@@ -101,9 +93,7 @@ describe('episodes API (e2e)', () => {
 
   it('filters by time range', async () => {
     const res = await f.http
-      .get(
-        '/v1/episodes?since=2026-01-03T00:00:00Z&until=2026-01-04T23:59:59Z',
-      )
+      .get('/v1/episodes?since=2026-01-03T00:00:00Z&until=2026-01-04T23:59:59Z')
       .set(auth());
     expect(res.status).toBe(200);
     expect(res.body.episodes.map((e: { text: string }) => e.text)).toEqual([
@@ -113,19 +103,13 @@ describe('episodes API (e2e)', () => {
   });
 
   it('rejects malformed cursor and dates', async () => {
-    expect(
-      (await f.http.get('/v1/episodes?cursor=%3F%3F').set(auth())).status,
-    ).toBe(400);
-    expect(
-      (await f.http.get('/v1/episodes?since=yesterday').set(auth())).status,
-    ).toBe(400);
+    expect((await f.http.get('/v1/episodes?cursor=%3F%3F').set(auth())).status).toBe(400);
+    expect((await f.http.get('/v1/episodes?since=yesterday').set(auth())).status).toBe(400);
   });
 
   it('hides piiClass rows from callers without brain:read_pii', async () => {
     const all = await f.http.get('/v1/episodes?limit=100').set(auth());
-    const withPii = all.body.episodes.filter(
-      (e: { piiClass?: string[] }) => e.piiClass?.length,
-    );
+    const withPii = all.body.episodes.filter((e: { piiClass?: string[] }) => e.piiClass?.length);
     // The email turn must exist and be classed for the fence to mean
     // anything — guard the precondition, don't assume it.
     expect(withPii.length).toBeGreaterThan(0);

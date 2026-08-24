@@ -15,7 +15,10 @@ export function compareSemver(a: string, b: string): number {
   const pa = parts(a);
   const pb = parts(b);
   for (let i = 0; i < 3; i++) {
-    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+    // pa/pb are 3-tuples and i < 3 ⇒ both indices are in-bounds.
+    const x = pa[i]!;
+    const y = pb[i]!;
+    if (x !== y) return x < y ? -1 : 1;
   }
   return 0;
 }

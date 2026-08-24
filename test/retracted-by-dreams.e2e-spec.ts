@@ -25,14 +25,17 @@ describe('migration 0052 — retractedBy accepts the dreams sentinel', () => {
   const entity = { vertical: 'rent', id: 'dreams_retract_probe' };
 
   const ingest = async (predicate: string, object: string) => {
-    const res = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: entity,
-      predicate,
-      object,
-      validFrom: new Date().toISOString(),
-      source: { vertical: 'rent', eventId: 'auth.profile_created' },
-      confidence: 0.9,
-    });
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: entity,
+        predicate,
+        object,
+        validFrom: new Date().toISOString(),
+        source: { vertical: 'rent', eventId: 'auth.profile_created' },
+        confidence: 0.9,
+      });
     expect(res.body.outcome).toBe('INSERTED');
     return res.body.factId as string;
   };
@@ -66,9 +69,7 @@ describe('migration 0052 — retractedBy accepts the dreams sentinel', () => {
         `SELECT retractedBy FROM $loser`,
         { loser },
       );
-      expect(
-        (rows as Array<{ retractedBy: string | null }>)[0]?.retractedBy,
-      ).toBe('dreams');
+      expect((rows as Array<{ retractedBy: string | null }>)[0]?.retractedBy).toBe('dreams');
     });
   });
 

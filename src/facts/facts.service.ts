@@ -1,21 +1,20 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { Surreal } from 'surrealdb';
-import { SurrealService, dbMerge } from '../db/surreal.service';
+import { SurrealService, dbMerge, queryFirst, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
-import {
-  principalScopeTags,
-  scopeTagsEnabled,
-  visibleUnderScope,
-} from '../auth/scope-visibility';
-import {
-  makeRowPolicyFilter,
-  type PolicyFilterableRow,
-} from '../policy/row-filter';
+import { principalScopeTags, scopeTagsEnabled, visibleUnderScope } from '../auth/scope-visibility';
+import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { activeFactWhere } from '../entities/entity-read.helpers';
 
 /**
@@ -27,15 +26,9 @@ import { activeFactWhere } from '../entities/entity-read.helpers';
  * A leaked write-only key shouldn't be able to delete-by-cascade
  * across those surfaces.
  */
-export const RETRACT_ADMIN_PREDICATES = new Set<string>([
-  'billing_event',
-  'human_declared',
-]);
+export const RETRACT_ADMIN_PREDICATES = new Set<string>(['billing_event', 'human_declared']);
 
-function retractRequiresAdmin(fact: {
-  predicate?: unknown;
-  source?: unknown;
-}): boolean {
+function retractRequiresAdmin(fact: { predicate?: unknown; source?: unknown }): boolean {
   const predicate = typeof fact.predicate === 'string' ? fact.predicate : '';
   if (RETRACT_ADMIN_PREDICATES.has(predicate)) return true;
   const source = fact.source as { kind?: unknown } | undefined;
@@ -66,7 +59,7 @@ export interface CompetingFactRecord {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
   source?: unknown;
 }
@@ -106,10 +99,7 @@ const PROVENANCE_TEXT_CHAR_CAP = 600;
 function indexCharSpans(
   charSpans: unknown,
 ): Map<string, { start: number; end: number; exact: string }> {
-  const byEpisode = new Map<
-    string,
-    { start: number; end: number; exact: string }
-  >();
+  const byEpisode = new Map<string, { start: number; end: number; exact: string }>();
   if (!Array.isArray(charSpans)) return byEpisode;
   for (const raw of charSpans) {
     const s = raw as {
@@ -202,13 +192,41 @@ interface FactReadRow extends PolicyFilterableRow {
 
 export interface ListCompetingResult {
   entityId: string;
-  asOf?: string;
+  asOf?: string | undefined;
   /**
    * Groups, one per (entityId, predicate). Within a group, every fact
    * was placed at status='competing' by the conflict resolver and is
    * still unretracted at `asOf` (or now if asOf is omitted).
    */
   groups: CompetingFactGroup[];
+}
+
+/**
+ * Columns retract() selects to run its authorization + revive logic.
+ * Superset of PolicyFilterableRow so the registry row-policy gate can
+ * filter it; datetime fields feed `new Date(...)`, hence string | Date.
+ */
+interface RetractExistingRow extends PolicyFilterableRow {
+  status?: unknown;
+  retractedAt?: string | Date;
+  validFrom?: string | Date;
+  validUntil?: string | Date;
+}
+
+/**
+ * Columns the competing / by-predicate fact reads select. Superset of
+ * PolicyFilterableRow so the row-policy filter and the response mapper
+ * share one row type; every value the mapper consumes funnels through
+ * String()/toIso()/typeof, so `unknown` is precise enough.
+ */
+interface CompetingReadRow extends PolicyFilterableRow {
+  entityId?: unknown;
+  object?: unknown;
+  confidence?: unknown;
+  validFrom?: unknown;
+  validUntil?: unknown;
+  recordedAt?: unknown;
+  status?: unknown;
 }
 
 @Injectable()
@@ -240,35 +258,31 @@ export class FactsService {
    *    scope-fenced predicate is absent to callers without the scope.
    */
   async getFact(opts: FactReadOptions): Promise<FactReadResult> {
-    return this.surreal.withScopedCompany(
-      opts.companyId,
-      opts.scopes,
-      async (db) => {
-        const fact = await this.loadVisibleFact(db, opts);
-        const source = (fact.source ?? {}) as Record<string, unknown>;
-        const str = (v: unknown): string | undefined =>
-          typeof v === 'string' && v.length > 0 ? v : undefined;
-        const optional = <K extends string>(
-          key: K,
-          value: string | undefined,
-        ): Partial<Record<K, string>> =>
-          value !== undefined ? ({ [key]: value } as Record<K, string>) : {};
-        return {
-          factId: String(fact.id),
-          aspect: fact.predicate,
-          statement: String(fact.object ?? ''),
-          confidence: typeof fact.confidence === 'number' ? fact.confidence : 0,
-          validFrom: toIso(fact.validFrom),
-          ...optional('userId', str(fact.userId)),
-          ...optional('kind', str(source.kind)),
-          ...optional('vertical', str(source.vertical)),
-          ...optional('recorder', str(source.recorder)),
-          ...optional('conversationId', str(source.conversationId)),
-          retracted: Boolean(fact.retractedAt) || fact.status === 'retracted',
-          ...optional('derivedVersion', str(fact.derivedVersion)),
-        };
-      },
-    );
+    return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
+      const fact = await this.loadVisibleFact(db, opts);
+      const source = (fact.source ?? {}) as Record<string, unknown>;
+      const str = (v: unknown): string | undefined =>
+        typeof v === 'string' && v.length > 0 ? v : undefined;
+      const optional = <K extends string>(
+        key: K,
+        value: string | undefined,
+      ): Partial<Record<K, string>> =>
+        value !== undefined ? ({ [key]: value } as Record<K, string>) : {};
+      return {
+        factId: String(fact.id),
+        aspect: fact.predicate,
+        statement: String(fact.object ?? ''),
+        confidence: typeof fact.confidence === 'number' ? fact.confidence : 0,
+        validFrom: toIso(fact.validFrom),
+        ...optional('userId', str(fact.userId)),
+        ...optional('kind', str(source.kind)),
+        ...optional('vertical', str(source.vertical)),
+        ...optional('recorder', str(source.recorder)),
+        ...optional('conversationId', str(source.conversationId)),
+        retracted: Boolean(fact.retractedAt) || fact.status === 'retracted',
+        ...optional('derivedVersion', str(fact.derivedVersion)),
+      };
+    });
   }
 
   /**
@@ -285,71 +299,58 @@ export class FactsService {
    * to the caller's own pinned scope (M2M → tenant-global turns only).
    */
   async getProvenance(opts: FactReadOptions): Promise<FactProvenanceResult> {
-    return this.surreal.withScopedCompany(
-      opts.companyId,
-      opts.scopes,
-      async (db) => {
-        const fact = await this.loadVisibleFact(db, opts);
-        const source = (fact.source ?? {}) as {
-          episodeIds?: unknown;
-          charSpans?: unknown;
-        };
-        const spanByEpisode = indexCharSpans(source.charSpans);
-        const ids = Array.isArray(source.episodeIds)
-          ? [
-              ...new Set(
-                source.episodeIds
-                  .map(String)
-                  .filter((e) => e.startsWith('episode:')),
-              ),
-            ]
-          : [];
-        if (ids.length === 0) return { factId: String(fact.id), episodes: [] };
-        const rows = await this.episodes.byIds({
-          companyId: opts.companyId,
-          ids,
-          includePii: opts.scopes.includes('brain:read_pii'),
-          userId:
-            typeof fact.userId === 'string' && fact.userId.length > 0
-              ? fact.userId
-              : pinUserScope(undefined),
-          db,
+    return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
+      const fact = await this.loadVisibleFact(db, opts);
+      const source = (fact.source ?? {}) as {
+        episodeIds?: unknown;
+        charSpans?: unknown;
+      };
+      const spanByEpisode = indexCharSpans(source.charSpans);
+      const ids = Array.isArray(source.episodeIds)
+        ? [...new Set(source.episodeIds.map(String).filter((e) => e.startsWith('episode:')))]
+        : [];
+      if (ids.length === 0) return { factId: String(fact.id), episodes: [] };
+      const rows = await this.episodes.byIds({
+        companyId: opts.companyId,
+        ids,
+        includePii: opts.scopes.includes('brain:read_pii'),
+        userId:
+          typeof fact.userId === 'string' && fact.userId.length > 0
+            ? fact.userId
+            : pinUserScope(undefined),
+        db,
+      });
+      const episodes = rows
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(toIso(a.occurredAt)).getTime() - new Date(toIso(b.occurredAt)).getTime(),
+        )
+        .map((r): FactProvenanceEpisode => {
+          // G3: attach the fact's stored char span for this turn.
+          // textTruncated rides along because span offsets reference
+          // the FULL stored episode text, not the capped `text` view.
+          // Span-less episodes keep the pre-G3 shape byte-identical.
+          const span = spanByEpisode.get(String(r.id));
+          return {
+            episodeId: String(r.id),
+            ...(r.conversationId !== undefined ? { conversationId: r.conversationId } : {}),
+            ...(r.speaker !== undefined ? { speaker: r.speaker } : {}),
+            occurredAt: toIso(r.occurredAt),
+            text:
+              r.text.length > PROVENANCE_TEXT_CHAR_CAP
+                ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
+                : r.text,
+            ...(span
+              ? {
+                  span,
+                  textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
+                }
+              : {}),
+          };
         });
-        const episodes = rows
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(toIso(a.occurredAt)).getTime() -
-              new Date(toIso(b.occurredAt)).getTime(),
-          )
-          .map((r): FactProvenanceEpisode => {
-            // G3: attach the fact's stored char span for this turn.
-            // textTruncated rides along because span offsets reference
-            // the FULL stored episode text, not the capped `text` view.
-            // Span-less episodes keep the pre-G3 shape byte-identical.
-            const span = spanByEpisode.get(String(r.id));
-            return {
-              episodeId: String(r.id),
-              ...(r.conversationId !== undefined
-                ? { conversationId: r.conversationId }
-                : {}),
-              ...(r.speaker !== undefined ? { speaker: r.speaker } : {}),
-              occurredAt: toIso(r.occurredAt),
-              text:
-                r.text.length > PROVENANCE_TEXT_CHAR_CAP
-                  ? `${r.text.slice(0, PROVENANCE_TEXT_CHAR_CAP - 1)}…`
-                  : r.text,
-              ...(span
-                ? {
-                    span,
-                    textTruncated: r.text.length > PROVENANCE_TEXT_CHAR_CAP,
-                  }
-                : {}),
-            };
-          });
-        return { factId: String(fact.id), episodes };
-      },
-    );
+      return { factId: String(fact.id), episodes };
+    });
   }
 
   /**
@@ -358,10 +359,7 @@ export class FactsService {
    * can never disagree on what "visible" means. Throws NotFound on any
    * miss — the caller cannot distinguish "absent" from "fenced".
    */
-  private async loadVisibleFact(
-    db: Surreal,
-    opts: FactReadOptions,
-  ): Promise<FactReadRow> {
+  private async loadVisibleFact(db: Surreal, opts: FactReadOptions): Promise<FactReadRow> {
     const ref = this.normalizeFactId(opts.factId);
     const [rows] = await db.query<[FactReadRow[]]>(
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
@@ -370,8 +368,7 @@ export class FactsService {
          FROM type::record('knowledge_fact', $rid) LIMIT 1`,
       { rid: ref.id },
     );
-    const notFound = () =>
-      new NotFoundException(`Fact ${opts.factId} not found`);
+    const notFound = () => new NotFoundException(`Fact ${opts.factId} not found`);
     const fact = rows?.[0];
     if (!fact) throw notFound();
     // User scope (0055): 404, not 403 — don't leak existence.
@@ -402,9 +399,7 @@ export class FactsService {
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: opts.scopes,
       surface: 'fact_read',
-      policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-        opts.companyId,
-      ),
+      policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
     });
     const visible = rowPolicy.filter(fact);
     rowPolicy.finish();
@@ -412,12 +407,7 @@ export class FactsService {
     return fact;
   }
 
-  async retract({
-    companyId,
-    factId,
-    dto,
-    callerScopes,
-  }: RetractOptions): Promise<RetractResult> {
+  async retract({ companyId, factId, dto, callerScopes }: RetractOptions): Promise<RetractResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       const ref = this.normalizeFactId(factId);
       const now = new Date();
@@ -425,13 +415,13 @@ export class FactsService {
       // Verify the fact exists and is currently active. SELECT extra
       // predicate + source so the admin-scope gate below can read them,
       // and userId for the ownership fence.
-      const [existingRows] = await db.query<any[][]>(
+      const existing = await queryFirst<RetractExistingRow>(
+        db,
         `SELECT id, status, retractedAt, validFrom, predicate, source,
                 userId
            FROM type::record('knowledge_fact', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      const existing = (existingRows as any[])?.[0];
       if (!existing) {
         throw new NotFoundException(`Fact ${factId} not found`);
       }
@@ -466,9 +456,7 @@ export class FactsService {
         const rowPolicy = makeRowPolicyFilter({
           callerScopes,
           surface: 'fact_read',
-          policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-            companyId,
-          ),
+          policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
         });
         const visible = rowPolicy.filter(existing);
         rowPolicy.finish();
@@ -555,10 +543,7 @@ export class FactsService {
    * because the first pass already moved status to 'active' and
    * cleared the supersededBy edge.
    */
-  private async reviveSupersededBy(
-    db: Surreal,
-    retractedFactId: string,
-  ): Promise<string[]> {
+  private async reviveSupersededBy(db: Surreal, retractedFactId: string): Promise<string[]> {
     const rid = this.normalizeFactId(retractedFactId).id;
     // One set-based UPDATE instead of SELECT + one UPDATE per row.
     // `validUntil = priorValidUntil` reads each row's OWN field; SET
@@ -567,7 +552,8 @@ export class FactsService {
     // on). Explicit `= NONE` — MERGE with JSON null does not unset an
     // option<datetime> field. With fact_superseded_by_idx (0059) the
     // WHERE is an index probe, not a table scan.
-    const [rows] = await db.query<any[][]>(
+    const rows = await queryRows<{ id: unknown }>(
+      db,
       `UPDATE knowledge_fact SET
           status = 'active',
           retractedAt = NONE,
@@ -582,7 +568,7 @@ export class FactsService {
         RETURN id`,
       { rid },
     );
-    return (((rows as Array<{ id: unknown }>) ?? [])).map((r) => String(r.id));
+    return rows.map((r) => String(r.id));
   }
 
   /**
@@ -667,16 +653,14 @@ export class FactsService {
         params.predicate = opts.predicate;
       }
       if (asOf) {
-        clauses.push(
-          `recordedAt <= $asOf`,
-          `(retractedAt IS NONE OR retractedAt > $asOf)`,
-        );
+        clauses.push(`recordedAt <= $asOf`, `(retractedAt IS NONE OR retractedAt > $asOf)`);
         params.asOf = asOf;
       } else {
         clauses.push(`retractedAt IS NONE`);
       }
 
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<CompetingReadRow>(
+        db,
         `SELECT id, entityId, predicate, object, confidence,
                 validFrom, validUntil, recordedAt, source,
                 trustSnapshot, corroboration
@@ -695,24 +679,20 @@ export class FactsService {
         surface: 'competing_facts',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
-        (r) => rowPolicy.filter(r),
-      );
+      const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
 
-      const records: CompetingFactRecord[] = (visible as any[]).map(
-        (r): CompetingFactRecord => ({
-          factId: String(r.id),
-          entityId: String(r.entityId),
-          predicate: String(r.predicate),
-          object: String(r.object),
-          confidence: typeof r.confidence === 'number' ? r.confidence : 0,
-          validFrom: toIso(r.validFrom),
-          validUntil: r.validUntil ? toIso(r.validUntil) : undefined,
-          recordedAt: toIso(r.recordedAt),
-          source: r.source,
-        }),
-      );
+      const records: CompetingFactRecord[] = visible.map((r): CompetingFactRecord => ({
+        factId: String(r.id),
+        entityId: String(r.entityId),
+        predicate: String(r.predicate),
+        object: String(r.object),
+        confidence: typeof r.confidence === 'number' ? r.confidence : 0,
+        validFrom: toIso(r.validFrom),
+        validUntil: r.validUntil ? toIso(r.validUntil) : undefined,
+        recordedAt: toIso(r.recordedAt),
+        source: r.source,
+      }));
 
       const groupMap = new Map<string, CompetingFactGroup>();
       for (const f of records) {
@@ -765,15 +745,14 @@ export class FactsService {
       object: string;
       confidence: number;
       validFrom: string;
-      validUntil?: string;
+      validUntil?: string | undefined;
       recordedAt: string;
       status: string;
     }>;
   }> {
     const { companyId, predicate, entityIdRaw, limit, scopes } = opts;
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
-      const { clauses: activeClauses, params: activeParams } =
-        activeFactWhere(null);
+      const { clauses: activeClauses, params: activeParams } = activeFactWhere(null);
       const clauses = [
         `predicate = $predicate`,
         // User scope (0055): pack tool reads are tenant-global v1.
@@ -788,7 +767,8 @@ export class FactsService {
       }
       // ×2 headroom so the scope/ABAC row fence doesn't starve the page.
       const overfetch = Math.min(limit * 2, 100);
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<CompetingReadRow>(
+        db,
         `SELECT id, entityId, predicate, object, confidence,
                 validFrom, validUntil, recordedAt, status,
                 source, trustSnapshot, corroboration, userId
@@ -803,11 +783,9 @@ export class FactsService {
         surface: 'pack_facts_by_predicate',
         policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
       });
-      const visible = (((rows as any[]) ?? []) as PolicyFilterableRow[]).filter(
-        (r) => rowPolicy.filter(r),
-      );
+      const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
-      const facts = (visible as any[]).slice(0, limit).map((r) => ({
+      const facts = visible.slice(0, limit).map((r) => ({
         factId: String(r.id),
         entityId: String(r.entityId),
         predicate: String(r.predicate),
@@ -831,9 +809,7 @@ export class FactsService {
   }
 
   private normalizeEntityId(raw: string): { id: string; full: string } {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
+    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return { id, full: `knowledge_entity:${id}` };
   }
 }

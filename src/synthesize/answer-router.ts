@@ -262,8 +262,7 @@ export const STRATEGY_ADVISORY_INSTRUCTION =
  * preferences into evidence — recommendation queries rarely surface
  * them by similarity (the query is about hotels, not about tastes).
  */
-const PREFERENCE_PROBE_QUERY =
-  'preferences likes dislikes favorite style enjoys prefers avoids';
+const PREFERENCE_PROBE_QUERY = 'preferences likes dislikes favorite style enjoys prefers avoids';
 
 /**
  * T7 instruction lane: standing user instructions ("always format code
@@ -280,10 +279,7 @@ export const INSTRUCTION_PROBE_QUERY =
   'instructions how to answer respond';
 
 /** PRF query: base query + ≤2 top entity names + ≤4 dominant aspects. */
-export function buildWideProbeQuery(
-  query: string,
-  hits: SearchHit[],
-): string {
+export function buildWideProbeQuery(query: string, hits: SearchHit[]): string {
   const names = hits.slice(0, 2).map((h) => h.canonicalName);
   const counts = new Map<string, number>();
   for (const h of hits) {
@@ -318,8 +314,7 @@ export interface Lane {
   instruction?: string;
 }
 
-const matchesAny = (patterns: RegExp[]) => (q: string) =>
-  patterns.some((p) => p.test(q ?? ''));
+const matchesAny = (patterns: RegExp[]) => (q: string) => patterns.some((p) => p.test(q ?? ''));
 
 /**
  * THE lane registry. Registry order IS detection precedence: temporal
@@ -381,9 +376,7 @@ export const LANE_REGISTRY: readonly Lane[] = [
 const LANE_BY_ID = new Map(LANE_REGISTRY.map((l) => [l.id, l]));
 
 /** Registry lookup for the prompt builder; undefined for unrouted. */
-export function laneInstructionFor(lane: LaneId | null | undefined):
-  | string
-  | undefined {
+export function laneInstructionFor(lane: LaneId | null | undefined): string | undefined {
   return lane ? LANE_BY_ID.get(lane)?.instruction : undefined;
 }
 
@@ -392,10 +385,7 @@ export function laneInstructionFor(lane: LaneId | null | undefined):
  * the profile's active set. Registry order is precedence; null = no
  * typed dispatch (generic path).
  */
-export function routeLane(
-  profile: RetrievalProfile,
-  query: string,
-): LaneId | null {
+export function routeLane(profile: RetrievalProfile, query: string): LaneId | null {
   for (const lane of LANE_REGISTRY) {
     if (!lane.detect || !profile.lanes.has(lane.id)) continue;
     if (lane.detect(query ?? '')) return lane.id;
@@ -423,9 +413,7 @@ export function laneProbeDto(
   probe: { query: string; baseHits: SearchHit[] },
 ): { query: string; limit: number } | null {
   if (!lane || !profile.lanes.has(lane)) return null;
-  return (
-    LANE_BY_ID.get(lane)?.probe?.(probe.query, probe.baseHits, profile) ?? null
-  );
+  return LANE_BY_ID.get(lane)?.probe?.(probe.query, probe.baseHits, profile) ?? null;
 }
 
 /**
@@ -437,22 +425,15 @@ export function laneProbeDto(
  */
 const INSTRUCTION_TRIGGER_RE =
   /\b(?:always|never|whenever|when(?:ever)? (?:i|they|the user) asks?|when asking|make sure)\b/i;
-const INSTRUCTION_STRONG_RE =
-  /\b(?:always|make sure|when(?:ever)? (?:i|they|the user) asks?)\b/i;
+const INSTRUCTION_STRONG_RE = /\b(?:always|make sure|when(?:ever)? (?:i|they|the user) asks?)\b/i;
 
 /** Dedup + cap standing instructions found across evidence and probe. */
-export function extractStandingInstructions(
-  hits: SearchHit[],
-  cap = 8,
-): string[] {
+export function extractStandingInstructions(hits: SearchHit[], cap = 8): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const h of hits) {
     for (const f of h.facts) {
-      const re =
-        f.predicate === 'preferences'
-          ? INSTRUCTION_TRIGGER_RE
-          : INSTRUCTION_STRONG_RE;
+      const re = f.predicate === 'preferences' ? INSTRUCTION_TRIGGER_RE : INSTRUCTION_STRONG_RE;
       if (!re.test(f.object)) continue;
       const key = f.object.trim().toLowerCase();
       if (seen.has(key)) continue;
@@ -468,7 +449,10 @@ export function extractStandingInstructions(
  * whole calendar months (2022-10-22 → 2023-02-27 is 4 months, not
  * 4.27). The core of the T1 elapsed annotation.
  */
-function calendarDiff(fromMs: number, toMs: number): {
+function calendarDiff(
+  fromMs: number,
+  toMs: number,
+): {
   days: number;
   weeks: number;
   months: number;
@@ -476,9 +460,7 @@ function calendarDiff(fromMs: number, toMs: number): {
   const days = Math.floor((toMs - fromMs) / 86_400_000);
   const a = new Date(fromMs);
   const b = new Date(toMs);
-  let months =
-    (b.getUTCFullYear() - a.getUTCFullYear()) * 12 +
-    (b.getUTCMonth() - a.getUTCMonth());
+  let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
   if (b.getUTCDate() < a.getUTCDate()) months -= 1;
   return { days, weeks: Math.floor(days / 7), months };
 }
@@ -499,10 +481,7 @@ function renderDiffParts(d: ReturnType<typeof calendarDiff>): string {
  * for. Future-dated facts annotate as "in N days". Unparseable/epoch
  * dates render nothing.
  */
-export function formatElapsed(
-  validFromIso: string | undefined,
-  asOfIso: string,
-): string {
+export function formatElapsed(validFromIso: string | undefined, asOfIso: string): string {
   if (!validFromIso) return '';
   const from = Date.parse(validFromIso);
   const asOf = Date.parse(asOfIso);
@@ -530,7 +509,7 @@ export function detectEvidenceConflicts(
   if (!lanes.has('contradiction')) return [];
   const bySlot = new Map<
     string,
-    Array<{ factId: string; object: string; status?: string }>
+    Array<{ factId: string; object: string; status?: string | undefined }>
   >();
   for (const r of results) {
     for (const f of r.facts) {
@@ -548,9 +527,7 @@ export function detectEvidenceConflicts(
   for (const [slot, facts] of bySlot) {
     const objects = new Set(facts.map((f) => f.object));
     if (objects.size < 2) continue;
-    const hasCompeting = facts.some(
-      (f) => (f.status ?? '').toUpperCase() === 'COMPETING',
-    );
+    const hasCompeting = facts.some((f) => (f.status ?? '').toUpperCase() === 'COMPETING');
     // Second tier for DERIVED worlds: the window deriver batch-INSERTs
     // propositions past the conflict predictor, so contradictions sit as
     // plain 'active' rows. Seeded contradictions are never/always-shaped
@@ -558,8 +535,7 @@ export function detectEvidenceConflicts(
     // negated, the other not). Never fires on ordinary multi-value
     // slots: two affirmative objects share polarity.
     const negated = facts.filter((f) => NEGATION_RE.test(f.object));
-    const polaritySplit =
-      negated.length > 0 && negated.length < facts.length;
+    const polaritySplit = negated.length > 0 && negated.length < facts.length;
     if (hasCompeting || polaritySplit) {
       conflicts.push({
         factIds: facts.map((f) => f.factId),

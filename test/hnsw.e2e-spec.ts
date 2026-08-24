@@ -22,23 +22,23 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   });
 
   const search = async (query: string) => {
-    const r = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({ query, limit: 5 });
+    const r = await f.http.post('/v1/search').set(auth()).send({ query, limit: 5 });
     expect(r.status).toBe(201);
     return r.body.results as Array<{ canonicalName: string }>;
   };
 
   it('answers via fallback when the flag is on but no index exists yet', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'hnsw_subject' },
-      predicate: 'name',
-      object: 'HNSW Probe Tenant',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'hnsw_subject' },
+        predicate: 'name',
+        object: 'HNSW Probe Tenant',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(ingest.status);
 
     process.env.SEARCH_HNSW_ENABLED = '1';
@@ -46,24 +46,24 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     delete process.env.SEARCH_HNSW_ENABLED;
     expect(results.length).toBeGreaterThan(0);
     // canonicalName defaults to the entityRef id at upsert time.
-    expect(results[0].canonicalName).toBe('hnsw_subject');
+    expect(results[0]!.canonicalName).toBe('hnsw_subject');
   });
 
   it('creates indexes with the live dimension and matches the exact scan', async () => {
     // A second entity so ranking has something to order.
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'hnsw_other' },
-      predicate: 'name',
-      object: 'Unrelated Neighbour',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
-
-    const create = await f.http
-      .post('/v1/admin/maintenance/hnsw')
+    await f.http
+      .post('/v1/ingest/fact')
       .set(auth())
-      .send({});
+      .send({
+        entityRef: { vertical: 'rent', id: 'hnsw_other' },
+        predicate: 'name',
+        object: 'Unrelated Neighbour',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
+
+    const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
     expect(create.status).toBe(201);
     expect(create.body.action).toBe('create');
     expect(create.body.dimension).toBe(1536); // StubEmbedder
@@ -77,7 +77,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
     delete process.env.SEARCH_HNSW_ENABLED;
 
     expect(viaKnn.length).toBeGreaterThan(0);
-    expect(viaKnn[0].canonicalName).toBe(baseline[0].canonicalName);
+    expect(viaKnn[0]!.canonicalName).toBe(baseline[0]!.canonicalName);
   });
 
   it('drop removes the indexes and search still answers', async () => {

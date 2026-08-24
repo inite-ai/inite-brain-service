@@ -87,13 +87,13 @@ export class PackRegistryService {
    *  stores it. Idempotent for an identical republish. */
   async publish(input: {
     manifest: DomainPackManifest;
-    publishedBy?: string;
-    keywords?: string[];
-    expectedChecksum?: string;
+    publishedBy?: string | undefined;
+    keywords?: string[] | undefined;
+    expectedChecksum?: string | undefined;
     /** Set by the pull-only mirror (RegistryMirrorService): the upstream
      *  base URL the version was pulled from. Never set on operator
      *  publishes — the field is what fences mirrored yanks off local rows. */
-    origin?: string;
+    origin?: string | undefined;
   }): Promise<PublishPackResponse> {
     const { manifest } = input;
     if (!manifest || typeof manifest !== 'object') {
@@ -199,11 +199,11 @@ export class PackRegistryService {
    *  filtered by free-text q / publisher / tag. Packs with only yanked versions
    *  are omitted (nothing installable). */
   async list(filter: {
-    q?: string;
-    publisher?: string;
-    tag?: string;
-    limit?: number;
-    offset?: number;
+    q?: string | undefined;
+    publisher?: string | undefined;
+    tag?: string | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
   }): Promise<RegistryPackSummary[]> {
     // Manifest-less projection: the summary needs none of the (potentially
     // large) manifest JSON, and this path serves the public UI on every hit.
@@ -265,18 +265,13 @@ export class PackRegistryService {
     const versions = rows
       .map((r) => this.toVersion(r))
       .sort((a, b) => compareSemver(b.version, a.version));
-    const latestVersion = pickLatestVersion(
-      rows.filter((r) => !r.yanked).map((r) => r.version),
-    );
+    const latestVersion = pickLatestVersion(rows.filter((r) => !r.yanked).map((r) => r.version));
     return { packId, latestVersion, versions };
   }
 
   /** Resolve a manifest for inspection. version omitted → latest non-yanked.
    *  An exact version is returned even if yanked (carrying the flag). */
-  async getManifest(
-    packId: string,
-    version?: string,
-  ): Promise<RegistryManifestResponse | null> {
+  async getManifest(packId: string, version?: string): Promise<RegistryManifestResponse | null> {
     const row = await this.findRow(packId, version);
     if (!row || !row.manifest) return null;
     return {
@@ -293,7 +288,7 @@ export class PackRegistryService {
    *  exists, and 402/503 for an unpurchased/unverifiable paid pack. */
   async resolveForInstall(args: {
     packId: string;
-    version?: string;
+    version?: string | undefined;
     /** The installing tenant — the paid-pack gate's entitlement subject. */
     companyId: string;
   }): Promise<{ manifest: DomainPackManifest; checksum: string }> {
@@ -338,11 +333,7 @@ export class PackRegistryService {
     return { manifest: row.manifest, checksum: row.checksum };
   }
 
-  async yank(
-    packId: string,
-    version: string,
-    reason?: string,
-  ): Promise<YankPackResponse> {
+  async yank(packId: string, version: string, reason?: string): Promise<YankPackResponse> {
     return this.setYanked({ packId, version, yanked: true, reason });
   }
 
@@ -356,7 +347,7 @@ export class PackRegistryService {
     packId: string;
     version: string;
     yanked: boolean;
-    reason?: string;
+    reason?: string | undefined;
   }): Promise<YankPackResponse> {
     const { packId, version, yanked, reason } = args;
     return this.surreal.withAdminDb(async (db) => {
@@ -392,16 +383,11 @@ export class PackRegistryService {
 
   /** Find one row (WITH manifest — this feeds getManifest/resolveForInstall):
    *  exact version, or the latest non-yanked when version omitted. */
-  private async findRow(
-    packId: string,
-    version?: string,
-  ): Promise<RegistryRow | null> {
+  private async findRow(packId: string, version?: string): Promise<RegistryRow | null> {
     const rows = await this.rowsForPack(packId, { includeManifest: true });
     if (rows.length === 0) return null;
     if (version) return rows.find((r) => r.version === version) ?? null;
-    const latest = pickLatestVersion(
-      rows.filter((r) => !r.yanked).map((r) => r.version),
-    );
+    const latest = pickLatestVersion(rows.filter((r) => !r.yanked).map((r) => r.version));
     return latest ? (rows.find((r) => r.version === latest) ?? null) : null;
   }
 

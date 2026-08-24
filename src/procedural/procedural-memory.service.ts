@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 
 /**
@@ -33,14 +33,11 @@ export class ProceduralMemoryService {
     private readonly embedder: EmbedderService,
   ) {}
 
-  async record(
-    companyId: string,
-    args: RecordProcedureArgs,
-  ): Promise<ProcedureRecord> {
+  async record(companyId: string, args: RecordProcedureArgs): Promise<ProcedureRecord> {
     return this.surreal.withCompany(companyId, async (db) => {
       const embedding = await this.embedder.embed(args.trigger);
 
-      const [row] = await db.query<any[]>(
+      const [row] = await db.query<[ProcedureRowDb]>(
         `CREATE ONLY procedural_memory CONTENT {
             trigger: $trigger,
             triggerEmbedding: $embedding,
@@ -59,11 +56,11 @@ export class ProceduralMemoryService {
           source: args.source ?? { kind: 'operator' },
         },
       );
-      const created = (row as any) ?? null;
+      const created = row ?? null;
       if (!created) throw new Error('procedural_memory CREATE returned nothing');
 
       this.logger.log(
-        `[procedural.recorded] companyId=${companyId} id=${String(created.id)} priority=${created.priority}`,
+        `[procedural.recorded] companyId=${companyId} id=${String(created.id)} priority=${String(created.priority)}`,
       );
 
       return mapRow(created);
@@ -76,10 +73,7 @@ export class ProceduralMemoryService {
    * (lower priority number wins ties — convention is 100=normal,
    * 0=urgent).
    */
-  async match(
-    companyId: string,
-    args: MatchProcedureArgs,
-  ): Promise<MatchedProcedure[]> {
+  async match(companyId: string, args: MatchProcedureArgs): Promise<MatchedProcedure[]> {
     // Caller-facing reads ride the scoped pool when the caller
     // identifies itself (MCP path) so DB-level PERMISSIONS apply.
     //
@@ -98,24 +92,22 @@ export class ProceduralMemoryService {
       // call. Doing it server-side today would require maintaining a
       // dimension-pinned vector index, which the embedder can swap at
       // runtime.
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<ProcedureRowDb>(
+        db,
         `SELECT id, trigger, triggerEmbedding, action, priority,
                 decayHalfLifeDays, source, createdAt
            FROM procedural_memory
            WHERE retiredAt IS NONE
            ORDER BY priority ASC`,
       );
-      const procs = ((rows as any[]) ?? []) as any[];
 
       const qNorm = vectorNorm(queryEmbedding);
       const minSim = args.minSimilarity ?? 0.4;
       const limit = args.limit ?? 5;
 
       const scored: MatchedProcedure[] = [];
-      for (const p of procs) {
-        const emb = Array.isArray(p.triggerEmbedding)
-          ? (p.triggerEmbedding as number[])
-          : null;
+      for (const p of rows) {
+        const emb = Array.isArray(p.triggerEmbedding) ? (p.triggerEmbedding as number[]) : null;
         if (!emb) continue;
         const sim = cosineSimilarity(queryEmbedding, emb, qNorm);
         if (sim < minSim) continue;
@@ -132,13 +124,11 @@ export class ProceduralMemoryService {
     });
   }
 
-  async list(
-    companyId: string,
-    args: ListProceduresArgs = {},
-  ): Promise<ProcedureRecord[]> {
+  async list(companyId: string, args: ListProceduresArgs = {}): Promise<ProcedureRecord[]> {
     return this.run(companyId, args.callerScopes, async (db) => {
       const filter = args.includeRetired ? '' : 'WHERE retiredAt IS NONE';
-      const [rows] = await db.query<any[][]>(
+      const rows = await queryRows<ProcedureRowDb>(
+        db,
         `SELECT id, trigger, action, priority, decayHalfLifeDays,
                 source, createdAt, retiredAt
            FROM procedural_memory
@@ -147,7 +137,7 @@ export class ProceduralMemoryService {
            LIMIT $limit`,
         { limit: args.limit ?? 50 },
       );
-      return ((rows as any[]) ?? []).map(mapRow);
+      return rows.map(mapRow);
     });
   }
 
@@ -171,14 +161,14 @@ export class ProceduralMemoryService {
       const tail = procedureIdRaw.startsWith('procedural_memory:')
         ? procedureIdRaw.slice('procedural_memory:'.length)
         : procedureIdRaw;
-      const [rows] = await db.query<any[][]>(
+      const updated = await queryFirst<ProcedureRowDb>(
+        db,
         `UPDATE type::record('procedural_memory', $tail)
            SET retiredAt = time::now()
            WHERE retiredAt IS NONE
            RETURN AFTER`,
         { tail },
       );
-      const updated = (rows as any[])?.[0];
       if (!updated) {
         throw new NotFoundException(
           `Procedural memory ${procedureIdRaw} not found (or already retired)`,
@@ -192,16 +182,29 @@ export class ProceduralMemoryService {
   }
 }
 
-function mapRow(row: any): ProcedureRecord {
+// Columns the procedural_memory SELECTs return. Every value funnels
+// through String()/typeof/toIso in mapRow, so `unknown` is the honest
+// type; triggerEmbedding is present only on the match() SELECT.
+interface ProcedureRowDb {
+  id: unknown;
+  trigger?: unknown;
+  action?: unknown;
+  priority?: unknown;
+  decayHalfLifeDays?: unknown;
+  source?: unknown;
+  createdAt?: unknown;
+  retiredAt?: unknown;
+  triggerEmbedding?: unknown;
+}
+
+function mapRow(row: ProcedureRowDb): ProcedureRecord {
   return {
     procedureId: String(row.id),
     trigger: String(row.trigger ?? ''),
     action: String(row.action ?? ''),
     priority: typeof row.priority === 'number' ? row.priority : 100,
     decayHalfLifeDays:
-      typeof row.decayHalfLifeDays === 'number'
-        ? row.decayHalfLifeDays
-        : undefined,
+      typeof row.decayHalfLifeDays === 'number' ? row.decayHalfLifeDays : undefined,
     source: (row.source ?? { kind: 'operator' }) as Record<string, unknown>,
     createdAt: toIso(row.createdAt),
     retiredAt: row.retiredAt ? toIso(row.retiredAt) : undefined,
@@ -233,8 +236,11 @@ function cosineSimilarity(a: number[], b: number[], aNorm: number): number {
   let dot = 0;
   let bNorm = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    bNorm += b[i] * b[i];
+    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    bNorm += bi * bi;
   }
   bNorm = Math.sqrt(bNorm);
   if (bNorm === 0) return 0;
@@ -267,10 +273,10 @@ export interface ProcedureRecord {
   trigger: string;
   action: string;
   priority: number;
-  decayHalfLifeDays?: number;
+  decayHalfLifeDays?: number | undefined;
   source: Record<string, unknown>;
   createdAt: string;
-  retiredAt?: string;
+  retiredAt?: string | undefined;
 }
 
 export interface MatchedProcedure extends ProcedureRecord {

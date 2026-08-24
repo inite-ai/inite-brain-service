@@ -19,11 +19,6 @@ import { FactResolverService } from './fact-resolver.service';
     FactEmbeddingService,
     FactResolverService,
   ],
-  exports: [
-    EntityResolverService,
-    EntityUpsertService,
-    FactEmbeddingService,
-    FactResolverService,
-  ],
+  exports: [EntityResolverService, EntityUpsertService, FactEmbeddingService, FactResolverService],
 })
 export class IngestCoreModule {}

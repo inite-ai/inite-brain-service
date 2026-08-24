@@ -5,15 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { sanitizeSourceMeta } from './source-meta';
 import { PolicyResolverService } from './policy-resolver.service';
-import {
-  MAX_SETS_PER_KEY,
-  PolicyDocument,
-  PolicyDocumentSchema,
-  PolicyMode,
-} from './policy.types';
+import { MAX_SETS_PER_KEY, PolicyDocument, PolicyDocumentSchema, PolicyMode } from './policy.types';
 
 export interface StoredPolicySet {
   name: string;
@@ -47,6 +42,31 @@ export interface FactPolicyView {
 }
 
 const SUBJECT_SHAPE = /^(key|jwt|agent):[A-Za-z0-9:._-]{1,200}$/;
+
+/** Row shape of the `access_policy` table (migration 0056). */
+interface AccessPolicyRow {
+  name: unknown;
+  mode: unknown;
+  document: PolicyDocument;
+  version?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  updatedBy?: unknown;
+}
+
+/** Row shape of the `policy_binding` table. */
+interface PolicyBindingRow {
+  subject: unknown;
+  policyNames?: string[];
+  updatedAt?: unknown;
+}
+
+/** `source_document` projection used by the source-meta backfill. */
+interface SourceDocMetaRow {
+  id: unknown;
+  meta?: unknown;
+  createdAt?: unknown;
+}
 
 /**
  * CRUD over the per-tenant ABAC tables (migration 0056). Writes are
@@ -82,21 +102,23 @@ export class PolicyStoreService {
 
   async list(companyId: string): Promise<StoredPolicySet[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<AccessPolicyRow>(
+        db,
         `SELECT * FROM access_policy ORDER BY name`,
       );
-      const [bindings] = await db.query<[any[]]>(
+      const bindings = await queryRows<PolicyBindingRow>(
+        db,
         `SELECT subject, policyNames FROM policy_binding`,
       );
       const attachedBy = new Map<string, string[]>();
-      for (const b of (bindings as any[]) ?? []) {
-        for (const name of (b.policyNames as string[]) ?? []) {
+      for (const b of bindings) {
+        for (const name of b.policyNames ?? []) {
           const list = attachedBy.get(name) ?? [];
           list.push(String(b.subject));
           attachedBy.set(name, list);
         }
       }
-      return ((rows as any[]) ?? []).map((r) => mapRow(r, attachedBy));
+      return rows.map((r) => mapRow(r, attachedBy));
     });
   }
 
@@ -108,11 +130,7 @@ export class PolicyStoreService {
     return found;
   }
 
-  async create(
-    companyId: string,
-    body: unknown,
-    updatedBy: string,
-  ): Promise<StoredPolicySet> {
+  async create(companyId: string, body: unknown, updatedBy: string): Promise<StoredPolicySet> {
     const doc = this.parseDocument(body);
     await this.surreal.withCompany(companyId, async (db) => {
       try {
@@ -159,7 +177,8 @@ export class PolicyStoreService {
       });
     }
     await this.surreal.withCompany(companyId, async (db) => {
-      const [updated] = await db.query<[any[]]>(
+      const updated = await queryRows<AccessPolicyRow>(
+        db,
         `UPDATE access_policy SET
            mode = $mode, document = $document, version = version + 1,
            updatedAt = time::now(), updatedBy = $updatedBy
@@ -172,7 +191,7 @@ export class PolicyStoreService {
           updatedBy,
         },
       );
-      if (((updated as any[]) ?? []).length === 0) {
+      if (updated.length === 0) {
         // Raced with a concurrent writer between our read and write.
         throw new ConflictException({ error: 'version_conflict', current });
       }
@@ -198,12 +217,13 @@ export class PolicyStoreService {
 
   async listBindings(companyId: string): Promise<StoredBinding[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<PolicyBindingRow>(
+        db,
         `SELECT * FROM policy_binding ORDER BY subject`,
       );
-      return ((rows as any[]) ?? []).map((r) => ({
+      return rows.map((r) => ({
         subject: String(r.subject),
-        policyNames: ((r.policyNames as string[]) ?? []).map(String),
+        policyNames: (r.policyNames ?? []).map(String),
         updatedAt: String(r.updatedAt ?? ''),
       }));
     });
@@ -229,19 +249,19 @@ export class PolicyStoreService {
     }
     await this.surreal.withCompany(companyId, async (db) => {
       for (const subject of attach) {
-        const [rows] = await db.query<[any[]]>(
+        const rows = await queryRows<PolicyBindingRow>(
+          db,
           `SELECT policyNames FROM policy_binding WHERE subject = $subject`,
           { subject },
         );
-        const existing: string[] =
-          ((rows as any[])?.[0]?.policyNames as string[]) ?? [];
+        const existing: string[] = rows[0]?.policyNames ?? [];
         if (existing.includes(name)) continue;
         if (existing.length >= MAX_SETS_PER_KEY) {
           throw new BadRequestException(
             `Subject '${subject}' already carries ${existing.length} policy sets (max ${MAX_SETS_PER_KEY})`,
           );
         }
-        if (rows && (rows as any[]).length > 0) {
+        if (rows.length > 0) {
           await db.query(
             `UPDATE policy_binding SET policyNames += $name,
                updatedAt = time::now() WHERE subject = $subject`,
@@ -277,31 +297,24 @@ export class PolicyStoreService {
    * Batched policy-view load for the simulation surface: one query for
    * up to ~250 factIds (search candidateK cap), keyed by full record id.
    */
-  async loadFactViews(
-    companyId: string,
-    factIds: string[],
-  ): Promise<Map<string, FactPolicyView>> {
+  async loadFactViews(companyId: string, factIds: string[]): Promise<Map<string, FactPolicyView>> {
     const out = new Map<string, FactPolicyView>();
     if (factIds.length === 0) return out;
     const ids = factIds
-      .map((raw) =>
-        raw.startsWith('knowledge_fact:')
-          ? raw.slice('knowledge_fact:'.length)
-          : raw,
-      )
+      .map((raw) => (raw.startsWith('knowledge_fact:') ? raw.slice('knowledge_fact:'.length) : raw))
       .filter((id) => FACT_ID_SHAPE.test(id));
     if (ids.length === 0) return out;
-    const rows = await this.surreal.withCompany(companyId, async (db) => {
-      const [r] = await db.query<[any[]]>(
+    const rows = await this.surreal.withCompany(companyId, async (db) =>
+      queryRows<FactPolicyView>(
+        db,
         `SELECT id, predicate, source, trustSnapshot, corroboration, userId
            FROM knowledge_fact
           WHERE id INSIDE $ids`,
         { ids: ids.map((id) => new StringRecordId(`knowledge_fact:${id}`)) },
-      );
-      return (r as any[]) ?? [];
-    });
+      ),
+    );
     for (const row of rows) {
-      out.set(String(row.id), row as FactPolicyView);
+      out.set(String(row.id), row);
     }
     return out;
   }
@@ -318,12 +331,13 @@ export class PolicyStoreService {
     maxDocs = 200,
   ): Promise<{ documentsProcessed: number; factsUpdated: number; remaining: number }> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [docsOut] = await db.query<[any[]]>(
+      const docsOut = await queryRows<SourceDocMetaRow>(
+        db,
         `SELECT id, meta, createdAt FROM source_document
           WHERE meta != NONE
           ORDER BY createdAt ASC`,
       );
-      const docs = ((docsOut as any[]) ?? []).filter(
+      const docs = docsOut.filter(
         (d) => d.meta && typeof d.meta === 'object' && Object.keys(d.meta).length > 0,
       );
       let factsUpdated = 0;
@@ -332,14 +346,15 @@ export class PolicyStoreService {
         const { meta } = sanitizeSourceMeta(doc.meta);
         documentsProcessed += 1;
         if (!meta) continue;
-        const [updated] = await db.query<[any[]]>(
+        const updated = await queryRows<unknown>(
+          db,
           `UPDATE knowledge_fact SET source.meta = $meta
             WHERE source.documentId = $docId
               AND source.meta IS NONE
             RETURN VALUE id`,
           { meta, docId: String(doc.id) },
         );
-        factsUpdated += ((updated as any[]) ?? []).length;
+        factsUpdated += updated.length;
       }
       return {
         documentsProcessed,
@@ -353,15 +368,13 @@ export class PolicyStoreService {
    * Recent active facts' policy views for the preview-rule sampler.
    * Bounded and approximate by design (ORDER BY recordedAt DESC).
    */
-  async sampleFactViews(
-    companyId: string,
-    limit: number,
-  ): Promise<FactPolicyView[]> {
+  async sampleFactViews(companyId: string, limit: number): Promise<FactPolicyView[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       // recordedAt must be IN the projection — SurrealQL 3.x refuses to
       // ORDER BY a field the SELECT didn't materialize (the "order
       // idiom" gotcha, see docs/document-pipeline.md).
-      const [rows] = await db.query<[any[]]>(
+      return queryRows<FactPolicyView>(
+        db,
         `SELECT id, predicate, source, trustSnapshot, corroboration,
                 userId, recordedAt
            FROM knowledge_fact
@@ -372,7 +385,6 @@ export class PolicyStoreService {
           LIMIT $limit`,
         { limit },
       );
-      return ((rows as any[]) ?? []) as FactPolicyView[];
     });
   }
 
@@ -396,14 +408,20 @@ export class PolicyStoreService {
     if (!FACT_ID_SHAPE.test(id)) {
       throw new BadRequestException(`Malformed factId '${factIdRaw}'`);
     }
-    const row = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+    const row = await this.surreal.withCompany(companyId, async (db) =>
+      queryFirst<{
+        predicate: string;
+        source?: unknown;
+        trustSnapshot?: { authority?: number } | null;
+        corroboration?: { count?: number } | null;
+        userId?: string | null;
+      }>(
+        db,
         `SELECT predicate, source, trustSnapshot, corroboration, userId
            FROM type::record('knowledge_fact', $id) LIMIT 1`,
         { id },
-      );
-      return ((rows as any[]) ?? [])[0];
-    });
+      ),
+    );
     if (!row) throw new NotFoundException(`Fact ${factIdRaw} not found`);
     return row;
   }
@@ -411,7 +429,7 @@ export class PolicyStoreService {
 
 const FACT_ID_SHAPE = /^[A-Za-z0-9_]+$/;
 
-function mapRow(r: any, attachedBy: Map<string, string[]>): StoredPolicySet {
+function mapRow(r: AccessPolicyRow, attachedBy: Map<string, string[]>): StoredPolicySet {
   return {
     name: String(r.name),
     mode: String(r.mode) as PolicyMode,

@@ -3,12 +3,7 @@
  * + safe message and gain a requestId; unknown errors collapse to a
  * generic 500 that never leaks the underlying message/stack.
  */
-import {
-  BadRequestException,
-  ArgumentsHost,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { BadRequestException, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 
 function mockHost(): {
@@ -71,10 +66,7 @@ describe('AllExceptionsFilter', () => {
 
   it('logs 5xx HttpExceptions but still returns their status', () => {
     const { host, sent } = mockHost();
-    filter.catch(
-      new HttpException('upstream down', HttpStatus.BAD_GATEWAY),
-      host,
-    );
+    filter.catch(new HttpException('upstream down', HttpStatus.BAD_GATEWAY), host);
     expect(sent.status).toBe(HttpStatus.BAD_GATEWAY);
     expect(sent.body.requestId).toBe('req-from-header');
   });

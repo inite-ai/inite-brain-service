@@ -21,16 +21,9 @@ import type {
 } from '../indexers/candidate.types';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
 import { CandidateStoreService } from './candidate-store.service';
-import {
-  assertKeyBoundToPack,
-  IndexerWorkService,
-} from './indexer-work.service';
+import { assertKeyBoundToPack, IndexerWorkService } from './indexer-work.service';
 import { groundExternalBatch, GroundingDrop } from './candidate-grounding';
-import {
-  SubmitCandidatesDto,
-  SubmittedFact,
-  SubmittedRelation,
-} from './dto/submit-candidates.dto';
+import { SubmitCandidatesDto, SubmittedFact, SubmittedRelation } from './dto/submit-candidates.dto';
 
 export interface ExternalSubmissionResult {
   runId: string;
@@ -84,7 +77,7 @@ export class ExternalCandidatesService {
     docId: string;
     dto: SubmitCandidatesDto;
     /** Per-pack binding of the calling key; absent = unrestricted. */
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<ExternalSubmissionResult> {
     const { companyId, docId, dto } = p;
     // G9 write-anomaly signal (one increment per external submission —
@@ -278,13 +271,9 @@ function resolveClaimFields(
   const hasRun = dto.runId !== undefined;
   const hasToken = dto.claimToken !== undefined;
   if (hasRun !== hasToken) {
-    throw new BadRequestException(
-      'runId and claimToken must be provided together',
-    );
+    throw new BadRequestException('runId and claimToken must be provided together');
   }
-  return hasRun
-    ? { runId: dto.runId as string, claimToken: dto.claimToken as string }
-    : null;
+  return hasRun ? { runId: dto.runId as string, claimToken: dto.claimToken as string } : null;
 }
 
 /**
@@ -298,9 +287,7 @@ function validateShapes(dto: SubmitCandidatesDto, indexerId: string): void {
     dto.facts.length > MAX_ITEMS_PER_KIND ||
     relations.length > MAX_ITEMS_PER_KIND
   ) {
-    throw new BadRequestException(
-      `a submission is capped at ${MAX_ITEMS_PER_KIND} items per kind`,
-    );
+    throw new BadRequestException(`a submission is capped at ${MAX_ITEMS_PER_KIND} items per kind`);
   }
   for (const [i, e] of dto.entities.entries()) {
     if (!isBoundedString(e?.name, MAX_NAME)) {
@@ -326,9 +313,7 @@ function validateShapes(dto: SubmitCandidatesDto, indexerId: string): void {
 
 function validateFact(f: SubmittedFact, i: number, indexerId: string): void {
   if (!Number.isInteger(f?.entityIndex) || f.entityIndex < 0) {
-    throw new BadRequestException(
-      `facts[${i}].entityIndex must be a non-negative integer`,
-    );
+    throw new BadRequestException(`facts[${i}].entityIndex must be a non-negative integer`);
   }
   if (typeof f.predicate !== 'string' || !f.predicate.trim()) {
     throw new BadRequestException(`facts[${i}].predicate must be a non-empty string`);

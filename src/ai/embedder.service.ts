@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LRUCache } from '../common/lru-cache';
@@ -42,23 +36,15 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    const cacheSize = parseInt(
-      this.configService.get<string>('EMBEDDING_CACHE_SIZE', '2000'),
-      10,
-    );
+    const cacheSize = parseInt(this.configService.get<string>('EMBEDDING_CACHE_SIZE', '2000'), 10);
     this.cache = new LRUCache<string, number[]>(cacheSize);
 
-    const providerName = this.configService.get<string>(
-      'EMBEDDER_PROVIDER',
-      'openai',
-    );
+    const providerName = this.configService.get<string>('EMBEDDER_PROVIDER', 'openai');
     const openai = this.buildOpenAIProvider();
     if (providerName === 'bge-m3') {
       this.primary = this.buildBgeM3Provider();
       this.fallback = openai;
-      this.logger.log(
-        `Embedder primary=bge-m3 fallback=openai (until warmup completes)`,
-      );
+      this.logger.log(`Embedder primary=bge-m3 fallback=openai (until warmup completes)`);
     } else {
       this.primary = openai;
       this.fallback = null;
@@ -80,9 +66,7 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       void this.primary
         .warmup()
         .catch((e) =>
-          this.logger.warn(
-            `bge-m3 warmup failed, falling back to openai: ${(e as Error).message}`,
-          ),
+          this.logger.warn(`bge-m3 warmup failed, falling back to openai: ${(e as Error).message}`),
         );
     }
   }
@@ -207,18 +191,17 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
             `for ${missTexts.length} inputs`,
         );
       }
-      for (let j = 0; j < missTexts.length; j++) {
-        const text = missTexts[j];
+      for (const [j, text] of missTexts.entries()) {
         const vec = vecs[j];
         if (!Array.isArray(vec) || vec.length === 0) {
           throw new Error(
-            `embedMany(${provider.providerId}) produced an empty/invalid ` +
-              `vector at index ${j}`,
+            `embedMany(${provider.providerId}) produced an empty/invalid ` + `vector at index ${j}`,
           );
         }
         const k = this.cacheKey(provider.providerId, text);
         this.cache.set(k, vec);
-        out[missIdx[j]] = vec;
+        const outIdx = missIdx[j]; // parallel to missTexts
+        if (outIdx !== undefined) out[outIdx] = vec;
       }
     }
     return out;
@@ -268,35 +251,20 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   private buildOpenAIProvider(): OpenAIEmbedderProvider {
     return new OpenAIEmbedderProvider({
       client: createOpenAiClientOrThrow(this.configService),
-      model: this.configService.get<string>(
-        'OPENAI_EMBEDDING_MODEL',
-        'text-embedding-3-small',
-      ),
+      model: this.configService.get<string>('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
       dimensions: parseInt(
         this.configService.get<string>('OPENAI_EMBEDDING_DIMENSIONS', '1536'),
         10,
       ),
-      concurrency: parseInt(
-        this.configService.get<string>('OPENAI_CONCURRENCY', '8'),
-        10,
-      ),
+      concurrency: parseInt(this.configService.get<string>('OPENAI_CONCURRENCY', '8'), 10),
     });
   }
 
   private buildBgeM3Provider(): BgeM3EmbedderProvider {
     return new BgeM3EmbedderProvider({
-      modelId: this.configService.get<string>(
-        'BGE_M3_MODEL_ID',
-        'Xenova/bge-m3',
-      ),
-      dimensions: parseInt(
-        this.configService.get<string>('BGE_M3_DIMENSIONS', '1024'),
-        10,
-      ),
-      concurrency: parseInt(
-        this.configService.get<string>('BGE_M3_CONCURRENCY', '4'),
-        10,
-      ),
+      modelId: this.configService.get<string>('BGE_M3_MODEL_ID', 'Xenova/bge-m3'),
+      dimensions: parseInt(this.configService.get<string>('BGE_M3_DIMENSIONS', '1024'), 10),
+      concurrency: parseInt(this.configService.get<string>('BGE_M3_CONCURRENCY', '4'), 10),
       // Off-by-default for now (1) tests assume in-thread; (2) the
       // worker bootstraps @xenova/transformers fresh per worker which
       // doubles peak memory during warmup. Operators flip
@@ -306,8 +274,6 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cacheKey(providerId: string, text: string): string {
-    return createHash('sha256')
-      .update(`${providerId}:${text}`)
-      .digest('hex');
+    return createHash('sha256').update(`${providerId}:${text}`).digest('hex');
   }
 }

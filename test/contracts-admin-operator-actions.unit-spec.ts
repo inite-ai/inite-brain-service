@@ -36,13 +36,7 @@ describe('AdminOpsController.operatorActions() — wire contract', () => {
     const payload = await controller.operatorActions(req);
     const parsed = OperatorActionsResponseSchema.safeParse(payload);
     if (!parsed.success) {
-      throw new Error(
-        `operator-actions drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
-      );
+      throw new Error(`operator-actions drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

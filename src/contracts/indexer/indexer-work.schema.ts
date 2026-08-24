@@ -57,9 +57,7 @@ export const FailWorkResponseSchema = z.object({
 });
 
 export type IndexerWorkItem = z.infer<typeof IndexerWorkItemSchema>;
-export type IndexerWorkListResponse = z.infer<
-  typeof IndexerWorkListResponseSchema
->;
+export type IndexerWorkListResponse = z.infer<typeof IndexerWorkListResponseSchema>;
 export type ClaimWorkResponse = z.infer<typeof ClaimWorkResponseSchema>;
 export type HeartbeatWorkResponse = z.infer<typeof HeartbeatWorkResponseSchema>;
 export type WorkContentResponse = z.infer<typeof WorkContentResponseSchema>;

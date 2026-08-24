@@ -62,13 +62,10 @@ describe('demo-chat upstream guard', () => {
         .set(auth())
         .send({ message: 'who runs engineering at Acme' });
       expect(r.status).toBe(503);
-      expect(r.body.message?.reason ?? r.body.reason).toBe(
-        'upstream_llm_unavailable',
-      );
+      expect(r.body.message?.reason ?? r.body.reason).toBe('upstream_llm_unavailable');
       const detail = r.body.message?.detail ?? r.body.detail;
       expect(detail).toContain('Premature close');
-      const retryAfter =
-        r.body.message?.retryAfterMs ?? r.body.retryAfterMs;
+      const retryAfter = r.body.message?.retryAfterMs ?? r.body.retryAfterMs;
       expect(typeof retryAfter).toBe('number');
       expect(retryAfter).toBeGreaterThanOrEqual(0);
     } finally {
@@ -77,10 +74,7 @@ describe('demo-chat upstream guard', () => {
   });
 
   it('still surfaces a BadRequest (typed Nest exception) without 503-wrapping', async () => {
-    const r = await f.http
-      .post('/v1/admin/demo/chat')
-      .set(auth())
-      .send({ message: '   ' });
+    const r = await f.http.post('/v1/admin/demo/chat').set(auth()).send({ message: '   ' });
     expect(r.status).toBe(400);
     expect(r.body.message).toBe('message is required');
   });

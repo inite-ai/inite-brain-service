@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { PredictScoringService } from './predict-scoring.service';
 import {
@@ -110,10 +110,7 @@ export class IngestPredictionService {
           reasoning:
             'No existing entity matches the ref; fact would be created against a new entity.',
           opposingFacts: [],
-          predicatePolicy: this.predicateRegistry.policyFor(
-            companyId,
-            args.predicate,
-          ),
+          predicatePolicy: this.predicateRegistry.policyFor(companyId, args.predicate),
         };
       }
 
@@ -129,10 +126,7 @@ export class IngestPredictionService {
           `predictResolve: registry getSnapshot failed for ${companyId}: ${(e as Error).message}; using seed policy`,
         );
       }
-      const policy = this.predicateRegistry.policyFor(
-        companyId,
-        args.predicate,
-      );
+      const policy = this.predicateRegistry.policyFor(companyId, args.predicate);
       const isBitemporal = policy.semantics === 'bitemporal';
 
       const candEmbedding = isBitemporal
@@ -143,7 +137,8 @@ export class IngestPredictionService {
       const tail = entityId.startsWith('knowledge_entity:')
         ? entityId.slice('knowledge_entity:'.length)
         : entityId;
-      const [rows] = await db.query<any[][]>(
+      const priors = await queryRows<PriorRow>(
+        db,
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
                 recordedAt, ${isBitemporal ? 'embedding, ' : ''}source, status,
                 userId, trustSnapshot, corroboration
@@ -159,7 +154,6 @@ export class IngestPredictionService {
           ? { eid: tail, predicate: args.predicate, userId: args.userId }
           : { eid: tail, predicate: args.predicate },
       );
-      const priors = ((rows as any[]) ?? []) as PriorRow[];
 
       // The caller only sees an opposing fact it is allowed to read. The
       // priors themselves are untouched — the decision below runs on the
@@ -167,9 +161,7 @@ export class IngestPredictionService {
       const priorById = new Map(priors.map((p) => [String(p.id), p]));
       const gate = (list: OpposingFact[]): OpposingFact[] =>
         list.filter((o) =>
-          rowFilter.filter(
-            (priorById.get(o.factId) as never) ?? { predicate: o.predicate },
-          ),
+          rowFilter.filter((priorById.get(o.factId) as never) ?? { predicate: o.predicate }),
         );
 
       const candidateScore = this.scoring.scoreCandidate(args);
@@ -190,8 +182,7 @@ export class IngestPredictionService {
       ) {
         return {
           wouldOutcome: 'REJECTED',
-          reasoning:
-            `bitemporal predicate, candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
+          reasoning: `bitemporal predicate, candidate score ${candidateScore.toFixed(3)} is below the reject threshold ${this.scoring.conflict.rejectThreshold.toFixed(3)} — too unconfident or too low-trust to enter the graph.`,
           opposingFacts: gate(priors.map(rowToOpposingFact)),
           predicatePolicy: policy,
         };
@@ -204,8 +195,7 @@ export class IngestPredictionService {
       if (policy.semantics === 'append_only') {
         const appendOrigin = originKeyOf(args.source);
         const appendCorroborator = priors.find(
-          (c) =>
-            c.object === args.object && originKeyOf(c.source) !== appendOrigin,
+          (c) => c.object === args.object && originKeyOf(c.source) !== appendOrigin,
         );
         if (appendCorroborator) {
           return {
@@ -228,9 +218,7 @@ export class IngestPredictionService {
       // single_active it is ALL active priors; for bitemporal it is the
       // interval-overlapping priors that also clear the cosine threshold.
       let competing: PriorRow[];
-      let bitemporalAbove:
-        | ReturnType<PredictScoringService['scoreBitemporal']>
-        | undefined;
+      let bitemporalAbove: ReturnType<PredictScoringService['scoreBitemporal']> | undefined;
       if (policy.semantics === 'single_active') {
         competing = priors;
       } else {
@@ -289,7 +277,7 @@ export class IngestPredictionService {
         if (newer.length > 0) {
           return {
             wouldOutcome: 'INSERTED_HISTORICAL',
-            reasoning: `A newer fact (validFrom ${dateToIso(newer[0].validFrom)}) already exists; the backdated candidate would be inserted as already-superseded history, not supersede the active fact.`,
+            reasoning: `A newer fact (validFrom ${dateToIso(newer[0]!.validFrom)}) already exists; the backdated candidate would be inserted as already-superseded history, not supersede the active fact.`,
             opposingFacts: gate(newer.map(rowToOpposingFact)),
             predicatePolicy: policy,
           };
@@ -324,20 +312,20 @@ export class IngestPredictionService {
       const tail = ref.entityId.startsWith('knowledge_entity:')
         ? ref.entityId.slice('knowledge_entity:'.length)
         : ref.entityId;
-      const [rows] = await db.query<any[][]>(
+      const row = await queryFirst<{ id: unknown }>(
+        db,
         `SELECT id FROM type::record('knowledge_entity', $tail) LIMIT 1`,
         { tail },
       );
-      const row = (rows as any[])?.[0];
       return row ? String(row.id) : null;
     }
     const ext = ref as { vertical: string; id: string };
     const key = `${ext.vertical.replace(/\./g, '__')}__${ext.id.replace(/\./g, '__')}`;
-    const [rows] = await db.query<[any[]]>(
+    const arr = await queryRows<unknown>(
+      db,
       `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    const arr = (rows as any[]) ?? [];
     return arr[0] ? String(arr[0]) : null;
   }
 }

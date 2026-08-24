@@ -166,7 +166,11 @@ export const rentScenarios: Scenario[] = [
       {
         kind: 'mention',
         text: rentMessages.annaUpgradeIntent,
-        contextRef: { vertical: 'rent', conversationId: 'conv_anna_2', messageId: 'msg_anna_upgrade' },
+        contextRef: {
+          vertical: 'rent',
+          conversationId: 'conv_anna_2',
+          messageId: 'msg_anna_upgrade',
+        },
         knownEntities: [{ vertical: 'rent', id: 'anna', role: 'speaker' }],
         emittedAt: ISO('2026-05-02'),
         // annaUpgradeIntent text expresses an intent to upgrade plus a

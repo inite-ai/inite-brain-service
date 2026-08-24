@@ -72,9 +72,7 @@ const req = {
 
 describe('AdminSourcesController — wire contracts', () => {
   it('list() matches SourcesListResponseSchema', async () => {
-    const parsed = SourcesListResponseSchema.safeParse(
-      await makeController().list(req),
-    );
+    const parsed = SourcesListResponseSchema.safeParse(await makeController().list(req));
     expect(parsed.success).toBe(true);
   });
 

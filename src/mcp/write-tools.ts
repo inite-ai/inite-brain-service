@@ -12,6 +12,7 @@ import { DOC_TEXT_HARD_CAP } from '../documents/dto/ingest-document.dto';
 import { docMaxChars } from '../documents/documents-gate';
 import type { BrainScope } from '../auth/api-key.types';
 import type { MetricsService } from '../metrics/metrics.service';
+import { asStructuredContent } from './structured';
 
 export interface WriteToolDeps {
   ingest: IngestService;
@@ -20,7 +21,7 @@ export interface WriteToolDeps {
   documents?: DocumentIngestService;
   feedback?: FeedbackService;
   /** G9 write-anomaly counter — record_fact fires the `mcp` origin path. */
-  metrics?: MetricsService;
+  metrics?: MetricsService | undefined;
 }
 
 export interface AdminToolDeps {
@@ -52,9 +53,9 @@ export function registerWriteTools({
   deps: WriteToolDeps;
   scopes: BrainScope[];
   /** Caller key hash — actor identity for record_feedback's one-vote fence. */
-  actorKeyHash?: string;
+  actorKeyHash?: string | undefined;
   /** Acting client (agent) identity — stamped into fact provenance. */
-  actorId?: string;
+  actorId?: string | undefined;
 }): void {
   // The recorder names WHICH agent wrote the fact (token act/client_id),
   // not just that "an MCP agent" did — feeds per-agent trust and audits.
@@ -92,18 +93,18 @@ export function registerWriteTools({
       // `fact` path — query per-path, don't sum labels.
       deps.metrics?.countIngestWrite('mcp');
       const out = await deps.ingest.ingestFact(companyId, {
-        entityRef: args.entityRef as any,
+        entityRef: args.entityRef,
         predicate: args.predicate,
         object: args.object,
         validFrom: args.validFrom,
-        validUntil: args.validUntil,
-        confidence: args.confidence,
-        userId: args.userId,
+        ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
+        ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         source: { vertical: args.sourceVertical, recorder },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -131,26 +132,24 @@ export function registerWriteTools({
           z.object({ vertical: z.string(), id: z.string() }),
           z.object({ entityId: z.string() }),
         ]),
-        kind: z.string().describe(
-          'Edge type (identity_of | paid_for | mentioned_in | worked_with | …)',
-        ),
-        weight: z.number().min(0).max(1).optional(),
-        sourceVertical: z
+        kind: z
           .string()
-          .describe('Vertical attributed as source (e.g. "rent")'),
+          .describe('Edge type (identity_of | paid_for | mentioned_in | worked_with | …)'),
+        weight: z.number().min(0).max(1).optional(),
+        sourceVertical: z.string().describe('Vertical attributed as source (e.g. "rent")'),
       },
     },
     async (args) => {
       const out = await deps.ingest.ingestLink(companyId, {
-        from: args.from as any,
-        to: args.to as any,
+        from: args.from,
+        to: args.to,
         kind: args.kind,
-        weight: args.weight,
+        ...(args.weight !== undefined ? { weight: args.weight } : {}),
         source: { vertical: args.sourceVertical },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -182,18 +181,24 @@ export function registerWriteTools({
       // the HTTP path in facts.controller.ts. Omitting it would skip
       // the check entirely (FactsService treats undefined as a legacy
       // in-process caller).
+      const retractedBy = args.retractedBy
+        ? {
+            source: args.retractedBy.source,
+            ...(args.retractedBy.userId !== undefined ? { userId: args.retractedBy.userId } : {}),
+          }
+        : ({ source: 'system' } as const);
       const out = await deps.facts.retract({
         companyId,
         factId: args.factId,
         dto: {
           reason: args.reason,
-          retractedBy: args.retractedBy ?? { source: 'system' },
+          retractedBy,
         },
         callerScopes: scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -206,7 +211,7 @@ export function registerWriteTools({
     {
       title: 'Record a procedural memory (behaviour rule)',
       description:
-        "Record a 'how to' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. \"user asks about pricing\"); action = the behaviour to apply (e.g. \"mention they're on platinum tier; they get 20% off\"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.",
+        'Record a \'how to\' pattern that match_procedure can surface when a similar context appears later. trigger = the context phrase the rule should match against (e.g. "user asks about pricing"); action = the behaviour to apply (e.g. "mention they\'re on platinum tier; they get 20% off"). priority orders ties when multiple procedures match the same context (lower is higher priority; default 100). decayHalfLifeDays is a forward hook for v0.2 relevance decay; v1 ignores it at read time.',
       inputSchema: {
         trigger: z.string().min(1),
         action: z.string().min(1),
@@ -222,13 +227,15 @@ export function registerWriteTools({
       const out = await deps.procedural.record(companyId, {
         trigger: args.trigger,
         action: args.action,
-        priority: args.priority,
-        decayHalfLifeDays: args.decayHalfLifeDays,
+        ...(args.priority !== undefined ? { priority: args.priority } : {}),
+        ...(args.decayHalfLifeDays !== undefined
+          ? { decayHalfLifeDays: args.decayHalfLifeDays }
+          : {}),
         source: { kind: args.sourceKind ?? 'operator' },
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -239,18 +246,16 @@ export function registerWriteTools({
     {
       title: 'Soft-retire a procedural memory entry',
       description:
-        "Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.",
+        'Mark a procedural memory row as retired (sets retiredAt). Excluded from match_procedure / list_procedures by default. Use when an operator decides the rule no longer applies — distinct from a hard delete because the row stays for audit.',
       inputSchema: {
-        procedureId: z
-          .string()
-          .describe('procedural_memory:<tail> or just the tail'),
+        procedureId: z.string().describe('procedural_memory:<tail> or just the tail'),
       },
     },
     async (args) => {
       const out = await deps.procedural.retire(companyId, args.procedureId);
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -273,7 +278,7 @@ function registerFeedbackTool({
   server: McpServer;
   companyId: string;
   deps: WriteToolDeps;
-  actorKeyHash?: string;
+  actorKeyHash?: string | undefined;
 }): void {
   if (!deps.feedback) return;
   const feedback = deps.feedback;
@@ -294,12 +299,12 @@ function registerFeedbackTool({
         companyId,
         factId: args.factId,
         verdict: args.verdict,
-        reason: args.reason,
+        ...(args.reason !== undefined ? { reason: args.reason } : {}),
         actor: actorKeyHash ?? `mcp:${companyId}`,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -317,9 +322,7 @@ export function registerAdminTools(
       description:
         'Hard delete one entity and ALL of its facts, edges, and embeddings; an HMAC-hashed tombstone stays in `forgotten_entity` for proof-of-erasure. THIS IS DESTRUCTIVE AND IRREVERSIBLE. Use only when responding to a GDPR Art. 17 right-to-erasure request or operator-grade cleanup. Reason + requestId are required for the audit trail.',
       inputSchema: {
-        entityId: z
-          .string()
-          .describe('Brain entity id (knowledge_entity:...) or short id'),
+        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         reason: z
           .enum(['gdpr_request', 'tenant_offboarding', 'operator_request'])
           .describe(
@@ -344,7 +347,7 @@ export function registerAdminTools(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -374,20 +377,10 @@ function registerIngestDocumentTool({
       description:
         "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Prefer this over record_fact for anything longer than one claim.",
       inputSchema: {
-        kind: z
-          .string()
-          .max(64)
-          .describe('Container kind: chat | email | markdown | pdf | …'),
-        text: z
-          .string()
-          .max(DOC_TEXT_HARD_CAP)
-          .describe('Normalized document text'),
+        kind: z.string().max(64).describe('Container kind: chat | email | markdown | pdf | …'),
+        text: z.string().max(DOC_TEXT_HARD_CAP).describe('Normalized document text'),
         title: z.string().max(512).optional(),
-        originUri: z
-          .string()
-          .max(512)
-          .optional()
-          .describe('Pointer back to the raw container'),
+        originUri: z.string().max(512).optional().describe('Pointer back to the raw container'),
         occurredAt: z
           .string()
           .datetime()
@@ -413,24 +406,22 @@ function registerIngestDocumentTool({
         // BadRequestException (not plain Error): the McpService error
         // wrapper masks unexpected errors but passes 4xx through — this
         // message is deliberately client-facing.
-        throw new BadRequestException(
-          `text exceeds DOC_MAX_CHARS (${docMaxChars()})`,
-        );
+        throw new BadRequestException(`text exceeds DOC_MAX_CHARS (${docMaxChars()})`);
       }
       const out = await documents.ingestDocument(companyId, {
         kind: args.kind,
         text: args.text,
-        title: args.title,
-        originUri: args.originUri,
+        ...(args.title !== undefined ? { title: args.title } : {}),
+        ...(args.originUri !== undefined ? { originUri: args.originUri } : {}),
         occurredAt: args.occurredAt,
         contextRef: { vertical: args.vertical, recorder },
-        storeContent: args.storeContent,
+        ...(args.storeContent !== undefined ? { storeContent: args.storeContent } : {}),
         indexers: args.indexers ?? 'general',
         mode: 'sync',
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

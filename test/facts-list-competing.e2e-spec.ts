@@ -97,15 +97,15 @@ describe('FactsService.listCompeting — groups competing pairs by predicate', (
 
     expect(out.entityId).toBe(ENT_FULL);
     expect(out.groups).toHaveLength(1);
-    const [group] = out.groups;
+    const group = out.groups[0]!;
     expect(group.predicate).toBe('status');
     expect(group.entityId).toBe(ENT_FULL);
     expect(group.facts).toHaveLength(2);
     const objects = group.facts.map((f) => f.object).sort();
     expect(objects).toEqual(['active', 'churned']);
     // recordedAt-ascending order preserved.
-    expect(group.facts[0].factId).toBe('knowledge_fact:lc_a');
-    expect(group.facts[1].factId).toBe('knowledge_fact:lc_b');
+    expect(group.facts[0]!.factId).toBe('knowledge_fact:lc_a');
+    expect(group.facts[1]!.factId).toBe('knowledge_fact:lc_b');
   });
 
   it('filters to the requested predicate only', async () => {

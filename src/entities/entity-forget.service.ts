@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { StringRecordId } from 'surrealdb';
-import { SurrealService, dbCreate } from '../db/surreal.service';
+import { SurrealService, dbCreate, queryRows, queryFirst } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { normalizeEntityId } from './entity-read.helpers';
 import { ForgetOptions, ForgetResult } from './entities.service';
@@ -31,8 +31,7 @@ export class EntityForgetService {
     // Used to hash forgotten entity ids in the tombstone. If unset, derive
     // a per-process default — safe enough for 0.1.0 walking skeleton, but
     // production deployments MUST set this so tombstones survive restart.
-    this.forgetHmacKey =
-      this.configService.get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
+    this.forgetHmacKey = this.configService.get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
   }
 
   async forget({
@@ -45,11 +44,11 @@ export class EntityForgetService {
 
     const result = await this.surreal.withCompany(companyId, async (db) => {
       // Verify exists
-      const [entRows] = await db.query<any[][]>(
+      const entity = await queryFirst<{ id: unknown }>(
+        db,
         `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      const entity = (entRows as any[])?.[0];
       if (!entity) {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
@@ -65,18 +64,20 @@ export class EntityForgetService {
       // post-image in `audit_event.after`, including PII fact `object`
       // values. Without this, a GDPR-erased subject stayed fully
       // reconstructable from audit_event indefinitely.
-      const [factIdRows] = await db.query<any[][]>(
+      const factIdRows = await queryRows<{ id: unknown }>(
+        db,
         `SELECT id FROM knowledge_fact
          WHERE entityId = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      const [edgeIdRows] = await db.query<any[][]>(
+      const edgeIdRows = await queryRows<{ id: unknown }>(
+        db,
         `SELECT id FROM knowledge_edge
          WHERE in = type::record('knowledge_entity', $rid) OR out = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      const factIds = ((factIdRows as any[]) ?? []).map((r) => String(r.id));
-      const edgeIds = ((edgeIdRows as any[]) ?? []).map((r) => String(r.id));
+      const factIds = factIdRows.map((r) => String(r.id));
+      const edgeIds = edgeIdRows.map((r) => String(r.id));
       const factsDeleted = factIds.length;
       const edgesDeleted = edgeIds.length;
 
@@ -89,7 +90,8 @@ export class EntityForgetService {
       // A turn that grounds facts of several subjects is deleted whole: the
       // other subjects keep their derived facts (separate rows), they lose
       // only the raw turn. Erasure wins over retention.
-      const [groundingRows] = await db.query<any[][]>(
+      const groundingRows = await queryRows<{ eps: unknown }>(
+        db,
         `SELECT source.episodeIds AS eps FROM knowledge_fact
          WHERE entityId = type::record('knowledge_entity', $rid)
            AND source.episodeIds IS NOT NONE`,
@@ -97,7 +99,7 @@ export class EntityForgetService {
       );
       const episodeIds = [
         ...new Set(
-          ((groundingRows as any[]) ?? []).flatMap((r) =>
+          groundingRows.flatMap((r) =>
             Array.isArray(r.eps) ? r.eps.map((e: unknown) => String(e)) : [],
           ),
         ),
@@ -108,16 +110,18 @@ export class EntityForgetService {
         const refs = episodeIds.map((id) => new StringRecordId(id));
         // Segments are a rebuildable projection over the same turns — a
         // segment that quotes an erased episode must go with it.
-        const [segRows] = await db.query<any[][]>(
+        const segRows = await queryRows<unknown>(
+          db,
           `DELETE episode_segment WHERE episodeIds CONTAINSANY $eps RETURN BEFORE`,
           { eps: refs },
         );
-        segmentsDeleted = ((segRows as any[]) ?? []).length;
-        const [epRows] = await db.query<any[][]>(
+        segmentsDeleted = segRows.length;
+        const epRows = await queryRows<unknown>(
+          db,
           `DELETE episode WHERE id INSIDE $eps RETURN BEFORE`,
           { eps: refs },
         );
-        episodesDeleted = ((epRows as any[]) ?? []).length;
+        episodesDeleted = epRows.length;
       }
 
       // Cascade hard-delete. Embedding columns die with the rows.
@@ -144,10 +148,7 @@ export class EntityForgetService {
          WHERE in = type::record('knowledge_entity', $rid) OR out = type::record('knowledge_entity', $rid)`,
         { rid: ref.id },
       );
-      await db.query(
-        `DELETE type::record('knowledge_entity', $rid)`,
-        { rid: ref.id },
-      );
+      await db.query(`DELETE type::record('knowledge_entity', $rid)`, { rid: ref.id });
 
       // Purge the materialised audit_event mirror for every deleted
       // record (entity + its facts + edges). recordId IN [...] matches
@@ -161,19 +162,19 @@ export class EntityForgetService {
       // changefeed-consumer redactAfterImage) so re-mirrored rows carry
       // no raw PII; this purge removes the already-materialised rows.
       const recordIds = [entityIdStr, ...factIds, ...edgeIds];
-      const [auditDeleted] = await db.query<any[][]>(
+      const auditDeleted = await queryRows<unknown>(
+        db,
         `DELETE audit_event WHERE recordId IN $ids RETURN BEFORE`,
         { ids: recordIds },
       );
-      const auditEventsDeleted = ((auditDeleted as any[]) ?? []).length;
+      const auditEventsDeleted = auditDeleted.length;
 
       // dream_emit: subject/object hold the entity/fact ids the dreams
       // resolver linked or superseded — purge any referencing the
       // forgotten records (carries fact-derived `detail`).
-      await db.query(
-        `DELETE dream_emit WHERE subject IN $ids OR object IN $ids`,
-        { ids: recordIds },
-      );
+      await db.query(`DELETE dream_emit WHERE subject IN $ids OR object IN $ids`, {
+        ids: recordIds,
+      });
 
       // debug_trace: per-request blobs (artifacts) can carry the subject's
       // raw fact text / queries when DEBUG_TRACE_PERSIST is on. Not
@@ -210,9 +211,7 @@ export class EntityForgetService {
 
       const entityIdHash =
         'hmac:' +
-        createHmac('sha256', this.forgetHmacKey)
-          .update(`${companyId}/${ref.full}`)
-          .digest('hex');
+        createHmac('sha256', this.forgetHmacKey).update(`${companyId}/${ref.full}`).digest('hex');
 
       const forgottenAt = new Date();
       await dbCreate(db, 'forgotten_entity', {
@@ -232,11 +231,11 @@ export class EntityForgetService {
 
       this.logger.warn(
         `[knowledge.entity.forgotten] companyId=${companyId} hash=${entityIdHash} ` +
-        `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
-        `auditEventsDeleted=${auditEventsDeleted} ` +
-        `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
-        `reason=${dto.reason} ` +
-        `by=${actorKeyHash ?? 'unknown'}`,
+          `factsDeleted=${factsDeleted} edgesDeleted=${edgesDeleted} ` +
+          `auditEventsDeleted=${auditEventsDeleted} ` +
+          `episodesDeleted=${episodesDeleted} segmentsDeleted=${segmentsDeleted} ` +
+          `reason=${dto.reason} ` +
+          `by=${actorKeyHash ?? 'unknown'}`,
       );
 
       return {
@@ -263,9 +262,7 @@ export class EntityForgetService {
         );
       }
     } catch (e) {
-      this.logger.warn(
-        `embedder cache eviction after forget failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`embedder cache eviction after forget failed: ${(e as Error).message}`);
     }
 
     return result;

@@ -91,9 +91,7 @@ export type SetPricingRequest = z.infer<typeof SetPricingRequestSchema>;
 export type PackPricingResponse = z.infer<typeof PackPricingResponseSchema>;
 export type FeatureResponse = z.infer<typeof FeatureResponseSchema>;
 export type PublisherProfile = z.infer<typeof PublisherProfileSchema>;
-export type UpsertPublisherProfileRequest = z.infer<
-  typeof UpsertPublisherProfileRequestSchema
->;
+export type UpsertPublisherProfileRequest = z.infer<typeof UpsertPublisherProfileRequestSchema>;
 export type CheckoutRequest = z.infer<typeof CheckoutRequestSchema>;
 export type CheckoutResponse = z.infer<typeof CheckoutResponseSchema>;
 export type PaymentRequiredHint = z.infer<typeof PaymentRequiredHintSchema>;

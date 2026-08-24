@@ -58,7 +58,8 @@ describe('public sources API (trust inputs)', () => {
       companyId: 'co_public_sources_e2e',
       extraKeys: [{ scopes: ['brain:read'] }, { scopes: ['brain:write'] }],
     });
-    [readKey, writeOnlyKey] = f.extraApiKeys;
+    readKey = f.extraApiKeys[0]!;
+    writeOnlyKey = f.extraApiKeys[1]!;
 
     // Declared identities — SENIOR carries the operator annotations the
     // public projection must never leak.
@@ -113,19 +114,13 @@ describe('public sources API (trust inputs)', () => {
     expect(res.body.limit).toBe(50);
     expect(res.body.offset).toBe(0);
     // Sorted by sourceKey.
-    expect(res.body.sources.map((s: any) => s.sourceKey)).toEqual([
-      API_BOT,
-      LEARNED_ONLY,
-      SENIOR,
-    ]);
+    expect(res.body.sources.map((s: any) => s.sourceKey)).toEqual([API_BOT, LEARNED_ONLY, SENIOR]);
     const senior = res.body.sources.find((s: any) => s.sourceKey === SENIOR);
     expect(senior.declared).toEqual({ type: 'human', authLevel: 0.9 });
     expect(senior.globalTrust.sampleCount).toBe(40);
     expect(senior.scopedDomains).toBe(2);
     expect('domainTrust' in senior).toBe(false);
-    const learned = res.body.sources.find(
-      (s: any) => s.sourceKey === LEARNED_ONLY,
-    );
+    const learned = res.body.sources.find((s: any) => s.sourceKey === LEARNED_ONLY);
     expect(learned.declared).toBeNull();
     const raw = JSON.stringify(res.body);
     expect(raw).not.toContain('ops-team');
@@ -141,37 +136,25 @@ describe('public sources API (trust inputs)', () => {
 
     // Global basis: senior 40 ≥ 10; learned_only 9 and api_bot 0 drop.
     const bySamples = await f.http.get('/v1/sources?minSamples=10').set(read());
-    expect(bySamples.body.sources.map((s: any) => s.sourceKey)).toEqual([
-      SENIOR,
-    ]);
+    expect(bySamples.body.sources.map((s: any) => s.sourceKey)).toEqual([SENIOR]);
 
     // Domain capture: every row gains a domainTrust slot (null without a
     // row for that domain).
     const byDomain = await f.http.get('/v1/sources?domain=address').set(read());
-    const senior = byDomain.body.sources.find(
-      (s: any) => s.sourceKey === SENIOR,
-    );
+    const senior = byDomain.body.sources.find((s: any) => s.sourceKey === SENIOR);
     expect(senior.domainTrust.domain).toBe('address');
     expect(senior.domainTrust.sampleCount).toBe(12);
-    const learned = byDomain.body.sources.find(
-      (s: any) => s.sourceKey === LEARNED_ONLY,
-    );
+    const learned = byDomain.body.sources.find((s: any) => s.sourceKey === LEARNED_ONLY);
     expect(learned.domainTrust).toBeNull();
 
     // With a domain active, minSamples judges the scoped row when present
     // (senior's 3 `status` samples lose against its 40 global ones) and
     // falls back to the global row otherwise.
-    const scoped = await f.http
-      .get('/v1/sources?domain=status&minSamples=10')
-      .set(read());
+    const scoped = await f.http.get('/v1/sources?domain=status&minSamples=10').set(read());
     expect(scoped.body.sources).toEqual([]);
     expect(scoped.body.total).toBe(0);
-    const fallback = await f.http
-      .get('/v1/sources?domain=status&minSamples=5')
-      .set(read());
-    expect(fallback.body.sources.map((s: any) => s.sourceKey)).toEqual([
-      LEARNED_ONLY,
-    ]);
+    const fallback = await f.http.get('/v1/sources?domain=status&minSamples=5').set(read());
+    expect(fallback.body.sources.map((s: any) => s.sourceKey)).toEqual([LEARNED_ONLY]);
   });
 
   it('paginates with a clamped limit and stable totals', async () => {
@@ -180,12 +163,8 @@ describe('public sources API (trust inputs)', () => {
     expect(first.body.total).toBe(3);
     expect(first.body.limit).toBe(1);
 
-    const second = await f.http
-      .get('/v1/sources?limit=1&offset=1')
-      .set(read());
-    expect(second.body.sources.map((s: any) => s.sourceKey)).toEqual([
-      LEARNED_ONLY,
-    ]);
+    const second = await f.http.get('/v1/sources?limit=1&offset=1').set(read());
+    expect(second.body.sources.map((s: any) => s.sourceKey)).toEqual([LEARNED_ONLY]);
 
     const beyond = await f.http.get('/v1/sources?offset=999').set(read());
     expect(beyond.body.sources).toEqual([]);
@@ -211,18 +190,12 @@ describe('public sources API (trust inputs)', () => {
   });
 
   it('serves detail with history capped at 50, newest first', async () => {
-    const res = await f.http
-      .get(`/v1/sources/${encodeURIComponent(SENIOR)}`)
-      .set(read());
+    const res = await f.http.get(`/v1/sources/${encodeURIComponent(SENIOR)}`).set(read());
     expect(res.status).toBe(200);
     expect(res.body.sourceKey).toBe(SENIOR);
     expect(res.body.declared).toEqual({ type: 'human', authLevel: 0.9 });
     // Global scope first, then domains alphabetically.
-    expect(res.body.trust.map((t: any) => t.domain)).toEqual([
-      null,
-      'address',
-      'status',
-    ]);
+    expect(res.body.trust.map((t: any) => t.domain)).toEqual([null, 'address', 'status']);
     expect(res.body.history).toHaveLength(50);
     expect(res.body.history[0].sampleCount).toBe(HISTORY_ROWS - 1);
     expect(res.body.history[49].sampleCount).toBe(HISTORY_ROWS - 50);
@@ -232,9 +205,7 @@ describe('public sources API (trust inputs)', () => {
   });
 
   it('404s on an unknown source instead of an empty shell', async () => {
-    const res = await f.http
-      .get(`/v1/sources/${encodeURIComponent('nowhere:nobody')}`)
-      .set(read());
+    const res = await f.http.get(`/v1/sources/${encodeURIComponent('nowhere:nobody')}`).set(read());
     expect(res.status).toBe(404);
   });
 
@@ -242,9 +213,7 @@ describe('public sources API (trust inputs)', () => {
     const writeAuth = { Authorization: `Bearer ${writeOnlyKey}` };
     const list = await f.http.get('/v1/sources').set(writeAuth);
     expect(list.status).toBe(403);
-    const detail = await f.http
-      .get(`/v1/sources/${encodeURIComponent(SENIOR)}`)
-      .set(writeAuth);
+    const detail = await f.http.get(`/v1/sources/${encodeURIComponent(SENIOR)}`).set(writeAuth);
     expect(detail.status).toBe(403);
   });
 
@@ -268,7 +237,7 @@ describe('public sources API — ABAC action gate', () => {
         },
       ],
     });
-    [restrictedKey] = f.extraApiKeys;
+    restrictedKey = f.extraApiKeys[0]!;
     const created = await f.http
       .post('/v1/admin/policy-sets')
       .set({ Authorization: `Bearer ${f.apiKey}` })

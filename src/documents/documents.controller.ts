@@ -17,10 +17,7 @@ import { getPolicyContext } from '../common/request-context';
 import { evaluateRow, toRowView } from '../policy/policy-engine';
 import type { PolicyContext } from '../policy/policy.types';
 import { DocumentStoreService } from './document-store.service';
-import {
-  CandidateStoreService,
-  type CandidateRow,
-} from './candidate-store.service';
+import { CandidateStoreService, type CandidateRow } from './candidate-store.service';
 import { assertDocumentIngestEnabled } from './documents-gate';
 
 /**
@@ -56,9 +53,7 @@ export class DocumentsController {
       // gates behind brain:read_pii. Returning it under plain brain:read
       // would be a fence bypass, so require the PII scope explicitly.
       if (!req.brainAuth.scopes.includes('brain:read_pii')) {
-        throw new ForbiddenException(
-          'includeText requires the brain:read_pii scope',
-        );
+        throw new ForbiddenException('includeText requires the brain:read_pii scope');
       }
       chunks = await this.store.getChunks(req.brainAuth.companyId, id);
     }
@@ -68,17 +63,11 @@ export class DocumentsController {
   @Get(':id/candidates')
   @RequireScopes('brain:read')
   @PolicyAction('rest.documents.candidates')
-  async listCandidates(
-    @Req() req: AuthenticatedRequest,
-    @Param('id') id: string,
-  ) {
+  async listCandidates(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     assertDocumentIngestEnabled();
     const doc = await this.store.getById(req.brainAuth.companyId, id);
     if (!doc) throw new NotFoundException('document not found');
-    const candidates = await this.candidates.listByDoc(
-      req.brainAuth.companyId,
-      id,
-    );
+    const candidates = await this.candidates.listByDoc(req.brainAuth.companyId, id);
     return {
       documentId: doc.id,
       candidates: redactGatedCandidates(
@@ -126,8 +115,10 @@ export function redactGatedCandidates(
     const scopeGated = !!requiresScope && !scopes.includes(requiresScope);
     const abacDenied =
       !!ctx &&
-      evaluateRow(ctx, toRowView({ predicate }, (p) => policyFor(p).piiClass))
-        .decision === 'deny';
+      evaluateRow(
+        ctx,
+        toRowView({ predicate }, (p) => policyFor(p).piiClass),
+      ).decision === 'deny';
     if (!scopeGated && !abacDenied) return c;
     // Redact BOTH the extracted value and the verbatim grounding
     // sentence: `clause` is a quote from the source document and carries

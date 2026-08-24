@@ -51,9 +51,7 @@ export const contentScenarios: Scenario[] = [
           conversationId: 'kb:acme:briefing',
           messageId: 'acme:briefing:001',
         },
-        knownEntities: [
-          { vertical: 'content', id: 'acme_beverages', role: 'subject' },
-        ],
+        knownEntities: [{ vertical: 'content', id: 'acme_beverages', role: 'subject' }],
         emittedAt: ISO('2026-05-18'),
         /**
          * 7 distinct predicate types the extractor must surface.

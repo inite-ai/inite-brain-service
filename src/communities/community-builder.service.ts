@@ -6,17 +6,9 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { withSpan } from '../common/tracing';
-import {
-  SUMMARY_GENERATOR,
-} from '../compaction/compaction.service';
-import type {
-  FactToSummarize,
-  SummaryGenerator,
-} from '../compaction/summary-generator';
-import {
-  buildAdjacency,
-  labelPropagation,
-} from './label-propagation';
+import { SUMMARY_GENERATOR } from '../compaction/compaction.service';
+import type { FactToSummarize, SummaryGenerator } from '../compaction/summary-generator';
+import { buildAdjacency, labelPropagation } from './label-propagation';
 import { policyFor } from '../ingest/conflict-resolver';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
@@ -58,16 +50,9 @@ export class CommunityBuilderService {
     // disabled the propagation simply runs in-thread as before.
     @Optional() private readonly workerPool?: JobWorkerPool,
   ) {
-    this.enabled =
-      envFlagEnabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
-    this.minSize = parseInt(
-      this.config.get<string>('COMMUNITIES_MIN_SIZE', '3'),
-      10,
-    );
-    this.maxIterations = parseInt(
-      this.config.get<string>('COMMUNITIES_MAX_ITERATIONS', '10'),
-      10,
-    );
+    this.enabled = envFlagEnabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
+    this.minSize = parseInt(this.config.get<string>('COMMUNITIES_MIN_SIZE', '3'), 10);
+    this.maxIterations = parseInt(this.config.get<string>('COMMUNITIES_MAX_ITERATIONS', '10'), 10);
     this.summaryMaxMembers = parseInt(
       this.config.get<string>('COMMUNITIES_SUMMARY_MAX_MEMBERS', '10'),
       10,
@@ -87,10 +72,7 @@ export class CommunityBuilderService {
    * passed `db` handle. Idempotent: a second run with no graph change
    * reuses every community via the watermark and creates/deletes nothing.
    */
-  async run(
-    db: Surreal,
-    derivedVersion: string | null = null,
-  ): Promise<CommunityBuildResult> {
+  async run(db: Surreal, derivedVersion: string | null = null): Promise<CommunityBuildResult> {
     const result: CommunityBuildResult = {
       communitiesBuilt: 0,
       communitiesReused: 0,
@@ -121,9 +103,7 @@ export class CommunityBuilderService {
       return result;
     }
 
-    const clusters = (await this.computeClusters(edges)).filter(
-      (c) => c.length >= this.minSize,
-    );
+    const clusters = (await this.computeClusters(edges)).filter((c) => c.length >= this.minSize);
 
     // Per-cluster newest internal edge (event-time watermark). An edge is
     // "internal" when both endpoints sit in the same cluster.
@@ -141,8 +121,7 @@ export class CommunityBuilderService {
     const existing = await this.loadExistingCommunities(db);
     const matchedExistingIds = new Set<string>();
 
-    for (let i = 0; i < clusters.length; i++) {
-      const members = clusters[i];
+    for (const [i, members] of clusters.entries()) {
       result.entitiesClustered += members.length;
       const signature = members.join('|');
       const prior = existing.get(signature);
@@ -168,7 +147,7 @@ export class CommunityBuilderService {
       }
       await withSpan(
         'communities.build_one',
-        () => this.buildCommunity(db, members, maxEdgeAt[i], derivedVersion),
+        () => this.buildCommunity(db, members, maxEdgeAt[i] ?? null, derivedVersion),
         { 'community.size': members.length },
       );
       result.communitiesBuilt++;
@@ -213,10 +192,10 @@ export class CommunityBuilderService {
       this.workerPool?.enabled()
     ) {
       try {
-        const out = await this.workerPool.run<{ clusters: string[][] }>(
-          resolveWorkerJobPath(),
-          { edges: lpEdges, maxIterations: this.maxIterations },
-        );
+        const out = await this.workerPool.run<{ clusters: string[][] }>(resolveWorkerJobPath(), {
+          edges: lpEdges,
+          maxIterations: this.maxIterations,
+        });
         if (Array.isArray(out?.clusters)) return out.clusters;
         this.logger.warn(
           '[communities] worker-pool label propagation returned a malformed result; falling back in-thread',
@@ -235,13 +214,9 @@ export class CommunityBuilderService {
    * any error — the caller then runs the full pass (fail-open: the
    * short-circuit is a cost gate, never a correctness gate).
    */
-  private async probeGraphSignature(
-    db: Surreal,
-  ): Promise<GraphSignature | null> {
+  private async probeGraphSignature(db: Surreal): Promise<GraphSignature | null> {
     try {
-      const [rows] = await db.query<
-        [Array<{ c: number; maxAt: unknown }>]
-      >(
+      const [rows] = await db.query<[Array<{ c: number; maxAt: unknown }>]>(
         `SELECT count() AS c, time::max(createdAt) AS maxAt
            FROM knowledge_edge
           WHERE invalidatedAt IS NONE
@@ -261,10 +236,7 @@ export class CommunityBuilderService {
     }
   }
 
-  private async signatureUnchanged(
-    db: Surreal,
-    sig: GraphSignature,
-  ): Promise<boolean> {
+  private async signatureUnchanged(db: Surreal, sig: GraphSignature): Promise<boolean> {
     try {
       const [rows] = await db.query<
         [Array<{ liveEdgeCount: number; maxEdgeAt: unknown; minSize: number }>]
@@ -285,10 +257,7 @@ export class CommunityBuilderService {
     }
   }
 
-  private async saveGraphSignature(
-    db: Surreal,
-    sig: GraphSignature,
-  ): Promise<void> {
+  private async saveGraphSignature(db: Surreal, sig: GraphSignature): Promise<void> {
     try {
       await db.query(
         `UPSERT community_build_state:singleton SET
@@ -301,9 +270,7 @@ export class CommunityBuilderService {
         },
       );
     } catch (e) {
-      this.logger.warn(
-        `[communities] signature save failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`[communities] signature save failed: ${(e as Error).message}`);
     }
   }
 
@@ -322,13 +289,9 @@ export class CommunityBuilderService {
     }));
   }
 
-  private async loadExistingCommunities(
-    db: Surreal,
-  ): Promise<Map<string, ExistingCommunity>> {
+  private async loadExistingCommunities(db: Surreal): Promise<Map<string, ExistingCommunity>> {
     type Raw = { id: unknown; lastBuiltMaxEdgeAt?: unknown };
-    const [rows] = await db.query<[Raw[]]>(
-      `SELECT id, lastBuiltMaxEdgeAt FROM community_node`,
-    );
+    const [rows] = await db.query<[Raw[]]>(`SELECT id, lastBuiltMaxEdgeAt FROM community_node`);
     const comms = (rows as Raw[]) ?? [];
     const out = new Map<string, ExistingCommunity>();
     if (comms.length === 0) return out;
@@ -365,15 +328,9 @@ export class CommunityBuilderService {
     maxEdgeAt: string | null,
     derivedVersion: string | null,
   ): Promise<void> {
-    const { label, summaryInput } = await this.gatherMemberContext(
-      db,
-      members,
-      derivedVersion,
-    );
+    const { label, summaryInput } = await this.gatherMemberContext(db, members, derivedVersion);
     const summary = await this.summaryGenerator.generate(summaryInput);
-    const summaryEmbedding = summary
-      ? await this.embedder.embed(summary)
-      : null;
+    const summaryEmbedding = summary ? await this.embedder.embed(summary) : null;
 
     // lastBuiltMaxEdgeAt is option<datetime>: OMIT it (leave NONE) when the
     // cluster has no dated internal edge, rather than passing NULL — a JS
@@ -447,8 +404,7 @@ export class CommunityBuilderService {
       { ids: ridSample },
     );
     const names = (nameRows as Array<{ id: unknown; canonicalName: string }>) ?? [];
-    const label =
-      names[0]?.canonicalName ?? `community of ${members.length} entities`;
+    const label = names[0]?.canonicalName ?? `community of ${members.length} entities`;
 
     const [factRows] = await db.query<[Array<RawFact>]>(
       // Deterministic tiebreakers after confidence: a cluster's facts often
@@ -482,9 +438,7 @@ export class CommunityBuilderService {
     // read time. The build-time PII/scope filter above is the enforceable
     // approximation; a per-caller source-deny can't retro-scrub a baked
     // summary. Documented limitation while DREAMS_COMMUNITIES matures.
-    const summaryInput: FactToSummarize[] = (
-      (factRows as RawFact[]) ?? []
-    )
+    const summaryInput: FactToSummarize[] = ((factRows as RawFact[]) ?? [])
       .filter((f) => !policyFor(f.predicate).requiresScope)
       .slice(0, 40)
       .map((f) => ({
@@ -492,7 +446,7 @@ export class CommunityBuilderService {
         predicate: f.predicate,
         object: f.object,
         validFrom: toIso(f.validFrom),
-        validUntil: f.validUntil ? toIso(f.validUntil) : undefined,
+        ...(f.validUntil ? { validUntil: toIso(f.validUntil) } : {}),
         confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
       }));
     return { label, summaryInput };
@@ -505,9 +459,7 @@ export class CommunityBuilderService {
   }
 
   private async removeAllCommunities(db: Surreal): Promise<number> {
-    const [rows] = await db.query<[Array<{ id: unknown }>]>(
-      `SELECT id FROM community_node`,
-    );
+    const [rows] = await db.query<[Array<{ id: unknown }>]>(`SELECT id FROM community_node`);
     const ids = ((rows as Array<{ id: unknown }>) ?? []).map((r) => String(r.id));
     for (const cid of ids) await this.deleteCommunity(db, cid);
     return ids.length;

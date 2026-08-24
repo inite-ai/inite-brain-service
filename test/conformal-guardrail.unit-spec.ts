@@ -27,7 +27,7 @@ function hit(entityId: string, facts: Array<{ factId: string; calibrated?: numbe
       validFrom: '2026-01-01',
       status: 'active',
       score: 0.5,
-      breakdown: f.calibrated !== undefined ? makeBreakdown(f.calibrated) : undefined,
+      ...(f.calibrated !== undefined ? { breakdown: makeBreakdown(f.calibrated) } : {}),
     })),
     score: 0.5,
   };
@@ -50,7 +50,7 @@ describe('applyConformalGuardrail', () => {
     ];
     const r = applyConformalGuardrail(hits, { minCalibratedConfidence: 0.4 });
     expect(r.kept.length).toBe(1);
-    expect(r.kept[0].facts.map((f) => f.factId)).toEqual(['high']);
+    expect(r.kept[0]!.facts.map((f) => f.factId)).toEqual(['high']);
     expect(r.droppedCount).toBe(1);
   });
 
@@ -61,7 +61,7 @@ describe('applyConformalGuardrail', () => {
     ];
     const r = applyConformalGuardrail(hits, { minCalibratedConfidence: 0.5 });
     expect(r.kept.length).toBe(1);
-    expect(r.kept[0].entityId).toBe('e2');
+    expect(r.kept[0]!.entityId).toBe('e2');
     expect(r.droppedCount).toBe(1);
   });
 
@@ -85,6 +85,6 @@ describe('applyConformalGuardrail', () => {
   it('floor === calibratedConfidence keeps the fact (inclusive boundary)', () => {
     const hits = [hit('e1', [{ factId: 'eq', calibrated: 0.5 }])];
     const r = applyConformalGuardrail(hits, { minCalibratedConfidence: 0.5 });
-    expect(r.kept[0].facts.length).toBe(1);
+    expect(r.kept[0]!.facts.length).toBe(1);
   });
 });

@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
   isUniqueViolation,
+  queryFirst,
+  queryRows,
 } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
@@ -28,7 +25,7 @@ export interface StoredDocument {
   chunkCount: number;
   hasContent: boolean;
   vertical: string;
-  recorder?: string;
+  recorder?: string | undefined;
   occurredAt: Date;
   status: string;
   /**
@@ -71,10 +68,7 @@ export class DocumentStoreService {
    * form (hash shifts only when the redactor itself changes — per-deploy,
    * acceptable).
    */
-  async createOrGet(
-    companyId: string,
-    dto: IngestDocumentDto,
-  ): Promise<CreateDocumentResult> {
+  async createOrGet(companyId: string, dto: IngestDocumentDto): Promise<CreateDocumentResult> {
     // Meta becomes ABAC-matchable `source.meta` on every derived fact
     // (commit-writer projection), so it must be operator vocabulary.
     // Default: sanitize-and-warn; SOURCE_META_STRICT=1 rejects instead —
@@ -159,11 +153,11 @@ export class DocumentStoreService {
 
   async getById(companyId: string, docId: string): Promise<StoredDocument | null> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const row = await queryFirst<Record<string, unknown>>(
+        db,
         `SELECT * FROM type::record('source_document', $id)`,
         { id: idTailOf(docId) },
       );
-      const row = ((rows as any[]) ?? [])[0];
       return row ? mapDoc(row) : null;
     });
   }
@@ -175,29 +169,31 @@ export class DocumentStoreService {
    */
   async listReindexable(
     companyId: string,
-    p: { afterId?: string; limit: number },
+    p: { afterId?: string | undefined; limit: number },
   ): Promise<StoredDocument[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<Record<string, unknown>>(
+        db,
         `SELECT * FROM source_document
          WHERE hasContent = true AND status != 'purged'
            ${p.afterId ? `AND id > type::record('source_document', $after)` : ''}
          ORDER BY id ASC LIMIT $limit`,
         { after: p.afterId ? idTailOf(p.afterId) : undefined, limit: p.limit },
       );
-      return (((rows as any[]) ?? []) as Record<string, unknown>[]).map(mapDoc);
+      return rows.map(mapDoc);
     });
   }
 
   /** Stored chunks (empty for hasContent=false documents). */
   async getChunks(companyId: string, docId: string): Promise<DocumentChunk[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<DocumentChunk>(
+        db,
         `SELECT seq, text, charStart, charEnd FROM source_chunk
          WHERE docId = type::record('source_document', $id) ORDER BY seq ASC`,
         { id: idTailOf(docId) },
       );
-      return (((rows as any[]) ?? []) as DocumentChunk[]).map((r) => ({
+      return rows.map((r) => ({
         seq: r.seq,
         text: r.text,
         charStart: r.charStart,
@@ -206,16 +202,12 @@ export class DocumentStoreService {
     });
   }
 
-  async setStatus(p: {
-    companyId: string;
-    docId: string;
-    status: string;
-  }): Promise<void> {
+  async setStatus(p: { companyId: string; docId: string; status: string }): Promise<void> {
     await this.surreal.withCompany(p.companyId, async (db) => {
-      await db.query(
-        `UPDATE type::record('source_document', $id) SET status = $status`,
-        { id: idTailOf(p.docId), status: p.status },
-      );
+      await db.query(`UPDATE type::record('source_document', $id) SET status = $status`, {
+        id: idTailOf(p.docId),
+        status: p.status,
+      });
     });
   }
 
@@ -226,15 +218,15 @@ export class DocumentStoreService {
    */
   async purgeContent(companyId: string, docId: string): Promise<boolean> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const existing = await queryFirst<{ id: unknown }>(
+        db,
         `SELECT id FROM type::record('source_document', $id)`,
         { id: idTailOf(docId) },
       );
-      if (!((rows as any[]) ?? [])[0]) return false;
-      await db.query(
-        `DELETE source_chunk WHERE docId = type::record('source_document', $id)`,
-        { id: idTailOf(docId) },
-      );
+      if (!existing) return false;
+      await db.query(`DELETE source_chunk WHERE docId = type::record('source_document', $id)`, {
+        id: idTailOf(docId),
+      });
       await db.query(
         `UPDATE type::record('source_document', $id)
            SET status = 'purged', hasContent = false`,
@@ -242,23 +234,18 @@ export class DocumentStoreService {
       );
       const flagged = await markFactsProvenancePurged(db, docId);
       if (flagged > 0) {
-        this.logger.log(
-          `purge ${docId}: flagged ${flagged} facts provenancePurged`,
-        );
+        this.logger.log(`purge ${docId}: flagged ${flagged} facts provenancePurged`);
       }
       return true;
     });
   }
 
-  private async byContentHash(
-    db: Surreal,
-    contentHash: string,
-  ): Promise<StoredDocument | null> {
-    const [rows] = await db.query<[any[]]>(
+  private async byContentHash(db: Surreal, contentHash: string): Promise<StoredDocument | null> {
+    const row = await queryFirst<Record<string, unknown>>(
+      db,
       `SELECT * FROM source_document WHERE contentHash = $h LIMIT 1`,
       { h: contentHash },
     );
-    const row = ((rows as any[]) ?? [])[0];
     return row ? mapDoc(row) : null;
   }
 }

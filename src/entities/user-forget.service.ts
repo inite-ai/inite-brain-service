@@ -40,10 +40,7 @@ export class UserForgetService {
 
   constructor(private readonly surreal: SurrealService) {}
 
-  async forgetUser(
-    companyId: string,
-    userId: string,
-  ): Promise<UserForgetResult> {
+  async forgetUser(companyId: string, userId: string): Promise<UserForgetResult> {
     return this.surreal.withCompany(companyId, async (db) => {
       // Record ids first — the audit purge needs them AFTER the rows die.
       const [factIdRows] = await db.query<[unknown[]]>(
@@ -64,9 +61,7 @@ export class UserForgetService {
         `SELECT VALUE entityId FROM knowledge_fact WHERE userId = $u`,
         { u: userId },
       );
-      const touchedEntityIds = [
-        ...new Set(((factEntityRows as unknown[]) ?? []).map(String)),
-      ];
+      const touchedEntityIds = [...new Set(((factEntityRows as unknown[]) ?? []).map(String))];
 
       // Side tables keyed by fact records — traversal needs live facts.
       await db.query(`DELETE fact_usage WHERE factId.userId = $u`, {
@@ -86,9 +81,7 @@ export class UserForgetService {
       const edgeRows = (edgesDeletedRows as Array<{ id?: unknown }>) ?? [];
       // Edges are mirrored to audit_event (changefeed-drain), so their
       // mirror rows must be purged with the fact/entity ones below.
-      const edgeIds = edgeRows
-        .map((r) => String(r.id))
-        .filter((s) => s && s !== 'undefined');
+      const edgeIds = edgeRows.map((r) => String(r.id)).filter((s) => s && s !== 'undefined');
       // Dedup refs traverse the entity link — before the entities go.
       await db.query(`DELETE entity_external_ref WHERE entity.userId = $u`, {
         u: userId,
@@ -130,10 +123,9 @@ export class UserForgetService {
         (r) => new StringRecordId(String(r.id)),
       );
       if (deletedEpisodeRefs.length > 0) {
-        await db.query(
-          `DELETE episode_segment WHERE episodeIds CONTAINSANY $eps`,
-          { eps: deletedEpisodeRefs },
-        );
+        await db.query(`DELETE episode_segment WHERE episodeIds CONTAINSANY $eps`, {
+          eps: deletedEpisodeRefs,
+        });
       }
       await db.query(`DELETE episode_segment WHERE userId = $u`, { u: userId });
 

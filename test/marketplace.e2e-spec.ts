@@ -13,11 +13,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import {
-  REAL_ESTATE_PACK,
-  signPack,
-  type DomainPackManifest,
-} from '../src/ai/domain-packs';
+import { REAL_ESTATE_PACK, signPack, type DomainPackManifest } from '../src/ai/domain-packs';
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 
@@ -93,10 +89,7 @@ describe('registry marketplace (e2e)', () => {
         }
         const ent = /^\/v1\/entitlements\/(.+)$/.exec(url);
         if (req.method === 'GET' && ent) {
-          return json(
-            200,
-            billing.entitlements[decodeURIComponent(ent[1])] ?? [],
-          );
+          return json(200, billing.entitlements[decodeURIComponent(ent[1]!)] ?? []);
         }
         return json(404, { message: 'no such stub route' });
       });
@@ -121,7 +114,7 @@ describe('registry marketplace (e2e)', () => {
       scopes: ['brain:read', 'brain:write', 'brain:admin', 'registry:publish'],
       extraKeys: [{ scopes: ['registry:curate'] }],
     });
-    curateKey = owner.extraApiKeys[0];
+    curateKey = owner.extraApiKeys[0]!;
     rival = await createApp({
       companyId: `co_mkt_rival_${RUN}`,
       scopes: ['brain:read', 'brain:admin', 'registry:publish'],
@@ -161,9 +154,7 @@ describe('registry marketplace (e2e)', () => {
   });
 
   const downloadsOf = async (packId: string): Promise<number> => {
-    const r = await owner.http
-      .get(`/v1/registry/packs/${packId}`)
-      .set(auth(owner));
+    const r = await owner.http.get(`/v1/registry/packs/${packId}`).set(auth(owner));
     return r.body.versions[0].downloads as number;
   };
 
@@ -212,9 +203,7 @@ describe('registry marketplace (e2e)', () => {
       });
       expect(r.body.priceCode).toMatch(new RegExp(`^pack_${PAID_ID}_\\d+$`));
       // The stub recorded the product with the entitlement metadata.
-      const product = billing.products.find(
-        (p) => p.code === `pack_${PAID_ID}`,
-      );
+      const product = billing.products.find((p) => p.code === `pack_${PAID_ID}`);
       expect(product).toBeDefined();
       expect(product!.metadata).toEqual({
         entitlements: [`domain_pack:${PAID_ID}`],
@@ -222,16 +211,12 @@ describe('registry marketplace (e2e)', () => {
     });
 
     it('lists the pack as paid with its display price (free pack untouched)', async () => {
-      const paidList = await owner.http
-        .get(`/v1/registry/packs?q=${PAID_ID}`)
-        .set(auth(owner));
+      const paidList = await owner.http.get(`/v1/registry/packs?q=${PAID_ID}`).set(auth(owner));
       const paid = paidList.body.packs.find((p: any) => p.packId === PAID_ID);
       expect(paid.paid).toBe(true);
       expect(paid.displayPrice).toEqual({ amount: 2900, currency: 'USD' });
 
-      const freeList = await owner.http
-        .get(`/v1/registry/packs?q=${FREE_ID}`)
-        .set(auth(owner));
+      const freeList = await owner.http.get(`/v1/registry/packs?q=${FREE_ID}`).set(auth(owner));
       const free = freeList.body.packs.find((p: any) => p.packId === FREE_ID);
       expect('paid' in free).toBe(false);
       expect('displayPrice' in free).toBe(false);
@@ -291,9 +276,7 @@ describe('registry marketplace (e2e)', () => {
     });
 
     it('installs once the entitlement is granted — downloads +1 exactly once', async () => {
-      billing.entitlements[owner.companyId] = [
-        { key: `domain_pack:${PAID_ID}` },
-      ];
+      billing.entitlements[owner.companyId] = [{ key: `domain_pack:${PAID_ID}` }];
       const r = await owner.http
         .post('/v1/admin/packs/from-registry')
         .set(auth(owner))
@@ -378,9 +361,7 @@ describe('registry marketplace (e2e)', () => {
       expect([200, 201]).toContain(r.status);
       expect(r.body).toEqual({ packId: PAID_ID, featured: true });
 
-      const list = await owner.http
-        .get(`/v1/registry/packs?q=${PAID_ID}`)
-        .set(auth(owner));
+      const list = await owner.http.get(`/v1/registry/packs?q=${PAID_ID}`).set(auth(owner));
       const summary = list.body.packs.find((p: any) => p.packId === PAID_ID);
       expect(summary.featured).toBe(true);
       expect(new Date(summary.featuredAt).getTime()).not.toBeNaN();
@@ -394,12 +375,8 @@ describe('registry marketplace (e2e)', () => {
         .post(`/v1/admin/registry/packs/${PAID_ID}/unfeature`)
         .set({ Authorization: `Bearer ${curateKey}` });
       expect(off.body).toEqual({ packId: PAID_ID, featured: false });
-      const after = await owner.http
-        .get(`/v1/registry/packs?q=${PAID_ID}`)
-        .set(auth(owner));
-      expect(
-        'featured' in after.body.packs.find((p: any) => p.packId === PAID_ID),
-      ).toBe(false);
+      const after = await owner.http.get(`/v1/registry/packs?q=${PAID_ID}`).set(auth(owner));
+      expect('featured' in after.body.packs.find((p: any) => p.packId === PAID_ID)).toBe(false);
     });
   });
 
@@ -429,18 +406,12 @@ describe('registry marketplace (e2e)', () => {
         url: 'https://acme.example',
       });
 
-      const json = await owner.http
-        .get(`/v1/registry/publishers/${PUBLISHER}`)
-        .set(auth(owner));
+      const json = await owner.http.get(`/v1/registry/publishers/${PUBLISHER}`).set(auth(owner));
       expect(json.status).toBe(200);
       expect(json.body.profile.displayName).toBe('Marketplace E2E Publisher');
-      expect(
-        json.body.packs.some((p: any) => p.packId === PAID_ID),
-      ).toBe(true);
+      expect(json.body.packs.some((p: any) => p.packId === PAID_ID)).toBe(true);
 
-      const html = await owner.http.get(
-        `/registry/ui/publisher/${PUBLISHER}`,
-      ); // public, no auth
+      const html = await owner.http.get(`/registry/ui/publisher/${PUBLISHER}`); // public, no auth
       expect(html.status).toBe(200);
       expect(html.text).toContain('Marketplace E2E Publisher');
       expect(html.text).toContain(PAID_ID);
@@ -462,9 +433,7 @@ describe('registry marketplace (e2e)', () => {
     });
 
     it('404s an unknown publisher on JSON; empty-state page on the public UI', async () => {
-      const json = await owner.http
-        .get(`/v1/registry/publishers/ghost_${RUN}`)
-        .set(auth(owner));
+      const json = await owner.http.get(`/v1/registry/publishers/ghost_${RUN}`).set(auth(owner));
       expect(json.status).toBe(404);
 
       const html = await owner.http.get(`/registry/ui/publisher/ghost_${RUN}`);

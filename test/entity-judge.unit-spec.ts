@@ -60,13 +60,14 @@ describe('EntityJudgeService', () => {
       query: jest
         .fn()
         .mockResolvedValueOnce([
-          [{ predicate: 'dob', object: '1990' }, { predicate: 'city', object: 'NYC' }],
+          [
+            { predicate: 'dob', object: '1990' },
+            { predicate: 'city', object: 'NYC' },
+          ],
         ])
         .mockResolvedValueOnce([[]]),
     } as any;
-    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe(
-      '- dob: 1990\n- city: NYC',
-    );
+    expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe('- dob: 1990\n- city: NYC');
     expect(await svc.fetchTopFacts(db, 'knowledge_entity:y')).toBe('(no facts)');
   });
 });

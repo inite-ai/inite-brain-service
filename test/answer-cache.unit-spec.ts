@@ -43,9 +43,7 @@ describe('deterministicSerialize / computeProfileHash', () => {
     expect(deterministicSerialize({ a: 1, b: [2, 3] })).toBe(
       deterministicSerialize({ b: [2, 3], a: 1 }),
     );
-    expect(deterministicSerialize({ a: 1 })).not.toBe(
-      deterministicSerialize({ a: 2 }),
-    );
+    expect(deterministicSerialize({ a: 1 })).not.toBe(deterministicSerialize({ a: 2 }));
   });
 
   it('serializes Sets as sorted arrays (profile.lanes)', () => {
@@ -58,13 +56,14 @@ describe('deterministicSerialize / computeProfileHash', () => {
     const profile = resolveRetrievalProfile();
     const base = computeProfileHash(profile, { guardrails: 'strict' });
     expect(computeProfileHash(profile, { guardrails: 'strict' })).toBe(base);
-    expect(computeProfileHash(profile, { guardrails: 'lenient' })).not.toBe(
-      base,
-    );
+    expect(computeProfileHash(profile, { guardrails: 'lenient' })).not.toBe(base);
     expect(
-      computeProfileHash({ ...profile, factBudget: profile.factBudget + 1 }, {
-        guardrails: 'strict',
-      }),
+      computeProfileHash(
+        { ...profile, factBudget: profile.factBudget + 1 },
+        {
+          guardrails: 'strict',
+        },
+      ),
     ).not.toBe(base);
   });
 });
@@ -80,7 +79,6 @@ describe('canonicalDerivedPin', () => {
 describe('computeCacheKey', () => {
   const base = {
     companyId: 'co_a',
-    userId: undefined as string | undefined,
     profileHash: 'ph1',
     model: 'gpt-4o-mini',
     derivedVersionPin: null,
@@ -99,9 +97,7 @@ describe('computeCacheKey', () => {
     expect(computeCacheKey({ ...base, userId: 'user_a' })).not.toBe(key);
     expect(computeCacheKey({ ...base, profileHash: 'ph2' })).not.toBe(key);
     expect(computeCacheKey({ ...base, model: 'gpt-5-mini' })).not.toBe(key);
-    expect(
-      computeCacheKey({ ...base, derivedVersionPin: 'wd-v3' }),
-    ).not.toBe(key);
+    expect(computeCacheKey({ ...base, derivedVersionPin: 'wd-v3' })).not.toBe(key);
     // Two user scopes never collide with each other either.
     expect(computeCacheKey({ ...base, userId: 'user_a' })).not.toBe(
       computeCacheKey({ ...base, userId: 'user_b' }),
@@ -142,11 +138,7 @@ function makeHarness(opts: {
   };
   const surreal = {
     withCompany: async (_c: string, fn: (d: typeof db) => unknown) => fn(db),
-    withScopedCompany: async (
-      _c: string,
-      _s: string[],
-      fn: (d: typeof db) => unknown,
-    ) => fn(db),
+    withScopedCompany: async (_c: string, _s: string[], fn: (d: typeof db) => unknown) => fn(db),
   } as unknown as SurrealService;
   const config = {
     get: (key: string, dflt?: string) =>
@@ -160,13 +152,7 @@ function makeHarness(opts: {
   const metrics = {
     countAnswerCache: (o: string) => outcomes.push(o),
   } as unknown as MetricsService;
-  const svc = new AnswerCacheService(
-    surreal,
-    config,
-    undefined,
-    undefined,
-    metrics,
-  );
+  const svc = new AnswerCacheService(surreal, config, undefined, undefined, metrics);
   return { svc, calls, outcomes };
 }
 
@@ -254,9 +240,7 @@ describe('AnswerCacheService.begin — serving', () => {
     const out = await h.svc.begin(beginArgs());
     expect(out?.hit).toBeUndefined();
     expect(h.outcomes).toEqual(['miss']);
-    expect(
-      h.calls.some((c) => /invalidatedAt = time::now\(\)/.test(c.sql)),
-    ).toBe(false);
+    expect(h.calls.some((c) => /invalidatedAt = time::now\(\)/.test(c.sql))).toBe(false);
   });
 
   it('live row + all-active facts → hit, hitCount increment, cached:true', async () => {
@@ -288,37 +272,30 @@ describe('AnswerCacheService.begin — serving', () => {
   it('tenant + user double-fence in the lookup WHERE clause', async () => {
     const h = makeHarness({ cacheRow: null });
     await h.svc.begin(beginArgs({ userId: 'user_a' }));
-    const lookup = h.calls[0];
+    const lookup = h.calls[0]!;
     expect(lookup.sql).toContain('companyId = $companyId');
     expect(lookup.sql).toContain('userId = $userId');
     expect(lookup.params.userId).toBe('user_a');
     const h2 = makeHarness({ cacheRow: null });
     await h2.svc.begin(beginArgs());
-    expect(h2.calls[0].sql).toContain('userId IS NONE');
+    expect(h2.calls[0]!.sql).toContain('userId IS NONE');
   });
 });
 
 describe('AnswerCacheService.begin — check-on-read rejection matrix', () => {
-  async function reject(
-    factRows: Array<Record<string, unknown>>,
-    row = liveCacheRow(),
-  ) {
+  async function reject(factRows: Array<Record<string, unknown>>, row = liveCacheRow()) {
     const h = makeHarness({
       cacheRow: row,
       factRows,
       entityRows: [{ id: 'knowledge_entity:e1', canonicalName: 'Acme' }],
     });
     const out = await h.svc.begin(beginArgs());
-    const invalidation = h.calls.find((c) =>
-      /invalidatedAt = time::now\(\)/.test(c.sql),
-    );
+    const invalidation = h.calls.find((c) => /invalidatedAt = time::now\(\)/.test(c.sql));
     return { out, invalidation, outcomes: h.outcomes };
   }
 
   it('superseded fact → rejected_stale, cause=superseded, miss', async () => {
-    const { out, invalidation, outcomes } = await reject([
-      activeFact({ status: 'superseded' }),
-    ]);
+    const { out, invalidation, outcomes } = await reject([activeFact({ status: 'superseded' })]);
     expect(out?.hit).toBeUndefined();
     expect(out?.ctx).toBeDefined();
     expect(invalidation?.params.cause).toBe('superseded');
@@ -326,16 +303,12 @@ describe('AnswerCacheService.begin — check-on-read rejection matrix', () => {
   });
 
   it('retracted fact → cause=retracted', async () => {
-    const { invalidation } = await reject([
-      activeFact({ status: 'retracted' }),
-    ]);
+    const { invalidation } = await reject([activeFact({ status: 'retracted' })]);
     expect(invalidation?.params.cause).toBe('retracted');
   });
 
   it('retractedAt set (status not yet flipped) → cause=retracted', async () => {
-    const { invalidation } = await reject([
-      activeFact({ retractedAt: new Date() }),
-    ]);
+    const { invalidation } = await reject([activeFact({ retractedAt: new Date() })]);
     expect(invalidation?.params.cause).toBe('retracted');
   });
 
@@ -352,9 +325,7 @@ describe('AnswerCacheService.begin — check-on-read rejection matrix', () => {
   });
 
   it('non-servable lifecycle state (compacted) fails closed as missing', async () => {
-    const { invalidation } = await reject([
-      activeFact({ status: 'compacted' }),
-    ]);
+    const { invalidation } = await reject([activeFact({ status: 'compacted' })]);
     expect(invalidation?.params.cause).toBe('missing');
   });
 
@@ -363,10 +334,7 @@ describe('AnswerCacheService.begin — check-on-read rejection matrix', () => {
       citedFactIds: ['knowledge_fact:f1', 'knowledge_fact:f2'],
     });
     const { invalidation, outcomes } = await reject(
-      [
-        activeFact(),
-        activeFact({ id: 'knowledge_fact:f2', status: 'superseded' }),
-      ],
+      [activeFact(), activeFact({ id: 'knowledge_fact:f2', status: 'superseded' })],
       row,
     );
     expect(invalidation?.params.cause).toBe('superseded');
@@ -378,7 +346,6 @@ describe('AnswerCacheService.admit — admission rules', () => {
   const ctx: AnswerCacheStoreContext = {
     key: 'a'.repeat(64),
     companyId: 'co_test',
-    userId: undefined,
     profileHash: 'ph',
     model: 'gpt-4o-mini',
     normalizedQuery: 'what tier is acme',
@@ -424,16 +391,8 @@ describe('AnswerCacheService.admit — admission rules', () => {
     ['partial verdict', grounded, 'partial'],
     ['unsupported verdict', grounded, 'unsupported'],
     ['abstention (null answer)', { ...grounded, answer: null }, 'supported'],
-    [
-      'reason-tagged return (low_coverage)',
-      { ...grounded, reason: 'low_coverage' },
-      'supported',
-    ],
-    [
-      'zero citations',
-      { ...grounded, citations: [] },
-      'supported',
-    ],
+    ['reason-tagged return (low_coverage)', { ...grounded, reason: 'low_coverage' }, 'supported'],
+    ['zero citations', { ...grounded, citations: [] }, 'supported'],
   ] as Array<[string, SynthesizeResult, 'supported' | 'partial' | 'unsupported']>)(
     'never caches: %s',
     async (_name, result, verdict) => {

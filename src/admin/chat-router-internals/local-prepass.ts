@@ -23,7 +23,7 @@ export function extractTemporalLocally(
   try {
     const results = chrono.parse(message, ref, { forwardDate: false });
     if (!results || results.length === 0) return null;
-    const first = results[0];
+    const first = results[0]!; // non-empty guaranteed by the guard above
     const date = first.start?.date?.();
     if (!date || Number.isNaN(date.getTime())) return null;
     const text = first.text;
@@ -61,10 +61,7 @@ type MentionMatch = {
   span: { text: string; start: number; end: number };
 };
 
-export function extractMentionsLocally(
-  message: string,
-  knownNames: string[],
-): MentionMatch[] {
+export function extractMentionsLocally(message: string, knownNames: string[]): MentionMatch[] {
   if (knownNames.length === 0) return [];
   const lowerMessage = message.toLowerCase();
   const accepted: MentionMatch[] = [];
@@ -141,7 +138,7 @@ function matchFirstTokenForm({
 }): void {
   const tokens = canonical.split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) return;
-  const firstToken = tokens[0];
+  const firstToken = tokens[0]!; // length ≥ 2 guaranteed by the guard above
   if (firstTokenCollides(firstToken, canonical, knownNames)) return;
   const needle = firstToken.toLowerCase();
   if (needle.length < 2) return;
@@ -157,22 +154,15 @@ function matchFirstTokenForm({
   }
 }
 
-function firstTokenCollides(
-  firstToken: string,
-  canonical: string,
-  knownNames: string[],
-): boolean {
+function firstTokenCollides(firstToken: string, canonical: string, knownNames: string[]): boolean {
   const prefix = firstToken.toLowerCase() + ' ';
-  return knownNames.some(
-    (other) =>
-      other !== canonical && other.toLowerCase().startsWith(prefix),
-  );
+  return knownNames.some((other) => other !== canonical && other.toLowerCase().startsWith(prefix));
 }
 
 /** Word-boundary check so "Mariana" isn't matched as "Maria". */
 function isWordBoundary(message: string, idx: number, end: number): boolean {
-  const before = idx > 0 ? message[idx - 1] : ' ';
-  const after = end < message.length ? message[end] : ' ';
+  const before = idx > 0 ? message[idx - 1]! : ' ';
+  const after = end < message.length ? message[end]! : ' ';
   return !isWordChar(before) && !isWordChar(after);
 }
 

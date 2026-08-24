@@ -1,7 +1,4 @@
-import type {
-  RetrievalGenre,
-  RetrievalProfile,
-} from './retrieval-profile';
+import type { RetrievalGenre, RetrievalProfile } from './retrieval-profile';
 
 /**
  * Genre presets — per-genre tuned defaults for the measured levers.

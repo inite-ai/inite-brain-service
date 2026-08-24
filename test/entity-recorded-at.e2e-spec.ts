@@ -44,14 +44,17 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
   };
 
   it('replays record→retract belief states across the tx axis', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'tx_axis_customer' },
-      predicate: 'tier',
-      object: 'platinum',
-      validFrom: '2026-01-15',
-      source: { vertical: 'rent', eventId: 'billing.tier_set' },
-      confidence: 0.9,
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'tx_axis_customer' },
+        predicate: 'tier',
+        object: 'platinum',
+        validFrom: '2026-01-15',
+        source: { vertical: 'rent', eventId: 'billing.tier_set' },
+        confidence: 0.9,
+      });
     expect(ingest.body.outcome).toBe('INSERTED');
     const factId = ingest.body.factId as string;
     const entity = await entityIdOfFact(factId);
@@ -91,9 +94,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
 
     const profileAt = async (tx: string) => {
       const res = await f.http
-        .get(
-          `/v1/entities/${encodeURIComponent(entity)}?recordedAt=${encodeURIComponent(tx)}`,
-        )
+        .get(`/v1/entities/${encodeURIComponent(entity)}?recordedAt=${encodeURIComponent(tx)}`)
         .set(auth());
       expect(res.status).toBe(200);
       return res.body.facts.some((x: any) => x.factId === factId);
@@ -105,9 +106,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
         )
         .set(auth());
       expect(res.status).toBe(200);
-      return res.body.events
-        .filter((e: any) => e.factId === factId)
-        .map((e: any) => e.type);
+      return res.body.events.filter((e: any) => e.factId === factId).map((e: any) => e.type);
     };
 
     // Between record and retract: believed active, retraction unknown.
@@ -116,10 +115,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
 
     // After the retraction: no longer believed; both events on record.
     expect(await profileAt(after)).toBe(false);
-    expect(await timelineTypesAt(after)).toEqual([
-      'fact.recorded',
-      'fact.retracted',
-    ]);
+    expect(await timelineTypesAt(after)).toEqual(['fact.recorded', 'fact.retracted']);
 
     // Before the fact was recorded: the graph knew nothing.
     expect(await profileAt(before)).toBe(false);
@@ -127,28 +123,34 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
   });
 
   it('replays supersede belief: predecessor active until its successor is recorded', async () => {
-    const a = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'tx_axis_supersede' },
-      predicate: 'status',
-      object: 'active',
-      validFrom: '2026-01-15',
-      source: { vertical: 'rent', eventId: 'auth.profile_active' },
-      confidence: 0.9,
-    });
+    const a = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'tx_axis_supersede' },
+        predicate: 'status',
+        object: 'active',
+        validFrom: '2026-01-15',
+        source: { vertical: 'rent', eventId: 'auth.profile_active' },
+        confidence: 0.9,
+      });
     expect(a.body.outcome).toBe('INSERTED');
     const aFactId = a.body.factId as string;
     const entity = await entityIdOfFact(aFactId);
 
     await sleep(150);
 
-    const b = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'tx_axis_supersede' },
-      predicate: 'status',
-      object: 'churned',
-      validFrom: '2026-04-10',
-      source: { vertical: 'rent', eventId: 'billing.churn' },
-      confidence: 0.9,
-    });
+    const b = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'tx_axis_supersede' },
+        predicate: 'status',
+        object: 'churned',
+        validFrom: '2026-04-10',
+        source: { vertical: 'rent', eventId: 'billing.churn' },
+        confidence: 0.9,
+      });
     expect(b.body.outcome).toBe('SUPERSEDED');
     expect(b.body.supersededFactIds).toContain(aFactId);
     const bFactId = b.body.factId as string;
@@ -158,9 +160,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
       .set(auth());
     const recordedAtOf = (id: string) =>
       new Date(
-        full.body.events.find(
-          (e: any) => e.type === 'fact.recorded' && e.factId === id,
-        ).at,
+        full.body.events.find((e: any) => e.type === 'fact.recorded' && e.factId === id).at,
       ).getTime();
     const tA = recordedAtOf(aFactId);
     const tB = recordedAtOf(bFactId);
@@ -168,9 +168,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
     const mid = new Date((tA + tB) / 2).toISOString();
 
     const factIdsAt = async (qs: string) => {
-      const res = await f.http
-        .get(`/v1/entities/${encodeURIComponent(entity)}${qs}`)
-        .set(auth());
+      const res = await f.http.get(`/v1/entities/${encodeURIComponent(entity)}${qs}`).set(auth());
       expect(res.status).toBe(200);
       return res.body.facts.map((x: any) => x.factId);
     };
@@ -190,9 +188,7 @@ describe('transaction-time axis — profile/timeline recordedAt', () => {
     // Axes stay separate: tx cutoff at mid + world moment asOf — the
     // belief at mid about 2026-02-01 is still A.
     const atMidAsOf = await factIdsAt(
-      `?recordedAt=${encodeURIComponent(mid)}&asOf=${encodeURIComponent(
-        '2026-02-01T00:00:00Z',
-      )}`,
+      `?recordedAt=${encodeURIComponent(mid)}&asOf=${encodeURIComponent('2026-02-01T00:00:00Z')}`,
     );
     expect(atMidAsOf).toContain(aFactId);
     expect(atMidAsOf).not.toContain(bFactId);

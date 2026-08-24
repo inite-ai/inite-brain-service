@@ -5,10 +5,7 @@ import { StringRecordId } from 'surrealdb';
 import { createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
-import {
-  runInsightComposer,
-  type InsightComposerSpec,
-} from './insight-composer-kernel';
+import { runInsightComposer, type InsightComposerSpec } from './insight-composer-kernel';
 
 /**
  * Lane C composer, v1: per-entity ASPECT AGGREGATES
@@ -104,7 +101,8 @@ export class AggregateComposerService {
         status: 'active',
         embedding: ctx.vector,
         derivedFrom: agg.members.map(
-          (m) => new StringRecordId(String(ctx.facts[m].id)),
+          // members are validated in-bounds by the `valid` predicate above.
+          (m) => new StringRecordId(String(ctx.facts[m]!.id)),
         ),
         ...(ctx.version ? { derivedVersion: ctx.version } : {}),
       };
@@ -120,7 +118,7 @@ export class AggregateComposerService {
    */
   async run(
     companyId: string,
-    opts: { entities?: number; version?: string } = {},
+    opts: { entities?: number | undefined; version?: string | undefined } = {},
   ): Promise<AggregateRunResult> {
     const r = await runInsightComposer(
       { surreal: this.surreal, embedding: this.embedding, logger: this.logger },
@@ -134,10 +132,7 @@ export class AggregateComposerService {
     };
   }
 
-  private async callComposer(
-    name: string,
-    factLines: string[],
-  ): Promise<AggregateProposal[]> {
+  private async callComposer(name: string, factLines: string[]): Promise<AggregateProposal[]> {
     const res = await this.openai.chat.completions.create({
       model: this.model,
       temperature: 0.1,

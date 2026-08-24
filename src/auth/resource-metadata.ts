@@ -36,11 +36,9 @@ function headerValue(
 export function requestBaseUrl(req: RequestLike): string | null {
   const configured = process.env.BRAIN_PUBLIC_URL;
   if (configured) return configured.replace(/\/$/, '');
-  const host =
-    headerValue(req.headers, 'x-forwarded-host') ?? headerValue(req.headers, 'host');
+  const host = headerValue(req.headers, 'x-forwarded-host') ?? headerValue(req.headers, 'host');
   if (!host) return null;
-  const proto =
-    headerValue(req.headers, 'x-forwarded-proto') ?? req.protocol ?? 'https';
+  const proto = headerValue(req.headers, 'x-forwarded-proto') ?? req.protocol ?? 'https';
   return `${proto}://${host}`;
 }
 

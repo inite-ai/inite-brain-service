@@ -22,14 +22,17 @@ describe('memory-quality nightly pass (real SurrealDB)', () => {
   });
 
   it('collects gauges without throwing on the stale-bucket duration query', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'memquality_subject' },
-      predicate: 'name',
-      object: 'Memory Quality Probe',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'memquality_subject' },
+        predicate: 'name',
+        object: 'Memory Quality Probe',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(ingest.status);
 
     const svc = f.app.get(MemoryQualityService);
@@ -40,11 +43,7 @@ describe('memory-quality nightly pass (real SurrealDB)', () => {
 
     expect(snapshot.factsByStatus['active']).toBeGreaterThanOrEqual(1);
     // Stale buckets must be present (all three keys populated, not skipped).
-    expect(Object.keys(snapshot.staleActiveFacts).sort()).toEqual([
-      '30',
-      '365',
-      '90',
-    ]);
+    expect(Object.keys(snapshot.staleActiveFacts).sort()).toEqual(['30', '365', '90']);
     // A freshly ingested fact is not stale at any horizon.
     expect(snapshot.staleActiveFacts[30]).toBe(0);
   });

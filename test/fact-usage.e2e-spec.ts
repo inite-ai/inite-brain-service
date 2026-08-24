@@ -42,10 +42,7 @@ describe('fact_usage — usage recording and cascade', () => {
   };
 
   /** Recording is fire-and-forget — poll until the write lands. */
-  const waitForCount = async (
-    factId: string,
-    atLeast: number,
-  ): Promise<UsageRow | null> => {
+  const waitForCount = async (factId: string, atLeast: number): Promise<UsageRow | null> => {
     for (let i = 0; i < 40; i++) {
       const row = await usageFor(factId);
       if (row && row.readCount >= atLeast) return row;
@@ -55,14 +52,17 @@ describe('fact_usage — usage recording and cascade', () => {
   };
 
   it('stamps surfaced facts and increments on repeat searches', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'usage_probe' },
-      predicate: 'name',
-      object: 'Usage Probe Tenant',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'usage_probe' },
+        predicate: 'name',
+        object: 'Usage Probe Tenant',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(ingest.status);
     const factId = ingest.body.factId as string;
 
@@ -111,14 +111,17 @@ describe('fact_usage — usage recording and cascade', () => {
   });
 
   it('GDPR forget cascades over fact_usage', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'usage_forget_subj' },
-      predicate: 'name',
-      object: 'Usage Forget Subject',
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'usage_forget_subj' },
+        predicate: 'name',
+        object: 'Usage Forget Subject',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     const factId = ingest.body.factId as string;
 
     const search = await f.http

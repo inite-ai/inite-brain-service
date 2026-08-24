@@ -62,24 +62,17 @@ export class DreamsDedupService {
     private readonly configService: ConfigService,
     private readonly judge: EntityJudgeService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
+    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
     this.cosineThreshold = parseFloat(
       this.configService.get<string>('DREAMS_DEDUP_COSINE_THRESHOLD', '0.92'),
     );
-    this.maxPairs = parseInt(
-      this.configService.get<string>('DREAMS_DEDUP_MAX_PAIRS', '50'),
-      10,
-    );
+    this.maxPairs = parseInt(this.configService.get<string>('DREAMS_DEDUP_MAX_PAIRS', '50'), 10);
     // Bounds the neighbour-query loop (one query per seed). maxPairs
     // only capped EMITTED pairs — on a corpus where few pairs cleared
     // the threshold, the loop still ran one full scan per entity:
     // O(N²) vector ops per tenant per night. Newest name facts seed
     // first, so recently-touched entities are always covered.
-    this.maxSeeds = parseInt(
-      this.configService.get<string>('DREAMS_DEDUP_MAX_SEEDS', '500'),
-      10,
-    );
+    this.maxSeeds = parseInt(this.configService.get<string>('DREAMS_DEDUP_MAX_SEEDS', '500'), 10);
   }
 
   isEnabled(): boolean {
@@ -92,10 +85,7 @@ export class DreamsDedupService {
    * passed `db` handle. This keeps the service stateless and
    * compatible with the controller's per-request manual trigger.
    */
-  async run(
-    db: Surreal,
-    derivedVersion: string | null = null,
-  ): Promise<DedupResult> {
+  async run(db: Surreal, derivedVersion: string | null = null): Promise<DedupResult> {
     const result: DedupResult = {
       suspectsEvaluated: 0,
       llmJudgements: 0,
@@ -187,11 +177,7 @@ export class DreamsDedupService {
     const seen = new Set<string>();
     for (const seed of seeds) {
       const aId = String(seed.entityId);
-      const neighbours = await this.nearestNames(
-        db,
-        String(seed.id),
-        derivedVersion,
-      );
+      const neighbours = await this.nearestNames(db, String(seed.id), derivedVersion);
       for (const n of neighbours) {
         const bId = String(n.entityId);
         if (bId === aId) continue;
@@ -241,9 +227,7 @@ export class DreamsDedupService {
         // cosine projection next to the KNN operator drops the planner
         // off the KnnScan (V11 audit A4). sim = 1 − cosine distance;
         // works with the LET-var query vector (stand-verified).
-        const res = await db.query<
-          [unknown, Array<{ entityId: unknown; dist: number }>]
-        >(
+        const res = await db.query<[unknown, Array<{ entityId: unknown; dist: number }>]>(
           `LET $q = (SELECT VALUE embedding FROM ONLY type::record($fid));
            SELECT entityId, vector::distance::knn() AS dist
              FROM knowledge_fact
@@ -277,11 +261,7 @@ export class DreamsDedupService {
     return (res[1] as Row[]) ?? [];
   }
 
-  private async identityEdgeExists(
-    db: Surreal,
-    aId: string,
-    bId: string,
-  ): Promise<boolean> {
+  private async identityEdgeExists(db: Surreal, aId: string, bId: string): Promise<boolean> {
     const [rows] = await db.query<[Array<{ id: unknown }>]>(
       `SELECT id FROM knowledge_edge
        WHERE kind = 'identity_of'
@@ -295,11 +275,7 @@ export class DreamsDedupService {
     return ((rows as Array<{ id: unknown }>) ?? []).length > 0;
   }
 
-  private async linkIdentity(
-    db: Surreal,
-    aId: string,
-    bId: string,
-  ): Promise<void> {
+  private async linkIdentity(db: Surreal, aId: string, bId: string): Promise<void> {
     // Direction: aId → bId. The conventional survivor/loser policy
     // (older entity wins) is enforced by the existing identity-merge
     // path in the search service via mergedInto reattribution; from

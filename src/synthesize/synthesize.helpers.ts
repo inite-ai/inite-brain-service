@@ -27,14 +27,10 @@ export function resolveAnswerFrames(args: {
   profile: RetrievalProfile;
   query: string;
   results: SearchHit[];
-}): { dateMathLines?: string[]; shapeInstruction?: string } {
-  const shape = args.profile.answerConditioning
-    ? detectAnswerShape(args.query)
-    : null;
+}): { dateMathLines?: string[] | undefined; shapeInstruction?: string | undefined } {
+  const shape = args.profile.answerConditioning ? detectAnswerShape(args.query) : null;
   return {
-    dateMathLines: args.profile.dateMath
-      ? buildDateMathLines(args.results)
-      : undefined,
+    dateMathLines: args.profile.dateMath ? buildDateMathLines(args.results) : undefined,
     shapeInstruction: shape ? shapeInstructionFor(shape) : undefined,
   };
 }
@@ -58,33 +54,19 @@ export function buildSecondaryDto(
     ...(base.entityIds ? { entityIds: base.entityIds } : {}),
     ...(base.entityTypes ? { entityTypes: base.entityTypes } : {}),
     ...(base.predicates ? { predicates: base.predicates } : {}),
-    ...(base.minConfidence !== undefined
-      ? { minConfidence: base.minConfidence }
-      : {}),
-    ...(base.includeContested !== undefined
-      ? { includeContested: base.includeContested }
-      : {}),
-    ...(base.includeRetracted !== undefined
-      ? { includeRetracted: base.includeRetracted }
-      : {}),
-    ...(base.requireProvenance !== undefined
-      ? { requireProvenance: base.requireProvenance }
-      : {}),
+    ...(base.minConfidence !== undefined ? { minConfidence: base.minConfidence } : {}),
+    ...(base.includeContested !== undefined ? { includeContested: base.includeContested } : {}),
+    ...(base.includeRetracted !== undefined ? { includeRetracted: base.includeRetracted } : {}),
+    ...(base.requireProvenance !== undefined ? { requireProvenance: base.requireProvenance } : {}),
     ...(base.searchMode ? { searchMode: base.searchMode } : {}),
     // Audit 2026-08-21 P1: the temporal/language/confidence axes are
     // retrieval SEMANTICS and must survive into secondary searches too.
     // outputShape/tokenBudget are deliberately NOT inherited — they
     // shape the caller's RESPONSE, not what a probe may retrieve.
-    ...(base.includeStale !== undefined
-      ? { includeStale: base.includeStale }
-      : {}),
-    ...(base.confidenceFloor !== undefined
-      ? { confidenceFloor: base.confidenceFloor }
-      : {}),
+    ...(base.includeStale !== undefined ? { includeStale: base.includeStale } : {}),
+    ...(base.confidenceFloor !== undefined ? { confidenceFloor: base.confidenceFloor } : {}),
     ...(base.queryLang !== undefined ? { queryLang: base.queryLang } : {}),
-    ...(base.disableLangFilter !== undefined
-      ? { disableLangFilter: base.disableLangFilter }
-      : {}),
+    ...(base.disableLangFilter !== undefined ? { disableLangFilter: base.disableLangFilter } : {}),
     query: override.query,
     limit: override.limit ?? base.limit ?? 10,
   } as SearchDto;
@@ -108,9 +90,7 @@ export function resolveLaneDateContext(
  * with the closing quote missing. Returns null when nothing usable is
  * there — the caller then throws as before.
  */
-export function salvageTruncatedAnswer(
-  content: string,
-): GeneratorOutput | null {
+export function salvageTruncatedAnswer(content: string): GeneratorOutput | null {
   const m = /"answer"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(content);
   if (!m) return null;
   let answer: string;
@@ -147,7 +127,7 @@ function extractInlineCitations(answer: string): string[] {
   const ids: string[] = [];
   const re = /\[((?:knowledge_fact[:_]|fact[:_])?[A-Za-z0-9]{6,})\]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(answer)) !== null) ids.push(m[1]);
+  while ((m = re.exec(answer)) !== null) ids.push(m[1]!); // group 1 is mandatory
   return ids;
 }
 
@@ -170,10 +150,7 @@ export function resolveCitations(
 
   const citations: Citation[] = [];
   const seen = new Set<string>();
-  const candidates = [
-    ...(citedFactIds ?? []),
-    ...extractInlineCitations(answer ?? ''),
-  ];
+  const candidates = [...(citedFactIds ?? []), ...extractInlineCitations(answer ?? '')];
   for (const raw of candidates) {
     const cite = factIndex.get(raw) ?? byTail.get(citationTail(raw));
     if (cite && !seen.has(cite.factId)) {
@@ -233,8 +210,5 @@ export function verifierErrorResult({
       decisionLog,
     );
   }
-  return attachDecisionLog(
-    { answer, reason: 'verifier_error', citations, results },
-    decisionLog,
-  );
+  return attachDecisionLog({ answer, reason: 'verifier_error', citations, results }, decisionLog);
 }

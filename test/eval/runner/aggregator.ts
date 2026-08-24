@@ -48,10 +48,7 @@ export class Aggregator {
     };
   }
 
-  private computeMetrics(
-    group: ScenarioOutcome[],
-    isOverall = false,
-  ): AggregateMetric[] {
+  private computeMetrics(group: ScenarioOutcome[], isOverall = false): AggregateMetric[] {
     // Per-vertical groups are small (n≈8–30) with wide CIs, so their core
     // retrieval floors stay lenient — a single miss on a 12-query vertical
     // shouldn't red the suite. The OVERALL aggregate (n≈260) is tight, so it
@@ -110,11 +107,7 @@ export class Aggregator {
     // and N attached. 1000 resamples is enough for ±0.005 stability
     // on N≥10 (Efron 1979, conventional choice for sample-mean CI).
     // null vector → null bounds; reporter renders "—".
-    const bootstrap = (
-      name: string,
-      vector: number[],
-      threshold?: number,
-    ) => {
+    const bootstrap = (name: string, vector: number[], threshold?: number) => {
       if (vector.length === 0) {
         return { name, value: null, ...(threshold !== undefined ? { threshold } : {}), n: 0 };
       }
@@ -197,7 +190,7 @@ export class Aggregator {
       {
         name: 'faithfulness:pass-rate',
         value: synthPassRate,
-        threshold: synthOutcomes.length > 0 ? 0.8 : undefined,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.8 } : {}),
         n: synthOutcomes.length,
       },
       // Pure diagnostic count (no threshold) — gate semantics are
@@ -239,9 +232,8 @@ export class Aggregator {
         value:
           synthOutcomes.length === 0
             ? null
-            : synthOutcomes.filter((o) => o.faithfulnessFloor > 0).length /
-              synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+            : synthOutcomes.filter((o) => o.faithfulnessFloor > 0).length / synthOutcomes.length,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.95 } : {}),
         n: synthOutcomes.length,
       },
       {
@@ -252,10 +244,8 @@ export class Aggregator {
         value:
           synthOutcomes.length === 0
             ? null
-            : 1 -
-              synthOutcomes.filter((o) => o.answer === null).length /
-                synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.7 : undefined,
+            : 1 - synthOutcomes.filter((o) => o.answer === null).length / synthOutcomes.length,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.7 } : {}),
         n: synthOutcomes.length,
       },
       {
@@ -263,11 +253,8 @@ export class Aggregator {
         // Same flip — value is 1 - failure-rate so the gate reads
         // "at least 95% of synthesize calls had a clean verifier
         // response". Equivalent to failure-rate ≤ 0.05.
-        value:
-          synthOutcomes.length === 0
-            ? null
-            : 1 - synthVerifierFailures / synthOutcomes.length,
-        threshold: synthOutcomes.length > 0 ? 0.95 : undefined,
+        value: synthOutcomes.length === 0 ? null : 1 - synthVerifierFailures / synthOutcomes.length,
+        ...(synthOutcomes.length > 0 ? { threshold: 0.95 } : {}),
         n: synthOutcomes.length,
       },
       // ── Hallucination resistance (false-premise / expectRefusal) ──────
@@ -279,7 +266,7 @@ export class Aggregator {
       {
         name: 'hallucination-resistance:refusal-rate',
         value: synthRefusalRate,
-        threshold: refusalOutcomes.length > 0 ? 0.8 : undefined,
+        ...(refusalOutcomes.length > 0 ? { threshold: 0.8 } : {}),
         n: refusalOutcomes.length,
       },
       {
@@ -325,11 +312,8 @@ function phase4Metrics(
   // 0.95 — a single English answer to a Russian-expected query
   // shouldn't sneak past, but the embedded language detector has
   // false-negatives on very short answers, hence not 1.0.
-  const langGated = outcomes.filter(
-    (o) => typeof o.answerLangCorrect === 'boolean',
-  );
-  const langCorrect = langGated.filter((o) => o.answerLangCorrect === true)
-    .length;
+  const langGated = outcomes.filter((o) => typeof o.answerLangCorrect === 'boolean');
+  const langCorrect = langGated.filter((o) => o.answerLangCorrect === true).length;
 
   // decision-log-citation-rate — fraction of synthesize calls where
   // the generator emitted at least one citation. 0-citation answers
@@ -337,9 +321,7 @@ function phase4Metrics(
   // partial). Threshold 0.8 — most answers should ground, but a
   // long-tail of trivial yes/no responses may not.
   const synthWithAnswer = outcomes.filter((o) => o.answer && o.answer.trim());
-  const citedAnswers = synthWithAnswer.filter(
-    (o) => (o.decisionLogCitationCount ?? 0) > 0,
-  ).length;
+  const citedAnswers = synthWithAnswer.filter((o) => (o.decisionLogCitationCount ?? 0) > 0).length;
 
   // mean-extraction-entropy — diagnostic only, no threshold. Reported
   // so a Phase 3.B re-roll regression (entropy collapses to ~0 across
@@ -357,16 +339,13 @@ function phase4Metrics(
     {
       name: 'answer-language-correctness',
       value: langGated.length === 0 ? null : langCorrect / langGated.length,
-      threshold: langGated.length > 0 ? 0.95 : undefined,
+      ...(langGated.length > 0 ? { threshold: 0.95 } : {}),
       n: langGated.length,
     },
     {
       name: 'decision-log-citation-rate',
-      value:
-        synthWithAnswer.length === 0
-          ? null
-          : citedAnswers / synthWithAnswer.length,
-      threshold: synthWithAnswer.length > 0 ? 0.8 : undefined,
+      value: synthWithAnswer.length === 0 ? null : citedAnswers / synthWithAnswer.length,
+      ...(synthWithAnswer.length > 0 ? { threshold: 0.8 } : {}),
       n: synthWithAnswer.length,
     },
     {

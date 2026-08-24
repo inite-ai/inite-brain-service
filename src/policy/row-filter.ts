@@ -1,8 +1,5 @@
 import { policyFor } from '../ingest/conflict-resolver';
-import {
-  getPolicyContext,
-  getPolicyRowRecorder,
-} from '../common/request-context';
+import { getPolicyContext, getPolicyRowRecorder } from '../common/request-context';
 import { evaluateRow, toRowView } from './policy-engine';
 import { PolicyContext } from './policy.types';
 
@@ -91,7 +88,7 @@ export function makeRowPolicyFilter(opts: {
    * sees the static code-side seed (the pre-registry behaviour, kept as
    * the fallback for callers with no tenant in hand).
    */
-  policyLookup?: PredicatePolicyLookup;
+  policyLookup?: PredicatePolicyLookup | undefined;
 }): RowPolicyFilter {
   const ctx = opts.policy !== undefined ? opts.policy : getPolicyContext();
   const scopes = opts.callerScopes;
@@ -104,10 +101,7 @@ export function makeRowPolicyFilter(opts: {
 
   const filter = (row: PolicyFilterableRow): boolean => {
     const predicatePolicy = lookup(row.predicate);
-    if (
-      predicatePolicy.requiresScope &&
-      !scopes.includes(predicatePolicy.requiresScope)
-    ) {
+    if (predicatePolicy.requiresScope && !scopes.includes(predicatePolicy.requiresScope)) {
       return false;
     }
     if (!ctx) return true;

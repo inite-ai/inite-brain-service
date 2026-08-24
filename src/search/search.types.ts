@@ -22,12 +22,12 @@ export interface SearchHit {
     object: string;
     confidence: number;
     validFrom: string;
-    validUntil?: string;
+    validUntil?: string | undefined;
     status: string;
     /** Write-time source key (trustSnapshot, migration 0044) — lets a
      *  caller chase a citation back to WHO claimed it. Absent on
      *  pre-0044 facts. */
-    sourceKey?: string;
+    sourceKey?: string | undefined;
     /** DERIVER_MENTION_STAMP anchor (V12 §1): event time of the fact's
      *  first grounding turn, from source.mentionedAt. Absent on
      *  unstamped rows. */

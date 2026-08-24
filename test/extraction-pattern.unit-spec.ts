@@ -6,7 +6,7 @@
 import { ExtractionPatternService } from '../src/ai/extraction-pattern.service';
 
 type Surreal = {
-  query: jest.Mock<Promise<unknown>, [string, Record<string, unknown>?]>;
+  query: jest.Mock<Promise<unknown>, [string, (Record<string, unknown> | undefined)?]>;
 };
 
 interface MockedSurrealService {
@@ -56,9 +56,7 @@ describe('ExtractionPatternService', () => {
     const { service } = mkSurreal([
       {
         clauseText: 'Maria is the CTO at Acme',
-        facts: [
-          { predicate: 'status', valueSpan: 'CTO', confidence: 0.9 },
-        ],
+        facts: [{ predicate: 'status', valueSpan: 'CTO', confidence: 0.9 }],
         edges: [
           {
             kind: 'works_at',
@@ -73,8 +71,8 @@ describe('ExtractionPatternService', () => {
     // Lookup uses different casing — should still hit (normalised).
     const hit = await svc.lookup('demo', '  MARIA IS THE CTO AT ACME  ');
     expect(hit).toBeDefined();
-    expect(hit!.facts[0].predicate).toBe('status');
-    expect(hit!.edges[0].kind).toBe('works_at');
+    expect(hit!.facts[0]!.predicate).toBe('status');
+    expect(hit!.edges[0]!.kind).toBe('works_at');
   });
 
   it('record() upserts an entry per clause', async () => {
@@ -83,9 +81,7 @@ describe('ExtractionPatternService', () => {
     await svc.record('demo', [
       {
         clauseText: 'Maria is the CTO at Acme',
-        facts: [
-          { predicate: 'status', valueSpan: 'CTO', confidence: 0.9 },
-        ],
+        facts: [{ predicate: 'status', valueSpan: 'CTO', confidence: 0.9 }],
         edges: [
           {
             kind: 'works_at',
@@ -98,9 +94,9 @@ describe('ExtractionPatternService', () => {
     ]);
     // Two queries per pattern: UPSERT + sourceCount bump.
     expect(upserts).toHaveLength(2);
-    const upsertSql = upserts[0].sql;
+    const upsertSql = upserts[0]!.sql;
     expect(upsertSql).toContain('UPSERT extraction_pattern');
-    expect(upserts[0].params?.key).toBe('maria is the cto at acme');
+    expect(upserts[0]!.params?.key).toBe('maria is the cto at acme');
   });
 
   it('record() skips empty clause text', async () => {

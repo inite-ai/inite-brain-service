@@ -104,10 +104,8 @@ export class DreamsCorroborateService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(this.configService.get<string>('DREAMS_CORROBORATE_ENABLED'));
-    this.openai =
-      createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
+    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_CORROBORATE_ENABLED'));
+    this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_CORROBORATE_MODEL',
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
@@ -122,23 +120,14 @@ export class DreamsCorroborateService {
     // (window × pairs-per-group) LLM calls (~280) against a nominal
     // cap of 20. Default 2× the window.
     this.maxLlmCalls = parseInt(
-      this.configService.get<string>(
-        'DREAMS_CORROBORATE_MAX_LLM_CALLS',
-        String(this.maxPairs * 2),
-      ),
+      this.configService.get<string>('DREAMS_CORROBORATE_MAX_LLM_CALLS', String(this.maxPairs * 2)),
       10,
     );
     this.cosineThreshold = parseFloat(
-      this.configService.get<string>(
-        'DREAMS_CORROBORATE_COSINE_THRESHOLD',
-        '0.9',
-      ),
+      this.configService.get<string>('DREAMS_CORROBORATE_COSINE_THRESHOLD', '0.9'),
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('DREAMS_CORROBORATE_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('DREAMS_CORROBORATE_CONCURRENCY', '4'), 10),
     );
   }
 
@@ -146,10 +135,7 @@ export class DreamsCorroborateService {
     return this.enabled && !!this.openai;
   }
 
-  async run(
-    db: Surreal,
-    derivedVersion: string | null = null,
-  ): Promise<CorroborateResult> {
+  async run(db: Surreal, derivedVersion: string | null = null): Promise<CorroborateResult> {
     const result: CorroborateResult = {
       groupsConsidered: 0,
       groupBacklog: 0,
@@ -161,9 +147,8 @@ export class DreamsCorroborateService {
     };
     if (!this.isEnabled()) return result;
 
-    const { groups, backlog } = await withSpan(
-      'dreams.corroborate.find_groups',
-      () => this.findCandidateGroups(db, derivedVersion),
+    const { groups, backlog } = await withSpan('dreams.corroborate.find_groups', () =>
+      this.findCandidateGroups(db, derivedVersion),
     );
     result.groupsConsidered = groups.length;
     result.groupBacklog = backlog;
@@ -262,9 +247,7 @@ export class DreamsCorroborateService {
       );
     } catch (e) {
       // Best-effort: a missed memo only costs a re-judge next run.
-      this.logger.warn(
-        `[dreams.corroborate] checked-memo write failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`[dreams.corroborate] checked-memo write failed: ${(e as Error).message}`);
     }
   }
 
@@ -320,9 +303,7 @@ export class DreamsCorroborateService {
         const seed = PREDICATE_POLICIES[g.predicate];
         return seed ? seed.semantics === 'bitemporal' : true;
       })
-      .filter(
-        (g) => checked.get(`${String(g.entityId)}|${g.predicate}`) !== g.n,
-      )
+      .filter((g) => checked.get(`${String(g.entityId)}|${g.predicate}`) !== g.n)
       .sort((a, b) => {
         if (b.n !== a.n) return b.n - a.n; // most-conflicted first
         const ka = `${String(a.entityId)}\u0000${a.predicate}`;
@@ -393,14 +374,13 @@ export class DreamsCorroborateService {
   private selectPairs(
     members: ActiveFactRow[],
   ): Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> {
-    const pairs: Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> =
-      [];
+    const pairs: Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> = [];
     for (let j = 1; j < members.length; j++) {
-      const younger = members[j];
+      const younger = members[j]!; // j < members.length ⇒ in-bounds
       if (younger.corroborationCount > 0) continue;
       let best: { incumbent: ActiveFactRow; sim: number } | null = null;
       for (let i = 0; i < j; i++) {
-        const older = members[i];
+        const older = members[i]!; // i < j < members.length ⇒ in-bounds
         if (older.originKey === younger.originKey) continue;
         if (!intervalsOverlap(older, younger)) continue;
         const sim = cosine(older.embedding, younger.embedding);
@@ -472,17 +452,12 @@ B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
       const content = res.choices[0]?.message?.content;
       if (!content) return 'unsure';
       const parsed = JSON.parse(content) as { verdict?: string };
-      if (
-        parsed.verdict === 'same_assertion' ||
-        parsed.verdict === 'different'
-      ) {
+      if (parsed.verdict === 'same_assertion' || parsed.verdict === 'different') {
         return parsed.verdict;
       }
       return 'unsure';
     } catch (e) {
-      this.logger.warn(
-        `[dreams.corroborate] judge failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`[dreams.corroborate] judge failed: ${(e as Error).message}`);
       return 'unsure';
     }
   }
@@ -544,9 +519,12 @@ function cosine(a: number[], b: number[]): number {
   let na = 0;
   let nb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    // a.length === b.length (checked above) ⇒ both indices are in-bounds.
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    na += ai * ai;
+    nb += bi * bi;
   }
   if (na === 0 || nb === 0) return -1;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));

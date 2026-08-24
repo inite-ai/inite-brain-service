@@ -13,7 +13,7 @@ import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 export class FailWorkDto {
   @IsString()
   @MaxLength(64)
-  claimToken: string;
+  claimToken!: string;
 
   /** Optional diagnostic recorded on the run row (truncated server-side). */
   @IsOptional()

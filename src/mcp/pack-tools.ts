@@ -20,6 +20,7 @@ import {
   renderPackToolTitle,
   sanitizePackText,
 } from './pack-tool-render';
+import { asStructuredContent } from './structured';
 
 /**
  * Registration of pack-declared MCP tools (docs/mcp-pack-tools.md) on a
@@ -55,12 +56,8 @@ export function registerPackTools(opts: RegisterPackToolsOptions): void {
   // Sub-flags, independently toggleable: query tools default ON under
   // the master flag; external tools default OFF (outbound calls are a
   // bigger operator decision than tenant-local reads).
-  const queryEnabled = envFlagEnabled(
-    process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1',
-  );
-  const externalEnabled = envFlagEnabled(
-    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED,
-  );
+  const queryEnabled = envFlagEnabled(process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1');
+  const externalEnabled = envFlagEnabled(process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED);
   const seen = new Set<string>();
   for (const binding of opts.bindings) {
     for (const tool of binding.tools) {
@@ -99,10 +96,11 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
   const predicates = tool.query.predicates?.length
     ? tool.query.predicates.map((l) => composePredicateId(binding.packId, l))
     : [...binding.namespacedPredicates];
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,
@@ -113,7 +111,7 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
         limit: z.number().int().min(1).max(20).optional(),
       },
     },
-    async (args: { query: string; limit?: number }) => {
+    async (args: { query: string; limit?: number | undefined }) => {
       const limit = Math.min(args.limit ?? tool.query.defaultLimit ?? 10, 20);
       const out = await deps.search.search(
         companyId,
@@ -121,13 +119,15 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
           query: args.query,
           limit,
           predicates,
-          minConfidence: tool.query.minConfidence,
+          ...(tool.query.minConfidence !== undefined
+            ? { minConfidence: tool.query.minConfidence }
+            : {}),
         },
         scopes,
       );
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -139,19 +139,18 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
   // the enum makes any predicate OUTSIDE the declared set a schema
   // error before the handler runs.
   const locals = tool.query.predicates as [string, ...string[]];
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,
         tool,
       }),
       inputSchema: {
-        predicate: z
-          .enum(locals)
-          .describe("One of the pack's own predicates"),
+        predicate: z.enum(locals).describe("One of the pack's own predicates"),
         entity: z
           .string()
           .max(200)
@@ -160,17 +159,21 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
         limit: z.number().int().min(1).max(50).optional(),
       },
     },
-    async (args: { predicate: string; entity?: string; limit?: number }) => {
+    async (args: {
+      predicate: string;
+      entity?: string | undefined;
+      limit?: number | undefined;
+    }) => {
       const out = await deps.facts.listByPredicate({
         companyId,
         predicate: composePredicateId(binding.packId, args.predicate),
-        entityIdRaw: args.entity,
+        ...(args.entity !== undefined ? { entityIdRaw: args.entity } : {}),
         limit: Math.min(args.limit ?? tool.query.defaultLimit ?? 10, 50),
         scopes,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -191,10 +194,11 @@ function registerExternalTool(ctx: ExternalToolContext): void {
   // Only declared params are forwarded — the SDK's schema parse strips
   // extras, but the handler is also called directly in unit fixtures.
   const declared = new Set((tool.params ?? []).map((p) => p.name));
+  const title = renderPackToolTitle(tool);
   server.registerTool(
     fullName,
     {
-      title: renderPackToolTitle(tool),
+      ...(title !== undefined ? { title } : {}),
       description: renderPackToolDescription({
         packId: binding.packId,
         version: binding.version,
@@ -209,9 +213,7 @@ function registerExternalTool(ctx: ExternalToolContext): void {
       const out = await deps.proxy!.call({ binding, tool, args: forwarded });
       return {
         content: out.content,
-        ...(out.structuredContent
-          ? { structuredContent: out.structuredContent as any }
-          : {}),
+        ...(out.structuredContent ? { structuredContent: out.structuredContent } : {}),
       };
     },
   );
@@ -231,9 +233,7 @@ function paramSchema(p: PackToolParam): z.ZodTypeAny {
     schema = z.boolean();
   }
   if (p.description) {
-    schema = schema.describe(
-      sanitizePackText(p.description, PARAM_DESCRIPTION_CAP),
-    );
+    schema = schema.describe(sanitizePackText(p.description, PARAM_DESCRIPTION_CAP));
   }
   return p.required ? schema : schema.optional();
 }

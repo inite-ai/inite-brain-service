@@ -22,14 +22,17 @@ describe('compaction retention pass (real SurrealDB)', () => {
   });
 
   it('compacts a fact whose validity closed past the retention window', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'compaction_subject' },
-      predicate: 'claim_probe',
-      object: 'a claim that expired long ago',
-      validFrom: '2024-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'compaction_subject' },
+        predicate: 'claim_probe',
+        object: 'a claim that expired long ago',
+        validFrom: '2024-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(ingest.status);
     const factId = ingest.body.factId as string;
 
@@ -46,19 +49,15 @@ describe('compaction retention pass (real SurrealDB)', () => {
       );
     });
 
-    const stats = await f.app
-      .get(CompactionService)
-      .compactCompany(f.companyId);
+    const stats = await f.app.get(CompactionService).compactCompany(f.companyId);
     expect(stats.factsCompacted).toBeGreaterThanOrEqual(1);
 
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ status: string; embedding: unknown }>]
-      >(
+      const [rows] = await db.query<[Array<{ status: string; embedding: unknown }>]>(
         `SELECT status, embedding FROM type::record('knowledge_fact', $tail)`,
         { tail: factId.split(':')[1] },
       );
-      const fact = (rows as Array<{ status: string; embedding: unknown }>)[0];
+      const fact = (rows as Array<{ status: string; embedding: unknown }>)[0]!;
       expect(fact.status).toBe('compacted');
       expect(fact.embedding ?? null).toBeNull();
     });

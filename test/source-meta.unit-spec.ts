@@ -1,7 +1,4 @@
-import {
-  sanitizeSourceMeta,
-  SOURCE_META_MAX_KEYS,
-} from '../src/policy/source-meta';
+import { sanitizeSourceMeta, SOURCE_META_MAX_KEYS } from '../src/policy/source-meta';
 
 describe('sanitizeSourceMeta', () => {
   it('keeps snake_case keys with scalar values', () => {

@@ -8,7 +8,6 @@ import type { LaneId } from '../search/retrieval-profile';
 import { buildGeneratorUserMessage } from './generator-prompt';
 import { salvageTruncatedAnswer } from './synthesize.helpers';
 
-
 import type { GeneratorOutput } from './synthesize.types';
 
 /**
@@ -47,52 +46,52 @@ Output strictly the JSON shape requested by the schema. Do not include preamble,
 
 export interface GenerateRequest {
   openai: OpenAI;
-  metrics?: MetricsService;
+  metrics?: MetricsService | undefined;
   /** For the salvage warning; the orchestrator's logger. */
-  logger?: { warn(message: string): void };
+  logger?: { warn(message: string): void } | undefined;
   query: string;
   factLines: string[];
   /** Episodic-lane quotes (P2) — rendered as a separate typed section. */
-  transcriptLines?: string[];
+  transcriptLines?: string[] | undefined;
   /** V8 §1: derived insights — their own section, own budget slot. */
-  insightLines?: string[];
+  insightLines?: string[] | undefined;
   /** V8 §2: transcript excerpts are the mention record (ordering ask). */
-  timelineEvidence?: boolean;
+  timelineEvidence?: boolean | undefined;
   /** V10 §3: order-of-mention frame replaces the enumeration frame. */
-  orderingFrame?: boolean;
+  orderingFrame?: boolean | undefined;
   /** V10 §2b: date-arbitrated conflict frame (updateStoryRendering). */
-  dateArbitratedConflicts?: boolean;
+  dateArbitratedConflicts?: boolean | undefined;
   /** V10 §4: insight lines are a query-time topic record. */
-  arcInsights?: boolean;
+  arcInsights?: boolean | undefined;
   model: string;
   answerLang: string | null;
-  neverAbstain?: boolean;
+  neverAbstain?: boolean | undefined;
   /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
-  dateContext?: string;
+  dateContext?: string | undefined;
   /** T1 typed dispatch lane, when the router matched. */
-  lane?: LaneId | null;
+  lane?: LaneId | null | undefined;
   /** §8 item 3: enumeration scope discipline (profile.enumStrict). */
-  enumStrict?: boolean;
+  enumStrict?: boolean | undefined;
   /** T7: standing user instructions for their own section. */
-  instructions?: string[];
+  instructions?: string[] | undefined;
   /** T3: COMPETING conflict pairs detected in the evidence. */
-  conflicts?: Array<{ factIds: string[]; label: string }>;
+  conflicts?: Array<{ factIds: string[]; label: string }> | undefined;
   /** V13 (profile.dateMath): computed date table lines. */
-  dateMathLines?: string[];
+  dateMathLines?: string[] | undefined;
   /** V13 G2 (profile.answerConditioning): per-shape reading frame. */
-  shapeInstruction?: string;
+  shapeInstruction?: string | undefined;
   /**
    * G4 strategy lane: fenced advisory notes — GENERATOR-ONLY, the
    * documented verifier-parity exception (advice, not evidence).
    */
-  strategyNotes?: string[];
+  strategyNotes?: string[] | undefined;
   /**
    * V13 constrained search loop: expose the ONE-round refine
    * affordance — the schema gains a nullable `refineQuery` and the
    * system prompt the matching rule. The second (forced-answer) call
    * simply omits this, so the cap is structural, not behavioral.
    */
-  allowRefine?: boolean;
+  allowRefine?: boolean | undefined;
 }
 
 /** V13 refine affordance — appended to either system prompt. */
@@ -140,15 +139,9 @@ export async function runGenerator(req: GenerateRequest): Promise<GeneratorOutpu
                 properties: {
                   answer: { type: 'string' },
                   citedFactIds: { type: 'array', items: { type: 'string' } },
-                  ...(req.allowRefine
-                    ? { refineQuery: { type: ['string', 'null'] } }
-                    : {}),
+                  ...(req.allowRefine ? { refineQuery: { type: ['string', 'null'] } } : {}),
                 },
-                required: [
-                  'answer',
-                  'citedFactIds',
-                  ...(req.allowRefine ? ['refineQuery'] : []),
-                ],
+                required: ['answer', 'citedFactIds', ...(req.allowRefine ? ['refineQuery'] : [])],
               },
             },
           },

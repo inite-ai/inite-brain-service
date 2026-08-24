@@ -70,7 +70,7 @@ export interface InsightComposerSpec<P> {
       entityId: StringRecordId;
       facts: FactRowLite[];
       vector: number[];
-      version?: string;
+      version?: string | undefined;
     },
   ): Record<string, unknown>;
 }
@@ -100,14 +100,16 @@ type QueryDb = {
 export async function runInsightComposer<P>(
   deps: KernelDeps,
   spec: InsightComposerSpec<P>,
-  opts: { companyId: string; entities?: number; version?: string },
+  opts: {
+    companyId: string;
+    entities?: number | undefined;
+    version?: string | undefined;
+  },
 ): Promise<ComposerRunResult> {
   const { companyId } = opts;
   const entityCap = Math.min(Math.max(opts.entities ?? 12, 1), 50);
   const version = opts.version?.trim() || undefined;
-  const versionClause = version
-    ? 'AND derivedVersion = $version'
-    : 'AND derivedVersion IS NONE';
+  const versionClause = version ? 'AND derivedVersion = $version' : 'AND derivedVersion IS NONE';
   const result: ComposerRunResult = { entities: 0, written: 0, skipped: [] };
   await deps.surreal.withCompany(companyId, async (db) => {
     const [tops] = await db.query<[Array<{ entityId: unknown; n: number }>]>(
@@ -146,7 +148,7 @@ async function composeEntity<P>(
   ctx: {
     spec: InsightComposerSpec<P>;
     entityId: string;
-    version?: string;
+    version?: string | undefined;
     versionClause: string;
   },
 ): Promise<number> {
@@ -170,9 +172,7 @@ async function composeEntity<P>(
   );
   if (!facts || facts.length < spec.minFacts) return 0;
 
-  const lines = facts.map(
-    (f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`,
-  );
+  const lines = facts.map((f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`);
   const proposals = await spec.propose(name, lines);
   const valid = proposals.filter((p) => spec.valid(p, facts));
   // Every paid step (the proposal above, embeddings here) runs BEFORE
@@ -185,7 +185,7 @@ async function composeEntity<P>(
     spec.buildRow(p, {
       entityId: new StringRecordId(entityId),
       facts,
-      vector: vectors[i],
+      vector: vectors[i]!, // vectors is 1:1 with valid (embedMany) ⇒ in-bounds
       version,
     }),
   );

@@ -17,13 +17,16 @@ describe('Phase 4.D.2 — POST /v1/admin/reindex/embeddings', () => {
   beforeAll(async () => {
     f = await createApp();
     for (let i = 0; i < 3; i++) {
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: `reindex_tenant_${i}` },
-        predicate: 'status',
-        object: `seed object ${i}`,
-        validFrom: '2026-04-01',
-        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: `reindex_tenant_${i}` },
+          predicate: 'status',
+          object: `seed object ${i}`,
+          validFrom: '2026-04-01',
+          source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+        });
     }
   });
 
@@ -32,9 +35,7 @@ describe('Phase 4.D.2 — POST /v1/admin/reindex/embeddings', () => {
   });
 
   it('dryRun=true counts facts without updating', async () => {
-    const res = await f.http
-      .post('/v1/admin/reindex/embeddings?dryRun=true')
-      .set(auth());
+    const res = await f.http.post('/v1/admin/reindex/embeddings?dryRun=true').set(auth());
     expect(res.status).toBe(201);
     expect(res.body.dryRun).toBe(true);
     expect(res.body.factsScanned).toBeGreaterThanOrEqual(3);
@@ -43,9 +44,7 @@ describe('Phase 4.D.2 — POST /v1/admin/reindex/embeddings', () => {
   });
 
   it('default run re-embeds facts', async () => {
-    const res = await f.http
-      .post('/v1/admin/reindex/embeddings')
-      .set(auth());
+    const res = await f.http.post('/v1/admin/reindex/embeddings').set(auth());
     expect(res.status).toBe(201);
     expect(res.body.dryRun).toBe(false);
     expect(res.body.factsScanned).toBeGreaterThanOrEqual(3);

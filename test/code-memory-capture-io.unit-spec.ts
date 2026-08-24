@@ -3,10 +3,7 @@
  * grounding, the HTTP sink request shape, and the git-log parser. The OpenAI
  * call and the network are behind injected seams, so these run offline.
  */
-import {
-  buildExtractionPrompt,
-  parseCandidates,
-} from '../src/code-memory/capture/llm-extractor';
+import { buildExtractionPrompt, parseCandidates } from '../src/code-memory/capture/llm-extractor';
 import { HttpDecisionSink } from '../src/code-memory/capture/http-sink';
 import { parseGitLog } from '../src/code-memory/capture/git-commits';
 import type { CommitInput } from '../src/code-memory/capture/types';
@@ -52,9 +49,7 @@ describe('parseCandidates — grounding', () => {
 
   it('drops a candidate whose anchor is not a changed file (multi-file commit)', () => {
     const raw = JSON.stringify({
-      decisions: [
-        { kind: 'gotcha', text: 'g', anchor: 'src/not/touched.ts' },
-      ],
+      decisions: [{ kind: 'gotcha', text: 'g', anchor: 'src/not/touched.ts' }],
     });
     expect(parseCandidates(raw, COMMIT)).toHaveLength(0);
   });
@@ -66,7 +61,7 @@ describe('parseCandidates — grounding', () => {
     });
     const out = parseCandidates(raw, single);
     expect(out).toHaveLength(1);
-    expect(out[0].anchor).toBe('src/only.ts');
+    expect(out[0]!.anchor).toBe('src/only.ts');
   });
 
   it('parses fenced ```json``` and skips invalid kinds', () => {
@@ -74,7 +69,7 @@ describe('parseCandidates — grounding', () => {
       '```json\n{"decisions":[{"kind":"nonsense","text":"x","anchor":"src/ingest/ingest.service.ts"},{"kind":"because","text":"real","anchor":"src/ingest/ingest.service.ts"}]}\n```';
     const out = parseCandidates(raw, COMMIT);
     expect(out).toHaveLength(1);
-    expect(out[0].kind).toBe('because');
+    expect(out[0]!.kind).toBe('because');
   });
 
   it('returns [] on unparseable output', () => {
@@ -126,8 +121,7 @@ describe('HttpDecisionSink', () => {
     const sink = new HttpDecisionSink({
       baseUrl: 'https://brain.test',
       apiKey: 'k',
-      fetchImpl: () =>
-        Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }),
+      fetchImpl: () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }),
     });
     await expect(
       sink.record({
@@ -149,9 +143,7 @@ describe('HttpDecisionSink', () => {
       timeoutMs: 20,
       fetchImpl: (_url: string, init: any) =>
         new Promise((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () =>
-            reject(new Error('aborted')),
-          );
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
         }) as any,
     });
     await expect(
@@ -176,14 +168,14 @@ describe('parseGitLog', () => {
       `${RS}a1211e8${FS}2026-06-27T09:00:00Z${FS}chore: bump${FS}\npackage.json\n`;
     const commits = parseGitLog(raw);
     expect(commits).toHaveLength(2);
-    expect(commits[0].sha).toBe('f0e824b');
-    expect(commits[0].authorDate).toBe('2026-06-28T10:00:00Z');
-    expect(commits[0].message).toMatch(/split service/);
-    expect(commits[0].changedFiles).toEqual([
+    expect(commits[0]!.sha).toBe('f0e824b');
+    expect(commits[0]!.authorDate).toBe('2026-06-28T10:00:00Z');
+    expect(commits[0]!.message).toMatch(/split service/);
+    expect(commits[0]!.changedFiles).toEqual([
       'src/ingest/fact-resolver.service.ts',
       'src/ingest/ingest.service.ts',
     ]);
-    expect(commits[1].changedFiles).toEqual(['package.json']);
+    expect(commits[1]!.changedFiles).toEqual(['package.json']);
   });
 
   it('returns [] on empty input', () => {

@@ -1,14 +1,48 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import {
   SOURCE_TYPES,
   type DeclaredSource,
   type DeclareSourceRequest,
   type SourceDetailResponse,
   type SourceSummary,
+  type SourceType,
   type TrustScopeRow,
 } from '../contracts/sources/sources.schema';
+
+/**
+ * source_registry row (columns the mappers read). Date columns are
+ * `string | Date` because the SDK hands datetimes back as Date; the scalar
+ * columns funnel through Number()/String().
+ */
+interface DeclaredRow {
+  sourceKey: unknown;
+  type: SourceType;
+  authLevel: unknown;
+  owner?: string | null;
+  note?: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+/** source_trust row (one learned reputation scope). */
+interface TrustRow {
+  domain?: string | null;
+  agreementRate: unknown;
+  sampleCount: unknown;
+  winCount?: unknown;
+  lossCount?: unknown;
+  lastSeenAt?: string | Date | null;
+}
+
+/** source_trust_history row (reputation-over-time trail). */
+interface HistoryRow {
+  domain?: string | null;
+  agreementRate: unknown;
+  sampleCount: unknown;
+  recordedAt: string | Date;
+}
 
 /**
  * Per-tenant source identity + reputation reads (source-reputation track,
@@ -28,15 +62,14 @@ export class SourcesService {
   /** Catalogue: union of declared and learned sources, one line each.
    *  opts.domain additionally captures that domain's learned rate onto
    *  each summary (public /v1/sources?domain= projection). */
-  async list(
-    companyId: string,
-    opts?: { domain?: string },
-  ): Promise<SourceSummary[]> {
+  async list(companyId: string, opts?: { domain?: string | undefined }): Promise<SourceSummary[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [declaredRows] = await db.query<[any[]]>(
+      const declaredRows = await queryRows<DeclaredRow>(
+        db,
         `SELECT * FROM source_registry ORDER BY sourceKey`,
       );
-      const [trustRows] = await db.query<[any[]]>(
+      const trustRows = await queryRows<TrustRow & { sourceKey: unknown }>(
+        db,
         `SELECT sourceKey, domain, agreementRate, sampleCount, winCount,
                 lossCount, lastSeenAt
            FROM source_trust ORDER BY sourceKey`,
@@ -56,10 +89,10 @@ export class SourcesService {
         return fresh;
       };
 
-      for (const r of (declaredRows as any[]) ?? []) {
+      for (const r of declaredRows) {
         summaryOf(String(r.sourceKey)).declared = mapDeclared(r);
       }
-      for (const r of (trustRows as any[]) ?? []) {
+      for (const r of trustRows) {
         const summary = summaryOf(String(r.sourceKey));
         if (r.domain === undefined || r.domain === null) {
           summary.globalTrust = mapTrustScope(r);
@@ -73,31 +106,28 @@ export class SourcesService {
   }
 
   /** Declared row + every learned scope + the reputation-over-time trail. */
-  async detail(
-    companyId: string,
-    sourceKey: string,
-  ): Promise<SourceDetailResponse> {
+  async detail(companyId: string, sourceKey: string): Promise<SourceDetailResponse> {
     return this.surreal.withCompany(companyId, async (db) => {
       const declared = await this.declaredOf(db, sourceKey);
-      const [trustRows] = await db.query<[any[]]>(
+      const trustRows = await queryRows<TrustRow>(
+        db,
         `SELECT domain, agreementRate, sampleCount, winCount, lossCount, lastSeenAt
            FROM source_trust WHERE sourceKey = $k`,
         { k: sourceKey },
       );
-      const [historyRows] = await db.query<[any[]]>(
+      const historyRows = await queryRows<HistoryRow>(
+        db,
         `SELECT domain, agreementRate, sampleCount, recordedAt
            FROM source_trust_history WHERE sourceKey = $k
            ORDER BY recordedAt DESC LIMIT 100`,
         { k: sourceKey },
       );
-      const trust = ((trustRows as any[]) ?? [])
-        .map(mapTrustScope)
-        .sort(byGlobalFirstThenDomain);
+      const trust = trustRows.map(mapTrustScope).sort(byGlobalFirstThenDomain);
       return {
         sourceKey,
         declared,
         trust,
-        history: ((historyRows as any[]) ?? []).map((r) => ({
+        history: historyRows.map((r) => ({
           domain: r.domain ?? null,
           agreementRate: Number(r.agreementRate),
           sampleCount: Number(r.sampleCount),
@@ -118,9 +148,7 @@ export class SourcesService {
       throw new BadRequestException('sourceKey is required');
     }
     if (!SOURCE_TYPES.includes(body?.type as (typeof SOURCE_TYPES)[number])) {
-      throw new BadRequestException(
-        `type must be one of ${SOURCE_TYPES.join('|')}`,
-      );
+      throw new BadRequestException(`type must be one of ${SOURCE_TYPES.join('|')}`);
     }
     const authLevel = body.authLevel ?? 0;
     if (
@@ -171,20 +199,17 @@ export class SourcesService {
     });
   }
 
-  private async declaredOf(
-    db: Surreal,
-    sourceKey: string,
-  ): Promise<DeclaredSource | null> {
-    const [rows] = await db.query<[any[]]>(
+  private async declaredOf(db: Surreal, sourceKey: string): Promise<DeclaredSource | null> {
+    const row = await queryFirst<DeclaredRow>(
+      db,
       `SELECT * FROM source_registry WHERE sourceKey = $k LIMIT 1`,
       { k: sourceKey },
     );
-    const row = ((rows as any[]) ?? [])[0];
     return row ? mapDeclared(row) : null;
   }
 }
 
-function mapDeclared(r: any): DeclaredSource {
+function mapDeclared(r: DeclaredRow): DeclaredSource {
   return {
     sourceKey: String(r.sourceKey),
     type: r.type,
@@ -196,7 +221,7 @@ function mapDeclared(r: any): DeclaredSource {
   };
 }
 
-function mapTrustScope(r: any): TrustScopeRow {
+function mapTrustScope(r: TrustRow): TrustScopeRow {
   return {
     domain: r.domain ?? null,
     agreementRate: Number(r.agreementRate),

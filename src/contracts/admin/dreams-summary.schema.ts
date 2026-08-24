@@ -20,6 +20,4 @@ export const DreamsSummaryResponseSchema = z.object({
   }),
 });
 
-export type DreamsSummaryResponse = z.infer<
-  typeof DreamsSummaryResponseSchema
->;
+export type DreamsSummaryResponse = z.infer<typeof DreamsSummaryResponseSchema>;

@@ -55,14 +55,17 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
     });
 
     // First ingest: loser-to-be. `name` is single_active.
-    const loser = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'ft_trust_subj' },
-      predicate: 'name',
-      object: 'Old Name',
-      validFrom: '2026-01-01',
-      source: { vertical: 'rent', recorder: 'flaky.bot' },
-      confidence: 0.9,
-    });
+    const loser = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'ft_trust_subj' },
+        predicate: 'name',
+        object: 'Old Name',
+        validFrom: '2026-01-01',
+        source: { vertical: 'rent', recorder: 'flaky.bot' },
+        confidence: 0.9,
+      });
     expect(loser.status).toBe(201);
 
     // Second ingest: winner. Different source so we can read the
@@ -91,7 +94,7 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
     // both regimes regardless of the other score components.
     const loserSt = winner.body.conflictExplanation?.scoreBreakdown?.loser?.sourceTrust;
     expect(typeof loserSt).toBe('number');
-    expect(loserSt).toBeLessThan(0.10);
+    expect(loserSt).toBeLessThan(0.1);
     expect(loserSt).toBeGreaterThan(0);
   });
 
@@ -112,14 +115,17 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
       );
     });
 
-    const loser = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'ft_trust_subj_2' },
-      predicate: 'name',
-      object: 'A',
-      validFrom: '2026-01-01',
-      source: { vertical: 'rent', recorder: 'newish.bot' },
-      confidence: 0.9,
-    });
+    const loser = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'ft_trust_subj_2' },
+        predicate: 'name',
+        object: 'A',
+        validFrom: '2026-01-01',
+        source: { vertical: 'rent', recorder: 'newish.bot' },
+        confidence: 0.9,
+      });
     expect(loser.status).toBe(201);
 
     const winner = await f.http
@@ -137,6 +143,6 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
     expect(winner.body.outcome).toBe('SUPERSEDED');
     const loserSt = winner.body.conflictExplanation?.scoreBreakdown?.loser?.sourceTrust;
     // Bootstrap fallback => 0.5 * 0.40 = 0.20 (within float epsilon).
-    expect(loserSt).toBeCloseTo(0.20, 2);
+    expect(loserSt).toBeCloseTo(0.2, 2);
   });
 });

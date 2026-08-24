@@ -80,10 +80,7 @@ function makeStore(): {
 } {
   const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
   const surreal = {
-    withCompany: async (
-      _co: string,
-      fn: (db: unknown) => Promise<unknown>,
-    ) =>
+    withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({
         query: async (sql: string, params: Record<string, unknown>) => {
           queries.push({ sql, params });
@@ -113,8 +110,8 @@ describe('EpisodeStoreService (P1)', () => {
     const { svc, queries } = makeStore();
     expect(await svc.captureTurn('co_x', dto())).toBe(true);
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('INSERT IGNORE INTO episode');
-    const row = queries[0].params.row as Record<string, unknown>;
+    expect(queries[0]!.sql).toContain('INSERT IGNORE INTO episode');
+    const row = queries[0]!.params.row as Record<string, unknown>;
     expect(row.kind).toBe('turn');
     expect(row.conversationId).toBe('conv-1');
     expect(row.messageId).toBe('m-42');
@@ -134,9 +131,7 @@ describe('EpisodeStoreService (P1)', () => {
     });
     await svc.captureTurn('co_x', noMsg);
     await svc.captureTurn('co_x', noMsg);
-    const ids = queries.map(
-      (q) => (q.params.row as Record<string, unknown>).messageId,
-    );
+    const ids = queries.map((q) => (q.params.row as Record<string, unknown>).messageId);
     expect(ids[0]).toEqual(ids[1]);
     expect(String(ids[0])).toMatch(/^[0-9a-f]{24}$/);
   });
@@ -145,7 +140,7 @@ describe('EpisodeStoreService (P1)', () => {
     process.env.EPISODE_SUBSTRATE_ENABLED = '1';
     const { svc, queries } = makeStore();
     await svc.captureTurn('co_x', dto({ text: 'call +7 921 123-45-67' }));
-    const row = queries[0].params.row as Record<string, unknown>;
+    const row = queries[0]!.params.row as Record<string, unknown>;
     expect(row.text).toBe('call [PHONE]');
     expect(row.piiClass).toEqual(['phone']);
   });
@@ -178,17 +173,10 @@ describe('MentionIngestService captures the episode before extraction', () => {
       },
     } as unknown as MentionExtractionService;
     const persist = {} as MentionPersistService;
-    const ingest = new MentionIngestService(
-      extraction,
-      persist,
-      undefined,
-      episodes,
-    );
-    await expect(ingest.ingestMention('co_x', dto())).rejects.toThrow(
-      'extractor exploded',
-    );
+    const ingest = new MentionIngestService(extraction, persist, undefined, episodes);
+    await expect(ingest.ingestMention('co_x', dto())).rejects.toThrow('extractor exploded');
     // The episode write happened first — the turn is not lost.
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain('INSERT IGNORE INTO episode');
+    expect(queries[0]!.sql).toContain('INSERT IGNORE INTO episode');
   });
 });

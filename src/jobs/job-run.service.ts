@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { Subject } from 'rxjs';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { LRUCache } from '../common/lru-cache';
 
@@ -22,12 +22,7 @@ export type JobType =
   | 'scenarios_batch'
   | 'registry_mirror';
 
-export type JobStatus =
-  | 'pending'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface JobProgress {
   processed?: number;
@@ -53,7 +48,7 @@ export interface JobRunRow {
   error?: { message: string; name?: string; stack?: string } | null;
   cancelRequested: boolean;
   /** Phase J/K claim fields — populated when status='running'. */
-  attempts?: number;
+  attempts?: number | undefined;
   claimedBy?: string | null;
   claimedAt?: string | null;
   leaseUntil?: string | null;
@@ -73,28 +68,51 @@ const JOB_RUN_LIST_COLUMNS = `runId, jobType, status, triggeredBy, triggeredByAc
 /** Build the optional WHERE clause + bound params for the cross-tenant list.
  *  Pure — extracted from JobRunService.list so each stays under the complexity
  *  gate and the filter logic is unit-testable in isolation. */
-function buildJobRunListWhere(filter: {
-  jobType?: JobType;
-  status?: JobStatus;
-  since?: string;
-}): { whereSql: string; params: Record<string, unknown> } {
+function buildJobRunListWhere(filter: { jobType?: JobType; status?: JobStatus; since?: string }): {
+  whereSql: string;
+  params: Record<string, unknown>;
+} {
   const clauses: Array<[string, string, unknown]> = [];
   if (filter.jobType) clauses.push(['jobType = $jobType', 'jobType', filter.jobType]);
   if (filter.status) clauses.push(['status = $status', 'status', filter.status]);
-  if (filter.since)
-    clauses.push(['startedAt >= type::datetime($since)', 'since', filter.since]);
+  if (filter.since) clauses.push(['startedAt >= type::datetime($since)', 'since', filter.since]);
   const params: Record<string, unknown> = {};
   for (const [, key, value] of clauses) params[key] = value;
-  const whereSql = clauses.length
-    ? `WHERE ${clauses.map(([sql]) => sql).join(' AND ')}`
-    : '';
+  const whereSql = clauses.length ? `WHERE ${clauses.map(([sql]) => sql).join(' AND ')}` : '';
   return { whereSql, params };
+}
+
+/** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
+type RawDateTime = string | number | Date;
+
+/** Raw job_run row as SELECTed — trust boundary for mapJobRunRow / get().
+ *  Datetime columns arrive as Date | string; the mapper normalizes to ISO. */
+interface JobRunRawRow {
+  runId: string;
+  jobType: JobType;
+  status: JobStatus;
+  triggeredBy?: JobRunRow['triggeredBy'] | null;
+  triggeredByActor?: string | null;
+  startedAt: RawDateTime;
+  finishedAt?: RawDateTime | null;
+  progress?: JobProgress | null;
+  payload?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  error?: JobRunRow['error'];
+  cancelRequested?: boolean;
+  attempts?: number | null;
+  claimedBy?: string | null;
+  claimedAt?: RawDateTime | null;
+  leaseUntil?: RawDateTime | null;
+  heartbeatAt?: RawDateTime | null;
+  visibleAfter?: RawDateTime | null;
 }
 
 /** Project a raw job_run DB row onto the API shape (datetimes → ISO strings,
  *  null-coalesced optionals). Pure — extracted from JobRunService.list. */
-function mapJobRunRow(r: any, companyId: string): JobRunRow {
-  const iso = (v: unknown): string | null => (v ? new Date(v as string).toISOString() : null);
+function mapJobRunRow(r: JobRunRawRow, companyId: string): JobRunRow {
+  const iso = (v: RawDateTime | null | undefined): string | null =>
+    v ? new Date(v).toISOString() : null;
   return {
     runId: r.runId,
     jobType: r.jobType,
@@ -169,8 +187,7 @@ export class JobRunService {
     @Optional() config?: ConfigService,
   ) {
     this.persistEnabled =
-      (config?.get<string>('JOB_RUN_PERSIST', '1') ?? '1') !== '0' &&
-      !!this.surreal;
+      (config?.get<string>('JOB_RUN_PERSIST', '1') ?? '1') !== '0' && !!this.surreal;
   }
 
   /**
@@ -184,7 +201,7 @@ export class JobRunService {
     jobType: JobType;
     companyId: string;
     triggeredBy: 'cron' | 'manual' | 'startup';
-    triggeredByActor?: string;
+    triggeredByActor?: string | undefined;
     initialProgress?: JobProgress;
   }): Promise<JobRunRow> {
     const runId = randomUUID();
@@ -235,15 +252,13 @@ export class JobRunService {
     if (this.persistEnabled && this.surreal) {
       try {
         await this.surreal.withCompany(row.companyId, async (db) => {
-          await db.query(
-            `UPDATE job_run SET progress = $progress WHERE runId = $runId`,
-            { progress: row.progress, runId: row.runId },
-          );
+          await db.query(`UPDATE job_run SET progress = $progress WHERE runId = $runId`, {
+            progress: row.progress,
+            runId: row.runId,
+          });
         });
       } catch (e) {
-        this.logger.warn(
-          `job_run progress write failed (${row.runId}): ${(e as Error).message}`,
-        );
+        this.logger.warn(`job_run progress write failed (${row.runId}): ${(e as Error).message}`);
       }
     }
     this.stream.next(row);
@@ -283,9 +298,7 @@ export class JobRunService {
           );
         });
       } catch (e) {
-        this.logger.warn(
-          `job_run finish write failed (${row.runId}): ${(e as Error).message}`,
-        );
+        this.logger.warn(`job_run finish write failed (${row.runId}): ${(e as Error).message}`);
       }
     }
     this.inProcessCancelHints.delete(row.runId);
@@ -314,7 +327,8 @@ export class JobRunService {
       const updated = await this.surreal.withCompany(companyId, async (db) => {
         // Atomic: take pending rows straight to cancelled, flag running
         // rows. RETURN status so we can tell the caller which path fired.
-        const res = (await db.query<any[]>(
+        const rows = await queryRows<{ status?: string }>(
+          db,
           `UPDATE job_run SET
               cancelRequested = true,
               status = IF status = 'pending' THEN 'cancelled' ELSE status END,
@@ -325,8 +339,7 @@ export class JobRunService {
               AND status IN ['pending', 'running']
             RETURN status`,
           { runId },
-        )) as any[];
-        const rows = (res[0] ?? []) as Array<{ status?: string }>;
+        );
         // A pending row taken straight to 'cancelled' is terminal — finish()
         // will never run for it, so drop the in-process hint here. Running
         // rows keep it until finish() (inline) or LRU eviction (queue).
@@ -337,28 +350,23 @@ export class JobRunService {
       });
       return updated;
     } catch (e) {
-      this.logger.warn(
-        `job_run cancel write failed (${runId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`job_run cancel write failed (${runId}): ${(e as Error).message}`);
       return false;
     }
   }
 
-  async isCancelRequested(
-    runId: string,
-    companyId: string,
-  ): Promise<boolean> {
+  async isCancelRequested(runId: string, companyId: string): Promise<boolean> {
     if (this.inProcessCancelHints.has(runId)) return true;
     if (!this.persistEnabled || !this.surreal) return false;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const res = (await db.query<any[]>(
+        const row = await queryFirst<{ cancelRequested?: boolean }>(
+          db,
           `SELECT cancelRequested FROM job_run
             WHERE runId = $runId AND companyId = $companyId LIMIT 1`,
           { runId, companyId },
-        )) as any[];
-        const rows = (res[0] ?? []) as Array<{ cancelRequested?: boolean }>;
-        return rows[0]?.cancelRequested === true;
+        );
+        return row?.cancelRequested === true;
       });
     } catch {
       return false;
@@ -380,9 +388,7 @@ export class JobRunService {
   }): Promise<JobRunRow[]> {
     if (!this.persistEnabled || !this.surreal || !this.apiKeys) return [];
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
-    const tenants = filter.companyId
-      ? [filter.companyId]
-      : this.apiKeys.knownCompanyIds();
+    const tenants = filter.companyId ? [filter.companyId] : this.apiKeys.knownCompanyIds();
     const where = buildJobRunListWhere(filter);
     const out: JobRunRow[] = [];
     for (const companyId of tenants) {
@@ -399,21 +405,19 @@ export class JobRunService {
     companyId: string,
     where: { whereSql: string; params: Record<string, unknown> },
     limit: number,
-  ): Promise<any[]> {
+  ): Promise<JobRunRawRow[]> {
     try {
-      return await this.surreal!.withCompany(companyId, async (db) => {
-        const res = (await db.query<any[]>(
+      return await this.surreal!.withCompany(companyId, (db) =>
+        queryRows<JobRunRawRow>(
+          db,
           `SELECT ${JOB_RUN_LIST_COLUMNS}
                FROM job_run ${where.whereSql}
               ORDER BY startedAt DESC LIMIT ${limit}`,
           where.params,
-        )) as any[];
-        return (res[0] ?? []) as any[];
-      });
-    } catch (e) {
-      this.logger.warn(
-        `job_run list failed for ${companyId}: ${(e as Error).message}`,
+        ),
       );
+    } catch (e) {
+      this.logger.warn(`job_run list failed for ${companyId}: ${(e as Error).message}`);
       return [];
     }
   }
@@ -422,45 +426,19 @@ export class JobRunService {
     if (!this.persistEnabled || !this.surreal) return null;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const res = (await db.query<any[]>(
+        const r = await queryFirst<JobRunRawRow>(
+          db,
           `SELECT runId, jobType, status, triggeredBy, triggeredByActor,
                   startedAt, finishedAt, progress, payload, result, error,
                   cancelRequested, attempts, claimedBy, claimedAt,
                   leaseUntil, heartbeatAt, visibleAfter
              FROM job_run WHERE runId = $runId LIMIT 1`,
           { runId },
-        )) as any[];
-        const r = ((res[0] ?? []) as any[])[0];
+        );
         if (!r) return null;
-        return {
-          runId: r.runId,
-          jobType: r.jobType,
-          status: r.status,
-          triggeredBy: r.triggeredBy ?? 'cron',
-          triggeredByActor: r.triggeredByActor ?? null,
-          startedAt: new Date(r.startedAt).toISOString(),
-          finishedAt: r.finishedAt
-            ? new Date(r.finishedAt).toISOString()
-            : null,
-          progress: r.progress ?? null,
-          payload: r.payload ?? null,
-          result: r.result ?? null,
-          error: r.error ?? null,
-          cancelRequested: r.cancelRequested === true,
-          attempts: typeof r.attempts === 'number' ? r.attempts : undefined,
-          claimedBy: r.claimedBy ?? null,
-          claimedAt: r.claimedAt ? new Date(r.claimedAt).toISOString() : null,
-          leaseUntil: r.leaseUntil
-            ? new Date(r.leaseUntil).toISOString()
-            : null,
-          heartbeatAt: r.heartbeatAt
-            ? new Date(r.heartbeatAt).toISOString()
-            : null,
-          visibleAfter: r.visibleAfter
-            ? new Date(r.visibleAfter).toISOString()
-            : null,
-          companyId,
-        } as JobRunRow;
+        // Same projection as the cross-tenant list — reuse the mapper
+        // instead of duplicating the datetime/null-coalesce shaping.
+        return mapJobRunRow(r, companyId);
       });
     } catch (e) {
       this.logger.warn(`job_run get failed (${runId}): ${(e as Error).message}`);

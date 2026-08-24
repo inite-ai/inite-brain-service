@@ -44,10 +44,7 @@ export interface BootstrapOptions {
  * always sample-mean (the only one this harness uses); other
  * statistics can be added when needed.
  */
-export function bootstrapMeanCI(
-  values: number[],
-  opts: BootstrapOptions = {},
-): BootstrapCI {
+export function bootstrapMeanCI(values: number[], opts: BootstrapOptions = {}): BootstrapCI {
   const B = opts.B ?? 1000;
   const level = opts.level ?? 0.95;
   const seed = opts.seed ?? 42;
@@ -59,7 +56,7 @@ export function bootstrapMeanCI(
     // CI for a single observation is the observation itself —
     // any percentile is the same value. Surface this as a bound
     // pair so callers don't crash on null arithmetic.
-    return { level, lower: values[0], upper: values[0], resamples: 0 };
+    return { level, lower: values[0]!, upper: values[0]!, resamples: 0 };
   }
 
   const rand = mulberry32(seed);
@@ -69,7 +66,7 @@ export function bootstrapMeanCI(
     let sum = 0;
     for (let i = 0; i < n; i++) {
       const idx = Math.floor(rand() * n);
-      sum += values[idx];
+      sum += values[idx]!;
     }
     means[b] = sum / n;
   }
@@ -80,8 +77,8 @@ export function bootstrapMeanCI(
   const upperIdx = Math.min(B - 1, Math.ceil((1 - alpha / 2) * B) - 1);
   return {
     level,
-    lower: means[lowerIdx],
-    upper: means[upperIdx],
+    lower: means[lowerIdx]!,
+    upper: means[upperIdx]!,
     resamples: B,
   };
 }

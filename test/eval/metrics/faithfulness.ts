@@ -41,7 +41,7 @@ export interface FaithfulnessInput {
   answer: string;
   sourceFacts: FaithfulnessSourceFact[];
   /** Default OPENAI_CHAT_MODEL or 'gpt-4o-mini'. */
-  model?: string;
+  model?: string | undefined;
 }
 
 export interface FaithfulnessClaim {
@@ -80,7 +80,13 @@ export interface FaithfulnessScore {
 export interface OpenAiLike {
   chat: {
     completions: {
-      create: (args: unknown) => Promise<{
+      // Declared with method syntax (not an arrow property) so the
+      // parameter is checked bivariantly under strictFunctionTypes:
+      // the real OpenAI SDK's narrowly-typed `create` param must stay
+      // assignable to this deliberately-loose `unknown` seam, and a
+      // unit-test stub must satisfy it too. A property-position arrow
+      // would force strict contravariance and reject the real SDK.
+      create(args: unknown): Promise<{
         choices?: Array<{ message?: { content?: string | null } }>;
       }>;
     };
@@ -128,12 +134,7 @@ export async function computeFaithfulness(
   const claims = await decomposeClaims(client, input.answer, model);
   if (claims.length === 0) return empty;
 
-  const verifyResult = await verifyClaims(
-    client,
-    claims,
-    input.sourceFacts,
-    model,
-  );
+  const verifyResult = await verifyClaims(client, claims, input.sourceFacts, model);
   const verdicts = verifyResult.verdicts;
 
   const annotated: FaithfulnessClaim[] = claims.map((c, i) => ({
@@ -143,9 +144,7 @@ export async function computeFaithfulness(
 
   const supported = annotated.filter((c) => c.verdict === 'supported').length;
   const partial = annotated.filter((c) => c.verdict === 'partial').length;
-  const unsupported = annotated.filter(
-    (c) => c.verdict === 'not_supported',
-  ).length;
+  const unsupported = annotated.filter((c) => c.verdict === 'not_supported').length;
 
   // RAGAS-style: partial counts as 0.5. Keeps paraphrase-noise out
   // of the binary win/lose framing while still rewarding answers
@@ -164,17 +163,12 @@ export async function computeFaithfulness(
 }
 
 /** Mean faithfulness across a batch. Null when no scorable inputs. */
-export function meanFaithfulness(
-  scores: FaithfulnessScore[],
-): number | null {
+export function meanFaithfulness(scores: FaithfulnessScore[]): number | null {
   const scored = scores.filter(
-    (s): s is FaithfulnessScore & { faithfulness: number } =>
-      s.faithfulness !== null,
+    (s): s is FaithfulnessScore & { faithfulness: number } => s.faithfulness !== null,
   );
   if (scored.length === 0) return null;
-  return (
-    scored.reduce((acc, s) => acc + s.faithfulness, 0) / scored.length
-  );
+  return scored.reduce((acc, s) => acc + s.faithfulness, 0) / scored.length;
 }
 
 async function decomposeClaims(
@@ -214,9 +208,7 @@ async function decomposeClaims(
     if (!content) return [];
     const parsed = JSON.parse(content) as { claims?: unknown };
     if (!Array.isArray(parsed.claims)) return [];
-    return parsed.claims.filter(
-      (c): c is string => typeof c === 'string' && c.trim().length > 0,
-    );
+    return parsed.claims.filter((c): c is string => typeof c === 'string' && c.trim().length > 0);
   } catch {
     return [];
   }
@@ -236,11 +228,7 @@ async function verifyClaims(
   if (claims.length === 0) return { verdicts: [] };
   const factLines =
     sourceFacts.length > 0
-      ? sourceFacts
-          .map(
-            (f) => `[${f.factId}] ${f.predicate}: ${f.object}`,
-          )
-          .join('\n')
+      ? sourceFacts.map((f) => `[${f.factId}] ${f.predicate}: ${f.object}`).join('\n')
       : '(no source facts)';
   const numbered = claims.map((c, i) => `${i + 1}. ${c}`).join('\n');
   try {
@@ -323,10 +311,7 @@ async function verifyClaims(
       return {
         verdicts: out,
         failure: {
-          kind:
-            parsed.verdicts.length !== claims.length
-              ? 'length_mismatch'
-              : 'invalid_verdicts',
+          kind: parsed.verdicts.length !== claims.length ? 'length_mismatch' : 'invalid_verdicts',
           received: parsed.verdicts.length,
           expected: claims.length,
           detail,

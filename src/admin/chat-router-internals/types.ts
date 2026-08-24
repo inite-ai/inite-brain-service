@@ -55,11 +55,19 @@ export interface ChatRoute {
 
 export interface ValidationReport {
   acceptedEdits: number;
-  droppedEdits: Array<{ op: string; reason: string; span?: Span }>;
+  droppedEdits: Array<{ op: string; reason: string; span?: Span | undefined }>;
   acceptedMentions: number;
-  droppedMentions: Array<{ canonical?: string; reason: string; span?: Span }>;
+  droppedMentions: Array<{
+    canonical?: string | undefined;
+    reason: string;
+    span?: Span | undefined;
+  }>;
   acceptedHints: number;
-  droppedHints: Array<{ predicateId?: string; reason: string; span?: Span }>;
+  droppedHints: Array<{
+    predicateId?: string | undefined;
+    reason: string;
+    span?: Span | undefined;
+  }>;
   asOfStatus: 'grounded' | 'ungrounded' | 'absent';
   validFromStatus: 'grounded' | 'ungrounded' | 'absent';
 }

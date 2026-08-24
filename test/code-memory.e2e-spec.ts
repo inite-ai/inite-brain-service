@@ -23,10 +23,7 @@ import { createApp } from './app-fixture';
 import { IngestService } from '../src/ingest/ingest.service';
 import { EntitiesService } from '../src/entities/entities.service';
 import type { BrainScope } from '../src/auth/api-key.types';
-import {
-  codeMemoryPredicateId,
-  type CodeMemoryKind,
-} from '../src/ai/domain-packs';
+import { codeMemoryPredicateId, type CodeMemoryKind } from '../src/ai/domain-packs';
 
 describe('code-memory Phase 0 — record_decision → why round-trip', () => {
   let f: AppFixture;
@@ -46,10 +43,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
       scopes: READ,
     });
   };
-  const activeOf = (
-    profile: Awaited<ReturnType<typeof recall>>,
-    kind: CodeMemoryKind,
-  ) =>
+  const activeOf = (profile: Awaited<ReturnType<typeof recall>>, kind: CodeMemoryKind) =>
     (profile?.facts ?? []).filter(
       (x) => x.predicate === codeMemoryPredicateId(kind) && x.status === 'active',
     );
@@ -77,7 +71,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     expect(profile).not.toBeNull();
     const decided = activeOf(profile, 'decided');
     expect(decided).toHaveLength(1);
-    expect(decided[0].object).toMatch(/one fn::resolve_fact gateway/);
+    expect(decided[0]!.object).toMatch(/one fn::resolve_fact gateway/);
   });
 
   it('re-deciding the same anchor supersedes the prior decision (single_active)', async () => {
@@ -94,7 +88,7 @@ describe('code-memory Phase 0 — record_decision → why round-trip', () => {
     const profile = await recall();
     const activeDecided = activeOf(profile, 'decided');
     expect(activeDecided).toHaveLength(1);
-    expect(activeDecided[0].object).toMatch(/HyPE alt-embedding/);
+    expect(activeDecided[0]!.object).toMatch(/HyPE alt-embedding/);
   });
 
   it('gotcha is append_only — accumulates instead of superseding', async () => {

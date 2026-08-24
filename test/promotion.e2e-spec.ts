@@ -26,14 +26,17 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
   });
 
   const ingest = async (predicate: string, object: string) => {
-    const res = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'promo_subject' },
-      predicate,
-      object,
-      validFrom: '2025-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'promo_subject' },
+        predicate,
+        object,
+        validFrom: '2025-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(res.status);
     return res.body.factId as string;
   };
@@ -42,10 +45,10 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
     const surreal = f.app.get(SurrealService);
     const recordedAt = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     await surreal.withCompany(f.companyId, async (db) => {
-      await db.query(
-        `UPDATE knowledge_fact SET recordedAt = $recordedAt WHERE id INSIDE $ids`,
-        { recordedAt, ids: factIds.map((id) => new StringRecordId(id)) },
-      );
+      await db.query(`UPDATE knowledge_fact SET recordedAt = $recordedAt WHERE id INSIDE $ids`, {
+        recordedAt,
+        ids: factIds.map((id) => new StringRecordId(id)),
+      });
     });
   };
 
@@ -95,12 +98,12 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
         embedding: number[] | null;
       }>;
       expect(summaries).toHaveLength(1);
-      expect(summaries[0].status).toBe('active');
-      expect(summaries[0].object.length).toBeGreaterThan(0);
-      expect(summaries[0].derivedFrom).toHaveLength(5);
+      expect(summaries[0]!.status).toBe('active');
+      expect(summaries[0]!.object.length).toBeGreaterThan(0);
+      expect(summaries[0]!.derivedFrom).toHaveLength(5);
       // Promotion summaries are embedded — they replace active memory
       // and must stay vector-reachable.
-      expect(Array.isArray(summaries[0].embedding)).toBe(true);
+      expect(Array.isArray(summaries[0]!.embedding)).toBe(true);
 
       const statusOf = async (id: string) => {
         const [rows] = await db.query<[Array<{ status: string }>]>(

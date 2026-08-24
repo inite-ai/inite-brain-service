@@ -52,8 +52,7 @@ async function loadLabelPropagation(): Promise<LabelPropagationModule> {
 }
 
 export async function run(input: unknown): Promise<{ clusters: string[][] }> {
-  const { edges, maxIterations } = (input ??
-    {}) as LabelPropagationWorkerInput;
+  const { edges, maxIterations } = (input ?? {}) as LabelPropagationWorkerInput;
   const { buildAdjacency, labelPropagation } = await loadLabelPropagation();
   const adjacency = buildAdjacency(Array.isArray(edges) ? edges : []);
   const clusters =

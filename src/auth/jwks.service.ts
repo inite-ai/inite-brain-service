@@ -35,11 +35,11 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
 export class JwksService implements OnModuleInit {
   private readonly logger = new Logger(JwksService.name);
   private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-  private issuer?: string;
+  private issuer?: string | undefined;
   private audience?: string;
   private algorithms: string[] = ['RS256'];
   /** Canonical deployment URL — matches RFC 9396 grant `locations`. */
-  private publicUrl?: string;
+  private publicUrl?: string | undefined;
 
   constructor(
     private readonly configService: ConfigService,
@@ -62,19 +62,14 @@ export class JwksService implements OnModuleInit {
     // ANY alg advertised in the JWKS, which is the classic algorithm-confusion
     // surface (e.g. a symmetric key smuggled into the key set). Configurable
     // for issuers that sign with ES256/EdDSA, but default to RS256.
-    this.algorithms = (
-      this.configService.get<string>('AUTH_SERVICE_JWT_ALGS', 'RS256') ?? 'RS256'
-    )
+    this.algorithms = (this.configService.get<string>('AUTH_SERVICE_JWT_ALGS', 'RS256') ?? 'RS256')
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean);
     // In production an unvalidated issuer means a token minted by ANY trusted
     // JWKS (e.g. another tenant's auth realm sharing the key infra) would pass.
     // Refuse to boot rather than fail open.
-    if (
-      this.configService.get<string>('NODE_ENV') === 'production' &&
-      !this.issuer
-    ) {
+    if (this.configService.get<string>('NODE_ENV') === 'production' && !this.issuer) {
       throw new Error(
         'AUTH_SERVICE_ISSUER must be set in production when JWKS verification ' +
           'is enabled — without it the `iss` claim is not validated and any ' +
@@ -101,8 +96,8 @@ export class JwksService implements OnModuleInit {
     let payload: JWTPayload;
     try {
       ({ payload } = await jwtVerify(token, this.jwks, {
-        issuer: this.issuer,
-        audience: this.audience,
+        ...(this.issuer !== undefined ? { issuer: this.issuer } : {}),
+        ...(this.audience !== undefined ? { audience: this.audience } : {}),
         algorithms: this.algorithms,
       }));
     } catch (e) {

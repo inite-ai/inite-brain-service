@@ -73,9 +73,7 @@ export class MarketplaceAdminController {
       );
     }
     if (typeof body?.currency !== 'string' || !CURRENCY.test(body.currency)) {
-      throw new BadRequestException(
-        'currency must be a 3-letter ISO 4217 code',
-      );
+      throw new BadRequestException('currency must be a 3-letter ISO 4217 code');
     }
     const currency = body.currency.toUpperCase();
     const companyId = req.brainAuth.companyId;
@@ -133,9 +131,9 @@ export class MarketplaceAdminController {
       companyId: req.brainAuth.companyId,
       profile: {
         displayName: body?.displayName,
-        url: body?.url,
-        bio: body?.bio,
-        contactEmail: body?.contactEmail,
+        ...(body?.url !== undefined ? { url: body.url } : {}),
+        ...(body?.bio !== undefined ? { bio: body.bio } : {}),
+        ...(body?.contactEmail !== undefined ? { contactEmail: body.contactEmail } : {}),
       },
     });
   }
@@ -163,29 +161,23 @@ export class MarketplaceAdminController {
       }
     }
     if (!this.billing.enabled()) {
-      throw new BadRequestException(
-        'billing integration is disabled on this instance',
-      );
+      throw new BadRequestException('billing integration is disabled on this instance');
     }
     const meta = await this.meta.getMeta(packId);
     if (!meta?.paid || !meta.priceCode) {
       if (!(await this.meta.packExists(packId))) {
-        throw new NotFoundException(
-          `pack "${packId}" not found in the registry`,
-        );
+        throw new NotFoundException(`pack "${packId}" not found in the registry`);
       }
-      throw new BadRequestException(
-        `pack "${packId}" is free — install directly`,
-      );
+      throw new BadRequestException(`pack "${packId}" is free — install directly`);
     }
     return this.billing
       .createCheckoutSession({
         companyId: req.brainAuth.companyId,
         priceCode: meta.priceCode,
         packId,
-        successUrl: body?.successUrl,
-        errorUrl: body?.errorUrl,
-        idempotencyKey,
+        ...(body?.successUrl !== undefined ? { successUrl: body.successUrl } : {}),
+        ...(body?.errorUrl !== undefined ? { errorUrl: body.errorUrl } : {}),
+        ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       })
       .catch((e) => this.rethrowBilling(e));
   }
@@ -194,19 +186,13 @@ export class MarketplaceAdminController {
    *  (fail-closed), billing-side 4xx 502 (we sent something it refused). */
   private rethrowBilling(e: unknown): never {
     if (e instanceof BillingDisabledError) {
-      throw new BadRequestException(
-        'billing integration is disabled on this instance',
-      );
+      throw new BadRequestException('billing integration is disabled on this instance');
     }
     if (e instanceof BillingUnavailableError) {
-      throw new ServiceUnavailableException(
-        `billing service is unavailable — ${e.message}`,
-      );
+      throw new ServiceUnavailableException(`billing service is unavailable — ${e.message}`);
     }
     if (e instanceof BillingRequestError) {
-      throw new BadGatewayException(
-        `billing service rejected the request (HTTP ${e.status})`,
-      );
+      throw new BadGatewayException(`billing service rejected the request (HTTP ${e.status})`);
     }
     throw e;
   }

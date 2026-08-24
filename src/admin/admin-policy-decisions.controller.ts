@@ -31,12 +31,13 @@ export class AdminPolicyDecisionsController {
       before?: string;
     },
   ): Promise<PolicyDecisionsResponse> {
+    const parsedLimit = q.limit ? parseInt(q.limit, 10) : undefined;
     return (await this.decisions.feed(req.brainAuth.companyId, {
       ...(q.policySet ? { policySet: q.policySet } : {}),
       ...(q.decision ? { decision: q.decision } : {}),
       ...(q.kind ? { kind: q.kind } : {}),
       ...(q.action ? { action: q.action } : {}),
-      ...(q.limit ? { limit: parseInt(q.limit, 10) || undefined } : {}),
+      ...(parsedLimit !== undefined && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
       ...(q.before ? { before: q.before } : {}),
     })) satisfies PolicyDecisionsResponse;
   }

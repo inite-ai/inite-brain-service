@@ -34,10 +34,7 @@ export type AnchorHealth = 'present' | 'symbol_missing' | 'file_gone';
  * is gone it's `symbol_missing` (a re-anchor candidate); if the file itself is
  * gone it's `file_gone`.
  */
-export function validateAnchor(opts: {
-  anchor: string;
-  readFile: ReadFile;
-}): AnchorHealth {
+export function validateAnchor(opts: { anchor: string; readFile: ReadFile }): AnchorHealth {
   const { path, symbolPath } = parseAnchor(opts.anchor);
   const source = opts.readFile(path);
   if (source === null) return 'file_gone';

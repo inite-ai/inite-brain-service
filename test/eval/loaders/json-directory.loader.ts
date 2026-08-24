@@ -98,9 +98,7 @@ export function loadDirectoryJson(path: string): LoadedDirectory {
   try {
     raw = readFileSync(path, 'utf8');
   } catch (err) {
-    throw new Error(
-      `[json-directory-loader] cannot read '${path}': ${(err as Error).message}`,
-    );
+    throw new Error(`[json-directory-loader] cannot read '${path}': ${(err as Error).message}`);
   }
   let parsed: unknown;
   try {
@@ -117,10 +115,7 @@ export function loadDirectoryJson(path: string): LoadedDirectory {
  * Same as loadDirectoryJson but takes a parsed object — useful for
  * tests that don't want to write to disk.
  */
-export function parseDirectoryObject(
-  parsed: unknown,
-  origin = '<inline>',
-): LoadedDirectory {
+export function parseDirectoryObject(parsed: unknown, origin = '<inline>'): LoadedDirectory {
   return parseDirectory(parsed, origin);
 }
 
@@ -132,13 +127,10 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
   }
   const obj = parsed as Record<string, unknown>;
   const directoryName = req<string>(obj, 'directoryName', origin, 'string');
-  const description =
-    typeof obj.description === 'string' ? obj.description : undefined;
+  const description = typeof obj.description === 'string' ? obj.description : undefined;
   const entities = req<unknown[]>(obj, 'entities', origin, 'array');
   if (entities.length === 0) {
-    throw new Error(
-      `[json-directory-loader] '${origin}' has zero entities — nothing to load`,
-    );
+    throw new Error(`[json-directory-loader] '${origin}' has zero entities — nothing to load`);
   }
 
   const setup: SetupStep[] = [];
@@ -153,9 +145,7 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
     const e = eRaw as Record<string, unknown>;
     const id = req<string>(e, 'id', trail, 'string');
     const vertical =
-      typeof e.vertical === 'string' && e.vertical.length > 0
-        ? e.vertical
-        : directoryName;
+      typeof e.vertical === 'string' && e.vertical.length > 0 ? e.vertical : directoryName;
     const facts = req<unknown[]>(e, 'facts', trail, 'array');
     if (facts.length === 0) {
       throw new Error(
@@ -172,10 +162,8 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
       const predicate = req<string>(f, 'predicate', fTrail, 'string');
       const object = req<string>(f, 'object', fTrail, 'string');
       const validFrom = req<string>(f, 'validFrom', fTrail, 'string');
-      const validUntil =
-        typeof f.validUntil === 'string' ? f.validUntil : undefined;
-      const confidence =
-        typeof f.confidence === 'number' ? f.confidence : undefined;
+      const validUntil = typeof f.validUntil === 'string' ? f.validUntil : undefined;
+      const confidence = typeof f.confidence === 'number' ? f.confidence : undefined;
       const tag = typeof f.tag === 'string' ? f.tag : undefined;
       if (tag) {
         if (tagsSeen.has(tag)) {
@@ -188,10 +176,7 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
       const sourceRaw = f.source as Record<string, unknown> | undefined;
       const source = {
         vertical:
-          (sourceRaw &&
-            typeof sourceRaw.vertical === 'string' &&
-            sourceRaw.vertical) ||
-          vertical,
+          (sourceRaw && typeof sourceRaw.vertical === 'string' && sourceRaw.vertical) || vertical,
         ...(sourceRaw?.messageId && typeof sourceRaw.messageId === 'string'
           ? { messageId: sourceRaw.messageId }
           : {}),
@@ -205,8 +190,8 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
         predicate,
         object,
         validFrom,
-        validUntil,
-        confidence,
+        ...(validUntil !== undefined ? { validUntil } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
         source,
         ...(tag ? { tag } : {}),
       });
@@ -232,9 +217,7 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
     }
   }
 
-  const forgets = Array.isArray(obj.forgetEntities)
-    ? (obj.forgetEntities as unknown[])
-    : [];
+  const forgets = Array.isArray(obj.forgetEntities) ? (obj.forgetEntities as unknown[]) : [];
   let forgetCount = 0;
   for (const [fIdx, fRaw] of forgets.entries()) {
     const fTrail = `${origin} > forgetEntities[${fIdx}]`;
@@ -256,8 +239,8 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
     const requestId = req<string>(f, 'requestId', fTrail, 'string');
     const [vMaybe, idMaybe] = ref.split('.', 2);
     const entityRef = idMaybe
-      ? { vertical: vMaybe, id: idMaybe }
-      : { vertical: directoryName, id: vMaybe };
+      ? { vertical: vMaybe!, id: idMaybe }
+      : { vertical: directoryName, id: vMaybe! };
     setup.push({
       kind: 'forget',
       entityRef,
@@ -274,12 +257,10 @@ function parseDirectory(parsed: unknown, origin: string): LoadedDirectory {
       description ??
       `Directory '${directoryName}': ${entities.length} entities, ${factCount} facts, ${retractCount} retracts, ${forgetCount} forgets.`,
     setup,
-    queries: Array.isArray(obj.queries)
-      ? (obj.queries as QueryExpectation[])
-      : [],
-    memoryAssertions: Array.isArray(obj.memoryAssertions)
-      ? (obj.memoryAssertions as MemoryAssertion[])
-      : undefined,
+    queries: Array.isArray(obj.queries) ? (obj.queries as QueryExpectation[]) : [],
+    ...(Array.isArray(obj.memoryAssertions)
+      ? { memoryAssertions: obj.memoryAssertions as MemoryAssertion[] }
+      : {}),
   };
 
   return {
@@ -312,14 +293,10 @@ function req<T>(
     );
   }
   if (expected === 'string' && typeof v !== 'string') {
-    throw new Error(
-      `[json-directory-loader] ${trail}.${key} must be a string, got ${typeof v}`,
-    );
+    throw new Error(`[json-directory-loader] ${trail}.${key} must be a string, got ${typeof v}`);
   }
   if (expected === 'array' && !Array.isArray(v)) {
-    throw new Error(
-      `[json-directory-loader] ${trail}.${key} must be an array, got ${typeof v}`,
-    );
+    throw new Error(`[json-directory-loader] ${trail}.${key} must be an array, got ${typeof v}`);
   }
   if (expected === 'object' && (typeof v !== 'object' || Array.isArray(v))) {
     throw new Error(

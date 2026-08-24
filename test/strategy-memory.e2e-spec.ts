@@ -33,17 +33,13 @@ function clearStrategyEnv(): void {
 }
 
 /** Scripted OpenAI stub for the distiller (the mockSynthesizeOpenAi idiom). */
-function mockDistillOpenAi(
-  svc: StrategyDistillService,
-  responses: string[],
-): { calls: number } {
+function mockDistillOpenAi(svc: StrategyDistillService, responses: string[]): { calls: number } {
   const state = { calls: 0 };
   const stub = {
     chat: {
       completions: {
         create: async () => {
-          const content =
-            responses[state.calls] ?? responses[responses.length - 1] ?? '{}';
+          const content = responses[state.calls] ?? responses[responses.length - 1] ?? '{}';
           state.calls++;
           return { choices: [{ message: { content } }] };
         },
@@ -116,13 +112,16 @@ describe('strategy lane — master on, retrieval off', () => {
     process.env.STRATEGY_MEMORY_ENABLED = '1';
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
     f = await createApp();
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'strategy_e2e_tenant' },
-      predicate: 'status',
-      object: 'engineer',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'strategy_e2e_tenant' },
+        predicate: 'status',
+        object: 'engineer',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
   });
   afterAll(async () => {
     clearStrategyEnv();
@@ -176,13 +175,9 @@ describe('strategy lane — master on, retrieval off', () => {
       .send({ status: 'active' });
     expect(patch.status).toBe(200);
     expect(patch.body.status).toBe('active');
-    const active = await f.http
-      .get('/v1/admin/strategy?status=active')
-      .set(auth());
+    const active = await f.http.get('/v1/admin/strategy?status=active').set(auth());
     expect(active.body.strategies).toHaveLength(1);
-    const candidates = await f.http
-      .get('/v1/admin/strategy?status=candidate')
-      .set(auth());
+    const candidates = await f.http.get('/v1/admin/strategy?status=candidate').set(auth());
     expect(candidates.body.strategies).toHaveLength(0);
   });
 
@@ -191,10 +186,7 @@ describe('strategy lane — master on, retrieval off', () => {
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
-    const res = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: 'engineer' });
+    const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThan(0);
     for (const call of state.calls) {
@@ -216,13 +208,16 @@ describe('strategy lane — both flags on (serving)', () => {
     process.env.STRATEGY_RETRIEVAL_ENABLED = '1';
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
     f = await createApp();
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'strategy_e2e_tenant2' },
-      predicate: 'status',
-      object: 'engineer',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'strategy_e2e_tenant2' },
+        predicate: 'status',
+        object: 'engineer',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
     // Seed an ACTIVE item at the service level (manual/API seeding is
     // the v1 source; DI keeps the LLM out of the seed path). The item
     // embeds `${title}\n${situation}` — with an empty situation the
@@ -247,13 +242,10 @@ describe('strategy lane — both flags on (serving)', () => {
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
-    const res = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: 'engineer' });
+    const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThanOrEqual(2);
-    const generatorCall = state.calls[0];
+    const generatorCall = state.calls[0]!;
     expect(generatorCall.user).toContain('=== ADVISORY STRATEGY NOTES');
     expect(generatorCall.user).toContain(STRATEGY_TEXT);
     expect(generatorCall.user).toContain('=== END ADVISORY STRATEGY NOTES ===');
@@ -278,10 +270,7 @@ describe('strategy lane — both flags on (serving)', () => {
       status: 'active',
     });
 
-    const search = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({ query });
+    const search = await f.http.post('/v1/search').set(auth()).send({ query });
     expect(search.status).toBe(201);
     const body = JSON.stringify(search.body);
     expect(body).not.toContain('strategy_memory');
@@ -298,20 +287,13 @@ describe('strategy lane — both flags on (serving)', () => {
       JSON.stringify({ answer: 'no evidence', citedFactIds: [] }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
-    const synth = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: 'engineer' });
+    const synth = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(synth.status).toBe(201);
-    expect(JSON.stringify(synth.body.citations ?? [])).not.toContain(
-      'strategy_memory',
-    );
+    expect(JSON.stringify(synth.body.citations ?? [])).not.toContain('strategy_memory');
     // The strategy text may appear ONLY inside the fenced advisory
     // section of the generator prompt — never among the fact lines.
-    const generatorCall = state.calls[0];
-    const factSection = generatorCall.user.split(
-      '=== ADVISORY STRATEGY NOTES',
-    )[0];
+    const generatorCall = state.calls[0]!;
+    const factSection = generatorCall.user.split('=== ADVISORY STRATEGY NOTES')[0];
     expect(factSection).not.toContain(query);
   });
 });

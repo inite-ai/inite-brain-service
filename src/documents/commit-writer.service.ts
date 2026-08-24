@@ -7,12 +7,7 @@ import { createEdgeBetween } from '../ingest/edge-writer';
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
-import {
-  incomingFactsFor,
-  MergedFact,
-  MergedRelation,
-  MergeResult,
-} from './candidate-merge';
+import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './candidate-merge';
 
 export interface FactWriteOutcome {
   fact: MergedFact;
@@ -105,8 +100,7 @@ export class CommitWriterService {
     },
   ): Promise<FactWriteOutcome[]> {
     const outcomes: FactWriteOutcome[] = [];
-    for (let i = 0; i < p.factsToWrite.length; i++) {
-      const mf = p.factsToWrite[i];
+    for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
         outcomes.push({ fact: mf, factId: null, outcome: null });
@@ -186,9 +180,7 @@ export class CommitWriterService {
         );
         outcomes.push({ relation: mr, edgeId });
       } catch (err) {
-        this.logger.warn(
-          `[brain.commit.edge] kind=${mr.kind} failed: ${(err as Error).message}`,
-        );
+        this.logger.warn(`[brain.commit.edge] kind=${mr.kind} failed: ${(err as Error).message}`);
         outcomes.push({ relation: mr, edgeId: null });
       }
     }

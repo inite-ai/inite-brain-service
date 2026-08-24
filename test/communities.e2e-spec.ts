@@ -84,9 +84,7 @@ describe('Communities — build + read surfaces', () => {
     expect(entityA).toMatch(/^knowledge_entity:/);
 
     // Build communities through the dreams leg.
-    const stats = await f.app
-      .get(DreamsService)
-      .runForTenant(f.companyId, ['communities']);
+    const stats = await f.app.get(DreamsService).runForTenant(f.companyId, ['communities']);
     expect(stats.communities?.communitiesBuilt).toBe(2);
     expect(stats.communities?.entitiesClustered).toBe(6);
   });
@@ -108,7 +106,7 @@ describe('Communities — build + read surfaces', () => {
   it('find_entity_communities resolves an entity to its cluster', async () => {
     const out = await f.app.get(CommunityService).forEntity(f.companyId, entityA);
     expect(out).toHaveLength(1);
-    expect(out[0].memberCount).toBe(3);
+    expect(out[0]!.memberCount).toBe(3);
   });
 
   it('search returns a community for a topical query', async () => {
@@ -116,7 +114,7 @@ describe('Communities — build + read surfaces', () => {
       .get(CommunityService)
       .search(f.companyId, { query: 'Acme billing', minSimilarity: 0 });
     expect(out.length).toBeGreaterThanOrEqual(1);
-    expect(out[0].similarity).toBeGreaterThanOrEqual(0);
+    expect(out[0]!.similarity).toBeGreaterThanOrEqual(0);
   });
 
   it('REST: list / search / for-entity / stats resolve over HTTP', async () => {
@@ -125,9 +123,7 @@ describe('Communities — build + read surfaces', () => {
     expect(listRes.body.communities).toHaveLength(2);
 
     const searchRes = await f.http
-      .get(
-        `/v1/communities/search?query=${encodeURIComponent('Acme billing')}&minSimilarity=0`,
-      )
+      .get(`/v1/communities/search?query=${encodeURIComponent('Acme billing')}&minSimilarity=0`)
       .set(auth());
     expect(searchRes.status).toBe(200);
     expect(searchRes.body.communities.length).toBeGreaterThanOrEqual(1);
@@ -147,9 +143,7 @@ describe('Communities — build + read surfaces', () => {
   });
 
   it('rebuild with no graph change reuses every community (watermark)', async () => {
-    const stats = await f.app
-      .get(DreamsService)
-      .runForTenant(f.companyId, ['communities']);
+    const stats = await f.app.get(DreamsService).runForTenant(f.companyId, ['communities']);
     expect(stats.communities?.communitiesBuilt).toBe(0);
     expect(stats.communities?.communitiesReused).toBe(2);
     expect(stats.communities?.communitiesRemoved).toBe(0);

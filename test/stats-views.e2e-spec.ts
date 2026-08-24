@@ -41,14 +41,17 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
   });
 
   async function ingestFact(subjectId: string, predicate: string, object: string) {
-    const res = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: subjectId },
-      predicate,
-      object,
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    });
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: subjectId },
+        predicate,
+        object,
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      });
     expect([200, 201]).toContain(res.status);
     return res.body.factId as string;
   }
@@ -110,7 +113,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
       await db.query(
         `UPDATE type::record('knowledge_fact', $a) SET status = 'competing';
          UPDATE type::record('knowledge_fact', $b) SET status = 'retracted';`,
-        { a: factIds[0].split(':')[1], b: factIds[1].split(':')[1] },
+        { a: factIds[0]!.split(':')[1], b: factIds[1]!.split(':')[1] },
       );
     });
 
@@ -122,10 +125,9 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
 
     // Flip one back — the group counts must decrement/increment again.
     await surreal.withCompany(f.companyId, async (db) => {
-      await db.query(
-        `UPDATE type::record('knowledge_fact', $a) SET status = 'active'`,
-        { a: factIds[0].split(':')[1] },
-      );
+      await db.query(`UPDATE type::record('knowledge_fact', $a) SET status = 'active'`, {
+        a: factIds[0]!.split(':')[1],
+      });
     });
     expect(await viewCounts()).toEqual(await liveCounts());
   });
@@ -134,7 +136,7 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
     const before = await viewCounts();
     await surreal.withCompany(f.companyId, async (db) => {
       await db.query(`DELETE type::record('knowledge_fact', $t)`, {
-        t: factIds[3].split(':')[1],
+        t: factIds[3]!.split(':')[1],
       });
     });
     const live = await liveCounts();
@@ -152,9 +154,9 @@ describe('stats views (migration 0088, real SurrealDB)', () => {
         `DEFINE TABLE stats_probe_initial AS
            SELECT count() AS n FROM knowledge_entity GROUP ALL`,
       );
-      const res = (await db.query<unknown[]>(
-        `SELECT n FROM stats_probe_initial`,
-      )) as Array<Array<{ n?: number }>>;
+      const res = (await db.query<unknown[]>(`SELECT n FROM stats_probe_initial`)) as Array<
+        Array<{ n?: number }>
+      >;
       await db.query(`REMOVE TABLE stats_probe_initial`);
       return res[0]?.[0]?.n ?? 0;
     });

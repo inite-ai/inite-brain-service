@@ -79,9 +79,19 @@ export default tseslint.config(
       sourceType: 'module',
       globals: { ...globals.node, ...globals.jest },
       parserOptions: {
-        // Avoid type-aware linting for now (slow on a Nest app, and we lint
-        // both src/ and test/ which would need separate tsconfigs).
-        project: false,
+        // Type-aware linting is ON: the promise-safety rules
+        // (no-floating-promises / no-misused-promises / await-thenable)
+        // need the type-checker.
+        //
+        // We use the explicit `project` array rather than the newer
+        // `projectService: true`. projectService resolves each file to its
+        // NEAREST tsconfig.json — which for test/ files is the root
+        // tsconfig.json, and that config *excludes* test/. The service then
+        // refuses every spec with "not found by the project service". The
+        // two-config array below is the documented fallback: tsconfig.json
+        // covers src/, tsconfig.spec.json covers src/ + test/.
+        project: ['./tsconfig.json', './tsconfig.spec.json'],
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     settings: {
@@ -90,14 +100,30 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
+      // Production code is typed — no `any` escape hatch. SurrealDB
+      // query results go through the generic `queryRows<T>` / typed
+      // `db.query<[Row[]]>()` idiom (see src/db/surreal.service.ts);
+      // genuinely-dynamic payloads use `unknown` + narrowing. The
+      // handful of unavoidable spots carry a per-line disable with a
+      // reason. Tests keep `any` for mocks/fixtures (override below).
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-empty-object-type': 'off',
       'prefer-const': 'warn',
-      'prettier/prettier': 'off', // formatting handled by `pnpm format`, not lint
+
+      // ── Promise-safety (type-aware) ───────────────────────────────
+      // An unawaited async call is a real bug class: fire-and-forget DB
+      // writes, unhandled rejections that crash the process on an
+      // unrelated tick. These need the type-checker (projectService,
+      // above). `require-await` is deliberately NOT enabled — it flags
+      // intentionally-async interface impls and is too noisy.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      'prettier/prettier': 'off', // formatting gated by the CI `format:check` step, not lint
 
       // ── Clean architecture / DRY hard gates ───────────────────────
       // import/no-cycle disabled by default — requires the import
@@ -134,7 +160,9 @@ export default tseslint.config(
       'sonarjs/no-identical-functions': 'error',
       'sonarjs/no-duplicated-branches': 'error',
 
-      // ── god-file / complexity warnings (advisory) ─────────────────
+      // ── god-file / complexity budgets ─────────────────────────────
+      // All 'error' — with lint:ci running `--max-warnings 0` these are
+      // hard, merge-blocking gates, not advisory warnings.
       ...sizeGates,
     },
   },
@@ -145,6 +173,9 @@ export default tseslint.config(
     // ("explicit > clever" is the standing rule for tests).
     files: ['test/**/*.ts', '**/*.spec.ts', '**/*.unit-spec.ts'],
     rules: {
+      // Mocks/fixtures legitimately use `any` (partial stubs, cast doubles);
+      // typing them precisely is low-value churn. Kept ON for src only.
+      '@typescript-eslint/no-explicit-any': 'off',
       'max-lines': 'off',
       'max-lines-per-function': 'off',
       'max-classes-per-file': 'off',
@@ -153,6 +184,25 @@ export default tseslint.config(
       'sonarjs/cognitive-complexity': 'off',
       'sonarjs/no-identical-functions': 'off',
       'sonarjs/no-duplicated-branches': 'off',
+    },
+  },
+  {
+    // The two real-e2e specs below genuinely exercise the `@inite/knowledge`
+    // SDK that lives in the sibling ../inite-shared repo, which is NOT
+    // checked out in the build-test gate. tsconfig.spec.json therefore
+    // *excludes* them (see its comment), so the type-aware parser has no
+    // program for them — `project` would throw "not found by the project".
+    // Drop them to a non-type-aware parse and switch the type-aware rules
+    // off here (they can't run without a program). Everything else still
+    // lints. This mirrors the tsconfig.spec.json exclusion 1:1.
+    files: ['test/brain.real-e2e-spec.ts', 'test/dreams.real-e2e-spec.ts'],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
+      '@typescript-eslint/await-thenable': 'off',
     },
   },
 );

@@ -42,12 +42,8 @@ export class ExtractorCacheService {
   private misses = 0;
 
   constructor(private readonly config: ConfigService) {
-    const size = parseInt(
-      this.config.get<string>('EXTRACTOR_CACHE_SIZE', '500'),
-      10,
-    );
-    this.enabled =
-      envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
+    const size = parseInt(this.config.get<string>('EXTRACTOR_CACHE_SIZE', '500'), 10);
+    this.enabled = envFlagNotDisabled(this.config.get<string>('EXTRACTOR_CACHE_ENABLED'));
     this.cache = new LRUCache<string, ExtractionResult>(size);
   }
 
@@ -55,9 +51,9 @@ export class ExtractorCacheService {
     text: string;
     companyId: string;
     predicateVocabHash: string;
-    scPasses?: number;
-    speaker?: string;
-    addressee?: string;
+    scPasses?: number | undefined;
+    speaker?: string | undefined;
+    addressee?: string | undefined;
   }): string {
     // scPasses is part of the key: a single-pass cached result lacks the
     // semantic-entropy fields a >1-pass run produces, so serving it after

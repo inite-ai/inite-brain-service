@@ -19,36 +19,38 @@ export interface AppFixture {
   close: () => Promise<void>;
 }
 
-export async function createApp(opts: {
-  companyId?: string;
-  scopes?: string[];
-  /**
-   * When true, configure the scoped pool (SURREALDB_SCOPED_USER/PASS).
-   * Migration 0005 defines `brain_caller` user with a known default
-   * password — fixture wires those env vars so the pool boots in
-   * scoped mode. Caller-facing endpoints then route through scoped
-   * connections and DB-level PERMISSIONS apply.
-   */
-  enableScopedPool?: boolean;
-  /**
-   * Additional static keys for the SAME tenant — the ABAC suites need a
-   * privileged admin key plus a policy-restricted caller key in one
-   * boot (BRAIN_API_KEYS is parsed once at module init). `policies`
-   * maps to the entry's ABAC attachment field.
-   */
-  extraKeys?: Array<{
-    scopes: string[];
-    policies?: string[];
-    packIds?: string[];
+export async function createApp(
+  opts: {
+    companyId?: string;
+    scopes?: string[];
     /**
-     * End-user identity for a USER-BOUND token (ApiKeyRecord.userId).
-     * The guard stamps it into ALS as authUserId, so pinUserScope()
-     * fences this key to one user's slice — the seam the per-user
-     * scope + retract-ownership suites need to exercise.
+     * When true, configure the scoped pool (SURREALDB_SCOPED_USER/PASS).
+     * Migration 0005 defines `brain_caller` user with a known default
+     * password — fixture wires those env vars so the pool boots in
+     * scoped mode. Caller-facing endpoints then route through scoped
+     * connections and DB-level PERMISSIONS apply.
      */
-    userId?: string;
-  }>;
-} = {}): Promise<AppFixture> {
+    enableScopedPool?: boolean;
+    /**
+     * Additional static keys for the SAME tenant — the ABAC suites need a
+     * privileged admin key plus a policy-restricted caller key in one
+     * boot (BRAIN_API_KEYS is parsed once at module init). `policies`
+     * maps to the entry's ABAC attachment field.
+     */
+    extraKeys?: Array<{
+      scopes: string[];
+      policies?: string[];
+      packIds?: string[];
+      /**
+       * End-user identity for a USER-BOUND token (ApiKeyRecord.userId).
+       * The guard stamps it into ALS as authUserId, so pinUserScope()
+       * fences this key to one user's slice — the seam the per-user
+       * scope + retract-ownership suites need to exercise.
+       */
+      userId?: string;
+    }>;
+  } = {},
+): Promise<AppFixture> {
   const companyId = opts.companyId ?? `co_test_${Date.now()}_${randomUUID().slice(0, 6)}`;
   const apiKey = `key_${randomUUID()}`;
   const keyHash = 'sha256:' + createHash('sha256').update(apiKey).digest('hex');
@@ -60,8 +62,7 @@ export async function createApp(opts: {
       scopes: opts.scopes ?? ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'],
     },
     ...(opts.extraKeys ?? []).map((k, i) => ({
-      keyHash:
-        'sha256:' + createHash('sha256').update(extraApiKeys[i]).digest('hex'),
+      keyHash: 'sha256:' + createHash('sha256').update(extraApiKeys[i]!).digest('hex'),
       companyId,
       scopes: k.scopes,
       ...(k.policies ? { policies: k.policies } : {}),
@@ -84,8 +85,7 @@ export async function createApp(opts: {
   process.env.THROTTLE_DISABLED = '1';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
-    process.env.SURREALDB_SCOPED_PASS =
-      'brain-caller-password-must-be-overridden-via-env';
+    process.env.SURREALDB_SCOPED_PASS = 'brain-caller-password-must-be-overridden-via-env';
   } else {
     delete process.env.SURREALDB_SCOPED_USER;
     delete process.env.SURREALDB_SCOPED_PASS;
@@ -96,8 +96,10 @@ export async function createApp(opts: {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   })
-    .overrideProvider(EmbedderService).useValue(new StubEmbedder())
-    .overrideProvider(ExtractorService).useValue(stubExtractor)
+    .overrideProvider(EmbedderService)
+    .useValue(new StubEmbedder())
+    .overrideProvider(ExtractorService)
+    .useValue(stubExtractor)
     .compile();
 
   const app = moduleRef.createNestApplication();

@@ -19,10 +19,7 @@ export const BUILTIN_PACKS: DomainPackManifest[] = [CODE_MEMORY_PACK];
  * pack — a misconfigured pack fails the boot, not silently). The registry uses
  * this everywhere it previously used CORE_PREDICATES.
  */
-export const SEED_PREDICATES: PredicateDefinition[] = assembleSeed(
-  CORE_PREDICATES,
-  BUILTIN_PACKS,
-);
+export const SEED_PREDICATES: PredicateDefinition[] = assembleSeed(CORE_PREDICATES, BUILTIN_PACKS);
 
 export * from './manifest';
 export * from './validate';

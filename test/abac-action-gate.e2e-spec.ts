@@ -20,9 +20,7 @@ const READONLY_DOC = {
   description: 'default-deny, reads only',
   posture: { actions: 'deny', reads: 'allow' },
   mode: 'enforce',
-  rules: [
-    { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
-  ],
+  rules: [{ id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] }],
 };
 
 const WATCHER_DOC = {
@@ -30,9 +28,7 @@ const WATCHER_DOC = {
   description: 'report_only shadow of readonly-agent',
   posture: { actions: 'deny', reads: 'allow' },
   mode: 'report_only',
-  rules: [
-    { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
-  ],
+  rules: [{ id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] }],
 };
 
 describe('ABAC action gate (enforce + report_only)', () => {
@@ -48,7 +44,8 @@ describe('ABAC action gate (enforce + report_only)', () => {
         { scopes: ['brain:read', 'brain:write'], policies: ['watcher'] },
       ],
     });
-    [readonlyKey, watcherKey] = f.extraApiKeys;
+    readonlyKey = f.extraApiKeys[0]!;
+    watcherKey = f.extraApiKeys[1]!;
     for (const doc of [READONLY_DOC, WATCHER_DOC]) {
       const r = await f.http
         .post('/v1/admin/policy-sets')
@@ -190,7 +187,12 @@ describe('ABAC action gate (enforce + report_only)', () => {
         posture: { actions: 'deny', reads: 'deny' },
         mode: 'enforce',
         rules: [
-          { id: 'r', effect: 'deny', kind: 'source', match: [{ attr: 'no.such.attr', op: 'eq', value: 'x' }] },
+          {
+            id: 'r',
+            effect: 'deny',
+            kind: 'source',
+            match: [{ attr: 'no.such.attr', op: 'eq', value: 'x' }],
+          },
         ],
       });
     expect(r.status).toBe(400);
@@ -206,11 +208,9 @@ describe('ABAC master switch off — attached policies are inert', () => {
   beforeAll(async () => {
     process.env.ABAC_ENABLED = '0';
     f = await createApp({
-      extraKeys: [
-        { scopes: ['brain:read', 'brain:write'], policies: ['readonly-agent'] },
-      ],
+      extraKeys: [{ scopes: ['brain:read', 'brain:write'], policies: ['readonly-agent'] }],
     });
-    [restrictedKey] = f.extraApiKeys;
+    restrictedKey = f.extraApiKeys[0]!;
   });
 
   afterAll(async () => {

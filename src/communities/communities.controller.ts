@@ -17,10 +17,7 @@ export class CommunitiesController {
   @Get()
   @RequireScopes('brain:read')
   @PolicyAction('list_communities')
-  async list(
-    @Req() req: AuthenticatedRequest,
-    @Query('limit') limit?: string,
-  ) {
+  async list(@Req() req: AuthenticatedRequest, @Query('limit') limit?: string) {
     const communities = await this.communities.list(req.brainAuth.companyId, {
       callerScopes: req.brainAuth.scopes,
       limit: parseLimit(limit, 50, 200),
@@ -52,10 +49,7 @@ export class CommunitiesController {
   @Get('for-entity/:entityId')
   @RequireScopes('brain:read')
   @PolicyAction('find_entity_communities')
-  async forEntity(
-    @Req() req: AuthenticatedRequest,
-    @Param('entityId') entityId: string,
-  ) {
+  async forEntity(@Req() req: AuthenticatedRequest, @Param('entityId') entityId: string) {
     const communities = await this.communities.forEntity(
       req.brainAuth.companyId,
       entityId,
@@ -65,11 +59,7 @@ export class CommunitiesController {
   }
 }
 
-function parseLimit(
-  raw: string | undefined,
-  fallback: number,
-  max: number,
-): number {
+function parseLimit(raw: string | undefined, fallback: number, max: number): number {
   const n = raw ? Number.parseInt(raw, 10) : NaN;
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.min(n, max);

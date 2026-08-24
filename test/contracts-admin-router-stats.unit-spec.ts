@@ -49,17 +49,9 @@ function makeController(): AdminController {
 
 describe('AdminController.routerStats() — wire contract', () => {
   it('matches RouterStatsResponseSchema', async () => {
-    const parsed = RouterStatsResponseSchema.safeParse(
-      await makeController().routerStats(),
-    );
+    const parsed = RouterStatsResponseSchema.safeParse(await makeController().routerStats());
     if (!parsed.success) {
-      throw new Error(
-        `router/stats drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
-      );
+      throw new Error(`router/stats drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

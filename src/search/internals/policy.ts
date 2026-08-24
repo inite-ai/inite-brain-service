@@ -16,11 +16,7 @@ import type { FactRow } from './types';
  * and then the per-key ABAC row verdict. This function stays as the
  * scope-gate reference implementation and for unit tests.
  */
-export function passesPolicy(
-  row: FactRow,
-  _dto: SearchDto,
-  callerScopes: string[],
-): boolean {
+export function passesPolicy(row: FactRow, _dto: SearchDto, callerScopes: string[]): boolean {
   const policy = policyFor(row.predicate);
   if (policy.requiresScope && !callerScopes.includes(policy.requiresScope)) {
     return false;

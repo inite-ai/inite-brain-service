@@ -12,7 +12,7 @@
  */
 import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
 
-type Captured = { sql: string; params?: Record<string, unknown> };
+type Captured = { sql: string; params?: Record<string, unknown> | undefined };
 
 function mkSurreal(opts: {
   cursors?: Record<string, number>;
@@ -54,10 +54,7 @@ function mkSurreal(opts: {
   };
 }
 
-function mkSvc(
-  surreal: any,
-  cfgOverrides: Record<string, string> = {},
-): ChangefeedDrainService {
+function mkSvc(surreal: any, cfgOverrides: Record<string, string> = {}): ChangefeedDrainService {
   const config = {
     get: (k: string, def?: string) => {
       if (k === 'AUDIT_CHANGEFEED_ENABLED') return cfgOverrides[k] ?? '1';
@@ -95,13 +92,9 @@ describe('ChangefeedDrainService', () => {
     // Consumer batches via `INSERT INTO audit_event $events` now —
     // one round-trip per (tenant × source). The two emit rows ride
     // in the same params.events array.
-    const inserts = calls.filter((c) =>
-      c.sql.startsWith('INSERT INTO audit_event'),
-    );
+    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
     expect(inserts).toHaveLength(1);
-    expect(
-      ((inserts[0].params?.events ?? []) as unknown[]).length,
-    ).toBe(2);
+    expect(((inserts[0]!.params?.events ?? []) as unknown[]).length).toBe(2);
     // SHOW CHANGES must carry a LIMIT so a cold cursor can't materialise
     // the whole 30-day retention into the process.
     const show = calls.find((c) => c.sql.startsWith('SHOW CHANGES'));
@@ -143,13 +136,9 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed.knowledge_entity).toBe(1);
-    const inserts = calls.filter((c) =>
-      c.sql.startsWith('INSERT INTO audit_event'),
-    );
-    expect(((inserts[0].params?.events ?? []) as unknown[]).length).toBe(1);
-    const advance = calls.find((c) =>
-      c.sql.startsWith('UPSERT changefeed_state'),
-    );
+    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
+    expect(((inserts[0]!.params?.events ?? []) as unknown[]).length).toBe(1);
+    const advance = calls.find((c) => c.sql.startsWith('UPSERT changefeed_state'));
     expect(advance!.params?.vs).toBe(14);
   });
 
@@ -158,17 +147,13 @@ describe('ChangefeedDrainService', () => {
     const { surreal, calls } = mkSurreal({
       cursors: { knowledge_fact: 20 },
       changes: {
-        knowledge_fact: [
-          { versionstamp: 20, changes: [{ update: { id: 'knowledge_fact:x' } }] },
-        ],
+        knowledge_fact: [{ versionstamp: 20, changes: [{ update: { id: 'knowledge_fact:x' } }] }],
       },
     });
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
-    expect(
-      calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event')),
-    ).toHaveLength(0);
+    expect(calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'))).toHaveLength(0);
   });
 
   it('emits no audit_event rows when the source returns nothing', async () => {
@@ -176,9 +161,7 @@ describe('ChangefeedDrainService', () => {
     const svc = mkSvc(surreal);
     const r = await svc.consumeForTenant('co_a');
     expect(r.consumed).toEqual({});
-    const inserts = calls.filter((c) =>
-      c.sql.startsWith('INSERT INTO audit_event'),
-    );
+    const inserts = calls.filter((c) => c.sql.startsWith('INSERT INTO audit_event'));
     expect(inserts).toHaveLength(0);
   });
 });

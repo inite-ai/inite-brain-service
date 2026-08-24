@@ -66,9 +66,4 @@ export interface CandidateBatch {
 export type CandidateKind = 'entity' | 'fact' | 'relation';
 
 export type CandidateStatus =
-  | 'pending'
-  | 'committed'
-  | 'merged'
-  | 'duplicate'
-  | 'rejected'
-  | 'expired';
+  'pending' | 'committed' | 'merged' | 'duplicate' | 'rejected' | 'expired';

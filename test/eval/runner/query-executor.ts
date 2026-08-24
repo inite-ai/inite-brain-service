@@ -32,7 +32,7 @@ export class QueryExecutor {
 
     const factPredicateMatched =
       expectation.expectedFactPredicate && rankOfExpected > 0
-        ? res.results[rankOfExpected - 1].facts.some(
+        ? res.results[rankOfExpected - 1]!.facts.some(
             (f) => f.predicate === expectation.expectedFactPredicate,
           )
         : null;
@@ -42,11 +42,8 @@ export class QueryExecutor {
     // the entity entirely also counts as correct (vacuously safe).
     let piiGatedCorrectly: boolean | null = null;
     if (isPiiGated) {
-      const hit =
-        rankOfExpected > 0 ? res.results[rankOfExpected - 1] : null;
-      const leaked = hit?.facts.some(
-        (f) => f.predicate === expectation.mustNotLeakPredicate,
-      );
+      const hit = rankOfExpected > 0 ? res.results[rankOfExpected - 1] : null;
+      const leaked = hit?.facts.some((f) => f.predicate === expectation.mustNotLeakPredicate);
       piiGatedCorrectly = !leaked;
     }
 

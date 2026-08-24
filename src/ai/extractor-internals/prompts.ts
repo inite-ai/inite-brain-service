@@ -188,9 +188,7 @@ export function renderPredicateCard(p: PredicateDefinition): string {
  * `predicates` is intentionally unused (kept for signature parity with
  * buildSystemPrompt).
  */
-export function buildDialogueSystemPrompt(
-  _predicates: PredicateDefinition[],
-): string {
+export function buildDialogueSystemPrompt(_predicates: PredicateDefinition[]): string {
   return EXTRACTION_PROMPT_HEADER_DIALOGUE;
 }
 
@@ -225,9 +223,7 @@ If the turn names nothing, return empty facts.`,
  * never an error.
  */
 export function buildFacetSystemPrompt(facet: string): string {
-  return (
-    EXTRACTION_PROMPT_HEADER_DIALOGUE + (FACET_INSTRUCTIONS[facet] ?? '')
-  );
+  return EXTRACTION_PROMPT_HEADER_DIALOGUE + (FACET_INSTRUCTIONS[facet] ?? '');
 }
 
 /** Conversation participants for one turn — drives coreference resolution. */
@@ -251,9 +247,7 @@ export interface ConversationContext {
  */
 export function buildConversationContext(ctx: ConversationContext): string {
   if (!ctx.speakerName) return '';
-  const addressee = ctx.addresseeName
-    ? `, addressing "${ctx.addresseeName}"`
-    : '';
+  const addressee = ctx.addresseeName ? `, addressing "${ctx.addresseeName}"` : '';
   const secondPerson = ctx.addresseeName
     ? ` Second-person ("you", "your") refers to "${ctx.addresseeName}".`
     : '';
@@ -311,9 +305,7 @@ export function buildSystemPrompt(
  * domain's text, but the VERBATIM RULE and strict schema in the header still
  * govern — this block is advisory.
  */
-export function renderExtractionProfiles(
-  profiles: PackExtractionProfile[],
-): string {
+export function renderExtractionProfiles(profiles: PackExtractionProfile[]): string {
   const withContent = profiles.filter(
     (p) => p.profile.guidance || (p.profile.fewShot?.length ?? 0) > 0,
   );
@@ -430,13 +422,7 @@ export function buildExtractionSchema(opts?: {
             clauseIndex: { type: 'integer', minimum: 0 },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
           },
-          required: [
-            'fromEntityIndex',
-            'toEntityIndex',
-            'kind',
-            'clauseIndex',
-            'confidence',
-          ],
+          required: ['fromEntityIndex', 'toEntityIndex', 'kind', 'clauseIndex', 'confidence'],
         },
       },
     },

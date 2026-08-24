@@ -60,10 +60,7 @@ export class PredicateRegistryService {
    * via PREDICATE_REGISTRY_CACHE_CAP when running fewer, hotter
    * tenants.
    */
-  private readonly cache: LRUCache<
-    string,
-    { snapshot: PredicateSnapshot; loadedAt: number }
-  >;
+  private readonly cache: LRUCache<string, { snapshot: PredicateSnapshot; loadedAt: number }>;
   /**
    * Per-tenant bootstrap flag — ensureBootstrap runs once per process
    * per tenant. Bounded so a fleet rotating through thousands of
@@ -80,10 +77,7 @@ export class PredicateRegistryService {
   // In-flight snapshot load per tenant — on a cold/expired cache a burst of
   // concurrent requests would each run loadFresh (a full predicate SELECT +
   // batched embeds). Dedupe so the herd shares one load and the rest await it.
-  private readonly snapshotInFlight = new Map<
-    string,
-    Promise<PredicateSnapshot>
-  >();
+  private readonly snapshotInFlight = new Map<string, Promise<PredicateSnapshot>>();
 
   private readonly canonicalizeThreshold: number;
 
@@ -104,10 +98,7 @@ export class PredicateRegistryService {
     this.canonicalizeThreshold = Number.isFinite(parsedThreshold)
       ? parsedThreshold
       : DEFAULT_CANONICALIZE_AUTO_ALIAS_THRESHOLD;
-    const cap = parseInt(
-      this.config.get<string>('PREDICATE_REGISTRY_CACHE_CAP', '200'),
-      10,
-    );
+    const cap = parseInt(this.config.get<string>('PREDICATE_REGISTRY_CACHE_CAP', '200'), 10);
     this.cache = new LRUCache(cap);
     this.bootstrapped = new LRUCache(cap);
   }
@@ -122,9 +113,7 @@ export class PredicateRegistryService {
     if (this.bootstrapped.has(companyId)) return;
     let p = this.bootstrapInFlight.get(companyId);
     if (!p) {
-      p = this.doBootstrap(companyId).finally(() =>
-        this.bootstrapInFlight.delete(companyId),
-      );
+      p = this.doBootstrap(companyId).finally(() => this.bootstrapInFlight.delete(companyId));
       this.bootstrapInFlight.set(companyId, p);
     }
     return p;
@@ -135,14 +124,13 @@ export class PredicateRegistryService {
       const [existingRows] = await db.query<
         [Array<{ predicateId: string; embedding?: number[] | null }>]
       >(`SELECT predicateId, embedding FROM knowledge_predicate`);
-      const existing = (existingRows as Array<{
-        predicateId: string;
-        embedding?: number[] | null;
-      }>) ?? [];
+      const existing =
+        (existingRows as Array<{
+          predicateId: string;
+          embedding?: number[] | null;
+        }>) ?? [];
       const existingIds = new Set(existing.map((r) => r.predicateId));
-      const missing = SEED_PREDICATES.filter(
-        (p) => !existingIds.has(p.predicateId),
-      );
+      const missing = SEED_PREDICATES.filter((p) => !existingIds.has(p.predicateId));
       if (missing.length > 0) {
         this.logger.log(
           `Seeding ${missing.length} core predicate(s) into ${companyId}: ` +
@@ -156,9 +144,7 @@ export class PredicateRegistryService {
         // same process pays no API calls.
         let embeddings: Array<number[] | null>;
         try {
-          embeddings = await this.embedder.embedMany(
-            missing.map((p) => embeddingTextFor(p)),
-          );
+          embeddings = await this.embedder.embedMany(missing.map((p) => embeddingTextFor(p)));
         } catch (e) {
           this.logger.warn(
             `Batched predicate embed failed (${(e as Error).message}); ` +
@@ -166,10 +152,10 @@ export class PredicateRegistryService {
           );
           embeddings = missing.map(() => null);
         }
-        for (let i = 0; i < missing.length; i++) {
+        for (const [i, def] of missing.entries()) {
           await db.query(`CREATE knowledge_predicate CONTENT $content`, {
             content: {
-              ...serializeForInsert(missing[i]),
+              ...serializeForInsert(def),
               ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
             },
           });
@@ -179,20 +165,15 @@ export class PredicateRegistryService {
       // Backfill embeddings for any pre-existing row that's missing one
       // (rows seeded before migration 0012 landed).
       const needBackfill = existing.filter(
-        (r) =>
-          !Array.isArray(r.embedding) || (r.embedding as number[]).length === 0,
+        (r) => !Array.isArray(r.embedding) || (r.embedding as number[]).length === 0,
       );
       if (needBackfill.length > 0) {
         this.logger.log(
           `Backfilling embeddings for ${needBackfill.length} predicate(s) in ${companyId}`,
         );
         const texts = needBackfill.map((row) => {
-          const seed = SEED_PREDICATES.find(
-            (p) => p.predicateId === row.predicateId,
-          );
-          return seed
-            ? embeddingTextFor(seed)
-            : row.predicateId.replace(/_/g, ' ');
+          const seed = SEED_PREDICATES.find((p) => p.predicateId === row.predicateId);
+          return seed ? embeddingTextFor(seed) : row.predicateId.replace(/_/g, ' ');
         });
         let embs: Array<number[] | null>;
         try {
@@ -204,7 +185,7 @@ export class PredicateRegistryService {
           );
           embs = needBackfill.map(() => null);
         }
-        for (let i = 0; i < needBackfill.length; i++) {
+        for (const [i, def] of needBackfill.entries()) {
           const emb = embs[i];
           if (!emb) continue;
           try {
@@ -212,11 +193,11 @@ export class PredicateRegistryService {
               `UPDATE knowledge_predicate
                  SET embedding = $emb, updatedAt = time::now()
                WHERE predicateId = $pid`,
-              { emb, pid: needBackfill[i].predicateId },
+              { emb, pid: def.predicateId },
             );
           } catch (e) {
             this.logger.warn(
-              `Backfill UPDATE failed for ${needBackfill[i].predicateId}: ${(e as Error).message}`,
+              `Backfill UPDATE failed for ${def.predicateId}: ${(e as Error).message}`,
             );
           }
         }
@@ -258,10 +239,7 @@ export class PredicateRegistryService {
    * threading async through every consumer (e.g. policyFor in tight
    * loops). Falls back to a sensible DEFAULT when the cache is cold.
    */
-  policyFor(
-    companyId: string,
-    predicate: string,
-  ): PredicateDefinition {
+  policyFor(companyId: string, predicate: string): PredicateDefinition {
     const cached = this.cache.get(companyId);
     if (cached) {
       const hit = cached.snapshot.byId.get(predicate);
@@ -284,9 +262,7 @@ export class PredicateRegistryService {
    * CORE_PREDICATES. Fail-open to the seed on snapshot errors — a
    * registry outage must not take down every read surface.
    */
-  async rowPolicyLookup(
-    companyId: string,
-  ): Promise<(predicate: string) => PredicateDefinition> {
+  async rowPolicyLookup(companyId: string): Promise<(predicate: string) => PredicateDefinition> {
     try {
       await this.getSnapshot(companyId);
     } catch (e) {
@@ -311,11 +287,7 @@ export class PredicateRegistryService {
    * active row-set is untouched, so versionHash stays valid; other pods
    * converge via the snapshot TTL.
    */
-  private noteAutoInsert(
-    companyId: string,
-    novelId: string,
-    canonicalId: string,
-  ): void {
+  private noteAutoInsert(companyId: string, novelId: string, canonicalId: string): void {
     const cached = this.cache.get(companyId);
     if (!cached) return;
     const s = cached.snapshot;
@@ -337,9 +309,7 @@ export class PredicateRegistryService {
       const [rows] = await db.query<[Array<Record<string, unknown>>]>(
         `SELECT * FROM knowledge_predicate ORDER BY status, predicateId`,
       );
-      return ((rows as Array<Record<string, unknown>>) ?? []).map(
-        (r) => deserializeFromRow(r),
-      );
+      return ((rows as Array<Record<string, unknown>>) ?? []).map((r) => deserializeFromRow(r));
     });
   }
 
@@ -354,17 +324,14 @@ export class PredicateRegistryService {
     await this.ensureBootstrap(companyId);
     const def: PredicateDefinition = {
       predicateId: input.predicateId,
-      displayLabel:
-        input.displayLabel ?? input.predicateId.replace(/_/g, ' '),
+      displayLabel: input.displayLabel ?? input.predicateId.replace(/_/g, ' '),
       description: input.description ?? '',
       datatype: input.datatype ?? 'string',
       semantics: input.semantics,
       decayHalfLifeDays: input.decayHalfLifeDays ?? null,
       piiClass: input.piiClass,
       ...(input.requiresScope ? { requiresScope: input.requiresScope } : {}),
-      ...(input.parentPredicateId
-        ? { parentPredicateId: input.parentPredicateId }
-        : {}),
+      ...(input.parentPredicateId ? { parentPredicateId: input.parentPredicateId } : {}),
       ...(input.subjectClasses ? { subjectClasses: input.subjectClasses } : {}),
       ...(input.allowedValues ? { allowedValues: input.allowedValues } : {}),
       status: input.status ?? 'active',
@@ -375,9 +342,7 @@ export class PredicateRegistryService {
     try {
       embedding = await this.embedder.embed(embeddingTextFor(def));
     } catch (e) {
-      this.logger.warn(
-        `Failed to embed new predicate ${def.predicateId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`Failed to embed new predicate ${def.predicateId}: ${(e as Error).message}`);
     }
     await this.surreal.withCompany(companyId, async (db) => {
       await db.query(`CREATE knowledge_predicate CONTENT $content`, {
@@ -394,9 +359,7 @@ export class PredicateRegistryService {
   async update(
     companyId: string,
     predicateId: string,
-    patch: Partial<
-      Omit<PredicateDefinition, 'predicateId' | 'createdBy'>
-    >,
+    patch: Partial<Omit<PredicateDefinition, 'predicateId' | 'createdBy'>>,
   ): Promise<PredicateDefinition | null> {
     await this.ensureBootstrap(companyId);
     return this.surreal.withCompany(companyId, async (db) => {
@@ -406,21 +369,17 @@ export class PredicateRegistryService {
       );
       const existing = (existingRows as Array<Record<string, unknown>>) ?? [];
       if (existing.length === 0) return null;
-      const current = deserializeFromRow(existing[0]);
+      const current = deserializeFromRow(existing[0]!); // non-empty (checked)
       const next: PredicateDefinition = { ...current, ...patch };
       // Re-embed when text fields changed — keeps similarity search aligned
       // with operator-authored descriptions.
       let embedding: number[] | null = null;
-      const textChanged =
-        patch.description !== undefined ||
-        patch.displayLabel !== undefined;
+      const textChanged = patch.description !== undefined || patch.displayLabel !== undefined;
       if (textChanged) {
         try {
           embedding = await this.embedder.embed(embeddingTextFor(next));
         } catch (e) {
-          this.logger.warn(
-            `Failed to re-embed ${predicateId}: ${(e as Error).message}`,
-          );
+          this.logger.warn(`Failed to re-embed ${predicateId}: ${(e as Error).message}`);
         }
       }
       const setFields: string[] = [];
@@ -443,30 +402,16 @@ export class PredicateRegistryService {
       };
       if (patch.displayLabel !== undefined)
         addSet('displayLabel', next.displayLabel, 'displayLabel');
-      if (patch.description !== undefined)
-        addSet('description', next.description, 'description');
-      if (patch.datatype !== undefined)
-        addSet('datatype', next.datatype, 'datatype');
-      if (patch.semantics !== undefined)
-        addSet('semantics', next.semantics, 'semantics');
+      if (patch.description !== undefined) addSet('description', next.description, 'description');
+      if (patch.datatype !== undefined) addSet('datatype', next.datatype, 'datatype');
+      if (patch.semantics !== undefined) addSet('semantics', next.semantics, 'semantics');
       if (patch.decayHalfLifeDays !== undefined)
-        addNullableSet(
-          'decayHalfLifeDays',
-          next.decayHalfLifeDays,
-          'decayHalfLifeDays',
-        );
-      if (patch.piiClass !== undefined)
-        addSet('piiClass', next.piiClass, 'piiClass');
+        addNullableSet('decayHalfLifeDays', next.decayHalfLifeDays, 'decayHalfLifeDays');
+      if (patch.piiClass !== undefined) addSet('piiClass', next.piiClass, 'piiClass');
       if (patch.requiresScope !== undefined)
-        addNullableSet(
-          'requiresScope',
-          next.requiresScope,
-          'requiresScope',
-        );
-      if (patch.status !== undefined)
-        addSet('status', next.status, 'status');
-      if (patch.aliasedTo !== undefined)
-        addNullableSet('aliasedTo', next.aliasedTo, 'aliasedTo');
+        addNullableSet('requiresScope', next.requiresScope, 'requiresScope');
+      if (patch.status !== undefined) addSet('status', next.status, 'status');
+      if (patch.aliasedTo !== undefined) addNullableSet('aliasedTo', next.aliasedTo, 'aliasedTo');
       if (embedding) addSet('embedding', embedding, 'embedding');
       if (setFields.length === 0) return current;
       setFields.push(`updatedAt = time::now()`);
@@ -482,20 +427,14 @@ export class PredicateRegistryService {
 
   /** Soft-delete — sets status='deprecated'. Existing facts retain the
    *  predicate id; new ingests no longer admit it (active set drops it). */
-  async deprecate(
-    companyId: string,
-    predicateId: string,
-  ): Promise<boolean> {
+  async deprecate(companyId: string, predicateId: string): Promise<boolean> {
     const result = await this.update(companyId, predicateId, {
       status: 'deprecated',
     });
     return result !== null;
   }
 
-  async promote(
-    companyId: string,
-    predicateId: string,
-  ): Promise<PredicateDefinition | null> {
+  async promote(companyId: string, predicateId: string): Promise<PredicateDefinition | null> {
     return this.update(companyId, predicateId, { status: 'active' });
   }
 
@@ -510,9 +449,7 @@ export class PredicateRegistryService {
     });
   }
 
-  private async loadFresh(
-    companyId: string,
-  ): Promise<PredicateSnapshot> {
+  private async loadFresh(companyId: string): Promise<PredicateSnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
       // We need ALL rows (not just active) so we can chain through
       // 'aliased' rows to their canonical id when a fact's predicate
@@ -528,15 +465,11 @@ export class PredicateRegistryService {
          SELECT * OMIT embedding FROM knowledge_predicate WHERE status != 'active'`,
       )) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
       const rows = [...(activeRows ?? []), ...(restRows ?? [])];
-      const all = (rows ?? []).map(
-        (r) => ({
-          row: r,
-          def: deserializeFromRow(r),
-        }),
-      );
-      const active = all
-        .filter(({ def }) => def.status === 'active')
-        .map(({ def }) => def);
+      const all = (rows ?? []).map((r) => ({
+        row: r,
+        def: deserializeFromRow(r),
+      }));
+      const active = all.filter(({ def }) => def.status === 'active').map(({ def }) => def);
       const byId = new Map(active.map((p) => [p.predicateId, p]));
 
       // Build aliasMap: for each row, follow aliasedTo chains until we
@@ -551,26 +484,16 @@ export class PredicateRegistryService {
       for (const { def } of all) {
         let cursor: PredicateDefinition | undefined = def;
         let hops = 0;
-        while (
-          cursor &&
-          cursor.status === 'aliased' &&
-          cursor.aliasedTo &&
-          hops < MAX_CHAIN
-        ) {
+        while (cursor && cursor.status === 'aliased' && cursor.aliasedTo && hops < MAX_CHAIN) {
           cursor = allById.get(cursor.aliasedTo);
           hops++;
         }
-        if (
-          cursor &&
-          (cursor.status === 'active' || cursor.status === 'proposed')
-        ) {
+        if (cursor && (cursor.status === 'active' || cursor.status === 'proposed')) {
           aliasMap.set(def.predicateId, cursor.predicateId);
         }
       }
       const knownIds = new Set(
-        all
-          .filter(({ def }) => def.status !== 'deprecated')
-          .map(({ def }) => def.predicateId),
+        all.filter(({ def }) => def.status !== 'deprecated').map(({ def }) => def.predicateId),
       );
 
       // Embedding lookup for active predicates only (no point matching
@@ -600,8 +523,7 @@ export class PredicateRegistryService {
         );
         for (const r of (packRows as Array<Record<string, unknown>>) ?? []) {
           const manifest = r.manifest as
-            | { extractionProfile?: PackExtractionProfile['profile'] }
-            | undefined;
+            { extractionProfile?: PackExtractionProfile['profile'] } | undefined;
           if (manifest?.extractionProfile) {
             extractionProfiles.push({
               packId: String(r.packId),
@@ -666,8 +588,7 @@ export class PredicateRegistryService {
     const aliasResolved = snapshot.aliasMap.get(predicate);
     if (
       aliasResolved &&
-      (snapshot.byId.has(aliasResolved) ||
-        snapshot.knownIds?.has(aliasResolved))
+      (snapshot.byId.has(aliasResolved) || snapshot.knownIds?.has(aliasResolved))
     ) {
       return { kind: 'matched', canonicalId: aliasResolved };
     }
@@ -746,9 +667,7 @@ export class PredicateRegistryService {
             predicateId: predicate,
             displayLabel: predicate.replace(/_/g, ' '),
             description: `(auto-proposed; awaiting review. Closest existing: ${
-              best
-                ? `${best.predicateId} @ cosine ${best.similarity.toFixed(3)}`
-                : 'none'
+              best ? `${best.predicateId} @ cosine ${best.similarity.toFixed(3)}` : 'none'
             })`,
             datatype: 'string',
             semantics: DEFAULT_FALLBACK.semantics,
@@ -773,10 +692,7 @@ export class PredicateRegistryService {
       kind: 'proposed',
       canonicalId: predicate,
       novelPredicateId: predicate,
-      ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR
-        ? { bestMatch: best }
-        : {}),
+      ...(best && best.similarity >= CANONICALIZE_REPORT_FLOOR ? { bestMatch: best } : {}),
     };
   }
 }
-

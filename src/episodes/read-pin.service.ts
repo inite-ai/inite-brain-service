@@ -34,14 +34,9 @@ export type ReadPin = string | readonly string[] | null;
 @Injectable()
 export class ReadPinService {
   private readonly logger = new Logger(ReadPinService.name);
-  private readonly cache = new Map<
-    string,
-    { version: string | null; at: number }
-  >();
+  private readonly cache = new Map<string, { version: string | null; at: number }>();
 
-  constructor(
-    @Optional() private readonly registry?: ProjectionRegistryService,
-  ) {}
+  constructor(@Optional() private readonly registry?: ProjectionRegistryService) {}
 
   /** The env bootstrap default (no registry evidence yet, or no registry). */
   static bootstrapDefault(): string | null {
@@ -57,7 +52,12 @@ export class ReadPinService {
     const raw = process.env.RETRIEVAL_DERIVED_VERSIONS;
     if (!raw?.trim()) return null;
     const pins = [
-      ...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean)),
+      ...new Set(
+        raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
     ];
     return pins.length > 0 ? pins : null;
   }
@@ -77,7 +77,7 @@ export class ReadPinService {
     const union = ReadPinService.bootstrapUnion();
     if (!union) return single;
     const pins = single && !union.includes(single) ? [...union, single] : union;
-    return pins.length === 1 ? pins[0] : pins;
+    return pins.length === 1 ? pins[0]! : pins;
   }
 
   /**
@@ -88,9 +88,7 @@ export class ReadPinService {
    */
   static readSet(primary: string | null | undefined): Set<string> {
     return new Set(
-      [primary, ...(ReadPinService.bootstrapUnion() ?? [])].filter(
-        (v): v is string => Boolean(v),
-      ),
+      [primary, ...(ReadPinService.bootstrapUnion() ?? [])].filter((v): v is string => Boolean(v)),
     );
   }
 
@@ -108,9 +106,7 @@ export class ReadPinService {
     if (this.registry) {
       try {
         const rows = await this.registry.list(companyId);
-        const live = rows.find(
-          (r) => r.name === 'facts' && r.status === 'live',
-        );
+        const live = rows.find((r) => r.name === 'facts' && r.status === 'live');
         if (live) version = live.version;
       } catch (e) {
         this.logger.warn(

@@ -22,10 +22,7 @@ const readFile = (p: string) => (p === 'x.ts' ? SRC : null);
 describe('heuristicChoose', () => {
   it('picks the current symbol sharing the longest prefix (rename)', () => {
     expect(
-      heuristicChoose(
-        ['FactResolverService.resolve', 'helper'],
-        'FactResolverService.resolv',
-      ),
+      heuristicChoose(['FactResolverService.resolve', 'helper'], 'FactResolverService.resolv'),
     ).toBe('FactResolverService.resolve');
   });
   it('declines when nothing meaningfully overlaps', () => {
@@ -36,9 +33,7 @@ describe('heuristicChoose', () => {
   });
   it('declines when two candidates tie on the top prefix (ambiguous)', () => {
     // Both share "handle" (6) with the gone "handleThing" — don't guess.
-    expect(
-      heuristicChoose(['handleFoo', 'handleBar'], 'handleThing'),
-    ).toBeNull();
+    expect(heuristicChoose(['handleFoo', 'handleBar'], 'handleThing')).toBeNull();
   });
 });
 

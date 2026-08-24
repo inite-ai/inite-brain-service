@@ -9,11 +9,7 @@ import { McpService } from '../src/mcp/mcp.service';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerWriteTools } from '../src/mcp/write-tools';
 import { compilePolicySet } from '../src/policy/policy-compile';
-import {
-  PolicyContext,
-  PolicyDocument,
-  PolicyDocumentSchema,
-} from '../src/policy/policy.types';
+import { PolicyContext, PolicyDocument, PolicyDocumentSchema } from '../src/policy/policy.types';
 
 const stubEmbedder = {
   cacheStats: () => ({ provider: 'openai:text-embedding-3-small' }),
@@ -49,15 +45,11 @@ function service(): McpService {
   );
 }
 
-function build(opts: {
-  mcpGrantedActions?: string[];
-  policy?: PolicyContext;
-}): Promise<McpServer> {
-  return service().buildServer(
-    'co_test',
-    ['brain:read', 'brain:write', 'brain:admin'],
-    { actorKeyHash: 'sha256:test', ...opts },
-  );
+function build(opts: { mcpGrantedActions?: string[]; policy?: PolicyContext }): Promise<McpServer> {
+  return service().buildServer('co_test', ['brain:read', 'brain:write', 'brain:admin'], {
+    actorKeyHash: 'sha256:test',
+    ...opts,
+  });
 }
 
 function toolNames(server: McpServer): string[] {
@@ -109,13 +101,9 @@ describe('MCP RFC 9396 grant gate', () => {
       name: 'no-forget',
       posture: { actions: 'allow', reads: 'allow' },
       mode: 'enforce',
-      rules: [
-        { id: 'nf', effect: 'deny', kind: 'action', actions: ['forget_entity'] },
-      ],
+      rules: [{ id: 'nf', effect: 'deny', kind: 'action', actions: ['forget_entity'] }],
     });
-    const names = toolNames(
-      await build({ policy, mcpGrantedActions: ['write', 'read'] }),
-    );
+    const names = toolNames(await build({ policy, mcpGrantedActions: ['write', 'read'] }));
     expect(names).not.toContain('forget_entity');
     expect(names).toContain('record_fact');
   });
@@ -138,7 +126,9 @@ describe('agent-attributed recorder', () => {
       actorKeyHash: 'sha256:test',
       actorId: 'dcr_agent1',
       deps: {
-        ingest: { ingestFact: async (_c: string, dto: unknown) => (seen.push(dto), { outcome: 'INSERTED' }) },
+        ingest: {
+          ingestFact: async (_c: string, dto: unknown) => (seen.push(dto), { outcome: 'INSERTED' }),
+        },
         facts: {},
         procedural: {},
         documents: undefined,
@@ -146,7 +136,7 @@ describe('agent-attributed recorder', () => {
       } as never,
     });
 
-    await handlers['record_fact']({
+    await handlers['record_fact']!({
       entityRef: { entityId: 'knowledge_entity:x' },
       predicate: 'works_at',
       object: 'acme',

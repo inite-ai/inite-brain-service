@@ -9,10 +9,7 @@ function makeLane(rows: Array<Record<string, unknown>>): {
 } {
   const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
   const surreal = {
-    withCompany: async (
-      _co: string,
-      fn: (db: unknown) => Promise<unknown>,
-    ) =>
+    withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
       fn({
         query: async (sql: string, params: Record<string, unknown>) => {
           queries.push({ sql, params });
@@ -37,23 +34,27 @@ describe('EpisodeLaneService (P2)', () => {
     const { svc, queries } = makeLane([
       // BM25 score order: newest first — the lane must re-sort by time.
       { speaker: 'Melanie', text: 'I painted a sunset', occurredAt: '2023-06-01T10:00:00Z' },
-      { speaker: 'Caroline', text: 'Show me the horse painting', occurredAt: '2023-05-01T10:00:00Z' },
+      {
+        speaker: 'Caroline',
+        text: 'Show me the horse painting',
+        occurredAt: '2023-05-01T10:00:00Z',
+      },
     ]);
     const lines = await svc.transcriptLines(base);
     expect(lines).toEqual([
       '[2023-05-01] Caroline: Show me the horse painting',
       '[2023-06-01] Melanie: I painted a sunset',
     ]);
-    expect(queries[0].sql).toContain('FROM episode');
-    expect(queries[0].sql).toContain('@1@ $q');
+    expect(queries[0]!.sql).toContain('FROM episode');
+    expect(queries[0]!.sql).toContain('@1@ $q');
   });
 
   it('gates piiClass rows away from callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('AND piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('AND piiClass IS NONE');
     await svc.transcriptLines(base);
-    expect(queries[1].sql).not.toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('degrades to [] on query failure', async () => {
@@ -74,10 +75,7 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
   } {
     const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
     const surreal = {
-      withCompany: async (
-        _co: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
+      withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
           query: async (sql: string, params: Record<string, unknown>) => {
             queries.push({ sql, params });
@@ -118,17 +116,12 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
       '[2023-06-01] Melanie: later turn',
     ]);
     // Fact fetch uses record-id binding, not string interpolation.
-    expect(queries[0].sql).toContain('INSIDE $ids');
-    expect(String((queries[0].params.ids as unknown[])[0])).toBe(
-      'knowledge_fact:f1',
-    );
+    expect(queries[0]!.sql).toContain('INSIDE $ids');
+    expect(String((queries[0]!.params.ids as unknown[])[0])).toBe('knowledge_fact:f1');
     // Episode fetch got the deduped id set.
-    expect((queries[1].params.ids as unknown[]).map(String)).toEqual([
-      'episode:e2',
-      'episode:e1',
-    ]);
+    expect((queries[1]!.params.ids as unknown[]).map(String)).toEqual(['episode:e2', 'episode:e1']);
     // read_pii caller → no PII gate in the episode query.
-    expect(queries[1].sql).not.toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('caps episodes first-seen and gates PII without brain:read_pii', async () => {
@@ -142,10 +135,8 @@ describe('EpisodeLaneService.sourceExcerpts (A1 provenance lane)', () => {
       callerScopes: ['brain:read'],
     });
     expect(lines).toHaveLength(1);
-    expect((queries[1].params.ids as unknown[]).map(String)).toEqual([
-      'episode:e1',
-    ]);
-    expect(queries[1].sql).toContain('piiClass IS NONE');
+    expect((queries[1]!.params.ids as unknown[]).map(String)).toEqual(['episode:e1']);
+    expect(queries[1]!.sql).toContain('piiClass IS NONE');
   });
 
   it('degrades to [] on DB failure and with empty factIds', async () => {
@@ -180,19 +171,17 @@ describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', (
       },
     ]);
     const lines = await svc.assistantTurns(base);
-    expect(lines).toEqual([
-      '[2023-05-01] conv_1__assistant: Use the token bucket',
-    ]);
-    expect(queries[0].sql).toContain(
-      "string::ends_with(string::lowercase(speaker), $speakerSuffix)",
+    expect(lines).toEqual(['[2023-05-01] conv_1__assistant: Use the token bucket']);
+    expect(queries[0]!.sql).toContain(
+      'string::ends_with(string::lowercase(speaker), $speakerSuffix)',
     );
-    expect(queries[0].params.speakerSuffix).toBe('assistant');
+    expect(queries[0]!.params.speakerSuffix).toBe('assistant');
   });
 
   it('lowercases the configured match before binding', async () => {
     const { svc, queries } = makeLane([]);
     await svc.assistantTurns({ ...base, match: 'Assistant' });
-    expect(queries[0].params.speakerSuffix).toBe('assistant');
+    expect(queries[0]!.params.speakerSuffix).toBe('assistant');
   });
 
   it('clamps runaway turns to the per-line budget (audit 2026-08-21 #7)', async () => {
@@ -204,14 +193,14 @@ describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', (
       },
     ]);
     const [line] = await svc.assistantTurns(base);
-    expect(line.length).toBeLessThan(700);
+    expect(line!.length).toBeLessThan(700);
     expect(line).toContain('…');
   });
 
   it('keeps the PII fence for callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([]);
     await svc.assistantTurns({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('AND piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('AND piiClass IS NONE');
   });
 
   it('degrades to [] on failure', async () => {
@@ -220,10 +209,7 @@ describe('EpisodeLaneService.assistantTurns (multiworld §10 assistant lane)', (
         throw new Error('down');
       },
     } as unknown as SurrealService;
-    const svc = new EpisodeLaneService(
-      surreal,
-      new EpisodeReadStoreService(surreal),
-    );
+    const svc = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect(await svc.assistantTurns(base)).toEqual([]);
   });
 });
@@ -235,10 +221,7 @@ describe('EpisodeLaneService.groundingQuotes (multiworld §10 facts-as-keys)', (
   } {
     const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
     const surreal = {
-      withCompany: async (
-        _co: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
+      withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
           query: async (sql: string, params: Record<string, unknown>) => {
             queries.push({ sql, params });
@@ -280,12 +263,8 @@ describe('EpisodeLaneService.groundingQuotes (multiworld §10 facts-as-keys)', (
       ],
     ]);
     const map = await svc.groundingQuotes(base);
-    expect(map.get('knowledge_fact:f1')).toBe(
-      ' [source 2023-05-01 Mel: "a cup with a dog face"]',
-    );
-    expect(map.get('knowledge_fact:f2')).toBe(
-      ' [source 2023-06-02 Caroline: "moved to Portland"]',
-    );
+    expect(map.get('knowledge_fact:f1')).toBe(' [source 2023-05-01 Mel: "a cup with a dog face"]');
+    expect(map.get('knowledge_fact:f2')).toBe(' [source 2023-06-02 Caroline: "moved to Portland"]');
   });
 
   it('caps runaway turn text and skips fenced-out episodes', async () => {
@@ -319,10 +298,7 @@ describe('EpisodeLaneService.groundingQuotes (multiworld §10 facts-as-keys)', (
         throw new Error('db down');
       },
     } as unknown as SurrealService;
-    const broken = new EpisodeLaneService(
-      surreal,
-      new EpisodeReadStoreService(surreal),
-    );
+    const broken = new EpisodeLaneService(surreal, new EpisodeReadStoreService(surreal));
     expect((await broken.groundingQuotes(base)).size).toBe(0);
   });
 });
@@ -350,8 +326,6 @@ describe('buildGeneratorUserMessage transcript section', () => {
     });
     expect(msg).toContain('Transcript excerpts');
     expect(msg).toContain('cite factIds only');
-    expect(msg.indexOf('Transcript excerpts')).toBeGreaterThan(
-      msg.indexOf('Retrieved facts:'),
-    );
+    expect(msg.indexOf('Transcript excerpts')).toBeGreaterThan(msg.indexOf('Retrieved facts:'));
   });
 });

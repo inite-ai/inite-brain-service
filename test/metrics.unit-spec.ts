@@ -34,7 +34,7 @@ describe('MetricsService', () => {
     // Sum should be ≈ 1.75
     const sumMatch = body.match(/brain_search_duration_seconds_sum (\d+\.?\d*)/);
     expect(sumMatch).toBeTruthy();
-    expect(parseFloat(sumMatch![1])).toBeCloseTo(1.75, 2);
+    expect(parseFloat(sumMatch![1]!)).toBeCloseTo(1.75, 2);
   });
 
   it('counts retracts, forgets, compactions', async () => {
@@ -127,12 +127,8 @@ describe('MetricsService', () => {
     expect(body).toMatch(/brain_l3_escalation_total\{outcome="fired"\} 2/);
     expect(body).toMatch(/brain_l3_escalation_total\{outcome="flipped"\} 1/);
     expect(body).toMatch(/brain_l3_escalation_total\{outcome="no_flip"\} 1/);
-    expect(body).toMatch(
-      /brain_l3_escalation_total\{outcome="skipped_no_anchor"\} 1/,
-    );
-    expect(body).toMatch(
-      /brain_l3_escalation_total\{outcome="over_budget_degraded"\} 1/,
-    );
+    expect(body).toMatch(/brain_l3_escalation_total\{outcome="skipped_no_anchor"\} 1/);
+    expect(body).toMatch(/brain_l3_escalation_total\{outcome="over_budget_degraded"\} 1/);
   });
 
   it('counts ingest write attempts by surface path (G9 write-anomaly)', async () => {

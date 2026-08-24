@@ -91,9 +91,10 @@ export function computeCharSpans(args: {
     if (!Number.isInteger(turn) || turn < 0 || turn >= args.session.length) {
       return;
     }
-    const anchored = anchorQuote(args.session[turn].text, quote);
+    const sessionTurn = args.session[turn]!; // turn validated in-bounds above
+    const anchored = anchorQuote(sessionTurn.text, quote);
     if (anchored) {
-      spans.push({ episodeId: String(args.session[turn].id), ...anchored });
+      spans.push({ episodeId: String(sessionTurn.id), ...anchored });
     }
   });
   return spans;

@@ -122,10 +122,7 @@ export class MultiHopPlannerService {
       this.configService.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('MULTI_HOP_PLANNER_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('MULTI_HOP_PLANNER_CONCURRENCY', '4'), 10),
     );
   }
 
@@ -142,10 +139,7 @@ export class MultiHopPlannerService {
     }
   }
 
-  private async callLLM(
-    user: string,
-    maxHops: number,
-  ): Promise<MultiHopPlan | null> {
+  private async callLLM(user: string, maxHops: number): Promise<MultiHopPlan | null> {
     const res = await withGenAiCall(
       {
         kind: 'chat',
@@ -155,63 +149,55 @@ export class MultiHopPlannerService {
         attrs: { 'brain.multi_hop.max_hops': maxHops },
       },
       this.metrics,
-      () => this.openai.chat.completions.create(
-      {
-      model: this.model,
-      messages: [
-        { role: 'system', content: PLANNER_SYSTEM },
-        { role: 'user', content: user },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'multi_hop_plan',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              isMultiHop: { type: 'boolean' },
-              hops: {
-                type: 'array',
-                items: {
+      () =>
+        this.openai.chat.completions.create(
+          {
+            model: this.model,
+            messages: [
+              { role: 'system', content: PLANNER_SYSTEM },
+              { role: 'user', content: user },
+            ],
+            response_format: {
+              type: 'json_schema',
+              json_schema: {
+                name: 'multi_hop_plan',
+                strict: true,
+                schema: {
                   type: 'object',
                   additionalProperties: false,
                   properties: {
-                    subQuery: { type: 'string' },
-                    predicates: {
-                      type: ['array', 'null'],
-                      items: { type: 'string' },
+                    isMultiHop: { type: 'boolean' },
+                    hops: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                          subQuery: { type: 'string' },
+                          predicates: {
+                            type: ['array', 'null'],
+                            items: { type: 'string' },
+                          },
+                          combination: {
+                            type: 'string',
+                            enum: ['seed', 'subset_of_previous', 'intersect', 'union'],
+                          },
+                          asOf: { type: ['string', 'null'] },
+                          rationale: { type: ['string', 'null'] },
+                        },
+                        required: ['subQuery', 'predicates', 'combination', 'asOf', 'rationale'],
+                      },
                     },
-                    combination: {
-                      type: 'string',
-                      enum: [
-                        'seed',
-                        'subset_of_previous',
-                        'intersect',
-                        'union',
-                      ],
-                    },
-                    asOf: { type: ['string', 'null'] },
-                    rationale: { type: ['string', 'null'] },
                   },
-                  required: [
-                    'subQuery',
-                    'predicates',
-                    'combination',
-                    'asOf',
-                    'rationale',
-                  ],
+                  required: ['isMultiHop', 'hops'],
                 },
               },
             },
-            required: ['isMultiHop', 'hops'],
+            max_completion_tokens: 768,
+            temperature: 0,
           },
-        },
-      },
-      max_completion_tokens: 768,
-      temperature: 0,
-    }, { signal: getAbortSignal() }),
+          { signal: getAbortSignal() },
+        ),
     );
     const content = res.choices[0]?.message?.content;
     if (!content) return null;
@@ -220,8 +206,10 @@ export class MultiHopPlannerService {
     // Defensive: enforce caps + first-hop=seed invariant. The schema
     // says combination is one of the four; we belt-and-braces force
     // hops[0] to be seed because executors downstream rely on it.
-    if (parsed.hops[0].combination !== 'seed') {
-      parsed.hops[0].combination = 'seed';
+    // hops is non-empty (checked above) ⇒ hops[0] is present.
+    const firstHop = parsed.hops[0]!;
+    if (firstHop.combination !== 'seed') {
+      firstHop.combination = 'seed';
     }
     if (parsed.hops.length > maxHops) {
       parsed.hops = parsed.hops.slice(0, maxHops);

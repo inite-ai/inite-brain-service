@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { BUILTIN_PACKS } from '../ai/domain-packs';
 import type { DomainPackManifest } from '../ai/domain-packs/manifest';
@@ -116,25 +116,20 @@ export class IndexerRouterService {
           matched.push({ binding: b, sim });
         }
       } catch (e) {
-        this.logger.warn(
-          `router L2 embed failed for pack ${b.indexerId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`router L2 embed failed for pack ${b.indexerId}: ${(e as Error).message}`);
       }
     }
     return matched.sort((a, b) => b.sim - a.sim).map((m) => m.binding);
   }
 
-  private async installedManifests(
-    companyId: string,
-  ): Promise<DomainPackManifest[]> {
+  private async installedManifests(companyId: string): Promise<DomainPackManifest[]> {
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const [rows] = await db.query<[any[]]>(
+        const rows = await queryRows<{ manifest: DomainPackManifest }>(
+          db,
           `SELECT manifest FROM domain_pack WHERE status = 'active'`,
         );
-        return (((rows as any[]) ?? []) as Array<{ manifest: DomainPackManifest }>)
-          .map((r) => r.manifest)
-          .filter(Boolean);
+        return rows.map((r) => r.manifest).filter(Boolean);
       });
     } catch (e) {
       this.logger.warn(

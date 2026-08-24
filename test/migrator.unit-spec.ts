@@ -15,7 +15,7 @@ import { SchemaMigrator } from '../src/db/migrator.service';
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function makeFakeConn(initiallyApplied: string[] = []) {
@@ -73,8 +73,8 @@ describe('SchemaMigrator', () => {
     const migrator = new SchemaMigrator(dir);
     const manifest = await migrator.loadManifest();
     expect(manifest.map((m) => m.id)).toEqual(['0001', '0002', '0010']);
-    expect(manifest[0].name).toBe('0001_baseline.surql');
-    expect(manifest[0].sql).toContain('DEFINE TABLE bar');
+    expect(manifest[0]!.name).toBe('0001_baseline.surql');
+    expect(manifest[0]!.sql).toContain('DEFINE TABLE bar');
   });
 
   it('applies all migrations on a fresh database', async () => {
@@ -90,7 +90,7 @@ describe('SchemaMigrator', () => {
     expect(result.alreadyApplied).toEqual([]);
 
     // First call must bootstrap the schema_migrations table
-    expect(calls[0].sql).toContain('DEFINE TABLE IF NOT EXISTS schema_migrations');
+    expect(calls[0]!.sql).toContain('DEFINE TABLE IF NOT EXISTS schema_migrations');
 
     // Both migration bodies were executed
     expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(true);
@@ -133,9 +133,7 @@ describe('SchemaMigrator', () => {
     expect(result.applied).toEqual([]);
     expect(result.alreadyApplied).toEqual(['0001']);
     expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
-    expect(
-      calls.some((c) => c.sql.startsWith('CREATE schema_migrations')),
-    ).toBe(false);
+    expect(calls.some((c) => c.sql.startsWith('CREATE schema_migrations'))).toBe(false);
   });
 
   it('tolerates a concurrent applier winning the ledger insert', async () => {

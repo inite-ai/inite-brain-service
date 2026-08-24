@@ -21,9 +21,7 @@ const tenantDb = {
       ];
     }
     if (sql.includes('recordedAt < type::datetime($cutoff)')) {
-      const days = Math.round(
-        (Date.now() - Date.parse(params?.cutoff as string)) / 86_400_000,
-      );
+      const days = Math.round((Date.now() - Date.parse(params?.cutoff as string)) / 86_400_000);
       return [[{ n: days === 30 ? 6 : days === 90 ? 4 : 1 }]];
     }
     if (sql.includes('< 0.4')) return [[{ n: 2 }]];
@@ -39,20 +37,13 @@ describe('MemoryQualityService', () => {
   it('aggregates per-tenant counts into gauges, skipping failed tenants', async () => {
     const metrics = new MetricsService();
     const surreal = {
-      withCompany: async (
-        companyId: string,
-        fn: (db: typeof tenantDb) => Promise<unknown>,
-      ) => {
+      withCompany: async (companyId: string, fn: (db: typeof tenantDb) => Promise<unknown>) => {
         if (companyId === 'co_broken') throw new Error('boom');
         return fn(tenantDb);
       },
     };
     const apiKeys = { knownCompanyIds: () => ['co_a', 'co_b', 'co_broken'] };
-    const svc = new MemoryQualityService(
-      surreal as never,
-      apiKeys as never,
-      metrics,
-    );
+    const svc = new MemoryQualityService(surreal as never, apiKeys as never, metrics);
 
     const snapshot = await svc.collectNow();
 
@@ -72,9 +63,7 @@ describe('MemoryQualityService', () => {
 
     const { body } = await metrics.serialize();
     expect(body).toContain('brain_memory_facts{status="competing"} 6');
-    expect(body).toContain(
-      'brain_memory_stale_active_facts{older_than_days="90"} 8',
-    );
+    expect(body).toContain('brain_memory_stale_active_facts{older_than_days="90"} 8');
     expect(body).toContain('brain_memory_fact_trust{band="low"} 4');
     expect(body).toContain('brain_memory_fact_trust{band="neutral"} 10');
     expect(body).toContain('brain_memory_orphan_entities 4');

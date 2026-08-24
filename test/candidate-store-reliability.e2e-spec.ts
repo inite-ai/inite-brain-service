@@ -33,12 +33,15 @@ describe('candidate-store run-ledger reliability', () => {
 
   async function makeDoc(text: string): Promise<string> {
     f.extractor.setScript({ entities: [], facts: [], edges: [] });
-    const r = await f.http.post('/v1/ingest/document').set(auth()).send({
-      kind: 'markdown',
-      text,
-      occurredAt: '2026-07-01T10:00:00.000Z',
-      contextRef: { vertical: 'ledger_e2e' },
-    });
+    const r = await f.http
+      .post('/v1/ingest/document')
+      .set(auth())
+      .send({
+        kind: 'markdown',
+        text,
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        contextRef: { vertical: 'ledger_e2e' },
+      });
     expect(r.status).toBe(201);
     return r.body.documentId as string;
   }

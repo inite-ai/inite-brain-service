@@ -20,9 +20,7 @@ const fixture: LocomoSample = {
       { dia_id: 'D1:2', speaker: 'Bob', text: 'hi alice' },
     ],
     session_1_date_time: '2023-05-01T12:00:00Z',
-    session_2: [
-      { dia_id: 'D2:1', speaker: 'Alice Smith', text: 'how are you' },
-    ],
+    session_2: [{ dia_id: 'D2:1', speaker: 'Alice Smith', text: 'how are you' }],
     session_2_date_time: '2023-05-08T12:00:00Z',
   },
   qa: [],
@@ -32,12 +30,8 @@ describe('LoCoMo ingest planner', () => {
   it('registers both speakers up front, namespaced by sample id', () => {
     const plan = planIngest(normalizeSample(fixture));
     expect(plan.speakers).toHaveLength(2);
-    expect(plan.speakers.map((s) => s.entityId)).toEqual([
-      'conv_1__alice_smith',
-      'conv_1__bob',
-    ]);
-    expect(plan.speakers.every((s) => s.validFrom.startsWith('2023-05-01')))
-      .toBe(true);
+    expect(plan.speakers.map((s) => s.entityId)).toEqual(['conv_1__alice_smith', 'conv_1__bob']);
+    expect(plan.speakers.every((s) => s.validFrom.startsWith('2023-05-01'))).toBe(true);
   });
 
   it('emits one mention per turn with the session timestamp', () => {
@@ -73,7 +67,7 @@ describe('LoCoMo ingest planner', () => {
         conversation: { ...fixture.conversation, speaker_a: 'M.A. Singer' },
       }),
     );
-    expect(plan.speakers[0].entityId).toBe('conv_1__m_a_singer');
+    expect(plan.speakers[0]!.entityId).toBe('conv_1__m_a_singer');
   });
 
   it('prefixes multiparty speakers under the same sample namespace', () => {
@@ -84,9 +78,7 @@ describe('LoCoMo ingest planner', () => {
         ...fixture,
         conversation: {
           ...fixture.conversation,
-          session_3: [
-            { dia_id: 'D3:1', speaker: 'Carol', text: 'a third party' },
-          ],
+          session_3: [{ dia_id: 'D3:1', speaker: 'Carol', text: 'a third party' }],
           session_3_date_time: '2023-05-15T12:00:00Z',
         },
       }),

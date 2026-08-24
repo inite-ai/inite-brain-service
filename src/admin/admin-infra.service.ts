@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
 
@@ -42,16 +42,14 @@ export class AdminInfraService {
     for (const companyId of tenants) {
       try {
         const applied = await this.surreal.withCompany(companyId, async (db) => {
-          const res = (await db.query<any[]>(
+          const rows = await queryRows<{ migrationId: string }>(
+            db,
             `SELECT migrationId FROM schema_migrations`,
-          )) as any[];
-          const rows = (res[0] ?? []) as Array<{ migrationId: string }>;
+          );
           return rows.map((r) => r.migrationId).sort();
         });
         const appliedSet = new Set(applied);
-        const pending = manifest
-          .filter((m) => !appliedSet.has(m.id))
-          .map((m) => m.id);
+        const pending = manifest.filter((m) => !appliedSet.has(m.id)).map((m) => m.id);
         perTenant.push({ companyId, applied, pending });
       } catch (e) {
         perTenant.push({

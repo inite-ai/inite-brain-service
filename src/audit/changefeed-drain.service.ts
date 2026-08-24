@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
@@ -34,11 +35,7 @@ export class ChangefeedDrainService {
    */
   private readonly fetchLimit: number;
 
-  static readonly SOURCES = [
-    'knowledge_entity',
-    'knowledge_fact',
-    'knowledge_edge',
-  ] as const;
+  static readonly SOURCES = ['knowledge_entity', 'knowledge_fact', 'knowledge_edge'] as const;
 
   get sources(): readonly string[] {
     return ChangefeedDrainService.SOURCES;
@@ -49,19 +46,13 @@ export class ChangefeedDrainService {
     config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled =
-      envFlagEnabled(config.get<string>('AUDIT_CHANGEFEED_ENABLED'));
-    this.perBatchLimit = parseInt(
-      config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'),
-      10,
-    );
+    this.enabled = envFlagEnabled(config.get<string>('AUDIT_CHANGEFEED_ENABLED'));
+    this.perBatchLimit = parseInt(config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'), 10);
     // Never fetch fewer than we process in a tick, else we'd starve;
     // fall back to a sane default if the env value is garbage (the value
     // is interpolated into the SHOW CHANGES LIMIT clause, so NaN would
     // produce invalid SurrealQL).
-    const safeBatch = Number.isFinite(this.perBatchLimit)
-      ? this.perBatchLimit
-      : 500;
+    const safeBatch = Number.isFinite(this.perBatchLimit) ? this.perBatchLimit : 500;
     // Default fetch = batch + 1: SHOW CHANGES has no offset, so rows
     // fetched past the batch are re-fetched every tick until the cursor
     // catches up — the old 5000 default re-shipped up to 4500 rows
@@ -70,16 +61,10 @@ export class ChangefeedDrainService {
     // keeps "backlog exists" (pendingRemaining > 0) observable;
     // operators who want true depth raise AUDIT_CHANGEFEED_FETCH_LIMIT.
     const fetchLimit = parseInt(
-      config.get<string>(
-        'AUDIT_CHANGEFEED_FETCH_LIMIT',
-        String(safeBatch + 1),
-      ),
+      config.get<string>('AUDIT_CHANGEFEED_FETCH_LIMIT', String(safeBatch + 1)),
       10,
     );
-    this.fetchLimit = Math.max(
-      Number.isFinite(fetchLimit) ? fetchLimit : safeBatch + 1,
-      safeBatch,
-    );
+    this.fetchLimit = Math.max(Number.isFinite(fetchLimit) ? fetchLimit : safeBatch + 1, safeBatch);
   }
 
   // Exposed so a unit test (or the admin debug endpoint) can drain
@@ -103,10 +88,7 @@ export class ChangefeedDrainService {
         // guarantee we never advance the cursor past unconsumed rows.
         const sorted = changes
           .slice()
-          .sort(
-            (a, b) =>
-              (a.versionstamp as number) - (b.versionstamp as number),
-          );
+          .sort((a, b) => (a.versionstamp as number) - (b.versionstamp as number));
         const batch = sorted.slice(0, this.perBatchLimit);
         const trailing = sorted.length - batch.length;
         pendingRemaining += trailing;
@@ -118,16 +100,12 @@ export class ChangefeedDrainService {
         // takes one RTT per source instead.
         const events = this.buildAuditEventBatch(source, batch);
         if (events.length > 0) {
-          await db.query(
-            `INSERT INTO audit_event $events`,
-            { events },
-          );
+          await db.query(`INSERT INTO audit_event $events`, { events });
         }
-        await this.advanceCursor(
-          db,
-          source,
-          batch[batch.length - 1].versionstamp as number,
-        );
+        const lastChange = batch[batch.length - 1];
+        if (lastChange) {
+          await this.advanceCursor(db, source, lastChange.versionstamp as number);
+        }
         consumed[source] = batch.length;
       }
     });
@@ -167,7 +145,7 @@ export class ChangefeedDrainService {
 
   // ── Wire-format helpers ──────────────────────────────────────────
 
-  private async loadCursor(db: any, source: string): Promise<number> {
+  private async loadCursor(db: Surreal, source: string): Promise<number> {
     const [rows] = await db.query(
       `SELECT lastVersionstamp FROM changefeed_state
         WHERE source = $s LIMIT 1`,
@@ -178,7 +156,7 @@ export class ChangefeedDrainService {
   }
 
   private async fetchChanges(
-    db: any,
+    db: Surreal,
     source: string,
     since: number,
   ): Promise<Array<Record<string, unknown>>> {
@@ -221,18 +199,15 @@ export class ChangefeedDrainService {
     const out: Array<Record<string, unknown>> = [];
     for (const change of changes) {
       const versionstamp = change.versionstamp as number;
-      const items =
-        (change.changes as Array<Record<string, unknown>> | undefined) ?? [];
+      const items = (change.changes as Array<Record<string, unknown>> | undefined) ?? [];
       for (const item of items) {
         const op = Object.keys(item)[0] ?? 'unknown';
         const payload = (item as Record<string, unknown>)[op] as
-          | Record<string, unknown>
-          | string
-          | undefined;
+          Record<string, unknown> | string | undefined;
         const recordId =
           op === 'delete'
             ? String(payload)
-            : (payload as { id?: unknown } | undefined)?.id?.toString() ?? '';
+            : ((payload as { id?: unknown } | undefined)?.id?.toString() ?? '');
         const after =
           typeof payload === 'object'
             ? redactAfterImage(payload as Record<string, unknown>)
@@ -249,11 +224,7 @@ export class ChangefeedDrainService {
     return out;
   }
 
-  private async advanceCursor(
-    db: any,
-    source: string,
-    versionstamp: number,
-  ): Promise<void> {
+  private async advanceCursor(db: Surreal, source: string, versionstamp: number): Promise<void> {
     await db.query(
       `UPSERT changefeed_state:[$source] CONTENT {
           source: $source,

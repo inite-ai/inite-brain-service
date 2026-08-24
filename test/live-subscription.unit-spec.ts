@@ -88,18 +88,16 @@ describe('LiveSubscriptionManager', () => {
     });
 
     it('rejects a payload with no predicate rather than emitting a half-event', () => {
-      expect(
-        toFactEvent({ recordId: 'knowledge_fact:f1', value: {} }, 'live'),
-      ).toBeNull();
+      expect(toFactEvent({ recordId: 'knowledge_fact:f1', value: {} }, 'live')).toBeNull();
     });
 
     it('reads the changefeed shape, where the row sits under update/delete', () => {
       expect(
         toReplayEvent({ update: { id: 'knowledge_fact:f1', predicate: 'p', object: 'o' } })?.via,
       ).toBe('replay');
-      expect(
-        toReplayEvent({ delete: { id: 'knowledge_fact:f1', predicate: 'p' } })?.action,
-      ).toBe('DELETE');
+      expect(toReplayEvent({ delete: { id: 'knowledge_fact:f1', predicate: 'p' } })?.action).toBe(
+        'DELETE',
+      );
       expect(toReplayEvent({ define_table: {} })).toBeNull();
       expect(toReplayEvent(null)).toBeNull();
     });
@@ -114,7 +112,10 @@ describe('LiveSubscriptionManager', () => {
       const mgr = makeManager();
       const { received, addSubscriber } = installChannel(mgr, {
         versionstamp: 10,
-        changes: [change(11, 'knowledge_fact:a', 'lives_in'), change(12, 'knowledge_fact:b', 'reads')],
+        changes: [
+          change(11, 'knowledge_fact:a', 'lives_in'),
+          change(12, 'knowledge_fact:b', 'reads'),
+        ],
       });
       addSubscriber('s1', ['brain:read']);
       const emitted = await mgr.catchUp('co_x');
@@ -129,14 +130,17 @@ describe('LiveSubscriptionManager', () => {
       const mgr = makeManager();
       const { channel, received, addSubscriber } = installChannel(mgr, {
         versionstamp: 10,
-        changes: [change(11, 'knowledge_fact:a', 'lives_in'), change(12, 'knowledge_fact:b', 'reads')],
+        changes: [
+          change(11, 'knowledge_fact:a', 'lives_in'),
+          change(12, 'knowledge_fact:b', 'reads'),
+        ],
       });
       addSubscriber('s1', ['brain:read']);
       channel.delivered.add('knowledge_fact:a'); // arrived over the socket
       const emitted = await mgr.catchUp('co_x');
       expect(emitted).toBe(1);
       expect(received).toHaveLength(1);
-      expect(received[0].event).toMatchObject({ factId: 'knowledge_fact:b' });
+      expect(received[0]!.event).toMatchObject({ factId: 'knowledge_fact:b' });
     });
 
     it('advances the cursor so the next tick does not repeat the batch', async () => {
@@ -158,9 +162,7 @@ describe('LiveSubscriptionManager', () => {
       });
       addSubscriber('s1', ['brain:read']);
       await mgr.catchUp('co_x');
-      expect(received.map((r) => (r.event as any).factId)).toEqual([
-        'knowledge_fact:new',
-      ]);
+      expect(received.map((r) => (r.event as any).factId)).toEqual(['knowledge_fact:new']);
     });
 
     it('is a no-op for a tenant with no channel', async () => {
@@ -219,7 +221,7 @@ describe('LiveSubscriptionManager', () => {
       });
       addSubscriber('slow', ['brain:read']);
       await mgr.catchUp('co_x');
-      expect(received[0].event).toEqual({ kind: 'resync', reason: 'backpressure' });
+      expect(received[0]!.event).toEqual({ kind: 'resync', reason: 'backpressure' });
     });
 
     it('drops a subscriber whose sink throws, without killing the stream', async () => {

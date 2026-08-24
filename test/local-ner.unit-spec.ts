@@ -17,7 +17,6 @@ function mkConfig(over: Record<string, string> = {}): ConfigService {
   } as unknown as ConfigService;
 }
 
- 
 type MockPipeline = jest.Mock<any, any>;
 
 function mkPipeline(
@@ -34,17 +33,13 @@ function mkPipeline(
 
 describe('LocalNerService — disabled by default', () => {
   it('isReady=false until warmup completes', async () => {
-    const svc = new LocalNerService(
-      mkConfig({ EXTRACTOR_LOCAL_NER_ENABLED: 'false' }),
-    );
+    const svc = new LocalNerService(mkConfig({ EXTRACTOR_LOCAL_NER_ENABLED: 'false' }));
     expect(svc.isReady()).toBe(false);
     await expect(svc.extract('Maria works at Acme')).resolves.toEqual([]);
   });
 
   it('stats reflects disabled state', () => {
-    const svc = new LocalNerService(
-      mkConfig({ EXTRACTOR_LOCAL_NER_ENABLED: 'false' }),
-    );
+    const svc = new LocalNerService(mkConfig({ EXTRACTOR_LOCAL_NER_ENABLED: 'false' }));
     const s = svc.stats();
     expect(s.enabled).toBe(false);
     expect(s.ready).toBe(false);
@@ -70,25 +65,21 @@ describe('LocalNerService — with mocked classifier', () => {
       end: 12,
       score: 0.95,
     });
-    expect(out[1].type).toBe('ORG');
+    expect(out[1]!.type).toBe('ORG');
   });
 
   it('uppercases entity types', async () => {
     const svc = new LocalNerService(mkConfig());
     svc.setClassifierForTesting(
-      mkPipeline([
-        { word: 'Berlin', entity_group: 'loc', start: 0, end: 6, score: 0.9 },
-      ]),
+      mkPipeline([{ word: 'Berlin', entity_group: 'loc', start: 0, end: 6, score: 0.9 }]),
     );
     const out = await svc.extract('Berlin');
-    expect(out[0].type).toBe('LOC');
+    expect(out[0]!.type).toBe('LOC');
   });
 
   it('caches results per trimmed input', async () => {
     const svc = new LocalNerService(mkConfig());
-    const pipe = mkPipeline([
-      { word: 'Maria', entity_group: 'PER', start: 0, end: 5, score: 0.9 },
-    ]);
+    const pipe = mkPipeline([{ word: 'Maria', entity_group: 'PER', start: 0, end: 5, score: 0.9 }]);
     svc.setClassifierForTesting(pipe);
     await svc.extract('Maria');
     await svc.extract('Maria');
@@ -97,20 +88,18 @@ describe('LocalNerService — with mocked classifier', () => {
 
   it('falls back to [] on pipeline throw', async () => {
     const svc = new LocalNerService(mkConfig());
-    svc.setClassifierForTesting(jest.fn(async () => {
-      throw new Error('boom');
-    }) as MockPipeline);
+    svc.setClassifierForTesting(
+      jest.fn(async () => {
+        throw new Error('boom');
+      }) as MockPipeline,
+    );
     await expect(svc.extract('anything')).resolves.toEqual([]);
   });
 
   it('respects min score override', async () => {
-    const svc = new LocalNerService(
-      mkConfig({ EXTRACTOR_LOCAL_NER_MIN_SCORE: '0.99' }),
-    );
+    const svc = new LocalNerService(mkConfig({ EXTRACTOR_LOCAL_NER_MIN_SCORE: '0.99' }));
     svc.setClassifierForTesting(
-      mkPipeline([
-        { word: 'Maria', entity_group: 'PER', start: 0, end: 5, score: 0.95 },
-      ]),
+      mkPipeline([{ word: 'Maria', entity_group: 'PER', start: 0, end: 5, score: 0.95 }]),
     );
     await expect(svc.extract('Maria')).resolves.toEqual([]);
   });

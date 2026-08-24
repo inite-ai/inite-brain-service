@@ -123,9 +123,7 @@ export class CompactionService implements OnModuleInit {
       stats.groupsPromoted = promo.groupsPromoted;
       this.metrics?.countPromoted(promo.factsPromoted);
     } catch (e) {
-      this.logger.warn(
-        `promotion failed for ${stats.companyId}: ${(e as Error).message}`,
-      );
+      this.logger.warn(`promotion failed for ${stats.companyId}: ${(e as Error).message}`);
     }
   }
 }

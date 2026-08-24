@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  IsObject,
-  IsISO8601,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsISO8601, MaxLength } from 'class-validator';
 
 export interface MentionContextRef {
   vertical: string;
@@ -48,12 +41,13 @@ export class IngestMentionDto {
   // ExtractorService is the defence-in-depth backstop.
   @IsString()
   @MaxLength(16_000)
-  text: string;
+  text!: string;
 
   @IsObject()
-  contextRef: MentionContextRef;
+  contextRef!: MentionContextRef;
 
-  @IsOptional() @IsArray()
+  @IsOptional()
+  @IsArray()
   knownEntities?: KnownEntity[];
 
   /**
@@ -67,9 +61,11 @@ export class IngestMentionDto {
    * personal CONTENT lives on the fenced facts and episodes; same model
    * as a bare-entityId direct fact ingest).
    */
-  @IsOptional() @IsString() @MaxLength(200)
-  userId?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  userId?: string | undefined;
 
   @IsISO8601()
-  emittedAt: string;
+  emittedAt!: string;
 }

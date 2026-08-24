@@ -93,18 +93,14 @@ describe('/v1/registry — global pack registry (e2e)', () => {
   });
 
   it('lets any brain:read tenant discover the catalogue', async () => {
-    const list = await reader.http
-      .get('/v1/registry/packs?q=realty_reg')
-      .set(auth(reader));
+    const list = await reader.http.get('/v1/registry/packs?q=realty_reg').set(auth(reader));
     expect(list.status).toBe(200);
     const found = list.body.packs.find((p: any) => p.packId === PACK.id);
     expect(found).toBeDefined();
     expect(found.latestVersion).toBe('0.1.0');
     expect(found.keywords).toContain('real-estate'); // normalized lowercase
 
-    const versions = await reader.http
-      .get(`/v1/registry/packs/${PACK.id}`)
-      .set(auth(reader));
+    const versions = await reader.http.get(`/v1/registry/packs/${PACK.id}`).set(auth(reader));
     expect(versions.body.latestVersion).toBe('0.1.0');
     expect(versions.body.versions.map((v: any) => v.version)).toContain('0.1.0');
 
@@ -133,9 +129,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     expect(r.body.predicatesSeeded).toBe(PACK.predicates.length);
 
     const installed = await pub.http.get('/v1/admin/packs').set(auth(pub));
-    expect(
-      installed.body.installed.some((p: any) => p.packId === PACK.id),
-    ).toBe(true);
+    expect(installed.body.installed.some((p: any) => p.packId === PACK.id)).toBe(true);
   });
 
   it('resolves latest across versions and yank flips it back', async () => {
@@ -144,9 +138,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .post('/v1/admin/registry/packs')
       .set(auth(pub))
       .send({ manifest: bump('0.2.0') });
-    let versions = await reader.http
-      .get(`/v1/registry/packs/${PACK.id}`)
-      .set(auth(reader));
+    let versions = await reader.http.get(`/v1/registry/packs/${PACK.id}`).set(auth(reader));
     expect(versions.body.latestVersion).toBe('0.2.0');
 
     // Yank it → latest falls back to 0.1.0.
@@ -157,9 +149,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     expect([200, 201]).toContain(yank.status);
     expect(yank.body.yanked).toBe(true);
 
-    versions = await reader.http
-      .get(`/v1/registry/packs/${PACK.id}`)
-      .set(auth(reader));
+    versions = await reader.http.get(`/v1/registry/packs/${PACK.id}`).set(auth(reader));
     expect(versions.body.latestVersion).toBe('0.1.0');
 
     // Installing the yanked version explicitly is refused.
@@ -174,9 +164,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .post(`/v1/admin/registry/packs/${PACK.id}/0.2.0/unyank`)
       .set(auth(pub));
     expect([200, 201]).toContain(unyank.status);
-    versions = await reader.http
-      .get(`/v1/registry/packs/${PACK.id}`)
-      .set(auth(reader));
+    versions = await reader.http.get(`/v1/registry/packs/${PACK.id}`).set(auth(reader));
     expect(versions.body.latestVersion).toBe('0.2.0');
   });
 
@@ -206,9 +194,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         keywords: 'not-an-array',
       });
     expect([200, 201]).toContain(r.status);
-    const versions = await reader.http
-      .get('/v1/registry/packs/kw_guard_e2e')
-      .set(auth(reader));
+    const versions = await reader.http.get('/v1/registry/packs/kw_guard_e2e').set(auth(reader));
     expect(versions.body.versions[0].keywords).toEqual([]);
   });
 
@@ -225,9 +211,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
     await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
     await reader.http.get(`/v1/registry/packs/${id}/latest`).set(auth(reader));
 
-    let versions = await reader.http
-      .get(`/v1/registry/packs/${id}`)
-      .set(auth(reader));
+    let versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
     expect(versions.body.versions[0].downloads).toBe(0);
 
     // Install from the registry twice (same-version reinstall is an upsert) —
@@ -239,9 +223,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         .send({ packId: id });
       expect([200, 201]).toContain(r.status);
     }
-    versions = await reader.http
-      .get(`/v1/registry/packs/${id}`)
-      .set(auth(reader));
+    versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
     expect(versions.body.versions[0].downloads).toBe(2);
   });
 
@@ -257,18 +239,14 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .send({ packId: id, version: '0.2.0' });
     expect([200, 201]).toContain(r.status);
 
-    const list = await reader.http
-      .get('/v1/registry/packs?q=dl_count')
-      .set(auth(reader));
+    const list = await reader.http.get('/v1/registry/packs?q=dl_count').set(auth(reader));
     const summary = list.body.packs.find((p: any) => p.packId === id);
     expect(summary.downloads).toBe(3); // 2 (v0.1.0) + 1 (v0.2.0)
     expect(typeof summary.publishedAt).toBe('string');
     expect(new Date(summary.publishedAt).getTime()).not.toBeNaN();
 
     // Per-version split stays visible on the versions endpoint.
-    const versions = await reader.http
-      .get(`/v1/registry/packs/${id}`)
-      .set(auth(reader));
+    const versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
     const byVer = Object.fromEntries(
       versions.body.versions.map((v: any) => [v.version, v.downloads]),
     );
@@ -292,9 +270,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       .send({ packId: id, version: '0.3.0' });
     expect(refused.status).toBe(400);
 
-    const versions = await reader.http
-      .get(`/v1/registry/packs/${id}`)
-      .set(auth(reader));
+    const versions = await reader.http.get(`/v1/registry/packs/${id}`).set(auth(reader));
     const v = versions.body.versions.find((x: any) => x.version === '0.3.0');
     expect(v.downloads).toBe(0);
   });
@@ -307,24 +283,15 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       publisher: 'acme_e2e',
     };
     manifest.signature = signPack(manifest, trusted.priv);
-    const r = await pub.http
-      .post('/v1/admin/registry/packs')
-      .set(auth(pub))
-      .send({ manifest });
+    const r = await pub.http.post('/v1/admin/registry/packs').set(auth(pub)).send({ manifest });
     expect([200, 201]).toContain(r.status);
 
-    const versions = await reader.http
-      .get('/v1/registry/packs/verified_e2e')
-      .set(auth(reader));
+    const versions = await reader.http.get('/v1/registry/packs/verified_e2e').set(auth(reader));
     expect(versions.body.versions[0].signed).toBe(true);
     expect(versions.body.versions[0].verified).toBe(true);
 
-    const list = await reader.http
-      .get('/v1/registry/packs?q=verified_e2e')
-      .set(auth(reader));
-    expect(
-      list.body.packs.find((p: any) => p.packId === 'verified_e2e').verified,
-    ).toBe(true);
+    const list = await reader.http.get('/v1/registry/packs?q=verified_e2e').set(auth(reader));
+    expect(list.body.packs.find((p: any) => p.packId === 'verified_e2e').verified).toBe(true);
   });
 
   it('signed but NOT trust-store-verifiable → verified=false, publish still allowed', async () => {
@@ -352,9 +319,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         .set(auth(pub))
         .send({ manifest: m });
       expect([200, 201]).toContain(r.status); // not an error — just unverified
-      const versions = await reader.http
-        .get(`/v1/registry/packs/${m.id}`)
-        .set(auth(reader));
+      const versions = await reader.http.get(`/v1/registry/packs/${m.id}`).set(auth(reader));
       expect(versions.body.versions[0].signed).toBe(true);
       expect(versions.body.versions[0].verified).toBe(false);
     }
@@ -362,9 +327,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
 
   it('unsigned publish → verified=false', async () => {
     // PACK 0.1.0 was published unsigned at the top of the suite.
-    const versions = await reader.http
-      .get(`/v1/registry/packs/${PACK.id}`)
-      .set(auth(reader));
+    const versions = await reader.http.get(`/v1/registry/packs/${PACK.id}`).set(auth(reader));
     const v = versions.body.versions.find((x: any) => x.version === '0.1.0');
     expect(v.signed).toBe(false);
     expect(v.verified).toBe(false);
@@ -409,10 +372,7 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       description: 'upstream 0.2.0 — must lose to the local publish',
     });
     const M_BUILTIN = wire({ ...PACK, id: 'code_memory', version: '9.0.0' });
-    const upstreamPacks: Record<
-      string,
-      Array<{ manifest: typeof M_010; yanked: boolean }>
-    > = {
+    const upstreamPacks: Record<string, Array<{ manifest: typeof M_010; yanked: boolean }>> = {
       mirror_e2e: [
         { manifest: M_010, yanked: false },
         { manifest: M_020, yanked: false },
@@ -458,11 +418,11 @@ describe('/v1/registry — global pack registry (e2e)', () => {
               signed: false,
               verified: false,
               downloads: 0,
-              versionCount: upstreamPacks[packId].length,
+              versionCount: upstreamPacks[packId]!.length,
             })),
           });
         }
-        const rows = upstreamPacks[parts[3]];
+        const rows = upstreamPacks[parts[3]!];
         if (!rows) {
           res.statusCode = 404;
           return res.end('{}');
@@ -470,8 +430,8 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         if (parts.length === 4) {
           return json({
             packId: parts[3],
-            latestVersion: rows[0].manifest.version,
-            versions: rows.map((v) => versionRow(parts[3], v)),
+            latestVersion: rows[0]!.manifest.version,
+            versions: rows.map((v) => versionRow(parts[3]!, v)),
           });
         }
         const row = rows.find((v) => v.manifest.version === parts[4]);
@@ -514,12 +474,8 @@ describe('/v1/registry — global pack registry (e2e)', () => {
       expect(summary.skippedExisting).toBeGreaterThanOrEqual(1);
       expect(summary.failures).toBeGreaterThanOrEqual(1); // builtin id rejected
 
-      const versions = await reader.http
-        .get('/v1/registry/packs/mirror_e2e')
-        .set(auth(reader));
-      const byVer = Object.fromEntries(
-        versions.body.versions.map((v: any) => [v.version, v]),
-      );
+      const versions = await reader.http.get('/v1/registry/packs/mirror_e2e').set(auth(reader));
+      const byVer = Object.fromEntries(versions.body.versions.map((v: any) => [v.version, v]));
       // Mirrored row carries the origin marker; the local row carries none —
       // and its content is the LOCAL publish, not the upstream 0.2.0.
       expect(byVer['0.1.0'].origin).toBe(upstreamBase);
@@ -529,33 +485,25 @@ describe('/v1/registry — global pack registry (e2e)', () => {
         .set(auth(reader));
       expect(localManifest.body.manifest.description).not.toContain('upstream');
       // Builtin-id squatting protection held on the mirror path.
-      const builtin = await reader.http
-        .get('/v1/registry/packs/code_memory')
-        .set(auth(reader));
+      const builtin = await reader.http.get('/v1/registry/packs/code_memory').set(auth(reader));
       expect(builtin.body.versions).toHaveLength(0);
       // The upstream token was sent on every upstream request.
       expect(seenAuth.length).toBeGreaterThan(0);
-      expect(seenAuth.every((a) => a === 'Bearer upstream-e2e-token')).toBe(
-        true,
-      );
+      expect(seenAuth.every((a) => a === 'Bearer upstream-e2e-token')).toBe(true);
     });
 
     it('re-sync is idempotent and mirrors upstream yanks only onto origin-matching rows', async () => {
       // Upstream yanks BOTH versions; locally only the mirrored 0.1.0 may
       // follow — 0.2.0 is a local publish and must stay installable.
-      upstreamPacks.mirror_e2e[0].yanked = true;
-      upstreamPacks.mirror_e2e[1].yanked = true;
+      upstreamPacks.mirror_e2e![0]!.yanked = true;
+      upstreamPacks.mirror_e2e![1]!.yanked = true;
 
       const summary = await mirror.sync();
       expect(summary.imported).toBe(0);
       expect(summary.yanksMirrored).toBe(1);
 
-      const versions = await reader.http
-        .get('/v1/registry/packs/mirror_e2e')
-        .set(auth(reader));
-      const byVer = Object.fromEntries(
-        versions.body.versions.map((v: any) => [v.version, v]),
-      );
+      const versions = await reader.http.get('/v1/registry/packs/mirror_e2e').set(auth(reader));
+      const byVer = Object.fromEntries(versions.body.versions.map((v: any) => [v.version, v]));
       expect(byVer['0.1.0'].yanked).toBe(true);
       expect(byVer['0.1.0'].yankReason).toContain('upstream says no');
       expect(byVer['0.2.0'].yanked).toBe(false);

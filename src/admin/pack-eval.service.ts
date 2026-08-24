@@ -68,7 +68,9 @@ export class PackEvalService {
               text: fixture.text,
               companyId,
               packId: manifest.id,
-              options: manifest.indexer?.dedicated,
+              ...(manifest.indexer?.dedicated !== undefined
+                ? { options: manifest.indexer.dedicated }
+                : {}),
             })
           : await this.extractor.extract(fixture.text, companyId);
       results.push(scoreFixture(manifest.id, fixture, extraction));

@@ -80,7 +80,7 @@ export interface L3EscalateInput {
   /** The fact lines the verifier already saw (evidence parity). */
   factLines: string[];
   answerLang: string | null;
-  dateMathLines?: string[];
+  dateMathLines?: string[] | undefined;
 }
 
 /** A flipped L3 answer to finalise; null = fall through to abstention. */
@@ -147,9 +147,7 @@ export class L3EscalationService {
     }
   }
 
-  private async runEscalation(
-    input: L3EscalateInput,
-  ): Promise<L3EscalateResult | null> {
+  private async runEscalation(input: L3EscalateInput): Promise<L3EscalateResult | null> {
     const { profile, dto } = input;
     const includePii = input.callerScopes.includes('brain:read_pii');
     const userId = dto.userId || undefined;
@@ -163,8 +161,7 @@ export class L3EscalationService {
     }
     this.metrics?.countL3Escalation('fired');
 
-    const window =
-      input.lane === 'temporal' ? parseQueryTimeRange(dto.query) : null;
+    const window = input.lane === 'temporal' ? parseQueryTimeRange(dto.query) : null;
     const sessionIds = rankL3Sessions(anchors, {
       max: profile.l3MaxSessions,
       window,
@@ -179,11 +176,7 @@ export class L3EscalationService {
     if (ctx.degraded) this.metrics?.countL3Escalation('over_budget_degraded');
 
     const generated = await this.generate(input, ctx.transcriptLines);
-    const citations = resolveCitations(
-      generated.citedFactIds,
-      generated.answer,
-      input.factIndex,
-    );
+    const citations = resolveCitations(generated.citedFactIds, generated.answer, input.factIndex);
     const verdict = await this.verify(input, generated.answer, ctx);
     if (!verifierPasses(verdict, profile.verifierTopicCoverage)) {
       this.metrics?.countL3Escalation('no_flip');
@@ -204,10 +197,10 @@ export class L3EscalationService {
    */
   private async resolveAnchors(
     input: L3EscalateInput,
-    fences: { includePii: boolean; userId?: string },
+    fences: { includePii: boolean; userId?: string | undefined },
   ): Promise<{
     anchors: L3SessionAnchor[];
-    episodeById: Map<string, { conversationId: string; atMs?: number }>;
+    episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
   }> {
     const factScore = new Map<string, number>();
     for (const hit of input.results) {
@@ -218,28 +211,21 @@ export class L3EscalationService {
     const factIds = [...factScore.keys()];
     if (factIds.length === 0) return { anchors: [], episodeById: new Map() };
 
-    const factEps = await this.surreal.withCompany(
-      input.companyId,
-      async (db) => {
-        const [rows] = await db.query<
-          [Array<{ id?: unknown; eps?: unknown }>]
-        >(
-          `SELECT id, source.episodeIds AS eps FROM knowledge_fact
+    const factEps = await this.surreal.withCompany(input.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ id?: unknown; eps?: unknown }>]>(
+        `SELECT id, source.episodeIds AS eps FROM knowledge_fact
             WHERE id INSIDE $ids AND source.episodeIds IS NOT NONE`,
-          { ids: factIds.map((id) => new StringRecordId(id)) },
-        );
-        return rows ?? [];
-      },
-    );
+        { ids: factIds.map((id) => new StringRecordId(id)) },
+      );
+      return rows ?? [];
+    });
     // factId → its grounding episode ids, and the flat unique episode set.
     const epsByFact = new Map<string, string[]>();
     const allEpisodeIds = new Set<string>();
     for (const row of factEps) {
       const factId = String(row.id ?? '');
       if (!factId || !Array.isArray(row.eps)) continue;
-      const eps = row.eps
-        .map(String)
-        .filter((e) => e.startsWith('episode:'));
+      const eps = row.eps.map(String).filter((e) => e.startsWith('episode:'));
       if (eps.length === 0) continue;
       epsByFact.set(factId, eps);
       for (const e of eps) {
@@ -252,12 +238,9 @@ export class L3EscalationService {
       companyId: input.companyId,
       ids: [...allEpisodeIds],
       includePii: fences.includePii,
-      userId: fences.userId,
+      ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });
-    const episodeById = new Map<
-      string,
-      { conversationId: string; atMs?: number }
-    >();
+    const episodeById = new Map<string, { conversationId: string; atMs?: number | undefined }>();
     for (const r of episodeRows) {
       if (!r.conversationId) continue;
       episodeById.set(String(r.id), {
@@ -295,9 +278,9 @@ export class L3EscalationService {
     input: L3EscalateInput,
     args: {
       sessionIds: string[];
-      episodeById: Map<string, { conversationId: string; atMs?: number }>;
+      episodeById: Map<string, { conversationId: string; atMs?: number | undefined }>;
       includePii: boolean;
-      userId?: string;
+      userId?: string | undefined;
     },
   ): Promise<L3Context> {
     const sessions = await Promise.all(
@@ -307,7 +290,7 @@ export class L3EscalationService {
             companyId: input.companyId,
             conversationId,
             includePii: args.includePii,
-            userId: args.userId,
+            ...(args.userId !== undefined ? { userId: args.userId } : {}),
           })
           .then((turns) => ({ conversationId, turns })),
       ),
@@ -333,7 +316,7 @@ export class L3EscalationService {
               centerIso: new Date(v.atMs).toISOString(),
               span,
               includePii: args.includePii,
-              userId: args.userId,
+              ...(args.userId !== undefined ? { userId: args.userId } : {}),
             }),
       ),
     );
@@ -353,9 +336,7 @@ export class L3EscalationService {
   }
 
   /** One fenced section per session, chronological dated turns. */
-  private renderSessions(
-    sessions: Array<{ conversationId: string; turns: L3Turn[] }>,
-  ): string[] {
+  private renderSessions(sessions: Array<{ conversationId: string; turns: L3Turn[] }>): string[] {
     const lines: string[] = [];
     for (const s of sessions) {
       if (s.turns.length === 0) continue;
@@ -365,9 +346,7 @@ export class L3EscalationService {
       );
       for (const t of ordered) {
         const day = String(
-          t.occurredAt instanceof Date
-            ? t.occurredAt.toISOString()
-            : t.occurredAt,
+          t.occurredAt instanceof Date ? t.occurredAt.toISOString() : t.occurredAt,
         ).slice(0, 10);
         lines.push(`[${day}] ${t.speaker ?? 'unknown'}: ${t.text}`);
       }
@@ -388,9 +367,7 @@ export class L3EscalationService {
     if (input.dateMathLines && input.dateMathLines.length > 0) {
       sections.push(`Computed date table:\n${input.dateMathLines.join('\n')}`);
     }
-    const langLine = input.answerLang
-      ? `\n\nAnswer in ${input.answerLang}.`
-      : '';
+    const langLine = input.answerLang ? `\n\nAnswer in ${input.answerLang}.` : '';
     const user = `Query: ${input.dto.query}\n\n${sections.join('\n\n')}${langLine}`;
     traceArtifact('synthesize.l3_prompt', {
       system: L3_SYSTEM,

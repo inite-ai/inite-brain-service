@@ -28,10 +28,11 @@ export async function mapWithLimit<T, R>({
     while (true) {
       const i = cursor++;
       if (i >= items.length) return;
+      const item = items[i]!; // i < items.length ⇒ in-bounds
       try {
-        out[i] = await fn(items[i], i);
+        out[i] = await fn(item, i);
       } catch (e) {
-        onError?.(e as Error, items[i], i);
+        onError?.(e as Error, item, i);
         out[i] = null;
       }
     }

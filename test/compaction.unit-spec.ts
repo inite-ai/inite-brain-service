@@ -5,10 +5,7 @@
  */
 import { ConfigService } from '@nestjs/config';
 import { CompactionRunnerService } from '../src/compaction/compaction-runner.service';
-import type {
-  FactToSummarize,
-  SummaryGenerator,
-} from '../src/compaction/summary-generator';
+import type { FactToSummarize, SummaryGenerator } from '../src/compaction/summary-generator';
 import type { SurrealService } from '../src/db/surreal.service';
 
 class StubConfig {
@@ -25,7 +22,7 @@ class StubConfig {
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 interface CandidateRow {
@@ -83,7 +80,7 @@ function rows(specs: Array<Partial<CandidateRow> & { id: string }>): CandidateRo
     entityId: 'knowledge_entity:e1',
     predicate: 'tier',
     object: `value_${i}`,
-    validFrom: `2025-${String(i % 12 + 1).padStart(2, '0')}-01T00:00:00Z`,
+    validFrom: `2025-${String((i % 12) + 1).padStart(2, '0')}-01T00:00:00Z`,
     confidence: 0.8,
     ...s,
   }));
@@ -104,11 +101,11 @@ describe('CompactionService — mark + drop (default mode)', () => {
     const stats = await runner.compactAll(['co_a', 'co_b', 'co_c']);
     expect(stats).toHaveLength(3);
     const byTenant = Object.fromEntries(stats.map((s) => [s.companyId, s]));
-    expect(byTenant.co_a.factsCompacted).toBe(12);
-    expect(byTenant.co_b.factsCompacted).toBe(0);
-    expect(byTenant.co_c.factsCompacted).toBe(5);
-    expect(byTenant.co_a.summariesCreated).toBe(0); // summaries off by default
-    expect(byTenant.co_a.bytesFreed).toBe(12 * 6 * 1024);
+    expect(byTenant.co_a!.factsCompacted).toBe(12);
+    expect(byTenant.co_b!.factsCompacted).toBe(0);
+    expect(byTenant.co_c!.factsCompacted).toBe(5);
+    expect(byTenant.co_a!.summariesCreated).toBe(0); // summaries off by default
+    expect(byTenant.co_a!.bytesFreed).toBe(12 * 6 * 1024);
 
     const calls_b = calls.find((c) => c.companyId === 'co_b')!;
     expect(calls_b.calls.some((c) => c.sql.startsWith('UPDATE'))).toBe(false);
@@ -146,7 +143,7 @@ describe('CompactionService — mark + drop (default mode)', () => {
     await runner.compactCompany('co_a');
     const after = Date.now();
 
-    const select = calls[0].calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
+    const select = calls[0]!.calls.find((c) => c.sql.includes('SELECT id, entityId'))!;
     // Date param, not an ISO string — SurrealDB 3.x needs a native
     // datetime (the 2.x `d$cutoff` cast no longer parses).
     const cutoff = select.params!.cutoff as Date;
@@ -189,16 +186,48 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     const { surreal, calls, created } = makeFakeSurreal({
       co_a: {
         rows: rows([
-          { id: 'fact:1', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'gold', validFrom: '2025-01-01T00:00:00Z' },
-          { id: 'fact:2', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'platinum', validFrom: '2025-04-01T00:00:00Z' },
-          { id: 'fact:3', entityId: 'knowledge_entity:e1', predicate: 'tier', object: 'diamond', validFrom: '2025-07-01T00:00:00Z' },
-          { id: 'fact:4', entityId: 'knowledge_entity:e2', predicate: 'name', object: 'Anna', validFrom: '2025-01-15T00:00:00Z' },
+          {
+            id: 'fact:1',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'gold',
+            validFrom: '2025-01-01T00:00:00Z',
+          },
+          {
+            id: 'fact:2',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'platinum',
+            validFrom: '2025-04-01T00:00:00Z',
+          },
+          {
+            id: 'fact:3',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'tier',
+            object: 'diamond',
+            validFrom: '2025-07-01T00:00:00Z',
+          },
+          {
+            id: 'fact:4',
+            entityId: 'knowledge_entity:e2',
+            predicate: 'name',
+            object: 'Anna',
+            validFrom: '2025-01-15T00:00:00Z',
+          },
           // Singleton group — should NOT produce a summary
-          { id: 'fact:5', entityId: 'knowledge_entity:e3', predicate: 'lifetime_orders', object: '4', validFrom: '2025-02-01T00:00:00Z' },
+          {
+            id: 'fact:5',
+            entityId: 'knowledge_entity:e3',
+            predicate: 'lifetime_orders',
+            object: '4',
+            validFrom: '2025-02-01T00:00:00Z',
+          },
         ]),
       },
     });
-    const gen = new StubGenerator((g) => `SUMMARY(${g.length}:${g.map((f) => f.object).join(',')})`);
+    const gen = new StubGenerator(
+      (g) => `SUMMARY(${g.length}:${g.map((f) => f.object).join(',')})`,
+    );
 
     const runner = new CompactionRunnerService(
       surreal,
@@ -207,14 +236,14 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     );
 
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(5);
+    expect(stats!.factsCompacted).toBe(5);
     // Two summaries: tier (3 rows) + name (1 row) — name is singleton, skip
-    expect(stats.summariesCreated).toBe(1);
+    expect(stats!.summariesCreated).toBe(1);
     expect(gen.calls).toHaveLength(1);
-    expect(gen.calls[0].map((f) => f.object)).toEqual(['gold', 'platinum', 'diamond']);
+    expect(gen.calls[0]!.map((f) => f.object)).toEqual(['gold', 'platinum', 'diamond']);
 
     expect(created).toHaveLength(1);
-    const summary = created[0].payload as Record<string, unknown>;
+    const summary = created[0]!.payload as Record<string, unknown>;
     expect(summary.predicate).toBe('summary_tier');
     expect(summary.object).toBe('SUMMARY(3:gold,platinum,diamond)');
     expect((summary.derivedFrom as unknown[]).length).toBe(3);
@@ -222,7 +251,7 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     expect(summary.confidence).toBeCloseTo(0.8, 5);
     expect(summary.status).toBe('active');
 
-    const updates = calls[0].calls.filter((c) => c.sql.startsWith('UPDATE'));
+    const updates = calls[0]!.calls.filter((c) => c.sql.startsWith('UPDATE'));
     expect(updates).toHaveLength(1);
   });
 
@@ -242,8 +271,8 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       emptyGen,
     );
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(2);
-    expect(stats.summariesCreated).toBe(0);
+    expect(stats!.factsCompacted).toBe(2);
+    expect(stats!.summariesCreated).toBe(0);
     expect(created).toHaveLength(0);
   });
 
@@ -263,8 +292,8 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
       gen,
     );
     const [stats] = await runner.compactAll(['co_a']);
-    expect(stats.factsCompacted).toBe(2);
-    expect(stats.summariesCreated).toBe(0);
+    expect(stats!.factsCompacted).toBe(2);
+    expect(stats!.summariesCreated).toBe(0);
     expect(gen.calls).toHaveLength(0);
     expect(created).toHaveLength(0);
   });
@@ -275,8 +304,20 @@ describe('ConcatSummaryGenerator', () => {
     const { ConcatSummaryGenerator } = await import('../src/compaction/summary-generator');
     const gen = new ConcatSummaryGenerator();
     const text = await gen.generate([
-      { factId: 'a', predicate: 'tier', object: 'gold', validFrom: '2025-01-15T00:00:00Z', confidence: 0.9 },
-      { factId: 'b', predicate: 'tier', object: 'platinum', validFrom: '2025-04-01T00:00:00Z', confidence: 0.95 },
+      {
+        factId: 'a',
+        predicate: 'tier',
+        object: 'gold',
+        validFrom: '2025-01-15T00:00:00Z',
+        confidence: 0.9,
+      },
+      {
+        factId: 'b',
+        predicate: 'tier',
+        object: 'platinum',
+        validFrom: '2025-04-01T00:00:00Z',
+        confidence: 0.95,
+      },
     ]);
     expect(text).toBe('[2025-01-15] tier: gold | [2025-04-01] tier: platinum');
   });
@@ -286,7 +327,13 @@ describe('ConcatSummaryGenerator', () => {
     const gen = new ConcatSummaryGenerator();
     const big = 'x'.repeat(10_000);
     const text = await gen.generate([
-      { factId: 'a', predicate: 'note', object: big, validFrom: '2025-01-15T00:00:00Z', confidence: 0.9 },
+      {
+        factId: 'a',
+        predicate: 'note',
+        object: big,
+        validFrom: '2025-01-15T00:00:00Z',
+        confidence: 0.9,
+      },
     ]);
     expect(text.length).toBe(8_000);
     expect(text.endsWith('...')).toBe(true);

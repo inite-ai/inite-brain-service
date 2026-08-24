@@ -17,10 +17,7 @@ describe('/v1/admin/packs/:id/eval — pack eval fixtures (e2e)', () => {
       companyId: 'co_pack_eval_e2e',
       scopes: ['brain:read', 'brain:write', 'brain:admin'],
     });
-    await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: REAL_ESTATE_PACK });
+    await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: REAL_ESTATE_PACK });
   });
   afterAll(async () => {
     if (f) await f.close();
@@ -41,9 +38,7 @@ describe('/v1/admin/packs/:id/eval — pack eval fixtures (e2e)', () => {
       edges: [],
     });
 
-    const r = await f.http
-      .post('/v1/admin/packs/real_estate/eval')
-      .set(auth());
+    const r = await f.http.post('/v1/admin/packs/real_estate/eval').set(auth());
     expect(r.status).toBe(201);
     expect(r.body.packId).toBe('real_estate');
     expect(r.body.total).toBe(REAL_ESTATE_PACK.evalFixtures!.length);

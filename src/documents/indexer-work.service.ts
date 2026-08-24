@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { IndexerRouterService } from '../indexers/indexer-router.service';
 import type {
@@ -16,14 +16,20 @@ import type {
   WorkContentResponse,
 } from '../contracts/indexer/indexer-work.schema';
 import { DocumentStoreService } from './document-store.service';
-import {
-  CandidateStoreService,
-  staleRunMs,
-  type RunRow,
-} from './candidate-store.service';
+import { CandidateStoreService, staleRunMs, type RunRow } from './candidate-store.service';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
+
+/** indexer_run projection for the external work-discovery list. */
+interface WorkRow {
+  id: unknown;
+  docId?: unknown;
+  packId?: unknown;
+  packVersion?: unknown;
+  createdAt?: unknown;
+  docHasContent?: unknown;
+}
 
 /**
  * The pull side of the external-indexer seam (scope `indexer:write`):
@@ -55,15 +61,12 @@ export class IndexerWorkService {
 
   async listWork(p: {
     companyId: string;
-    packId?: string;
-    limit?: number;
+    packId?: string | undefined;
+    limit?: number | undefined;
     /** Per-pack binding of the calling key; absent = unrestricted. */
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<IndexerWorkListResponse> {
-    const externalPacks = boundPacks(
-      await this.externalPackIds(p.companyId),
-      p.keyPackIds,
-    );
+    const externalPacks = boundPacks(await this.externalPackIds(p.companyId), p.keyPackIds);
     if (p.packId !== undefined) {
       assertKeyBoundToPack(p.keyPackIds, p.packId);
       this.assertExternalPack(externalPacks, p.packId);
@@ -72,7 +75,8 @@ export class IndexerWorkService {
     return this.surreal.withCompany(p.companyId, async (db) => {
       // docId.hasContent is a record-link traversal (findDocsNeedingCommit
       // precedent). ORDER BY field rides in the projection (3.x idiom).
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<WorkRow>(
+        db,
         `SELECT id, docId, packId, packVersion, createdAt,
                 docId.hasContent AS docHasContent
            FROM indexer_run
@@ -82,7 +86,7 @@ export class IndexerWorkService {
            LIMIT ${limit}`,
         { pack: p.packId },
       );
-      const work = (((rows as any[]) ?? []) as any[])
+      const work = rows
         // An uninstalled pack's leftover rows are not servable work.
         .filter((r) => externalPacks.has(String(r.packId)))
         .map((r) => ({
@@ -100,14 +104,11 @@ export class IndexerWorkService {
   async claim(p: {
     companyId: string;
     runId: string;
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<ClaimWorkResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     assertKeyBoundToPack(p.keyPackIds, run.packId);
-    this.assertExternalPack(
-      await this.externalPackIds(p.companyId),
-      run.packId,
-    );
+    this.assertExternalPack(await this.externalPackIds(p.companyId), run.packId);
     const token = randomUUID();
     const claimed = await this.surreal.withCompany(p.companyId, async (db) => {
       // CAS: claimable = 'pending' (fresh work), 'failed' (reopenable —
@@ -115,7 +116,8 @@ export class IndexerWorkService {
       // window (an abandoned claim whose lease expired). A live 'running'
       // claim loses. createdAt doubles as the lease clock, exactly like
       // createRun's reopen.
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<unknown>(
+        db,
         `UPDATE type::record('indexer_run', $run) SET
            status = 'running', claimToken = $tok,
            claimedAt = time::now(), createdAt = time::now(),
@@ -127,12 +129,10 @@ export class IndexerWorkService {
          RETURN AFTER`,
         { run: idTailOf(p.runId), tok: token, staleMs: staleRunMs() },
       );
-      return (((rows as any[]) ?? []) as any[])[0] ?? null;
+      return rows[0] ?? null;
     });
     if (!claimed) {
-      throw new ConflictException(
-        'work item is already claimed or completed',
-      );
+      throw new ConflictException('work item is already claimed or completed');
     }
     return {
       runId: run.runId,
@@ -150,13 +150,14 @@ export class IndexerWorkService {
     claimToken: string;
   }): Promise<HeartbeatWorkResponse> {
     const renewed = await this.surreal.withCompany(p.companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<unknown>(
+        db,
         `UPDATE type::record('indexer_run', $run) SET createdAt = time::now()
          WHERE external = true AND status = 'running' AND claimToken = $tok
          RETURN AFTER`,
         { run: idTailOf(p.runId), tok: p.claimToken },
       );
-      return (((rows as any[]) ?? []) as any[])[0] ?? null;
+      return rows[0] ?? null;
     });
     if (!renewed) {
       throw new ConflictException('claim lost: token mismatch or run not running');
@@ -167,7 +168,7 @@ export class IndexerWorkService {
   async content(p: {
     companyId: string;
     runId: string;
-    keyPackIds?: string[];
+    keyPackIds?: string[] | undefined;
   }): Promise<WorkContentResponse> {
     const run = await this.getExternalRun(p.companyId, p.runId);
     if (run.status !== 'pending' && run.status !== 'running') {
@@ -176,10 +177,7 @@ export class IndexerWorkService {
       );
     }
     assertKeyBoundToPack(p.keyPackIds, run.packId);
-    this.assertExternalPack(
-      await this.externalPackIds(p.companyId),
-      run.packId,
-    );
+    this.assertExternalPack(await this.externalPackIds(p.companyId), run.packId);
     const doc = await this.store.getById(p.companyId, run.docId);
     if (!doc) throw new NotFoundException('document not found');
     if (!doc.hasContent) {
@@ -202,8 +200,8 @@ export class IndexerWorkService {
     companyId: string;
     runId: string;
     claimToken: string;
-    error?: string;
-    permanent?: boolean;
+    error?: string | undefined;
+    permanent?: boolean | undefined;
   }): Promise<FailWorkResponse> {
     // Default RELEASE: back to 'pending' so the next poll rediscovers the
     // work (beats squatting on the claim until the lease expires).
@@ -214,7 +212,8 @@ export class IndexerWorkService {
       : `status = 'pending', claimToken = NONE, claimedAt = NONE,
          createdAt = time::now(), error = { message: $msg }`;
     const updated = await this.surreal.withCompany(p.companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<unknown>(
+        db,
         `UPDATE type::record('indexer_run', $run) SET ${set}
          WHERE external = true AND status = 'running' AND claimToken = $tok
          RETURN AFTER`,
@@ -224,7 +223,7 @@ export class IndexerWorkService {
           msg: p.error?.slice(0, 500) ?? 'released_by_indexer',
         },
       );
-      return (((rows as any[]) ?? []) as any[])[0] ?? null;
+      return rows[0] ?? null;
     });
     if (!updated) {
       throw new ConflictException('claim lost: token mismatch or run not running');
@@ -257,10 +256,7 @@ export class IndexerWorkService {
     return run;
   }
 
-  private async getExternalRun(
-    companyId: string,
-    runId: string,
-  ): Promise<RunRow> {
+  private async getExternalRun(companyId: string, runId: string): Promise<RunRow> {
     const run = await this.candidates.getRun(companyId, runId);
     // A non-external run is invisible on this surface — same 404 as a
     // missing one, so the endpoint doesn't oracle the internal ledger.
@@ -272,25 +268,18 @@ export class IndexerWorkService {
 
   private async externalPackIds(companyId: string): Promise<Set<string>> {
     const bindings = await this.router.bindingsFor(companyId);
-    return new Set(
-      bindings.filter((b) => b.mode === 'external').map((b) => b.indexerId),
-    );
+    return new Set(bindings.filter((b) => b.mode === 'external').map((b) => b.indexerId));
   }
 
   private assertExternalPack(externalPacks: Set<string>, packId: string): void {
     if (!externalPacks.has(packId)) {
-      throw new NotFoundException(
-        `indexer pack "${packId}" is not installed for this tenant`,
-      );
+      throw new NotFoundException(`indexer pack "${packId}" is not installed for this tenant`);
     }
   }
 }
 
 /** Intersect the tenant's external packs with a key's binding (0 = all). */
-function boundPacks(
-  externalPacks: Set<string>,
-  keyPackIds?: string[],
-): Set<string> {
+function boundPacks(externalPacks: Set<string>, keyPackIds?: string[]): Set<string> {
   if (!keyPackIds || keyPackIds.length === 0) return externalPacks;
   return new Set([...externalPacks].filter((id) => keyPackIds.includes(id)));
 }
@@ -300,14 +289,9 @@ function boundPacks(
  * invisibility — the packs of one's own tenant are not a secret, and a
  * clear 403 beats operators chasing phantom 404s.
  */
-export function assertKeyBoundToPack(
-  keyPackIds: string[] | undefined,
-  packId: string,
-): void {
+export function assertKeyBoundToPack(keyPackIds: string[] | undefined, packId: string): void {
   if (keyPackIds && keyPackIds.length > 0 && !keyPackIds.includes(packId)) {
-    throw new ForbiddenException(
-      `this key is not bound to indexer pack "${packId}"`,
-    );
+    throw new ForbiddenException(`this key is not bound to indexer pack "${packId}"`);
   }
 }
 

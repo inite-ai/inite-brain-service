@@ -3,8 +3,11 @@ import { Surreal, StringRecordId } from 'surrealdb';
 import {
   SurrealService,
   retryOnUniqueViolation,
+  queryRows,
+  queryFirst,
 } from '../db/surreal.service';
 import { policyFor } from '../ingest/conflict-resolver';
+import type { FactSource } from '../ingest/dto/ingest-fact.dto';
 import { BrainScope } from '../auth/api-key.types';
 import {
   TEMPLATES,
@@ -74,6 +77,45 @@ export interface KnowledgeArtifact {
 
 type FactRow = TemplateFactRow;
 
+/** knowledge_entity existence probe. */
+interface EntityIdRow {
+  id: unknown;
+}
+
+/** The wrapped `payload` column: `{ payload, _citations }` (see upsertArtifact). */
+interface WrappedPayload {
+  payload?: Record<string, unknown>;
+  _citations?: KnowledgeArtifact['citations'];
+}
+
+/** A cached knowledge_artifact row as read by fetchCached. */
+interface CachedArtifactRow {
+  payload?: WrappedPayload;
+  sourceFactIds?: unknown[];
+  builtAt: string;
+  staleAfterMs?: number;
+  dirty?: unknown;
+}
+
+/** A knowledge_artifact row after an UPSERT's `RETURN AFTER`. */
+interface StoredArtifactRow {
+  builtAt: string;
+  staleAfterMs?: number;
+  dirty?: unknown;
+}
+
+/** A knowledge_fact row as read by fetchActiveFacts (columns it SELECTs). */
+interface ActiveFactRow {
+  id: unknown;
+  predicate: string;
+  object: string;
+  confidence: number;
+  validFrom: string;
+  recordedAt: string;
+  source: FactSource;
+  status: string;
+}
+
 export interface GetArtifactOptions {
   companyId: string;
   entityIdRaw: string;
@@ -103,11 +145,12 @@ export class ArtifactsService {
     const ref = this.normalizeEntityId(entityIdRaw);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // 1. Verify entity exists.
-      const [entRows] = await db.query<any[][]>(
+      const ent = await queryFirst<EntityIdRow>(
+        db,
         `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      if (!(entRows as any[])?.[0]) {
+      if (!ent) {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
 
@@ -166,11 +209,12 @@ export class ArtifactsService {
   }: RecompileArtifactOptions): Promise<KnowledgeArtifact> {
     const ref = this.normalizeEntityId(entityIdRaw);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
-      const [entRows] = await db.query<any[][]>(
+      const ent = await queryFirst<EntityIdRow>(
+        db,
         `SELECT id FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      if (!(entRows as any[])?.[0]) {
+      if (!ent) {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
       // Observe dirty BEFORE reading facts so the CAS in upsertArtifact can
@@ -237,7 +281,8 @@ export class ArtifactsService {
     staleAfterMs: number;
     dirty: boolean;
   } | null> {
-    const [rows] = await db.query<any[][]>(
+    const row = await queryFirst<CachedArtifactRow>(
+      db,
       `SELECT payload, sourceFactIds, builtAt, staleAfterMs, dirty
        FROM knowledge_artifact
        WHERE entityId = type::record('knowledge_entity', $rid)
@@ -245,7 +290,6 @@ export class ArtifactsService {
        LIMIT 1`,
       { rid, type: artifactType },
     );
-    const row = ((rows as any[]) ?? [])[0];
     if (!row) return null;
     const payload = (row.payload?.payload ?? row.payload) as Record<string, unknown>;
     const citations = (row.payload?._citations ?? {}) as KnowledgeArtifact['citations'];
@@ -275,7 +319,8 @@ export class ArtifactsService {
     // this ran unbounded on the artifact read path — a long-lived entity
     // shipped its entire fact history per cache miss. 500 newest is far
     // beyond what any template renders.
-    const [rows] = await db.query<[any[]]>(
+    const rows = await queryRows<ActiveFactRow>(
+      db,
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
               recordedAt, source, status
          FROM knowledge_fact
@@ -286,15 +331,15 @@ export class ArtifactsService {
          LIMIT 500`,
       { rid },
     );
-    return ((rows as any[]) ?? [])
-      .filter((f: any) => {
+    return rows
+      .filter((f) => {
         const policy = policyFor(f.predicate);
         if (policy.requiresScope && !scopes.includes(policy.requiresScope)) {
           return false;
         }
         return true;
       })
-      .map((f: any) => ({
+      .map((f) => ({
         id: f.id,
         predicate: f.predicate,
         object: f.object,
@@ -337,7 +382,8 @@ export class ArtifactsService {
     // the UPDATE and both CREATE → one hits the (entityId, artifactType)
     // UNIQUE index. On retry the UPDATE now finds the winner's row.
     const row = await retryOnUniqueViolation(async () => {
-      const [updRows] = await db.query<any[][]>(
+      const updated = await queryFirst<StoredArtifactRow>(
+        db,
         // CAS on dirty: clear it only if the flag still matches what we
         // observed before reading facts. migration 0004 defines a DB EVENT
         // that flips dirty=true whenever a relevant fact changes, so a fact
@@ -361,9 +407,9 @@ export class ArtifactsService {
           expectedDirty,
         },
       );
-      const updated = ((updRows as any[]) ?? [])[0];
       if (updated) return updated;
-      const [creRows] = await db.query<any[][]>(
+      const created = await queryFirst<StoredArtifactRow>(
+        db,
         `CREATE knowledge_artifact CONTENT {
             entityId: type::record('knowledge_entity', $rid),
             artifactType: $type,
@@ -373,7 +419,10 @@ export class ArtifactsService {
          } RETURN AFTER`,
         { rid, type: artifactType, wrapped, facts: factRecords },
       );
-      return ((creRows as any[]) ?? [])[0];
+      if (!created) {
+        throw new Error('upsertArtifact: CREATE returned no row');
+      }
+      return created;
     });
     return {
       payload,
@@ -450,10 +499,7 @@ export class ArtifactsService {
   }
 
   private normalizeEntityId(raw: string): { id: string; full: string } {
-    const id = raw.startsWith('knowledge_entity:')
-      ? raw.slice('knowledge_entity:'.length)
-      : raw;
+    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return { id, full: `knowledge_entity:${id}` };
   }
 }
-

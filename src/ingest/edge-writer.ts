@@ -1,5 +1,10 @@
 import { Surreal, StringRecordId } from 'surrealdb';
-import { isUniqueViolation } from '../db/surreal.service';
+import { isUniqueViolation, queryFirst } from '../db/surreal.service';
+
+/** `knowledge_edge` row projection — only `id` is read back. */
+interface EdgeIdRow {
+  id: unknown;
+}
 
 /**
  * Create a knowledge_edge between two ALREADY-resolved entity IDs.
@@ -22,7 +27,8 @@ export async function createEdgeBetween(
   const fromRid = new StringRecordId(p.fromEntityId);
   const toRid = new StringRecordId(p.toEntityId);
   try {
-    const [edgeRows] = await db.query<[any[]]>(
+    const edge = await queryFirst<EdgeIdRow>(
+      db,
       `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
       {
         from: fromRid,
@@ -32,15 +38,14 @@ export async function createEdgeBetween(
         source: p.source,
       },
     );
-    const edge = ((edgeRows as any[]) ?? [])[0];
     return edge ? String(edge.id) : null;
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    const [existingRows] = await db.query<[any[]]>(
+    const existing = await queryFirst<EdgeIdRow>(
+      db,
       `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
       { from: fromRid, to: toRid, kind: p.kind },
     );
-    const existing = ((existingRows as any[]) ?? [])[0];
     return existing ? String(existing.id) : null;
   }
 }

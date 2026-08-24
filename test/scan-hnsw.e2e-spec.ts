@@ -96,10 +96,7 @@ describe('coverage-scan HNSW parity (real SurrealDB)', () => {
   });
 
   it('after index build, both lanes return identical output in both modes', async () => {
-    const create = await f.http
-      .post('/v1/admin/maintenance/hnsw')
-      .set(auth())
-      .send({});
+    const create = await f.http.post('/v1/admin/maintenance/hnsw').set(auth()).send({});
     expect(create.status).toBe(201);
     expect(create.body.indexes).toContain('segment_embedding_hnsw');
 
@@ -187,9 +184,7 @@ describe('coverage-scan HNSW parity (real SurrealDB)', () => {
       callerScopes: [],
       lex: 'or_terms',
     });
-    expect(
-      orTermMentions.some((l) => l.includes('parser rewrite tonight')),
-    ).toBe(true);
+    expect(orTermMentions.some((l) => l.includes('parser rewrite tonight'))).toBe(true);
 
     const arc = f.app.get(QueryArcService);
     const orTermArc = await arc.arcLines({
@@ -198,8 +193,6 @@ describe('coverage-scan HNSW parity (real SurrealDB)', () => {
       callerScopes: [],
       lex: 'or_terms',
     });
-    expect(
-      orTermArc.some((l) => l.includes('parser rewrite kickoff')),
-    ).toBe(true);
+    expect(orTermArc.some((l) => l.includes('parser rewrite kickoff'))).toBe(true);
   });
 });

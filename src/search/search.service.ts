@@ -11,14 +11,8 @@ import { traceArtifact } from '../common/debug-trace';
 import type { SearchHit } from './search.types';
 import type { EntityBucket, FactRow, NeighbourEdge } from './internals/types';
 import { buildBaseWhere } from './internals/where-builder';
-import {
-  hydrateSurvivors,
-  reattributeMerged,
-} from './internals/identity-merge';
-import {
-  makeRowPolicyFilter,
-  type PredicatePolicyLookup,
-} from '../policy/row-filter';
+import { hydrateSurvivors, reattributeMerged } from './internals/identity-merge';
+import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
 import { pinUserScope } from '../auth/user-scope';
@@ -34,10 +28,7 @@ import { shouldSkipRerankByMargin } from './internals/rerank-skip';
 import { selectFactCentric } from './internals/fact-centric';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
-import {
-  assembleGraphHits,
-  type GraphRetrieveHit,
-} from './internals/graph-retrieve';
+import { assembleGraphHits, type GraphRetrieveHit } from './internals/graph-retrieve';
 import {
   fetchEntitiesByIds,
   fetchFactsForEntities,
@@ -49,10 +40,7 @@ import { SearchRerankService } from './search-rerank.service';
 import { resolveVerbatimMode } from './verbatim-routing';
 import { PipelineContext } from './pipeline-context';
 import { ReadPinService } from '../episodes/read-pin.service';
-import {
-  getActiveRetrievalProfile,
-  resolveSearchTuning,
-} from './retrieval-profile';
+import { getActiveRetrievalProfile, resolveSearchTuning } from './retrieval-profile';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 
 export type { SearchHit } from './search.types';
@@ -112,12 +100,8 @@ export class SearchService {
    * back to the static seed when the registry isn't wired (unit tests
    * construct SearchService positionally).
    */
-  private async policyLookupFor(
-    companyId: string,
-  ): Promise<PredicatePolicyLookup | undefined> {
-    return this.predicateRegistry
-      ? this.predicateRegistry.rowPolicyLookup(companyId)
-      : undefined;
+  private async policyLookupFor(companyId: string): Promise<PredicatePolicyLookup | undefined> {
+    return this.predicateRegistry ? this.predicateRegistry.rowPolicyLookup(companyId) : undefined;
   }
 
   /** Pure helper — kept exposed for unit testing. Delegates to the
@@ -160,100 +144,94 @@ export class SearchService {
     asOf,
     callerScopes,
   }: GraphRetrieveOptions): Promise<{ results: GraphRetrieveHit[] }> {
-    return this.surreal.withScopedCompany(
-      companyId,
-      callerScopes,
-      async (db) => {
-        try {
-          const seeds = await resolveSeedEntities(db, queryText, entityRefs);
-          if (seeds.length === 0) return { results: [] };
-          const seedIds = seeds.map((s) => s.entityId);
+    return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
+      try {
+        const seeds = await resolveSeedEntities(db, queryText, entityRefs);
+        if (seeds.length === 0) return { results: [] };
+        const seedIds = seeds.map((s) => s.entityId);
 
-          const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds);
-          // Neighbour hydration and the facts fetch are independent once
-          // the neighbour ids are known — run them in one round-trip
-          // window instead of serially.
-          const allIds = [...new Set([...seedIds, ...neighbourIds])];
-          const [neighbours, factsByEntity] = await Promise.all([
-            neighbourIds.length > 0
-              ? fetchEntitiesByIds(db, neighbourIds)
-              : Promise.resolve([] as Awaited<ReturnType<typeof fetchEntitiesByIds>>),
-            fetchFactsForEntities({
-              db,
-              entityIds: allIds,
-              predicateHints,
-              asOf,
+        const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds);
+        // Neighbour hydration and the facts fetch are independent once
+        // the neighbour ids are known — run them in one round-trip
+        // window instead of serially.
+        const allIds = [...new Set([...seedIds, ...neighbourIds])];
+        const [neighbours, factsByEntity] = await Promise.all([
+          neighbourIds.length > 0
+            ? fetchEntitiesByIds(db, neighbourIds)
+            : Promise.resolve([] as Awaited<ReturnType<typeof fetchEntitiesByIds>>),
+          fetchFactsForEntities({
+            db,
+            entityIds: allIds,
+            predicateHints,
+            asOf,
+          }),
+        ]);
+
+        const entitiesById = new Map<string, (typeof seeds)[number]>();
+        for (const e of seeds) entitiesById.set(e.entityId, e);
+        for (const e of neighbours) entitiesById.set(e.entityId, e);
+
+        // Scope + ABAC row filter. Also closes the pre-ABAC gap where
+        // graph_retrieve skipped the requiresScope predicate gate that
+        // search applied — PII-scoped facts no longer surface here
+        // without brain:read_pii.
+        const rowPolicy = makeRowPolicyFilter({
+          callerScopes,
+          surface: 'graph_retrieve',
+          policyLookup: await this.policyLookupFor(companyId),
+        });
+        for (const [entityId, facts] of factsByEntity) {
+          factsByEntity.set(
+            entityId,
+            facts.filter((f) => rowPolicy.filter(f)),
+          );
+        }
+        rowPolicy.finish();
+        const policyCtx = getPolicyContext();
+        if (policyCtx) {
+          // ONE applyMetaUnion over all facts instead of one per
+          // entity — the per-entity loop paid a cold-cache origin-meta
+          // fetch (its own withCompany round-trip) per entity, up to
+          // ×N for seeds ∪ neighbours. applyMetaUnion filters without
+          // cloning, so identity-based regrouping is safe.
+          const flatRows = [...factsByEntity.values()].flat();
+          const kept = new Set(
+            await applyMetaUnion({
+              surreal: this.surreal,
+              companyId,
+              ctx: policyCtx,
+              rows: flatRows,
             }),
-          ]);
-
-          const entitiesById = new Map<string, (typeof seeds)[number]>();
-          for (const e of seeds) entitiesById.set(e.entityId, e);
-          for (const e of neighbours) entitiesById.set(e.entityId, e);
-
-          // Scope + ABAC row filter. Also closes the pre-ABAC gap where
-          // graph_retrieve skipped the requiresScope predicate gate that
-          // search applied — PII-scoped facts no longer surface here
-          // without brain:read_pii.
-          const rowPolicy = makeRowPolicyFilter({
-            callerScopes,
-            surface: 'graph_retrieve',
-            policyLookup: await this.policyLookupFor(companyId),
-          });
+          );
           for (const [entityId, facts] of factsByEntity) {
             factsByEntity.set(
               entityId,
-              facts.filter((f) => rowPolicy.filter(f)),
+              facts.filter((f) => kept.has(f)),
             );
           }
-          rowPolicy.finish();
-          const policyCtx = getPolicyContext();
-          if (policyCtx) {
-            // ONE applyMetaUnion over all facts instead of one per
-            // entity — the per-entity loop paid a cold-cache origin-meta
-            // fetch (its own withCompany round-trip) per entity, up to
-            // ×N for seeds ∪ neighbours. applyMetaUnion filters without
-            // cloning, so identity-based regrouping is safe.
-            const flatRows = [...factsByEntity.values()].flat();
-            const kept = new Set(
-              await applyMetaUnion({
-                surreal: this.surreal,
-                companyId,
-                ctx: policyCtx,
-                rows: flatRows,
-              }),
-            );
-            for (const [entityId, facts] of factsByEntity) {
-              factsByEntity.set(
-                entityId,
-                facts.filter((f) => kept.has(f)),
-              );
-            }
-          }
-
-          traceArtifact('graph_retrieve', {
-            seeds: seedIds,
-            neighbours: neighbourIds,
-            factsByEntity: Object.fromEntries(
-              [...factsByEntity.entries()].map(([k, v]) => [k, v.length]),
-            ),
-            predicateHints,
-          });
-
-          const results = assembleGraphHits({
-            seedIds,
-            entitiesById,
-            factsByEntity,
-            predicateHints,
-          });
-          return { results };
-        } catch (err) {
-          this.logger.warn(
-            `graphRetrieve failed for ${companyId}: ${(err as Error).message}`,
-          );
-          return { results: [] };
         }
-      },
-    );
+
+        traceArtifact('graph_retrieve', {
+          seeds: seedIds,
+          neighbours: neighbourIds,
+          factsByEntity: Object.fromEntries(
+            [...factsByEntity.entries()].map(([k, v]) => [k, v.length]),
+          ),
+          predicateHints,
+        });
+
+        const results = assembleGraphHits({
+          seedIds,
+          entitiesById,
+          factsByEntity,
+          predicateHints,
+        });
+        return { results };
+      } catch (err) {
+        this.logger.warn(`graphRetrieve failed for ${companyId}: ${(err as Error).message}`);
+        return { results: [] };
+      }
+    });
   }
 
   /** Public re-export for the multi-hop executor. Opens a scoped
@@ -326,8 +304,7 @@ export class SearchService {
     // multiworld read set when configured (§10). Resolved BEFORE the
     // scoped connection so the registry lookup never holds a pool slot.
     const derivedVersion =
-      (await this.readPin?.resolveRead(companyId)) ??
-      ReadPinService.bootstrapRead();
+      (await this.readPin?.resolveRead(companyId)) ?? ReadPinService.bootstrapRead();
 
     const profile = getActiveRetrievalProfile();
     const tuning = resolveSearchTuning();
@@ -354,10 +331,8 @@ export class SearchService {
     // the pipeline's slowest awaits — run AFTER the 8-slot pool
     // connection is released (their one DB need, the 1-hop rerank
     // neighbourhoods, is prefetched inside the scope).
-    const staged = await this.surreal.withScopedCompany(
-      companyId,
-      callerScopes,
-      (db) => this.runDbStages(db, ctx),
+    const staged = await this.surreal.withScopedCompany(companyId, callerScopes, (db) =>
+      this.runDbStages(db, ctx),
     );
     const out = await this.rankAndAssemble(staged, ctx);
     // Usage reinforcement, write side (opt-in): stamp the facts this
@@ -369,18 +344,13 @@ export class SearchService {
         surreal: this.surreal,
         logger: this.logger,
         companyId,
-        factIds: out.results.flatMap((h) =>
-          (h.facts ?? []).map((f) => f.factId),
-        ),
+        factIds: out.results.flatMap((h) => (h.facts ?? []).map((f) => f.factId)),
       });
     }
     return out;
   }
 
-  private async runDbStages(
-    db: Surreal,
-    ctx: PipelineContext,
-  ): Promise<StagedPipeline> {
+  private async runDbStages(db: Surreal, ctx: PipelineContext): Promise<StagedPipeline> {
     // Phase 4.B locale-aware retrieval. Detect the query language
     // (or honour the explicit dto.queryLang) and apply a two-pass
     // filter → cross-lingual backoff strategy. `und` or disabled →
@@ -418,11 +388,7 @@ export class SearchService {
         temporalMode: ctx.profile.temporalMode,
         excludeInsightRows: ctx.profile.insightEvidence !== 'off',
       });
-      const fallback = await this.retrieval.runRetrievalStage(
-        db,
-        ctx,
-        fallbackWhere,
-      );
+      const fallback = await this.retrieval.runRetrievalStage(db, ctx, fallbackWhere);
       const seen = new Set(fused.map((r) => String(r.id)));
       for (const r of fallback) {
         if (!seen.has(String(r.id))) {
@@ -517,8 +483,7 @@ export class SearchService {
     // interval-overlap decay; in 'filter' mode every surviving row
     // already contains the anchor, so passing it is a no-op there.
     const byEntity = this.retrieval.scoreAndBucket(filtered, {
-      temporalAnchor:
-        ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
+      temporalAnchor: ctx.profile.temporalMode === 'overlap_boost' ? ctx.asOf : null,
       tuning: ctx.tuning,
       salienceScoring: ctx.profile.salienceScoring,
       queryRange: ctx.queryRange ?? null,
@@ -548,10 +513,7 @@ export class SearchService {
     // per query: only verbatim-shaped asks run the leg — the V6
     // three-block pairs measured fused at SSA +7.1pp vs SSU −10.0pp /
     // TR −8.3pp (pooled −5.0pp at n=239).
-    if (
-      resolveVerbatimMode(ctx.profile.verbatimEvidence, ctx.dto.query) ===
-      'fused'
-    ) {
+    if (resolveVerbatimMode(ctx.profile.verbatimEvidence, ctx.dto.query) === 'fused') {
       const segBuckets = await this.retrieval.runSegmentLegStage(db, ctx);
       for (const [k, v] of segBuckets) {
         if (!byEntity.has(k)) byEntity.set(k, v);
@@ -560,11 +522,7 @@ export class SearchService {
 
     // Last DB touch: prefetch the 1-hop neighbourhoods the LLM rerank
     // body wants, so the rerank stage needs no connection at all.
-    const neighboursByEntity = await this.rerank.prefetchNeighbours(
-      db,
-      byEntity,
-      ctx,
-    );
+    const neighboursByEntity = await this.rerank.prefetchNeighbours(db, byEntity, ctx);
     return { byEntity, rowPolicy, neighboursByEntity };
   }
 
@@ -631,12 +589,7 @@ export class SearchService {
     });
     rowPolicy.finish();
     return {
-      results: await applyOutputShaping(
-        hits,
-        ctx.dto,
-        this.workerPool,
-        ctx.tuning,
-      ),
+      results: await applyOutputShaping(hits, ctx.dto, this.workerPool, ctx.tuning),
     };
   }
 
@@ -653,10 +606,9 @@ export class SearchService {
     baseWhere: { sql: string; params: Record<string, unknown> };
     ctx: PipelineContext;
     rowFilterFn: (row: FactRow) => boolean;
-    prefetchedNeighbours?: Map<
-      string,
-      { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }
-    >;
+    prefetchedNeighbours?:
+      | Map<string, { outNeighbours: NeighbourEdge[] | null; inNeighbours: NeighbourEdge[] | null }>
+      | undefined;
   }): Promise<void> {
     if (byEntity.size < 1) return;
     await withSpan(
@@ -694,11 +646,9 @@ export class SearchService {
     const pprAutoThreshold = ctx.tuning.pprAutoThreshold;
     const pprAuto = pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
     if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
-    await withSpan(
-      'search.ppr',
-      () => applyPprPrior(db, byEntity, ctx.dto.userId),
-      { 'ppr.entities': byEntity.size },
-    );
+    await withSpan('search.ppr', () => applyPprPrior(db, byEntity, ctx.dto.userId), {
+      'ppr.entities': byEntity.size,
+    });
   }
 }
 

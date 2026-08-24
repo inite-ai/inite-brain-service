@@ -24,9 +24,6 @@ export class UserForgetController {
   ): Promise<UserForgetResult> {
     // A user-bound token may erase only its own scope; the pin throws
     // 403 when the path names another user. M2M admin keys erase any.
-    return this.userForget.forgetUser(
-      req.brainAuth.companyId,
-      pinUserScope(userId) ?? userId,
-    );
+    return this.userForget.forgetUser(req.brainAuth.companyId, pinUserScope(userId) ?? userId);
   }
 }

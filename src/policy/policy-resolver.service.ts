@@ -3,20 +3,28 @@ import { ConfigService } from '@nestjs/config';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { MetricsService } from '../metrics/metrics.service';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { compilePolicySet, denyAllSet } from './policy-compile';
-import {
-  CompiledPolicySet,
-  MAX_SETS_PER_KEY,
-  PolicyContext,
-  PolicyDocument,
-} from './policy.types';
+import { CompiledPolicySet, MAX_SETS_PER_KEY, PolicyContext, PolicyDocument } from './policy.types';
 
 /** Who is asking: credential hash + claim-carried set names + acting client. */
 export interface PolicySubject {
   keyHash: string;
-  claimNames?: readonly string[];
-  actorId?: string;
+  claimNames?: readonly string[] | undefined;
+  actorId?: string | undefined;
+}
+
+/** Raw access_policy row: name is stringified, document is compiled. */
+interface AccessPolicyRow {
+  name: unknown;
+  mode?: unknown;
+  document: unknown;
+}
+
+/** Raw policy_binding row: subject → attached policy set names. */
+interface PolicyBindingRow {
+  subject: unknown;
+  policyNames?: unknown;
 }
 
 interface TenantPolicySnapshot {
@@ -60,9 +68,7 @@ export class PolicyResolverService {
     config: ConfigService,
   ) {
     this.enabled = envFlagEnabled(config.get<string>('ABAC_ENABLED'));
-    this.forceReportOnly = envFlagEnabled(
-      config.get<string>('ABAC_FORCE_REPORT_ONLY'),
-    );
+    this.forceReportOnly = envFlagEnabled(config.get<string>('ABAC_FORCE_REPORT_ONLY'));
     const ttl = parseInt(config.get<string>('POLICY_CACHE_TTL_MS', '60000'), 10);
     this.ttlMs = Number.isFinite(ttl) && ttl >= 0 ? ttl : 60_000;
     const cap = parseInt(config.get<string>('POLICY_CACHE_CAP', '500'), 10);
@@ -83,10 +89,7 @@ export class PolicyResolverService {
    * or the key references no policy sets — the null short-circuits every
    * enforcement point to pre-ABAC behavior.
    */
-  async contextFor(
-    companyId: string,
-    subject: PolicySubject,
-  ): Promise<PolicyContext | null> {
+  async contextFor(companyId: string, subject: PolicySubject): Promise<PolicyContext | null> {
     if (!this.enabled) return null;
     const { keyHash, claimNames, actorId } = subject;
     const snap = await this.snapshot(companyId);
@@ -185,26 +188,25 @@ export class PolicyResolverService {
 
   private async loadFresh(companyId: string): Promise<TenantPolicySnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [policyRows] = await db.query<[any[]]>(
+      const policyRows = await queryRows<AccessPolicyRow>(
+        db,
         `SELECT name, mode, document FROM access_policy`,
       );
-      const [bindingRows] = await db.query<[any[]]>(
+      const bindingRows = await queryRows<PolicyBindingRow>(
+        db,
         `SELECT subject, policyNames FROM policy_binding`,
       );
       const sets = new Map<string, CompiledPolicySet>();
       const knownNames = new Set<string>();
-      for (const r of (policyRows as any[]) ?? []) {
+      for (const r of policyRows) {
         const name = String(r.name);
         knownNames.add(name);
         const compiled = compilePolicySet(r.document as PolicyDocument);
         if (compiled) sets.set(name, compiled);
       }
       const bindings = new Map<string, string[]>();
-      for (const r of (bindingRows as any[]) ?? []) {
-        bindings.set(
-          String(r.subject),
-          ((r.policyNames as string[]) ?? []).map(String),
-        );
+      for (const r of bindingRows) {
+        bindings.set(String(r.subject), ((r.policyNames as string[]) ?? []).map(String));
       }
       return { sets, knownNames, bindings, loadedAt: Date.now() };
     });

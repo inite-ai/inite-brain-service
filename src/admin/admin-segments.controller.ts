@@ -1,18 +1,8 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
-import {
-  SegmentComposerService,
-  SegmentRunResult,
-} from './segment-composer.service';
+import { SegmentComposerService, SegmentRunResult } from './segment-composer.service';
 
 /**
  * Explicit trigger for the L0 segment composer (memory-rebuild R1).
@@ -35,13 +25,8 @@ export class AdminSegmentsController {
     @Body() body: { tenant?: string } = {},
   ): Promise<SegmentRunResult> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (
-      tenant !== req.brainAuth.companyId &&
-      !this.apiKeys.knownCompanyIds().includes(tenant)
-    ) {
-      throw new BadRequestException(
-        `Unknown tenant '${tenant}' — not a registered tenant`,
-      );
+    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
+      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
     }
     return this.composer.run(tenant);
   }

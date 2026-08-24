@@ -29,9 +29,7 @@ describe('Brain Service e2e', () => {
 
   describe('Auth', () => {
     it('rejects requests without Bearer', async () => {
-      const res = await f.http
-        .post('/v1/search')
-        .send({ query: 'hi' });
+      const res = await f.http.post('/v1/search').send({ query: 'hi' });
       expect(res.status).toBe(401);
     });
 
@@ -123,13 +121,16 @@ describe('Brain Service e2e', () => {
     it('finds entities by semantic match (deterministic stub: identical text)', async () => {
       // Use a unique entity so the assertion is unambiguous.
       const uniqueObject = 'extreme winter draft from balcony seal failure';
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'cust_search_test' },
-        predicate: 'complained_about',
-        object: uniqueObject,
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'msg_search' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_search_test' },
+          predicate: 'complained_about',
+          object: uniqueObject,
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'msg_search' },
+        });
       const res = await f.http
         .post('/v1/search')
         .set(auth())
@@ -142,13 +143,16 @@ describe('Brain Service e2e', () => {
 
     it('respects asOf bitemporal filter', async () => {
       const uniqueObject = 'transient annoyance probably ignorable';
-      await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'cust_asof' },
-        predicate: 'complained_about',
-        object: uniqueObject,
-        validFrom: new Date('2026-04-15').toISOString(),
-        source: { vertical: 'rent', messageId: 'msg_asof' },
-      });
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_asof' },
+          predicate: 'complained_about',
+          object: uniqueObject,
+          validFrom: new Date('2026-04-15').toISOString(),
+          source: { vertical: 'rent', messageId: 'msg_asof' },
+        });
       // asOf earlier than recordedAt → should NOT see the fact
       const earlier = await f.http
         .post('/v1/search')
@@ -169,14 +173,17 @@ describe('Brain Service e2e', () => {
     let factId: string;
 
     beforeAll(async () => {
-      const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'cust_reads' },
-        predicate: 'name',
-        object: 'Acme Corp',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent', messageId: 'm_reads' },
-        confidence: 0.95,
-      });
+      const r = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_reads' },
+          predicate: 'name',
+          object: 'Acme Corp',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent', messageId: 'm_reads' },
+          confidence: 0.95,
+        });
       factId = r.body.factId;
       // Look up entityId via search to keep this self-contained.
       const s = await f.http
@@ -187,9 +194,7 @@ describe('Brain Service e2e', () => {
     });
 
     it('GET /v1/entities/:id returns profile', async () => {
-      const res = await f.http
-        .get(`/v1/entities/${encodeURIComponent(entityId)}`)
-        .set(auth());
+      const res = await f.http.get(`/v1/entities/${encodeURIComponent(entityId)}`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.entityId).toBe(entityId);
       expect(res.body.facts.some((x: any) => x.factId === factId)).toBe(true);
@@ -208,13 +213,16 @@ describe('Brain Service e2e', () => {
   describe('POST /v1/facts/:id/retract', () => {
     it('closes validity and removes from active reads', async () => {
       // Ingest a fresh fact to retract.
-      const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'cust_retract' },
-        predicate: 'tier',
-        object: 'platinum',
-        validFrom: new Date('2026-04-01').toISOString(),
-        source: { vertical: 'rent', messageId: 'm_ret' },
-      });
+      const ingest = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_retract' },
+          predicate: 'tier',
+          object: 'platinum',
+          validFrom: new Date('2026-04-01').toISOString(),
+          source: { vertical: 'rent', messageId: 'm_ret' },
+        });
       const factId = ingest.body.factId;
 
       const retract = await f.http
@@ -241,13 +249,16 @@ describe('Brain Service e2e', () => {
     });
 
     it('idempotent on already-retracted fact', async () => {
-      const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-        entityRef: { vertical: 'rent', id: 'cust_retract_idem' },
-        predicate: 'tier',
-        object: 'gold',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'm_idem' },
-      });
+      const ingest = await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_retract_idem' },
+          predicate: 'tier',
+          object: 'gold',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'm_idem' },
+        });
       const factId = ingest.body.factId;
       const a = await f.http
         .post(`/v1/facts/${encodeURIComponent(factId)}/retract`)
@@ -272,13 +283,16 @@ describe('Brain Service e2e', () => {
       const limitedAuth = { Authorization: `Bearer ${limited.apiKey}` };
 
       // Seed an address fact under the limited tenant.
-      await limited.http.post('/v1/ingest/fact').set(limitedAuth).send({
-        entityRef: { vertical: 'rent', id: 'cust_pii' },
-        predicate: 'address',
-        object: '1 Main St',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'm_pii' },
-      });
+      await limited.http
+        .post('/v1/ingest/fact')
+        .set(limitedAuth)
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_pii' },
+          predicate: 'address',
+          object: '1 Main St',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'm_pii' },
+        });
       const search = await limited.http
         .post('/v1/search')
         .set(limitedAuth)
@@ -298,20 +312,26 @@ describe('Brain Service e2e', () => {
       const tAuth = { Authorization: `Bearer ${tenant.apiKey}` };
 
       // Seed
-      await tenant.http.post('/v1/ingest/fact').set(tAuth).send({
-        entityRef: { vertical: 'rent', id: 'cust_forget' },
-        predicate: 'name',
-        object: 'Forgettable Customer',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'm_f1' },
-      });
-      await tenant.http.post('/v1/ingest/fact').set(tAuth).send({
-        entityRef: { vertical: 'rent', id: 'cust_forget' },
-        predicate: 'email',
-        object: 'forget@example.com',
-        validFrom: new Date().toISOString(),
-        source: { vertical: 'rent', messageId: 'm_f2' },
-      });
+      await tenant.http
+        .post('/v1/ingest/fact')
+        .set(tAuth)
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_forget' },
+          predicate: 'name',
+          object: 'Forgettable Customer',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'm_f1' },
+        });
+      await tenant.http
+        .post('/v1/ingest/fact')
+        .set(tAuth)
+        .send({
+          entityRef: { vertical: 'rent', id: 'cust_forget' },
+          predicate: 'email',
+          object: 'forget@example.com',
+          validFrom: new Date().toISOString(),
+          source: { vertical: 'rent', messageId: 'm_f2' },
+        });
       const s = await tenant.http
         .post('/v1/search')
         .set(tAuth)
@@ -327,9 +347,7 @@ describe('Brain Service e2e', () => {
       expect(forget.body.entityIdHash.startsWith('hmac:')).toBe(true);
 
       // Subsequent profile read → 404
-      const r = await tenant.http
-        .get(`/v1/entities/${encodeURIComponent(entityId)}`)
-        .set(tAuth);
+      const r = await tenant.http.get(`/v1/entities/${encodeURIComponent(entityId)}`).set(tAuth);
       expect(r.status).toBe(404);
 
       // Search returns no results for that entity
@@ -337,9 +355,7 @@ describe('Brain Service e2e', () => {
         .post('/v1/search')
         .set(tAuth)
         .send({ query: 'name: Forgettable Customer' });
-      const stillReturned = (after.body.results ?? []).some(
-        (x: any) => x.entityId === entityId,
-      );
+      const stillReturned = (after.body.results ?? []).some((x: any) => x.entityId === entityId);
       expect(stillReturned).toBe(false);
 
       await tenant.close();

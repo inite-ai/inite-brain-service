@@ -5,12 +5,7 @@ import { IntentClassifierService } from './intent-classifier.service';
 import { ChangefeedConsumerService } from '../audit/changefeed-consumer.service';
 import type { HealthComponentsResponse } from '../contracts/admin/health-components.schema';
 
-type ComponentStatus =
-  | 'ok'
-  | 'warming'
-  | 'degraded'
-  | 'disabled'
-  | 'unreachable';
+type ComponentStatus = 'ok' | 'warming' | 'degraded' | 'disabled' | 'unreachable';
 
 /**
  * HealthComponentsService — builds the per-component health grid for the
@@ -58,11 +53,7 @@ export class HealthComponentsService {
     const intentStats = this.intent.stats();
     components.push({
       name: 'intent classifier',
-      status: !intentStats.enabled
-        ? 'disabled'
-        : intentStats.ready
-          ? 'ok'
-          : 'warming',
+      status: !intentStats.enabled ? 'disabled' : intentStats.ready ? 'ok' : 'warming',
       message: intentStats.enabled
         ? `model=${intentStats.model} cache=${intentStats.cacheSize}`
         : 'CHAT_ROUTE_NLI_ENABLED=0',
@@ -95,10 +86,7 @@ export class HealthComponentsService {
     // Calibration source
     components.push({
       name: 'calibration',
-      status:
-        envFlagNotDisabled(process.env.CALIBRATION_USE_GOLD_SET)
-          ? 'ok'
-          : 'disabled',
+      status: envFlagNotDisabled(process.env.CALIBRATION_USE_GOLD_SET) ? 'ok' : 'disabled',
       message: 'see /admin/calibration for ECE + version history',
     });
 

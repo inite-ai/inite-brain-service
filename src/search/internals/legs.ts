@@ -7,11 +7,7 @@ import { buildEdgeFence, type EdgeFence } from './edge-fence';
 /** The slice of SearchTuning the legs consume (kept narrow for tests). */
 export type LegTuning = Pick<
   SearchTuning,
-  | 'combinedVectorGraph'
-  | 'hnswEnabled'
-  | 'hnswEf'
-  | 'hnswOverfetch'
-  | 'highlightEnabled'
+  'combinedVectorGraph' | 'hnswEnabled' | 'hnswEf' | 'hnswOverfetch' | 'highlightEnabled'
 >;
 
 const DEFAULT_LEG_TUNING: LegTuning = {
@@ -79,9 +75,7 @@ export async function runVectorLeg({
     try {
       return await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
     } catch (e) {
-      logger?.warn(
-        `hnsw vector leg fell back to full scan: ${(e as Error).message}`,
-      );
+      logger?.warn(`hnsw vector leg fell back to full scan: ${(e as Error).message}`);
     }
   }
   const sql = `

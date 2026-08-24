@@ -1,7 +1,4 @@
-import type {
-  ExtractionProfile,
-  PredicateDefinition,
-} from '../predicate-registry-internals/types';
+import type { ExtractionProfile, PredicateDefinition } from '../predicate-registry-internals/types';
 
 export type { ExtractionProfile, ExtractionExample } from '../predicate-registry-internals/types';
 
@@ -36,22 +33,21 @@ export const SEED_MAX_DOCS = 32;
  *  NORMAL document pipeline on install (kind='pack_seed'). Covered by
  *  checksum + signature like every other manifest section. */
 export interface PackSeedDocument {
-  localId: string;      // snake_case, unique within the pack
+  localId: string; // snake_case, unique within the pack
   title: string;
-  text: string;         // <= SEED_DOC_MAX_CHARS; all docs together <= SEED_TOTAL_MAX_CHARS
-  vertical: string;     // contextRef.vertical at ingest — author-declared, required
+  text: string; // <= SEED_DOC_MAX_CHARS; all docs together <= SEED_TOTAL_MAX_CHARS
+  vertical: string; // contextRef.vertical at ingest — author-declared, required
   originUri?: string;
-  occurredAt?: string;  // ISO datetime -> derived facts' validFrom; default: ingest time
+  occurredAt?: string; // ISO datetime -> derived facts' validFrom; default: ingest time
   meta?: Record<string, string | number | boolean>; // flat scalars only
 }
 
 /** A predicate as declared INSIDE a pack — a core PredicateDefinition minus the
  *  fully-qualified id (the loader composes it) and the provenance tag (the
  *  loader stamps it). The pack author supplies a `localId` instead. */
-export type PackPredicate = Omit<
-  PredicateDefinition,
-  'predicateId' | 'createdBy'
-> & { localId: string };
+export type PackPredicate = Omit<PredicateDefinition, 'predicateId' | 'createdBy'> & {
+  localId: string;
+};
 
 /** The versioned, self-describing pack manifest — the community standard.
  *  OpenAPI mirror: src/contracts/registry/registry.schema.ts

@@ -2,16 +2,13 @@ import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/comm
 import { Cron } from '@nestjs/schedule';
 import type { Surreal } from 'surrealdb';
 import { StringRecordId } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService } from '../jobs/worker-loop.service';
 import { SUMMARY_GENERATOR } from './compaction.types';
 import { changefeedRow } from '../db/changefeed-row';
-import type {
-  SummaryGenerator,
-  FactToSummarize,
-} from './summary-generator';
+import type { SummaryGenerator, FactToSummarize } from './summary-generator';
 
 /** Changefeed cursor key — distinct from the audit drain's per-table keys. */
 const CURSOR = 'recompose:knowledge_fact';
@@ -27,6 +24,41 @@ const CURSOR = 'recompose:knowledge_fact';
  * chase its own tail forever.
  */
 const CONTENT_CHANGED = new Set(['superseded', 'retracted']);
+
+/** One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items. */
+interface ShowChangesRow {
+  versionstamp?: number | string;
+  changes?: unknown[];
+}
+
+/** The `changefeed_state` cursor row this pass reads/advances. */
+interface CursorRow {
+  lastVersionstamp?: number;
+}
+
+/** A stale compaction summary awaiting re-derivation. */
+interface StaleSummaryRow {
+  id: unknown;
+  predicate?: unknown;
+  derivedFrom?: unknown[];
+  staleAt?: unknown;
+}
+
+/**
+ * A knowledge_fact row as selected by the recompose SELECTs. The temporal and
+ * scalar columns funnel through String()/Number()/isoOf(), so they are typed
+ * `unknown`; the shape reflects exactly the columns the SELECTs return.
+ */
+interface FactRow {
+  id: unknown;
+  predicate: unknown;
+  object: unknown;
+  confidence?: unknown;
+  validFrom: unknown;
+  validUntil?: unknown;
+  retractedAt?: unknown;
+  supersededBy?: unknown;
+}
 
 /**
  * RecomposeService — Phase 1 of docs/roadmap/cascade-recompose-2026-07.md.
@@ -82,11 +114,10 @@ export class RecomposeService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.workerLoop?.register(
-      'recompose',
-      (ctx) => this.runForTenant(ctx.companyId),
-      { ttlSeconds: 900, maxAttempts: 2 },
-    );
+    this.workerLoop?.register('recompose', (ctx) => this.runForTenant(ctx.companyId), {
+      ttlSeconds: 900,
+      maxAttempts: 2,
+    });
   }
 
   /** 03:05 UTC — after consolidation (02:40), before compaction (03:17), so a
@@ -106,9 +137,7 @@ export class RecomposeService implements OnModuleInit {
         });
         if (created) enqueued++;
       } catch (e) {
-        this.logger.warn(
-          `enqueue recompose for ${companyId} failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`enqueue recompose for ${companyId} failed: ${(e as Error).message}`);
       }
     }
     return { enqueued };
@@ -135,18 +164,18 @@ export class RecomposeService implements OnModuleInit {
   async invalidate(companyId: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const since = await loadCursor(db);
-      const [rows] = await db.query<[any[]]>(
+      const changes = await queryRows<ShowChangesRow>(
+        db,
         `SHOW CHANGES FOR TABLE knowledge_fact SINCE ${since} LIMIT ${this.batchLimit}`,
       );
-      const changes = (rows as any[]) ?? [];
       let highest = since;
       const changed: string[] = [];
       for (const c of changes) {
-        const vs = Number(c?.versionstamp ?? 0);
+        const vs = Number(c.versionstamp ?? 0);
         // SINCE is inclusive of the boundary — skip the row the cursor sits on.
         if (vs <= since) continue;
         if (vs > highest) highest = vs;
-        for (const item of (c?.changes as any[]) ?? []) {
+        for (const item of c.changes ?? []) {
           // `changefeedRow`, not `item.update` — on an UPDATE the latter is a
           // patch ARRAY and reading `.id` off it yields undefined, which is how
           // a drain silently sees creates only.
@@ -179,11 +208,10 @@ export class RecomposeService implements OnModuleInit {
    * nothing left to say and is retracted itself — the only case where deletion
    * is the right answer.
    */
-  async recompute(
-    companyId: string,
-  ): Promise<{ recomputed: number; retracted: number }> {
+  async recompute(companyId: string): Promise<{ recomputed: number; retracted: number }> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<StaleSummaryRow>(
+        db,
         `SELECT id, predicate, derivedFrom, staleAt FROM knowledge_fact
           WHERE staleAt IS NOT NONE
             AND retractedAt IS NONE
@@ -192,7 +220,7 @@ export class RecomposeService implements OnModuleInit {
       );
       let recomputed = 0;
       let retracted = 0;
-      for (const summary of (rows as any[]) ?? []) {
+      for (const summary of rows) {
         const parents = await this.currentParents(db, summary.derivedFrom ?? []);
         if (parents.length === 0) {
           await this.retractOrphan(db, String(summary.id));
@@ -211,19 +239,17 @@ export class RecomposeService implements OnModuleInit {
    * at status='compacted' is NORMAL — that is what compaction does to its
    * sources — so it counts as surviving.
    */
-  private async currentParents(
-    db: Surreal,
-    recorded: unknown[],
-  ): Promise<FactToSummarize[]> {
+  private async currentParents(db: Surreal, recorded: unknown[]): Promise<FactToSummarize[]> {
     if (recorded.length === 0) return [];
-    const [rows] = await db.query<[any[]]>(
+    const rows = await queryRows<FactRow>(
+      db,
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
               retractedAt, supersededBy
          FROM knowledge_fact WHERE id INSIDE $ids`,
       { ids: recorded.map((r) => new StringRecordId(String(r))) },
     );
     const out: FactToSummarize[] = [];
-    for (const row of (rows as any[]) ?? []) {
+    for (const row of rows) {
       const live = await this.followSupersedes(db, row);
       if (!live || live.retractedAt) continue;
       out.push({
@@ -240,16 +266,17 @@ export class RecomposeService implements OnModuleInit {
   }
 
   /** Walk supersededBy to the current row. Bounded at 8 hops. */
-  private async followSupersedes(db: Surreal, row: any): Promise<any | null> {
-    let current = row;
-    for (let hop = 0; hop < 8 && current?.supersededBy; hop++) {
-      const [next] = await db.query<[any[]]>(
+  private async followSupersedes(db: Surreal, row: FactRow): Promise<FactRow | null> {
+    let current: FactRow = row;
+    for (let hop = 0; hop < 8 && current.supersededBy; hop++) {
+      const next = await queryRows<FactRow>(
+        db,
         `SELECT id, predicate, object, confidence, validFrom, validUntil,
                 retractedAt, supersededBy
            FROM knowledge_fact WHERE id = $id`,
         { id: new StringRecordId(String(current.supersededBy)) },
       );
-      const found = ((next as any[]) ?? [])[0];
+      const found = next[0];
       if (!found) return current;
       current = found;
     }
@@ -264,8 +291,10 @@ export class RecomposeService implements OnModuleInit {
   ): Promise<boolean> {
     const text = await this.summaryGenerator.generate(parents);
     if (!text) return false;
-    const meanConfidence =
-      parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
+    const first = parents[0];
+    const last = parents[parents.length - 1];
+    if (!first || !last) return false; // no parents to recompose from
+    const meanConfidence = parents.reduce((acc, p) => acc + p.confidence, 0) / parents.length;
     await db.query(
       `UPDATE $id SET
          object = $object, confidence = $confidence,
@@ -277,10 +306,8 @@ export class RecomposeService implements OnModuleInit {
         id: new StringRecordId(summaryId),
         object: text,
         confidence: meanConfidence,
-        validFrom: parents[0].validFrom,
-        validUntil:
-          parents[parents.length - 1].validUntil ??
-          parents[parents.length - 1].validFrom,
+        validFrom: first.validFrom,
+        validUntil: last.validUntil ?? last.validFrom,
         // Re-point at the CURRENT parents: a superseded parent we followed is
         // no longer what this summary is derived from, and leaving the old id
         // would make the next invalidation pass chase a dead row.
@@ -304,11 +331,12 @@ export class RecomposeService implements OnModuleInit {
 }
 
 async function loadCursor(db: Surreal): Promise<number> {
-  const [rows] = await db.query<[any[]]>(
+  const row = await queryFirst<CursorRow>(
+    db,
     `SELECT lastVersionstamp FROM changefeed_state WHERE source = $s LIMIT 1`,
     { s: CURSOR },
   );
-  return ((rows as any[]) ?? [])[0]?.lastVersionstamp ?? 0;
+  return row?.lastVersionstamp ?? 0;
 }
 
 async function advanceCursor(db: Surreal, versionstamp: number): Promise<void> {

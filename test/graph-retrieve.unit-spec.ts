@@ -53,16 +53,21 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
       ['e_maria', [fact('f1', 'e_maria', 'status', 'CTO at Acme')]],
     ]);
 
-    const out = assembleGraphHits({ seedIds: ['e_acme'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
+    const out = assembleGraphHits({
+      seedIds: ['e_acme'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: ['status'],
+    });
 
     // Seed comes first (anchor), Maria as the neighbour with the hit.
     expect(out.map((r) => r.entityId)).toEqual(['e_acme', 'e_maria']);
     // Maria's fact is what answers the question.
-    expect(out[1].facts).toHaveLength(1);
-    expect(out[1].facts[0].predicate).toBe('status');
-    expect(out[1].facts[0].object).toBe('CTO at Acme');
+    expect(out[1]!.facts).toHaveLength(1);
+    expect(out[1]!.facts[0]!.predicate).toBe('status');
+    expect(out[1]!.facts[0]!.object).toBe('CTO at Acme');
     // Seed is lifted higher than neighbour.
-    expect(out[0].score).toBeGreaterThan(out[1].score);
+    expect(out[0]!.score).toBeGreaterThan(out[1]!.score);
   });
 
   it('seed with no facts + neighbour with non-hint facts → neighbour DROPPED', () => {
@@ -80,7 +85,12 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
       ['e_bob', [fact('f1', 'e_bob', 'address', '4B')]], // not 'status'
     ]);
 
-    const out = assembleGraphHits({ seedIds: ['e_acme'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
+    const out = assembleGraphHits({
+      seedIds: ['e_acme'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: ['status'],
+    });
 
     expect(out.map((r) => r.entityId)).toEqual(['e_acme']);
   });
@@ -97,7 +107,12 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
       ['e_bob', [fact('f1', 'e_bob', 'name', 'Bob Müller')]],
     ]);
 
-    const out = assembleGraphHits({ seedIds: ['e_acme'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: [] });
+    const out = assembleGraphHits({
+      seedIds: ['e_acme'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: [],
+    });
 
     expect(out.map((r) => r.entityId)).toEqual(['e_acme', 'e_bob']);
   });
@@ -109,13 +124,16 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
     const entitiesById = new Map([['e_acme', acme]]);
     const factsByEntity = new Map<string, GraphFactRow[]>([['e_acme', []]]);
 
-    const out = assembleGraphHits({ seedIds: ['e_acme'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: [
-      'status',
-    ] });
+    const out = assembleGraphHits({
+      seedIds: ['e_acme'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: ['status'],
+    });
 
     expect(out).toHaveLength(1);
-    expect(out[0].entityId).toBe('e_acme');
-    expect(out[0].facts).toEqual([]);
+    expect(out[0]!.entityId).toBe('e_acme');
+    expect(out[0]!.facts).toEqual([]);
   });
 
   it('multiple seeds preserved in input order', () => {
@@ -130,7 +148,12 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
       ['e_beta', [fact('f2', 'e_beta', 'name', 'BetaCorp')]],
     ]);
 
-    const out = assembleGraphHits({ seedIds: ['e_beta', 'e_acme'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: [] });
+    const out = assembleGraphHits({
+      seedIds: ['e_beta', 'e_acme'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: [],
+    });
 
     expect(out.map((r) => r.entityId)).toEqual(['e_beta', 'e_acme']);
   });
@@ -140,14 +163,17 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
     const entitiesById = new Map([['e_maria', maria]]);
     const older = fact('f_old', 'e_maria', 'status', 'CTO', '2026-01-01T00:00:00Z');
     const newer = fact('f_new', 'e_maria', 'status', 'CTO', '2026-06-01T00:00:00Z');
-    const factsByEntity = new Map<string, GraphFactRow[]>([
-      ['e_maria', [older, newer]],
-    ]);
+    const factsByEntity = new Map<string, GraphFactRow[]>([['e_maria', [older, newer]]]);
 
-    const out = assembleGraphHits({ seedIds: ['e_maria'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
+    const out = assembleGraphHits({
+      seedIds: ['e_maria'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: ['status'],
+    });
 
-    expect(out[0].facts).toHaveLength(1);
-    expect(out[0].facts[0].factId).toBe('f_new');
+    expect(out[0]!.facts).toHaveLength(1);
+    expect(out[0]!.facts[0]!.factId).toBe('f_new');
   });
 
   it('fact score is higher when predicate matches a hint', () => {
@@ -156,21 +182,28 @@ describe('assembleGraphHits — regression for the Acme/Maria case', () => {
     const factsByEntity = new Map<string, GraphFactRow[]>([
       [
         'e_maria',
-        [
-          fact('f1', 'e_maria', 'status', 'CTO'),
-          fact('f2', 'e_maria', 'name', 'Maria Petrov'),
-        ],
+        [fact('f1', 'e_maria', 'status', 'CTO'), fact('f2', 'e_maria', 'name', 'Maria Petrov')],
       ],
     ]);
 
-    const out = assembleGraphHits({ seedIds: ['e_maria'], entitiesById: entitiesById, factsByEntity: factsByEntity, predicateHints: ['status'] });
+    const out = assembleGraphHits({
+      seedIds: ['e_maria'],
+      entitiesById: entitiesById,
+      factsByEntity: factsByEntity,
+      predicateHints: ['status'],
+    });
 
-    const byPredicate = new Map(out[0].facts.map((f) => [f.predicate, f.score]));
+    const byPredicate = new Map(out[0]!.facts.map((f) => [f.predicate, f.score]));
     expect(byPredicate.get('status')).toBeGreaterThan(byPredicate.get('name')!);
   });
 
   it('unknown seed id (not in entitiesById) is skipped without crashing', () => {
-    const out = assembleGraphHits({ seedIds: ['e_missing'], entitiesById: new Map(), factsByEntity: new Map(), predicateHints: ['status'] });
+    const out = assembleGraphHits({
+      seedIds: ['e_missing'],
+      entitiesById: new Map(),
+      factsByEntity: new Map(),
+      predicateHints: ['status'],
+    });
     expect(out).toEqual([]);
   });
 });

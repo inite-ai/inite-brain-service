@@ -2,12 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { ApiKeyService } from '../../auth/api-key.service';
 import { SurrealService } from '../../db/surreal.service';
+import { fitIsotonic, type CalibrationPair, type CalibrationMap } from './isotonic';
 import {
-  fitIsotonic,
-  type CalibrationPair,
-  type CalibrationMap,
-} from './isotonic';
-import { CalibrationService, BOOTSTRAP_PROMPT_HASH, BOOTSTRAP_PROMPT_KEY } from './calibration.service';
+  CalibrationService,
+  BOOTSTRAP_PROMPT_HASH,
+  BOOTSTRAP_PROMPT_KEY,
+} from './calibration.service';
 
 /** Per-tenant progress callback so the caller can track a job_run row. */
 export type RefitProgress = (detail: Record<string, unknown>) => void;
@@ -36,8 +36,7 @@ export interface RefitOutcome {
 @Injectable()
 export class CalibrationRefitRunnerService {
   private readonly logger = new Logger(CalibrationRefitRunnerService.name);
-  private readonly extractorModel =
-    process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini';
+  private readonly extractorModel = process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini';
   private readonly bootstrapPromptKey = BOOTSTRAP_PROMPT_HASH;
 
   constructor(
@@ -54,9 +53,7 @@ export class CalibrationRefitRunnerService {
         upserted += await this.refitSourceTrustForTenant(companyId);
         onProgress?.({ currentTenant: companyId, upserted });
       } catch (e) {
-        this.logger.warn(
-          `source-trust refit failed for ${companyId}: ${(e as Error).message}`,
-        );
+        this.logger.warn(`source-trust refit failed for ${companyId}: ${(e as Error).message}`);
       }
     }
     this.logger.log(
@@ -119,7 +116,7 @@ export class CalibrationRefitRunnerService {
       version: number;
       sampleCount: number;
       bins: number;
-      createdAt?: string;
+      createdAt?: string | undefined;
     }>
   > {
     const tenants = this.apiKeys.knownCompanyIds();
@@ -168,14 +165,8 @@ export class CalibrationRefitRunnerService {
     // silent sliding window, so an explicit one changes nothing
     // semantically while letting the (indexed) time predicates cut the
     // scan. Unset = the pre-existing behaviour, unchanged.
-    const windowDays = parseInt(
-      process.env.CALIBRATION_REFIT_WINDOW_DAYS ?? '0',
-      10,
-    );
-    const since =
-      windowDays > 0
-        ? new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000)
-        : null;
+    const windowDays = parseInt(process.env.CALIBRATION_REFIT_WINDOW_DAYS ?? '0', 10);
+    const since = windowDays > 0 ? new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000) : null;
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
         [
@@ -261,8 +252,7 @@ export class CalibrationRefitRunnerService {
         .map((scope) => {
           const sampleCount = scope.wins + scope.losses;
           const rate = scope.wins / sampleCount;
-          const prevRate =
-            prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null;
+          const prevRate = prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null;
           return {
             k: scope.sourceKey,
             // JS null coalesces to NONE inside the FOR body (`?? NONE`),
@@ -347,9 +337,7 @@ export class CalibrationRefitRunnerService {
     }
   }
 
-  private async collectCalibrationPairsForTenant(
-    companyId: string,
-  ): Promise<CalibrationPair[]> {
+  private async collectCalibrationPairsForTenant(companyId: string): Promise<CalibrationPair[]> {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
         [
@@ -383,9 +371,7 @@ export class CalibrationRefitRunnerService {
     const tenants = this.apiKeys.knownCompanyIds();
     const host = tenants[0];
     if (!host) {
-      this.logger.warn(
-        'calibration persist skipped — no known tenants to host the row',
-      );
+      this.logger.warn('calibration persist skipped — no known tenants to host the row');
       return;
     }
     await this.surreal.withCompany(host, async (db) => {
@@ -395,8 +381,7 @@ export class CalibrationRefitRunnerService {
             ORDER BY version DESC LIMIT 1`,
         { m: this.extractorModel, p: this.bootstrapPromptKey },
       );
-      const next =
-        Array.isArray(latest) && latest[0]?.version ? latest[0].version + 1 : 2;
+      const next = Array.isArray(latest) && latest[0]?.version ? latest[0].version + 1 : 2;
       await db.query(
         `CREATE calibration_table CONTENT {
             extractorModel: $m,
@@ -470,9 +455,7 @@ export interface TrustEvent {
  * documents corroborating the same incumbent) still each count. Exported so
  * the dedup can be unit-tested without a SurrealDB round-trip.
  */
-export function buildTrustEvents(
-  rows: ReadonlyArray<TrustEventRow>,
-): TrustEvent[] {
+export function buildTrustEvents(rows: ReadonlyArray<TrustEventRow>): TrustEvent[] {
   const seenCorroboration = new Set<string>();
   const events: TrustEvent[] = [];
   for (const r of rows) {
@@ -517,9 +500,7 @@ export interface FeedbackEventRow {
  * (or 'helpful' to inflate). Distinct actors still each count — that is
  * genuine crowd signal. Exported for unit tests, same as buildTrustEvents.
  */
-export function buildFeedbackTrustEvents(
-  rows: ReadonlyArray<FeedbackEventRow>,
-): TrustEvent[] {
+export function buildFeedbackTrustEvents(rows: ReadonlyArray<FeedbackEventRow>): TrustEvent[] {
   const seen = new Set<string>();
   const events: TrustEvent[] = [];
   for (const r of rows) {

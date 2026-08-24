@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  NotFoundException,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { PackRegistryService } from './pack-registry.service';
@@ -61,9 +54,7 @@ export class RegistryController {
 
   @Get('packs/:packId')
   @RequireScopes('brain:read')
-  async versions(
-    @Param('packId') packId: string,
-  ): Promise<RegistryVersionsResponse> {
+  async versions(@Param('packId') packId: string): Promise<RegistryVersionsResponse> {
     return this.registry.getVersions(packId);
   }
 
@@ -73,9 +64,7 @@ export class RegistryController {
   @Get('publishers/:publisher')
   @RequireScopes('brain:read')
   @PolicyAction('rest.registry.publisher.get')
-  async publisher(
-    @Param('publisher') publisher: string,
-  ): Promise<PublisherResponse> {
+  async publisher(@Param('publisher') publisher: string): Promise<PublisherResponse> {
     const [profile, packs] = await Promise.all([
       this.profiles.get(publisher),
       this.registry.list({ publisher }),
@@ -102,16 +91,12 @@ export class RegistryController {
       version === 'latest' ? undefined : version,
     );
     if (!resolved) {
-      throw new NotFoundException(
-        `pack "${packId}" ${version} not found in the registry`,
-      );
+      throw new NotFoundException(`pack "${packId}" ${version} not found in the registry`);
     }
     return resolved;
   }
 
-  private async withMarketplaceMeta(
-    packs: RegistryPackSummary[],
-  ): Promise<RegistryPackSummary[]> {
+  private async withMarketplaceMeta(packs: RegistryPackSummary[]): Promise<RegistryPackSummary[]> {
     const metaMap = await this.meta.getMetaForPacks(packs.map((p) => p.packId));
     return mergeMarketplaceMeta(packs, metaMap);
   }

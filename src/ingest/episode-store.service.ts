@@ -72,12 +72,8 @@ export class EpisodeStoreService {
         source: {
           vertical: dto.contextRef.vertical,
           ...(dto.contextRef.eventId ? { eventId: dto.contextRef.eventId } : {}),
-          ...(dto.contextRef.messageId
-            ? { messageId: dto.contextRef.messageId }
-            : {}),
-          ...(dto.contextRef.recorder
-            ? { recorder: dto.contextRef.recorder }
-            : {}),
+          ...(dto.contextRef.messageId ? { messageId: dto.contextRef.messageId } : {}),
+          ...(dto.contextRef.recorder ? { recorder: dto.contextRef.recorder } : {}),
         },
       };
       await this.surreal.withCompany(companyId, async (db) => {
@@ -85,9 +81,7 @@ export class EpisodeStoreService {
       });
       return true;
     } catch (e) {
-      this.logger.warn(
-        `episode capture failed (companyId=${companyId}): ${(e as Error).message}`,
-      );
+      this.logger.warn(`episode capture failed (companyId=${companyId}): ${(e as Error).message}`);
       return false;
     }
   }
@@ -100,9 +94,6 @@ export class EpisodeStoreService {
   private messageIdFor(dto: IngestMentionDto): string {
     if (dto.contextRef.messageId) return dto.contextRef.messageId;
     if (dto.contextRef.eventId) return dto.contextRef.eventId;
-    return createHash('sha256')
-      .update(`${dto.emittedAt}${dto.text}`)
-      .digest('hex')
-      .slice(0, 24);
+    return createHash('sha256').update(`${dto.emittedAt}${dto.text}`).digest('hex').slice(0, 24);
   }
 }

@@ -7,9 +7,30 @@ import {
   runTransaction,
   retryOnUniqueViolation,
   isUniqueViolation,
+  queryRows,
+  queryFirst,
 } from '../db/surreal.service';
 import { withSpan } from '../common/tracing';
 import type { JobType, JobStatus } from './job-run.service';
+
+/** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
+type RawDateTime = string | number | Date;
+
+/** UPDATE … RETURN id ownership-guard rows — only the row COUNT is read. */
+interface IdRow {
+  id: unknown;
+}
+
+/** SELECT projection behind the /admin/leases active-claims snapshot. */
+interface ActiveClaimRow {
+  runId: string;
+  jobType: string;
+  claimedBy: string;
+  claimedAt: RawDateTime;
+  leaseUntil: RawDateTime;
+  heartbeatAt: RawDateTime;
+  attempts?: number;
+}
 
 export interface JobClaim {
   /** Surreal record id, e.g. `job_run:abcd1234`. */
@@ -29,7 +50,7 @@ export interface JobClaim {
    * span as a child of the producer, so trace viewers stitch the
    * full publish→queue→process waterfall together.
    */
-  traceparent?: string;
+  traceparent?: string | undefined;
 }
 
 /**
@@ -142,10 +163,7 @@ export class JobClaimService {
         () =>
           retryOnUniqueViolation(() =>
             this.surreal!.withCompany(input.companyId, async (db) => {
-              await db.query(
-                `CREATE job_run CONTENT { ${fields.join(', ')} }`,
-                params,
-              );
+              await db.query(`CREATE job_run CONTENT { ${fields.join(', ')} }`, params);
               return true;
             }),
           ),
@@ -165,11 +183,7 @@ export class JobClaimService {
       // Dedup collision after retries exhausted — fetch the existing row
       // so the caller can observe (or attach to) the already-queued run.
       if (isUniqueViolation(e) && input.dedupKey) {
-        const existing = await this.findByDedup(
-          input.companyId,
-          input.jobType,
-          input.dedupKey,
-        );
+        const existing = await this.findByDedup(input.companyId, input.jobType, input.dedupKey);
         if (existing) return { runId: existing, created: false };
       }
       throw e;
@@ -191,9 +205,7 @@ export class JobClaimService {
       // JS-computed deadline + type::datetime: parses on SurrealDB 2.x
       // and 3.x alike, unlike the duration::from_* function path (see
       // LeaderLeaseService.tryAcquire).
-      const until = new Date(
-        Date.now() + input.ttlSeconds * 1000,
-      ).toISOString();
+      const until = new Date(Date.now() + input.ttlSeconds * 1000).toISOString();
       return await retryOnUniqueViolation(() =>
         this.surreal!.withCompany(input.companyId, async (db) => {
           const claimed = await runTransaction<unknown>(db, (tx) => {
@@ -237,10 +249,7 @@ export class JobClaimService {
             attempts: Number(row.attempts ?? 1),
             payload: (row.payload as Record<string, unknown> | null) ?? null,
             leaseUntil: new Date(row.leaseUntil as string).toISOString(),
-            traceparent:
-              typeof row.traceparent === 'string'
-                ? row.traceparent
-                : undefined,
+            traceparent: typeof row.traceparent === 'string' ? row.traceparent : undefined,
           } satisfies JobClaim;
         }),
       );
@@ -265,7 +274,8 @@ export class JobClaimService {
     if (!this.surreal) return { stillOwned: true, cancelRequested: false };
     try {
       return await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<{ cancelRequested?: boolean }>(
+          db,
           `UPDATE type::record($rid) SET
               leaseUntil = type::datetime($until),
               heartbeatAt = time::now()
@@ -274,19 +284,16 @@ export class JobClaimService {
           {
             rid: input.recordId,
             me: this.workerId,
-            until: new Date(
-              Date.now() + input.ttlSeconds * 1000,
-            ).toISOString(),
+            until: new Date(Date.now() + input.ttlSeconds * 1000).toISOString(),
           },
-        )) as any[];
-        const arr = (rows ?? []) as Array<{ cancelRequested?: boolean }>;
-        if (arr.length === 0) {
+        );
+        if (rows.length === 0) {
           // Someone reaped us OR we never owned this row.
           return { stillOwned: false, cancelRequested: false };
         }
         return {
           stillOwned: true,
-          cancelRequested: arr[0]?.cancelRequested === true,
+          cancelRequested: rows[0]?.cancelRequested === true,
         };
       });
     } catch (e) {
@@ -320,7 +327,8 @@ export class JobClaimService {
     if (!this.surreal) return;
     try {
       await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<IdRow>(
+          db,
           // Ownership guard: only write the terminal status if WE still
           // own the running row. A worker that GC-paused past its lease,
           // got zombie-reaped, and had the row re-claimed by another pod
@@ -340,17 +348,15 @@ export class JobClaimService {
             me: this.workerId,
             result: input.result ?? null,
           },
-        )) as any[];
-        if (((rows ?? []) as unknown[]).length === 0) {
+        );
+        if (rows.length === 0) {
           this.logger.warn(
             `complete(${input.recordId}) no-op — claim no longer owned by ${this.workerId}; another worker re-claimed it`,
           );
         }
       });
     } catch (e) {
-      this.logger.warn(
-        `complete(${input.recordId}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`complete(${input.recordId}) failed: ${(e as Error).message}`);
     }
   }
 
@@ -371,56 +377,51 @@ export class JobClaimService {
   }): Promise<{ requeued: boolean }> {
     if (!this.surreal) return { requeued: false };
     const maxAttempts = input.maxAttempts ?? 3;
-    const willRequeue =
-      input.requeue !== false && input.attempts < maxAttempts;
+    const willRequeue = input.requeue !== false && input.attempts < maxAttempts;
     try {
       // Ownership guard on both arms: a zombie-reaped, re-claimed row
       // must not be requeued or terminal-failed out from under the new
       // owner. 0 rows affected ⇒ claim lost; report requeued: false.
-      const affected = await this.surreal.withCompany(
-        input.companyId,
-        async (db) => {
-          if (willRequeue) {
-            const baseMs = input.backoffBaseMs ?? 30_000;
-            // Exponential backoff with full jitter; cap at 1h.
-            const backoffMs = Math.min(
-              baseMs * Math.pow(2, input.attempts - 1) *
-                (0.5 + Math.random() * 0.5),
-              3_600_000,
-            );
-            const visibleAfter = new Date(
-              Date.now() + backoffMs,
-            ).toISOString();
-            const [rows] = (await db.query<any[]>(
-              `UPDATE type::record($rid) SET
+      const affected = await this.surreal.withCompany(input.companyId, async (db) => {
+        if (willRequeue) {
+          const baseMs = input.backoffBaseMs ?? 30_000;
+          // Exponential backoff with full jitter; cap at 1h.
+          const backoffMs = Math.min(
+            baseMs * Math.pow(2, input.attempts - 1) * (0.5 + Math.random() * 0.5),
+            3_600_000,
+          );
+          const visibleAfter = new Date(Date.now() + backoffMs).toISOString();
+          const rows = await queryRows<IdRow>(
+            db,
+            `UPDATE type::record($rid) SET
                   status = 'pending',
                   error = $err,
                   claimedBy = NONE, leaseUntil = NONE,
                   visibleAfter = type::datetime($visibleAfter)
                 WHERE claimedBy = $me AND status = 'running'
                 RETURN id`,
-              {
-                rid: input.recordId,
-                me: this.workerId,
-                err: input.error,
-                visibleAfter,
-              },
-            )) as any[];
-            return ((rows ?? []) as unknown[]).length;
-          }
-          const [rows] = (await db.query<any[]>(
-            `UPDATE type::record($rid) SET
+            {
+              rid: input.recordId,
+              me: this.workerId,
+              err: input.error,
+              visibleAfter,
+            },
+          );
+          return rows.length;
+        }
+        const rows = await queryRows<IdRow>(
+          db,
+          `UPDATE type::record($rid) SET
                 status = 'failed',
                 finishedAt = time::now(),
                 error = $err,
                 claimedBy = NONE, leaseUntil = NONE
               WHERE claimedBy = $me AND status = 'running'
               RETURN id`,
-            { rid: input.recordId, me: this.workerId, err: input.error },
-          )) as any[];
-          return ((rows ?? []) as unknown[]).length;
-        },
-      );
+          { rid: input.recordId, me: this.workerId, err: input.error },
+        );
+        return rows.length;
+      });
       if (affected === 0) {
         this.logger.warn(
           `fail(${input.recordId}) no-op — claim no longer owned by ${this.workerId}; another worker re-claimed it`,
@@ -429,9 +430,7 @@ export class JobClaimService {
       }
       return { requeued: willRequeue };
     } catch (e) {
-      this.logger.warn(
-        `fail(${input.recordId}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`fail(${input.recordId}) failed: ${(e as Error).message}`);
       return { requeued: false };
     }
   }
@@ -449,7 +448,8 @@ export class JobClaimService {
     if (!this.surreal) return;
     try {
       await this.surreal.withCompany(input.companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const rows = await queryRows<IdRow>(
+          db,
           // Ownership guard — same rationale as complete()/fail().
           `UPDATE type::record($rid) SET
               status = 'cancelled',
@@ -459,17 +459,15 @@ export class JobClaimService {
             WHERE claimedBy = $me AND status = 'running'
             RETURN id`,
           { rid: input.recordId, me: this.workerId, result: input.result ?? null },
-        )) as any[];
-        if (((rows ?? []) as unknown[]).length === 0) {
+        );
+        if (rows.length === 0) {
           this.logger.warn(
             `cancelled(${input.recordId}) no-op — claim no longer owned by ${this.workerId}; another worker re-claimed it`,
           );
         }
       });
     } catch (e) {
-      this.logger.warn(
-        `cancelled(${input.recordId}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`cancelled(${input.recordId}) failed: ${(e as Error).message}`);
     }
   }
 
@@ -507,9 +505,7 @@ export class JobClaimService {
         };
       });
     } catch (e) {
-      this.logger.warn(
-        `reapZombies(${input.companyId}) failed: ${(e as Error).message}`,
-      );
+      this.logger.warn(`reapZombies(${input.companyId}) failed: ${(e as Error).message}`);
       return { requeued: 0, failed: 0 };
     }
   }
@@ -518,9 +514,7 @@ export class JobClaimService {
    * Snapshot of currently-claimed rows across tenants — feeds the
    * /admin/leases panel. Cheap: indexed scan on (status, leaseUntil).
    */
-  async listActiveClaims(
-    companyIds: readonly string[],
-  ): Promise<
+  async listActiveClaims(companyIds: readonly string[]): Promise<
     Array<{
       runId: string;
       jobType: string;
@@ -545,16 +539,16 @@ export class JobClaimService {
     }> = [];
     for (const companyId of companyIds) {
       try {
-        const rows = await this.surreal.withCompany(companyId, async (db) => {
-          const [res] = (await db.query<any[]>(
+        const rows = await this.surreal.withCompany(companyId, (db) =>
+          queryRows<ActiveClaimRow>(
+            db,
             `SELECT runId, jobType, claimedBy, claimedAt, leaseUntil,
                     heartbeatAt, attempts
                FROM job_run
               WHERE status = 'running' AND claimedBy IS NOT NONE
               ORDER BY claimedAt DESC LIMIT 50`,
-          )) as any[];
-          return (res ?? []) as any[];
-        });
+          ),
+        );
         for (const r of rows) {
           out.push({
             runId: r.runId,
@@ -568,9 +562,7 @@ export class JobClaimService {
           });
         }
       } catch (e) {
-        this.logger.warn(
-          `listActiveClaims(${companyId}) failed: ${(e as Error).message}`,
-        );
+        this.logger.warn(`listActiveClaims(${companyId}) failed: ${(e as Error).message}`);
       }
     }
     return out;
@@ -584,13 +576,13 @@ export class JobClaimService {
     if (!this.surreal) return null;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
-        const [rows] = (await db.query<any[]>(
+        const row = await queryFirst<{ runId?: string }>(
+          db,
           `SELECT runId FROM job_run
              WHERE jobType = $jobType AND dedupKey = $dk LIMIT 1`,
           { jobType, dk: dedupKey },
-        )) as any[];
-        const arr = (rows ?? []) as Array<{ runId?: string }>;
-        return arr[0]?.runId ?? null;
+        );
+        return row?.runId ?? null;
       });
     } catch {
       return null;

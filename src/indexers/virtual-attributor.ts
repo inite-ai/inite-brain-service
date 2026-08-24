@@ -34,9 +34,7 @@ export function indexerIdOfPredicate(predicate: string): string {
  * order (entityIndex references stay valid — they point into the run's
  * shared entity list, not into the group).
  */
-export function attributeFactsByIndexer(
-  facts: ExtractedFact[],
-): Map<string, ExtractedFact[]> {
+export function attributeFactsByIndexer(facts: ExtractedFact[]): Map<string, ExtractedFact[]> {
   const byIndexer = new Map<string, ExtractedFact[]>();
   for (const f of facts) {
     const indexerId = indexerIdOfPredicate(f.predicate);

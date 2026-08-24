@@ -1,8 +1,5 @@
 import { z } from 'zod';
-import {
-  DisplayPriceSchema,
-  PublisherProfileSchema,
-} from './marketplace.schema';
+import { DisplayPriceSchema, PublisherProfileSchema } from './marketplace.schema';
 
 /**
  * Wire contracts for the GLOBAL Domain Pack registry — discovery reads
@@ -95,9 +92,10 @@ export const DomainPackManifestSchema = z.looseObject({
   extractionProfile: z.record(z.string(), z.unknown()).optional(),
   evalFixtures: z.array(z.record(z.string(), z.unknown())).optional(),
   seedDocuments: z.array(z.record(z.string(), z.unknown())).optional(),
-  signature: z.string().optional().describe(
-    'ed25519 signature (base64) over the canonical manifest sans this field.',
-  ),
+  signature: z
+    .string()
+    .optional()
+    .describe('ed25519 signature (base64) over the canonical manifest sans this field.'),
   publisher: z.string().optional(),
   indexer: z.record(z.string(), z.unknown()).optional(),
   /** Pack-declared MCP tools (PackToolSpec[] — docs/mcp-pack-tools.md).
@@ -144,12 +142,8 @@ export const PublisherResponseSchema = z.object({
 export type RegistryVersion = z.infer<typeof RegistryVersionSchema>;
 export type RegistryPackSummary = z.infer<typeof RegistryPackSummarySchema>;
 export type RegistryListResponse = z.infer<typeof RegistryListResponseSchema>;
-export type RegistryVersionsResponse = z.infer<
-  typeof RegistryVersionsResponseSchema
->;
-export type RegistryManifestResponse = z.infer<
-  typeof RegistryManifestResponseSchema
->;
+export type RegistryVersionsResponse = z.infer<typeof RegistryVersionsResponseSchema>;
+export type RegistryManifestResponse = z.infer<typeof RegistryManifestResponseSchema>;
 export type DomainPackManifestWire = z.infer<typeof DomainPackManifestSchema>;
 export type PublishPackRequest = z.infer<typeof PublishPackRequestSchema>;
 export type YankPackRequest = z.infer<typeof YankPackRequestSchema>;

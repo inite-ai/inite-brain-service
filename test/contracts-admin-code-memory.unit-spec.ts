@@ -25,13 +25,9 @@ describe('AdminCodeMemoryController.list() — wire contract', () => {
     const req = {
       brainAuth: { companyId: 'co_test', scopes: ['brain:admin'] },
     } as AuthenticatedRequest;
-    const parsed = AnchorsListResponseSchema.safeParse(
-      await makeController().list(req),
-    );
+    const parsed = AnchorsListResponseSchema.safeParse(await makeController().list(req));
     if (!parsed.success) {
-      throw new Error(
-        `anchors list drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`anchors list drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

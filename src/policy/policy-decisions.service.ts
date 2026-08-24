@@ -1,7 +1,40 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { PolicyStoreService } from './policy-store.service';
 import { keyIdOf } from './policy-keys.service';
+
+/** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
+type RawDateTime = string | number | Date;
+
+/** Raw policy_decision row (SELECT *) before mapEvent shaping. Values that
+ *  are stringified / numeric-coerced downstream are typed `unknown`. */
+interface PolicyDecisionRow {
+  id: unknown;
+  ts: RawDateTime;
+  keyHash?: unknown;
+  kind: DecisionEvent['kind'];
+  decision: DecisionEvent['decision'];
+  mode: DecisionEvent['mode'];
+  action?: unknown;
+  policySet?: unknown;
+  ruleId?: unknown;
+  requestId?: unknown;
+  rowCounts?: { total?: unknown; denied?: unknown } | null;
+  samplePredicates?: unknown;
+  sampled?: unknown;
+}
+
+/** Projected columns behind the report_only → enforce stats aggregation.
+ *  action/policySet/ruleId/keyHash are string columns — typed concretely so
+ *  the rule-key template literal and the map keys stay string-safe. */
+interface PolicyDecisionStatRow {
+  ts: RawDateTime;
+  decision: DecisionEvent['decision'];
+  action?: string;
+  policySet?: string;
+  ruleId?: string;
+  keyHash?: string;
+}
 
 export interface DecisionEvent {
   id: string;
@@ -102,36 +135,36 @@ export class PolicyDecisionsService {
       params.before = before;
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await this.surreal.withCompany(companyId, async (db) => {
-      const [r] = await db.query<[any[]]>(
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<PolicyDecisionRow>(
+        db,
         `SELECT * FROM policy_decision ${where}
           ORDER BY ts DESC LIMIT $limit`,
         params,
-      );
-      return (r as any[]) ?? [];
-    });
+      ),
+    );
     const page = rows.slice(0, limit);
     const decisions = page.map(mapEvent);
     return {
       decisions,
       ...(rows.length > limit && decisions.length > 0
-        ? { nextCursor: decisions[decisions.length - 1].ts }
+        ? { nextCursor: decisions[decisions.length - 1]!.ts }
         : {}),
     };
   }
 
   async stats(companyId: string, windowDays = 7): Promise<DecisionsStats> {
     const days = Math.min(Math.max(windowDays, 1), 30);
-    const rows = await this.surreal.withCompany(companyId, async (db) => {
-      const [r] = await db.query<[any[]]>(
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<PolicyDecisionStatRow>(
+        db,
         `SELECT ts, decision, action, policySet, ruleId, keyHash
            FROM policy_decision
           WHERE ts > time::now() - ${days}d
           ORDER BY ts DESC
           LIMIT ${STATS_ROW_CAP}`,
-      );
-      return (r as any[]) ?? [];
-    });
+      ),
+    );
 
     const series = new Map<string, { allow: number; deny: number; wouldDeny: number }>();
     const deniedActions = new Map<string, number>();
@@ -149,10 +182,7 @@ export class PolicyDecisionsService {
 
       if (row.decision === 'deny' || row.decision === 'would_deny') {
         if (row.action) {
-          deniedActions.set(
-            String(row.action),
-            (deniedActions.get(String(row.action)) ?? 0) + 1,
-          );
+          deniedActions.set(String(row.action), (deniedActions.get(String(row.action)) ?? 0) + 1);
         }
         if (row.policySet && row.ruleId) {
           const key = `${row.policySet}\u0000${row.ruleId}`;
@@ -179,10 +209,7 @@ export class PolicyDecisionsService {
       .map((s) => ({
         name: s.name,
         // Proxy for "how long in report_only": last document update.
-        sinceDays: Math.max(
-          0,
-          Math.floor((now - new Date(s.updatedAt).getTime()) / 86_400_000),
-        ),
+        sinceDays: Math.max(0, Math.floor((now - new Date(s.updatedAt).getTime()) / 86_400_000)),
         wouldDeny: wouldDenyBySet.get(s.name) ?? 0,
       }));
 
@@ -199,7 +226,7 @@ export class PolicyDecisionsService {
         count,
       })),
       topRules: top(rules, 10).map(([key, count]) => {
-        const [policySet, ruleId] = key.split('\u0000');
+        const [policySet = '', ruleId = ''] = key.split('\u0000');
         return { policySet, ruleId, count };
       }),
       byKey: [...byKey.entries()]
@@ -212,7 +239,7 @@ export class PolicyDecisionsService {
   }
 }
 
-function mapEvent(row: any): DecisionEvent {
+function mapEvent(row: PolicyDecisionRow): DecisionEvent {
   return {
     id: String(row.id),
     ts: new Date(row.ts).toISOString(),

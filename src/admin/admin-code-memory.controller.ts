@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { CodeMemoryAnchorService } from '../code-memory/code-memory-anchor.service';
@@ -28,10 +21,7 @@ export class AdminCodeMemoryController {
   @Get('anchors')
   @RequireScopes('brain:admin')
   async list(@Req() req: AuthenticatedRequest): Promise<AnchorsListResponse> {
-    const anchors = await this.anchors.listAnchors(
-      req.brainAuth.companyId,
-      req.brainAuth.scopes,
-    );
+    const anchors = await this.anchors.listAnchors(req.brainAuth.companyId, req.brainAuth.scopes);
     return { anchors } satisfies AnchorsListResponse;
   }
 

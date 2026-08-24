@@ -39,21 +39,24 @@ describe('ABAC simulation surface', () => {
   beforeAll(async () => {
     process.env.ABAC_ENABLED = '1';
     f = await createApp({
-      extraKeys: [
-        { scopes: ['brain:read', 'brain:write'], policies: ['support-reader'] },
-      ],
+      extraKeys: [{ scopes: ['brain:read', 'brain:write'], policies: ['support-reader'] }],
     });
-    [attachedKey] = f.extraApiKeys;
+    attachedKey = f.extraApiKeys[0]!;
     void attachedKey;
-    const created = await f.http
-      .post('/v1/admin/policy-sets')
-      .set(auth())
-      .send(SUPPORT_READER);
+    const created = await f.http.post('/v1/admin/policy-sets').set(auth()).send(SUPPORT_READER);
     expect(created.status).toBe(201);
 
     const facts = [
-      { predicate: 'preference', object: 'window seats', source: { vertical: 'support', recorder: 'crm' } },
-      { predicate: 'complaint', object: 'window seats too pricey', source: { vertical: 'sales', recorder: 'pipeline' } },
+      {
+        predicate: 'preference',
+        object: 'window seats',
+        source: { vertical: 'support', recorder: 'crm' },
+      },
+      {
+        predicate: 'complaint',
+        object: 'window seats too pricey',
+        source: { vertical: 'sales', recorder: 'pipeline' },
+      },
     ];
     for (const fact of facts) {
       const r = await f.http
@@ -80,24 +83,25 @@ describe('ABAC simulation surface', () => {
     const parsed = PolicyRegistryResponseSchema.safeParse(r.body);
     if (!parsed.success) throw new Error(JSON.stringify(parsed.error.issues));
     expect(r.body.actions.length).toBeGreaterThanOrEqual(30);
-    const vertical = r.body.attributes.find(
-      (a: any) => a.attr === 'source.vertical',
-    );
+    const vertical = r.body.attributes.find((a: any) => a.attr === 'source.vertical');
     // Value hints come from source_registry/source_trust and are empty
     // until a source is declared or the trust refit runs — assert the
     // attribute itself, not tenant-dependent hints.
     expect(vertical.ops).toEqual(['eq', 'in']);
-    expect(
-      r.body.attributes.find((a: any) => a.attr === 'trust.authority')?.ops,
-    ).toEqual(['gte', 'gt', 'lte', 'lt']);
+    expect(r.body.attributes.find((a: any) => a.attr === 'trust.authority')?.ops).toEqual([
+      'gte',
+      'gt',
+      'lte',
+      'lt',
+    ]);
     expect(r.body.dynamicAttributes[0].prefix).toBe('source.meta.');
   });
 
   it('keys inventory shows attachments; keyId works as a simulation subject', async () => {
     const keys = await f.http.get('/v1/admin/keys').set(auth());
     expect(keys.status).toBe(200);
-    const restricted = keys.body.keys.find(
-      (k: any) => k.policySets.some((s: any) => s.name === 'support-reader'),
+    const restricted = keys.body.keys.find((k: any) =>
+      k.policySets.some((s: any) => s.name === 'support-reader'),
     );
     expect(restricted).toBeDefined();
     expect(restricted.policySets[0].mode).toBe('report_only');
@@ -210,17 +214,11 @@ describe('ABAC simulation surface', () => {
     });
     expect(feed.body.decisions[0].keyId).toBe(attachedKeyId);
 
-    const stats = await f.http
-      .get('/v1/admin/policy/decisions/stats?windowDays=7')
-      .set(auth());
+    const stats = await f.http.get('/v1/admin/policy/decisions/stats?windowDays=7').set(auth());
     expect(stats.status).toBe(200);
     expect(stats.body.reportOnlySets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'support-reader' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ name: 'support-reader' })]),
     );
-    expect(
-      stats.body.topDeniedActions.find((a: any) => a.action === 'record_fact'),
-    ).toBeDefined();
+    expect(stats.body.topDeniedActions.find((a: any) => a.action === 'record_fact')).toBeDefined();
   });
 });

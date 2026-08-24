@@ -56,7 +56,7 @@ describe('applyOutputShaping tokenBudget (one-pass)', () => {
       tokenBudget: 800,
     } as SearchDto);
     out.forEach((hit, i) => {
-      expect(hit.entityId).toBe(hits[i].entityId);
+      expect(hit.entityId).toBe(hits[i]!.entityId);
     });
   });
 
@@ -78,10 +78,7 @@ describe('applyOutputShaping tokenBudget (one-pass)', () => {
 });
 
 describe('SearchService empty-query short-circuit + embed prewarm', () => {
-  function mkService(overrides: {
-    withScopedCompany?: jest.Mock;
-    prewarm?: jest.Mock;
-  }) {
+  function mkService(overrides: { withScopedCompany?: jest.Mock; prewarm?: jest.Mock }) {
     // The scoped-connection phase now returns the staged hand-off
     // (audit W4 #20) — the rank tail runs after the pool slot is
     // released, so the mock must hand back a minimal StagedPipeline.
@@ -108,9 +105,7 @@ describe('SearchService empty-query short-circuit + embed prewarm', () => {
 
   it('returns empty results for a whitespace query without touching the DB', async () => {
     const { svc, withScopedCompany, prewarm } = mkService({});
-    const out = await svc.search('co_x', { query: '   ' } as SearchDto, [
-      'brain:read',
-    ]);
+    const out = await svc.search('co_x', { query: '   ' } as SearchDto, ['brain:read']);
     expect(out).toEqual({ results: [] });
     expect(withScopedCompany).not.toHaveBeenCalled();
     expect(prewarm).not.toHaveBeenCalled();
@@ -136,11 +131,9 @@ describe('SearchService empty-query short-circuit + embed prewarm', () => {
 
   it('skips the prewarm for lexical-only mode', async () => {
     const { svc, prewarm } = mkService({});
-    await svc.search(
-      'co_x',
-      { query: 'hello', searchMode: 'lexical' } as SearchDto,
-      ['brain:read'],
-    );
+    await svc.search('co_x', { query: 'hello', searchMode: 'lexical' } as SearchDto, [
+      'brain:read',
+    ]);
     expect(prewarm).not.toHaveBeenCalled();
   });
 });

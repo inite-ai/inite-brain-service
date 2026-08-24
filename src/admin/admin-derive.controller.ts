@@ -69,19 +69,12 @@ export class AdminDeriveController {
     } = {},
   ): Promise<DeriveRunResult> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (
-      tenant !== req.brainAuth.companyId &&
-      !this.apiKeys.knownCompanyIds().includes(tenant)
-    ) {
-      throw new BadRequestException(
-        `Unknown tenant '${tenant}' — not a registered tenant`,
-      );
+    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
+      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
     }
     const version = body.version?.trim() || WINDOW_DERIVER_VERSION;
     if (!/^[a-z0-9-]{2,32}$/.test(version)) {
-      throw new BadRequestException(
-        'version must be a short kebab-case tag (e.g. wd-v2)',
-      );
+      throw new BadRequestException('version must be a short kebab-case tag (e.g. wd-v2)');
     }
     const conversationId = body.conversation?.trim() || undefined;
     if (conversationId && conversationId.length > 128) {
@@ -121,13 +114,8 @@ export class AdminDeriveController {
     @Body() body: { tenant?: string; keep?: string[] } = {},
   ): Promise<{ deleted: Record<string, number>; kept: string[] }> {
     const tenant = body.tenant?.trim() || req.brainAuth.companyId;
-    if (
-      tenant !== req.brainAuth.companyId &&
-      !this.apiKeys.knownCompanyIds().includes(tenant)
-    ) {
-      throw new BadRequestException(
-        `Unknown tenant '${tenant}' — not a registered tenant`,
-      );
+    if (tenant !== req.brainAuth.companyId && !this.apiKeys.knownCompanyIds().includes(tenant)) {
+      throw new BadRequestException(`Unknown tenant '${tenant}' — not a registered tenant`);
     }
     const keep = (body.keep ?? []).filter(
       (v) => typeof v === 'string' && /^[a-z0-9-]{2,32}$/.test(v),

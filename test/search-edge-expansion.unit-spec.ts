@@ -58,10 +58,7 @@ describe('mergeExpandedNeighbours', () => {
   };
   const mkMap = (entries: Array<[string, number]>): Map<string, Bucket> =>
     new Map(
-      entries.map(([id, rs]) => [
-        id,
-        { entityId: id, rankScore: rs, bestScore: rs, facts: [] },
-      ]),
+      entries.map(([id, rs]) => [id, { entityId: id, rankScore: rs, bestScore: rs, facts: [] }]),
     );
 
   it('returns 0 when α ≤ 0', () => {

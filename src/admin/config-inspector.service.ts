@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  CONFIG_CATALOG,
-  type ConfigCatalogSpec,
-} from './config-catalog.data';
+import { CONFIG_CATALOG, type ConfigCatalogSpec } from './config-catalog.data';
 
 export type ConfigCategory =
   | 'pipeline'
@@ -36,9 +33,9 @@ export interface ConfigEntry {
   /** Whether the knob is a true boolean ("0"|"1" / "true"|"false") so the UI can render a toggle. */
   isBooleanFlag: boolean;
   /** Hint for the operator. Tiny, not a full doc. */
-  description?: string;
+  description?: string | undefined;
   /** Whether the current value exposes a secret (API key, etc) — masked in the UI. */
-  secret?: boolean;
+  secret?: boolean | undefined;
 }
 
 /**
@@ -69,7 +66,7 @@ export class ConfigInspectorService {
             ? '••• set'
             : '∅'
           : current === ''
-            ? spec.defaultValue ?? '∅'
+            ? (spec.defaultValue ?? '∅')
             : current,
         defaultValue: spec.defaultValue ?? null,
         runtimeMutable: spec.runtimeMutable === true,
@@ -90,7 +87,6 @@ export class ConfigInspectorService {
       category: s.category,
     }));
   }
-
 
   private catalogue(): ConfigCatalogSpec[] {
     return CONFIG_CATALOG;

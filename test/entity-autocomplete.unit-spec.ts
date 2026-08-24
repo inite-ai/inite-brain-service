@@ -20,11 +20,8 @@ describe('EntitiesService.autocomplete', () => {
       },
     };
     const withScopedCompany = jest.fn(
-      async (
-        _companyId: string,
-        _scopes: BrainScope[],
-        fn: (db: unknown) => Promise<unknown>,
-      ) => fn(db),
+      async (_companyId: string, _scopes: BrainScope[], fn: (db: unknown) => Promise<unknown>) =>
+        fn(db),
     );
     const surreal = { withScopedCompany } as never;
     const svc = new EntitiesService(
@@ -58,8 +55,8 @@ describe('EntitiesService.autocomplete', () => {
       { entityId: 'knowledge_entity:2', canonicalName: 'Carlos', type: 'person', score: 0.7 },
     ]);
     expect(captured).toHaveLength(1);
-    expect(captured[0].params.q).toBe('car');
-    const sql = captured[0].sql;
+    expect(captured[0]!.params.q).toBe('car');
+    const sql = captured[0]!.sql;
     expect(sql).toContain('canonicalNameLc @1@ $q');
     expect(sql).toContain('mergedInto IS NONE');
     expect(sql).toContain('userId IS NONE');
@@ -79,7 +76,7 @@ describe('EntitiesService.autocomplete', () => {
     for (const [input, expected] of cases) {
       const { svc, captured } = make();
       await svc.autocomplete({ companyId: 'co_x', q: 'car', limit: input, scopes });
-      expect(captured[0].params.lim).toBe(expected);
+      expect(captured[0]!.params.lim).toBe(expected);
     }
   });
 

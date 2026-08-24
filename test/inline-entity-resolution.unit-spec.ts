@@ -28,9 +28,7 @@ function makeService(
   const embedder = { embed: jest.fn().mockResolvedValue([0.1, 0.2, 0.3]) } as any;
   const judge = {
     isAvailable: jest.fn(() => judgeOverrides.isAvailable?.() ?? true),
-    fetchTopFacts:
-      judgeOverrides.fetchTopFacts ??
-      jest.fn().mockResolvedValue('- dob: 1990-01-01'),
+    fetchTopFacts: judgeOverrides.fetchTopFacts ?? jest.fn().mockResolvedValue('- dob: 1990-01-01'),
     judge: judgeOverrides.judge ?? jest.fn().mockResolvedValue('same'),
   };
   const svc = new EntityResolverService(config, embedder, judge as any);
@@ -58,28 +56,36 @@ describe('EntityResolverService.resolveByName', () => {
       ...ENABLED,
       INGEST_INLINE_RESOLUTION_ENABLED: '0',
     });
-    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
+    expect(
+      await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
+    ).toBeNull();
     expect(db.query).not.toHaveBeenCalled();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
   it('returns null when the judge service is unavailable (no key)', async () => {
     const { svc, db } = makeService(ENABLED, { isAvailable: () => false });
-    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
+    expect(
+      await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
+    ).toBeNull();
     expect(db.query).not.toHaveBeenCalled();
   });
 
   it('returns null when no candidate clears the cosine floor', async () => {
     const { svc, db, judge } = makeService(ENABLED);
     db.query.mockResolvedValueOnce(candidate(0.7));
-    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
+    expect(
+      await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
+    ).toBeNull();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
   it('ignores a high-cosine candidate of a different type', async () => {
     const { svc, db, judge } = makeService(ENABLED);
     db.query.mockResolvedValueOnce(candidate(0.97, 'asset'));
-    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
+    expect(
+      await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
+    ).toBeNull();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
@@ -94,11 +100,9 @@ describe('EntityResolverService.resolveByName', () => {
       incomingFacts: ['dob: 1990-01-01'],
     });
     expect(out).toBe('knowledge_entity:x');
-    expect(judge.judge).toHaveBeenCalledWith(
-      '- dob: 1990-01-01',
-      '- dob: 1990-01-01',
-      { cosine: 0.95 },
-    );
+    expect(judge.judge).toHaveBeenCalledWith('- dob: 1990-01-01', '- dob: 1990-01-01', {
+      cosine: 0.95,
+    });
   });
 
   it.each(['different', 'unsure'])(
@@ -121,7 +125,9 @@ describe('EntityResolverService.resolveByName', () => {
   it('falls back to null when a DB read throws', async () => {
     const { svc, db } = makeService(ENABLED);
     db.query.mockRejectedValue(new Error('surreal down'));
-    expect(await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] })).toBeNull();
+    expect(
+      await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
+    ).toBeNull();
   });
 });
 

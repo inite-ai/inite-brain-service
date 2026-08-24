@@ -55,9 +55,7 @@ function ingestStub(
       calls.push(dto);
       return {
         documentId: `source_document:d${calls.length}`,
-        ...(behavior
-          ? behavior(dto, calls.length)
-          : { deduplicated: false }),
+        ...(behavior ? behavior(dto, calls.length) : { deduplicated: false }),
       };
     },
   } as unknown as DocumentIngestService;
@@ -70,13 +68,7 @@ describe('PackSeedIngestService.runForPack', () => {
   it('ingests every seed and reports counts (dedup split out)', async () => {
     const ingest = ingestStub((_dto, call) => ({ deduplicated: call === 2 }));
     const svc = new PackSeedIngestService(
-      surrealWithRow(
-        packRow([
-          seed(),
-          seed({ localId: 'glossary' }),
-          seed({ localId: 'faq' }),
-        ]),
-      ),
+      surrealWithRow(packRow([seed(), seed({ localId: 'glossary' }), seed({ localId: 'faq' })])),
       ingest.svc,
     );
     const r = await svc.runForPack('co_1', REF);
@@ -90,13 +82,7 @@ describe('PackSeedIngestService.runForPack', () => {
       return { deduplicated: false };
     });
     const svc = new PackSeedIngestService(
-      surrealWithRow(
-        packRow([
-          seed(),
-          seed({ localId: 'poison' }),
-          seed({ localId: 'faq' }),
-        ]),
-      ),
+      surrealWithRow(packRow([seed(), seed({ localId: 'poison' }), seed({ localId: 'faq' })])),
       ingest.svc,
     );
     const r = await svc.runForPack('co_1', REF);
@@ -113,10 +99,7 @@ describe('PackSeedIngestService.runForPack', () => {
 
   it('skips cleanly when a newer install superseded the queued version', async () => {
     const ingest = ingestStub();
-    const svc = new PackSeedIngestService(
-      surrealWithRow(packRow([seed()], '2.0.0')),
-      ingest.svc,
-    );
+    const svc = new PackSeedIngestService(surrealWithRow(packRow([seed()], '2.0.0')), ingest.svc);
     const r = await svc.runForPack('co_1', REF);
     expect(r.total).toBe(0);
     expect(ingest.calls).toHaveLength(0);
@@ -124,10 +107,7 @@ describe('PackSeedIngestService.runForPack', () => {
 
   it('skips cleanly when the manifest ships no seedDocuments', async () => {
     const ingest = ingestStub();
-    const svc = new PackSeedIngestService(
-      surrealWithRow(packRow(undefined)),
-      ingest.svc,
-    );
+    const svc = new PackSeedIngestService(surrealWithRow(packRow(undefined)), ingest.svc);
     const r = await svc.runForPack('co_1', REF);
     expect(r.total).toBe(0);
     expect(ingest.calls).toHaveLength(0);
@@ -141,7 +121,7 @@ describe('PackSeedIngestService.runForPack', () => {
       ingest.svc,
     );
     await svc.runForPack('co_1', REF);
-    const dto = ingest.calls[0];
+    const dto = ingest.calls[0]!;
     expect(dto.kind).toBe('pack_seed');
     expect(dto.title).toBe('Gardening primer');
     expect(dto.text).toBe('Tomatoes want sun.');
@@ -182,8 +162,8 @@ describe('PackSeedIngestService.runForPack', () => {
       ingest.svc,
     );
     await svc.runForPack('co_1', REF);
-    expect(ingest.calls[0].originUri).toBe('https://example.com/primer');
-    expect(ingest.calls[0].occurredAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(ingest.calls[0]!.originUri).toBe('https://example.com/primer');
+    expect(ingest.calls[0]!.occurredAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('throws "aborted" between documents so the job requeues', async () => {
@@ -196,9 +176,7 @@ describe('PackSeedIngestService.runForPack', () => {
       surrealWithRow(packRow([seed(), seed({ localId: 'glossary' })])),
       ingest.svc,
     );
-    await expect(
-      svc.runForPack('co_1', REF, controller.signal),
-    ).rejects.toThrow('aborted');
+    await expect(svc.runForPack('co_1', REF, controller.signal)).rejects.toThrow('aborted');
     expect(ingest.calls).toHaveLength(1);
   });
 });

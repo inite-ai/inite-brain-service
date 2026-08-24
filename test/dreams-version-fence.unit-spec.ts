@@ -16,9 +16,9 @@ import type { EntityJudgeService } from '../src/ai/entity-judge.service';
  */
 function recordingDb(): {
   db: Surreal;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
@@ -93,9 +93,7 @@ describe('dreams legs stay inside the tenant live world (W2)', () => {
       config({ DREAMS_CORROBORATE_ENABLED: '1', OPENAI_API_KEY: 'sk' }),
     );
     await svc.run(db, 'wd-v3');
-    const groups = queries.find((q) =>
-      q.sql.includes('GROUP BY entityId, canonPredicate'),
-    );
+    const groups = queries.find((q) => q.sql.includes('GROUP BY entityId, canonPredicate'));
     expect(groups?.sql).toContain('AND derivedVersion = $derivedVersion');
     expect(groups?.params?.derivedVersion).toBe('wd-v3');
   });

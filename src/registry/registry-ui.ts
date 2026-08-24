@@ -33,9 +33,7 @@ function originHost(origin: string): string {
 }
 
 function card(p: RegistryPackSummary): string {
-  const tags = p.keywords
-    .map((k) => `<span class="tag">${esc(k)}</span>`)
-    .join('');
+  const tags = p.keywords.map((k) => `<span class="tag">${esc(k)}</span>`).join('');
   // Green "verified" = signature validated against THIS instance's trust
   // store at publish time; neutral "signed" = carries a signature nobody here
   // vouches for. Deliberately distinct — a bare signature proves nothing to a
@@ -45,9 +43,7 @@ function card(p: RegistryPackSummary): string {
     : p.signed
       ? '<span class="badge signed">signed</span>'
       : '';
-  const featured = p.featured
-    ? '<span class="badge featured">featured</span>'
-    : '';
+  const featured = p.featured ? '<span class="badge featured">featured</span>' : '';
   // Paid marketplace pack (registry_pack_meta) — the displayPrice is
   // denormalized discovery metadata; checkout resolves the real price.
   const price = p.paid
@@ -147,9 +143,7 @@ export function renderPublisherPage(args: {
       ? `<span><a href="${esc(profile.url)}" rel="nofollow noopener">${esc(profile.url)}</a></span>`
       : `<span>${esc(profile.url)}</span>`
     : '';
-  const email = profile?.contactEmail
-    ? `<span>${esc(profile.contactEmail)}</span>`
-    : '';
+  const email = profile?.contactEmail ? `<span>${esc(profile.contactEmail)}</span>` : '';
   const bio = profile?.bio ? `<p class="bio">${esc(profile.bio)}</p>` : '';
   const packsBody =
     packs.length === 0

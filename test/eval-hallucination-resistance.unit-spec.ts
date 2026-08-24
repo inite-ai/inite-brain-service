@@ -5,10 +5,7 @@
  * rows (they're supposed to abstain — folding them in would invert those
  * gates), and must feed the refusal-rate / confabulation-count rows.
  */
-import {
-  refusalRate,
-  confabulationCount,
-} from './eval/metrics/hallucination-resistance';
+import { refusalRate, confabulationCount } from './eval/metrics/hallucination-resistance';
 import { Aggregator } from './eval/runner/aggregator';
 import type { ScenarioOutcome, SynthesizeOutcome } from '../src/eval/types';
 
@@ -48,10 +45,7 @@ function mkScenarioOutcome(syn: SynthesizeOutcome[]): ScenarioOutcome {
 
 describe('hallucination-resistance metric', () => {
   it('refusalRate = correctly-refused / false-premise total', () => {
-    expect(refusalRate([refusal(true), refusal(true), refusal(false)])).toBeCloseTo(
-      2 / 3,
-      10,
-    );
+    expect(refusalRate([refusal(true), refusal(true), refusal(false)])).toBeCloseTo(2 / 3, 10);
   });
 
   it('refusalRate is null when there are no false-premise outcomes', () => {
@@ -59,9 +53,7 @@ describe('hallucination-resistance metric', () => {
   });
 
   it('confabulationCount counts answered false-premise queries', () => {
-    expect(confabulationCount([refusal(true), refusal(false), refusal(false)])).toBe(
-      2,
-    );
+    expect(confabulationCount([refusal(true), refusal(false), refusal(false)])).toBe(2);
     // Normal outcomes never count as confabulations.
     expect(confabulationCount([mkOutcome({}), refusal(true)])).toBe(0);
   });
@@ -72,9 +64,7 @@ describe('Aggregator — hallucination-resistance partition', () => {
     const report = new Aggregator().build([
       mkScenarioOutcome([refusal(true), refusal(true), refusal(false)]),
     ]);
-    const rate = report.overall.find(
-      (m) => m.name === 'hallucination-resistance:refusal-rate',
-    );
+    const rate = report.overall.find((m) => m.name === 'hallucination-resistance:refusal-rate');
     const confab = report.overall.find(
       (m) => m.name === 'hallucination-resistance:confabulation-count',
     );
@@ -89,16 +79,9 @@ describe('Aggregator — hallucination-resistance partition', () => {
     // the abstain-rate (expressed as 1 - abstain) would drop to 0.5 and
     // trip the 0.7 gate. They must be partitioned out → stays 1.0.
     const report = new Aggregator().build([
-      mkScenarioOutcome([
-        mkOutcome({}),
-        mkOutcome({}),
-        refusal(true),
-        refusal(true),
-      ]),
+      mkScenarioOutcome([mkOutcome({}), mkOutcome({}), refusal(true), refusal(true)]),
     ]);
-    const abstain = report.overall.find(
-      (m) => m.name === 'synthesize-abstain-rate',
-    );
+    const abstain = report.overall.find((m) => m.name === 'synthesize-abstain-rate');
     expect(abstain!.value).toBe(1); // 1 - 0/2 over the NORMAL outcomes only
     expect(abstain!.n).toBe(2);
   });
@@ -110,20 +93,14 @@ describe('Aggregator — hallucination-resistance partition', () => {
         refusal(false), // a confabulation — would drag pass-rate down if counted
       ]),
     ]);
-    const passRate = report.overall.find(
-      (m) => m.name === 'faithfulness:pass-rate',
-    );
+    const passRate = report.overall.find((m) => m.name === 'faithfulness:pass-rate');
     expect(passRate!.value).toBe(1); // only the one normal, passing outcome
     expect(passRate!.n).toBe(1);
   });
 
   it('refusal-rate is null when a slice has no false-premise queries', () => {
-    const report = new Aggregator().build([
-      mkScenarioOutcome([mkOutcome({}), mkOutcome({})]),
-    ]);
-    const rate = report.overall.find(
-      (m) => m.name === 'hallucination-resistance:refusal-rate',
-    );
+    const report = new Aggregator().build([mkScenarioOutcome([mkOutcome({}), mkOutcome({})])]);
+    const rate = report.overall.find((m) => m.name === 'hallucination-resistance:refusal-rate');
     expect(rate!.value).toBeNull();
     expect(rate!.threshold).toBeUndefined();
   });

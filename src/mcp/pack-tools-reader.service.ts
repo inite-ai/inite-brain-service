@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { LRUCache } from '../common/lru-cache';
 import {
   composePredicateId,
@@ -38,10 +38,9 @@ const CACHE_CAP = 200;
 @Injectable()
 export class PackToolsReaderService {
   private readonly logger = new Logger(PackToolsReaderService.name);
-  private readonly cache = new LRUCache<
-    string,
-    { bindings: PackToolBinding[]; loadedAt: number }
-  >(CACHE_CAP);
+  private readonly cache = new LRUCache<string, { bindings: PackToolBinding[]; loadedAt: number }>(
+    CACHE_CAP,
+  );
   private readonly inFlight = new Map<string, Promise<PackToolBinding[]>>();
 
   constructor(private readonly surreal: SurrealService) {}
@@ -75,15 +74,15 @@ export class PackToolsReaderService {
   }
 
   private async loadFresh(companyId: string): Promise<PackToolBinding[]> {
-    const rows = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+    const rows = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<Record<string, unknown>>(
+        db,
         `SELECT packId, version, manifest, installId, webhookSecret,
                 acceptedMcpTools, acceptedMcpToolsChecksum
            FROM domain_pack
           WHERE status = 'active' AND manifest.mcpTools != NONE`,
-      );
-      return ((rows as any[]) ?? []) as Array<Record<string, unknown>>;
-    });
+      ),
+    );
     const bindings: PackToolBinding[] = [];
     for (const row of rows) {
       const binding = this.toBinding(row);
@@ -100,11 +99,7 @@ export class PackToolsReaderService {
    */
   private toBinding(row: Record<string, unknown>): PackToolBinding | null {
     const manifest = row.manifest as DomainPackManifest | undefined;
-    if (
-      !manifest ||
-      !Array.isArray(manifest.mcpTools) ||
-      manifest.mcpTools.length === 0
-    ) {
+    if (!manifest || !Array.isArray(manifest.mcpTools) || manifest.mcpTools.length === 0) {
       return null;
     }
     if (

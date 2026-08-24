@@ -34,10 +34,7 @@ export interface WindowedFact {
  * `window` by fused score, descending — the slice a cross-encoder
  * pass can afford to rescore.
  */
-export function collectFactWindow(
-  buckets: EntityBucket[],
-  window: number,
-): WindowedFact[] {
+export function collectFactWindow(buckets: EntityBucket[], window: number): WindowedFact[] {
   const flat: WindowedFact[] = [];
   for (const bucket of buckets) {
     for (const row of bucket.facts) flat.push({ bucket, row });
@@ -55,10 +52,7 @@ export function collectFactWindow(
  * fused order stands, mirroring the identity-fallback contract of the
  * CE service itself.
  */
-export function remapWindowScores(
-  rows: WindowedFact[],
-  permutation: number[],
-): boolean {
+export function remapWindowScores(rows: WindowedFact[], permutation: number[]): boolean {
   const n = rows.length;
   if (permutation.length !== n) return false;
   const seen = new Set<number>();
@@ -69,8 +63,12 @@ export function remapWindowScores(
   // rows arrive sorted desc by fused score (collectFactWindow), so
   // rows[k].row.score IS the k-th highest original value.
   const ranked = rows.map((r) => r.row.score);
-  for (let k = 0; k < n; k++) {
-    rows[permutation[k]].row.score = ranked[k];
+  for (const [k, target] of permutation.entries()) {
+    const row = rows[target];
+    const score = ranked[k];
+    // Both are in-bounds: permutation is a validated 0..n-1 permutation
+    // and ranked has length n; the guard is a type-level formality.
+    if (row !== undefined && score !== undefined) row.row.score = score;
   }
   return true;
 }

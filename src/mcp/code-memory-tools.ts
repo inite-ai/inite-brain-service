@@ -4,6 +4,7 @@ import type { IngestService } from '../ingest/ingest.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { CodeMemorySearchService } from '../code-memory/code-memory-search.service';
 import type { BrainScope } from '../auth/api-key.types';
+import { asStructuredContent } from './structured';
 import {
   CODE_MEMORY_KINDS,
   CODE_MEMORY_PREDICATE_IDS,
@@ -51,9 +52,7 @@ export function registerCodeMemoryReadTools(opts: {
       description:
         'Return the design decisions, rationale, invariants and gotchas recorded against a code anchor — the non-derivable engineering "why" a parser cannot recover from source. The anchor is a SCIP-style symbol string ("pkg/namespace/symbol") or a file path ("repo/path/file.ts"). Pass asOf to recall what was known at a past instant (bitemporal). Returns found:0 with empty memory when nothing is recorded.',
       inputSchema: {
-        symbol: z
-          .string()
-          .describe('Code anchor — SCIP-style symbol or file path'),
+        symbol: z.string().describe('Code anchor — SCIP-style symbol or file path'),
         asOf: z
           .string()
           .datetime()
@@ -74,9 +73,7 @@ export function registerCodeMemoryReadTools(opts: {
       // full believed-and-valid-now closure in BOTH branches now, so
       // superseded decisions are already excluded (the filter here used
       // to patch around the old retractedAt-only asOf=null branch).
-      const memory = (profile?.facts ?? []).filter((f) =>
-        codeIds.has(f.predicate),
-      );
+      const memory = (profile?.facts ?? []).filter((f) => codeIds.has(f.predicate));
       const out = {
         symbol: args.symbol,
         entityId: profile?.entityId ?? null,
@@ -91,7 +88,7 @@ export function registerCodeMemoryReadTools(opts: {
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -111,13 +108,13 @@ export function registerCodeMemoryReadTools(opts: {
       const decisions = await deps.codeSearch.recall({
         companyId,
         query: args.query,
-        limit: args.limit,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
         scopes,
       });
       const out = { query: args.query, found: decisions.length, decisions };
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );
@@ -136,9 +133,7 @@ export function registerCodeMemoryWriteTools(opts: {
       description:
         'Capture the non-derivable engineering "why" about a code location: a design decision, its rationale, an invariant that must hold, or a gotcha. Anchored to a SCIP-style symbol or file path (NOT line numbers — survives edits). Stored as a bitemporal typed fact: re-recording a `decided` / `invariant` for the same anchor SUPERSEDES the prior one (decision evolution over time), while `because` / `gotcha` accumulate. Attach commit / location for provenance.',
       inputSchema: {
-        symbol: z
-          .string()
-          .describe('Code anchor — SCIP-style symbol or file path'),
+        symbol: z.string().describe('Code anchor — SCIP-style symbol or file path'),
         kind: z
           .enum(CODE_MEMORY_KINDS)
           .describe(
@@ -149,14 +144,8 @@ export function registerCodeMemoryWriteTools(opts: {
           .min(1)
           .max(2000)
           .describe('The decision / rationale / invariant / gotcha text'),
-        commit: z
-          .string()
-          .optional()
-          .describe('Commit SHA this was decided in (provenance)'),
-        location: z
-          .string()
-          .optional()
-          .describe('file:line provenance, e.g. src/x.ts:42'),
+        commit: z.string().optional().describe('Commit SHA this was decided in (provenance)'),
+        location: z.string().optional().describe('file:line provenance, e.g. src/x.ts:42'),
         validFrom: z
           .string()
           .datetime()
@@ -171,7 +160,7 @@ export function registerCodeMemoryWriteTools(opts: {
         predicate: codeMemoryPredicateId(args.kind),
         object: args.text,
         validFrom: args.validFrom ?? new Date().toISOString(),
-        confidence: args.confidence,
+        ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
         source: {
           vertical: CODE_VERTICAL,
           recorder: 'code_memory',
@@ -183,7 +172,7 @@ export function registerCodeMemoryWriteTools(opts: {
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: out as any,
+        structuredContent: asStructuredContent(out),
       };
     },
   );

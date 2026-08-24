@@ -21,7 +21,7 @@ export class SetupApplier {
 
   async apply(scenario: Scenario): Promise<{
     extractions: ExtractionResult[];
-    identityMerge?: IdentityMergeResult;
+    identityMerge?: IdentityMergeResult | undefined;
   }> {
     const extractions: ExtractionResult[] = [];
     // Tag → factId map. Lets retract steps reference an earlier
@@ -63,10 +63,7 @@ export class SetupApplier {
     return { extractions, identityMerge };
   }
 
-  private async applyFact(
-    step: SetupFactStep,
-    factIdsByTag: Map<string, string>,
-  ): Promise<void> {
+  private async applyFact(step: SetupFactStep, factIdsByTag: Map<string, string>): Promise<void> {
     const res = await this.brain.ingest.fact({
       entityRef: step.entityRef,
       predicate: step.predicate,
@@ -139,9 +136,7 @@ export class SetupApplier {
         limit: 5,
       });
       const refTag = `${ref.vertical}__${ref.id}`;
-      const hit = search.results.find(
-        (r) => r.externalRefs && r.externalRefs[refTag] === ref.id,
-      );
+      const hit = search.results.find((r) => r.externalRefs && r.externalRefs[refTag] === ref.id);
       if (hit) {
         for (const f of hit.facts) {
           if (!observed.includes(f.predicate)) observed.push(f.predicate);
@@ -155,7 +150,6 @@ export class SetupApplier {
     const recall = expected.length === 0 ? 1 : matched / expected.length;
 
     if (process.env.DEBUG_EXTRACTION === '1') {
-       
       console.log(
         `[extraction-debug] scenario=${scenarioId} expected=${JSON.stringify(expected)} ` +
           `observed=${JSON.stringify(observed)} entitiesExtracted=${out.extractedEntityIds.length} ` +
@@ -223,8 +217,7 @@ export class SetupApplier {
     if (merge.shouldNotMerge) {
       // Survivor's entityId might have been normalized post-merge.
       // Re-resolve to be safe.
-      const survivorPostMerge =
-        (await this.findEntityIdByRef(merge.survivorRef)) ?? survivor;
+      const survivorPostMerge = (await this.findEntityIdByRef(merge.survivorRef)) ?? survivor;
       for (const ref of merge.shouldNotMerge) {
         const distractor = await this.findEntityIdByRef(ref);
         if (!distractor) {

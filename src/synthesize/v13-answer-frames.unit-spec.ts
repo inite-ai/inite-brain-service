@@ -3,9 +3,7 @@ import { detectAnswerShape, shapeInstructionFor } from './answer-shape';
 import { buildGeneratorUserMessage } from './generator-prompt';
 import type { SearchHit } from '../search/search.types';
 
-function hit(
-  facts: Array<Partial<SearchHit['facts'][number]>>,
-): SearchHit {
+function hit(facts: Array<Partial<SearchHit['facts'][number]>>): SearchHit {
   return {
     entityId: 'entity:a',
     entityType: 'person',
@@ -28,10 +26,7 @@ function hit(
 describe('buildDateMathLines (V13 RETRIEVAL_DATE_MATH)', () => {
   it('renders weekday plus event-to-event gaps, chronological', () => {
     const lines = buildDateMathLines([
-      hit([
-        { validFrom: '2023-05-07T10:00:00.000Z' },
-        { validFrom: '2023-05-04T09:00:00.000Z' },
-      ]),
+      hit([{ validFrom: '2023-05-07T10:00:00.000Z' }, { validFrom: '2023-05-04T09:00:00.000Z' }]),
     ]);
     expect(lines).toEqual([
       '2023-05-04 = Thursday',
@@ -40,16 +35,12 @@ describe('buildDateMathLines (V13 RETRIEVAL_DATE_MATH)', () => {
   });
 
   it('never references today (the measured LME anti-pattern)', () => {
-    const lines = buildDateMathLines([
-      hit([{ validFrom: '2023-05-04T00:00:00.000Z' }]),
-    ]);
+    const lines = buildDateMathLines([hit([{ validFrom: '2023-05-04T00:00:00.000Z' }])]);
     expect(lines.join('\n')).not.toMatch(/today|before now|ago/i);
   });
 
   it('keeps genuine pre-1970 history (only the sentinel day is excluded)', () => {
-    const lines = buildDateMathLines([
-      hit([{ validFrom: '1969-12-31T00:00:00.000Z' }]),
-    ]);
+    const lines = buildDateMathLines([hit([{ validFrom: '1969-12-31T00:00:00.000Z' }])]);
     expect(lines).toEqual(['1969-12-31 = Wednesday']);
   });
 
@@ -75,35 +66,25 @@ describe('buildDateMathLines (V13 RETRIEVAL_DATE_MATH)', () => {
         ]),
       ]),
     ).toEqual(['2023-05-05 = Friday']);
-    expect(
-      buildDateMathLines([hit([{ validFrom: '1970-01-01T00:00:00.000Z' }])]),
-    ).toEqual([]);
+    expect(buildDateMathLines([hit([{ validFrom: '1970-01-01T00:00:00.000Z' }])])).toEqual([]);
   });
 });
 
 describe('detectAnswerShape (V13 G2)', () => {
   it('routes why/how-connection questions to chained', () => {
-    expect(detectAnswerShape('Why did Melanie sell her camper?')).toBe(
+    expect(detectAnswerShape('Why did Melanie sell her camper?')).toBe('chained');
+    expect(detectAnswerShape('What led to the connection between Amy and the gym?')).toBe(
       'chained',
     );
-    expect(
-      detectAnswerShape('What led to the connection between Amy and the gym?'),
-    ).toBe('chained');
   });
 
   it('routes broad-coverage questions to aggregation', () => {
-    expect(detectAnswerShape("Tell me about John's family")).toBe(
-      'aggregation',
-    );
-    expect(detectAnswerShape('Describe the trip to Portland')).toBe(
-      'aggregation',
-    );
+    expect(detectAnswerShape("Tell me about John's family")).toBe('aggregation');
+    expect(detectAnswerShape('Describe the trip to Portland')).toBe('aggregation');
   });
 
   it('routes verbatim-recall questions to verbatim', () => {
-    expect(
-      detectAnswerShape('What was your recommendation for the API limiter?'),
-    ).toBe('verbatim');
+    expect(detectAnswerShape('What was your recommendation for the API limiter?')).toBe('verbatim');
   });
 
   it('returns null for plain factual questions', () => {

@@ -1,10 +1,6 @@
 import { StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
-import {
-  ReadPinService,
-  derivedVersionFence,
-  type ReadPin,
-} from '../../episodes/read-pin.service';
+import { ReadPinService, derivedVersionFence, type ReadPin } from '../../episodes/read-pin.service';
 import { scopeFenceSql } from '../../auth/scope-visibility';
 
 /**
@@ -24,7 +20,7 @@ export interface BaseWhereOptions {
    * facts that haven't been backfilled — keeping them visible
    * avoids regressing recall while the corpus catches up).
    */
-  langFilter?: string;
+  langFilter?: string | undefined;
 }
 
 export interface BuildBaseWhereOptions {
@@ -125,10 +121,7 @@ export function buildBaseWhere({
   // per-TENANT and comes from the projection registry (audit W2 #9);
   // `undefined` here means an unresolved caller, which falls back to
   // the process bootstrap default.
-  const pin =
-    derivedVersion === undefined
-      ? ReadPinService.bootstrapRead()
-      : derivedVersion;
+  const pin = derivedVersion === undefined ? ReadPinService.bootstrapRead() : derivedVersion;
   const fence = derivedVersionFence(pin);
   clauses.push(fence.clause);
   Object.assign(params, fence.params);
@@ -147,9 +140,7 @@ export function buildBaseWhere({
     // `type::record` cast at query time.
     clauses.push(`AND entityId INSIDE $entityIds`);
     params.entityIds = dto.entityIds.map((raw) => {
-      const id = raw.startsWith('knowledge_entity:')
-        ? raw.slice('knowledge_entity:'.length)
-        : raw;
+      const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
       return new StringRecordId(`knowledge_entity:${id}`);
     });
   }

@@ -37,7 +37,7 @@ describe('OperatorActionService.persist (3.x datetime coercion)', () => {
       companyId: 'evalops',
     });
     expect(capture).toHaveLength(1);
-    const content = capture[0].content as Record<string, unknown>;
+    const content = capture[0]!.content as Record<string, unknown>;
     expect(content.ts).toBeInstanceOf(Date);
     expect((content.ts as Date).toISOString()).toBe('2026-08-07T12:00:00.000Z');
     // Null option fields stay omitted (the 0027 NULL-vs-none contract).

@@ -118,9 +118,7 @@ export function policyFor(predicate: string): PredicatePolicy {
     semantics: seed.semantics,
     decayHalfLifeDays: seed.decayHalfLifeDays,
     piiClass: seed.piiClass,
-    ...(seed.requiresScope
-      ? { requiresScope: seed.requiresScope as 'brain:read_pii' }
-      : {}),
+    ...(seed.requiresScope ? { requiresScope: seed.requiresScope as 'brain:read_pii' } : {}),
   };
 }
 
@@ -130,20 +128,17 @@ export function policyFor(predicate: string): PredicatePolicy {
  * canonical, tenant-aware list comes from
  * PredicateRegistryService.getSnapshot().
  */
-export const PREDICATE_POLICIES: Record<string, PredicatePolicy> =
-  Object.fromEntries(
-    CORE_PREDICATES.map((p) => [
-      p.predicateId,
-      {
-        semantics: p.semantics,
-        decayHalfLifeDays: p.decayHalfLifeDays,
-        piiClass: p.piiClass,
-        ...(p.requiresScope
-          ? { requiresScope: p.requiresScope as 'brain:read_pii' }
-          : {}),
-      } as PredicatePolicy,
-    ]),
-  );
+export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = Object.fromEntries(
+  CORE_PREDICATES.map((p) => [
+    p.predicateId,
+    {
+      semantics: p.semantics,
+      decayHalfLifeDays: p.decayHalfLifeDays,
+      piiClass: p.piiClass,
+      ...(p.requiresScope ? { requiresScope: p.requiresScope as 'brain:read_pii' } : {}),
+    } as PredicatePolicy,
+  ]),
+);
 
 // ── Conflict resolution weights ──────────────────────────────────────────
 // Mirror of conflict_resolution.scoring in the spec. Tunable via env.
@@ -167,18 +162,22 @@ export interface ConflictConfig {
   rejectThreshold: number;
 }
 
-export const SOURCE_TRUST: Record<string, number> = {
-  human_declared:           1.00,
-  billing_event:            0.95,
-  incidents_event:          0.90,
-  auth_event:               0.90,
-  inbox_assistant_message:  0.70,
-  inbox_human_message:      0.65,
-  inbox_extraction:         0.50,
-  voice_transcript:         0.40,
-  external_webhook:         0.50,
-  default:                  0.50,
-};
+// `satisfies` (not a `Record<string, number>` annotation) so each key keeps
+// its concrete presence: static property access (SOURCE_TRUST.billing_event)
+// stays `number` under noUncheckedIndexedAccess. Never indexed by a dynamic
+// key — every read is a literal member.
+export const SOURCE_TRUST = {
+  human_declared: 1.0,
+  billing_event: 0.95,
+  incidents_event: 0.9,
+  auth_event: 0.9,
+  inbox_assistant_message: 0.7,
+  inbox_human_message: 0.65,
+  inbox_extraction: 0.5,
+  voice_transcript: 0.4,
+  external_webhook: 0.5,
+  default: 0.5,
+} satisfies Record<string, number>;
 
 export function recencyWeight(recordedAt: Date, now: Date = new Date()): number {
   const ageDays = (now.getTime() - recordedAt.getTime()) / (1000 * 60 * 60 * 24);
@@ -195,9 +194,9 @@ export interface FactScoreInput {
 
 export function scoreFact(f: FactScoreInput, cfg: ConflictConfig): number {
   return (
-    cfg.weights.confidence  * f.confidence +
+    cfg.weights.confidence * f.confidence +
     cfg.weights.sourceTrust * f.sourceTrust +
-    cfg.weights.recency     * recencyWeight(f.recordedAt) +
-    cfg.weights.authority   * f.authority
+    cfg.weights.recency * recencyWeight(f.recordedAt) +
+    cfg.weights.authority * f.authority
   );
 }

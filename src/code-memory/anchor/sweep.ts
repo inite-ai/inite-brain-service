@@ -67,9 +67,7 @@ export function buildAnchorVerdicts(opts: {
   // almost always a misconfiguration, not reality. Refuse rather than emit the
   // mass-invalidate; the operator re-runs from the right cwd or passes the
   // override once they've confirmed the removal is real.
-  const invalidateCount = verdicts.filter(
-    (v) => v.action === 'invalidate',
-  ).length;
+  const invalidateCount = verdicts.filter((v) => v.action === 'invalidate').length;
   if (
     anchors.length >= minAnchorsForGuard &&
     invalidateCount / anchors.length > maxInvalidateRatio
@@ -88,10 +86,7 @@ export function buildAnchorVerdicts(opts: {
 /** Cheap default re-anchor chooser: pick the current symbol sharing the longest
  *  common prefix with the missing one (covers renames like resolv→resolve and
  *  moves that keep the class). An LLM chooser can replace this. */
-export function heuristicChoose(
-  candidates: string[],
-  missing: string,
-): string | null {
+export function heuristicChoose(candidates: string[], missing: string): string | null {
   let best: string | null = null;
   let bestScore = 0;
   let tied = false;

@@ -27,10 +27,7 @@
 import type { SearchHit } from '../search/search.types';
 import type { ScoreBreakdown } from '../search/internals/types';
 
-export type DecisionRejectReason =
-  | 'low_score'
-  | 'not_relevant_to_query'
-  | 'duplicate_predicate';
+export type DecisionRejectReason = 'low_score' | 'not_relevant_to_query' | 'duplicate_predicate';
 
 export interface DecisionLogEntry {
   factId: string;
@@ -41,7 +38,7 @@ export interface DecisionLogEntry {
   /** True iff the synthesizer's generator emitted [fid:...] for this fact. */
   picked: boolean;
   /** Populated only when `picked === false`. Deterministic, template-derived. */
-  rejectReason?: DecisionRejectReason;
+  rejectReason?: DecisionRejectReason | undefined;
   /** All multiplicative score components that placed the fact. */
   scoreBreakdown: ScoreBreakdown;
 }

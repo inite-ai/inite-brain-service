@@ -17,10 +17,7 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
-import {
-  EpisodeReadStoreService,
-  type EpisodePageRow,
-} from './episode-read-store.service';
+import { EpisodeReadStoreService, type EpisodePageRow } from './episode-read-store.service';
 import {
   EpisodeSubscriptionService,
   type EpisodeSubscriptionRow,
@@ -62,18 +59,17 @@ interface EpisodeListQuery {
 
 /** Opaque keyset cursor: base64url of {t: occurredAtIso, id}. */
 function encodeCursor(row: EpisodePageRow): string {
-  return Buffer.from(
-    JSON.stringify({ t: toIso(row.occurredAt), id: String(row.id) }),
-  ).toString('base64url');
+  return Buffer.from(JSON.stringify({ t: toIso(row.occurredAt), id: String(row.id) })).toString(
+    'base64url',
+  );
 }
 
-function decodeCursor(
-  raw: string,
-): { occurredAtIso: string; id: string } {
+function decodeCursor(raw: string): { occurredAtIso: string; id: string } {
   try {
-    const parsed = JSON.parse(
-      Buffer.from(raw, 'base64url').toString('utf8'),
-    ) as { t?: string; id?: string };
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
+      t?: string;
+      id?: string;
+    };
     if (!parsed.t || !parsed.id) throw new Error('missing fields');
     return { occurredAtIso: parsed.t, id: parsed.id };
   } catch {
@@ -90,9 +86,7 @@ function toWire(row: EpisodePageRow): Record<string, unknown> {
   return {
     id: String(row.id),
     kind: row.kind,
-    ...(row.conversationId !== undefined
-      ? { conversationId: row.conversationId }
-      : {}),
+    ...(row.conversationId !== undefined ? { conversationId: row.conversationId } : {}),
     messageId: row.messageId,
     ...(row.speaker !== undefined ? { speaker: row.speaker } : {}),
     ...(row.addressee !== undefined ? { addressee: row.addressee } : {}),
@@ -151,13 +145,12 @@ export class EpisodesController {
       userId: q.userId,
       after: q.cursor !== undefined ? decodeCursor(q.cursor) : undefined,
     });
+    const lastRow = rows[rows.length - 1];
     return {
       episodes: rows.map(toWire),
       // A full page may end exactly on the last row; the follow-up
       // request then returns [] with no cursor — offset-free and safe.
-      ...(rows.length === limit
-        ? { nextCursor: encodeCursor(rows[rows.length - 1]) }
-        : {}),
+      ...(lastRow && rows.length === limit ? { nextCursor: encodeCursor(lastRow) } : {}),
     };
   }
 
@@ -194,6 +187,7 @@ export class EpisodesController {
       }
       if (rows.length < EXPORT_CHUNK) break;
       const last = rows[rows.length - 1];
+      if (!last) break; // rows non-empty here; guard satisfies the checker
       after = { occurredAtIso: toIso(last.occurredAt), id: String(last.id) };
     }
     res.end();

@@ -1,16 +1,12 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
-import { retryOnUniqueViolation } from '../db/surreal.service';
+import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
 import { scopeForUser } from '../auth/scope-tags';
 import { MetricsService } from '../metrics/metrics.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { KeyedMutex } from '../common/keyed-mutex';
-import {
-  ConflictConfig,
-  type DerivedSemantics,
-  type ResolveOutcome,
-} from './conflict-resolver';
+import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
 
@@ -34,13 +30,8 @@ export const VALUE_BEARING_ASPECTS: ReadonlySet<string> = new Set([
 ]);
 
 /** Derive-internal semantics choice (V9 §1); pure, exported for tests. */
-export function derivedSemanticsFor(
-  aspect: string,
-  slotSemantics: boolean,
-): DerivedSemantics {
-  return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect)
-    ? 'bitemporal_event'
-    : 'append_only';
+export function derivedSemanticsFor(aspect: string, slotSemantics: boolean): DerivedSemantics {
+  return slotSemantics && VALUE_BEARING_ASPECTS.has(aspect) ? 'bitemporal_event' : 'append_only';
 }
 
 /**
@@ -73,13 +64,13 @@ export class FactResolverService {
       similarityThreshold: this.cfgNum('CONFLICT_SIMILARITY_THRESHOLD', 0.85),
       slotSimilarityThreshold: this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9),
       weights: {
-        confidence:  this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE',  0.30),
-        sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.40),
-        recency:     this.cfgNum('CONFLICT_WEIGHT_RECENCY',     0.20),
-        authority:   this.cfgNum('CONFLICT_WEIGHT_AUTHORITY',   0.10),
+        confidence: this.cfgNum('CONFLICT_WEIGHT_CONFIDENCE', 0.3),
+        sourceTrust: this.cfgNum('CONFLICT_WEIGHT_SOURCE_TRUST', 0.4),
+        recency: this.cfgNum('CONFLICT_WEIGHT_RECENCY', 0.2),
+        authority: this.cfgNum('CONFLICT_WEIGHT_AUTHORITY', 0.1),
       },
-      marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE',  0.15),
-      rejectThreshold:    this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.30),
+      marginForSupersede: this.cfgNum('CONFLICT_MARGIN_SUPERSEDE', 0.15),
+      rejectThreshold: this.cfgNum('CONFLICT_REJECT_THRESHOLD', 0.3),
     };
   }
 
@@ -102,26 +93,26 @@ export class FactResolverService {
        * so coinages of one canon dedup/corroborate. Omit when the
        * predicate is already canonical.
        */
-      predicateAlias?: string;
+      predicateAlias?: string | undefined;
       /** The string form stored in `object` and used for locale detection. */
       object: string;
-      objectMeta?: object;
+      objectMeta?: object | undefined;
       /** Exact text to embed; defaults to `${predicate}: ${object}`. */
-      embeddingText?: string;
+      embeddingText?: string | undefined;
       /** When supplied, skips the embed round-trip (batched mention path). */
-      precomputedEmbedding?: number[];
+      precomputedEmbedding?: number[] | undefined;
       confidence: number;
       validFrom: Date;
-      validUntil?: Date;
+      validUntil?: Date | undefined;
       source: unknown;
-      entropy?: number;
+      entropy?: number | undefined;
       /** Per-user scope (migration 0055); undefined = tenant-global. */
-      userId?: string;
+      userId?: string | undefined;
       /** Derived-world namespace (0074/0079); undefined = live world. */
-      derivedVersion?: string;
-      recordOutcomeMetric?: boolean;
+      derivedVersion?: string | undefined;
+      recordOutcomeMetric?: boolean | undefined;
     },
-  ): Promise<{ result: any; semantics: string }> {
+  ): Promise<{ result: ResolveOutcome; semantics: string }> {
     // Read policy from the per-tenant registry. Pre-warm the snapshot so the
     // cache is populated before the synchronous policyFor() lookup. Defensive:
     // a registry bootstrap failure must not 500 the ingest — policyFor falls
@@ -156,52 +147,54 @@ export class FactResolverService {
   async resolveMany(
     db: Surreal,
     inputs: Parameters<FactResolverService['resolve']>[1][],
-  ): Promise<Array<{ result: any; semantics: string }>> {
+  ): Promise<Array<{ result: ResolveOutcome; semantics: string }>> {
     if (inputs.length === 0) return [];
+    const firstCompanyId = inputs[0]!.companyId; // inputs non-empty (checked)
     try {
-      await this.predicateRegistry.getSnapshot(inputs[0].companyId);
+      await this.predicateRegistry.getSnapshot(firstCompanyId);
     } catch (e) {
       this.logger.warn(
-        `ingest: predicate registry getSnapshot failed for ${inputs[0].companyId}: ${(e as Error).message}; using seed policy`,
+        `ingest: predicate registry getSnapshot failed for ${firstCompanyId}: ${(e as Error).message}; using seed policy`,
       );
     }
 
-    const prepared = await Promise.all(
-      inputs.map((p) => this.buildResolveCall(p)),
-    );
-    const results: any[] = new Array(inputs.length);
+    const prepared = await Promise.all(inputs.map((p) => this.buildResolveCall(p)));
+    const results: ResolveOutcome[] = new Array(inputs.length);
     const appendIdx: number[] = [];
     const restIdx: number[] = [];
-    prepared.forEach((c, i) =>
-      (c.semantics === 'append_only' ? appendIdx : restIdx).push(i),
-    );
+    prepared.forEach((c, i) => (c.semantics === 'append_only' ? appendIdx : restIdx).push(i));
 
     if (appendIdx.length > 0) {
       try {
         const batch = await this.resolveAppendOnlyBatch(
           db,
-          appendIdx.map((i) => prepared[i]),
+          // appendIdx holds valid indices into `prepared` (built above).
+          appendIdx.map((i) => prepared[i]!),
         );
-        appendIdx.forEach((i, k) => (results[i] = batch[k]));
+        appendIdx.forEach((i, k) => (results[i] = batch[k]!));
       } catch (e) {
         this.logger.warn(
           `ingest: batched fact resolve fell back to per-fact: ${(e as Error).message}`,
         );
         for (const i of appendIdx) {
-          results[i] = await this.resolveFactCall(db, prepared[i]);
+          results[i] = await this.resolveFactCall(db, prepared[i]!);
         }
       }
     }
     // single_active / bitemporal keep the serialized per-fact path.
     for (const i of restIdx) {
-      results[i] = await this.resolveFactCall(db, prepared[i]);
+      results[i] = await this.resolveFactCall(db, prepared[i]!);
     }
 
     // Post-call side effects (HyPE + metric) per fact, in order.
-    const out: Array<{ result: any; semantics: string }> = [];
+    const out: Array<{ result: ResolveOutcome; semantics: string }> = [];
     for (let i = 0; i < inputs.length; i++) {
-      await this.postResolve(db, inputs[i], results[i]);
-      out.push({ result: results[i], semantics: prepared[i].semantics });
+      // prepared.length === inputs.length ⇒ both indices are in-bounds.
+      const input = inputs[i]!;
+      const prep = prepared[i]!;
+      const res = results[i]!;
+      await this.postResolve(db, input, res);
+      out.push({ result: res, semantics: prep.semantics });
     }
     return out;
   }
@@ -215,17 +208,13 @@ export class FactResolverService {
     p: Parameters<FactResolverService['resolve']>[1],
   ): Promise<Parameters<FactResolverService['resolveFactCall']>[1]> {
     const policy = this.predicateRegistry.policyFor(p.companyId, p.predicate);
-    const sourceTrust = sourceTrustFor(
-      p.source as Parameters<typeof sourceTrustFor>[0],
-    );
+    const sourceTrust = sourceTrustFor(p.source as Parameters<typeof sourceTrustFor>[0]);
     const detLang = detectLanguage(p.object);
     const lang = detLang.language !== 'und' ? detLang.language : undefined;
     const script = detLang.language !== 'und' ? detLang.script : undefined;
     const embedding =
       p.precomputedEmbedding ??
-      (await this.factEmbedding.embed(
-        p.embeddingText ?? `${p.predicate}: ${p.object}`,
-      ));
+      (await this.factEmbedding.embed(p.embeddingText ?? `${p.predicate}: ${p.object}`));
     return {
       companyId: p.companyId,
       entityId: p.entityId,
@@ -252,7 +241,7 @@ export class FactResolverService {
   private async postResolve(
     db: Surreal,
     p: Parameters<FactResolverService['resolve']>[1],
-    result: any,
+    result: ResolveOutcome,
   ): Promise<void> {
     const outcome = result?.outcome;
     if (p.recordOutcomeMetric && outcome) {
@@ -281,7 +270,7 @@ export class FactResolverService {
     db: {
       query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
     },
-    items: Array<{ userId?: string; factId: unknown }>,
+    items: Array<{ userId?: string | undefined; factId: unknown }>,
   ): Promise<void> {
     const byUser = new Map<string, StringRecordId[]>();
     for (const it of items) {
@@ -294,10 +283,10 @@ export class FactResolverService {
     if (byUser.size === 0) return;
     try {
       for (const [userId, ids] of byUser) {
-        await db.query(
-          `UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`,
-          { scope: scopeForUser(userId), ids },
-        );
+        await db.query(`UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`, {
+          scope: scopeForUser(userId),
+          ids,
+        });
       }
     } catch (e) {
       this.logger.warn(
@@ -322,7 +311,7 @@ export class FactResolverService {
   private async resolveAppendOnlyBatch(
     db: Surreal,
     prepared: Parameters<FactResolverService['resolveFactCall']>[1][],
-  ): Promise<any[]> {
+  ): Promise<ResolveOutcome[]> {
     const facts = prepared.map((c) => {
       const f: Record<string, unknown> = {
         eid: idTailOf(c.entityId),
@@ -359,11 +348,10 @@ export class FactResolverService {
       reject_threshold: this.conflict.rejectThreshold,
       margin_for_supersede: this.conflict.marginForSupersede,
     };
-    const [rows] = await db.query<[any[]]>(
-      `RETURN fn::resolve_facts($facts, $cfg)`,
-      { facts, cfg },
-    );
-    const out = (rows as any[]) ?? [];
+    const out = await queryRows<ResolveOutcome>(db, `RETURN fn::resolve_facts($facts, $cfg)`, {
+      facts,
+      cfg,
+    });
     await this.stampFactScope(
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
@@ -444,16 +432,11 @@ export class FactResolverService {
       // fn::resolve_facts statement. Retry per row so the batch
       // degrades to N-1 good rows + a WARN per bad one instead of a
       // skipped conversation.
-      this.logger.warn(
-        `derived batch resolve failed (${(e as Error).message}); retrying per-row`,
-      );
+      this.logger.warn(`derived batch resolve failed (${(e as Error).message}); retrying per-row`);
       const out: ResolveOutcome[] = [];
       for (const c of prepared) {
         try {
-          const [r] = await this.resolveAppendOnlyBatch(
-            db as unknown as Surreal,
-            [c],
-          );
+          const [r] = await this.resolveAppendOnlyBatch(db as unknown as Surreal, [c]);
           out.push(r as ResolveOutcome);
         } catch (rowErr) {
           this.logger.warn(
@@ -486,23 +469,23 @@ export class FactResolverService {
       companyId: string;
       entityId: string;
       predicate: string;
-      predicateAlias?: string;
+      predicateAlias?: string | undefined;
       object: string;
-      objectMeta?: object;
+      objectMeta?: object | undefined;
       embedding: number[];
       confidence: number;
       validFrom: Date;
-      validUntil?: Date;
+      validUntil?: Date | undefined;
       source: unknown;
       sourceTrust: number;
       semantics: string;
-      lang?: string;
-      script?: string;
-      entropy?: number;
-      userId?: string;
-      derivedVersion?: string;
+      lang?: string | undefined;
+      script?: string | undefined;
+      entropy?: number | undefined;
+      userId?: string | undefined;
+      derivedVersion?: string | undefined;
     },
-  ): Promise<any> {
+  ): Promise<ResolveOutcome> {
     // Serialize resolves on the same (company, entity, predicate). Under
     // SurrealDB 3.x the OCC read-conflict that let racing single_active
     // resolves retry-and-supersede no longer fires for the function's
@@ -516,7 +499,7 @@ export class FactResolverService {
     const lockKey = `${p.companyId}\x00${p.entityId}\x00${p.predicateAlias ?? p.predicate}`;
     const r = await this.resolveLock.run(lockKey, () =>
       retryOnUniqueViolation(async () => {
-        const [row] = await db.query<[any]>(
+        const [row] = await db.query<[ResolveOutcome]>(
           `RETURN fn::resolve_fact(
             type::record('knowledge_entity', $eid),
             $predicate, $object, $object_meta, $embedding,

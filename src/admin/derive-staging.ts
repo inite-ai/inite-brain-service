@@ -53,10 +53,7 @@ export interface DeriveNamespace {
   staging: string;
 }
 
-export function stagingNamespace(
-  version: string,
-  runToken?: string,
-): DeriveNamespace {
+export function stagingNamespace(version: string, runToken?: string): DeriveNamespace {
   const suffix = runToken ? `${STAGING_SUFFIX}.${runToken}` : STAGING_SUFFIX;
   return { final: version, staging: `${version}${suffix}` };
 }
@@ -95,10 +92,7 @@ const inFlight = new Set<string>();
  * collide into one lease.
  */
 export function deriveLeaseName(companyId: string, version: string): string {
-  const hash = createHash('sha1')
-    .update(`${companyId}\u0000${version}`)
-    .digest('hex')
-    .slice(0, 8);
+  const hash = createHash('sha1').update(`${companyId}\u0000${version}`).digest('hex').slice(0, 8);
   const slug = `${companyId}_${version}`
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, '_')
@@ -135,7 +129,7 @@ type LeaseLogger = { warn(message: string): void };
 export async function acquireDeriveLease(args: {
   companyId: string;
   version: string;
-  lease?: LeaderLeaseService;
+  lease?: LeaderLeaseService | undefined;
   logger: LeaseLogger;
 }): Promise<DeriveLease> {
   const { companyId, version, lease, logger } = args;
@@ -178,8 +172,7 @@ export async function acquireDeriveLease(args: {
             // fence only refuses a flip we can no longer claim to own.
             lost = true;
             logger.warn(
-              `derive lease heartbeat failed — promotion fenced: ` +
-                `${(e as Error).message}`,
+              `derive lease heartbeat failed — promotion fenced: ` + `${(e as Error).message}`,
             );
           },
         );
@@ -203,10 +196,7 @@ export async function acquireDeriveLease(args: {
         return ok;
       } catch (e) {
         lost = true;
-        logger.warn(
-          `derive lease renew failed — promotion fenced: ` +
-            `${(e as Error).message}`,
-        );
+        logger.warn(`derive lease renew failed — promotion fenced: ` + `${(e as Error).message}`);
         return false;
       }
     },
@@ -235,10 +225,7 @@ const STAGED_TABLES = ['knowledge_fact', 'conversation_digest'] as const;
  * existence probe first keeps the common no-orphans path free of
  * destructive statements.
  */
-export async function sweepStagingRows(
-  db: DeriveDb,
-  staging: string,
-): Promise<void> {
+export async function sweepStagingRows(db: DeriveDb, staging: string): Promise<void> {
   for (const table of STAGED_TABLES) {
     const [rows] = await db.query<[Array<{ id: unknown }>]>(
       `SELECT id FROM ${table} WHERE derivedVersion = $version LIMIT 1`,
@@ -257,10 +244,7 @@ export async function sweepStagingRows(
  * stranded (the run-start GC, under the lease; per-run tokens mean the
  * exact orphan names are unknowable in advance).
  */
-export async function sweepStagingOrphans(
-  db: DeriveDb,
-  version: string,
-): Promise<void> {
+export async function sweepStagingOrphans(db: DeriveDb, version: string): Promise<void> {
   const prefix = `${version}${STAGING_SUFFIX}`;
   for (const table of STAGED_TABLES) {
     const [rows] = await db.query<[Array<{ id: unknown }>]>(
@@ -293,7 +277,7 @@ export async function sweepStagingOrphans(
 export async function promoteStaging(
   db: DeriveDb,
   ns: DeriveNamespace,
-  opts: { conversationId?: string } = {},
+  opts: { conversationId?: string | undefined } = {},
 ): Promise<void> {
   const conv = opts.conversationId;
   // Audit 2026-08-21: facts and digests flip in ONE transaction — the

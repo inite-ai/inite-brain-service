@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst } from '../db/surreal.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
 import type { DomainPackManifest, PackSeedDocument } from '../ai/domain-packs';
@@ -95,10 +95,7 @@ export class PackSeedIngestService implements OnModuleInit {
         throw new Error('aborted');
       }
       try {
-        const r = await this.ingest.ingestDocument(
-          companyId,
-          this.seedDto(seed, p),
-        );
+        const r = await this.ingest.ingestDocument(companyId, this.seedDto(seed, p));
         if (r.deduplicated) result.deduplicated++;
         else result.ingested++;
       } catch (err) {
@@ -119,15 +116,13 @@ export class PackSeedIngestService implements OnModuleInit {
     companyId: string,
     p: { packId: string; packVersion: string },
   ): Promise<PackSeedDocument[] | null> {
-    const row = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+    const row = await this.surreal.withCompany(companyId, (db) =>
+      queryFirst<{ version: unknown; manifest?: DomainPackManifest }>(
+        db,
         `SELECT version, manifest FROM domain_pack WHERE packId = $packId AND status = 'active' LIMIT 1`,
         { packId: p.packId },
-      );
-      return ((rows as any[]) ?? [])[0] as
-        | { version: unknown; manifest?: DomainPackManifest }
-        | undefined;
-    });
+      ),
+    );
     if (!row) {
       this.logger.log(
         `pack_seed_ingest skipped — pack ${p.packId} is not installed for ${companyId}`,
@@ -181,17 +176,11 @@ export class PackSeedIngestService implements OnModuleInit {
     };
   }
 
-  private async executeFromQueue(
-    ctx: JobContext,
-  ): Promise<Record<string, unknown>> {
+  private async executeFromQueue(ctx: JobContext): Promise<Record<string, unknown>> {
     const packId = String(ctx.payload?.packId ?? '');
     const packVersion = String(ctx.payload?.packVersion ?? '');
     if (!packId) return { skipped: 'missing_packId' };
-    const result = await this.runForPack(
-      ctx.companyId,
-      { packId, packVersion },
-      ctx.abortSignal,
-    );
+    const result = await this.runForPack(ctx.companyId, { packId, packVersion }, ctx.abortSignal);
     return { ...result };
   }
 }

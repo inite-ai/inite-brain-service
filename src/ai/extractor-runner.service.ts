@@ -7,10 +7,7 @@ import { ExtractorLocalService } from './extractor-local.service';
 import { ExtractorRefineService } from './extractor-refine.service';
 import { mergeExtractions } from './extractor-internals/merge';
 import { detectFacets, type Facet } from './extractor-internals/facet-router';
-import type {
-  ExtractedEntity,
-  ExtractionResult,
-} from './extractor-internals/types';
+import type { ExtractedEntity, ExtractionResult } from './extractor-internals/types';
 import {
   applyGroundingGate,
   groundEntities,
@@ -88,8 +85,8 @@ export class ExtractorRunnerService {
     trimmed: string;
     companyId: string;
     snapshot: Snapshot;
-    overrides?: RunOverrides;
-    context?: ConversationContext;
+    overrides?: RunOverrides | undefined;
+    context?: ConversationContext | undefined;
   }): Promise<ExtractionResult | null> {
     const { trimmed, companyId, snapshot, overrides, context } = args;
     const systemPrompt = this.llm.composeSystemPrompt(snapshot);
@@ -159,16 +156,13 @@ export class ExtractorRunnerService {
     trimmed: string;
     snapshot: Snapshot;
     systemPrompt: string;
-    contextPrefix?: string;
-    context?: ConversationContext;
-    overrides?: RunOverrides;
+    contextPrefix?: string | undefined;
+    context?: ConversationContext | undefined;
+    overrides?: RunOverrides | undefined;
   }): Promise<ExtractionResult | null> {
     const N = args.overrides?.scPasses ?? this.llm.scPasses;
     // Even temperature spread across [0.1, 0.7].
-    const temperatures = Array.from(
-      { length: N },
-      (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1),
-    );
+    const temperatures = Array.from({ length: N }, (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1));
 
     const rawJsons = await Promise.all(
       temperatures.map((t) =>
@@ -181,15 +175,16 @@ export class ExtractorRunnerService {
             model: args.overrides?.model,
           })
           .catch((e) => {
-            this.logger.warn(
-              `sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`,
-            );
+            this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
             return null;
           }),
       ),
     );
     const results = await Promise.all(
-      rawJsons.map((rj) =>
+      // async wrapper: every slot resolves to a Promise (the failed-pass
+      // slots to a resolved null) so Promise.all receives an all-thenable
+      // iterable — same result array, positions preserved.
+      rawJsons.map(async (rj) =>
         rj
           ? this.assembleResult({
               companyId: args.companyId,
@@ -237,14 +232,11 @@ export class ExtractorRunnerService {
     snapshot: Snapshot;
     systemPrompt: string;
     facets: Facet[];
-    contextPrefix?: string;
-    context?: ConversationContext;
-    overrides?: RunOverrides;
+    contextPrefix?: string | undefined;
+    context?: ConversationContext | undefined;
+    overrides?: RunOverrides | undefined;
   }): Promise<ExtractionResult | null> {
-    const prompts = [
-      args.systemPrompt,
-      ...args.facets.map((f) => buildFacetSystemPrompt(f)),
-    ];
+    const prompts = [args.systemPrompt, ...args.facets.map((f) => buildFacetSystemPrompt(f))];
     const rawJsons = await Promise.all(
       prompts.map((systemPrompt, i) =>
         this.llm
@@ -266,7 +258,10 @@ export class ExtractorRunnerService {
       ),
     );
     const results = await Promise.all(
-      rawJsons.map((rj) =>
+      // async wrapper: every slot resolves to a Promise (the failed-pass
+      // slots to a resolved null) so Promise.all receives an all-thenable
+      // iterable — same result array, positions preserved.
+      rawJsons.map(async (rj) =>
         rj
           ? this.assembleResult({
               companyId: args.companyId,
@@ -295,8 +290,8 @@ export class ExtractorRunnerService {
     companyId: string;
     trimmed: string;
     snapshot: Snapshot;
-    rawJson: any;
-    context?: ConversationContext;
+    rawJson: unknown;
+    context?: ConversationContext | undefined;
   }): Promise<ExtractionResult> {
     const { companyId, trimmed, snapshot, rawJson, context } = args;
 
@@ -372,9 +367,7 @@ export class ExtractorRunnerService {
         toEntityIndex: remap.get(e.toEntityIndex) as number,
       }));
     if (entities.length < parsedEntities.length) {
-      const droppedNames = parsedEntities
-        .filter((_, i) => !groundedMask[i])
-        .map((e) => e.name);
+      const droppedNames = parsedEntities.filter((_, i) => !groundedMask[i]).map((e) => e.name);
       this.logger.warn(
         `extractor dropped ${droppedNames.length} entity(ies) that failed span-grounding: ${droppedNames.join('; ')}`,
       );

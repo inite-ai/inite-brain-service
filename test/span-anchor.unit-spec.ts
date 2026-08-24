@@ -71,9 +71,7 @@ describe('anchorQuote — code-point offsets (astral chars)', () => {
     // UTF-16 indexOf would say 3; code points say 2.
     expect(span!.start).toBe(2);
     expect(span!.end).toBe(16);
-    expect([...text].slice(span!.start, span!.end).join('')).toBe(
-      'marks the spot',
-    );
+    expect([...text].slice(span!.start, span!.end).join('')).toBe('marks the spot');
   });
 
   it('a quote containing astral chars counts them as one position each', () => {
@@ -134,9 +132,9 @@ describe('computeCharSpans — quotes parallel to turns', () => {
       session,
     });
     expect(spans).toHaveLength(2);
-    expect(spans[0].episodeId).toBe('episode:e0');
-    expect(spans[0].exact).toBe('kitten named Luna');
-    expect(spans[1].episodeId).toBe('episode:e1');
+    expect(spans[0]!.episodeId).toBe('episode:e0');
+    expect(spans[0]!.exact).toBe('kitten named Luna');
+    expect(spans[1]!.episodeId).toBe('episode:e1');
   });
 
   it('null quotes, failing quotes and bad turn indices contribute no span', () => {
@@ -155,6 +153,6 @@ describe('computeCharSpans — quotes parallel to turns', () => {
       session,
     });
     expect(spans).toHaveLength(1);
-    expect(spans[0].episodeId).toBe('episode:e0');
+    expect(spans[0]!.episodeId).toBe('episode:e0');
   });
 });

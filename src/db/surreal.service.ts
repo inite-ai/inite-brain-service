@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationShutdown,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
@@ -138,11 +133,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         // Closing a dead conn can throw — ignored intentionally.
       }
       const fresh = new Surreal();
-      await withTimeout(
-        fresh.connect(this.surrealUrl),
-        5000,
-        'connect',
-      );
+      await withTimeout(fresh.connect(this.surrealUrl), 5000, 'connect');
       await withTimeout(fresh.signin(this.rootCreds), 3000, 'signin');
       // Swap the conn in `all` so process shutdown closes the new one.
       const oldIdx = this.all.indexOf(conn);
@@ -156,10 +147,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     const username = this.configService.getOrThrow<string>('SURREALDB_USERNAME');
     const password = this.configService.getOrThrow<string>('SURREALDB_PASSWORD');
     this.namespace = this.configService.get<string>('SURREALDB_NAMESPACE', 'brain');
-    this.poolSize = parseInt(
-      this.configService.get<string>('SURREALDB_POOL_SIZE', '8'),
-      10,
-    );
+    this.poolSize = parseInt(this.configService.get<string>('SURREALDB_POOL_SIZE', '8'), 10);
     this.scopedPoolSize = parseInt(
       this.configService.get<string>('SURREALDB_SCOPED_POOL_SIZE', '8'),
       10,
@@ -171,10 +159,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     if (!Number.isFinite(this.poolSize) || this.poolSize < 1) {
       throw new Error('SURREALDB_POOL_SIZE must be a positive integer');
     }
-    if (
-      !Number.isFinite(this.acquireTimeoutMs) ||
-      this.acquireTimeoutMs < 100
-    ) {
+    if (!Number.isFinite(this.acquireTimeoutMs) || this.acquireTimeoutMs < 100) {
       throw new Error('SURREALDB_ACQUIRE_TIMEOUT_MS must be >= 100ms');
     }
 
@@ -218,7 +203,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         const conn = new Surreal();
         await conn.connect(url);
         try {
-          await conn.signin({ username: scopedUser, password: scopedPass, namespace: this.namespace });
+          await conn.signin({
+            username: scopedUser,
+            password: scopedPass,
+            namespace: this.namespace,
+          });
         } catch (e) {
           // brain_caller user not yet defined (first boot, no migrations
           // applied yet). Fall back to root signin so the conn is at
@@ -261,7 +250,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   async ping(): Promise<boolean> {
     if (this.all.length === 0) return false;
     try {
-      await this.all[0].version();
+      await this.all[0]!.version(); // non-empty guaranteed by the guard above
       return true;
     } catch {
       return false;
@@ -379,10 +368,10 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // overwrites BOTH before the user-fn runs, so cross-request
       // contamination is impossible ($caller_policy_deny is always
       // re-bound, [] when the fence is off or no rules push down).
-      await conn.query(
-        `LET $caller_scopes = $scopes; LET $caller_policy_deny = $policyDeny`,
-        { scopes: [...scopes], policyDeny },
-      );
+      await conn.query(`LET $caller_scopes = $scopes; LET $caller_policy_deny = $policyDeny`, {
+        scopes: [...scopes],
+        policyDeny,
+      });
       return await fn(conn);
     } finally {
       this.releaseScoped(conn);
@@ -427,11 +416,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private acquireRoot(): Promise<Surreal> {
-    return this.acquireWithTimeout(
-      this.rootIdle,
-      this.rootWaiters,
-      'root',
-    );
+    return this.acquireWithTimeout(this.rootIdle, this.rootWaiters, 'root');
   }
 
   private releaseRoot(conn: Surreal): void {
@@ -444,11 +429,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async acquireScoped(): Promise<Surreal> {
-    const conn = await this.acquireWithTimeout(
-      this.scopedIdle,
-      this.scopedWaiters,
-      'scoped',
-    );
+    const conn = await this.acquireWithTimeout(this.scopedIdle, this.scopedWaiters, 'scoped');
     // Audit 2026-08-19 P1 / 2026-08-21 P1: a root-fallback conn
     // re-attempts the scoped signin on EVERY acquire — and FAILS CLOSED
     // when it can't. A deployment that configured the scoped pool asked
@@ -554,13 +535,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // parameterized, so we backtick-quote — companyId is already
       // validated `^[a-zA-Z0-9_-]+$` in withCompany, and `database` is
       // `co_<companyId>` / `system`.
-      await this.migratorConn.query(
-        `DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``,
-      );
+      await this.migratorConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
       await this.migratorConn.use({ namespace: this.namespace });
-      await this.migratorConn.query(
-        `DEFINE DATABASE IF NOT EXISTS \`${database}\``,
-      );
+      await this.migratorConn.query(`DEFINE DATABASE IF NOT EXISTS \`${database}\``);
       await this.migratorConn.use({ namespace: this.namespace, database });
       const result = await this.migrator.migrate(this.migratorConn);
       this.knownDatabases.add(database);
@@ -668,9 +645,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         this.rootFallbackConns.delete(conn);
       } catch (e) {
         this.rootFallbackConns.add(conn);
-        this.logger.warn(
-          `Re-signin to scoped failed for an idle conn: ${(e as Error).message}`,
-        );
+        this.logger.warn(`Re-signin to scoped failed for an idle conn: ${(e as Error).message}`);
       }
     }
     void url; // silence unused
@@ -701,7 +676,7 @@ export async function dbCreate<T extends Record<string, unknown>>(
   if (arr.length === 0) {
     throw new Error(`dbCreate(${table}) returned no row`);
   }
-  return arr[0];
+  return arr[0]!; // length > 0 guaranteed by the guard above
 }
 
 export async function dbMerge<T extends Record<string, unknown>>(
@@ -709,17 +684,58 @@ export async function dbMerge<T extends Record<string, unknown>>(
   recordId: string,
   patch: Record<string, unknown>,
 ): Promise<T> {
-  const [rows] = await db.query<[T[]]>(
-    `UPDATE type::record($t, $i) MERGE $p RETURN AFTER`,
-    { t: tableOf(recordId), i: idOf(recordId), p: patch },
-  );
+  const [rows] = await db.query<[T[]]>(`UPDATE type::record($t, $i) MERGE $p RETURN AFTER`, {
+    t: tableOf(recordId),
+    i: idOf(recordId),
+    p: patch,
+  });
   const arr = (rows as T[]) ?? [];
   // An UPDATE...MERGE that matched no record returns []. Returning arr[0]
   // would hand back `undefined` typed as T — surface the missing record.
   if (arr.length === 0) {
     throw new Error(`dbMerge(${recordId}) matched no record`);
   }
-  return arr[0];
+  return arr[0]!; // length > 0 guaranteed by the guard above
+}
+
+/**
+ * Run a single-statement SELECT/UPDATE/DELETE and return its row array,
+ * typed as `T[]`. `db.query<[T[]]>()` types the one result slot; the
+ * `?? []` guards the (impossible-in-practice, but typed-as-optional) empty
+ * response so callers always get an array to map/filter over.
+ *
+ * This is the typed replacement for the `(await db.query(sql)) as any` /
+ * `(rows as any[]) ?? []` idiom that used to litter the store services.
+ * Pass a row interface reflecting the columns the SELECT actually returns:
+ *
+ *   interface CountRow { c: number }
+ *   const [{ c }] = await queryRows<CountRow>(db, 'SELECT count() AS c ...');
+ *
+ * For multi-statement batches (LET/RETURN, several SELECTs), call
+ * `db.query<[A[], B[]]>()` directly and index the tuple — this helper is
+ * for the common single-statement case.
+ */
+export async function queryRows<T>(
+  db: Surreal,
+  sql: string,
+  vars?: Record<string, unknown>,
+): Promise<T[]> {
+  const [rows] = await db.query<[T[]]>(sql, vars);
+  return (rows as T[]) ?? [];
+}
+
+/**
+ * Run a single-statement query and return only its first row (or
+ * `undefined` when the query matched nothing). Typed convenience over
+ * `queryRows` for the `LIMIT 1` / by-id lookup shape.
+ */
+export async function queryFirst<T>(
+  db: Surreal,
+  sql: string,
+  vars?: Record<string, unknown>,
+): Promise<T | undefined> {
+  const rows = await queryRows<T>(db, sql, vars);
+  return rows[0];
 }
 
 function tableOf(rid: string): string {
@@ -754,10 +770,7 @@ export interface TxBuilder {
   bind(name: string, value: unknown): TxBuilder;
 }
 
-export async function runTransaction<T>(
-  db: Surreal,
-  build: (tx: TxBuilder) => void,
-): Promise<T> {
+export async function runTransaction<T>(db: Surreal, build: (tx: TxBuilder) => void): Promise<T> {
   const stmts: string[] = [];
   const vars: Record<string, unknown> = {};
   const builder: TxBuilder = {
@@ -773,9 +786,10 @@ export async function runTransaction<T>(
   build(builder);
 
   // Compose: BEGIN; <stmt>; <stmt>; ...; COMMIT;
-  const sql = ['BEGIN TRANSACTION', ...stmts, 'COMMIT TRANSACTION']
-    .map((s) => s.replace(/;\s*$/, ''))
-    .join(';\n') + ';';
+  const sql =
+    ['BEGIN TRANSACTION', ...stmts, 'COMMIT TRANSACTION']
+      .map((s) => s.replace(/;\s*$/, ''))
+      .join(';\n') + ';';
 
   // Aborted BEGIN/COMMIT batches surface as a bare "failed transaction"
   // wrapper that hides the retriable per-statement cause; enrich it so the
@@ -807,9 +821,7 @@ export async function runTransaction<T>(
   //
   // We compose exactly one BEGIN and one COMMIT, so the shapes are
   // disjoint: only a 3.x server can answer with stmts+2 slots.
-  return (
-    arr.length === stmts.length + 2 ? arr[arr.length - 2] : arr[arr.length - 1]
-  ) as T;
+  return (arr.length === stmts.length + 2 ? arr[arr.length - 2] : arr[arr.length - 1]) as T;
 }
 
 /**
@@ -819,21 +831,14 @@ export async function runTransaction<T>(
  * response. Without this, ensureRootSession could wedge a request for
  * minutes before the OS reaps the TCP connection.
  */
-async function withTimeout<T>(
-  p: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
       p,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () =>
-            reject(
-              new Error(`SurrealDB ${label} timed out after ${ms}ms`),
-            ),
+          () => reject(new Error(`SurrealDB ${label} timed out after ${ms}ms`)),
           ms,
         );
       }),

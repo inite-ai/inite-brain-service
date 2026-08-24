@@ -1,7 +1,4 @@
-import {
-  SegmentLaneService,
-  rrfFuse,
-} from '../src/synthesize/segment-lane.service';
+import { SegmentLaneService, rrfFuse } from '../src/synthesize/segment-lane.service';
 import {
   windowSession,
   renderSegmentText,
@@ -54,7 +51,7 @@ describe('rrfFuse', () => {
       [row('a'), row('b'), row('c')],
       [row('c'), row('d')],
     ]);
-    expect(String(fused[0].id)).toBe('c');
+    expect(String(fused[0]!.id)).toBe('c');
     expect(fused).toHaveLength(4);
   });
 
@@ -66,16 +63,21 @@ describe('rrfFuse', () => {
 
 describe('SegmentComposerService', () => {
   it('windows sessions, embeds, and writes segments idempotently', async () => {
-    const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+    const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const db = {
       query: async (sql: string, params?: Record<string, unknown>) => {
         queries.push({ sql, params });
-        if (sql.includes('GROUP BY conversationId'))
-          return [[{ conversationId: 'conv-1' }]];
+        if (sql.includes('GROUP BY conversationId')) return [[{ conversationId: 'conv-1' }]];
         if (sql.includes('FROM episode'))
           return [
             [
-              { id: 'episode:e0', speaker: 'A', text: 'q1', occurredAt: '2023-05-01T10:00:00Z', piiClass: ['phone'] },
+              {
+                id: 'episode:e0',
+                speaker: 'A',
+                text: 'q1',
+                occurredAt: '2023-05-01T10:00:00Z',
+                piiClass: ['phone'],
+              },
               { id: 'episode:e1', speaker: 'B', text: 'a1', occurredAt: '2023-05-01T10:01:00Z' },
             ],
           ];
@@ -83,28 +85,29 @@ describe('SegmentComposerService', () => {
       },
     };
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
     } as unknown as FactEmbeddingService;
-    const svc = new SegmentComposerService(surreal, embedding, new EpisodeReadStoreService(surreal));
+    const svc = new SegmentComposerService(
+      surreal,
+      embedding,
+      new EpisodeReadStoreService(surreal),
+    );
     const res = await svc.run('co_x');
     expect(res).toMatchObject({ conversations: 1, segments: 1 });
-    const swap = queries.find((q) =>
-      q.sql.includes('INSERT INTO episode_segment'),
-    );
+    const swap = queries.find((q) => q.sql.includes('INSERT INTO episode_segment'));
     // Atomic swap (audit W2 #10): delete + insert share ONE transaction —
     // the lane sees the previous window set or the new one, never neither.
     expect(swap?.sql).toContain('BEGIN TRANSACTION');
     expect(swap?.sql).toContain('DELETE episode_segment');
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
-    expect(rows[0].recorder).toBe(SEGMENT_RECORDER);
-    expect(rows[0].piiClass).toEqual(['phone']);
-    expect(typeof rows[0].generation).toBe('string');
-    expect(String(rows[0].text)).toContain('[2023-05-01] A: q1');
+    expect(rows[0]!.recorder).toBe(SEGMENT_RECORDER);
+    expect(rows[0]!.piiClass).toEqual(['phone']);
+    expect(typeof rows[0]!.generation).toBe('string');
+    expect(String(rows[0]!.text)).toContain('[2023-05-01] A: q1');
   });
 });
 
@@ -117,10 +120,7 @@ describe('SegmentLaneService', () => {
   } {
     const queries: Array<{ sql: string; params: Record<string, unknown> }> = [];
     const surreal = {
-      withCompany: async (
-        _co: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
+      withCompany: async (_co: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
           query: async (sql: string, params: Record<string, unknown>) => {
             queries.push({ sql, params });
@@ -152,21 +152,18 @@ describe('SegmentLaneService', () => {
     ]);
     const lines = await svc.transcriptLines(base);
     // s2 wins fusion (both lists) but rendering is chronological.
-    expect(lines).toEqual([
-      '[2023-05-01] B: sunset palm tree',
-      '[2023-06-01] A: later',
-    ]);
-    expect(queries[0].sql).toContain('vector::similarity::cosine');
-    expect(queries[1].sql).toContain('@1@');
+    expect(lines).toEqual(['[2023-05-01] B: sunset palm tree', '[2023-06-01] A: later']);
+    expect(queries[0]!.sql).toContain('vector::similarity::cosine');
+    expect(queries[1]!.sql).toContain('@1@');
     // read_pii caller → no PII gate.
-    expect(queries[0].sql).not.toContain('piiClass IS NONE');
+    expect(queries[0]!.sql).not.toContain('piiClass IS NONE');
   });
 
   it('gates PII for callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([[], []]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });
-    expect(queries[0].sql).toContain('piiClass IS NONE');
-    expect(queries[1].sql).toContain('piiClass IS NONE');
+    expect(queries[0]!.sql).toContain('piiClass IS NONE');
+    expect(queries[1]!.sql).toContain('piiClass IS NONE');
   });
 
   it('reranks the fused pool when asked and trims to topK', async () => {

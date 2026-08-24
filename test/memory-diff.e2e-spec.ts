@@ -142,10 +142,14 @@ describe('MemoryDiffService.diff — window math', () => {
 
   it('reports created + retracted + changed inside the window', async () => {
     const diff = f.app.get(MemoryDiffService);
-    const out = await diff.diff(f.companyId, {
-      from: T1.toISOString(),
-      to: T3.toISOString(),
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await diff.diff(
+      f.companyId,
+      {
+        from: T1.toISOString(),
+        to: T3.toISOString(),
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
 
     expect(out.from).toBe(T1.toISOString());
     expect(out.to).toBe(T3.toISOString());
@@ -165,20 +169,18 @@ describe('MemoryDiffService.diff — window math', () => {
     );
 
     // Retracted (without successor) = md_t1_1.
-    expect(out.retractedFacts.map((f) => f.factId)).toEqual([
-      'knowledge_fact:md_t1_1',
-    ]);
+    expect(out.retractedFacts.map((f) => f.factId)).toEqual(['knowledge_fact:md_t1_1']);
 
     // Changed = md_t1_2 → md_t2_replacement.
     expect(out.changedFacts).toHaveLength(1);
     const [changed] = out.changedFacts;
-    expect(changed.factId).toBe('knowledge_fact:md_t1_2');
-    expect(changed.replacedBy).toBe('knowledge_fact:md_t2_replacement');
-    expect(changed.before.predicate).toBe('tag');
-    expect(changed.before.object).toBe('tag_2');
-    expect(changed.after).toBeDefined();
-    expect(changed.after?.predicate).toBe('tier');
-    expect(changed.after?.object).toBe('platinum');
+    expect(changed!.factId).toBe('knowledge_fact:md_t1_2');
+    expect(changed!.replacedBy).toBe('knowledge_fact:md_t2_replacement');
+    expect(changed!.before.predicate).toBe('tag');
+    expect(changed!.before.object).toBe('tag_2');
+    expect(changed!.after).toBeDefined();
+    expect(changed!.after?.predicate).toBe('tier');
+    expect(changed!.after?.object).toBe('platinum');
 
     // newEntities = bystander created at T2.
     expect(out.newEntities.map((e) => e.entityId)).toContain(ENT_BYSTANDER_FULL);
@@ -189,10 +191,14 @@ describe('MemoryDiffService.diff — window math', () => {
 
   it('window before any activity returns empty buckets', async () => {
     const diff = f.app.get(MemoryDiffService);
-    const out = await diff.diff(f.companyId, {
-      from: new Date('2025-01-01T00:00:00Z').toISOString(),
-      to: new Date('2025-12-31T00:00:00Z').toISOString(),
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await diff.diff(
+      f.companyId,
+      {
+        from: new Date('2025-01-01T00:00:00Z').toISOString(),
+        to: new Date('2025-12-31T00:00:00Z').toISOString(),
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     expect(out.createdFacts).toHaveLength(0);
     expect(out.retractedFacts).toHaveLength(0);
     expect(out.changedFacts).toHaveLength(0);
@@ -215,14 +221,16 @@ describe('MemoryDiffService.diff — window math', () => {
 
   it('scopes by predicates: tier-only excludes tag activity', async () => {
     const diff = f.app.get(MemoryDiffService);
-    const out = await diff.diff(f.companyId, {
-      from: T1.toISOString(),
-      to: T3.toISOString(),
-      predicates: ['tier'],
-    }, ['brain:read', 'brain:read_pii']);
-    expect(out.createdFacts.map((f) => f.factId)).toEqual([
-      'knowledge_fact:md_t2_replacement',
-    ]);
+    const out = await diff.diff(
+      f.companyId,
+      {
+        from: T1.toISOString(),
+        to: T3.toISOString(),
+        predicates: ['tier'],
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
+    expect(out.createdFacts.map((f) => f.factId)).toEqual(['knowledge_fact:md_t2_replacement']);
     expect(out.retractedFacts).toHaveLength(0);
     expect(out.changedFacts).toHaveLength(0);
   });
@@ -255,21 +263,14 @@ describe('MemoryDiffService.diff — window math', () => {
     const window = { from: T0.toISOString(), to: T3.toISOString() };
 
     // With read_pii the address is visible.
-    const privileged = await diff.diff(f.companyId, window, [
-      'brain:read',
-      'brain:read_pii',
-    ]);
-    expect(
-      privileged.createdFacts.some((fa) => fa.object === '42 Secret Lane'),
-    ).toBe(true);
+    const privileged = await diff.diff(f.companyId, window, ['brain:read', 'brain:read_pii']);
+    expect(privileged.createdFacts.some((fa) => fa.object === '42 Secret Lane')).toBe(true);
 
     // Without read_pii the PII-predicate fact never enters the result —
     // the DB-level fence is inert for the system user, so the JS gate is
     // the only thing standing between brain:read and the raw address.
     const restricted = await diff.diff(f.companyId, window, ['brain:read']);
-    expect(
-      restricted.createdFacts.some((fa) => fa.predicate === 'address'),
-    ).toBe(false);
+    expect(restricted.createdFacts.some((fa) => fa.predicate === 'address')).toBe(false);
     expect(JSON.stringify(restricted)).not.toContain('42 Secret Lane');
   });
 });

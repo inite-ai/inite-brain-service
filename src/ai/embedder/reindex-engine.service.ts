@@ -29,10 +29,7 @@ export class ReindexEngineService {
     private readonly embedder: EmbedderService,
     config: ConfigService,
   ) {
-    this.batchSize = parseInt(
-      config.get<string>('REINDEX_BATCH_SIZE', '200'),
-      10,
-    );
+    this.batchSize = parseInt(config.get<string>('REINDEX_BATCH_SIZE', '200'), 10);
   }
 
   /**
@@ -88,17 +85,15 @@ export class ReindexEngineService {
             if (page.length < batch) break;
             continue;
           }
-          for (let i = 0; i < page.length; i++) {
+          for (const [i, row] of page.entries()) {
             try {
               await db.query(`UPDATE $id SET embedding = $embedding`, {
-                id: page[i].id,
+                id: row.id,
                 embedding: embeddings[i],
               });
               factsUpdated += 1;
             } catch (e) {
-              this.logger.warn(
-                `reindex row update failed (${companyId}): ${(e as Error).message}`,
-              );
+              this.logger.warn(`reindex row update failed (${companyId}): ${(e as Error).message}`);
             }
           }
         }

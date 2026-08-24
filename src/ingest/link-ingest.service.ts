@@ -3,6 +3,8 @@ import { StringRecordId } from 'surrealdb';
 import {
   SurrealService,
   isUniqueViolation,
+  queryFirst,
+  queryRows,
   retryOnUniqueViolation,
 } from '../db/surreal.service';
 import { IngestLinkDto } from './dto/ingest-link.dto';
@@ -26,8 +28,8 @@ export class LinkIngestService {
 
   async ingestLink(companyId: string, dto: IngestLinkDto) {
     return this.surreal.withCompany(companyId, async (db) => {
-      const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from as any);
-      const toId = await this.entities.resolveOrCreateBareRef(db, dto.to as any);
+      const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from);
+      const toId = await this.entities.resolveOrCreateBareRef(db, dto.to);
 
       // identity_of merge. The merge sets toId.mergedInto = fromId.
       // If fromId already resolves (transitively) back to toId, both ends end
@@ -47,14 +49,10 @@ export class LinkIngestService {
       // nothing, and we throw before creating the edge.
       if (dto.kind === 'identity_of') {
         if (fromId === toId) {
-          throw new BadRequestException(
-            'identity_of cannot merge an entity into itself',
-          );
+          throw new BadRequestException('identity_of cannot merge an entity into itself');
         }
         const merge = await retryOnUniqueViolation(async () => {
-          const [r] = await db.query<
-            [{ merged: boolean; reason: string | null }]
-          >(
+          const [r] = await db.query<[{ merged: boolean; reason: string | null }]>(
             `RETURN fn::merge_identity(
                 type::record('knowledge_entity', $loser),
                 type::record('knowledge_entity', $survivor))`,
@@ -71,9 +69,7 @@ export class LinkIngestService {
           if (merge?.reason === 'self_merge') {
             // Defensive: the fromId===toId fast-path above already covers
             // this, so the function's own self-merge branch is normally dead.
-            throw new BadRequestException(
-              'identity_of cannot merge an entity into itself',
-            );
+            throw new BadRequestException('identity_of cannot merge an entity into itself');
           }
           // merged=false with no recognised reason (or a null/unexpected
           // result shape) is NOT a client input error — surface it as such
@@ -96,7 +92,8 @@ export class LinkIngestService {
       const toRid = new StringRecordId(toId);
       let edgeId: string | null = null;
       try {
-        const [edgeRows] = await db.query<[any[]]>(
+        const edgeRows = await queryRows<{ id: unknown }>(
+          db,
           `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source } RETURN AFTER`,
           {
             from: fromRid,
@@ -106,15 +103,15 @@ export class LinkIngestService {
             source: dto.source,
           },
         );
-        const edge = ((edgeRows as any[]) ?? [])[0];
+        const edge = edgeRows[0];
         edgeId = edge ? String(edge.id) : null;
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
-        const [existingRows] = await db.query<[any[]]>(
+        const existing = await queryFirst<{ id: unknown }>(
+          db,
           `SELECT id FROM knowledge_edge WHERE in = $from AND out = $to AND kind = $kind LIMIT 1`,
           { from: fromRid, to: toRid, kind: dto.kind },
         );
-        const existing = ((existingRows as any[]) ?? [])[0];
         edgeId = existing ? String(existing.id) : null;
         this.logger.debug(
           `[knowledge.edge.idempotent] companyId=${companyId} kind=${dto.kind} ${fromId} → ${toId} (already existed)`,

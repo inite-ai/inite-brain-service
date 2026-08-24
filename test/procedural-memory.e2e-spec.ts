@@ -55,9 +55,9 @@ describe('ProceduralMemoryService — record / match / list / retire', () => {
     // score cosine=1.0, so the priority-ASC tiebreaker picks the
     // priority=50 one before the priority=200 one.
     expect(matches.length).toBeGreaterThanOrEqual(2);
-    expect(matches[0].priority).toBe(50);
-    expect(matches[0].action).toBe('mention platinum tier 20% discount');
-    expect(matches[1].priority).toBe(200);
+    expect(matches[0]!.priority).toBe(50);
+    expect(matches[0]!.action).toBe('mention platinum tier 20% discount');
+    expect(matches[1]!.priority).toBe(200);
   });
 
   it('match excludes procedures below minSimilarity', async () => {
@@ -98,11 +98,9 @@ describe('ProceduralMemoryService — record / match / list / retire', () => {
 
   it('retire on already-retired or unknown row throws NotFound', async () => {
     const svc = f.app.get(ProceduralMemoryService);
-    await expect(
-      svc.retire(f.companyId, recordedId),
-    ).rejects.toThrow(/not found/i);
-    await expect(
-      svc.retire(f.companyId, 'procedural_memory:does_not_exist'),
-    ).rejects.toThrow(/not found/i);
+    await expect(svc.retire(f.companyId, recordedId)).rejects.toThrow(/not found/i);
+    await expect(svc.retire(f.companyId, 'procedural_memory:does_not_exist')).rejects.toThrow(
+      /not found/i,
+    );
   });
 });

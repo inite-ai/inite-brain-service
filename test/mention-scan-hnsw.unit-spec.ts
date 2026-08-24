@@ -106,8 +106,7 @@ describe('MentionScanService dense-leg modes', () => {
     // Topic strips to 'raise the parser project aspects' → four terms.
     expect(capture[1]).toContain('text @1@ $t0 OR text @2@ $t1');
     expect(capture[1]).toContain(
-      'math::sum([search::score(1), search::score(2), ' +
-        'search::score(3), search::score(4)])',
+      'math::sum([search::score(1), search::score(2), ' + 'search::score(3), search::score(4)])',
     );
     expect(capture[1]).not.toContain('$topic');
     expect(lines.length).toBeGreaterThan(0);

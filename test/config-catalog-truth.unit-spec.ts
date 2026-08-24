@@ -91,9 +91,7 @@ function capturedAtBoot(key: string, file: string): boolean {
 
 describe('config catalogue truth gates (W6)', () => {
   it('every catalogued key is read somewhere in src/', () => {
-    const dead = CONFIG_CATALOG.filter((e) => readersOf(e.key).length === 0).map(
-      (e) => e.key,
-    );
+    const dead = CONFIG_CATALOG.filter((e) => readersOf(e.key).length === 0).map((e) => e.key);
     // EPISODE_SUBSTRATE_ENABLED was the finding: catalogued, documented as
     // a dependency of INGEST_EPISODE_ONLY, and read by nothing.
     expect(dead).toEqual([]);
@@ -140,9 +138,9 @@ describe('source hygiene', () => {
     // binary and skip it silently — which is how an architecture auditor
     // concluded EPISODE_SUBSTRATE_ENABLED was "read nowhere" while the
     // flag was in fact gating L0 capture. Cheap gate, expensive bug.
-    const offenders = FILES.filter((f) =>
-      readFileSync(f).includes(0x00),
-    ).map((f) => f.replace(SRC, 'src'));
+    const offenders = FILES.filter((f) => readFileSync(f).includes(0x00)).map((f) =>
+      f.replace(SRC, 'src'),
+    );
     expect(offenders).toEqual([]);
   });
 });

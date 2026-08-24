@@ -16,7 +16,7 @@ import {
 
 function makeLane(
   rows: Array<Record<string, unknown>>,
-  capture?: Array<{ sql: string; params?: Record<string, unknown> }>,
+  capture?: Array<{ sql: string; params?: Record<string, unknown> | undefined }>,
 ): DigestLaneService {
   const surreal = {
     withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
@@ -32,8 +32,7 @@ function makeLane(
 
 describe('DigestLaneService', () => {
   it('renders dated digest blocks newest-first with the world gate', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
-      [];
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const lane = makeLane(
       [
         {
@@ -48,14 +47,12 @@ describe('DigestLaneService', () => {
       'Conversation record (through 2026-03-15):\n[2026-03-12] UI wireframe done. [2026-03-15] API wired.',
     ]);
     // No registry pin in this fixture → the legacy-namespace gate.
-    expect(capture[0].sql).toContain('derivedVersion IS NONE');
-    expect(capture[0].sql).toContain('ORDER BY lastEventAt DESC');
+    expect(capture[0]!.sql).toContain('derivedVersion IS NONE');
+    expect(capture[0]!.sql).toContain('ORDER BY lastEventAt DESC');
   });
 
   it('drops empty summaries and degrades to [] on failure', async () => {
-    const lane = makeLane([
-      { summary: '   ', lastEventAt: '2026-03-15T18:00:00Z' },
-    ]);
+    const lane = makeLane([{ summary: '   ', lastEventAt: '2026-03-15T18:00:00Z' }]);
     await expect(lane.digestLines({ companyId: 'c1' })).resolves.toEqual([]);
     const broken = new DigestLaneService({
       withCompany: async () => {
@@ -101,13 +98,10 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
    *  or exactly [$digestUserId]. Keeps the matrix behavioral while the
    *  SQL-shape assertions below pin the clause itself. */
   function makePolicyLane(
-    capture: Array<{ sql: string; params?: Record<string, unknown> }>,
+    capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }>,
   ): DigestLaneService {
     const surreal = {
-      withCompany: async (
-        _c: string,
-        fn: (db: unknown) => Promise<unknown>,
-      ) =>
+      withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
           query: async (sql: string, params?: Record<string, unknown>) => {
             capture.push({ sql, params });
@@ -116,10 +110,7 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
             const out = ROWS.filter((r) => {
               if (!gated) return true;
               const scopes = r.userScopes ?? [];
-              return (
-                scopes.length === 0 ||
-                (scopes.length === 1 && scopes[0] === u)
-              );
+              return scopes.length === 0 || (scopes.length === 1 && scopes[0] === u);
             }).map(({ summary, lastEventAt }) => ({ summary, lastEventAt }));
             return [out];
           },
@@ -128,12 +119,10 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
     return new DigestLaneService(surreal);
   }
 
-  const summaries = (lines: string[]) =>
-    lines.map((l) => l.split('\n')[1]);
+  const summaries = (lines: string[]) => lines.map((l) => l.split('\n')[1]);
 
   it('tenant-global caller (no userId) sees every digest, no user gate', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
-      [];
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const lines = await makePolicyLane(capture).digestLines({
       companyId: 'c1',
     });
@@ -144,23 +133,22 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
       'OTHER-A',
       'MIXED-AB',
     ]);
-    expect(capture[0].sql).not.toContain('userScopes');
-    expect(capture[0].params).not.toHaveProperty('digestUserId');
+    expect(capture[0]!.sql).not.toContain('userScopes');
+    expect(capture[0]!.params).not.toHaveProperty('digestUserId');
   });
 
   it('user-scoped caller sees global + own only; other-user and mixed-scope excluded', async () => {
-    const capture: Array<{ sql: string; params?: Record<string, unknown> }> =
-      [];
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const lines = await makePolicyLane(capture).digestLines({
       companyId: 'c1',
       userId: 'user-b',
     });
     expect(summaries(lines)).toEqual(['GLOBAL-NONE', 'GLOBAL-EMPTY', 'OWN-B']);
     // The fail-closed clause rides in SQL — exactly-[user] or empty/NONE.
-    expect(capture[0].sql).toContain('userScopes IS NONE');
-    expect(capture[0].sql).toContain('array::len(userScopes) = 0');
-    expect(capture[0].sql).toContain('userScopes = [$digestUserId]');
-    expect(capture[0].params).toMatchObject({ digestUserId: 'user-b' });
+    expect(capture[0]!.sql).toContain('userScopes IS NONE');
+    expect(capture[0]!.sql).toContain('array::len(userScopes) = 0');
+    expect(capture[0]!.sql).toContain('userScopes = [$digestUserId]');
+    expect(capture[0]!.params).toMatchObject({ digestUserId: 'user-b' });
   });
 });
 
@@ -208,9 +196,7 @@ describe('collector digest merge (V12 §2)', () => {
 
 describe('RETRIEVAL_DIGEST_EVIDENCE profile point', () => {
   it('defaults off; env enables; overlays per tenant', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).digestEvidence,
-    ).toBe(false);
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).digestEvidence).toBe(false);
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_DIGEST_EVIDENCE: '1',
@@ -221,11 +207,7 @@ describe('RETRIEVAL_DIGEST_EVIDENCE profile point', () => {
         beamco: { digestEvidence: true },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).digestEvidence).toBe(
-      true,
-    );
-    expect(resolveRetrievalProfileFor('other', env).digestEvidence).toBe(
-      false,
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).digestEvidence).toBe(true);
+    expect(resolveRetrievalProfileFor('other', env).digestEvidence).toBe(false);
   });
 });

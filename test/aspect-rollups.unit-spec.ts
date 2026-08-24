@@ -1,7 +1,4 @@
-import {
-  composeAspectRollups,
-  type RollupMember,
-} from '../src/admin/aspect-rollups';
+import { composeAspectRollups, type RollupMember } from '../src/admin/aspect-rollups';
 
 /**
  * V13 A2 mechanical rollup composition — the write-time lever for the
@@ -35,18 +32,18 @@ describe('composeAspectRollups', () => {
       m('e1', 'work', 'Melanie got promoted.', '2023-06-01'),
     ]);
     expect(out).toHaveLength(1);
-    expect(out[0].predicate).toBe('activities_rollup');
-    expect(out[0].memberCount).toBe(3);
+    expect(out[0]!.predicate).toBe('activities_rollup');
+    expect(out[0]!.memberCount).toBe(3);
     // Chronological member order with day stamps.
-    const i1 = out[0].object.indexOf('pottery');
-    const i2 = out[0].object.indexOf('swam');
-    const i3 = out[0].object.indexOf('camping');
+    const i1 = out[0]!.object.indexOf('pottery');
+    const i2 = out[0]!.object.indexOf('swam');
+    const i3 = out[0]!.object.indexOf('camping');
     expect(i1).toBeGreaterThan(-1);
     expect(i1).toBeLessThan(i2);
     expect(i2).toBeLessThan(i3);
-    expect(out[0].object).toContain('(2023-05-01)');
+    expect(out[0]!.object).toContain('(2023-05-01)');
     // validFrom = newest member.
-    expect(out[0].validFrom.toISOString().slice(0, 10)).toBe('2023-07-01');
+    expect(out[0]!.validFrom.toISOString().slice(0, 10)).toBe('2023-07-01');
   });
 
   it('dedupes identical texts and holds the member floor', () => {
@@ -76,16 +73,18 @@ describe('composeAspectRollups', () => {
       m(
         'e1',
         'events',
-        `Attended long event number ${i} with a fairly verbose description that eats characters. `.repeat(2),
+        `Attended long event number ${i} with a fairly verbose description that eats characters. `.repeat(
+          2,
+        ),
         `2023-05-${String((i % 28) + 1).padStart(2, '0')}`,
       ),
     );
     const out = composeAspectRollups(members, { charCap: 800 });
     expect(out).toHaveLength(1);
     // The header/suffix envelope rides INSIDE the cap now.
-    expect(out[0].object.length).toBeLessThanOrEqual(800);
-    expect(out[0].object).toContain('and');
-    expect(out[0].object).toMatch(/…and \d+ more$/);
+    expect(out[0]!.object.length).toBeLessThanOrEqual(800);
+    expect(out[0]!.object).toContain('and');
+    expect(out[0]!.object).toMatch(/…and \d+ more$/);
   });
 
   it('drops a group whose cap keeps fewer than the floor', () => {
@@ -98,7 +97,6 @@ describe('composeAspectRollups', () => {
   });
 });
 
-
 describe('composeAspectRollups V13 review fixes', () => {
   it('undated members render without an asserted date stamp', () => {
     const out = composeAspectRollups([
@@ -107,8 +105,8 @@ describe('composeAspectRollups V13 review fixes', () => {
       m('e1', 'activities', 'Swam in the lake.', '2023-06-01'),
     ]);
     expect(out).toHaveLength(1);
-    expect(out[0].object).not.toContain('(2023-06-12)');
-    expect(out[0].object).toContain('(2023-05-01)');
+    expect(out[0]!.object).not.toContain('(2023-06-12)');
+    expect(out[0]!.object).toContain('(2023-05-01)');
   });
 
   it('duplicate texts keep the EARLIEST-dated copy', () => {
@@ -119,8 +117,8 @@ describe('composeAspectRollups V13 review fixes', () => {
       m('e1', 'events', 'Baked bread.', '2023-07-01'),
     ]);
     expect(out).toHaveLength(1);
-    expect(out[0].object).toContain('(2023-03-01)');
-    expect(out[0].object).not.toContain('(2023-05-10)');
+    expect(out[0]!.object).toContain('(2023-03-01)');
+    expect(out[0]!.object).not.toContain('(2023-05-10)');
   });
 
   it('unions member episodeIds capped and deduped', () => {
@@ -129,6 +127,6 @@ describe('composeAspectRollups V13 review fixes', () => {
       m('e1', 'events', 'B.', '2023-05-02', { episodeIds: ['ep2', 'ep3'] }),
       m('e1', 'events', 'C.', '2023-05-03'),
     ]);
-    expect(out[0].episodeIds).toEqual(['ep1', 'ep2', 'ep3']);
+    expect(out[0]!.episodeIds).toEqual(['ep1', 'ep2', 'ep3']);
   });
 });

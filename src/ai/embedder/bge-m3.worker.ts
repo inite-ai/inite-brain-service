@@ -38,8 +38,7 @@ type Inbound =
   | { id: number; kind: 'embedMany'; payload: { texts: string[] } };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('bge-m3.worker must be run as a worker_thread');
@@ -64,8 +63,7 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
     // Dockerfile provisions /app/.cache, node-owned) so the cache sticks.
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) {
-      (transformers as unknown as { env: { cacheDir?: string } }).env.cacheDir =
-        cacheDir;
+      (transformers as unknown as { env: { cacheDir?: string } }).env.cacheDir = cacheDir;
     }
     pipeline = (await transformers.pipeline(
       'feature-extraction',
@@ -101,7 +99,7 @@ async function embedMany(texts: string[]): Promise<number[][]> {
   return out;
 }
 
-parentPort.on('message', async (msg: Inbound) => {
+const onMessage = async (msg: Inbound): Promise<void> => {
   try {
     if (msg.kind === 'warmup') {
       await warmup(msg.payload);
@@ -124,4 +122,14 @@ parentPort.on('message', async (msg: Inbound) => {
   } catch (e) {
     reply({ id: msg.id, ok: false, error: (e as Error).message });
   }
+};
+
+// The message listener is void-returning and each message is handled
+// independently, so the async work runs detached. onMessage already reports
+// business failures to the parent via reply(); the .catch guards only a
+// catastrophic reply()/port failure from becoming an unhandledRejection.
+parentPort.on('message', (msg: Inbound) => {
+  void onMessage(msg).catch((err) => {
+    console.error(`bge-m3 worker handler crashed: ${(err as Error).message}`);
+  });
 });

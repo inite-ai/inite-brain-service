@@ -81,9 +81,7 @@ describe('pack-declared MCP tools (e2e)', () => {
         description: 'Screen a counterparty against the publisher backend.',
         endpoint: `http://127.0.0.1:${endpointPort}/tool`,
         timeoutMs: 5_000,
-        params: [
-          { name: 'counterparty', type: 'string', required: true, maxLength: 200 },
-        ],
+        params: [{ name: 'counterparty', type: 'string', required: true, maxLength: 200 }],
       },
     ],
     ...over,
@@ -144,17 +142,13 @@ describe('pack-declared MCP tools (e2e)', () => {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         const signature = String(req.headers['x-brain-signature'] ?? '');
-        const expected =
-          'sha256=' +
-          createHmac('sha256', webhookSecret).update(body).digest('hex');
+        const expected = 'sha256=' + createHmac('sha256', webhookSecret).update(body).digest('hex');
         endpointHits.push({ signature, body, verified: signature === expected });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ content: { verdict: 'clean', hits: 0 } }));
       });
     });
-    await new Promise<void>((resolve) =>
-      endpointServer.listen(0, '127.0.0.1', resolve),
-    );
+    await new Promise<void>((resolve) => endpointServer.listen(0, '127.0.0.1', resolve));
     endpointPort = (endpointServer.address() as { port: number }).port;
 
     f = await createApp({
@@ -173,10 +167,7 @@ describe('pack-declared MCP tools (e2e)', () => {
   });
 
   it('rejects installing a pack with mcpTools without acceptMcpTools (listing the tools)', async () => {
-    const r = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: manifest() });
+    const r = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: manifest() });
     expect(r.status).toBe(400);
     const msg = JSON.stringify(r.body);
     expect(msg).toContain('acceptMcpTools');
@@ -208,9 +199,7 @@ describe('pack-declared MCP tools (e2e)', () => {
     const tool = out.result.tools.find(
       (t: { name: string }) => t.name === 'compliance__find_violations',
     );
-    expect(tool.description).toMatch(
-      /^\[third-party tool from domain pack "compliance" v1\.0\.0;/,
-    );
+    expect(tool.description).toMatch(/^\[third-party tool from domain pack "compliance" v1\.0\.0;/);
   });
 
   it('the query tool returns ingested facts', async () => {
@@ -233,11 +222,9 @@ describe('pack-declared MCP tools (e2e)', () => {
     const out = result.structuredContent;
     expect(out.predicate).toBe('compliance__violation');
     expect(out.found).toBeGreaterThanOrEqual(1);
-    expect(
-      out.facts.some(
-        (x: { object: string }) => x.object === 'late filing 2026-Q1',
-      ),
-    ).toBe(true);
+    expect(out.facts.some((x: { object: string }) => x.object === 'late filing 2026-Q1')).toBe(
+      true,
+    );
   });
 
   it('row-fences a requiresScope pack predicate from a plain brain:read key', async () => {
@@ -260,11 +247,9 @@ describe('pack-declared MCP tools (e2e)', () => {
     expect(privileged.structuredContent.found).toBeGreaterThanOrEqual(1);
 
     // …the plain brain:read key gets zero rows from the SAME tool.
-    const plain = await toolCall(
-      f.extraApiKeys[0],
-      'compliance__find_violations',
-      { predicate: 'sanction_status' },
-    );
+    const plain = await toolCall(f.extraApiKeys[0]!, 'compliance__find_violations', {
+      predicate: 'sanction_status',
+    });
     expect(plain.structuredContent.found).toBe(0);
   });
 
@@ -276,7 +261,7 @@ describe('pack-declared MCP tools (e2e)', () => {
     expect(result.structuredContent).toEqual({ verdict: 'clean', hits: 0 });
 
     expect(endpointHits).toHaveLength(1);
-    const hit = endpointHits[0];
+    const hit = endpointHits[0]!;
     expect(hit.verified).toBe(true);
     const body = JSON.parse(hit.body);
     expect(body).toMatchObject({
@@ -303,10 +288,7 @@ describe('pack-declared MCP tools (e2e)', () => {
   it('an upgrade with a CHANGED mcpTools section re-requires consent', async () => {
     const changed = manifest({ version: '1.0.2' }) as any;
     changed.mcpTools[0].description = 'Now with different behaviour.';
-    const denied = await f.http
-      .post('/v1/admin/packs')
-      .set(auth())
-      .send({ manifest: changed });
+    const denied = await f.http.post('/v1/admin/packs').set(auth()).send({ manifest: changed });
     expect(denied.status).toBe(400);
     expect(JSON.stringify(denied.body)).toContain('acceptMcpTools');
 

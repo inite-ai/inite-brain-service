@@ -26,9 +26,7 @@ describe('G1 answer cache e2e', () => {
   async function cacheRows(): Promise<CacheRow[]> {
     const surreal = f.app.get(SurrealService);
     return surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<[CacheRow[]]>(
-        'SELECT * FROM answer_cache',
-      );
+      const [rows] = await db.query<[CacheRow[]]>('SELECT * FROM answer_cache');
       return rows ?? [];
     });
   }
@@ -46,14 +44,17 @@ describe('G1 answer cache e2e', () => {
   beforeAll(async () => {
     process.env.SYNTHESIZE_ANSWER_CACHE = '0';
     f = await createApp();
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'cust_answer_cache' },
-      predicate: 'tier',
-      object: 'sapphire-crest',
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', messageId: 'm_ac_1' },
-      confidence: 0.9,
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache' },
+        predicate: 'tier',
+        object: 'sapphire-crest',
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_1' },
+        confidence: 0.9,
+      });
     factId = ingest.body.factId;
     expect(factId).toBeTruthy();
   });
@@ -65,10 +66,7 @@ describe('G1 answer cache e2e', () => {
 
   it('flag off → synthesize succeeds and stores no cache rows', async () => {
     mockRound('Sapphire crest tier.', factId);
-    const res = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: QUERY, limit: 5 });
+    const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: QUERY, limit: 5 });
     expect(res.status).toBe(201);
     expect(res.body.answer).toBe('Sapphire crest tier.');
     expect(res.body.cached).toBeUndefined();
@@ -79,17 +77,14 @@ describe('G1 answer cache e2e', () => {
     process.env.SYNTHESIZE_ANSWER_CACHE = '1';
 
     const state1 = mockRound('The tier is sapphire-crest.', factId);
-    const res1 = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: QUERY, limit: 5 });
+    const res1 = await f.http.post('/v1/synthesize').set(auth()).send({ query: QUERY, limit: 5 });
     expect(res1.status).toBe(201);
     expect(res1.body.answer).toBe('The tier is sapphire-crest.');
     expect(res1.body.cached).toBeUndefined();
     expect(state1.calls.length).toBe(2); // generator + verifier ran
     const afterStore = await cacheRows();
     expect(afterStore).toHaveLength(1);
-    expect(afterStore[0].hitCount).toBe(0);
+    expect(afterStore[0]!.hitCount).toBe(0);
 
     // Second identical query (typographic variant): served from the
     // cache — the scripted DIFFERENT answer must never surface, and
@@ -107,7 +102,7 @@ describe('G1 answer cache e2e', () => {
     expect(state2.calls.length).toBe(0);
     const afterServe = await cacheRows();
     expect(afterServe).toHaveLength(1);
-    expect(afterServe[0].hitCount).toBe(1);
+    expect(afterServe[0]!.hitCount).toBe(1);
   });
 
   it('retracting a cited fact → check-on-read invalidates (cause=retracted) and re-synthesizes', async () => {
@@ -118,10 +113,7 @@ describe('G1 answer cache e2e', () => {
     expect(retract.status).toBe(201);
 
     mockRound('Fresh post-retraction answer.', factId);
-    const res3 = await f.http
-      .post('/v1/synthesize')
-      .set(auth())
-      .send({ query: QUERY, limit: 5 });
+    const res3 = await f.http.post('/v1/synthesize').set(auth()).send({ query: QUERY, limit: 5 });
     expect(res3.status).toBe(201);
     expect(res3.body.cached).toBeUndefined();
     // The cached answer must not surface once its cited fact is dead.
@@ -131,18 +123,21 @@ describe('G1 answer cache e2e', () => {
     // path) — the invalidated row must survive with its cause.
     const rows = await cacheRows();
     expect(rows).toHaveLength(1);
-    expect(rows[0].invalidationCause).toBe('retracted');
+    expect(rows[0]!.invalidationCause).toBe('retracted');
   });
 
   it('cross-user isolation: same query, different user scope → miss', async () => {
-    const ingest = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'cust_answer_cache_iso' },
-      predicate: 'status',
-      object: 'meridian-blue',
-      validFrom: new Date('2026-04-02').toISOString(),
-      source: { vertical: 'rent', messageId: 'm_ac_2' },
-      confidence: 0.9,
-    });
+    const ingest = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_answer_cache_iso' },
+        predicate: 'status',
+        object: 'meridian-blue',
+        validFrom: new Date('2026-04-02').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_ac_2' },
+        confidence: 0.9,
+      });
     const isoFactId = ingest.body.factId as string;
     const isoQuery = 'status: meridian-blue';
 
@@ -179,9 +174,6 @@ describe('G1 answer cache e2e', () => {
     expect(stateA2.calls.length).toBe(0);
 
     const userRows = (await cacheRows()).filter((r) => r.userId);
-    expect(userRows.map((r) => r.userId).sort()).toEqual([
-      'user_a',
-      'user_b',
-    ]);
+    expect(userRows.map((r) => r.userId).sort()).toEqual(['user_a', 'user_b']);
   });
 });

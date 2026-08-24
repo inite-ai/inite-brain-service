@@ -44,11 +44,9 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerRunResult[]> {
-    const results: IndexerRunResult[] = [
-      await this.runs.runGeneral(p),
-    ];
+    const results: IndexerRunResult[] = [await this.runs.runGeneral(p)];
     for (const binding of await this.selectDedicated(p)) {
       try {
         results.push(await this.runBinding({ ...p, binding }));
@@ -67,10 +65,7 @@ export class IndexerDispatchService {
   }
 
   /** Resolve one pack's binding (installed or builtin), or null. */
-  async bindingFor(
-    companyId: string,
-    packId: string,
-  ): Promise<IndexerBinding | null> {
+  async bindingFor(companyId: string, packId: string): Promise<IndexerBinding | null> {
     const bindings = await this.router.bindingsFor(companyId);
     return bindings.find((b) => b.indexerId === packId) ?? null;
   }
@@ -118,7 +113,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerBinding[]> {
     return this.selectRouted(p, 'dedicated');
   }
@@ -128,7 +123,7 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerBinding[]> {
     return this.selectRouted(p, 'external');
   }
@@ -143,12 +138,9 @@ export class IndexerDispatchService {
     companyId: string;
     doc: StoredDocument;
     chunks: DocumentChunk[];
-    indexers?: IndexerSelection;
+    indexers?: IndexerSelection | undefined;
   }): Promise<IndexerRunResult[]> {
-    if (
-      !p.doc.hasContent &&
-      !envFlagEnabled(process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL)
-    ) {
+    if (!p.doc.hasContent && !envFlagEnabled(process.env.DOCUMENT_ALLOW_UNGROUNDED_EXTERNAL)) {
       return [];
     }
     const results: IndexerRunResult[] = [];
@@ -171,11 +163,7 @@ export class IndexerDispatchService {
    * callbackUrl. Push is a latency optimization over polling — the
    * webhook service owns retries/breaker and never throws.
    */
-  private pushHint(
-    companyId: string,
-    documentId: string,
-    binding: IndexerBinding,
-  ): void {
+  private pushHint(companyId: string, documentId: string, binding: IndexerBinding): void {
     const callbackUrl = binding.external?.callbackUrl;
     if (!callbackUrl) return;
     void this.webhook.notifyWorkAvailable({
@@ -192,7 +180,7 @@ export class IndexerDispatchService {
       companyId: string;
       doc: StoredDocument;
       chunks: DocumentChunk[];
-      indexers?: IndexerSelection;
+      indexers?: IndexerSelection | undefined;
     },
     mode: 'dedicated' | 'external',
   ): Promise<IndexerBinding[]> {

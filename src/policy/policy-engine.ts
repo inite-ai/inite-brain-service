@@ -22,21 +22,14 @@ import {
  */
 
 /** Exported for the preview-rule sampler (admin simulation surface). */
-export function sourceRuleMatches(
-  rule: CompiledSourceRule,
-  view: PolicyRowView,
-): boolean {
+export function sourceRuleMatches(rule: CompiledSourceRule, view: PolicyRowView): boolean {
   for (const cond of rule.conditions) {
     if (!cond.matches(view)) return false;
   }
   return true;
 }
 
-function setVerdictForAction(
-  set: CompiledPolicySet,
-  action: string,
-  kind: ActionKind,
-): SetVerdict {
+function setVerdictForAction(set: CompiledPolicySet, action: string, kind: ActionKind): SetVerdict {
   for (const rule of set.actionDeny) {
     if (actionRuleMatches(rule, action, kind)) {
       return { policySet: set.name, mode: set.mode, verdict: 'deny', ruleId: rule.id };
@@ -74,10 +67,7 @@ function setVerdictForRow(set: CompiledPolicySet, view: PolicyRowView): SetVerdi
   };
 }
 
-function combine(
-  ctx: PolicyContext,
-  verdicts: SetVerdict[],
-): PolicyEvaluation {
+function combine(ctx: PolicyContext, verdicts: SetVerdict[]): PolicyEvaluation {
   let enforcedDeny = false;
   let wouldDeny = false;
   for (const v of verdicts) {
@@ -127,7 +117,7 @@ export function toRowView(
     source?: unknown;
     trustSnapshot?: PolicyRowView['trustSnapshot'];
     corroboration?: PolicyRowView['corroboration'];
-    userId?: string | null;
+    userId?: string | null | undefined;
   },
   piiClassOf: (predicate: string) => string,
 ): PolicyRowView {
@@ -135,9 +125,7 @@ export function toRowView(
     predicate: row.predicate,
     piiClass: piiClassOf(row.predicate),
     source:
-      row.source && typeof row.source === 'object'
-        ? (row.source as Record<string, unknown>)
-        : null,
+      row.source && typeof row.source === 'object' ? (row.source as Record<string, unknown>) : null,
     trustSnapshot: row.trustSnapshot ?? null,
     corroboration: row.corroboration ?? null,
     userId: row.userId ?? null,
@@ -164,9 +152,7 @@ function traceSourceRule(rule: CompiledSourceRule, view: PolicyRowView): RuleTra
 
 export function explainRow(ctx: PolicyContext, view: PolicyRowView): SetTrace[] {
   return ctx.sets.map((set) => {
-    const rules = [...set.sourceDeny, ...set.sourceAllow].map((r) =>
-      traceSourceRule(r, view),
-    );
+    const rules = [...set.sourceDeny, ...set.sourceAllow].map((r) => traceSourceRule(r, view));
     const verdict = setVerdictForRow(set, view);
     return {
       policySet: set.name,
@@ -184,13 +170,11 @@ export function explainAction(
   kind: ActionKind = actionKind(action),
 ): SetTrace[] {
   return ctx.sets.map((set) => {
-    const rules: RuleTrace[] = [...set.actionDeny, ...set.actionAllow].map(
-      (r) => ({
-        ruleId: r.id,
-        effect: r.effect as PolicyEffect,
-        matched: actionRuleMatches(r, action, kind),
-      }),
-    );
+    const rules: RuleTrace[] = [...set.actionDeny, ...set.actionAllow].map((r) => ({
+      ruleId: r.id,
+      effect: r.effect as PolicyEffect,
+      matched: actionRuleMatches(r, action, kind),
+    }));
     const verdict = setVerdictForAction(set, action, kind);
     return {
       policySet: set.name,

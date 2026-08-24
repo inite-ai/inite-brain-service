@@ -1,26 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import {
-  ReadPinService,
-  derivedVersionFence,
-} from '../episodes/read-pin.service';
-import {
-  filterMentions,
-  LEX_MATCH_FLOOR,
-  type ScanRow,
-} from './mention-scan';
-import {
-  extractArcTopic,
-  pickArcBeats,
-  renderArcLines,
-  type ArcBeat,
-} from './query-arc';
-import {
-  BRUTE_ONLY,
-  runDenseScanLeg,
-  type CoverageScanTuning,
-} from './scan-leg';
+import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
+import { filterMentions, LEX_MATCH_FLOOR, type ScanRow } from './mention-scan';
+import { extractArcTopic, pickArcBeats, renderArcLines, type ArcBeat } from './query-arc';
+import { BRUTE_ONLY, runDenseScanLeg, type CoverageScanTuning } from './scan-leg';
 import { buildLexMatchLeg } from './lex-leg';
 import type { CoverageLexMode } from '../search/retrieval-profile';
 import { makeRowPolicyFilter } from '../policy/row-filter';
@@ -95,16 +79,14 @@ export class QueryArcService {
     query: string;
     callerScopes: string[];
     /** Scope key of the asking end-user; omitted → tenant-global only. */
-    userId?: string;
+    userId?: string | undefined;
     /** Dense-leg mode (V11 §5 scale gate); omitted → the exact scan. */
     scan?: CoverageScanTuning;
     /** Lexical-leg shape (V11 A2); omitted → the legacy phrase matcher. */
     lex?: CoverageLexMode;
   }): Promise<string[]> {
     const topic = extractArcTopic(opts.query);
-    const piiGate = opts.callerScopes.includes('brain:read_pii')
-      ? ''
-      : 'AND piiClass IS NONE';
+    const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
     // Fail-closed user scope — same contract as the fact legs (0055).
     const userGate = opts.userId
       ? 'AND (userId IS NONE OR userId = $scopeUserId)'
@@ -113,8 +95,7 @@ export class QueryArcService {
     const k = QueryArcService.SCAN_FETCH_CAP;
     try {
       const derivedVersion =
-        (await this.readPin?.resolveRead(opts.companyId)) ??
-        ReadPinService.bootstrapRead();
+        (await this.readPin?.resolveRead(opts.companyId)) ?? ReadPinService.bootstrapRead();
       const fence = derivedVersionFence(derivedVersion);
       const worldGate = fence.clause;
       const worldParams = fence.params;
@@ -139,58 +120,49 @@ export class QueryArcService {
       const rowPolicy = makeRowPolicyFilter({
         callerScopes: opts.callerScopes,
         surface: 'query_arc',
-        policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-          opts.companyId,
-        ),
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
       });
       const baseTuning = opts.scan ?? BRUTE_ONLY;
       const tuning: CoverageScanTuning = {
         ...baseTuning,
         overfetch: baseTuning.overfetch * ARC_GATE_OVERFETCH_FACTOR,
       };
-      const pool = await this.surreal.withCompany(
-        opts.companyId,
-        async (db) => {
-          const dense = await runDenseScanLeg<FactScanRow>({
-            db,
-            table: 'knowledge_fact',
-            projection: POLICY_PROJECTION,
-            gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
-            params: { q: topicVector, ...shared },
-            k,
-            tuning,
-            logger: this.logger,
-          });
-          const lexLeg = buildLexMatchLeg({
-            fields: ['searchHaystack', 'object'],
-            topic,
-            mode: opts.lex ?? 'phrase',
-          });
-          const [bm25] = await db.query<[FactScanRow[]]>(
-            `SELECT ${POLICY_PROJECTION},
+      const pool = await this.surreal.withCompany(opts.companyId, async (db) => {
+        const dense = await runDenseScanLeg<FactScanRow>({
+          db,
+          table: 'knowledge_fact',
+          projection: POLICY_PROJECTION,
+          gates: `${atomicGate} ${piiGate} ${userGate} ${worldGate}`,
+          params: { q: topicVector, ...shared },
+          k,
+          tuning,
+          logger: this.logger,
+        });
+        const lexLeg = buildLexMatchLeg({
+          fields: ['searchHaystack', 'object'],
+          topic,
+          mode: opts.lex ?? 'phrase',
+        });
+        const [bm25] = await db.query<[FactScanRow[]]>(
+          `SELECT ${POLICY_PROJECTION},
                     ${lexLeg.score} AS score
                FROM knowledge_fact
               WHERE ${lexLeg.where}
                 ${atomicGate} ${piiGate} ${userGate} ${worldGate}
               ORDER BY score DESC
               LIMIT $k`,
-            { ...lexLeg.params, ...shared },
-          );
-          return mergeFactLegs(
-            dense.filter((r) => rowPolicy.filter(r)),
-            (bm25 ?? []).filter((r) => rowPolicy.filter(r)),
-          );
-        },
-      );
+          { ...lexLeg.params, ...shared },
+        );
+        return mergeFactLegs(
+          dense.filter((r) => rowPolicy.filter(r)),
+          (bm25 ?? []).filter((r) => rowPolicy.filter(r)),
+        );
+      });
       rowPolicy.finish();
       // The mention-scan relevance floor decides what counts as ON
       // TOPIC; the beat picker cuts to budget and restores chronology.
-      const mentioned = new Set(
-        filterMentions(pool.map((p) => p.scan)).map((r) => r.id),
-      );
-      const beats: ArcBeat[] = pool
-        .filter((p) => mentioned.has(p.scan.id))
-        .map((p) => p.beat);
+      const mentioned = new Set(filterMentions(pool.map((p) => p.scan)).map((r) => r.id));
+      const beats: ArcBeat[] = pool.filter((p) => mentioned.has(p.scan.id)).map((p) => p.beat);
       return renderArcLines(pickArcBeats(beats));
     } catch (e) {
       this.logger.warn(
@@ -214,9 +186,7 @@ function mergeFactLegs(
     // slice and the lexicographic chronology sort in pickArcBeats —
     // normalize to ISO before the beat ever sees it.
     const validFromIso =
-      r.validFrom instanceof Date
-        ? r.validFrom.toISOString()
-        : String(r.validFrom);
+      r.validFrom instanceof Date ? r.validFrom.toISOString() : String(r.validFrom);
     return {
       scan: {
         id: String(r.id),
@@ -234,8 +204,7 @@ function mergeFactLegs(
   }
   for (const r of bm25) {
     const id = String(r.id);
-    const lex =
-      typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
+    const lex = typeof r.score === 'number' && r.score > 0 ? r.score : LEX_MATCH_FLOOR;
     const prev = byId.get(id);
     if (prev) {
       prev.scan.lex = lex;

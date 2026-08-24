@@ -7,42 +7,15 @@ import { z } from 'zod';
  * Duplicated in brain-landing/lib/contracts/admin-predicates.ts.
  */
 
-const SemanticsSchema = z.enum([
-  'append_only',
-  'single_active',
-  'bitemporal',
-]);
+const SemanticsSchema = z.enum(['append_only', 'single_active', 'bitemporal']);
 
-const PiiClassSchema = z.enum([
-  'none',
-  'identifier',
-  'behavioral',
-  'text',
-  'sensitive',
-]);
+const PiiClassSchema = z.enum(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
 
-const PredicateStatusSchema = z.enum([
-  'active',
-  'proposed',
-  'aliased',
-  'deprecated',
-]);
+const PredicateStatusSchema = z.enum(['active', 'proposed', 'aliased', 'deprecated']);
 
-const PredicateDatatypeSchema = z.enum([
-  'string',
-  'number',
-  'date',
-  'datetime',
-  'enum',
-  'json',
-]);
+const PredicateDatatypeSchema = z.enum(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 
-const PredicateCreatedBySchema = z.enum([
-  'system',
-  'admin',
-  'llm_auto',
-  'migration',
-]);
+const PredicateCreatedBySchema = z.enum(['system', 'admin', 'llm_auto', 'migration']);
 
 const PredicateDefinitionSchema = z.object({
   predicateId: z.string(),
@@ -65,9 +38,7 @@ export const PredicatesListResponseSchema = z.object({
   predicates: z.array(PredicateDefinitionSchema),
 });
 
-export type PredicatesListResponse = z.infer<
-  typeof PredicatesListResponseSchema
->;
+export type PredicatesListResponse = z.infer<typeof PredicatesListResponseSchema>;
 export type Predicate = z.infer<typeof PredicateDefinitionSchema>;
 export type Semantics = z.infer<typeof SemanticsSchema>;
 export type PiiClass = z.infer<typeof PiiClassSchema>;

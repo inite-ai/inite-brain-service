@@ -7,11 +7,7 @@
 import { McpService } from '../src/mcp/mcp.service';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { compilePolicySet } from '../src/policy/policy-compile';
-import {
-  PolicyContext,
-  PolicyDocument,
-  PolicyDocumentSchema,
-} from '../src/policy/policy.types';
+import { PolicyContext, PolicyDocument, PolicyDocumentSchema } from '../src/policy/policy.types';
 
 const stubEmbedder = {
   cacheStats: () => ({ provider: 'openai:text-embedding-3-small' }),
@@ -71,7 +67,7 @@ function buildWithPolicy(policy?: PolicyContext): Promise<McpServer> {
   );
   return svc.buildServer('co_test', ['brain:read', 'brain:write', 'brain:admin'], {
     actorKeyHash: 'sha256:test',
-    policy,
+    ...(policy !== undefined ? { policy } : {}),
   });
 }
 
@@ -88,9 +84,7 @@ describe('MCP ABAC tool gate', () => {
       name: 'readonly-agent',
       posture: { actions: 'deny', reads: 'allow' },
       mode: 'enforce',
-      rules: [
-        { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
-      ],
+      rules: [{ id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] }],
     });
     const names = toolNames(await buildWithPolicy(policy));
     expect(names).toContain('search_knowledge');
@@ -108,9 +102,7 @@ describe('MCP ABAC tool gate', () => {
       name: 'no-forget',
       posture: { actions: 'allow', reads: 'allow' },
       mode: 'enforce',
-      rules: [
-        { id: 'nf', effect: 'deny', kind: 'action', actions: ['forget_entity'] },
-      ],
+      rules: [{ id: 'nf', effect: 'deny', kind: 'action', actions: ['forget_entity'] }],
     });
     const names = toolNames(await buildWithPolicy(policy));
     expect(names).not.toContain('forget_entity');
@@ -173,9 +165,7 @@ describe('MCP ABAC gate over pack-declared tools', () => {
       name: 'readonly-agent',
       posture: { actions: 'deny', reads: 'allow' },
       mode: 'enforce',
-      rules: [
-        { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
-      ],
+      rules: [{ id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] }],
     });
     const names = toolNames(await buildWithPolicy(policy));
     expect(names).toContain('demo__find_things');
@@ -227,9 +217,7 @@ describe('MCP ABAC gate over pack-declared tools', () => {
         name: 'readonly-agent',
         posture: { actions: 'deny', reads: 'allow' },
         mode: 'enforce',
-        rules: [
-          { id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] },
-        ],
+        rules: [{ id: 'ro', effect: 'allow', kind: 'action', actions: ['@readonly'] }],
       });
       const names = toolNames(await buildWithPolicy(policy));
       expect(names).not.toContain('demo__call_home');

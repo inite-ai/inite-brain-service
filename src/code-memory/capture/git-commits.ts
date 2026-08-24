@@ -35,10 +35,7 @@ export function parseGitLog(raw: string): CommitInput[] {
   return commits;
 }
 
-export function readCommits(opts: {
-  range: string;
-  cwd?: string;
-}): CommitInput[] {
+export function readCommits(opts: { range: string; cwd?: string }): CommitInput[] {
   const raw = execFileSync(
     'git',
     [

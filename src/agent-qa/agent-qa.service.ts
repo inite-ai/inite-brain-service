@@ -96,8 +96,7 @@ const TIMELINE_TOOL: OpenAI.Chat.ChatCompletionTool = {
       properties: {
         topic: {
           type: 'string',
-          description:
-            'The topic, activity, or person to scan chronologically.',
+          description: 'The topic, activity, or person to scan chronologically.',
         },
       },
       required: ['topic'],
@@ -141,7 +140,7 @@ export interface AgentQaInput {
   companyId: string;
   question: string;
   callerScopes: string[];
-  asOf?: string;
+  asOf?: string | undefined;
 }
 
 export interface AgentQaResult {
@@ -196,22 +195,14 @@ export class AgentQaService {
       config.get<string>('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     );
     this.maxRounds = positiveIntEnv(config.get<string>('AGENT_QA_MAX_ROUNDS'), 6);
-    this.searchLimit = positiveIntEnv(
-      config.get<string>('AGENT_QA_SEARCH_LIMIT'),
-      12,
-    );
-    this.maxFactsPerRound = positiveIntEnv(
-      config.get<string>('AGENT_QA_MAX_FACTS_PER_ROUND'),
-      40,
-    );
+    this.searchLimit = positiveIntEnv(config.get<string>('AGENT_QA_SEARCH_LIMIT'), 12);
+    this.maxFactsPerRound = positiveIntEnv(config.get<string>('AGENT_QA_MAX_FACTS_PER_ROUND'), 40);
   }
 
   async answer(input: AgentQaInput): Promise<AgentQaResult> {
-    return withSpan(
-      'agent_qa.answer',
-      () => this.route(input),
-      { 'agent_qa.max_rounds': this.maxRounds },
-    );
+    return withSpan('agent_qa.answer', () => this.route(input), {
+      'agent_qa.max_rounds': this.maxRounds,
+    });
   }
 
   /**
@@ -223,8 +214,7 @@ export class AgentQaService {
    * value keeps the pure loop (measurement mode).
    */
   private async route(input: AgentQaInput): Promise<AgentQaResult> {
-    const escalate =
-      (process.env.AGENT_QA_ROUTE_MODE ?? '').trim() === 'escalate';
+    const escalate = (process.env.AGENT_QA_ROUTE_MODE ?? '').trim() === 'escalate';
     if (!escalate || !this.multiHop) return this.runLoop(input);
     try {
       const oneShot = await this.multiHop.run({
@@ -243,9 +233,7 @@ export class AgentQaService {
         return { answer, rounds: 0, queries: [], escalated: false };
       }
     } catch (e) {
-      this.logger.warn(
-        `one-shot leg failed, escalating to loop: ${(e as Error).message}`,
-      );
+      this.logger.warn(`one-shot leg failed, escalating to loop: ${(e as Error).message}`);
     }
     const loop = await this.runLoop(input);
     return { ...loop, escalated: true };
@@ -351,18 +339,14 @@ export class AgentQaService {
     input: AgentQaInput;
     name: string;
     query: string;
-    mask?: Set<string>;
+    mask?: Set<string> | undefined;
   }): Promise<string> {
     if (name === 'timeline') return this.runTimeline(input, query);
     if (name === 'grep_episodes') return this.runGrep(input, query);
     return this.runSearch(input, query, mask);
   }
 
-  private async runSearch(
-    input: AgentQaInput,
-    query: string,
-    mask?: Set<string>,
-  ): Promise<string> {
+  private async runSearch(input: AgentQaInput, query: string, mask?: Set<string>): Promise<string> {
     if (!query.trim()) return 'No query provided.';
     try {
       const { results } = await this.search.search(
@@ -397,10 +381,7 @@ export class AgentQaService {
    * derived world, oldest-first — collection and counting instead of
    * top-k similarity sampling.
    */
-  private async runTimeline(
-    input: AgentQaInput,
-    topic: string,
-  ): Promise<string> {
+  private async runTimeline(input: AgentQaInput, topic: string): Promise<string> {
     if (!topic.trim()) return 'No topic provided.';
     if (!this.surreal || !this.embedder) return 'Timeline unavailable.';
     try {
@@ -408,28 +389,22 @@ export class AgentQaService {
       // Per-tenant derived world (audit W2 #9): registry first, env
       // bootstrap when this tenant has no registry row yet.
       const version =
-        (await this.readPin?.resolve(input.companyId)) ??
-        ReadPinService.bootstrapDefault();
-      const versionClause = version
-        ? 'AND derivedVersion = $dv'
-        : 'AND derivedVersion IS NONE';
-      const rows = await this.surreal.withCompany(
-        input.companyId,
-        async (db) => {
-          const [r] = await db.query<
-            [Array<{ predicate: string; object: string; validFrom?: unknown }>]
-          >(
-            `SELECT predicate, object, validFrom,
+        (await this.readPin?.resolve(input.companyId)) ?? ReadPinService.bootstrapDefault();
+      const versionClause = version ? 'AND derivedVersion = $dv' : 'AND derivedVersion IS NONE';
+      const rows = await this.surreal.withCompany(input.companyId, async (db) => {
+        const [r] = await db.query<
+          [Array<{ predicate: string; object: string; validFrom?: unknown }>]
+        >(
+          `SELECT predicate, object, validFrom,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM knowledge_fact
               WHERE status = 'active' AND embedding != NONE ${versionClause}
               ORDER BY score DESC
               LIMIT 40`,
-            { q: vec, dv: version },
-          );
-          return r ?? [];
-        },
-      );
+          { q: vec, dv: version },
+        );
+        return r ?? [];
+      });
       if (rows.length === 0) return 'No facts found for that topic.';
       return rows
         .slice()
@@ -465,13 +440,9 @@ export class AgentQaService {
         .slice()
         .sort(
           (a, b) =>
-            new Date(String(a.occurredAt)).getTime() -
-            new Date(String(b.occurredAt)).getTime(),
+            new Date(String(a.occurredAt)).getTime() - new Date(String(b.occurredAt)).getTime(),
         )
-        .map(
-          (t) =>
-            `[${String(t.occurredAt).slice(0, 10)}] ${t.speaker ?? 'unknown'}: ${t.text}`,
-        )
+        .map((t) => `[${String(t.occurredAt).slice(0, 10)}] ${t.speaker ?? 'unknown'}: ${t.text}`)
         .join('\n');
     } catch (e) {
       this.logger.warn(`agent-qa grep failed: ${(e as Error).message}`);

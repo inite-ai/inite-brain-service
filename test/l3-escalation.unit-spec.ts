@@ -35,7 +35,6 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
   const base = {
     l3Escalation: true,
     verdict: 'unsupported' as VerifierOutput['verdict'],
-    questionAnswered: undefined,
     covered: false,
     refineAttempted: false,
     searchLoop: false,
@@ -57,15 +56,11 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
   });
 
   it('monotone: already-escalated goes straight to skip (no re-entry)', () => {
-    expect(l3TriggerDecision({ ...base, escalated: true })).toBe(
-      'skip_already_escalated',
-    );
+    expect(l3TriggerDecision({ ...base, escalated: true })).toBe('skip_already_escalated');
   });
 
   it('skips when the flag is off', () => {
-    expect(l3TriggerDecision({ ...base, l3Escalation: false })).toBe(
-      'skip_flag_off',
-    );
+    expect(l3TriggerDecision({ ...base, l3Escalation: false })).toBe('skip_flag_off');
   });
 
   it('skips a supported+answering verdict', () => {
@@ -83,12 +78,10 @@ describe('l3TriggerDecision — the monotone trigger matrix', () => {
   });
 
   it('requires a refine first when the search loop is on', () => {
-    expect(
-      l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: false }),
-    ).toBe('skip_no_refine');
-    expect(
-      l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: true }),
-    ).toBe('fire');
+    expect(l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: false })).toBe(
+      'skip_no_refine',
+    );
+    expect(l3TriggerDecision({ ...base, searchLoop: true, refineAttempted: true })).toBe('fire');
   });
 });
 
@@ -141,12 +134,8 @@ describe('verifierPasses + estimateTokens', () => {
   it('passes only on supported (and answering under topic coverage)', () => {
     expect(verifierPasses({ verdict: 'supported' }, false)).toBe(true);
     expect(verifierPasses({ verdict: 'partial' }, false)).toBe(false);
-    expect(
-      verifierPasses({ verdict: 'supported', questionAnswered: false }, true),
-    ).toBe(false);
-    expect(
-      verifierPasses({ verdict: 'supported', questionAnswered: true }, true),
-    ).toBe(true);
+    expect(verifierPasses({ verdict: 'supported', questionAnswered: false }, true)).toBe(false);
+    expect(verifierPasses({ verdict: 'supported', questionAnswered: true }, true)).toBe(true);
   });
 
   it('estimates tokens as chars/4', () => {
@@ -288,7 +277,6 @@ function baseInput(openai: OpenAI, profile: RetrievalProfile) {
     factIndex: factIndexOf(),
     factLines: [`[${FACT_ID}] tier (topic) — tier: sapphire`],
     answerLang: null,
-    dateMathLines: undefined,
   };
 }
 
@@ -301,7 +289,12 @@ describe('L3EscalationService.escalate', () => {
       ],
       sessionTurns: {
         conv1: [
-          { id: 'episode:ep1', speaker: 'user', text: 'my tier is sapphire', occurredAt: '2026-04-01T00:00:00Z' },
+          {
+            id: 'episode:ep1',
+            speaker: 'user',
+            text: 'my tier is sapphire',
+            occurredAt: '2026-04-01T00:00:00Z',
+          },
         ],
       },
     });
@@ -326,7 +319,12 @@ describe('L3EscalationService.escalate', () => {
       ],
       sessionTurns: {
         conv1: [
-          { id: 'episode:ep1', speaker: 'user', text: 'unrelated chatter', occurredAt: '2026-04-01T00:00:00Z' },
+          {
+            id: 'episode:ep1',
+            speaker: 'user',
+            text: 'unrelated chatter',
+            occurredAt: '2026-04-01T00:00:00Z',
+          },
         ],
       },
     });
@@ -382,16 +380,19 @@ describe('L3EscalationService.escalate', () => {
         ],
       },
       windowTurns: [
-        { id: 'episode:ep1', speaker: 'user', text: 'tier is sapphire', occurredAt: '2026-04-01T00:00:00Z' },
+        {
+          id: 'episode:ep1',
+          speaker: 'user',
+          text: 'tier is sapphire',
+          occurredAt: '2026-04-01T00:00:00Z',
+        },
       ],
     });
     const openai = fakeOpenAi([
       JSON.stringify({ answer: 'sapphire', citedFactIds: [FACT_ID] }),
       JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
     ]);
-    const out = await service.escalate(
-      baseInput(openai, makeProfile({ l3TokenCap: 10 })),
-    );
+    const out = await service.escalate(baseInput(openai, makeProfile({ l3TokenCap: 10 })));
     expect(out?.answer).toBe('sapphire');
     expect(mocks.outcomes).toEqual(['fired', 'over_budget_degraded', 'flipped']);
     expect(mocks.windowAroundCalls).toBeGreaterThan(0);
@@ -404,9 +405,7 @@ describe('L3EscalationService.escalate', () => {
       sessionTurns: {},
     });
     const openai = fakeOpenAi(['{}']);
-    const out = await service.escalate(
-      baseInput(openai, makeProfile({ l3Escalation: false })),
-    );
+    const out = await service.escalate(baseInput(openai, makeProfile({ l3Escalation: false })));
     expect(out).toBeNull();
     expect(mocks.outcomes).toEqual([]);
   });

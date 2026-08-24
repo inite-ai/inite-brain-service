@@ -1,9 +1,5 @@
 import type { DecisionKind, Layer1Signals } from './types';
-import {
-  DEFAULT_FEATURE_CONFIG,
-  featurize,
-  type FeatureConfig,
-} from './gate-features';
+import { DEFAULT_FEATURE_CONFIG, featurize, type FeatureConfig } from './gate-features';
 import { GATE_KINDS, type GateModel, type LinearHead } from './gate-classifier';
 
 /**
@@ -53,7 +49,8 @@ function mulberry32(seed: number): () => number {
 function shuffle<T>(arr: T[], rng: () => number): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    // i ∈ [1, len-1], j ∈ [0, i] ⇒ both indices are in-bounds.
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   }
 }
 
@@ -61,9 +58,7 @@ function shuffle<T>(arr: T[], rng: () => number): void {
 function trainLogistic(
   feats: Array<Map<number, number>>,
   targets: number[],
-  opts: Required<
-    Pick<TrainOptions, 'epochs' | 'learningRate' | 'l2' | 'seed' | 'pruneBelow'>
-  >,
+  opts: Required<Pick<TrainOptions, 'epochs' | 'learningRate' | 'l2' | 'seed' | 'pruneBelow'>>,
 ): LinearHead {
   const { epochs, learningRate: lr, l2, seed, pruneBelow } = opts;
   const rng = mulberry32(seed);
@@ -75,6 +70,8 @@ function trainLogistic(
     for (const i of order) {
       const f = feats[i];
       const y = targets[i];
+      // feats/targets are parallel; skip any row whose pair is missing.
+      if (f === undefined || y === undefined) continue;
       let z = bias;
       for (const [k, v] of f) z += (weights.get(k) ?? 0) * v;
       const p = 1 / (1 + Math.exp(-z));
@@ -93,10 +90,7 @@ function trainLogistic(
   return { bias, weights: sparse };
 }
 
-export function trainGate(
-  examples: TrainExample[],
-  opts: TrainOptions = {},
-): GateModel {
+export function trainGate(examples: TrainExample[], opts: TrainOptions = {}): GateModel {
   const config = opts.config ?? DEFAULT_FEATURE_CONFIG;
   const seed = opts.seed ?? 42;
   const base = {
@@ -108,10 +102,14 @@ export function trainGate(
   const feats = examples.map((e) => featurize(e.text, e.signals, config));
 
   // Binary decision-bearing head (seed unchanged → same weights as a v1 train).
-  const binary = trainLogistic(feats, examples.map((e) => e.label), {
-    ...base,
-    seed,
-  });
+  const binary = trainLogistic(
+    feats,
+    examples.map((e) => e.label),
+    {
+      ...base,
+      seed,
+    },
+  );
 
   const model: GateModel = {
     version: 1,
@@ -123,8 +121,7 @@ export function trainGate(
 
   // Per-kind one-vs-rest heads when the corpus carries kinds.
   const trainKinds =
-    opts.trainKinds !== false &&
-    examples.some((e) => e.kinds && e.kinds.length > 0);
+    opts.trainKinds !== false && examples.some((e) => e.kinds && e.kinds.length > 0);
   if (trainKinds) {
     const kinds: Partial<Record<DecisionKind, LinearHead>> = {};
     GATE_KINDS.forEach((kind, i) => {

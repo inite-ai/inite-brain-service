@@ -31,14 +31,18 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
 
   it('unknown entity → INSERTED, no opposing facts', async () => {
     const predictor = f.app.get(IngestPredictionService);
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_unknown_yet' },
-      predicate: 'name',
-      object: 'Predict Subject',
-      validFrom: '2026-05-01T00:00:00Z',
-      confidence: 0.9,
-      source: { vertical: 'rent' },
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_unknown_yet' },
+        predicate: 'name',
+        object: 'Predict Subject',
+        validFrom: '2026-05-01T00:00:00Z',
+        confidence: 0.9,
+        source: { vertical: 'rent' },
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     expect(out.wouldOutcome).toBe('INSERTED');
     expect(out.opposingFacts).toHaveLength(0);
     expect(out.reasoning).toMatch(/no existing entity/i);
@@ -60,20 +64,24 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
     expect([200, 201]).toContain(ingest.status);
 
     const predictor = f.app.get(IngestPredictionService);
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_single_subj' },
-      predicate: 'name',
-      object: 'New Name',
-      validFrom: '2026-02-01T00:00:00Z',
-      confidence: 0.95,
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_single_subj' },
+        predicate: 'name',
+        object: 'New Name',
+        validFrom: '2026-02-01T00:00:00Z',
+        confidence: 0.95,
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     // single_active with overlap → either SUPERSEDED (gap > margin) or
     // COMPETING. The exact verdict depends on weight tuning; assert
     // either-or AND that we surfaced the opposing fact.
     expect(['SUPERSEDED', 'COMPETING']).toContain(out.wouldOutcome);
     expect(out.opposingFacts.length).toBeGreaterThan(0);
-    expect(out.opposingFacts[0].object).toBe('Old Name');
+    expect(out.opposingFacts[0]!.object).toBe('Old Name');
     expect(out.predicatePolicy.semantics).toBe('single_active');
 
     // And the dry-run must NOT have written anything.
@@ -117,14 +125,18 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
     // to override CONFLICT_REJECT_THRESHOLD via env. We don't restart
     // the app inside the spec, so instead assert that the predictor
     // surfaces the branch on a deliberately-near-floor candidate.
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_reject_subj' },
-      predicate: 'name',
-      object: 'Different Name',
-      validFrom: '2026-02-01T00:00:00Z',
-      confidence: 0,
-      source: { vertical: 'rent' },
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_reject_subj' },
+        predicate: 'name',
+        object: 'Different Name',
+        validFrom: '2026-02-01T00:00:00Z',
+        confidence: 0,
+        source: { vertical: 'rent' },
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     // `name` is single_active — the reject gate is bitemporal-ONLY in
     // fn::resolve_fact (0055), so a low score here must NEVER report
     // REJECTED (the old predictor wrongly rejected every semantics). It
@@ -148,14 +160,18 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       });
 
     const predictor = f.app.get(IngestPredictionService);
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_corrob_subj' },
-      predicate: 'name',
-      object: 'Corroborated Name', // SAME object
-      validFrom: '2026-02-01T00:00:00Z',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'source_b' }, // DIFFERENT origin
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_corrob_subj' },
+        predicate: 'name',
+        object: 'Corroborated Name', // SAME object
+        validFrom: '2026-02-01T00:00:00Z',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'source_b' }, // DIFFERENT origin
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     expect(out.wouldOutcome).toBe('CORROBORATED');
     expect(out.opposingFacts[0]?.object).toBe('Corroborated Name');
   });
@@ -174,31 +190,37 @@ describe('IngestPredictionService.predict — read-only conflict preflight', () 
       });
 
     const predictor = f.app.get(IngestPredictionService);
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_hist_subj' },
-      predicate: 'name',
-      object: 'Older Name', // different object → not corroboration
-      validFrom: '2026-01-01T00:00:00Z', // BEFORE the active fact
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-    }, ['brain:read', 'brain:read_pii']);
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_hist_subj' },
+        predicate: 'name',
+        object: 'Older Name', // different object → not corroboration
+        validFrom: '2026-01-01T00:00:00Z', // BEFORE the active fact
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+      },
+      ['brain:read', 'brain:read_pii'],
+    );
     expect(out.wouldOutcome).toBe('INSERTED_HISTORICAL');
     expect(out.opposingFacts.length).toBeGreaterThan(0);
   });
 
   it('predicate policy is surfaced in the result', async () => {
     const predictor = f.app.get(IngestPredictionService);
-    const out = await predictor.predict(f.companyId, {
-      entityRef: { vertical: 'rent', id: 'predict_policy_subj' },
-      predicate: 'name',
-      object: 'X',
-      validFrom: '2026-01-01T00:00:00Z',
-      confidence: 0.7,
-      source: { vertical: 'rent' },
-    }, ['brain:read', 'brain:read_pii']);
-    expect(out.predicatePolicy.semantics).toMatch(
-      /^(single_active|append_only|bitemporal)$/,
+    const out = await predictor.predict(
+      f.companyId,
+      {
+        entityRef: { vertical: 'rent', id: 'predict_policy_subj' },
+        predicate: 'name',
+        object: 'X',
+        validFrom: '2026-01-01T00:00:00Z',
+        confidence: 0.7,
+        source: { vertical: 'rent' },
+      },
+      ['brain:read', 'brain:read_pii'],
     );
+    expect(out.predicatePolicy.semantics).toMatch(/^(single_active|append_only|bitemporal)$/);
     expect(typeof out.predicatePolicy.piiClass).toBe('string');
   });
 });

@@ -30,7 +30,7 @@ function fakeDb(results: unknown[][]): FakeDb {
   return { query, calls };
 }
 
-const GATES = "AND piiClass IS NONE AND userId IS NONE";
+const GATES = 'AND piiClass IS NONE AND userId IS NONE';
 
 function legRequest(db: FakeDb, tuning = BRUTE_ONLY) {
   return {
@@ -45,7 +45,7 @@ function legRequest(db: FakeDb, tuning = BRUTE_ONLY) {
 }
 
 describe('runDenseScanLeg', () => {
-  it("brute mode emits the legacy exact scan (no KNN operator)", async () => {
+  it('brute mode emits the legacy exact scan (no KNN operator)', async () => {
     const db = fakeDb([[[{ id: 's1' }]]]);
     const rows = await runDenseScanLeg(legRequest(db));
     expect(rows).toEqual([{ id: 's1' }]);
@@ -58,9 +58,7 @@ describe('runDenseScanLeg', () => {
 
   it('hnsw mode emits the KNN operator with overfetch and the gates intact', async () => {
     const db = fakeDb([[[{ id: 's1', knnDist: 0.25 }]]]);
-    const rows = await runDenseScanLeg(
-      legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 4 }),
-    );
+    const rows = await runDenseScanLeg(legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 4 }));
     // COSINE distance from the walk converts to similarity (1 − dist).
     expect(rows).toEqual([{ id: 's1', score: 0.75 }]);
     expect(db.calls).toHaveLength(1);
@@ -77,17 +75,13 @@ describe('runDenseScanLeg', () => {
 
   it('ef above the overfetched k survives the clamp', async () => {
     const db = fakeDb([[[{ id: 's1' }]]]);
-    await runDenseScanLeg(
-      legRequest(db, { mode: 'hnsw', ef: 5000, overfetch: 4 }),
-    );
+    await runDenseScanLeg(legRequest(db, { mode: 'hnsw', ef: 5000, overfetch: 4 }));
     expect(db.calls[0]).toContain('<|1600,5000|>');
   });
 
   it('caps the KNN candidate walk at 4000', async () => {
     const db = fakeDb([[[{ id: 's1' }]]]);
-    await runDenseScanLeg(
-      legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 100 }),
-    );
+    await runDenseScanLeg(legRequest(db, { mode: 'hnsw', ef: 400, overfetch: 100 }));
     expect(db.calls[0]).toContain('<|4000,4000|>');
   });
 

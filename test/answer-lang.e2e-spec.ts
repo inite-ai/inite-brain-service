@@ -20,13 +20,16 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
 
   beforeAll(async () => {
     f = await createApp();
-    await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'lang_pin_tenant' },
-      predicate: 'status',
-      object: 'engineer',
-      validFrom: '2026-04-01',
-      source: { vertical: 'rent', eventId: 'auth.profile_updated' },
-    });
+    await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'lang_pin_tenant' },
+        predicate: 'status',
+        object: 'engineer',
+        validFrom: '2026-04-01',
+        source: { vertical: 'rent', eventId: 'auth.profile_updated' },
+      });
   });
 
   afterAll(async () => {
@@ -44,7 +47,7 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
       .send({ query: 'engineer', answerLang: 'ru' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThan(0);
-    expect(state.calls[0].user).toContain('write your answer in ru');
+    expect(state.calls[0]!.user).toContain('write your answer in ru');
   });
 
   it('falls back to detected query language when DTO omits answerLang', async () => {
@@ -58,6 +61,6 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
       .send({ query: 'кто здесь технический директор' });
     expect(res.status).toBe(201);
     expect(state.calls.length).toBeGreaterThan(0);
-    expect(state.calls[0].user).toContain('write your answer in ru');
+    expect(state.calls[0]!.user).toContain('write your answer in ru');
   });
 });

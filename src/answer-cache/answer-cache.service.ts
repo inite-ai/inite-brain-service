@@ -30,11 +30,7 @@ export const ANSWER_CACHE_PROMPT_VERSION = 1;
 const TABLE = 'answer_cache';
 
 /** Mirrors the migration-0091 ASSERT on answer_cache.invalidationCause. */
-export type InvalidationCause =
-  | 'superseded'
-  | 'retracted'
-  | 'expired_validity'
-  | 'missing';
+export type InvalidationCause = 'superseded' | 'retracted' | 'expired_validity' | 'missing';
 
 /**
  * Exact-match key normalization: NFC unicode form, lowercase, collapsed
@@ -103,7 +99,7 @@ export function canonicalDerivedPin(pin: ReadPin): string {
 export interface AnswerCacheKeyInput {
   companyId: string;
   /** Pinned end-user scope; undefined = tenant-global (M2M). */
-  userId?: string;
+  userId?: string | undefined;
   profileHash: string;
   model: string;
   derivedVersionPin: ReadPin;
@@ -135,7 +131,7 @@ function sha256(text: string): string {
 export interface AnswerCacheStoreContext {
   key: string;
   companyId: string;
-  userId?: string;
+  userId?: string | undefined;
   profileHash: string;
   model: string;
   normalizedQuery: string;
@@ -227,11 +223,7 @@ export class AnswerCacheService {
   }): Promise<AnswerCacheBeginResult | undefined> {
     // Read per-request (never captured at boot) so a live env flip
     // lands on the next request — runtimeMutable, catalog-verified.
-    if (
-      !envFlagEnabled(
-        this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE'),
-      )
-    ) {
+    if (!envFlagEnabled(this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE'))) {
       return undefined;
     }
     // explain=true asks for a per-fact DecisionLog a stored answer
@@ -285,9 +277,7 @@ export class AnswerCacheService {
     const expiresAt = new Date(Date.now() + ttlHours * 3_600_000);
     const answer = result.answer;
     const citedFactIds = result.citations.map((c) => c.factId);
-    const entityIds = [
-      ...new Set(result.citations.map((c) => c.entityId).filter(Boolean)),
-    ];
+    const entityIds = [...new Set(result.citations.map((c) => c.entityId).filter(Boolean))];
     try {
       await this.surreal.withCompany(ctx.companyId, async (db) => {
         // Record id = queryHash, so re-admission after invalidation or
@@ -340,10 +330,7 @@ export class AnswerCacheService {
   }
 
   private ttlHours(): number {
-    const raw = this.configService.get<string>(
-      'SYNTHESIZE_ANSWER_CACHE_TTL_HOURS',
-      '24',
-    );
+    const raw = this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE_TTL_HOURS', '24');
     const v = parseInt(raw, 10);
     return Number.isFinite(v) && v > 0 ? v : 24;
   }
@@ -363,8 +350,7 @@ export class AnswerCacheService {
     // fallback, multiworld union folded in — a derive world-flip
     // changes the pin and therefore the key.
     const derivedVersionPin =
-      (await this.readPin?.resolveRead(opts.companyId)) ??
-      ReadPinService.bootstrapRead();
+      (await this.readPin?.resolveRead(opts.companyId)) ?? ReadPinService.bootstrapRead();
     // Key partition = pinned user scope (dto.userId is already pinned
     // by synthesize()); tenant-global (M2M, no user) entries and
     // user-scoped entries can never collide.
@@ -477,27 +463,21 @@ export class AnswerCacheService {
             WHERE id INSIDE $entityIds`,
           {
             ids: ids.map((id) => new StringRecordId(id)),
-            entityIds: (row.entityIds ?? []).map(
-              (id) => new StringRecordId(id),
-            ),
+            entityIds: (row.entityIds ?? []).map((id) => new StringRecordId(id)),
           },
         );
         return { facts: factRows ?? [], names: entityRows ?? [] };
       },
     );
     const byId = new Map(facts.map((f) => [String(f.id), f]));
-    const nameById = new Map(
-      names.map((e) => [String(e.id), e.canonicalName]),
-    );
+    const nameById = new Map(names.map((e) => [String(e.id), e.canonicalName]));
     // Same user-scope semantics as loadVisibleFact: a user-bound token
     // sees tenant-global facts + its own; M2M (no pinned user) sees all.
     const scopeUserId = pinUserScope(undefined);
     const rowPolicy = makeRowPolicyFilter({
       callerScopes,
       surface: 'answer_cache_read',
-      policyLookup: await this.predicateRegistry?.rowPolicyLookup(
-        ctx.companyId,
-      ),
+      policyLookup: await this.predicateRegistry?.rowPolicyLookup(ctx.companyId),
     });
     const citations: Citation[] = [];
     let cause: InvalidationCause | undefined;
@@ -550,10 +530,7 @@ export class AnswerCacheService {
     return cause ? { cause } : { citations };
   }
 
-  private async invalidate(
-    ctx: AnswerCacheStoreContext,
-    cause: InvalidationCause,
-  ): Promise<void> {
+  private async invalidate(ctx: AnswerCacheStoreContext, cause: InvalidationCause): Promise<void> {
     try {
       await this.surreal.withCompany(ctx.companyId, async (db) => {
         await db.query(

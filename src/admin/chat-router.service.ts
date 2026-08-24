@@ -50,10 +50,7 @@ export {
 @Injectable()
 export class ChatRouterService {
   private readonly logger = new Logger(ChatRouterService.name);
-  private readonly intentConfidenceFloor = cfgFloat(
-    'CHAT_ROUTE_INTENT_CONFIDENCE_FLOOR',
-    0.85,
-  );
+  private readonly intentConfidenceFloor = cfgFloat('CHAT_ROUTE_INTENT_CONFIDENCE_FLOOR', 0.85);
 
   constructor(
     private readonly planner: ChatRoutePlannerService,
@@ -115,10 +112,7 @@ export class ChatRouterService {
   }
 
   // ── Cache-miss path: skip gate vs LLM call → validate → cache ──
-  private async routeMiss(
-    message: string,
-    ctx: RouteContext,
-  ): Promise<ChatRoute> {
+  private async routeMiss(message: string, ctx: RouteContext): Promise<ChatRoute> {
     const skipDecision = shouldSkipLLM({
       intent: ctx.localIntent.intent,
       intentConfidence: ctx.localIntent.confidence,
@@ -171,10 +165,7 @@ export class ChatRouterService {
     return route;
   }
 
-  private buildSyntheticRoute(
-    ctx: RouteContext,
-    skipReason: string,
-  ): RawRouteOutput {
+  private buildSyntheticRoute(ctx: RouteContext, skipReason: string): RawRouteOutput {
     return {
       intent: ctx.localIntent.intent,
       mentions: ctx.localMentions.map((m) => ({
@@ -214,10 +205,7 @@ export class ChatRouterService {
    * not exhaustive against the registry. Collapse edits prepend the
    * locals so the validator's overlap-dedup wins ties for them.
    */
-  private mergeLlmWithLocals(
-    parsed: RawRouteOutput,
-    ctx: RouteContext,
-  ): RawRouteOutput {
+  private mergeLlmWithLocals(parsed: RawRouteOutput, ctx: RouteContext): RawRouteOutput {
     const merged: RawRouteOutput = { ...parsed };
     if (ctx.localMentions.length > 0) {
       merged.mentions = ctx.localMentions.map((m) => ({

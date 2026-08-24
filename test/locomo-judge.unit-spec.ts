@@ -6,10 +6,7 @@
  * run continues), and the judgeAccuracy aggregation (judged-only, absent
  * when the judge is off).
  */
-import {
-  createOpenAiJudge,
-  LOCOMO_JUDGE_SYSTEM,
-} from '../test/eval/locomo/judge';
+import { createOpenAiJudge, LOCOMO_JUDGE_SYSTEM } from '../test/eval/locomo/judge';
 import { runLocomo, rejudgeScores } from '../test/eval/locomo/runner';
 import type { QuestionScore } from '../test/eval/locomo/runner';
 import type { NormalizedConversation } from '../test/eval/locomo/types';
@@ -21,9 +18,7 @@ function stubOpenAi(replies: boolean[]): {
 } {
   let i = 0;
   const create = jest.fn(async () => ({
-    choices: [
-      { message: { content: JSON.stringify({ correct: replies[i++] }) } },
-    ],
+    choices: [{ message: { content: JSON.stringify({ correct: replies[i++] }) } }],
   }));
   return { client: { chat: { completions: { create } } }, create };
 }
@@ -76,10 +71,7 @@ describe('createOpenAiJudge', () => {
     const create = jest.fn(async () => ({
       choices: [{ message: { content: '{"correct":"yes"}' } }],
     }));
-    const judge = createOpenAiJudge(
-      { chat: { completions: { create } } },
-      'm',
-    );
+    const judge = createOpenAiJudge({ chat: { completions: { create } } }, 'm');
     await expect(
       judge.grade({ question: 'q', gold: 'g', prediction: 'p', category: 1 }),
     ).rejects.toThrow(/malformed/);
@@ -106,7 +98,7 @@ describe('runLocomo — judge integration', () => {
   it('no judge → report carries no judge fields (back-compat)', async () => {
     const report = await runLocomo([convWith(qa)], agent);
     expect(report.overall.judgeAccuracy).toBeUndefined();
-    expect(report.perCategory[0].judgeAccuracy).toBeUndefined();
+    expect(report.perCategory[0]!.judgeAccuracy).toBeUndefined();
     expect(report.scores.every((s) => s.judgeCorrect === undefined)).toBe(true);
   });
 
@@ -125,10 +117,7 @@ describe('runLocomo — judge integration', () => {
       if (i++ === 0) throw new Error('judge 500');
       return { choices: [{ message: { content: '{"correct":true}' } }] };
     });
-    const judge = createOpenAiJudge(
-      { chat: { completions: { create } } },
-      'm',
-    );
+    const judge = createOpenAiJudge({ chat: { completions: { create } } }, 'm');
     const report = await runLocomo([convWith(qa)], agent, { judge });
     expect(report.totalQuestions).toBe(2);
     expect(report.overall.judgedN).toBe(1);
@@ -196,7 +185,7 @@ describe('runLocomo — judge integration', () => {
     const { client } = stubOpenAi([true]);
     const report = await rejudgeScores(scores, createOpenAiJudge(client, 'm'));
     expect(report.overall.judgeAccuracy).toBe(1);
-    expect(report.scores[0].judgeCorrect).toBe(true);
-    expect(report.scores[0].judgeErrored).toBeUndefined();
+    expect(report.scores[0]!.judgeCorrect).toBe(true);
+    expect(report.scores[0]!.judgeErrored).toBeUndefined();
   });
 });

@@ -18,7 +18,7 @@ export function loadOpenAiKey(env: NodeJS.ProcessEnv = process.env): string {
     if (!existsSync(path)) continue;
     const content = readFileSync(path, 'utf-8');
     const m = content.match(/^OPENAI_API_KEY=(.+)$/m);
-    if (m) return m[1].replace(/^["']|["']$/g, '').trim();
+    if (m) return m[1]!.replace(/^["']|["']$/g, '').trim();
   }
   throw new Error(
     'OPENAI_API_KEY not in env and no fallback .env found. Set it before running real e2e.',

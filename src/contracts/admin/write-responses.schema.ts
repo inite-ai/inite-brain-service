@@ -76,38 +76,11 @@ export const ChangefeedDrainResponseSchema = z.object({
 // We don't import it here to keep the file self-contained — re-declare
 // the relevant subset. Drift across the two definitions is caught by
 // the predicates list test (same shape goes through that schema).
-const PredicateDatatypeSchema = z.enum([
-  'string',
-  'number',
-  'date',
-  'datetime',
-  'enum',
-  'json',
-]);
-const SemanticsSchema = z.enum([
-  'append_only',
-  'single_active',
-  'bitemporal',
-]);
-const PiiClassSchema = z.enum([
-  'none',
-  'identifier',
-  'behavioral',
-  'text',
-  'sensitive',
-]);
-const PredicateStatusSchema = z.enum([
-  'active',
-  'proposed',
-  'aliased',
-  'deprecated',
-]);
-const PredicateCreatedBySchema = z.enum([
-  'system',
-  'admin',
-  'llm_auto',
-  'migration',
-]);
+const PredicateDatatypeSchema = z.enum(['string', 'number', 'date', 'datetime', 'enum', 'json']);
+const SemanticsSchema = z.enum(['append_only', 'single_active', 'bitemporal']);
+const PiiClassSchema = z.enum(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
+const PredicateStatusSchema = z.enum(['active', 'proposed', 'aliased', 'deprecated']);
+const PredicateCreatedBySchema = z.enum(['system', 'admin', 'llm_auto', 'migration']);
 
 const PredicateDefinitionSchema = z.object({
   predicateId: z.string(),
@@ -227,9 +200,7 @@ export const ScenarioRunOutcomeSchema = z.object({
   queryResults: z.array(OpenRecord),
   memoryAssertionResults: z.array(OpenRecord),
   identityMergeResult: OpenRecord.optional(),
-  synthesizeSkipped: z
-    .object({ count: z.number(), reason: z.string() })
-    .optional(),
+  synthesizeSkipped: z.object({ count: z.number(), reason: z.string() }).optional(),
   metrics: ScenarioMetricsSchema,
 });
 
@@ -262,38 +233,20 @@ export const BaselineDiffResponseSchema = z.object({
 
 export type DropTenantResponse = z.infer<typeof DropTenantResponseSchema>;
 export type DlqDeleteResponse = z.infer<typeof DlqDeleteResponseSchema>;
-export type PredicateDeprecateResponse = z.infer<
-  typeof PredicateDeprecateResponseSchema
->;
+export type PredicateDeprecateResponse = z.infer<typeof PredicateDeprecateResponseSchema>;
 export type JobCancelResponse = z.infer<typeof JobCancelResponseSchema>;
-export type AcceptedDreamsResponse = z.infer<
-  typeof AcceptedDreamsResponseSchema
->;
-export type AcceptedCompactionResponse = z.infer<
-  typeof AcceptedCompactionResponseSchema
->;
+export type AcceptedDreamsResponse = z.infer<typeof AcceptedDreamsResponseSchema>;
+export type AcceptedCompactionResponse = z.infer<typeof AcceptedCompactionResponseSchema>;
 export type AcceptedCalibrationRefitResponse = z.infer<
   typeof AcceptedCalibrationRefitResponseSchema
 >;
-export type AcceptedReindexResponse = z.infer<
-  typeof AcceptedReindexResponseSchema
->;
-export type AcceptedScenariosBatchResponse = z.infer<
-  typeof AcceptedScenariosBatchResponseSchema
->;
-export type ChangefeedDrainResponse = z.infer<
-  typeof ChangefeedDrainResponseSchema
->;
-export type PredicateMutationResponse = z.infer<
-  typeof PredicateMutationResponseSchema
->;
+export type AcceptedReindexResponse = z.infer<typeof AcceptedReindexResponseSchema>;
+export type AcceptedScenariosBatchResponse = z.infer<typeof AcceptedScenariosBatchResponseSchema>;
+export type ChangefeedDrainResponse = z.infer<typeof ChangefeedDrainResponseSchema>;
+export type PredicateMutationResponse = z.infer<typeof PredicateMutationResponseSchema>;
 export type DreamsRunResponse = z.infer<typeof DreamsRunResponseSchema>;
 export type ReindexRunResponse = z.infer<typeof ReindexRunResponseSchema>;
-export type ScenarioRunOutcomeResponse = z.infer<
-  typeof ScenarioRunOutcomeSchema
->;
-export type ScenariosBatchResponse = z.infer<
-  typeof ScenariosBatchResponseSchema
->;
+export type ScenarioRunOutcomeResponse = z.infer<typeof ScenarioRunOutcomeSchema>;
+export type ScenariosBatchResponse = z.infer<typeof ScenariosBatchResponseSchema>;
 export type BaselineSaveResponse = z.infer<typeof BaselineSaveResponseSchema>;
 export type BaselineDiffResponse = z.infer<typeof BaselineDiffResponseSchema>;

@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryFirst } from '../db/surreal.service';
 import { envFlagEnabled } from '../common/env-validation';
 
 /** Payload of the work_available push (also the HMAC-signed bytes). */
@@ -79,17 +79,11 @@ export class IndexerWebhookService {
       }
     } catch (e) {
       // Absolute backstop — a push must never surface into ingest.
-      this.logger.warn(
-        `webhook push for pack ${p.packId} threw: ${(e as Error).message}`,
-      );
+      this.logger.warn(`webhook push for pack ${p.packId} threw: ${(e as Error).message}`);
     }
   }
 
-  private async deliver(
-    url: string,
-    body: WorkAvailableEvent,
-    secret: string,
-  ): Promise<boolean> {
+  private async deliver(url: string, body: WorkAvailableEvent, secret: string): Promise<boolean> {
     const payload = JSON.stringify(body);
     const signature = createHmac('sha256', secret).update(payload).digest('hex');
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -122,17 +116,15 @@ export class IndexerWebhookService {
     return false;
   }
 
-  private async webhookSecret(
-    companyId: string,
-    packId: string,
-  ): Promise<string | null> {
+  private async webhookSecret(companyId: string, packId: string): Promise<string | null> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const row = await queryFirst<{ webhookSecret?: unknown }>(
+        db,
         `SELECT webhookSecret FROM domain_pack
            WHERE packId = $packId AND status = 'active' LIMIT 1`,
         { packId },
       );
-      const secret = ((rows as any[]) ?? [])[0]?.webhookSecret;
+      const secret = row?.webhookSecret;
       return secret ? String(secret) : null;
     });
   }

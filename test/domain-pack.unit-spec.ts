@@ -79,15 +79,13 @@ describe('validatePack', () => {
   });
   it('rejects duplicate localIds', () => {
     expect(() =>
-      validatePack(
-        pack({ predicates: [packPredicate('x'), packPredicate('x')] }),
-      ),
+      validatePack(pack({ predicates: [packPredicate('x'), packPredicate('x')] })),
     ).toThrow(/duplicate/);
   });
   it('rejects a localId containing the separator', () => {
-    expect(() =>
-      validatePack(pack({ predicates: [packPredicate('a__b')] })),
-    ).toThrow(DomainPackError);
+    expect(() => validatePack(pack({ predicates: [packPredicate('a__b')] }))).toThrow(
+      DomainPackError,
+    );
   });
   it('rejects a pack id ending in underscore (uninstall-prefix collision)', () => {
     expect(() => validatePack(pack({ id: 'foo_' }))).toThrow(/underscore/);
@@ -101,9 +99,7 @@ describe('validatePack', () => {
     expect(() => validatePack(pack({ predicates: [bad] }))).toThrow(/piiClass/);
   });
   it('rejects a non-array predicates field', () => {
-    expect(() =>
-      validatePack(pack({ predicates: 42 as never })),
-    ).toThrow(/must be an array/);
+    expect(() => validatePack(pack({ predicates: 42 as never }))).toThrow(/must be an array/);
   });
   it('accepts a well-formed extractionProfile', () => {
     expect(() =>
@@ -119,9 +115,7 @@ describe('validatePack', () => {
   });
   it('rejects a non-string extractionProfile.guidance', () => {
     expect(() =>
-      validatePack(
-        pack({ extractionProfile: { guidance: 42 as unknown as string } }),
-      ),
+      validatePack(pack({ extractionProfile: { guidance: 42 as unknown as string } })),
     ).toThrow(/guidance must be a string/);
   });
   it('rejects a malformed extractionProfile.fewShot entry', () => {
@@ -165,19 +159,17 @@ describe('validateSeedDocuments (via validatePack)', () => {
     ).not.toThrow();
   });
   it('rejects duplicate seed localIds', () => {
-    expect(() =>
-      validatePack(pack({ seedDocuments: [seed(), seed()] })),
-    ).toThrow(/duplicate seed document localId/);
+    expect(() => validatePack(pack({ seedDocuments: [seed(), seed()] }))).toThrow(
+      /duplicate seed document localId/,
+    );
   });
   it('rejects a non-snake_case seed localId', () => {
-    expect(() =>
-      validatePack(pack({ seedDocuments: [seed({ localId: 'Primer-1' })] })),
-    ).toThrow(DomainPackError);
+    expect(() => validatePack(pack({ seedDocuments: [seed({ localId: 'Primer-1' })] }))).toThrow(
+      DomainPackError,
+    );
   });
   it('rejects a seed localId containing the namespace separator', () => {
-    expect(() =>
-      validatePack(pack({ seedDocuments: [seed({ localId: 'a__b' })] })),
-    ).toThrow(/__/);
+    expect(() => validatePack(pack({ seedDocuments: [seed({ localId: 'a__b' })] }))).toThrow(/__/);
   });
   it('rejects a seed text over the per-document cap', () => {
     expect(() =>
@@ -194,9 +186,7 @@ describe('validateSeedDocuments (via validatePack)', () => {
       { length: Math.ceil(SEED_TOTAL_MAX_CHARS / SEED_DOC_MAX_CHARS) + 1 },
       (_, i) => seed({ localId: `doc_${i}`, text: chunk }),
     );
-    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(
-      /chars of text combined/,
-    );
+    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(/chars of text combined/);
   });
   it('rejects a seed without a vertical', () => {
     expect(() =>
@@ -218,7 +208,7 @@ describe('validateSeedDocuments (via validatePack)', () => {
         pack({
           seedDocuments: [
             seed({
-              meta: { nested: { deep: true } } as unknown as PackSeedDocument['meta'],
+              meta: { nested: { deep: true } } as unknown as NonNullable<PackSeedDocument['meta']>,
             }),
           ],
         }),
@@ -227,18 +217,12 @@ describe('validateSeedDocuments (via validatePack)', () => {
   });
   it('rejects a non-snake_case meta key', () => {
     expect(() =>
-      validatePack(
-        pack({ seedDocuments: [seed({ meta: { 'Bad-Key': 'x' } })] }),
-      ),
+      validatePack(pack({ seedDocuments: [seed({ meta: { 'Bad-Key': 'x' } })] })),
     ).toThrow(/meta key/);
   });
   it(`rejects more than ${SEED_MAX_DOCS} seed documents`, () => {
-    const docs = Array.from({ length: SEED_MAX_DOCS + 1 }, (_, i) =>
-      seed({ localId: `doc_${i}` }),
-    );
-    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(
-      /the cap is/,
-    );
+    const docs = Array.from({ length: SEED_MAX_DOCS + 1 }, (_, i) => seed({ localId: `doc_${i}` }));
+    expect(() => validatePack(pack({ seedDocuments: docs }))).toThrow(/the cap is/);
   });
   it('changes the pack checksum when a seed text changes', () => {
     const a = pack({ seedDocuments: [seed({ text: 'version one' })] });
@@ -250,15 +234,11 @@ describe('validateSeedDocuments (via validatePack)', () => {
 describe('assembleSeed', () => {
   it('namespaces pack predicates and keeps core unchanged', () => {
     const core = [corePredicate('name')];
-    const merged = assembleSeed(core, [
-      pack({ id: 'demo', predicates: [packPredicate('thing')] }),
-    ]);
+    const merged = assembleSeed(core, [pack({ id: 'demo', predicates: [packPredicate('thing')] })]);
     const ids = merged.map((p) => p.predicateId);
     expect(ids).toContain('name');
     expect(ids).toContain('demo__thing');
-    expect(merged.find((p) => p.predicateId === 'demo__thing')?.createdBy).toBe(
-      'system',
-    );
+    expect(merged.find((p) => p.predicateId === 'demo__thing')?.createdBy).toBe('system');
   });
 
   it('throws on a pack-vs-pack id collision', () => {
@@ -275,10 +255,7 @@ describe('assembleSeed', () => {
 
   it('throws on a pack-vs-core id collision', () => {
     expect(() =>
-      assembleSeed(
-        [corePredicate('p__x')],
-        [pack({ id: 'p', predicates: [packPredicate('x')] })],
-      ),
+      assembleSeed([corePredicate('p__x')], [pack({ id: 'p', predicates: [packPredicate('x')] })]),
     ).toThrow(/collision/);
   });
 });
@@ -306,9 +283,9 @@ describe('diffPackUpgrade', () => {
     const next = pack({ id: 'med', predicates: [bumped] });
     const { changed, removedIds } = diffPackUpgrade('med', prior, next);
     expect(changed).toHaveLength(1);
-    expect(changed[0].predicateId).toBe('med__dx');
-    expect(changed[0].piiClass).toBe('sensitive');
-    expect(changed[0].createdBy).toBe('admin');
+    expect(changed[0]!.predicateId).toBe('med__dx');
+    expect(changed[0]!.piiClass).toBe('sensitive');
+    expect(changed[0]!.createdBy).toBe('admin');
     expect(removedIds).toEqual([]);
   });
 
@@ -353,12 +330,8 @@ describe('computeHash', () => {
   const preds = [corePredicate('name')];
   it('folds extraction profiles into the hash (profile-only change busts it)', () => {
     const bare = computeHash(preds);
-    const withProfile = computeHash(preds, [
-      { packId: 'med', profile: { guidance: 'v1' } },
-    ]);
-    const withProfileV2 = computeHash(preds, [
-      { packId: 'med', profile: { guidance: 'v2' } },
-    ]);
+    const withProfile = computeHash(preds, [{ packId: 'med', profile: { guidance: 'v1' } }]);
+    const withProfileV2 = computeHash(preds, [{ packId: 'med', profile: { guidance: 'v2' } }]);
     expect(withProfile).not.toBe(bare);
     expect(withProfileV2).not.toBe(withProfile);
   });

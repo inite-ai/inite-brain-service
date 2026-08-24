@@ -13,11 +13,7 @@
  *    flag-off 404;
  *  - determinism: same rows in any arrival order → identical output.
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { UserProfileService } from '../src/users/user-profile.service';
 import { UserProfileController } from '../src/users/user-profile.controller';
 import type { UserProfileWire } from '../src/users/dto/user-profile.dto';
@@ -28,7 +24,7 @@ import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 import { runWithRequestContext } from '../src/common/request-context';
 
 type Row = Record<string, unknown>;
-type Capture = { sql: string; params?: Record<string, unknown> };
+type Capture = { sql: string; params?: Record<string, unknown> | undefined };
 
 function makeService(opts: {
   rows: Row[];
@@ -58,9 +54,7 @@ function makeService(opts: {
   const registry = {
     rowPolicyLookup: async () => (predicate: string) => ({
       piiClass: opts.piiPredicates?.includes(predicate) ? 'sensitive' : 'none',
-      ...(opts.piiPredicates?.includes(predicate)
-        ? { requiresScope: 'brain:read_pii' }
-        : {}),
+      ...(opts.piiPredicates?.includes(predicate) ? { requiresScope: 'brain:read_pii' } : {}),
     }),
   } as unknown as PredicateRegistryService;
   return new UserProfileService(surreal, readPin, registry);
@@ -97,7 +91,7 @@ describe('UserProfileService — SQL contract', () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: 'wd-v1' });
     await svc.getProfile({ ...baseOpts });
-    const { sql, params } = capture[0];
+    const { sql, params } = capture[0]!;
     // Audit 2026-08-21: STRICT user scope — tenant-global rows are
     // knowledge about arbitrary entities, not facts OF this user, and
     // must never leak into a profile. The user's own derived facts
@@ -106,18 +100,14 @@ describe('UserProfileService — SQL contract', () => {
     expect(sql).not.toContain('userId IS NONE');
     expect(params?.scopeUserId).toBe('u1');
     // Combined world fence: legacy namespace UNION the pinned world.
-    expect(sql).toContain(
-      '(derivedVersion IS NONE OR derivedVersion = $derivedVersion)',
-    );
+    expect(sql).toContain('(derivedVersion IS NONE OR derivedVersion = $derivedVersion)');
     expect(params?.derivedVersion).toBe('wd-v1');
     // Lifecycle: the where-builder "actual now" closure + no competing.
     expect(sql).toContain('retractedAt IS NONE');
     expect(sql).toContain(`status != 'competing'`);
     expect(sql).toContain(`status != 'compacted'`);
     expect(sql).toContain(`status != 'corroborating'`);
-    expect(sql).toContain(
-      `(status != 'superseded' OR validUntil > time::now())`,
-    );
+    expect(sql).toContain(`(status != 'superseded' OR validUntil > time::now())`);
     expect(sql).toContain('validFrom <= time::now()');
     expect(sql).toContain('(validUntil IS NONE OR validUntil > time::now())');
     // Deterministic fetch order.
@@ -128,21 +118,19 @@ describe('UserProfileService — SQL contract', () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: null });
     await svc.getProfile({ ...baseOpts });
-    expect(capture[0].sql).toContain(
-      '(derivedVersion IS NONE OR derivedVersion IS NONE)',
-    );
+    expect(capture[0]!.sql).toContain('(derivedVersion IS NONE OR derivedVersion IS NONE)');
   });
 
   it('lang filter is soft on unstamped rows and only added when asked', async () => {
     const capture: Capture[] = [];
     const svc = makeService({ rows: [], capture, readPin: null });
     await svc.getProfile({ ...baseOpts, lang: 'en' });
-    expect(capture[0].sql).toContain('(lang = $langFilter OR lang IS NONE)');
-    expect(capture[0].params?.langFilter).toBe('en');
+    expect(capture[0]!.sql).toContain('(lang = $langFilter OR lang IS NONE)');
+    expect(capture[0]!.params?.langFilter).toBe('en');
     const capture2: Capture[] = [];
     const svc2 = makeService({ rows: [], capture: capture2, readPin: null });
     await svc2.getProfile({ ...baseOpts });
-    expect(capture2[0].sql).not.toContain('langFilter');
+    expect(capture2[0]!.sql).not.toContain('langFilter');
   });
 });
 
@@ -188,21 +176,11 @@ describe('UserProfileService — assembly', () => {
     for (let i = 0; i < 3; i++) rows.push(row({ predicate: 'travel' }));
     const svc = makeService({ rows, readPin: null });
     const capped = await svc.getProfile({ ...baseOpts });
-    expect(
-      capped.sections.find((s) => s.aspect === 'work')?.facts,
-    ).toHaveLength(5);
+    expect(capped.sections.find((s) => s.aspect === 'work')?.facts).toHaveLength(5);
     // Newest 5 of the 7 survive the per-aspect cap.
     expect(
-      capped.sections
-        .find((s) => s.aspect === 'work')
-        ?.facts.map((f) => f.validFrom.slice(0, 10)),
-    ).toEqual([
-      '2026-03-07',
-      '2026-03-06',
-      '2026-03-05',
-      '2026-03-04',
-      '2026-03-03',
-    ]);
+      capped.sections.find((s) => s.aspect === 'work')?.facts.map((f) => f.validFrom.slice(0, 10)),
+    ).toEqual(['2026-03-07', '2026-03-06', '2026-03-05', '2026-03-04', '2026-03-03']);
     const svc2 = makeService({ rows, readPin: null });
     const tight = await svc2.getProfile({ ...baseOpts, maxFacts: 6 });
     expect(tight.factCount).toBe(6);
@@ -232,15 +210,9 @@ describe('UserProfileService — assembly', () => {
       'activities', // count ties broken by aspect ASC
       'events',
     ]);
-    expect(
-      res.sections.find((s) => s.aspect === 'identity')?.facts[0].kind,
-    ).toBe('persona_attr');
-    expect(
-      res.sections.find((s) => s.aspect === 'events')?.facts[0].kind,
-    ).toBe('event');
-    expect(
-      res.sections.find((s) => s.aspect === 'work')?.facts[0].kind,
-    ).toBeUndefined();
+    expect(res.sections.find((s) => s.aspect === 'identity')?.facts[0]!.kind).toBe('persona_attr');
+    expect(res.sections.find((s) => s.aspect === 'events')?.facts[0]!.kind).toBe('event');
+    expect(res.sections.find((s) => s.aspect === 'work')?.facts[0]!.kind).toBeUndefined();
   });
 
   it('renders profileText one line per fact, sections persona-first', async () => {
@@ -278,10 +250,10 @@ describe('UserProfileService — assembly', () => {
       readPin: null,
     });
     const res = await svc.getProfile({ ...baseOpts });
-    const [first, second] = res.sections[0].facts;
+    const [first, second] = res.sections[0]!.facts;
     // Rows share validFrom → factId ASC keeps f001 (corroborated) first.
-    expect(first.lastSeenAt).toBe('2026-07-01T00:00:00.000Z');
-    expect(second.lastSeenAt).toBeUndefined();
+    expect(first!.lastSeenAt).toBe('2026-07-01T00:00:00.000Z');
+    expect(second!.lastSeenAt).toBeUndefined();
   });
 
   it('gates PII predicates on brain:read_pii — both ways', async () => {
@@ -335,9 +307,7 @@ describe('UserProfileService — assembly', () => {
       readPin: null,
     }).getProfile({ ...baseOpts });
     expect(strip(forward)).toEqual(strip(reversed));
-    expect(JSON.stringify(strip(forward))).toBe(
-      JSON.stringify(strip(reversed)),
-    );
+    expect(JSON.stringify(strip(forward))).toBe(JSON.stringify(strip(reversed)));
   });
 });
 
@@ -376,9 +346,7 @@ describe('UserProfileController — flag gate + user-scope pin', () => {
   it('404s while the flag is off — indistinguishable from an absent route', async () => {
     delete process.env[FLAG];
     const { controller } = makeController();
-    await expect(controller.getProfile(req, 'u1')).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(controller.getProfile(req, 'u1')).rejects.toThrow(NotFoundException);
   });
 
   it('M2M credential (no authUserId) reads any user profile', async () => {
@@ -387,36 +355,27 @@ describe('UserProfileController — flag gate + user-scope pin', () => {
     await runWithRequestContext({ correlationId: 't1' }, async () => {
       await controller.getProfile(req, 'someone-else');
     });
-    expect(calls[0].userId).toBe('someone-else');
-    expect(calls[0].maxFacts).toBe(60);
+    expect(calls[0]!.userId).toBe('someone-else');
+    expect(calls[0]!.maxFacts).toBe(60);
   });
 
   it('user-bound token: own profile passes, another user 403s', async () => {
     process.env[FLAG] = '1';
     const { controller, calls } = makeController();
-    await runWithRequestContext(
-      { correlationId: 't2', authUserId: 'u1' },
-      async () => {
-        await controller.getProfile(req, 'u1');
-        await expect(controller.getProfile(req, 'u2')).rejects.toThrow(
-          ForbiddenException,
-        );
-      },
-    );
+    await runWithRequestContext({ correlationId: 't2', authUserId: 'u1' }, async () => {
+      await controller.getProfile(req, 'u1');
+      await expect(controller.getProfile(req, 'u2')).rejects.toThrow(ForbiddenException);
+    });
     expect(calls).toHaveLength(1);
-    expect(calls[0].userId).toBe('u1');
+    expect(calls[0]!.userId).toBe('u1');
   });
 
   it('clamps maxFacts to the hard cap and rejects garbage', async () => {
     process.env[FLAG] = '1';
     const { controller, calls } = makeController();
     await controller.getProfile(req, 'u1', '500');
-    expect(calls[0].maxFacts).toBe(200);
-    await expect(controller.getProfile(req, 'u1', '0')).rejects.toThrow(
-      BadRequestException,
-    );
-    await expect(controller.getProfile(req, 'u1', 'abc')).rejects.toThrow(
-      BadRequestException,
-    );
+    expect(calls[0]!.maxFacts).toBe(200);
+    await expect(controller.getProfile(req, 'u1', '0')).rejects.toThrow(BadRequestException);
+    await expect(controller.getProfile(req, 'u1', 'abc')).rejects.toThrow(BadRequestException);
   });
 });

@@ -44,8 +44,7 @@ export function applyEvidenceUnion(
 ): SearchHit[] {
   if (!extraHits || extraHits.length === 0) return base;
   const results = mergeExtraHits(base, extraHits, cap);
-  const count = (hits: SearchHit[]): number =>
-    hits.reduce((a, h) => a + h.facts.length, 0);
+  const count = (hits: SearchHit[]): number => hits.reduce((a, h) => a + h.facts.length, 0);
   traceArtifact('synthesize.evidence_union', {
     baseHits: base.length,
     mergedHits: results.length,
@@ -54,11 +53,7 @@ export function applyEvidenceUnion(
   return results;
 }
 
-export function mergeExtraHits(
-  base: SearchHit[],
-  extra: SearchHit[],
-  cap: number,
-): SearchHit[] {
+export function mergeExtraHits(base: SearchHit[], extra: SearchHit[], cap: number): SearchHit[] {
   const seen = new Set<string>();
   for (const h of base) for (const f of h.facts) seen.add(f.factId);
 

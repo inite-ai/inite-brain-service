@@ -32,10 +32,7 @@ export class MiaChecker {
     return out;
   }
 
-  private async runOne(
-    scenarioId: string,
-    t: MiaTest,
-  ): Promise<MiaTestResult> {
+  private async runOne(scenarioId: string, t: MiaTest): Promise<MiaTestResult> {
     const threshold = t.threshold ?? 0.6;
     const forgottenScores = await this.collectScores(t.forgottenNames);
     const controlScores = await this.collectScores(t.controlNames);

@@ -39,8 +39,7 @@ type Inbound =
     };
 
 type Outbound =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  { id: number; ok: true; result: unknown } | { id: number; ok: false; error: string };
 
 if (!parentPort) {
   throw new Error('intent-classifier.worker must be run as a worker_thread');
@@ -66,10 +65,7 @@ async function warmup(cfg: WorkerConfig): Promise<void> {
     // Honour the env explicitly so the operator's cache mount actually works.
     const cacheDir = process.env.TRANSFORMERS_CACHE ?? process.env.HF_HOME;
     if (cacheDir) t.env.cacheDir = cacheDir;
-    classifier = (await t.pipeline(
-      'zero-shot-classification',
-      cfg.modelId,
-    )) as ZeroShotPipeline;
+    classifier = (await t.pipeline('zero-shot-classification', cfg.modelId)) as ZeroShotPipeline;
   })();
   return warmupPromise;
 }
@@ -86,7 +82,7 @@ async function classify(p: {
   return { labels: out.labels, scores: out.scores };
 }
 
-parentPort.on('message', async (msg: Inbound) => {
+const onMessage = async (msg: Inbound): Promise<void> => {
   try {
     if (msg.kind === 'warmup') {
       await warmup(msg.payload);
@@ -101,4 +97,14 @@ parentPort.on('message', async (msg: Inbound) => {
   } catch (e) {
     reply({ id: msg.id, ok: false, error: (e as Error).message });
   }
+};
+
+// The message listener is void-returning and each message is handled
+// independently, so the async work runs detached. onMessage already reports
+// business failures to the parent via reply(); the .catch guards only a
+// catastrophic reply()/port failure from becoming an unhandledRejection.
+parentPort.on('message', (msg: Inbound) => {
+  void onMessage(msg).catch((err) => {
+    console.error(`intent-classifier worker handler crashed: ${(err as Error).message}`);
+  });
 });

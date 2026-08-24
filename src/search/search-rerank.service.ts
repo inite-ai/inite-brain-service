@@ -107,10 +107,7 @@ export class SearchRerankService {
     /** Prefetched by prefetchNeighbours(); missing entries → no graph line. */
     neighboursByEntity?: Map<string, Neighbour[]>;
   }): Promise<EntityBucket[]> {
-    const { wideCandidates, rerankWindow: RERANK_WINDOW } = this.wideCandidates(
-      byEntity,
-      ctx,
-    );
+    const { wideCandidates, rerankWindow: RERANK_WINDOW } = this.wideCandidates(byEntity, ctx);
 
     let candidatesForRerank = wideCandidates.slice(0, RERANK_WINDOW);
 
@@ -230,10 +227,7 @@ export class SearchRerankService {
    * sort key (band desc, reranker position asc). Deterministic and
    * transitive (unlike a pairwise margin comparator). Band 0 → no-op.
    */
-  private applyScoreBandOrder(
-    buckets: EntityBucket[],
-    band: number,
-  ): EntityBucket[] {
+  private applyScoreBandOrder(buckets: EntityBucket[], band: number): EntityBucket[] {
     if (!(band > 0) || buckets.length <= 1) return buckets;
     const pos = new Map(buckets.map((b, i) => [b.entityId, i] as const));
     return [...buckets].sort((a, b) => {
@@ -289,7 +283,10 @@ export class SearchRerankService {
       { 'cross_encoder.candidates': xInputs.length },
     );
     this.metrics?.countCrossEncoder(timedOut ? 'error' : 'invoked');
-    return xPerm.map((i) => wideCandidates[i]).slice(0, rerankWindow);
+    return xPerm
+      .map((i) => wideCandidates[i])
+      .filter((c): c is EntityBucket => c !== undefined)
+      .slice(0, rerankWindow);
   }
 
   private async runLlmRerank({
@@ -352,6 +349,8 @@ export class SearchRerankService {
       { 'rerank.candidates': rerankInputs.length },
     );
     this.metrics?.countRerank(timedOut ? 'error' : 'invoked');
-    return permutation.map((i) => candidatesForRerank[i]);
+    return permutation
+      .map((i) => candidatesForRerank[i])
+      .filter((c): c is EntityBucket => c !== undefined);
   }
 }

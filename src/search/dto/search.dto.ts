@@ -21,15 +21,22 @@ export class SearchDto {
   // a body shape that bypasses this DTO.
   @IsString()
   @MaxLength(8_000)
-  query: string;
+  query!: string;
 
-  @IsOptional() @IsNumber() @Min(1) @Max(100)
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(100)
   limit?: number;
 
-  @IsOptional() @IsArray() @IsString({ each: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   entityTypes?: string[];
 
-  @IsOptional() @IsArray() @IsString({ each: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   predicates?: string[];
 
   /**
@@ -41,10 +48,13 @@ export class SearchDto {
    * the search service normalises both into the SurrealDB record
    * link form before the WHERE clause.
    */
-  @IsOptional() @IsArray() @IsString({ each: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   entityIds?: string[];
 
-  @IsOptional() @IsISO8601()
+  @IsOptional()
+  @IsISO8601()
   asOf?: string;
 
   /**
@@ -54,16 +64,23 @@ export class SearchDto {
    * holding the tenant's key — asserts the user, same trust model as
    * every other request field.
    */
-  @IsOptional() @IsString() @MaxLength(200)
-  userId?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  userId?: string | undefined;
 
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
   minConfidence?: number;
 
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   includeContested?: boolean;
 
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   includeRetracted?: boolean;
 
   /**
@@ -83,7 +100,8 @@ export class SearchDto {
    * for explicit historical / reasoning-trail queries when you
    * need a bounded window. Most callers should use `asOf` instead.
    */
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   includeStale?: boolean;
 
   /**
@@ -93,7 +111,8 @@ export class SearchDto {
    * `lexical` is BM25-only — useful when callers want exact-token
    * matching (id lookups, regulatory queries) without semantic drift.
    */
-  @IsOptional() @IsIn(['vector', 'lexical', 'hybrid'])
+  @IsOptional()
+  @IsIn(['vector', 'lexical', 'hybrid'])
   searchMode?: SearchMode;
 
   // ── KnowQL-lite agent primitives (cf. Pinecone Nexus, May 2026) ──
@@ -113,7 +132,10 @@ export class SearchDto {
    * (which gates the raw fact field). For agentic callers that
    * cannot tolerate noisy hits, set this to ≥0.5.
    */
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
   confidenceFloor?: number;
 
   /**
@@ -122,7 +144,8 @@ export class SearchDto {
    * vertical/eventId/messageId trail. Useful for compliance flows
    * where the agent must cite-and-link back to the originating event.
    */
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   requireProvenance?: boolean;
 
   /**
@@ -132,7 +155,10 @@ export class SearchDto {
    * downstream OpenAI / Anthropic billing uses, so the budget the
    * caller specifies is the budget they'll actually consume.
    */
-  @IsOptional() @IsNumber() @Min(50) @Max(50_000)
+  @IsOptional()
+  @IsNumber()
+  @Min(50)
+  @Max(50_000)
   tokenBudget?: number;
 
   /**
@@ -141,7 +167,8 @@ export class SearchDto {
    *   `compact` — entities + top fact per entity, no scores
    *   `ids`     — entity ids only (cheapest; agent re-fetches what it needs)
    */
-  @IsOptional() @IsIn(['full', 'compact', 'ids'])
+  @IsOptional()
+  @IsIn(['full', 'compact', 'ids'])
   outputShape?: 'full' | 'compact' | 'ids';
 
   /**
@@ -158,7 +185,8 @@ export class SearchDto {
    * Omitting `queryLang` falls back to the existing single-pass
    * behaviour — back-compat preserved.
    */
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   queryLang?: string;
 
   /**
@@ -166,6 +194,7 @@ export class SearchDto {
    * escape hatch). When true, the where-builder skips the lang
    * filter even if `queryLang` was supplied or detected.
    */
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   disableLangFilter?: boolean;
 }

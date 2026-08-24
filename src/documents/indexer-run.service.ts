@@ -35,7 +35,7 @@ export interface IndexerRunSpec {
   packVersion: string;
   executionMode: IndexerExecutionMode;
   model: string;
-  registryVersionHash?: string;
+  registryVersionHash?: string | undefined;
   /** The actual extraction — union or pack-scoped dedicated. */
   extract: (chunkText: string) => Promise<ExtractionResult>;
   /**
@@ -43,7 +43,7 @@ export interface IndexerRunSpec {
    * deploy finalizes the run 'failed' instead of orphaning it 'running';
    * createRun then reopens it on the retry. Absent on the sync HTTP path.
    */
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }
 
 /**
@@ -135,11 +135,10 @@ export class IndexerRunService {
           // becomes terminal (reap-able / reopenable) instead of stuck.
           throw new Error('aborted');
         }
-        const extraction = await traceSpan(
-          'indexer.run.extract',
-          () => spec.extract(chunk.text),
-          { packId: spec.packId, chunkSeq: chunk.seq },
-        );
+        const extraction = await traceSpan('indexer.run.extract', () => spec.extract(chunk.text), {
+          packId: spec.packId,
+          chunkSeq: chunk.seq,
+        });
         const batch: CandidateBatch = {
           provenance: {
             indexerId: spec.packId,

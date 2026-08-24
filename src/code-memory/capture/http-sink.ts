@@ -19,7 +19,7 @@ type FetchLike = (
     body: string;
     signal?: AbortSignal;
   },
-) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 const CODE_VERTICAL = 'code';
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -38,8 +38,7 @@ export class HttpDecisionSink implements DecisionSink {
       timeoutMs?: number;
     },
   ) {
-    this.fetchImpl =
-      opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.fetchImpl = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -49,9 +48,7 @@ export class HttpDecisionSink implements DecisionSink {
       predicate: codeMemoryPredicateId(candidate.kind),
       object: candidate.text,
       validFrom: candidate.validFrom,
-      ...(candidate.confidence !== undefined
-        ? { confidence: candidate.confidence }
-        : {}),
+      ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}),
       source: {
         vertical: CODE_VERTICAL,
         recorder: 'code_memory_capture',
@@ -61,7 +58,7 @@ export class HttpDecisionSink implements DecisionSink {
     };
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.timeoutMs);
-    let res: { ok: boolean; status: number; json: () => Promise<any> };
+    let res: { ok: boolean; status: number; json: () => Promise<unknown> };
     try {
       res = await this.fetchImpl(`${this.opts.baseUrl}/v1/ingest/fact`, {
         method: 'POST',
@@ -84,6 +81,7 @@ export class HttpDecisionSink implements DecisionSink {
       throw new Error(`ingest POST failed: ${res.status}`);
     }
     const json = await res.json();
-    return { outcome: String(json?.outcome ?? 'UNKNOWN') };
+    const outcome = (json as { outcome?: unknown })?.outcome;
+    return { outcome: String(outcome ?? 'UNKNOWN') };
   }
 }

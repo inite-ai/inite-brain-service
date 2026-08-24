@@ -47,9 +47,7 @@ export interface CrossEncoderCandidate {
 }
 
 @Injectable()
-export class CrossEncoderService
-  implements OnApplicationBootstrap, OnApplicationShutdown
-{
+export class CrossEncoderService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(CrossEncoderService.name);
   private readonly apiKey: string | undefined;
   private readonly model: string;
@@ -69,10 +67,7 @@ export class CrossEncoderService
     // 88.4 on LongMemEval with verbatim passages + a local reranker and
     // no graph — docs/roadmap/lme-sota-research-2026-08.md §1/§4).
     this.apiKey = this.configService.get<string>('COHERE_API_KEY');
-    this.model = this.configService.get<string>(
-      'SEARCH_CROSS_ENCODER_MODEL',
-      'rerank-v3.5',
-    );
+    this.model = this.configService.get<string>('SEARCH_CROSS_ENCODER_MODEL', 'rerank-v3.5');
     this.endpoint = this.configService.get<string>(
       'SEARCH_CROSS_ENCODER_ENDPOINT',
       'https://api.cohere.com/v2/rerank',
@@ -82,19 +77,13 @@ export class CrossEncoderService
       10,
     );
     this.limiter = new Semaphore(
-      parseInt(
-        this.configService.get<string>('SEARCH_CROSS_ENCODER_CONCURRENCY', '4'),
-        10,
-      ),
+      parseInt(this.configService.get<string>('SEARCH_CROSS_ENCODER_CONCURRENCY', '4'), 10),
     );
     // The local worker's scoring loop stops at this deadline so it never
     // outruns the rerank stage budget (whose withStageBudget wrapper would
     // otherwise drop the result while the worker kept burning CPU).
     this.localDeadlineMs = parseInt(
-      this.configService.get<string>(
-        'SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS',
-        '2000',
-      ),
+      this.configService.get<string>('SEARCH_STAGE_BUDGET_CROSS_ENCODER_MS', '2000'),
       10,
     );
   }
@@ -140,10 +129,7 @@ export class CrossEncoderService
    * `[0..candidates.length)` in descending-relevance order. Identity
    * fallback on any failure — caller does not need to catch.
    */
-  async rerank(
-    query: string,
-    candidates: CrossEncoderCandidate[],
-  ): Promise<number[]> {
+  async rerank(query: string, candidates: CrossEncoderCandidate[]): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
     if (candidates.length <= 1 || !query.trim()) {
       return identity;
@@ -158,9 +144,7 @@ export class CrossEncoderService
       return identity;
     }
 
-    const documents = candidates.map((c) =>
-      c.body ? `${c.label}\n${c.body}` : c.label,
-    );
+    const documents = candidates.map((c) => (c.body ? `${c.label}\n${c.body}` : c.label));
 
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.timeoutMs).unref();
@@ -182,9 +166,7 @@ export class CrossEncoderService
           signal: ac.signal,
         });
         if (!res.ok) {
-          this.logger.warn(
-            `Cross-encoder HTTP ${res.status} — falling back to identity`,
-          );
+          this.logger.warn(`Cross-encoder HTTP ${res.status} — falling back to identity`);
           return identity;
         }
         const json = (await res.json()) as {
@@ -241,9 +223,7 @@ export class CrossEncoderService
     candidates: CrossEncoderCandidate[],
     identity: number[],
   ): Promise<number[]> {
-    const documents = candidates.map((c) =>
-      c.body ? `${c.label}\n${c.body}` : c.label,
-    );
+    const documents = candidates.map((c) => (c.body ? `${c.label}\n${c.body}` : c.label));
     try {
       const scores = await this.limiter.run(() =>
         this.local!.score(query, documents, this.localDeadlineMs),
@@ -252,9 +232,7 @@ export class CrossEncoderService
       // `|| 0` keeps the sort stable when two scores tie or are both
       // -Infinity (docs the deadline left unscored) — their difference is
       // NaN, which would otherwise make the comparator non-deterministic.
-      return candidates
-        .map((_, i) => i)
-        .sort((a, b) => scores[b] - scores[a] || 0);
+      return candidates.map((_, i) => i).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || 0);
     } catch (e) {
       this.logger.warn(
         `Local cross-encoder failed: ${(e as Error).message} — falling back to identity`,

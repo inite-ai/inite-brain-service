@@ -43,7 +43,7 @@ function parseTrailers(body: string): Record<string, string> {
   const trailers: Record<string, string> = {};
   for (const line of body.split('\n')) {
     const m = /^([A-Za-z][A-Za-z -]*):\s+(.+)$/.exec(line.trim());
-    if (m) trailers[m[1].toLowerCase()] = m[2].trim();
+    if (m) trailers[m[1]!.toLowerCase()] = m[2]!.trim(); // groups 1,2 mandatory
   }
   return trailers;
 }
@@ -55,10 +55,10 @@ export function parseCommitSignals(commit: CommitInput): Layer1Signals {
   const rationaleMarkers = RATIONALE_MARKERS.filter((m) => haystack.includes(m));
   const issueRefs = Array.from(
     `${subject}\n${haystack}`.matchAll(ISSUE_RE),
-    (m) => m[1],
+    (m) => m[1]!, // group 1 mandatory on match
   );
   return {
-    conventionalType: ctMatch ? ctMatch[1] : null,
+    conventionalType: ctMatch?.[1] ?? null,
     trailers: parseTrailers(body),
     issueRefs: Array.from(new Set(issueRefs)),
     bodyLength: body.length,
@@ -67,7 +67,5 @@ export function parseCommitSignals(commit: CommitInput): Layer1Signals {
 }
 
 export function isMergeCommit(commit: CommitInput): boolean {
-  return /^Merge (branch|pull request|remote-tracking) /.test(
-    commit.message.trimStart(),
-  );
+  return /^Merge (branch|pull request|remote-tracking) /.test(commit.message.trimStart());
 }

@@ -21,9 +21,7 @@ const BOM = '﻿';
 
 describe('stripUnsafeUnicode', () => {
   it('strips bidi overrides, zero-width chars, and word joiners', () => {
-    expect(stripUnsafeUnicode(`a${RLO}b${ZWSP}c${ZWJ}d${WJ}e${BOM}f`)).toBe(
-      'abcdef',
-    );
+    expect(stripUnsafeUnicode(`a${RLO}b${ZWSP}c${ZWJ}d${WJ}e${BOM}f`)).toBe('abcdef');
   });
 
   it('NFC-normalizes decomposed sequences', () => {

@@ -23,9 +23,7 @@ export class HybridDecisionClassifier implements DecisionClassifier {
     const m = this.model.classify(commit);
     return {
       likelyDecision: m.likelyDecision,
-      reason: m.likelyDecision
-        ? `model rescued (${m.reason})`
-        : 'heuristic + model both reject',
+      reason: m.likelyDecision ? `model rescued (${m.reason})` : 'heuristic + model both reject',
       signals: h.signals,
     };
   }

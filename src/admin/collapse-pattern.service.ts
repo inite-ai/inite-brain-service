@@ -28,10 +28,7 @@ import { LRUCache } from '../common/lru-cache';
 export interface CollapseSnapshot {
   /** patternLower → { pattern, replacement } — preserves the canonical
    *  casing operators wrote, while keying the scan by lowercase. */
-  patterns: Map<
-    string,
-    { pattern: string; replacement: string }
-  >;
+  patterns: Map<string, { pattern: string; replacement: string }>;
 }
 
 const SNAPSHOT_TTL_MS = 60_000;
@@ -42,19 +39,13 @@ export class CollapsePatternService {
   // LRU-bounded per-tenant snapshot. See the audit's "P1 — unbounded
   // per-tenant Maps" finding — without the cap the cache grew linearly
   // with the lifetime tenant count of the process.
-  private readonly cache: LRUCache<
-    string,
-    { snapshot: CollapseSnapshot; loadedAt: number }
-  >;
+  private readonly cache: LRUCache<string, { snapshot: CollapseSnapshot; loadedAt: number }>;
 
   constructor(
     private readonly surreal: SurrealService,
     private readonly config: ConfigService,
   ) {
-    const cap = parseInt(
-      this.config.get<string>('COLLAPSE_PATTERN_CACHE_CAP', '200'),
-      10,
-    );
+    const cap = parseInt(this.config.get<string>('COLLAPSE_PATTERN_CACHE_CAP', '200'), 10);
     this.cache = new LRUCache(cap);
   }
 
@@ -133,21 +124,15 @@ export class CollapsePatternService {
   private async loadFresh(companyId: string): Promise<CollapseSnapshot> {
     return this.surreal.withCompany(companyId, async (db) => {
       try {
-        const [rows] = await db.query<
-          [Array<{ pattern: string; replacement: string }>]
-        >(`SELECT pattern, replacement FROM collapse_pattern`);
-        const patterns = new Map<
-          string,
-          { pattern: string; replacement: string }
-        >();
+        const [rows] = await db.query<[Array<{ pattern: string; replacement: string }>]>(
+          `SELECT pattern, replacement FROM collapse_pattern`,
+        );
+        const patterns = new Map<string, { pattern: string; replacement: string }>();
         for (const r of (rows as Array<{
           pattern: string;
           replacement: string;
         }>) ?? []) {
-          if (
-            typeof r.pattern === 'string' &&
-            typeof r.replacement === 'string'
-          ) {
+          if (typeof r.pattern === 'string' && typeof r.replacement === 'string') {
             patterns.set(r.pattern.toLowerCase(), {
               pattern: r.pattern,
               replacement: r.replacement,
@@ -203,16 +188,14 @@ export function extractCollapseEditsLocally(
       const idx = lower.indexOf(needle, from);
       if (idx < 0) break;
       const end = idx + needle.length;
-      const before = idx > 0 ? message[idx - 1] : ' ';
-      const after = end < message.length ? message[end] : ' ';
+      const before = idx > 0 ? message[idx - 1]! : ' ';
+      const after = end < message.length ? message[end]! : ' ';
       const isWordChar = (c: string) => /[\p{L}\p{N}]/u.test(c);
       if (isWordChar(before) || isWordChar(after)) {
         from = end;
         continue;
       }
-      const overlaps = occupied.some(
-        ([s, e]) => !(end <= s || idx >= e),
-      );
+      const overlaps = occupied.some(([s, e]) => !(end <= s || idx >= e));
       if (!overlaps) {
         out.push({
           pattern,

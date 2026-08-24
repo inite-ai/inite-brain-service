@@ -65,13 +65,11 @@ describe('miniCheckConsistent', () => {
       ...REQ,
       fetchImpl: fakeFetch({ response: 'Yes' }, { captured }),
     });
-    expect(captured[0].model).toBe('bespoke-minicheck');
-    expect(captured[0].prompt).toBe(
-      `Document: ${REQ.document}\nClaim: ${REQ.claim}`,
-    );
-    expect(captured[0].stream).toBe(false);
-    expect(captured[0].options.temperature).toBe(0);
-    expect(captured[0].options.num_ctx).toBe(8192);
+    expect(captured[0]!.model).toBe('bespoke-minicheck');
+    expect(captured[0]!.prompt).toBe(`Document: ${REQ.document}\nClaim: ${REQ.claim}`);
+    expect(captured[0]!.stream).toBe(false);
+    expect(captured[0]!.options.temperature).toBe(0);
+    expect(captured[0]!.options.num_ctx).toBe(8192);
   });
 
   it('throws on HTTP errors and unparseable verdicts', async () => {
@@ -124,13 +122,9 @@ describe('RETRIEVAL_ABSTENTION_CALIBRATION=minicheck profile point', () => {
         beamco: { abstentionCalibration: 'minicheck' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(
-      resolveRetrievalProfileFor('beamco', env).abstentionCalibration,
-    ).toBe('minicheck');
+    expect(resolveRetrievalProfileFor('beamco', env).abstentionCalibration).toBe('minicheck');
     // No overlay → the default genre's preset applies ('verifier' on
     // assistant_chat — genre-presets.ts), not 'off'.
-    expect(
-      resolveRetrievalProfileFor('other', env).abstentionCalibration,
-    ).toBe('verifier');
+    expect(resolveRetrievalProfileFor('other', env).abstentionCalibration).toBe('verifier');
   });
 });

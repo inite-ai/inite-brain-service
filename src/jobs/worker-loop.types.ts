@@ -19,9 +19,7 @@ export interface JobContext {
   workerId: string;
 }
 
-export type JobHandler = (
-  ctx: JobContext,
-) => Promise<Record<string, unknown> | void>;
+export type JobHandler = (ctx: JobContext) => Promise<Record<string, unknown> | void>;
 
 export interface RegisteredHandler {
   jobType: JobType;
@@ -36,7 +34,7 @@ export interface RegisteredHandler {
    * exports `run(input): Promise<output>`.
    */
   cpuBound?: boolean;
-  workerModule?: string;
+  workerModule?: string | undefined;
 }
 
 /** Leader/lifecycle control surface the poller reads on each cycle. */

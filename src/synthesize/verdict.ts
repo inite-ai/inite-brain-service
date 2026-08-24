@@ -6,11 +6,7 @@ import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from './abstention';
 import { attachDecisionLog } from './synthesize.helpers';
 import type { Citation } from './fact-index';
-import type {
-  GeneratorOutput,
-  SynthesisReason,
-  SynthesizeResult,
-} from './synthesize.types';
+import type { GeneratorOutput, SynthesisReason, SynthesizeResult } from './synthesize.types';
 
 /**
  * Verdict → response shaping, split out of synthesize.service.ts (the
@@ -22,8 +18,8 @@ import type {
  */
 
 export interface VerdictDeps {
-  metrics?: Pick<MetricsService, 'countSynthesize'>;
-  logger?: { debug(message: string): void };
+  metrics?: Pick<MetricsService, 'countSynthesize'> | undefined;
+  logger?: { debug(message: string): void } | undefined;
 }
 
 /**
@@ -47,13 +43,13 @@ export function finalizeVerdict(
     abstention,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
-    questionAnswered?: boolean;
+    questionAnswered?: boolean | undefined;
     answer: string;
     citations: Citation[];
     results: SynthesizeResult['results'];
     guardrails: SynthesisGuardrails;
-    decisionLog?: DecisionLogEntry[];
-    abstention?: RetrievalProfile['abstentionCalibration'];
+    decisionLog?: DecisionLogEntry[] | undefined;
+    abstention?: RetrievalProfile['abstentionCalibration'] | undefined;
   },
 ): SynthesizeResult {
   if (verdict === 'supported') {
@@ -62,11 +58,7 @@ export function finalizeVerdict(
     // audit). Only the topic-coverage audit produces the judgment
     // (undefined otherwise), and only the lenient 'verifier'
     // abstention mode consumes it.
-    if (
-      guardrails === 'lenient' &&
-      abstention === 'verifier' &&
-      questionAnswered === false
-    ) {
+    if (guardrails === 'lenient' && abstention === 'verifier' && questionAnswered === false) {
       deps.metrics?.countSynthesize('low_coverage');
       return attachDecisionLog(
         {
@@ -87,10 +79,7 @@ export function finalizeVerdict(
   // explicit decline instead of ungrounded text. The V11 §2
   // 'minicheck' arm shares the gate — only the judge differs (local
   // NLI verdict mapped onto supported/unsupported upstream).
-  if (
-    guardrails === 'lenient' &&
-    (abstention === 'verifier' || abstention === 'minicheck')
-  ) {
+  if (guardrails === 'lenient' && (abstention === 'verifier' || abstention === 'minicheck')) {
     deps.metrics?.countSynthesize('low_coverage');
     return attachDecisionLog(
       {
@@ -102,20 +91,13 @@ export function finalizeVerdict(
       decisionLog,
     );
   }
-  const reason: SynthesisReason =
-    verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
+  const reason: SynthesisReason = verdict === 'partial' ? 'verifier_partial' : 'verifier_failed';
   deps.metrics?.countSynthesize(reason);
   if (guardrails === 'lenient') {
-    return attachDecisionLog(
-      { answer, reason, citations, results },
-      decisionLog,
-    );
+    return attachDecisionLog({ answer, reason, citations, results }, decisionLog);
   }
   // strict — fail closed.
-  return attachDecisionLog(
-    { answer: null, reason, citations: [], results },
-    decisionLog,
-  );
+  return attachDecisionLog({ answer: null, reason, citations: [], results }, decisionLog);
 }
 
 /**
@@ -138,7 +120,7 @@ export function unverifiedReturn(
     generated: GeneratorOutput;
     citations: Citation[];
     results: SearchHit[];
-    decisionLog?: DecisionLogEntry[];
+    decisionLog?: DecisionLogEntry[] | undefined;
   },
 ): SynthesizeResult | null {
   if (

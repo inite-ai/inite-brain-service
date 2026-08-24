@@ -67,7 +67,7 @@ export function hasNamedEntity(text: string): boolean {
   for (const sentence of text.split(/(?<=[.!?])\s+/)) {
     const words = sentence.trim().split(/\s+/);
     for (let i = 1; i < words.length; i++) {
-      const w = words[i].replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
+      const w = words[i]!.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ''); // i < length
       if (w.length < 2 || w === 'I') continue;
       if (/^\p{Lu}\p{Ll}+/u.test(w)) return true;
     }

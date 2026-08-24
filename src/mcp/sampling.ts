@@ -28,7 +28,7 @@ export interface SamplingSummarizeResult {
   factsConsidered: number;
   sampledBy: 'client_llm' | 'local_template';
   modelUsed?: string;
-  asOf?: string;
+  asOf?: string | undefined;
 }
 
 export interface SummarizeViaClientSamplingOptions {
@@ -84,10 +84,7 @@ export async function summarizeViaClientSampling({
       systemPrompt:
         'You write concise factual one-line briefings about people / companies / things from a knowledge graph.',
     });
-    const text =
-      res.content && res.content.type === 'text'
-        ? res.content.text.trim()
-        : '';
+    const text = res.content && res.content.type === 'text' ? res.content.text.trim() : '';
     return {
       entityId: profile.entityId,
       summary: text || `${profile.canonicalName} (${profile.type})`,
@@ -97,9 +94,7 @@ export async function summarizeViaClientSampling({
       asOf,
     };
   } catch (err) {
-    log.warn(
-      `summarize_entity sampling fell back to template: ${(err as Error).message}`,
-    );
+    log.warn(`summarize_entity sampling fell back to template: ${(err as Error).message}`);
     return fallback({ summarizer: deps.summarizer, companyId, entityId, asOf, scopes });
   }
 }
@@ -119,7 +114,7 @@ async function fallback({
 }): Promise<SamplingSummarizeResult> {
   const out = await summarizer.summarize(
     companyId,
-    { entityId, asOf, styleHint: 'neutral' },
+    { entityId, ...(asOf !== undefined ? { asOf } : {}), styleHint: 'neutral' },
     scopes,
   );
   return {

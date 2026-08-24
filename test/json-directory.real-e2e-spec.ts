@@ -79,7 +79,7 @@ describe('JSON-directory eval (load + retrieval + lifecycle)', () => {
       });
       const limitedClient = new HttpBrainClient({
         baseUrl: svc.baseUrl,
-        apiKey: svc.extras[0].plaintext,
+        apiKey: svc.extras[0]!.plaintext,
       });
 
       const runner = new EvalRunner(
@@ -104,12 +104,9 @@ describe('JSON-directory eval (load + retrieval + lifecycle)', () => {
         .filter((q) => q.rankOfExpected === 0 || q.rankOfExpected > 3);
       expect({
         memoryFailures: memoryFailures.map(
-          (m) =>
-            `${m.scenarioId} ${m.kind}: ${m.description} — ${m.detail ?? ''}`,
+          (m) => `${m.scenarioId} ${m.kind}: ${m.description} — ${m.detail ?? ''}`,
         ),
-        queryFailures: queryFailures.map(
-          (q) => `${q.query} → rank ${q.rankOfExpected}`,
-        ),
+        queryFailures: queryFailures.map((q) => `${q.query} → rank ${q.rankOfExpected}`),
       }).toEqual({ memoryFailures: [], queryFailures: [] });
     },
     1_800_000,

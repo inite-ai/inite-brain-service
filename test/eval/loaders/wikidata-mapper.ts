@@ -1,4 +1,8 @@
-import type { JsonDirectory, JsonDirectoryEntity, JsonDirectoryFact } from './json-directory.loader';
+import type {
+  JsonDirectory,
+  JsonDirectoryEntity,
+  JsonDirectoryFact,
+} from './json-directory.loader';
 
 /**
  * Wikidata SPARQL → JsonDirectory mapper. Pure functions only — no
@@ -272,10 +276,7 @@ export function mapWikidataBindings(
   };
 }
 
-function firstString(
-  rows: WikidataBinding[],
-  key: string,
-): string | undefined {
+function firstString(rows: WikidataBinding[], key: string): string | undefined {
   for (const r of rows) {
     const v = r[key]?.value;
     if (v) return v;

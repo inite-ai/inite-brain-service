@@ -19,10 +19,7 @@ const MIGRATIONS = join(__dirname, '..', 'src', 'db', 'migrations');
 
 describe('P3 migrations', () => {
   it('0060 defines corroborate_checked with a unique group index', () => {
-    const sql = readFileSync(
-      join(MIGRATIONS, '0060_corroborate_checked.surql'),
-      'utf8',
-    );
+    const sql = readFileSync(join(MIGRATIONS, '0060_corroborate_checked.surql'), 'utf8');
     expect(sql).toContain('DEFINE TABLE IF NOT EXISTS corroborate_checked');
     for (const field of ['entityId', 'predicate', 'memberCount', 'checkedAt']) {
       expect(sql).toContain(`DEFINE FIELD IF NOT EXISTS ${field}`);
@@ -31,10 +28,7 @@ describe('P3 migrations', () => {
   });
 
   it('0061 defines community_build_state signature fields', () => {
-    const sql = readFileSync(
-      join(MIGRATIONS, '0061_community_build_state.surql'),
-      'utf8',
-    );
+    const sql = readFileSync(join(MIGRATIONS, '0061_community_build_state.surql'), 'utf8');
     expect(sql).toContain('DEFINE TABLE IF NOT EXISTS community_build_state');
     for (const field of ['liveEdgeCount', 'maxEdgeAt', 'minSize']) {
       expect(sql).toContain(`DEFINE FIELD IF NOT EXISTS ${field}`);
@@ -136,9 +130,7 @@ describe('DreamsCorroborateService 0060 memo + LLM ceiling', () => {
         'knowledge_entity:e2|claim_probe': [],
       },
       // e2 already checked at the same member count → must be skipped.
-      memo: [
-        { entityId: 'knowledge_entity:e2', predicate: 'claim_probe', memberCount: 2 },
-      ],
+      memo: [{ entityId: 'knowledge_entity:e2', predicate: 'claim_probe', memberCount: 2 }],
     });
 
     const out = await svc.run(db as never);
@@ -163,9 +155,7 @@ describe('DreamsCorroborateService 0060 memo + LLM ceiling', () => {
     const { db, memberFetches } = mkDb({
       groups: [{ entityId: 'knowledge_entity:e1', predicate: 'claim_probe', n: 2 }],
       membersByGroup: { 'knowledge_entity:e1|claim_probe': [a, b] },
-      memo: [
-        { entityId: 'knowledge_entity:e1', predicate: 'claim_probe', memberCount: 3 },
-      ],
+      memo: [{ entityId: 'knowledge_entity:e1', predicate: 'claim_probe', memberCount: 3 }],
     });
     const out = await svc.run(db as never);
     expect(out.groupsConsidered).toBe(1);
@@ -198,10 +188,7 @@ describe('DreamsCorroborateService 0060 memo + LLM ceiling', () => {
       n: 2,
     }));
     const membersByGroup = Object.fromEntries(
-      ['g1', 'g2', 'g3', 'g4'].map((s) => [
-        `knowledge_entity:${s}|claim_probe`,
-        mkGroupMembers(s),
-      ]),
+      ['g1', 'g2', 'g3', 'g4'].map((s) => [`knowledge_entity:${s}|claim_probe`, mkGroupMembers(s)]),
     );
     const { db } = mkDb({ groups, membersByGroup });
 

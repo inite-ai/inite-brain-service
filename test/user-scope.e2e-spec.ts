@@ -21,12 +21,15 @@ describe('per-user memory scope', () => {
   });
 
   const ingest = async (body: Record<string, unknown>) => {
-    const r = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder: 'bot' },
-      ...body,
-    });
+    const r = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'bot' },
+        ...body,
+      });
     expect([200, 201]).toContain(r.status);
     return r.body;
   };
@@ -56,7 +59,7 @@ describe('per-user memory scope', () => {
         `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
         { tail: (anchor.factId as string).split(':')[1] },
       );
-      return String((rows as Array<{ entityId: unknown }>)[0].entityId);
+      return String((rows as Array<{ entityId: unknown }>)[0]!.entityId);
     });
 
     await ingest({
@@ -73,9 +76,7 @@ describe('per-user memory scope', () => {
     });
 
     // No userId → tenant-global only.
-    expect(await searchObjects('quiet upper floors')).not.toContain(
-      'prefers quiet upper floors',
-    );
+    expect(await searchObjects('quiet upper floors')).not.toContain('prefers quiet upper floors');
     // Right user sees their own row (plus global memory).
     expect(await searchObjects('quiet upper floors', 'user_a')).toContain(
       'prefers quiet upper floors',
@@ -85,9 +86,7 @@ describe('per-user memory scope', () => {
       'prefers quiet upper floors',
     );
     // And a user request still sees the tenant-global memory.
-    expect(await searchObjects('Scope Probe Subject', 'user_a')).toContain(
-      'Scope Probe Subject',
-    );
+    expect(await searchObjects('Scope Probe Subject', 'user_a')).toContain('Scope Probe Subject');
   });
 
   it('conflict resolution is scope-local: a personal fact never touches the global timeline', async () => {
@@ -114,7 +113,7 @@ describe('per-user memory scope', () => {
         `SELECT status FROM type::record('knowledge_fact', $tail)`,
         { tail: (globalTier.factId as string).split(':')[1] },
       );
-      expect((rows as Array<{ status: string }>)[0].status).toBe('active');
+      expect((rows as Array<{ status: string }>)[0]!.status).toBe('active');
     });
   });
 
@@ -127,25 +126,18 @@ describe('per-user memory scope', () => {
     });
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ entityId: unknown; userId: string | null }>]
-      >(
+      const [rows] = await db.query<[Array<{ entityId: unknown; userId: string | null }>]>(
         `SELECT entityId, entityId.userId AS userId FROM type::record('knowledge_fact', $tail)`,
         { tail: (personal.factId as string).split(':')[1] },
       );
-      const row = (
-        rows as Array<{ entityId: unknown; userId: string | null }>
-      )[0];
+      const row = (rows as Array<{ entityId: unknown; userId: string | null }>)[0]!;
       expect(String(row.entityId)).not.toBe(sharedEntityId);
       expect(row.userId).toBe('user_a');
     });
   });
 
   it('user forget erases exactly that user, nothing else', async () => {
-    const forget = await f.http
-      .post('/v1/users/user_a/forget')
-      .set(auth())
-      .send({});
+    const forget = await f.http.post('/v1/users/user_a/forget').set(auth()).send({});
     expect([200, 201]).toContain(forget.status);
     expect(forget.body.factsDeleted).toBeGreaterThanOrEqual(3);
     expect(forget.body.entitiesDeleted).toBeGreaterThanOrEqual(1);
@@ -157,9 +149,7 @@ describe('per-user memory scope', () => {
     expect(await searchObjects('covered parking', 'user_b')).toContain(
       'needs covered parking spot',
     );
-    expect(await searchObjects('Scope Probe Subject')).toContain(
-      'Scope Probe Subject',
-    );
+    expect(await searchObjects('Scope Probe Subject')).toContain('Scope Probe Subject');
 
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {

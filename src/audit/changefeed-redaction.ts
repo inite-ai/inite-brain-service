@@ -42,9 +42,7 @@ const STRUCTURAL_FIELDS = new Set([
   'type',
 ]);
 
-export function redactAfterImage(
-  row: Record<string, unknown>,
-): Record<string, unknown> {
+export function redactAfterImage(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
     if (k === 'embedding') continue; // drop float-array bloat

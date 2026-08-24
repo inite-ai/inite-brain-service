@@ -57,15 +57,9 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
   run(
     'survives a 1k-customer directory with retracts, forgets, temporal updates',
     async () => {
-      const customers = parseInt(
-        process.env.BRAIN_DIRECTORY_CUSTOMERS ?? '1000',
-        10,
-      );
+      const customers = parseInt(process.env.BRAIN_DIRECTORY_CUSTOMERS ?? '1000', 10);
       const staff = parseInt(process.env.BRAIN_DIRECTORY_STAFF ?? '100', 10);
-      const projects = parseInt(
-        process.env.BRAIN_DIRECTORY_PROJECTS ?? '60',
-        10,
-      );
+      const projects = parseInt(process.env.BRAIN_DIRECTORY_PROJECTS ?? '60', 10);
 
       const fixture = buildFatTenant({
         customers,
@@ -74,20 +68,11 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
         // Tunable lifecycle pressure — defaults match the generator,
         // exposed here so an operator can crank competing-fraction up
         // for stress runs without editing fixture code.
-        temporalTierFraction: parseFloat(
-          process.env.BRAIN_DIRECTORY_TEMPORAL_TIER_FRAC ?? '0.3',
-        ),
-        competingStatusFraction: parseFloat(
-          process.env.BRAIN_DIRECTORY_COMPETING_FRAC ?? '0.05',
-        ),
-        retractedComplaintsFraction: parseFloat(
-          process.env.BRAIN_DIRECTORY_RETRACT_FRAC ?? '0.03',
-        ),
-        forgottenCustomersFraction: parseFloat(
-          process.env.BRAIN_DIRECTORY_FORGET_FRAC ?? '0.01',
-        ),
+        temporalTierFraction: parseFloat(process.env.BRAIN_DIRECTORY_TEMPORAL_TIER_FRAC ?? '0.3'),
+        competingStatusFraction: parseFloat(process.env.BRAIN_DIRECTORY_COMPETING_FRAC ?? '0.05'),
+        retractedComplaintsFraction: parseFloat(process.env.BRAIN_DIRECTORY_RETRACT_FRAC ?? '0.03'),
+        forgottenCustomersFraction: parseFloat(process.env.BRAIN_DIRECTORY_FORGET_FRAC ?? '0.01'),
       });
-
 
       console.log(
         `[directory] generated ${fixture.stats.totalEntities} entities, ` +
@@ -104,7 +89,7 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
       });
       const limitedClient = new HttpBrainClient({
         baseUrl: svc.baseUrl,
-        apiKey: svc.extras[0].plaintext,
+        apiKey: svc.extras[0]!.plaintext,
       });
 
       const runner = new EvalRunner(
@@ -119,7 +104,6 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
 
       const report = await runner.run(fixture.scenarios);
 
-
       console.log('\n' + new Reporter().render(report) + '\n');
 
       // Per-vertical pass criteria. memory-lifecycle-correctness
@@ -131,9 +115,7 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
       const memoryFailures = report.outcomes.flatMap((o) =>
         o.memoryAssertionResults.filter((a) => !a.passed),
       );
-      const miaFailures = report.outcomes.flatMap((o) =>
-        o.miaTestResults.filter((m) => !m.passed),
-      );
+      const miaFailures = report.outcomes.flatMap((o) => o.miaTestResults.filter((m) => !m.passed));
       const queryFailures = report.outcomes
         .flatMap((o) => o.queryResults)
         .filter((q) => q.rankOfExpected === 0 || q.rankOfExpected > 3);
@@ -145,9 +127,7 @@ describe('Directory eval (jumbo tenant + memory lifecycle)', () => {
           (m) =>
             `${m.scenarioId} privacy leak: AUC=${m.auc.toFixed(3)} > ${m.threshold.toFixed(2)} — ${m.description}`,
         ),
-        queryFailures: queryFailures.map(
-          (q) => `${q.query} → rank ${q.rankOfExpected}`,
-        ),
+        queryFailures: queryFailures.map((q) => `${q.query} → rank ${q.rankOfExpected}`),
       }).toEqual({ memoryFailures: [], miaFailures: [], queryFailures: [] });
     },
     1_800_000, // 30 min — seeding 5-8k facts is slow without LLM batching

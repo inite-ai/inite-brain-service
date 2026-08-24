@@ -4,6 +4,7 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { IngestService } from '../ingest/ingest.service';
 import { SearchService } from '../search/search.service';
 import { DreamsService } from '../dreams/dreams.service';
+import type { DreamsOperation } from '../dreams/dto/run-dreams.dto';
 import type { ChatRoute } from './chat-router.service';
 
 /**
@@ -24,31 +25,36 @@ export class DemoPipelineService {
     private readonly dreams: DreamsService,
   ) {}
 
-  async ingestMention(
-    tenant: string,
-    body: { text: string; vertical?: string },
-  ) {
+  async ingestMention(tenant: string, body: { text: string; vertical?: string | undefined }) {
     return this.ingest.ingestMention(tenant, {
       text: body.text,
       contextRef: { vertical: body.vertical ?? 'shop' },
       emittedAt: new Date().toISOString(),
-    } as any);
+    });
   }
 
   async runSearch(
     tenant: string,
-    body: { query: string; limit?: number; asOf?: string },
+    body: {
+      query: string;
+      limit?: number | undefined;
+      asOf?: string | undefined;
+    },
     scopes: readonly BrainScope[],
   ) {
     return this.search.search(
       tenant,
-      { query: body.query, limit: body.limit ?? 5, asOf: body.asOf } as any,
-      scopes as any,
+      {
+        query: body.query,
+        limit: body.limit ?? 5,
+        ...(body.asOf !== undefined ? { asOf: body.asOf } : {}),
+      },
+      [...scopes],
     );
   }
 
-  async runDreams(tenant: string, operations: string[]) {
-    return this.dreams.runForTenant(tenant, operations as any);
+  async runDreams(tenant: string, operations: DreamsOperation[]) {
+    return this.dreams.runForTenant(tenant, operations);
   }
 
   /** Tell flow: ingest the mention, then best-effort inline dedup. */
@@ -58,7 +64,7 @@ export class DemoPipelineService {
       text: route.normalizedMessage,
       contextRef: { vertical: 'shop' },
       emittedAt,
-    } as any);
+    });
     // Lazy fast-path identity resolution. Mirrors how a brain SHOULD
     // behave in production: cheap inline dedup runs in the moment so an
     // obvious dupe (typo, alias) gets stitched immediately and the next
@@ -66,9 +72,7 @@ export class DemoPipelineService {
     let autoDedup: { identityLinksCreated?: number } | undefined;
     try {
       const r = await this.dreams.runForTenant(tenant, ['dedup']);
-      autoDedup = r.dedup
-        ? { identityLinksCreated: r.dedup.identityLinksCreated }
-        : undefined;
+      autoDedup = r.dedup ? { identityLinksCreated: r.dedup.identityLinksCreated } : undefined;
     } catch (e) {
       // Auto-dedup is best-effort; an error here MUST NOT fail the
       // ingest. The deep sweep button will still pick it up later.
@@ -108,9 +112,7 @@ export class DemoPipelineService {
         callerScopes: scopes as string[],
       }),
     );
-    const graphHasFacts = graph.results.some(
-      (r) => Array.isArray(r.facts) && r.facts.length > 0,
-    );
+    const graphHasFacts = graph.results.some((r) => Array.isArray(r.facts) && r.facts.length > 0);
     if (graphHasFacts) {
       traceArtifact('demo.strategy', {
         picked: 'graph',
@@ -136,8 +138,8 @@ export class DemoPipelineService {
     });
     const search = await this.search.search(
       tenant,
-      { query: queryText, limit: 5, asOf } as any,
-      scopes as any,
+      { query: queryText, limit: 5, ...(asOf !== undefined ? { asOf } : {}) },
+      [...scopes],
     );
     return {
       route,

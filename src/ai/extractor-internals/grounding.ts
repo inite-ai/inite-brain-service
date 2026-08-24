@@ -1,8 +1,4 @@
-import type {
-  ExtractedEntity,
-  ExtractedFact,
-  RawExtractedFact,
-} from './types';
+import type { ExtractedEntity, ExtractedFact, RawExtractedFact } from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
 
 /**
@@ -20,14 +16,17 @@ import type { ExtractionPipelineProfile } from '../extraction-profile';
  * measured regressions before (agent-qa 47.4→42.1 rollback); this one
  * gets a paid confirm leg before any default flip.
  */
-export function objectNormalizationEnabled(
-  profile: ExtractionPipelineProfile,
-): boolean {
+export function objectNormalizationEnabled(profile: ExtractionPipelineProfile): boolean {
   return profile.vocabulary === 'closed' && profile.normalizeObjects;
 }
 
 export function normalizeForGrounding(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Object-shape guard for narrowing raw LLM JSON before field access. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
 }
 
 // Letters from word-SPACED scripts (Latin + Latin-1/extended + Cyrillic).
@@ -53,10 +52,7 @@ function boundaryOk(adjacent: string | undefined, edge: string): boolean {
  * ground "act" on "active", but multilingual-safe — CJK/Thai keep plain
  * substring behaviour. Both args must already be normalizeForGrounding'd.
  */
-export function isGroundedSpan(
-  normalizedInput: string,
-  normalizedSpan: string,
-): boolean {
+export function isGroundedSpan(normalizedInput: string, normalizedSpan: string): boolean {
   if (!normalizedSpan) return false;
   let from = 0;
   for (;;) {
@@ -65,8 +61,8 @@ export function isGroundedSpan(
     const before = idx > 0 ? normalizedInput[idx - 1] : undefined;
     const after = normalizedInput[idx + normalizedSpan.length];
     if (
-      boundaryOk(before, normalizedSpan[0]) &&
-      boundaryOk(after, normalizedSpan[normalizedSpan.length - 1])
+      boundaryOk(before, normalizedSpan[0]!) && // non-empty (checked line 60)
+      boundaryOk(after, normalizedSpan[normalizedSpan.length - 1]!)
     ) {
       return true;
     }
@@ -94,9 +90,7 @@ export function groundEntities(
   allowedNames: string[] = [],
 ): boolean[] {
   const normalizedInput = normalizeForGrounding(trimmedInput);
-  const allowed = new Set(
-    allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean),
-  );
+  const allowed = new Set(allowedNames.map((n) => normalizeForGrounding(n)).filter(Boolean));
   return entities.map((e) => {
     const normName = normalizeForGrounding(e.name);
     return allowed.has(normName) || isGroundedSpan(normalizedInput, normName);
@@ -121,61 +115,61 @@ export function normalizeEntityType(t: unknown): ExtractedEntity['type'] {
 }
 
 /** Parse the entities[] array from the raw LLM JSON. */
-export function parseEntities(parsed: any): ExtractedEntity[] {
-  if (!Array.isArray(parsed.entities)) return [];
-  return parsed.entities
-    .filter((e: any) => e && typeof e.name === 'string')
-    .map((e: any) => ({
-      name: String(e.name).trim(),
+export function parseEntities(parsed: unknown): ExtractedEntity[] {
+  const entities = isRecord(parsed) ? parsed.entities : undefined;
+  if (!Array.isArray(entities)) return [];
+  const out: ExtractedEntity[] = [];
+  for (const e of entities as unknown[]) {
+    if (!isRecord(e) || typeof e.name !== 'string') continue;
+    out.push({
+      name: e.name.trim(),
       type: normalizeEntityType(e.type),
-      canonical:
-        e.canonical && typeof e.canonical === 'string'
-          ? e.canonical.trim()
-          : undefined,
-    }));
+      canonical: typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
+    });
+  }
+  return out;
 }
 
 /** Parse the clauses[] array — verbatim string sub-spans. */
-export function parseClauses(parsed: any): string[] {
-  if (!Array.isArray(parsed.clauses)) return [];
-  return parsed.clauses.filter((c: unknown) => typeof c === 'string');
+export function parseClauses(parsed: unknown): string[] {
+  const clauses = isRecord(parsed) ? parsed.clauses : undefined;
+  if (!Array.isArray(clauses)) return [];
+  return (clauses as unknown[]).filter((c): c is string => typeof c === 'string');
 }
 
 /**
  * Pull raw facts out of the LLM JSON with shallow shape validation —
  * entityIndex in bounds, predicate is a string, valueSpan is a string.
  */
-export function parseRawFacts(
-  parsed: any,
-  entityCount: number,
-): RawExtractedFact[] {
-  if (!Array.isArray(parsed.facts)) return [];
-  return parsed.facts
-    .filter(
-      (f: any) =>
-        f &&
-        Number.isInteger(f.entityIndex) &&
-        f.entityIndex >= 0 &&
-        f.entityIndex < entityCount &&
-        typeof f.predicate === 'string' &&
-        typeof f.valueSpan === 'string',
-    )
-    .map((f: any) => ({
+export function parseRawFacts(parsed: unknown, entityCount: number): RawExtractedFact[] {
+  const facts = isRecord(parsed) ? parsed.facts : undefined;
+  if (!Array.isArray(facts)) return [];
+  const out: RawExtractedFact[] = [];
+  for (const f of facts as unknown[]) {
+    if (
+      !isRecord(f) ||
+      typeof f.entityIndex !== 'number' ||
+      !Number.isInteger(f.entityIndex) ||
+      f.entityIndex < 0 ||
+      f.entityIndex >= entityCount ||
+      typeof f.predicate !== 'string' ||
+      typeof f.valueSpan !== 'string'
+    ) {
+      continue;
+    }
+    out.push({
       entityIndex: f.entityIndex,
       clauseIndex:
-        Number.isInteger(f.clauseIndex) && f.clauseIndex >= 0
+        typeof f.clauseIndex === 'number' && Number.isInteger(f.clauseIndex) && f.clauseIndex >= 0
           ? f.clauseIndex
           : undefined,
-      predicate: String(f.predicate).trim(),
-      valueSpan: String(f.valueSpan).trim(),
-      confidence:
-        typeof f.confidence === 'number'
-          ? Math.max(0, Math.min(1, f.confidence))
-          : 0.5,
-      ...(typeof f.object === 'string' && f.object.trim()
-        ? { object: f.object.trim() }
-        : {}),
-    }));
+      predicate: f.predicate.trim(),
+      valueSpan: f.valueSpan.trim(),
+      confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
+      ...(typeof f.object === 'string' && f.object.trim() ? { object: f.object.trim() } : {}),
+    });
+  }
+  return out;
 }
 
 /**
@@ -186,13 +180,8 @@ export function parseRawFacts(
  * anti-hallucination structural: "camped in the mountains with my kids"
  * admits "the mountains" and rejects "hiking trip".
  */
-export function isObjectGroundedInSpan(
-  valueSpan: string,
-  object: string,
-): boolean {
-  const spanTokens = new Set(
-    normalizeForGrounding(valueSpan).split(/\s+/).filter(Boolean),
-  );
+export function isObjectGroundedInSpan(valueSpan: string, object: string): boolean {
+  const spanTokens = new Set(normalizeForGrounding(valueSpan).split(/\s+/).filter(Boolean));
   const objTokens = normalizeForGrounding(object).split(/\s+/).filter(Boolean);
   if (objTokens.length === 0) return false;
   return objTokens.every((t) => spanTokens.has(t));

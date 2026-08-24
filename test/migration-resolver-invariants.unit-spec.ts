@@ -63,16 +63,12 @@ describe('GATE: live fn::resolve_fact invariants', () => {
     // ladder (fn::source_trust_scoped, falling back to the global rate
     // then 0.5). A reverted baseline would reintroduce
     // `$w_source_trust * 0.5`.
-    expect(head.body).toContain(
-      'fn::source_trust_scoped(fn::source_key_of(source), $predicate)',
-    );
+    expect(head.body).toContain('fn::source_trust_scoped(fn::source_key_of(source), $predicate)');
     expect(head.body).not.toMatch(/\$w_source_trust \* 0\.5/);
   });
 
   it('snapshots priorValidUntil on supersede (revive-after-retract depends on it)', () => {
-    expect(supersedeLoop(head.body)).toContain(
-      'priorValidUntil = $loser.validUntil',
-    );
+    expect(supersedeLoop(head.body)).toContain('priorValidUntil = $loser.validUntil');
   });
 
   it('does NOT set retractedAt on a natural supersede (migration 0014 contract)', () => {

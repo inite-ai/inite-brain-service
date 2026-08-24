@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { LRUCache } from '../common/lru-cache';
 import { envFlagEnabled } from '../common/env-validation';
 import { policyFor } from '../ingest/conflict-resolver';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { evaluateRow, toRowView } from './policy-engine';
 import { PolicyContext, PolicyRowView } from './policy.types';
 
@@ -33,10 +33,15 @@ import { PolicyContext, PolicyRowView } from './policy.types';
 const logger = new Logger('PolicyMetaUnion');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const metaCache = new LRUCache<
-  string,
-  { meta: Record<string, unknown> | null; at: number }
->(10_000);
+const metaCache = new LRUCache<string, { meta: Record<string, unknown> | null; at: number }>(
+  10_000,
+);
+
+/** Raw source_document projection for the origin-meta batch lookup. */
+interface SourceDocMetaRow {
+  contentHash: unknown;
+  meta?: unknown;
+}
 
 export interface MetaUnionRow {
   predicate: string;
@@ -65,9 +70,7 @@ export function metaUnionEnabled(): boolean {
 /** Does any enforce/report set carry a deny rule touching source.meta.*? */
 export function contextHasMetaDenyRules(ctx: PolicyContext): boolean {
   return ctx.sets.some((set) =>
-    set.sourceDeny.some((rule) =>
-      rule.conditions.some((c) => c.attr.startsWith('source.meta.')),
-    ),
+    set.sourceDeny.some((rule) => rule.conditions.some((c) => c.attr.startsWith('source.meta.'))),
   );
 }
 
@@ -97,21 +100,19 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   if (wanted.size > 0) {
     try {
       const hashes = [...wanted].map((k) => k.slice('doc:'.length));
-      const found = await surreal.withCompany(companyId, async (db) => {
-        const [r] = await db.query<[any[]]>(
+      const found = await surreal.withCompany(companyId, (db) =>
+        queryRows<SourceDocMetaRow>(
+          db,
           `SELECT contentHash, meta FROM source_document
             WHERE contentHash INSIDE $hashes`,
           { hashes },
-        );
-        return (r as any[]) ?? [];
-      });
+        ),
+      );
       const at = Date.now();
       for (const doc of found) {
         metaCache.set(cacheKey(companyId, `doc:${String(doc.contentHash)}`), {
           meta:
-            doc.meta && typeof doc.meta === 'object'
-              ? (doc.meta as Record<string, unknown>)
-              : null,
+            doc.meta && typeof doc.meta === 'object' ? (doc.meta as Record<string, unknown>) : null,
           at,
         });
       }
@@ -131,9 +132,7 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   return rows.filter((row) => {
     const origins = row.corroboration?.originKeys ?? [];
     for (const key of origins) {
-      const cached = key.startsWith('doc:')
-        ? metaCache.get(cacheKey(companyId, key))
-        : undefined;
+      const cached = key.startsWith('doc:') ? metaCache.get(cacheKey(companyId, key)) : undefined;
       const meta = cached?.meta;
       if (!meta) continue;
       const src = (row.source ?? {}) as Record<string, unknown>;
@@ -157,8 +156,6 @@ export async function applyMetaUnion<T extends MetaUnionRow>(opts: {
   });
 }
 
-function isFresh(
-  entry: { meta: Record<string, unknown> | null; at: number } | undefined,
-): boolean {
+function isFresh(entry: { meta: Record<string, unknown> | null; at: number } | undefined): boolean {
   return entry !== undefined && Date.now() - entry.at < CACHE_TTL_MS;
 }

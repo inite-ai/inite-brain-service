@@ -55,27 +55,24 @@ describe('mergeMarketplaceMeta', () => {
         ],
       ]),
     );
-    expect(merged.featured).toBe(true);
-    expect(merged.featuredAt).toBe('2026-07-15T00:00:00.000Z');
-    expect(merged.paid).toBe(true);
-    expect(merged.displayPrice).toEqual({ amount: 2900, currency: 'USD' });
+    expect(merged!.featured).toBe(true);
+    expect(merged!.featuredAt).toBe('2026-07-15T00:00:00.000Z');
+    expect(merged!.paid).toBe(true);
+    expect(merged!.displayPrice).toEqual({ amount: 2900, currency: 'USD' });
   });
 
   it('leaves packs without a meta row byte-identical (no stamped keys)', () => {
     const [merged] = mergeMarketplaceMeta([summary()], new Map());
     expect(merged).toEqual(summary());
-    expect('featured' in merged).toBe(false);
-    expect('paid' in merged).toBe(false);
+    expect('featured' in merged!).toBe(false);
+    expect('paid' in merged!).toBe(false);
   });
 
   it('does not stamp false/empty state (unfeatured free row = clean wire)', () => {
-    const [merged] = mergeMarketplaceMeta(
-      [summary()],
-      new Map([['fintech', meta()]]),
-    );
-    expect('featured' in merged).toBe(false);
-    expect('paid' in merged).toBe(false);
-    expect('displayPrice' in merged).toBe(false);
+    const [merged] = mergeMarketplaceMeta([summary()], new Map([['fintech', meta()]]));
+    expect('featured' in merged!).toBe(false);
+    expect('paid' in merged!).toBe(false);
+    expect('displayPrice' in merged!).toBe(false);
   });
 
   it('stamps paid without displayPrice when the meta row lacks one', () => {
@@ -83,8 +80,8 @@ describe('mergeMarketplaceMeta', () => {
       [summary()],
       new Map([['fintech', meta({ paid: true })]]),
     );
-    expect(merged.paid).toBe(true);
-    expect('displayPrice' in merged).toBe(false);
+    expect(merged!.paid).toBe(true);
+    expect('displayPrice' in merged!).toBe(false);
   });
 });
 

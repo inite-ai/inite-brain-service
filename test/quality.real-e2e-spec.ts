@@ -56,7 +56,7 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
     });
     const limitedClient = new HttpBrainClient({
       baseUrl: svc.baseUrl,
-      apiKey: svc.extras[0].plaintext,
+      apiKey: svc.extras[0]!.plaintext,
     });
 
     // Faithfulness verifier needs its own OpenAI client — runs in the
@@ -77,7 +77,6 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
 
     const directoryScenarios = loadDirectoryScenarios();
     if (directoryScenarios.length > 0) {
-       
       console.log(
         `[quality] augmenting with ${directoryScenarios.length} directory scenario(s) ` +
           `(${directoryScenarios.reduce((n, s) => n + s.queries.length, 0)} queries)`,
@@ -97,11 +96,8 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
       const { writeFileSync, mkdirSync } = await import('node:fs');
       const { dirname } = await import('node:path');
       mkdirSync(dirname(resolve(reportOut)), { recursive: true });
-      writeFileSync(
-        resolve(reportOut),
-        JSON.stringify(reporter.serialize(report), null, 2),
-      );
-       
+      writeFileSync(resolve(reportOut), JSON.stringify(reporter.serialize(report), null, 2));
+
       console.log(`[quality] wrote machine-readable report to ${reportOut}`);
     }
 
@@ -115,21 +111,12 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
       metrics: { name: string; value: number | null; threshold?: number }[],
     ) =>
       metrics
-        .filter(
-          (m) =>
-            m.threshold !== undefined &&
-            m.value !== null &&
-            m.value < m.threshold,
-        )
-        .map(
-          (m) => `${label}.${m.name} ${m.value?.toFixed(2)} < ${m.threshold}`,
-        );
+        .filter((m) => m.threshold !== undefined && m.value !== null && m.value < m.threshold)
+        .map((m) => `${label}.${m.name} ${m.value?.toFixed(2)} < ${m.threshold}`);
 
     const failures = [
       ...collect('overall', report.overall),
-      ...report.perVertical.flatMap((v) =>
-        collect(v.vertical, v.metrics),
-      ),
+      ...report.perVertical.flatMap((v) => collect(v.vertical, v.metrics)),
     ];
 
     expect({ failed: failures }).toEqual({ failed: [] });
@@ -162,8 +149,7 @@ describe('Quality eval (real OpenAI, multi-vertical scenarios)', () => {
 function loadDirectoryScenarios(): Scenario[] {
   if (process.env.BRAIN_EVAL_DIRECTORY_DISABLE === '1') return [];
 
-  const explicitPaths = process.env.BRAIN_EVAL_DIRECTORY_PATH
-    ?.split(',')
+  const explicitPaths = process.env.BRAIN_EVAL_DIRECTORY_PATH?.split(',')
     .map((p) => p.trim())
     .filter(Boolean);
   const defaultPaths = [
@@ -179,7 +165,6 @@ function loadDirectoryScenarios(): Scenario[] {
   for (const rel of paths) {
     const abs = resolve(rel);
     if (!existsSync(abs)) {
-       
       console.warn(`[quality] directory fixture not found, skipping: ${abs}`);
       continue;
     }
@@ -194,7 +179,7 @@ function loadDirectoryScenarios(): Scenario[] {
       sampleEntities: sample,
       seed,
     });
-     
+
     console.log(
       `[quality] directory '${rel}': ${bank.stats.entitiesSeeded} entities seeded, ` +
         `${bank.stats.entitiesSampled} sampled, ${bank.stats.queriesGenerated} queries generated`,

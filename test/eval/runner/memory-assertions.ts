@@ -34,10 +34,7 @@ export class MemoryAssertionsChecker {
     return out;
   }
 
-  private async runOne(
-    scenarioId: string,
-    a: MemoryAssertion,
-  ): Promise<MemoryAssertionResult> {
+  private async runOne(scenarioId: string, a: MemoryAssertion): Promise<MemoryAssertionResult> {
     try {
       switch (a.kind) {
         case 'no_search_match':
@@ -108,8 +105,7 @@ export class MemoryAssertionsChecker {
         description: a.description,
         kind: a.kind,
         passed: false,
-        detail:
-          'assertion missing query, expectedRefPresent, or objectSubstring',
+        detail: 'assertion missing query, expectedRefPresent, or objectSubstring',
       };
     }
     const res = await this.brain.search({
@@ -132,9 +128,7 @@ export class MemoryAssertionsChecker {
       };
     }
     const needle = a.objectSubstring.toLowerCase();
-    const hasObj = matched.facts.some((f) =>
-      f.object.toLowerCase().includes(needle),
-    );
+    const hasObj = matched.facts.some((f) => f.object.toLowerCase().includes(needle));
     if (!hasObj) {
       return {
         scenarioId,
@@ -162,8 +156,7 @@ export class MemoryAssertionsChecker {
         description: a.description,
         kind: a.kind,
         passed: false,
-        detail:
-          'assertion missing query, expectedRefAbsent, or objectSubstring',
+        detail: 'assertion missing query, expectedRefAbsent, or objectSubstring',
       };
     }
     const res = await this.brain.search({
@@ -185,21 +178,17 @@ export class MemoryAssertionsChecker {
       };
     }
     const needle = a.objectSubstring.toLowerCase();
-    const offending = matched.facts.find((f) =>
-      f.object.toLowerCase().includes(needle),
-    );
+    const offending = matched.facts.find((f) => f.object.toLowerCase().includes(needle));
     if (offending) {
       // DEBUG: dump every fact on the matched entity so we can see
       // status / validUntil and figure out whether the leak is from
       // an unfiltered superseded fact or from a setup-step that
       // never produced the retraction.
       if (process.env.DEBUG_MEMLC === '1') {
-         
         console.log(
           `[memlc-debug] scenarioId=${scenarioId} description='${a.description}' query='${a.query}'`,
         );
         for (const f of matched.facts) {
-           
           console.log(
             `  factId=${f.factId} predicate=${f.predicate} object='${f.object}' status=${f.status} validFrom=${f.validFrom} validUntil=${f.validUntil ?? '-'} score=${f.score}`,
           );
@@ -228,5 +217,5 @@ export class MemoryAssertionsChecker {
  */
 function parseRefTag(ref: string): { refKey: string; id: string } {
   const [vertical, id] = ref.split('.', 2);
-  return { refKey: `${vertical}__${id}`, id };
+  return { refKey: `${vertical}__${id}`, id: id! };
 }

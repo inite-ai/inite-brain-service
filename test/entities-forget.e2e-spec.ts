@@ -85,16 +85,13 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
       });
     expect([200, 201]).toContain(factCounter.status);
     const counterFactId = factCounter.body.factId as string;
-    const counterEntityId = await surreal.withCompany(
-      f.companyId,
-      async (db) => {
-        const [rows] = await db.query<any[][]>(
-          `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
-          { tail: String(counterFactId).split(':')[1] },
-        );
-        return String((rows as any[])?.[0]?.entityId ?? '');
-      },
-    );
+    const counterEntityId = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<any[][]>(
+        `SELECT entityId FROM type::record('knowledge_fact', $tail)`,
+        { tail: String(counterFactId).split(':')[1] },
+      );
+      return String((rows as any[])?.[0]?.entityId ?? '');
+    });
 
     const linkRes = await f.http
       .post('/v1/ingest/link')
@@ -164,9 +161,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
 
     // Forget.
     const r = await f.http
-      .post(
-        `/v1/entities/${encodeURIComponent(entityId)}/forget`,
-      )
+      .post(`/v1/entities/${encodeURIComponent(entityId)}/forget`)
       .set(auth())
       .send({ reason: 'gdpr_request', requestId: 'req-1' });
     expect([200, 201]).toContain(r.status);
@@ -240,10 +235,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
         }),
       ).toBe(0);
       expect(
-        await countWhere(
-          `SELECT id FROM debug_trace WHERE companyId = $cid`,
-          { cid: f.companyId },
-        ),
+        await countWhere(`SELECT id FROM debug_trace WHERE companyId = $cid`, { cid: f.companyId }),
       ).toBe(0);
     });
   });

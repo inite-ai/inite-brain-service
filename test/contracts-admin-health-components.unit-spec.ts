@@ -46,13 +46,7 @@ describe('AdminInfraController.healthComponents() — wire contract', () => {
       await makeController().healthComponentsView(),
     );
     if (!parsed.success) {
-      throw new Error(
-        `health/components drifted: ${JSON.stringify(
-          parsed.error.issues,
-          null,
-          2,
-        )}`,
-      );
+      throw new Error(`health/components drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

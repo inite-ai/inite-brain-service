@@ -23,11 +23,7 @@ const ISO = (d: string) => new Date(d).toISOString();
 // 30 facts of varied predicates seeded under one customer for the bulk
 // scenario — enough to crowd the embedding space, small enough to keep
 // the suite fast.
-function bulkFactsFor(
-  vertical: string,
-  id: string,
-  startDate: string,
-): SetupStep[] {
+function bulkFactsFor(vertical: string, id: string, startDate: string): SetupStep[] {
   const predicates = [
     'tier',
     'preferred_contact_channel',
@@ -58,7 +54,7 @@ function bulkFactsFor(
       kind: 'fact',
       entityRef: { vertical, id },
       predicate: p,
-      object: objects[i],
+      object: objects[i]!, // objects is parallel to predicates (same length)
       validFrom: new Date(day + i * 86_400_000).toISOString(),
       confidence: 0.85,
       source: { vertical, eventId: `bulk.seed.${i}` },

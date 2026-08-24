@@ -3,11 +3,7 @@ import type {
   ExtractionPatternEntry,
   ExtractionPatternService,
 } from '../extraction-pattern.service';
-import type {
-  ExtractedEdge,
-  ExtractedFact,
-  RawExtractedFact,
-} from './types';
+import type { ExtractedEdge, ExtractedFact, RawExtractedFact } from './types';
 
 /**
  * Persist per-clause extraction patterns so future ingests can replay
@@ -45,8 +41,7 @@ export async function persistExtractionPatterns({
     list.push(rf);
     factsByClause.set(rf.clauseIndex, list);
   }
-  for (let i = 0; i < clauses.length; i++) {
-    const clauseText = clauses[i];
+  for (const [i, clauseText] of clauses.entries()) {
     const clauseFacts = (factsByClause.get(i) ?? []).map((f) => ({
       predicate:
         facts.find(
@@ -75,8 +70,6 @@ export async function persistExtractionPatterns({
   try {
     await patterns.record(companyId, entries);
   } catch (e) {
-    logger.warn(
-      `extraction pattern record failed for ${companyId}: ${(e as Error).message}`,
-    );
+    logger.warn(`extraction pattern record failed for ${companyId}: ${(e as Error).message}`);
   }
 }

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  type OnApplicationShutdown,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
@@ -98,23 +93,12 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
   private failedUntil = 0;
 
   constructor(private readonly config: ConfigService) {
-    this.enabled =
-      envFlagEnabled(this.config.get<string>('EXTRACTOR_LOCAL_NER_ENABLED'));
-    this.modelId = this.config.get<string>(
-      'EXTRACTOR_LOCAL_NER_MODEL',
-      DEFAULT_MODEL,
-    );
-    this.minScore = parseFloat(
-      this.config.get<string>('EXTRACTOR_LOCAL_NER_MIN_SCORE', '0.7'),
-    );
-    this.useWorker = envFlagEnabled(
-      this.config.get<string>('EXTRACTOR_LOCAL_NER_WORKER', '1'),
-    );
+    this.enabled = envFlagEnabled(this.config.get<string>('EXTRACTOR_LOCAL_NER_ENABLED'));
+    this.modelId = this.config.get<string>('EXTRACTOR_LOCAL_NER_MODEL', DEFAULT_MODEL);
+    this.minScore = parseFloat(this.config.get<string>('EXTRACTOR_LOCAL_NER_MIN_SCORE', '0.7'));
+    this.useWorker = envFlagEnabled(this.config.get<string>('EXTRACTOR_LOCAL_NER_WORKER', '1'));
     this.extractTimeoutMs = parseInt(
-      this.config.get<string>(
-        'EXTRACTOR_LOCAL_NER_TIMEOUT_MS',
-        String(DEFAULT_EXTRACT_TIMEOUT_MS),
-      ),
+      this.config.get<string>('EXTRACTOR_LOCAL_NER_TIMEOUT_MS', String(DEFAULT_EXTRACT_TIMEOUT_MS)),
       10,
     );
   }
@@ -160,14 +144,9 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
     if (this.warmupPromise) return this.warmupPromise;
     if (Date.now() < this.failedUntil) return;
     const start = Date.now();
-    this.warmupPromise = (this.useWorker
-      ? this.warmupWorker()
-      : this.warmupInThread()
-    )
+    this.warmupPromise = (this.useWorker ? this.warmupWorker() : this.warmupInThread())
       .then(() => {
-        this.logger.log(
-          `Local NER ready (${this.modelId}) — warmup ${Date.now() - start}ms`,
-        );
+        this.logger.log(`Local NER ready (${this.modelId}) — warmup ${Date.now() - start}ms`);
       })
       .catch((e) => {
         this.failedUntil = Date.now() + FAIL_RETRY_MS;
@@ -245,8 +224,7 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
     const id = this.nextReqId++;
     // Warmup loads ~135MB from disk/network; an extract call is bounded by
     // its own deadline so a wedged worker can't pend forever.
-    const timeoutMs =
-      kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : this.extractTimeoutMs;
+    const timeoutMs = kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : this.extractTimeoutMs;
     return new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) {
@@ -260,9 +238,7 @@ export class LocalNerService implements OnModuleInit, OnApplicationShutdown {
           if (kind === 'extract') {
             this.failedUntil = Date.now() + FAIL_RETRY_MS;
           }
-          reject(
-            new Error(`local NER '${kind}' RPC timed out after ${timeoutMs}ms`),
-          );
+          reject(new Error(`local NER '${kind}' RPC timed out after ${timeoutMs}ms`));
         }
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();

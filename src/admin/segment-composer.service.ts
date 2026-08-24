@@ -4,10 +4,7 @@ import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { scopeForUser } from '../auth/scope-tags';
-import {
-  segmentSessions,
-  type EpisodeRow,
-} from './window-deriver.service';
+import { segmentSessions, type EpisodeRow } from './window-deriver.service';
 
 /**
  * L0 segment composer (memory-rebuild R1,
@@ -60,9 +57,7 @@ export function renderSegmentText(turns: SegmentEpisodeRow[]): string {
   return turns
     .map((t) => {
       const day = String(
-        t.occurredAt instanceof Date
-          ? t.occurredAt.toISOString()
-          : t.occurredAt,
+        t.occurredAt instanceof Date ? t.occurredAt.toISOString() : t.occurredAt,
       ).slice(0, 10);
       return `[${day}] ${t.speaker ?? 'unknown'}: ${t.text}`;
     })
@@ -103,9 +98,7 @@ export class SegmentComposerService {
           result.conversations += 1;
         } catch (e) {
           result.skipped.push({ conversationId, reason: (e as Error).message });
-          this.logger.warn(
-            `segment compose failed for ${conversationId}: ${(e as Error).message}`,
-          );
+          this.logger.warn(`segment compose failed for ${conversationId}: ${(e as Error).message}`);
         }
       }
     });
@@ -125,8 +118,10 @@ export class SegmentComposerService {
     result: SegmentRunResult;
     generation: string;
   }): Promise<void> {
-    const episodes: SegmentEpisodeRow[] =
-      await this.episodes.conversationTurnsRaw(db, conversationId);
+    const episodes: SegmentEpisodeRow[] = await this.episodes.conversationTurnsRaw(
+      db,
+      conversationId,
+    );
     if (episodes.length === 0) return;
 
     // Session boundaries first (same 60-min gap rule as the deriver), then
@@ -150,17 +145,13 @@ export class SegmentComposerService {
     // round trip each (Surreal-usage audit §9).
     const rows = windows.map((w, i) => {
       const pii = [...new Set(w.turns.flatMap((t) => t.piiClass ?? []))];
-      const userIds = [
-        ...new Set(
-          w.turns.map((t) => t.userId).filter((u): u is string => !!u),
-        ),
-      ];
+      const userIds = [...new Set(w.turns.map((t) => t.userId).filter((u): u is string => !!u))];
       return {
         conversationId,
         seq: w.seq,
         episodeIds: w.turns.map((t) => new StringRecordId(String(t.id))),
         text: texts[i],
-        occurredAt: new Date(w.turns[0].occurredAt as string),
+        occurredAt: new Date(w.turns[0]!.occurredAt as string), // windows are non-empty
         piiClass: pii.length > 0 ? pii : undefined,
         userId: userIds.length === 1 ? userIds[0] : undefined,
         // G6 step 1: mirror the per-user scope as a scope tag (0093).

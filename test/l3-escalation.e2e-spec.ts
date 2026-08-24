@@ -56,10 +56,8 @@ describe('G2 L3 escalation e2e', () => {
   async function l3Count(app: AppFixture, outcome: string): Promise<number> {
     const metrics = app.app.get(MetricsService);
     const { body } = await metrics.serialize();
-    const m = body.match(
-      new RegExp(`brain_l3_escalation_total\\{outcome="${outcome}"\\} (\\d+)`),
-    );
-    return m ? parseInt(m[1], 10) : 0;
+    const m = body.match(new RegExp(`brain_l3_escalation_total\\{outcome="${outcome}"\\} (\\d+)`));
+    return m ? parseInt(m[1]!, 10) : 0;
   }
 
   beforeAll(async () => {
@@ -68,26 +66,32 @@ describe('G2 L3 escalation e2e', () => {
     f2 = await createApp();
 
     // Anchored fact.
-    const a = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'cust_l3_anchor' },
-      predicate: 'tier',
-      object: ANCHOR_OBJECT,
-      validFrom: new Date('2026-04-01').toISOString(),
-      source: { vertical: 'rent', messageId: 'm_l3_a' },
-      confidence: 0.9,
-    });
+    const a = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_l3_anchor' },
+        predicate: 'tier',
+        object: ANCHOR_OBJECT,
+        validFrom: new Date('2026-04-01').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_l3_a' },
+        confidence: 0.9,
+      });
     anchoredFactId = a.body.factId;
     expect(anchoredFactId).toBeTruthy();
 
     // Non-anchored fact on the ISOLATED tenant.
-    const b = await f2.http.post('/v1/ingest/fact').set(auth2()).send({
-      entityRef: { vertical: 'rent', id: 'cust_l3_lonely' },
-      predicate: 'status',
-      object: LONELY_OBJECT,
-      validFrom: new Date('2026-04-02').toISOString(),
-      source: { vertical: 'rent', messageId: 'm_l3_b' },
-      confidence: 0.9,
-    });
+    const b = await f2.http
+      .post('/v1/ingest/fact')
+      .set(auth2())
+      .send({
+        entityRef: { vertical: 'rent', id: 'cust_l3_lonely' },
+        predicate: 'status',
+        object: LONELY_OBJECT,
+        validFrom: new Date('2026-04-02').toISOString(),
+        source: { vertical: 'rent', messageId: 'm_l3_b' },
+        confidence: 0.9,
+      });
     expect(b.body.factId).toBeTruthy();
 
     // Create the anchoring episode session and link the fact to it.
@@ -109,10 +113,9 @@ describe('G2 L3 escalation e2e', () => {
           o2: new Date('2026-04-01T10:01:00Z'),
         },
       );
-      await db.query(
-        `UPDATE $rid SET source.episodeIds = ['episode:l3ep1', 'episode:l3ep2']`,
-        { rid: new StringRecordId(anchoredFactId) },
-      );
+      await db.query(`UPDATE $rid SET source.episodeIds = ['episode:l3ep1', 'episode:l3ep2']`, {
+        rid: new StringRecordId(anchoredFactId),
+      });
     });
   });
 
@@ -161,8 +164,8 @@ describe('G2 L3 escalation e2e', () => {
     // round-1 generate + verify, then L3 generate + verify.
     expect(state.calls.length).toBe(4);
     // The L3 generator saw the raw session turns (fenced-section style).
-    expect(state.calls[2].user).toContain('Full conversation transcripts');
-    expect(state.calls[2].user).toContain('conv_l3');
+    expect(state.calls[2]!.user).toContain('Full conversation transcripts');
+    expect(state.calls[2]!.user).toContain('conv_l3');
     expect(await l3Count(f, 'fired')).toBe(firedBefore + 1);
     expect(await l3Count(f, 'flipped')).toBe(flippedBefore + 1);
   });

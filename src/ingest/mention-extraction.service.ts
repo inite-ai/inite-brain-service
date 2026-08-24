@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ExtractorService } from '../ai/extractor.service';
+import { ExtractorService, type ExtractionResult } from '../ai/extractor.service';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
@@ -8,9 +8,9 @@ import { envFlagEnabled } from '../common/env-validation';
 
 export interface MentionSource {
   vertical: string;
-  eventId?: string;
-  conversationId?: string;
-  messageId?: string;
+  eventId?: string | undefined;
+  conversationId?: string | undefined;
+  messageId?: string | undefined;
   recorder: string;
 }
 
@@ -18,7 +18,7 @@ export type MentionPrep =
   | { skip: 'empty' | 'no_entities' }
   | {
       skip: null;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       /** Per-fact embeddings aligned with extraction.facts; [] on failure. */
       factEmbeddings: number[][];
@@ -60,7 +60,10 @@ export class MentionExtractionService {
     const addressee = dto.knownEntities?.find((k) => k.role === 'addressee');
     const context =
       speaker?.name || addressee?.name
-        ? { speakerName: speaker?.name, addresseeName: addressee?.name }
+        ? {
+            ...(speaker?.name !== undefined ? { speakerName: speaker.name } : {}),
+            ...(addressee?.name !== undefined ? { addresseeName: addressee.name } : {}),
+          }
         : undefined;
 
     const extraction = await traceSpan('ingest.nlu.extract', () =>
@@ -98,9 +101,7 @@ export class MentionExtractionService {
         ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
         : '';
     const factTexts = extraction.facts.map((f: { predicate: string; object: string }) =>
-      ctxStamp
-        ? `${ctxStamp} — ${f.predicate}: ${f.object}`
-        : `${f.predicate}: ${f.object}`,
+      ctxStamp ? `${ctxStamp} — ${f.predicate}: ${f.object}` : `${f.predicate}: ${f.object}`,
     );
     let factEmbeddings: number[][];
     try {

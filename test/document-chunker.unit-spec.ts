@@ -38,7 +38,7 @@ describe('chunkDocument', () => {
     const text = paragraph.repeat(5); // 25K → must split
     const out = chunkDocument(text);
     // First chunk should end right after a paragraph boundary, not mid-run.
-    expect(out[0].text.endsWith('\n\n')).toBe(true);
+    expect(out[0]!.text.endsWith('\n\n')).toBe(true);
   });
 
   it('consecutive chunks overlap so straddling content is fully visible', () => {
@@ -46,7 +46,7 @@ describe('chunkDocument', () => {
     const text = paragraph.repeat(30);
     const out = chunkDocument(text);
     for (let i = 1; i < out.length; i++) {
-      expect(out[i].charStart).toBeLessThan(out[i - 1].charEnd);
+      expect(out[i]!.charStart).toBeLessThan(out[i - 1]!.charEnd);
     }
   });
 
@@ -54,20 +54,20 @@ describe('chunkDocument', () => {
     const text = 'a'.repeat(50_000);
     const out = chunkDocument(text);
     expect(out.length).toBeGreaterThan(3);
-    expect(out[out.length - 1].charEnd).toBe(text.length);
+    expect(out[out.length - 1]!.charEnd).toBe(text.length);
     for (let i = 1; i < out.length; i++) {
-      expect(out[i].charStart).toBeGreaterThan(out[i - 1].charStart);
+      expect(out[i]!.charStart).toBeGreaterThan(out[i - 1]!.charStart);
     }
   });
 
   it('covers the entire document — no gaps between chunks', () => {
     const text = `${'sentence one. '.repeat(2_000)}`;
     const out = chunkDocument(text);
-    expect(out[0].charStart).toBe(0);
+    expect(out[0]!.charStart).toBe(0);
     for (let i = 1; i < out.length; i++) {
       // Overlap means next start ≤ previous end; never a gap.
-      expect(out[i].charStart).toBeLessThanOrEqual(out[i - 1].charEnd);
+      expect(out[i]!.charStart).toBeLessThanOrEqual(out[i - 1]!.charEnd);
     }
-    expect(out[out.length - 1].charEnd).toBe(text.length);
+    expect(out[out.length - 1]!.charEnd).toBe(text.length);
   });
 });

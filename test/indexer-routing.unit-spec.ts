@@ -2,16 +2,9 @@
  * Unit-test for the router's rule layers (L0 explicit/vertical/alwaysRun,
  * L1 keywords) and the cosine helper backing L2.
  */
-import {
-  cosineSimilarity,
-  IndexerBinding,
-  routeByRules,
-} from '../src/indexers/routing';
+import { cosineSimilarity, IndexerBinding, routeByRules } from '../src/indexers/routing';
 
-const binding = (
-  indexerId: string,
-  over: Partial<IndexerBinding> = {},
-): IndexerBinding => ({
+const binding = (indexerId: string, over: Partial<IndexerBinding> = {}): IndexerBinding => ({
   indexerId,
   packVersion: '1.0.0',
   mode: 'dedicated',
@@ -21,10 +14,10 @@ const binding = (
 
 describe('routeByRules', () => {
   it('virtual bindings never route (they ride the union call)', () => {
-    const out = routeByRules(
-      [binding('real_estate', { mode: 'virtual' })],
-      { vertical: 'crm', head: 'zoned residential' },
-    );
+    const out = routeByRules([binding('real_estate', { mode: 'virtual' })], {
+      vertical: 'crm',
+      head: 'zoned residential',
+    });
     expect(out.selected).toEqual([]);
     expect(out.needEmbedding).toEqual([]);
   });
@@ -39,18 +32,18 @@ describe('routeByRules', () => {
   });
 
   it('L0: vertical subscription selects', () => {
-    const out = routeByRules(
-      [binding('meetings', { relevance: { verticals: ['calendar'] } })],
-      { vertical: 'calendar', head: '' },
-    );
+    const out = routeByRules([binding('meetings', { relevance: { verticals: ['calendar'] } })], {
+      vertical: 'calendar',
+      head: '',
+    });
     expect(out.selected.map((b) => b.indexerId)).toEqual(['meetings']);
   });
 
   it('L0: alwaysRun bypasses everything', () => {
-    const out = routeByRules(
-      [binding('audit', { relevance: { alwaysRun: true } })],
-      { vertical: 'x', head: '' },
-    );
+    const out = routeByRules([binding('audit', { relevance: { alwaysRun: true } })], {
+      vertical: 'x',
+      head: '',
+    });
     expect(out.selected.map((b) => b.indexerId)).toEqual(['audit']);
   });
 
@@ -64,16 +57,16 @@ describe('routeByRules', () => {
 
   it('L1: keyword matches whole tokens only, not substrings', () => {
     // "hr" must not fire on "three"; "id" must not fire on "hidden".
-    const out = routeByRules(
-      [binding('hr', { relevance: { keywords: ['hr', 'id'] } })],
-      { vertical: 'crm', head: 'three hidden thresholds were considered' },
-    );
+    const out = routeByRules([binding('hr', { relevance: { keywords: ['hr', 'id'] } })], {
+      vertical: 'crm',
+      head: 'three hidden thresholds were considered',
+    });
     expect(out.selected).toEqual([]);
     // But a standalone token does fire.
-    const out2 = routeByRules(
-      [binding('hr', { relevance: { keywords: ['hr'] } })],
-      { vertical: 'crm', head: 'the HR team met' },
-    );
+    const out2 = routeByRules([binding('hr', { relevance: { keywords: ['hr'] } })], {
+      vertical: 'crm',
+      head: 'the HR team met',
+    });
     expect(out2.selected.map((b) => b.indexerId)).toEqual(['hr']);
   });
 

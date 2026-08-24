@@ -55,11 +55,7 @@ describe('MentionPersistService batched edge persistence', () => {
   }
 
   function make(): MentionPersistService {
-    return new MentionPersistService(
-      undefined as never,
-      undefined as never,
-      undefined as never,
-    );
+    return new MentionPersistService(undefined as never, undefined as never, undefined as never);
   }
 
   const dto = {
@@ -106,13 +102,11 @@ describe('MentionPersistService batched edge persistence', () => {
     const ids = await run(make(), db, extraction, ['entity:a', 'entity:b', 'entity:c']);
     expect(ids).toEqual(['knowledge_edge:new_0', 'knowledge_edge:new_1']);
     expect(queries).toHaveLength(2);
-    expect(queries[0].sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(
-      true,
-    );
-    expect(queries[1].sql.trimStart().startsWith('RELATE')).toBe(true);
+    expect(queries[0]!.sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(true);
+    expect(queries[1]!.sql.trimStart().startsWith('RELATE')).toBe(true);
     // Edge content threaded through: kind + source with confidence.
-    expect(queries[1].params.k0).toBe('knows');
-    expect(queries[1].params.s0).toMatchObject({ vertical: 'locomo', confidence: 0.9 });
+    expect(queries[1]!.params.k0).toBe('knows');
+    expect(queries[1]!.params.s0).toMatchObject({ vertical: 'locomo', confidence: 0.9 });
   });
 
   it('re-ingest (all edges already exist) → single round-trip, no RELATE', async () => {
@@ -126,7 +120,7 @@ describe('MentionPersistService batched edge persistence', () => {
     const ids = await run(make(), db, extraction, ['entity:a', 'entity:b', 'entity:c']);
     expect(ids).toEqual(['knowledge_edge:exist_0', 'knowledge_edge:exist_1']);
     expect(queries).toHaveLength(1);
-    expect(queries[0].sql.trimStart().startsWith('SELECT')).toBe(true);
+    expect(queries[0]!.sql.trimStart().startsWith('SELECT')).toBe(true);
   });
 
   it('mixed → existing kept, only missing RELATEd', async () => {
@@ -141,8 +135,8 @@ describe('MentionPersistService batched edge persistence', () => {
     expect(ids).toEqual(['knowledge_edge:exist_0', 'knowledge_edge:new_0']);
     expect(queries).toHaveLength(2);
     // Only ONE edge in the RELATE batch (the missing one).
-    expect(queries[1].params.f1).toBeUndefined();
-    expect(queries[1].params.k0).toBe('likes');
+    expect(queries[1]!.params.f1).toBeUndefined();
+    expect(queries[1]!.params.k0).toBe('likes');
   });
 
   it('in-batch duplicate (from,to,kind) collapses to one candidate', async () => {
@@ -156,7 +150,7 @@ describe('MentionPersistService batched edge persistence', () => {
     const ids = await run(make(), db, extraction, ['entity:a', 'entity:b']);
     expect(ids).toEqual(['knowledge_edge:new_0']);
     // Existence check has exactly one statement (no f1).
-    expect(queries[0].params.f1).toBeUndefined();
+    expect(queries[0]!.params.f1).toBeUndefined();
   });
 
   it('skips self-edges and unresolved entity indexes', async () => {
@@ -170,7 +164,7 @@ describe('MentionPersistService batched edge persistence', () => {
     };
     const ids = await run(make(), db, extraction, ['entity:a', 'entity:b']);
     expect(ids).toEqual(['knowledge_edge:new_0']);
-    expect(queries[0].params.f1).toBeUndefined(); // only the one valid candidate
+    expect(queries[0]!.params.f1).toBeUndefined(); // only the one valid candidate
   });
 
   it('empty edge set → no query, empty result', async () => {
@@ -214,8 +208,6 @@ describe('MentionPersistService batched edge persistence', () => {
     ).persistEdges(db, { extraction, entityIds: ['entity:a', 'entity:b'], dto });
     expect(ids).toEqual(['knowledge_edge:new_0']);
     // Batched shape (existence check first), not the per-edge loop.
-    expect(queries[0].sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(
-      true,
-    );
+    expect(queries[0]!.sql.trimStart().startsWith('SELECT id FROM knowledge_edge')).toBe(true);
   });
 });

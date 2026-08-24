@@ -19,6 +19,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { QaAgent } from './runner';
 
 export interface ClaudeMcpAgentOptions {
@@ -72,7 +73,14 @@ export async function createClaudeMcpAgent(opts: {
     },
   );
   const mcp = new McpClient({ name: 'locomo-claude', version: '0.1.0' });
-  await mcp.connect(transport);
+  // Bridge a self-inconsistency in @modelcontextprotocol/sdk's own .d.ts
+  // that surfaces under exactOptionalPropertyTypes: the Transport interface
+  // declares `sessionId?: string` while StreamableHTTPClientTransport
+  // implements it as `get sessionId(): string | undefined`, so the concrete
+  // class no longer structurally satisfies its own interface. The runtime
+  // value genuinely is a valid Transport; this asserts the SDK's own
+  // contract, it is not laundering any of our types.
+  await mcp.connect(transport as Transport);
 
   const toolsList = await mcp.listTools();
   const tools: ToolDef[] = toolsList.tools.map((t) => ({
@@ -88,10 +96,7 @@ export async function createClaudeMcpAgent(opts: {
       const messages: Array<Anthropic.MessageParam> = [
         {
           role: 'user',
-          content:
-            asOf !== undefined
-              ? `Question (as of ${asOf}): ${question}`
-              : question,
+          content: asOf !== undefined ? `Question (as of ${asOf}): ${question}` : question,
         },
       ];
 

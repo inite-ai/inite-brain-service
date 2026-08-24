@@ -48,10 +48,7 @@ describe('mapWikidataBindings', () => {
 
   it('drops entities without a name and tracks them in stats', () => {
     const out = mapWikidataBindings(
-      [
-        { item: uri('Q1'), itemLabel: v('A') },
-        { item: uri('Q2') /* no label */ },
-      ],
+      [{ item: uri('Q1'), itemLabel: v('A') }, { item: uri('Q2') /* no label */ }],
       template,
     );
     expect(out.directory.entities).toHaveLength(1);
@@ -70,7 +67,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({ predicate: 'dob', object: '1828-09-09' }),
     );
@@ -87,7 +84,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({
         predicate: 'address',
@@ -108,7 +105,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const objs = out.directory.entities[0].facts.map((f) => f.object);
+    const objs = out.directory.entities[0]!.facts.map((f) => f.object);
     expect(objs).toContain('country: United States');
     expect(objs).toContain('headquarters: San Francisco');
   });
@@ -146,7 +143,7 @@ describe('mapWikidataBindings', () => {
       template,
     );
     expect(out.directory.entities).toHaveLength(1);
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     const occupations = facts.filter(
       (f) => f.predicate === 'interacted_with' && f.object.startsWith('occupation:'),
     );
@@ -156,10 +153,7 @@ describe('mapWikidataBindings', () => {
       'occupation: playwright',
       'occupation: writer',
     ]);
-    expect(genres.map((f) => f.object).sort()).toEqual([
-      'genre: novel',
-      'genre: short story',
-    ]);
+    expect(genres.map((f) => f.object).sort()).toEqual(['genre: novel', 'genre: short story']);
   });
 
   it('emits inception trimmed and prefixed', () => {
@@ -173,7 +167,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({
         predicate: 'interacted_with',
@@ -191,7 +185,7 @@ describe('mapWikidataBindings', () => {
       template,
     );
     expect(out.directory.entities).toHaveLength(1);
-    expect(out.directory.entities[0].id).toBe('q1');
+    expect(out.directory.entities[0]!.id).toBe('q1');
   });
 
   it('returns empty directory on empty bindings', () => {
@@ -212,7 +206,7 @@ describe('mapWikidataBindings', () => {
       ],
       template,
     );
-    const facts = out.directory.entities[0].facts;
+    const facts = out.directory.entities[0]!.facts;
     expect(facts).toContainEqual(
       expect.objectContaining({ predicate: 'name', object: 'Лев Толстой' }),
     );
@@ -235,19 +229,13 @@ describe('mapWikidataBindings', () => {
   });
 
   it('directoryName flows through the mapper output', () => {
-    const out = mapWikidataBindings(
-      [{ item: uri('Q1'), itemLabel: v('A') }],
-      template,
-    );
+    const out = mapWikidataBindings([{ item: uri('Q1'), itemLabel: v('A') }], template);
     expect(out.directory.directoryName).toBe('wd_test');
     expect(out.directory.description).toBe('unit-test template');
   });
 
   it('lowercases Q-id for the entity ref id (Surreal record-id stability)', () => {
-    const out = mapWikidataBindings(
-      [{ item: uri('Q987654'), itemLabel: v('Test') }],
-      template,
-    );
-    expect(out.directory.entities[0].id).toBe('q987654');
+    const out = mapWikidataBindings([{ item: uri('Q987654'), itemLabel: v('Test') }], template);
+    expect(out.directory.entities[0]!.id).toBe('q987654');
   });
 });

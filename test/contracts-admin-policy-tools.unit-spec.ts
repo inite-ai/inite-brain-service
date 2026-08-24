@@ -30,7 +30,11 @@ const req = {
   },
 } as unknown as AuthenticatedRequest;
 
-function parseOrThrow<T>(schema: { safeParse: (v: unknown) => any }, value: T, label: string): void {
+function parseOrThrow<T>(
+  schema: { safeParse: (v: unknown) => any },
+  value: T,
+  label: string,
+): void {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new Error(`${label} drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
@@ -124,20 +128,22 @@ describe('ABAC tooling wire contracts', () => {
       {
         withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
           fn({
-            query: async () => [[
-              {
-                id: 'policy_decision:1',
-                ts: '2026-07-09T10:00:00.000Z',
-                keyHash: 'sha256:abcdef1234567890',
-                kind: 'action',
-                decision: 'would_deny',
-                mode: 'report_only',
-                action: 'record_fact',
-                policySet: 'watcher',
-                ruleId: 'ro',
-                sampled: false,
-              },
-            ]],
+            query: async () => [
+              [
+                {
+                  id: 'policy_decision:1',
+                  ts: '2026-07-09T10:00:00.000Z',
+                  keyHash: 'sha256:abcdef1234567890',
+                  kind: 'action',
+                  decision: 'would_deny',
+                  mode: 'report_only',
+                  action: 'record_fact',
+                  policySet: 'watcher',
+                  ruleId: 'ro',
+                  sampled: false,
+                },
+              ],
+            ],
           }),
       } as unknown as SurrealService,
       {

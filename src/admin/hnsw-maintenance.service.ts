@@ -67,15 +67,10 @@ export class HnswMaintenanceService {
     private readonly embedder: EmbedderService,
   ) {}
 
-  async apply(
-    companyId: string,
-    action: 'create' | 'drop',
-  ): Promise<HnswMaintenanceResult> {
+  async apply(companyId: string, action: 'create' | 'drop'): Promise<HnswMaintenanceResult> {
     const dimension = this.embedder.getDimensions();
     if (!Number.isInteger(dimension) || dimension < 8 || dimension > 8192) {
-      throw new BadRequestException(
-        `embedder reports implausible dimension ${dimension}`,
-      );
+      throw new BadRequestException(`embedder reports implausible dimension ${dimension}`);
     }
     return this.surreal.withCompany(companyId, async (db) => {
       if (action === 'create') {
@@ -102,9 +97,7 @@ export class HnswMaintenanceService {
            REMOVE INDEX IF EXISTS ${SEGMENT_MAIN} ON episode_segment;`,
         );
       }
-      this.logger.log(
-        `hnsw ${action} for ${companyId} (dimension=${dimension})`,
-      );
+      this.logger.log(`hnsw ${action} for ${companyId} (dimension=${dimension})`);
       return {
         companyId,
         action,
@@ -120,18 +113,13 @@ export class HnswMaintenanceService {
    * success but leaves the old-dimension index untouched (empirically
    * confirmed on SurrealDB 3.1.5).
    */
-  private async assertNoDimensionMismatch(
-    db: Surreal,
-    dimension: number,
-  ): Promise<void> {
+  private async assertNoDimensionMismatch(db: Surreal, dimension: number): Promise<void> {
     const existing = await this.readIndexDimensions(db);
     const mismatched = [FACT_MAIN, FACT_ALT, ENTITY_MAIN, SEGMENT_MAIN].filter(
       (name) => existing.has(name) && existing.get(name) !== dimension,
     );
     if (mismatched.length > 0) {
-      const detail = mismatched
-        .map((n) => `${n}=${existing.get(n)}`)
-        .join(', ');
+      const detail = mismatched.map((n) => `${n}=${existing.get(n)}`).join(', ');
       throw new BadRequestException(
         `HNSW index(es) [${detail}] already exist at a different dimension; ` +
           `the embedder now reports ${dimension}. DEFINE INDEX IF NOT EXISTS ` +
@@ -145,19 +133,14 @@ export class HnswMaintenanceService {
   /** Map of HNSW index name → its declared DIMENSION, parsed from INFO. */
   private async readIndexDimensions(db: Surreal): Promise<Map<string, number>> {
     const out = new Map<string, number>();
-    for (const table of [
-      'knowledge_fact',
-      'knowledge_entity',
-      'episode_segment',
-    ]) {
+    for (const table of ['knowledge_fact', 'knowledge_entity', 'episode_segment']) {
       const [info] = await db.query<[{ indexes?: Record<string, string> }]>(
         `INFO FOR TABLE ${table};`,
       );
-      const indexes =
-        (info as { indexes?: Record<string, string> })?.indexes ?? {};
+      const indexes = (info as { indexes?: Record<string, string> })?.indexes ?? {};
       for (const [name, ddl] of Object.entries(indexes)) {
         const m = /DIMENSION\s+(\d+)/i.exec(String(ddl));
-        if (m) out.set(name, parseInt(m[1], 10));
+        if (m) out.set(name, parseInt(m[1]!, 10)); // group 1 mandatory
       }
     }
     return out;

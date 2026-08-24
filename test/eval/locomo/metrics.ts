@@ -85,9 +85,7 @@ export function bleu1(prediction: string, gold: string): number {
   const precision = matches / predTokens.length;
   // Brevity penalty
   const bp =
-    predTokens.length > goldTokens.length
-      ? 1
-      : Math.exp(1 - goldTokens.length / predTokens.length);
+    predTokens.length > goldTokens.length ? 1 : Math.exp(1 - goldTokens.length / predTokens.length);
   return bp * precision;
 }
 
@@ -126,10 +124,7 @@ export function isRefusal(text: string): boolean {
   return REFUSAL_PATTERNS.some((p) => norm.includes(p));
 }
 
-export function adversarialScore(
-  prediction: string,
-  gold: string,
-): number {
+export function adversarialScore(prediction: string, gold: string): number {
   const goldRefuses = isRefusal(gold);
   const predRefuses = isRefusal(prediction);
   if (!goldRefuses) {
@@ -153,9 +148,9 @@ function lcsLength(a: string[], b: string[]): number {
   const curr = new Array<number>(n + 1).fill(0);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1]);
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, curr[j - 1]!);
     }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+    for (let j = 0; j <= n; j++) prev[j] = curr[j]!;
   }
-  return prev[n];
+  return prev[n]!;
 }

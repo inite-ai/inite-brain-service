@@ -66,35 +66,26 @@ describe('genre presets — explicit env beats preset', () => {
 
   it("boolean key explicitly '0' beats a preset-on (unset defers)", () => {
     // assistant_chat presets sceneTraces=true; an explicit 0 wins.
-    expect(
-      resolveRetrievalProfile(env({ RETRIEVAL_SCENE_TRACES: '0' }))
-        .sceneTraces,
-    ).toBe(false);
-    expect(
-      resolveRetrievalProfile(env({ RETRIEVAL_SCENE_TRACES: '1' }))
-        .sceneTraces,
-    ).toBe(true);
+    expect(resolveRetrievalProfile(env({ RETRIEVAL_SCENE_TRACES: '0' })).sceneTraces).toBe(false);
+    expect(resolveRetrievalProfile(env({ RETRIEVAL_SCENE_TRACES: '1' })).sceneTraces).toBe(true);
     expect(resolveRetrievalProfile(env({})).sceneTraces).toBe(true);
   });
 
   it('legacy SYNTHESIZE_DATE_CONTEXT set to ANY value is explicit', () => {
     // Explicit legacy ON beats the dialogue preset ('none').
     expect(
-      resolveRetrievalProfile(
-        env({ RETRIEVAL_GENRE: 'dialogue', SYNTHESIZE_DATE_CONTEXT: '1' }),
-      ).dateAnchoring,
+      resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'dialogue', SYNTHESIZE_DATE_CONTEXT: '1' }))
+        .dateAnchoring,
     ).toBe('absolute');
     // Explicit legacy OFF is the measured LoCoMo pin on any genre.
-    expect(
-      resolveRetrievalProfile(env({ SYNTHESIZE_DATE_CONTEXT: '0' }))
-        .dateAnchoring,
-    ).toBe('none');
+    expect(resolveRetrievalProfile(env({ SYNTHESIZE_DATE_CONTEXT: '0' })).dateAnchoring).toBe(
+      'none',
+    );
   });
 
   it('legacy lane flags force always on any genre (enable-only)', () => {
     expect(
-      resolveRetrievalProfile(env({ SEARCH_SEGMENT_LANE_ENABLED: '1' }))
-        .verbatimEvidence,
+      resolveRetrievalProfile(env({ SEARCH_SEGMENT_LANE_ENABLED: '1' })).verbatimEvidence,
     ).toBe('always');
     // Their falsy state reads as unset → the genre preset applies.
     expect(
@@ -132,9 +123,7 @@ describe('genre presets — per-company overlay', () => {
         diaryco: { genre: 'dialogue' },
       }),
     });
-    expect(resolveRetrievalProfileFor('diaryco', e).verbatimEvidence).toBe(
-      'off',
-    );
+    expect(resolveRetrievalProfileFor('diaryco', e).verbatimEvidence).toBe('off');
   });
 
   it('an overlay field beats the preset (and everything else)', () => {
@@ -224,9 +213,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
   };
 
   it('dialogue', () => {
-    expect(
-      wire(resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'dialogue' }))),
-    ).toEqual({
+    expect(wire(resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'dialogue' })))).toEqual({
       ...CODE_DEFAULTS,
       genre: 'dialogue',
       // preset: segment-lane genre law (+3.8pp LoCoMo, measured twice)
@@ -246,17 +233,13 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
       abstentionCalibration: 'verifier',
     };
     expect(wire(resolveRetrievalProfile(env({})))).toEqual(expected);
-    expect(
-      wire(
-        resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'assistant_chat' })),
-      ),
-    ).toEqual(expected);
+    expect(wire(resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'assistant_chat' })))).toEqual(
+      expected,
+    );
   });
 
   it('documents', () => {
-    expect(
-      wire(resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'documents' }))),
-    ).toEqual({
+    expect(wire(resolveRetrievalProfile(env({ RETRIEVAL_GENRE: 'documents' })))).toEqual({
       ...CODE_DEFAULTS,
       genre: 'documents',
     });

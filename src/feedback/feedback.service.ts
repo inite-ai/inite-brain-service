@@ -41,7 +41,7 @@ export class FeedbackService {
     companyId: string;
     factId: string;
     verdict: FeedbackVerdict;
-    reason?: string;
+    reason?: string | undefined;
     actor: string;
   }): Promise<RecordFeedbackResult> {
     return this.surreal.withCompany(p.companyId, async (db) => {
@@ -53,9 +53,7 @@ export class FeedbackService {
         throw new NotFoundException('fact not found');
       }
 
-      const fact = new StringRecordId(
-        `knowledge_fact:${idTailOf(p.factId)}`,
-      );
+      const fact = new StringRecordId(`knowledge_fact:${idTailOf(p.factId)}`);
       // One standing vote per (fact, actor): the UNIQUE index routes a
       // repeat into the UPDATE branch — verdict replaced, not stacked.
       const [existing] = await db.query<[Array<{ id: unknown }>]>(

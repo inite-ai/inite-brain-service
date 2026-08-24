@@ -1,8 +1,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { makeRowPolicyFilter } from '../policy/row-filter';
+import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 
 /**
  * memory_diff — return everything brain learned (and unlearned) between
@@ -59,9 +59,7 @@ export class MemoryDiffService {
     // test/abac-db-fence.e2e-spec.ts), so the scoped pool alone leaks —
     // the JS filter (requiresScope PII gate + ABAC row rules) is the only
     // working gate. Rows the caller may not see never enter the result.
-    const policyLookup = await this.predicateRegistry?.rowPolicyLookup(
-      companyId,
-    );
+    const policyLookup = await this.predicateRegistry?.rowPolicyLookup(companyId);
     return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       const scoping = buildScoping(args);
       const rowFilter = makeRowPolicyFilter({
@@ -80,7 +78,8 @@ export class MemoryDiffService {
       // CREATED: facts whose recordedAt landed in [from, to). We don't
       // care whether they were later retracted — at the moment of
       // creation, the agent learned something.
-      const [createdRows] = await db.query<any[][]>(
+      const createdRows = await queryRows<FactRow>(
+        db,
         `SELECT ${FACT_FIELDS}
            FROM knowledge_fact
            WHERE recordedAt >= $from AND recordedAt < $to
@@ -93,7 +92,8 @@ export class MemoryDiffService {
       // window. status=='superseded' rides on supersededBy — we'll
       // partition that out as `changedFacts` so the caller sees the
       // replacement, not just the disappearance.
-      const [retractedRows] = await db.query<any[][]>(
+      const retractedRows = await queryRows<FactRow>(
+        db,
         `SELECT ${FACT_FIELDS}, supersededBy
            FROM knowledge_fact
            WHERE retractedAt >= $from AND retractedAt < $to
@@ -103,7 +103,8 @@ export class MemoryDiffService {
       );
 
       // NEW ENTITIES — knowledge_entity.createdAt within window.
-      const [newEntityRows] = await db.query<any[][]>(
+      const newEntityRows = await queryRows<NewEntityRow>(
+        db,
         `SELECT id, type, canonicalName, externalRefs, createdAt
            FROM knowledge_entity
            WHERE createdAt >= $from AND createdAt < $to
@@ -116,7 +117,8 @@ export class MemoryDiffService {
       // Note: we cannot scope by entityId here (the original id is
       // hashed in the tombstone), so the entityIds filter is ignored
       // for this section.
-      const [forgottenRows] = await db.query<any[][]>(
+      const forgottenRows = await queryRows<ForgottenRowDb>(
+        db,
         `SELECT entityIdHash, reason, requestId, forgottenAt
            FROM forgotten_entity
            WHERE forgottenAt >= $from AND forgottenAt < $to
@@ -126,23 +128,22 @@ export class MemoryDiffService {
 
       let truncated = false;
       const clip = <T>(rows: T[] | undefined | null): T[] => {
-        const list = (rows as T[]) ?? [];
+        const list = rows ?? [];
         if (list.length > SECTION_CAP) {
           truncated = true;
           return list.slice(0, SECTION_CAP);
         }
         return list;
       };
-      const createdClipped = clip(createdRows as any[]);
-      const retractedClipped = clip(retractedRows as any[]);
-      const newEntityClipped = clip(newEntityRows as any[]);
-      const forgottenClipped = clip(forgottenRows as any[]);
+      const createdClipped = clip(createdRows);
+      const retractedClipped = clip(retractedRows);
+      const newEntityClipped = clip(newEntityRows);
+      const forgottenClipped = clip(forgottenRows);
 
       const createdFacts: FactRef[] = createdClipped
         .filter((r) => rowFilter.filter(r))
         .map(rowToFactRef);
-      const retracted: Array<FactRef & { supersededBy?: string }> =
-        retractedClipped
+      const retracted: Array<FactRef & { supersededBy?: string | undefined }> = retractedClipped
         .filter((r) => rowFilter.filter(r))
         .map((r) => ({
           ...rowToFactRef(r),
@@ -194,13 +195,14 @@ export class MemoryDiffService {
       );
       const replacementMap = new Map<string, FactRef>();
       if (replacementIds.length > 0) {
-        const [afterRows] = await db.query<any[][]>(
+        const afterRows = await queryRows<FactRow>(
+          db,
           `SELECT ${FACT_FIELDS}
              FROM knowledge_fact
              WHERE id INSIDE $ids`,
           { ids: replacementIds.map((id) => new StringRecordId(id)) },
         );
-        for (const r of (afterRows as any[]) ?? []) {
+        for (const r of afterRows) {
           if (rowFilter.filter(r)) {
             const ref = rowToFactRef(r);
             replacementMap.set(ref.factId, ref);
@@ -217,18 +219,15 @@ export class MemoryDiffService {
       // would let callers double-spend.
       const netCreated = createdFacts.filter((c) => !supersedeeIds.has(c.factId));
 
-      const newEntities: EntityRef[] = newEntityClipped.map(
-        (r: any) => ({
-          entityId: String(r.id),
-          type: r.type ? String(r.type) : 'unknown',
-          canonicalName: r.canonicalName ? String(r.canonicalName) : '',
-          externalRefs: (r.externalRefs ?? {}) as Record<string, string>,
-          createdAt: toIso(r.createdAt),
-        }),
-      );
+      const newEntities: EntityRef[] = newEntityClipped.map((r) => ({
+        entityId: String(r.id),
+        type: r.type ? String(r.type) : 'unknown',
+        canonicalName: r.canonicalName ? String(r.canonicalName) : '',
+        externalRefs: r.externalRefs ?? {},
+        createdAt: toIso(r.createdAt),
+      }));
 
-      const forgottenEntities: ForgottenRef[] = forgottenClipped.map(
-        (r: any) => ({
+      const forgottenEntities: ForgottenRef[] = forgottenClipped.map((r) => ({
         entityIdHash: String(r.entityIdHash),
         reason: String(r.reason),
         requestId: r.requestId ? String(r.requestId) : undefined,
@@ -270,6 +269,38 @@ const FACT_FIELDS =
  */
 const SECTION_CAP = 500;
 
+// --- Local DB row shapes: only the columns each SELECT actually reads.
+// Values funnelled through String()/toIso()/typeof are `unknown`; fact
+// rows extend PolicyFilterableRow so they drop into rowFilter.filter().
+
+interface FactRow extends PolicyFilterableRow {
+  id: unknown;
+  entityId: unknown;
+  object: unknown;
+  confidence: unknown;
+  validFrom: unknown;
+  validUntil?: unknown;
+  recordedAt: unknown;
+  retractedAt?: unknown;
+  /** Present only on the retracted-bucket SELECT (`, supersededBy`). */
+  supersededBy?: unknown;
+}
+
+interface NewEntityRow {
+  id: unknown;
+  type?: unknown;
+  canonicalName?: unknown;
+  externalRefs?: Record<string, string>;
+  createdAt: unknown;
+}
+
+interface ForgottenRowDb {
+  entityIdHash: unknown;
+  reason: unknown;
+  requestId?: unknown;
+  forgottenAt: unknown;
+}
+
 interface ScopingClauses {
   factClause: string;
   entityClause: string;
@@ -291,9 +322,7 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
     // fired when a caller actually passed entityIds.
     params.entityIds = args.entityIds.map(
       (id) =>
-        new StringRecordId(
-          id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`,
-        ),
+        new StringRecordId(id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`),
     );
     factParts.push(`entityId INSIDE $entityIds`);
     entityParts.push(`id INSIDE $entityIds`);
@@ -306,13 +335,12 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
 
   return {
     factClause: factParts.length > 0 ? `AND ${factParts.join(' AND ')}` : '',
-    entityClause:
-      entityParts.length > 0 ? `AND ${entityParts.join(' AND ')}` : '',
+    entityClause: entityParts.length > 0 ? `AND ${entityParts.join(' AND ')}` : '',
     params,
   };
 }
 
-function rowToFactRef(r: any): FactRef {
+function rowToFactRef(r: FactRow): FactRef {
   return {
     factId: String(r.id),
     entityId: String(r.entityId),
@@ -349,16 +377,16 @@ export interface FactRef {
   object: string;
   confidence: number;
   validFrom: string;
-  validUntil?: string;
+  validUntil?: string | undefined;
   recordedAt: string;
-  retractedAt?: string;
+  retractedAt?: string | undefined;
 }
 
 export interface ChangedFact {
   factId: string;
   replacedBy: string;
   before: FactRef;
-  after?: FactRef;
+  after?: FactRef | undefined;
 }
 
 export interface EntityRef {
@@ -372,7 +400,7 @@ export interface EntityRef {
 export interface ForgottenRef {
   entityIdHash: string;
   reason: string;
-  requestId?: string;
+  requestId?: string | undefined;
   forgottenAt: string;
 }
 

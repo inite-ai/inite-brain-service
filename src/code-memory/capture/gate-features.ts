@@ -68,10 +68,10 @@ export function featurize(
     feats.set(idx, (feats.get(idx) ?? 0) + 1);
   };
   const tokens = tokenize(text);
-  for (let i = 0; i < tokens.length; i++) {
-    add(tokens[i]);
+  for (const [i, tok] of tokens.entries()) {
+    add(tok);
     if (config.ngram >= 2 && i + 1 < tokens.length) {
-      add(`${tokens[i]} ${tokens[i + 1]}`);
+      add(`${tok} ${tokens[i + 1]}`);
     }
   }
   for (const s of structuredFeatures(signals)) add(s);
@@ -80,9 +80,6 @@ export function featurize(
 
 /** Featurize a commit exactly as the serving gate sees it (message + PR body +
  *  parsed signals) — the bridge used by TrainedDecisionClassifier. */
-export function featurizeCommit(
-  commit: CommitInput,
-  config?: FeatureConfig,
-): Map<number, number> {
+export function featurizeCommit(commit: CommitInput, config?: FeatureConfig): Map<number, number> {
   return featurize(commitText(commit), parseCommitSignals(commit), config);
 }

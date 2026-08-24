@@ -16,9 +16,7 @@ const fixture: LocomoSample = {
   conversation: {
     speaker_a: 'Alice',
     speaker_b: 'Bob',
-    session_2: [
-      { dia_id: 'D2:1', speaker: 'Bob', text: 'second' },
-    ],
+    session_2: [{ dia_id: 'D2:1', speaker: 'Bob', text: 'second' }],
     session_2_date_time: '8 May, 2023',
     session_1: [
       { dia_id: 'D1:1', speaker: 'Alice', text: 'first' },
@@ -43,13 +41,13 @@ describe('LoCoMo loader', () => {
     expect(norm.speakerA).toBe('Alice');
     expect(norm.speakerB).toBe('Bob');
     expect(norm.sessions.map((s) => s.index)).toEqual([1, 2]);
-    expect(norm.sessions[0].turns).toHaveLength(2);
-    expect(norm.sessions[1].turns).toHaveLength(1);
+    expect(norm.sessions[0]!.turns).toHaveLength(2);
+    expect(norm.sessions[1]!.turns).toHaveLength(1);
   });
 
   it('parses ISO datetimes through unchanged', () => {
     const norm = normalizeSample(fixture);
-    expect(norm.sessions[0].dateTime).toBe('2023-05-01T12:00:00.000Z');
+    expect(norm.sessions[0]!.dateTime).toBe('2023-05-01T12:00:00.000Z');
   });
 
   it('coerces non-string gold answers to strings (LoCoMo has numeric answers)', () => {
@@ -73,7 +71,7 @@ describe('LoCoMo loader', () => {
 
   it('best-effort parses human "8 May, 2023" form', () => {
     const norm = normalizeSample(fixture);
-    expect(norm.sessions[1].dateTime).toMatch(/^2023-05-08T/);
+    expect(norm.sessions[1]!.dateTime).toMatch(/^2023-05-08T/);
   });
 
   it('surfaces adversarial_answer for cat5 and leaves answer empty', () => {
@@ -89,8 +87,8 @@ describe('LoCoMo loader', () => {
       ] as unknown as typeof fixture.qa,
     };
     const norm = normalizeSample(advSample);
-    expect(norm.qa[0].answer).toBe('');
-    expect(norm.qa[0].adversarialAnswer).toBe('self-care is important');
+    expect(norm.qa[0]!.answer).toBe('');
+    expect(norm.qa[0]!.adversarialAnswer).toBe('self-care is important');
   });
 
   it('loads from disk and reads both shape variants', async () => {
@@ -105,6 +103,6 @@ describe('LoCoMo loader', () => {
 
     expect(wrapped).toHaveLength(1);
     expect(bare).toHaveLength(1);
-    expect(wrapped[0].qa).toHaveLength(1);
+    expect(wrapped[0]!.qa).toHaveLength(1);
   });
 });

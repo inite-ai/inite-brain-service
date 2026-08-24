@@ -78,12 +78,8 @@ describe('detectLane (enumeration lexicon + T1/T2 disambiguation)', () => {
   });
   it('temporal-distance still wins over bare counting', () => {
     // interval markers → temporal even though "how many" is present
-    expect(detectLane('How many weeks ago did I attend the sale?')).toBe(
-      'temporal',
-    );
-    expect(
-      detectLane('How many months have passed since the concert?'),
-    ).toBe('temporal');
+    expect(detectLane('How many weeks ago did I attend the sale?')).toBe('temporal');
+    expect(detectLane('How many months have passed since the concert?')).toBe('temporal');
   });
 });
 
@@ -158,14 +154,10 @@ describe('formatElapsed (calendar arithmetic in code)', () => {
     );
   });
   it('handles sub-week and singular units', () => {
-    expect(formatElapsed('2023-02-26T00:00:00.000Z', asOf)).toBe(
-      ' [elapsed: 1 day before today]',
-    );
+    expect(formatElapsed('2023-02-26T00:00:00.000Z', asOf)).toBe(' [elapsed: 1 day before today]');
   });
   it('annotates future dates and skips unparseable/epoch', () => {
-    expect(formatElapsed('2023-03-04T00:00:00.000Z', asOf)).toBe(
-      ' [elapsed: in 5 days]',
-    );
+    expect(formatElapsed('2023-03-04T00:00:00.000Z', asOf)).toBe(' [elapsed: in 5 days]');
     expect(formatElapsed(undefined, asOf)).toBe('');
     expect(formatElapsed('not-a-date', asOf)).toBe('');
     expect(formatElapsed(new Date(0).toISOString(), asOf)).toBe('');
@@ -269,58 +261,74 @@ describe('detectEvidenceConflicts (T3)', () => {
     }) as unknown as SearchHit;
 
   it('flags disagreeing objects when the write side marked COMPETING', () => {
-    const conflicts = detectEvidenceConflicts([
-      hitWith([
-        { predicate: 'has_api_key', object: 'yes, for OpenWeather', status: 'active' },
-        { predicate: 'has_api_key', object: 'no, never obtained one', status: 'COMPETING' },
-      ]),
-    ], LANES);
+    const conflicts = detectEvidenceConflicts(
+      [
+        hitWith([
+          { predicate: 'has_api_key', object: 'yes, for OpenWeather', status: 'active' },
+          { predicate: 'has_api_key', object: 'no, never obtained one', status: 'COMPETING' },
+        ]),
+      ],
+      LANES,
+    );
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].label).toBe('has_api_key');
-    expect(conflicts[0].factIds).toEqual([
-      'knowledge_fact:f0',
-      'knowledge_fact:f1',
-    ]);
+    expect(conflicts[0]!.label).toBe('has_api_key');
+    expect(conflicts[0]!.factIds).toEqual(['knowledge_fact:f0', 'knowledge_fact:f1']);
   });
   it('ignores ordinary multi-value slots without COMPETING status', () => {
     expect(
-      detectEvidenceConflicts([
-        hitWith([
-          { predicate: 'works_at', object: 'Baseline Robotics', status: 'active' },
-          { predicate: 'works_at', object: 'Hyphae Labs', status: 'active' },
-        ]),
-      ], LANES),
+      detectEvidenceConflicts(
+        [
+          hitWith([
+            { predicate: 'works_at', object: 'Baseline Robotics', status: 'active' },
+            { predicate: 'works_at', object: 'Hyphae Labs', status: 'active' },
+          ]),
+        ],
+        LANES,
+      ),
     ).toEqual([]);
   });
   it('flags polarity splits in derived worlds (no COMPETING status)', () => {
     // Window-deriver worlds bypass the conflict predictor — both sides
     // land 'active'. Never/always-shaped contradictions split polarity.
-    const conflicts = detectEvidenceConflicts([
-      hitWith([
-        { predicate: 'work', object: 'has never written any Flask routes', status: 'active' },
-        { predicate: 'work', object: 'implemented a basic homepage route with Flask', status: 'active' },
-      ]),
-    ], LANES);
+    const conflicts = detectEvidenceConflicts(
+      [
+        hitWith([
+          { predicate: 'work', object: 'has never written any Flask routes', status: 'active' },
+          {
+            predicate: 'work',
+            object: 'implemented a basic homepage route with Flask',
+            status: 'active',
+          },
+        ]),
+      ],
+      LANES,
+    );
     expect(conflicts).toHaveLength(1);
   });
   it('two affirmative objects share polarity — no conflict', () => {
     expect(
-      detectEvidenceConflicts([
-        hitWith([
-          { predicate: 'activities', object: 'went hiking in Utah', status: 'active' },
-          { predicate: 'activities', object: 'tried pottery classes', status: 'active' },
-        ]),
-      ], LANES),
+      detectEvidenceConflicts(
+        [
+          hitWith([
+            { predicate: 'activities', object: 'went hiking in Utah', status: 'active' },
+            { predicate: 'activities', object: 'tried pottery classes', status: 'active' },
+          ]),
+        ],
+        LANES,
+      ),
     ).toEqual([]);
   });
   it('ignores COMPETING duplicates that agree on the object', () => {
     expect(
-      detectEvidenceConflicts([
-        hitWith([
-          { predicate: 'pet', object: 'cat Brioche', status: 'COMPETING' },
-          { predicate: 'pet', object: 'cat Brioche', status: 'active' },
-        ]),
-      ], LANES),
+      detectEvidenceConflicts(
+        [
+          hitWith([
+            { predicate: 'pet', object: 'cat Brioche', status: 'COMPETING' },
+            { predicate: 'pet', object: 'cat Brioche', status: 'active' },
+          ]),
+        ],
+        LANES,
+      ),
     ).toEqual([]);
   });
 
@@ -329,9 +337,7 @@ describe('detectEvidenceConflicts (T3)', () => {
       query: 'Have I obtained an API key?',
       factLines: ['[knowledge_fact:f0] …'],
       answerLang: null,
-      conflicts: [
-        { factIds: ['knowledge_fact:f0', 'knowledge_fact:f1'], label: 'has_api_key' },
-      ],
+      conflicts: [{ factIds: ['knowledge_fact:f0', 'knowledge_fact:f1'], label: 'has_api_key' }],
     });
     expect(msg).toContain('Conflict pairs');
     expect(msg).toContain('has_api_key: knowledge_fact:f0 vs knowledge_fact:f1');
@@ -399,11 +405,10 @@ describe('T6/T2 wide probe (profile-driven)', () => {
   });
 
   it('probes the PRF query with the profile limit when on', () => {
-    const dto = laneProbeDto(
-      profileWith({ wideProbe: true, wideProbeLimit: 20 }),
-      'summary',
-      { query: 'How has my tracker progressed?', baseHits: [] },
-    );
+    const dto = laneProbeDto(profileWith({ wideProbe: true, wideProbeLimit: 20 }), 'summary', {
+      query: 'How has my tracker progressed?',
+      baseHits: [],
+    });
     expect(dto).toEqual({
       query: 'How has my tracker progressed?',
       limit: 20,
@@ -465,9 +470,7 @@ describe('routeLane respects the profile lane set', () => {
     const q = 'How many weeks ago did I attend the sale?';
     expect(routeLane(profileWith(), q)).toBe('temporal');
     expect(routeLane(profileWith({ lanes: new Set() }), q)).toBeNull();
-    expect(
-      routeLane(profileWith({ lanes: new Set(['enumeration']) }), q),
-    ).toBeNull();
+    expect(routeLane(profileWith({ lanes: new Set(['enumeration']) }), q)).toBeNull();
   });
 });
 
@@ -533,10 +536,14 @@ describe('T7 instruction lane', () => {
   });
 
   it('dedups case-insensitively and honors the cap', () => {
-    const dup =
-      'u prefers bullet points whenever the user asks about planning.';
+    const dup = 'u prefers bullet points whenever the user asks about planning.';
     const out = extractStandingInstructions(
-      [hitWith([['preferences', dup], ['preferences', dup.toUpperCase()]])],
+      [
+        hitWith([
+          ['preferences', dup],
+          ['preferences', dup.toUpperCase()],
+        ]),
+      ],
       1,
     );
     expect(out).toHaveLength(1);
@@ -555,9 +562,12 @@ describe('T7 instruction lane', () => {
     expect(msg).toContain(STANDING_INSTRUCTIONS_INSTRUCTION.trim());
     expect(msg).toContain('- always format code with syntax highlighting');
     for (const instructions of [undefined, [] as string[]]) {
-      expect(buildGeneratorUserMessage({ ...base, instructions })).toBe(
-        buildGeneratorUserMessage(base),
-      );
+      expect(
+        buildGeneratorUserMessage({
+          ...base,
+          ...(instructions !== undefined ? { instructions } : {}),
+        }),
+      ).toBe(buildGeneratorUserMessage(base));
     }
   });
 });
@@ -568,14 +578,11 @@ describe('G4 strategy lane — fenced ADVISORY prompt section', () => {
     factLines: ['[knowledge_fact:x] u — attended: sale (as of 2022-11-17)'],
     answerLang: null as string | null,
   };
-  const note =
-    '[DO] compute-then-answer — applies when: temporal questions. Use the date table.';
+  const note = '[DO] compute-then-answer — applies when: temporal questions. Use the date table.';
 
   it('renders the notes inside a hard fence with the applicability frame', () => {
     const msg = buildGeneratorUserMessage({ ...base, strategyNotes: [note] });
-    expect(msg).toContain(
-      '=== ADVISORY STRATEGY NOTES (guidance, not evidence — never cite) ===',
-    );
+    expect(msg).toContain('=== ADVISORY STRATEGY NOTES (guidance, not evidence — never cite) ===');
     expect(msg).toContain('=== END ADVISORY STRATEGY NOTES ===');
     expect(msg).toContain(STRATEGY_ADVISORY_INSTRUCTION.trim());
     expect(msg).toContain(`- ${note}`);
@@ -588,9 +595,12 @@ describe('G4 strategy lane — fenced ADVISORY prompt section', () => {
 
   it('absent/empty notes → byte-identical prompt (no residue)', () => {
     for (const strategyNotes of [undefined, [] as string[]]) {
-      expect(buildGeneratorUserMessage({ ...base, strategyNotes })).toBe(
-        buildGeneratorUserMessage(base),
-      );
+      expect(
+        buildGeneratorUserMessage({
+          ...base,
+          ...(strategyNotes !== undefined ? { strategyNotes } : {}),
+        }),
+      ).toBe(buildGeneratorUserMessage(base));
     }
     expect(buildGeneratorUserMessage(base)).not.toContain('ADVISORY');
   });
@@ -650,12 +660,8 @@ describe('buildFactIndex recency marker (T5)', () => {
       ],
       { markRecency: true },
     );
-    expect(factLines.find((l) => l.includes(':new'))).toContain(
-      '[most recent for this slot]',
-    );
-    expect(factLines.find((l) => l.includes(':old'))).not.toContain(
-      'most recent',
-    );
+    expect(factLines.find((l) => l.includes(':new'))).toContain('[most recent for this slot]');
+    expect(factLines.find((l) => l.includes(':old'))).not.toContain('most recent');
   });
   it('never tags agreeing or single-dated slots', () => {
     const { factLines } = buildFactIndex(
@@ -670,7 +676,6 @@ describe('buildFactIndex recency marker (T5)', () => {
     expect(factLines.join('\n')).not.toContain('most recent');
   });
 });
-
 
 describe('buildFactIndex mention-date suffix (V12 §1 read side)', () => {
   const mkHit = (facts: Array<Record<string, unknown>>) =>
@@ -730,13 +735,11 @@ describe('buildFactIndex mention-date suffix (V12 §1 read side)', () => {
         mentionedAt: '2023-05-08T15:56:00.000Z',
       }),
     ]);
-    expect(
-      buildFactIndex([stamped]).factLines[0],
-    ).not.toContain('mentioned');
+    expect(buildFactIndex([stamped]).factLines[0]).not.toContain('mentioned');
     const unstamped = mkHit([fact({ validFrom: '2023-05-06T00:00:00.000Z' })]);
-    expect(
-      buildFactIndex([unstamped], { mentionDates: true }).factLines[0],
-    ).not.toContain('mentioned');
+    expect(buildFactIndex([unstamped], { mentionDates: true }).factLines[0]).not.toContain(
+      'mentioned',
+    );
   });
 
   it('renders a bare anchor when validFrom is missing', () => {
@@ -784,9 +787,7 @@ describe('enumeration strict clause (§8 item 3, profile.enumStrict)', () => {
     const on = buildGeneratorUserMessage({ ...base, enumStrict: true });
     expect(on).toContain('a partial list is a wrong answer');
     expect(on).toContain('Match the asked scope LITERALLY');
-    expect(on.indexOf('partial list')).toBeLessThan(
-      on.indexOf('Match the asked scope'),
-    );
+    expect(on.indexOf('partial list')).toBeLessThan(on.indexOf('Match the asked scope'));
   });
   it('does not fire outside the enumeration lane', () => {
     const other = buildGeneratorUserMessage({

@@ -1,8 +1,5 @@
 import type { Surreal } from 'surrealdb';
-import {
-  runInsightLegs,
-  INSIGHT_TOP_K,
-} from '../src/search/internals/insight-leg';
+import { runInsightLegs, INSIGHT_TOP_K } from '../src/search/internals/insight-leg';
 import { buildBaseWhere } from '../src/search/internals/where-builder';
 import { InsightLaneService } from '../src/synthesize/insight-lane.service';
 import {
@@ -22,9 +19,9 @@ import type { SearchDto } from '../src/search/dto/search.dto';
  */
 function recordingDb(perQuery: Record<string, unknown[]>): {
   db: Pick<Surreal, 'query'>;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
@@ -61,10 +58,10 @@ describe('runInsightLegs', () => {
     });
     expect(vectorRows).toHaveLength(1);
     expect(lexicalRows).toHaveLength(1);
-    expect(vectorRows[0].predicate).toBe('aggregate_hobbies');
-    expect(vectorRows[0].simScore).toBe(0.9);
-    expect(lexicalRows[0].bm25Score).toBe(3.2);
-    expect(vectorRows[0].source.vertical).toBe('insight');
+    expect(vectorRows[0]!.predicate).toBe('aggregate_hobbies');
+    expect(vectorRows[0]!.simScore).toBe(0.9);
+    expect(lexicalRows[0]!.bm25Score).toBe(3.2);
+    expect(vectorRows[0]!.source!.vertical).toBe('insight');
     for (const q of queries) {
       // The pool filter — aggregates by recorder, summaries by prefix.
       expect(q.sql).toContain('source.recorder = $insightRecorder');
@@ -90,7 +87,7 @@ describe('runInsightLegs', () => {
       derivedVersion: null,
     });
     expect(queries).toHaveLength(1); // no vector → BM25 only
-    expect(queries[0].sql).toContain('AND derivedVersion IS NONE');
+    expect(queries[0]!.sql).toContain('AND derivedVersion IS NONE');
   });
 
   it('budgets long insight text at a word boundary', async () => {
@@ -104,8 +101,8 @@ describe('runInsightLegs', () => {
       callerScopes: [],
       derivedVersion: 'wd-v2',
     });
-    expect(vectorRows[0].object.length).toBeLessThan(820);
-    expect(vectorRows[0].object.endsWith('[…]')).toBe(true);
+    expect(vectorRows[0]!.object.length).toBeLessThan(820);
+    expect(vectorRows[0]!.object.endsWith('[…]')).toBe(true);
   });
 });
 
@@ -185,9 +182,7 @@ describe('InsightLaneService', () => {
 
 describe('RETRIEVAL_INSIGHT_EVIDENCE profile point', () => {
   it('defaults off; routed round-trips; garbage rejects to off', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).insightEvidence,
-    ).toBe('off');
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).insightEvidence).toBe('off');
     expect(
       resolveRetrievalProfile({
         RETRIEVAL_INSIGHT_EVIDENCE: 'routed',
@@ -206,12 +201,8 @@ describe('RETRIEVAL_INSIGHT_EVIDENCE profile point', () => {
         beamco: { insightEvidence: 'routed' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe(
-      'routed',
-    );
-    expect(resolveRetrievalProfileFor('other', env).insightEvidence).toBe(
-      'off',
-    );
+    expect(resolveRetrievalProfileFor('beamco', env).insightEvidence).toBe('routed');
+    expect(resolveRetrievalProfileFor('other', env).insightEvidence).toBe('off');
   });
 });
 
@@ -235,8 +226,6 @@ describe('generator prompt insight section', () => {
       insightLines: ['- big picture (as of 2023-05-01)'],
     });
     expect(msg).toContain('Derived insights');
-    expect(msg.indexOf('Transcript excerpts')).toBeLessThan(
-      msg.indexOf('Derived insights'),
-    );
+    expect(msg.indexOf('Transcript excerpts')).toBeLessThan(msg.indexOf('Derived insights'));
   });
 });

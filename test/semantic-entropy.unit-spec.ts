@@ -13,7 +13,7 @@ describe('semantic-entropy', () => {
       [{ predicate: 'status', object: 'CTO' }],
     ]);
     expect(clusters.size).toBe(1);
-    const [info] = clusters.values();
+    const info = [...clusters.values()][0]!;
     expect(info.count).toBe(3);
   });
 
@@ -42,7 +42,7 @@ describe('semantic-entropy', () => {
       ],
       [{ predicate: 'status', object: 'CTO' }],
     ]);
-    const [info] = clusters.values();
+    const info = [...clusters.values()][0]!;
     expect(info.count).toBe(2);
   });
 
@@ -72,8 +72,12 @@ describe('semantic-entropy', () => {
       [{ predicate: 'status', object: 'CFO' }],
     ]);
     expect(consistency.size).toBe(2);
-    expect(consistency.get(clusterKey({ predicate: 'status', object: 'CTO' }))?.agreement).toBeCloseTo(2 / 3);
-    expect(consistency.get(clusterKey({ predicate: 'status', object: 'CFO' }))?.agreement).toBeCloseTo(1 / 3);
+    expect(
+      consistency.get(clusterKey({ predicate: 'status', object: 'CTO' }))?.agreement,
+    ).toBeCloseTo(2 / 3);
+    expect(
+      consistency.get(clusterKey({ predicate: 'status', object: 'CFO' }))?.agreement,
+    ).toBeCloseTo(1 / 3);
     const entropies = [...consistency.values()].map((c) => c.entropy);
     // Same entropy attached to every fact in the same cluster set.
     expect(new Set(entropies).size).toBe(1);

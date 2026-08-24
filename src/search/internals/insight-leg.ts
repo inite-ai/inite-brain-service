@@ -1,9 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import type { FactRow } from './types';
-import {
-  derivedVersionFence,
-  type ReadPin,
-} from '../../episodes/read-pin.service';
+import { derivedVersionFence, type ReadPin } from '../../episodes/read-pin.service';
 
 /**
  * Insight fusion leg (V8 §1 — the qualified insight lane).
@@ -51,7 +48,7 @@ export interface InsightRow {
   score?: number;
   // Policy fields (audit 2026-08-19 P1): the insight lane's row filter
   // reads these — a projection without them judged rules over null.
-  source?: unknown;
+  source?: Record<string, unknown> | null;
   trustSnapshot?: {
     authority?: number;
     declaredTrust?: number;
@@ -85,6 +82,9 @@ function budgetText(text: string): string {
   return `${atWord.trimEnd()} […]`;
 }
 
+/** Synthetic source stamped on insight rows that carry none from the DB. */
+const INSIGHT_FALLBACK_SOURCE: Record<string, unknown> = { vertical: 'insight' };
+
 function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
   const valid = String(r.validFrom ?? '');
   return {
@@ -96,13 +96,11 @@ function toFactRow(r: InsightRow, kind: 'vector' | 'lexical'): FactRow {
     validFrom: valid,
     recordedAt: new Date().toISOString(),
     status: 'active',
-    source: r.source ?? { vertical: 'insight' },
+    source: r.source ?? INSIGHT_FALLBACK_SOURCE,
     ...(r.trustSnapshot !== undefined ? { trustSnapshot: r.trustSnapshot } : {}),
     ...(r.corroboration !== undefined ? { corroboration: r.corroboration } : {}),
     ...(r.userId !== undefined ? { userId: r.userId } : {}),
-    ...(kind === 'vector'
-      ? { simScore: r.score ?? 0 }
-      : { bm25Score: r.score ?? 0 }),
+    ...(kind === 'vector' ? { simScore: r.score ?? 0 } : { bm25Score: r.score ?? 0 }),
   };
 }
 
@@ -124,12 +122,8 @@ export async function runInsightLegs({
   vectorRows: FactRow[];
   lexicalRows: FactRow[];
 }> {
-  const piiGate = callerScopes.includes('brain:read_pii')
-    ? ''
-    : 'AND piiClass IS NONE';
-  const userGate = userId
-    ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-    : 'AND userId IS NONE';
+  const piiGate = callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
+  const userGate = userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
   const userParams = userId ? { scopeUserId: userId } : {};
   const worldFence = derivedVersionFence(derivedVersion);
   const worldGate = worldFence.clause;

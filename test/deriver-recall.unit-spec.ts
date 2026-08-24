@@ -107,13 +107,10 @@ describe('deriver recall (V7)', () => {
       prop('A', 'A has a dog named Rex'), // dup modulo period — dropped
       prop('B', 'B is moving to Lisbon in June.'), // novel — kept
     ];
-    const create = jest
-      .fn()
-      .mockResolvedValueOnce(ok(base))
-      .mockResolvedValueOnce(ok(extra));
+    const create = jest.fn().mockResolvedValueOnce(ok(base)).mockResolvedValueOnce(ok(extra));
     const out = await callDeriver(makeSvc(create));
     expect(out).toHaveLength(2);
-    expect(out[1].proposition).toContain('Lisbon');
+    expect(out[1]!.proposition).toContain('Lisbon');
     // The follow-up turn carries the base list + the completion prompt.
     const followupMessages = create.mock.calls[1][0].messages;
     expect(followupMessages.at(-1).content).toBe(DERIVER_COMPLETION_PROMPT);
@@ -132,9 +129,9 @@ describe('deriver recall (V7)', () => {
   });
 
   it('propositionKey normalizes case/whitespace/trailing period', () => {
-    expect(
-      propositionKey({ subject: ' Caroline ', proposition: 'Has  two cats.' }),
-    ).toBe(propositionKey({ subject: 'caroline', proposition: 'has two cats' }));
+    expect(propositionKey({ subject: ' Caroline ', proposition: 'Has  two cats.' })).toBe(
+      propositionKey({ subject: 'caroline', proposition: 'has two cats' }),
+    );
   });
 
   /**
@@ -176,18 +173,14 @@ describe('deriver recall (V7)', () => {
       const items = itemSchema(create.mock.calls[0][0]);
       expect(items.properties).not.toHaveProperty('quotes');
       expect(items.required).not.toContain('quotes');
-      expect(create.mock.calls[0][0].messages[0].content).not.toContain(
-        'GROUNDING QUOTES',
-      );
+      expect(create.mock.calls[0][0].messages[0].content).not.toContain('GROUNDING QUOTES');
     });
 
     it('flag on: quotes required in schema, span section in the prompt, quotes ride through', async () => {
       process.env.DERIVER_SPANS = '1';
       const create = jest
         .fn()
-        .mockResolvedValue(
-          ok([{ ...prop('A', 'A has a dog.'), quotes: ['has a dog'] }]),
-        );
+        .mockResolvedValue(ok([{ ...prop('A', 'A has a dog.'), quotes: ['has a dog'] }]));
       const out = await callDeriver(makeSvc(create));
       const items = itemSchema(create.mock.calls[0][0]);
       expect(items.properties.quotes).toEqual({
@@ -195,12 +188,8 @@ describe('deriver recall (V7)', () => {
         items: { type: ['string', 'null'] },
       });
       expect(items.required).toContain('quotes');
-      expect(create.mock.calls[0][0].messages[0].content).toContain(
-        'GROUNDING QUOTES',
-      );
-      expect(
-        (out[0] as { quotes?: Array<string | null> }).quotes,
-      ).toEqual(['has a dog']);
+      expect(create.mock.calls[0][0].messages[0].content).toContain('GROUNDING QUOTES');
+      expect((out[0] as { quotes?: Array<string | null> }).quotes).toEqual(['has a dog']);
     });
   });
 });

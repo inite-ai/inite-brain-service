@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ProceduralMemoryService } from '../procedural/procedural-memory.service';
+import { asStructuredContent } from './structured';
 
 export interface ProceduralReadDeps {
   /** Caller scopes — routes these reads through the scoped pool. */
@@ -27,7 +28,7 @@ export function registerProceduralReadTools(
     {
       title: 'Match procedural memory against a context query',
       description:
-        "Cosine-matches procedural memory (curated 'how to' patterns the operator recorded) against a free-text context query. Returns top-K procedures sorted by similarity DESC then priority ASC. Use at the top of an agent loop to surface behaviour rules that should apply — e.g. \"user asks about pricing\" → \"mention they're on platinum tier; they get 20% off\". Procedural memory is the third tier alongside facts (semantic) and episodes (timeline).",
+        'Cosine-matches procedural memory (curated \'how to\' patterns the operator recorded) against a free-text context query. Returns top-K procedures sorted by similarity DESC then priority ASC. Use at the top of an agent loop to surface behaviour rules that should apply — e.g. "user asks about pricing" → "mention they\'re on platinum tier; they get 20% off". Procedural memory is the third tier alongside facts (semantic) and episodes (timeline).',
       inputSchema: {
         query: z.string().describe('Natural-language context'),
         limit: z.number().int().min(1).max(20).optional(),
@@ -43,12 +44,12 @@ export function registerProceduralReadTools(
       const out = await deps.procedural.match(companyId, {
         callerScopes: scopes,
         query: args.query,
-        limit: args.limit,
-        minSimilarity: args.minSimilarity,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.minSimilarity !== undefined ? { minSimilarity: args.minSimilarity } : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { matches: out } as any,
+        structuredContent: asStructuredContent({ matches: out }),
       };
     },
   );
@@ -68,12 +69,12 @@ export function registerProceduralReadTools(
     async (args) => {
       const out = await deps.procedural.list(companyId, {
         callerScopes: scopes,
-        limit: args.limit,
-        includeRetired: args.includeRetired,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.includeRetired !== undefined ? { includeRetired: args.includeRetired } : {}),
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
-        structuredContent: { procedures: out } as any,
+        structuredContent: asStructuredContent({ procedures: out }),
       };
     },
   );

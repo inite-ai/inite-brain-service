@@ -2,11 +2,13 @@ import { Injectable, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import {
   dbCreate,
+  queryFirst,
+  queryRows,
   retryOnUniqueViolation,
   runTransaction,
 } from '../db/surreal.service';
 import { EntityResolverService } from './entity-resolver.service';
-import { IngestFactDto } from './dto/ingest-fact.dto';
+import { EntityRef, IngestFactDto } from './dto/ingest-fact.dto';
 import { externalRefKey } from './ingest-utils';
 import { scopeForUser } from '../auth/scope-tags';
 
@@ -36,11 +38,7 @@ export class EntityUpsertService {
    * On a unique violation (another caller created the same ref between our
    * read and write) we retry; the next read finds the row.
    */
-  async resolveOrCreateEntity(
-    db: Surreal,
-    dto: IngestFactDto,
-    userId?: string,
-  ): Promise<string> {
+  async resolveOrCreateEntity(db: Surreal, dto: IngestFactDto, userId?: string): Promise<string> {
     if ('entityId' in dto.entityRef && dto.entityRef.entityId) {
       // A bare entityId attaches to that entity whatever its scope — the
       // trusted caller can put a personal fact on a shared entity.
@@ -96,11 +94,11 @@ export class EntityUpsertService {
   }
 
   private async lookupExternalRef(db: Surreal, key: string): Promise<string | null> {
-    const [rows] = await db.query<[any[]]>(
+    const arr = await queryRows<unknown>(
+      db,
       `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    const arr = (rows as any[]) ?? [];
     return arr[0] ? String(arr[0]) : null;
   }
 
@@ -112,7 +110,7 @@ export class EntityUpsertService {
     incomingFacts = [],
   }: {
     db: Surreal;
-    e: { name: string; type: string; canonical?: string };
+    e: { name: string; type: string; canonical?: string | undefined };
     hint: { vertical: string; id: string; role?: string } | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
@@ -142,7 +140,8 @@ export class EntityUpsertService {
     // private entity and leak its identity (externalRefs, canonicalName)
     // onto the global surface. Mirrors the scope fence on the embedding
     // resolver (entity-resolver.service.ts).
-    const [nRows] = await db.query<any[][]>(
+    const nRow = await queryFirst<{ id: unknown }>(
+      db,
       `SELECT id FROM knowledge_entity
        WHERE (canonicalNameLc = $name
           OR aliases CONTAINS $rawName)
@@ -150,7 +149,6 @@ export class EntityUpsertService {
        LIMIT 1`,
       { name: target, rawName: e.name },
     );
-    const nRow = ((nRows as any[]) ?? [])[0];
     if (nRow) return String(nRow.id);
 
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
@@ -168,7 +166,7 @@ export class EntityUpsertService {
       if (resolved) return resolved;
     }
 
-    const created = await dbCreate<any>(db, 'knowledge_entity', {
+    const created = await dbCreate<{ id: unknown }>(db, 'knowledge_entity', {
       type: this.normalizeEntityType(e.type),
       canonicalName: e.canonical ?? e.name,
       aliases: [e.name],
@@ -177,10 +175,7 @@ export class EntityUpsertService {
     return String(created?.id);
   }
 
-  async resolveOrCreateBareRef(
-    db: Surreal,
-    ref: { vertical: string; id: string } | { entityId: string },
-  ): Promise<string> {
+  async resolveOrCreateBareRef(db: Surreal, ref: EntityRef): Promise<string> {
     if ('entityId' in ref && ref.entityId) {
       return ref.entityId.includes(':') ? ref.entityId : `knowledge_entity:${ref.entityId}`;
     }

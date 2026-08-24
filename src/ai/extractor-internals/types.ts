@@ -5,16 +5,9 @@
 
 export interface ExtractedEntity {
   name: string;
-  type:
-    | 'customer'
-    | 'staff'
-    | 'asset'
-    | 'project'
-    | 'topic'
-    | 'location'
-    | 'other';
+  type: 'customer' | 'staff' | 'asset' | 'project' | 'topic' | 'location' | 'other';
   /** Optional canonical clue ("Apple Inc.", "Acme Corp"). */
-  canonical?: string;
+  canonical?: string | undefined;
 }
 
 export interface ExtractedFact {
@@ -32,7 +25,7 @@ export interface ExtractedFact {
   object: string;
   confidence: number;
   /** The clause this fact was anchored to (verbatim sub-span). */
-  clause?: string;
+  clause?: string | undefined;
   /**
    * The verbatim grounded span the object was derived from. Equal to
    * `object` unless object normalization rewrote the stored value

@@ -23,6 +23,7 @@ import { DemoPipelineService } from './demo-pipeline.service';
 import { DemoStateService } from './demo-state.service';
 import { DemoChatService } from './demo-chat.service';
 import { policyFor } from '../ingest/conflict-resolver';
+import type { SearchHit } from '../search/search.types';
 
 /**
  * Default demo tenant — used when the admin overview / router-stats
@@ -63,9 +64,7 @@ function assertPiiScope(
   if (!wantsPii) return ['brain:read'];
   const callerScopes = req.brainAuth?.scopes ?? [];
   if (!callerScopes.includes('brain:read_pii')) {
-    throw new ForbiddenException(
-      `includePii=true requires brain:read_pii scope`,
-    );
+    throw new ForbiddenException(`includePii=true requires brain:read_pii scope`);
   }
   return ['brain:read', 'brain:read_pii'];
 }
@@ -95,10 +94,7 @@ export class AdminDemoController {
   @RequireScopes('brain:admin')
   // Runs the LLM extractor end-to-end on demo state; cap aggressively.
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
-  async ingestMention(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: DemoIngestMentionDto,
-  ) {
+  async ingestMention(@Req() req: AuthenticatedRequest, @Body() body: DemoIngestMentionDto) {
     if (!body?.text?.trim()) {
       throw new BadRequestException('text is required');
     }
@@ -124,10 +120,7 @@ export class AdminDemoController {
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
   @Post('search')
   @RequireScopes('brain:admin')
-  async demoSearch(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: DemoSearchDto,
-  ) {
+  async demoSearch(@Req() req: AuthenticatedRequest, @Body() body: DemoSearchDto) {
     if (!body?.query?.trim()) {
       throw new BadRequestException('query is required');
     }
@@ -141,10 +134,7 @@ export class AdminDemoController {
       ),
     );
     return {
-      results: enrichResults(
-        captured.result.results,
-        captured.trace.artifacts,
-      ),
+      results: enrichResults(captured.result.results, captured.trace.artifacts),
       trace: {
         requestId: captured.trace.requestId,
         totalMs: captured.trace.totalMs,
@@ -163,10 +153,7 @@ export class AdminDemoController {
   @RequireScopes('brain:admin')
   // Router-LLM + extractor (tell) OR router-LLM + synthesize (ask).
   @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
-  async demoChat(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: DemoChatDto,
-  ) {
+  async demoChat(@Req() req: AuthenticatedRequest, @Body() body: DemoChatDto) {
     if (!body?.message?.trim()) {
       throw new BadRequestException('message is required');
     }
@@ -182,18 +169,22 @@ export class AdminDemoController {
           scopes: askScopes,
         }),
       );
-      const result = captured.result as any;
-      if (result.search) {
-        result.search = {
-          results: enrichResults(
-            result.search.results,
-            captured.trace.artifacts,
-            result.strategy,
-          ),
-        };
-      }
+      const result = captured.result;
+      const shaped =
+        'search' in result
+          ? {
+              ...result,
+              search: {
+                results: enrichResults(
+                  result.search.results,
+                  captured.trace.artifacts,
+                  result.strategy,
+                ),
+              },
+            }
+          : result;
       return {
-        ...result,
+        ...shaped,
         trace: {
           requestId: captured.trace.requestId,
           totalMs: captured.trace.totalMs,
@@ -214,13 +205,9 @@ export class AdminDemoController {
       const e = err as Error & { code?: string };
       const isUpstream =
         e.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
-        /api\.openai\.com|Premature close|ECONNRESET|ETIMEDOUT|fetch failed/i.test(
-          e.message ?? '',
-        );
+        /api\.openai\.com|Premature close|ECONNRESET|ETIMEDOUT|fetch failed/i.test(e.message ?? '');
       if (isUpstream) {
-        this.logger.warn(
-          `/v1/admin/demo/chat upstream LLM unavailable: ${e.message}`,
-        );
+        this.logger.warn(`/v1/admin/demo/chat upstream LLM unavailable: ${e.message}`);
         throw new ServiceUnavailableException({
           reason: 'upstream_llm_unavailable',
           detail: e.message,
@@ -235,10 +222,7 @@ export class AdminDemoController {
   @Throttle({ expensive: { limit: 3, ttl: 60_000 } })
   @Post('dreams')
   @RequireScopes('brain:admin')
-  async demoDreams(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: DemoDreamsDto,
-  ) {
+  async demoDreams(@Req() req: AuthenticatedRequest, @Body() body: DemoDreamsDto) {
     const tenant = demoTenantFor(req);
     const captured = await runWithDebugTrace(() =>
       this.pipeline.runDreams(tenant, body?.operations ?? ['dedup', 'resolve']),
@@ -274,10 +258,10 @@ export class AdminDemoController {
  * fact.
  */
 function enrichResults(
-  results: any[],
+  results: SearchHit[],
   artifacts: Array<{ name: string; value: unknown }> = [],
   strategy: 'graph' | 'graph→vector' = 'graph→vector',
-): any[] {
+) {
   const vec = new Map<string, number>();
   const lex = new Map<string, number>();
   for (const a of artifacts) {
@@ -297,7 +281,7 @@ function enrichResults(
   }
   return results.map((r) => ({
     ...r,
-    facts: r.facts.map((f: any) => {
+    facts: r.facts.map((f) => {
       const policy = policyFor(f.predicate);
       const factId = String(f.factId);
       const vScore = vec.get(factId) ?? null;

@@ -25,10 +25,6 @@ import { ReadPinService } from './read-pin.service';
     EpisodeSubscriptionService,
     ReadPinService,
   ],
-  exports: [
-    EpisodeReadStoreService,
-    ProjectionRegistryService,
-    ReadPinService,
-  ],
+  exports: [EpisodeReadStoreService, ProjectionRegistryService, ReadPinService],
 })
 export class EpisodesModule {}

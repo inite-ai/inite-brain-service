@@ -15,15 +15,14 @@ function fpScenario(): Scenario {
     description: 'fp',
     setup: [],
     queries: [],
-    synthesizeQueries: [
-      { query: "What did Anna's brother say?", expectRefusal: true },
-    ],
+    synthesizeQueries: [{ query: "What did Anna's brother say?", expectRefusal: true }],
   };
 }
 
-function makeChecker(
-  synthesize: jest.Mock,
-): { checker: FaithfulnessChecker; openai: { chat: { completions: { create: jest.Mock } } } } {
+function makeChecker(synthesize: jest.Mock): {
+  checker: FaithfulnessChecker;
+  openai: { chat: { completions: { create: jest.Mock } } };
+} {
   const brain = { synthesize } as never;
   // The verifier client — asserting it is NEVER called on a refusal.
   const create = jest.fn();
@@ -54,7 +53,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
       .fn()
       .mockResolvedValue(emptyRes({ answer: null, reason: 'no_results' }));
     const { checker, openai } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.expectedRefusal).toBe(true);
     expect(out.refused).toBe(true);
     expect(out.passed).toBe(true);
@@ -63,21 +62,23 @@ describe('FaithfulnessChecker — false-premise branch', () => {
   });
 
   it('the "no grounded evidence" sentinel is a refusal → pass', async () => {
-    const synthesize = jest.fn().mockResolvedValue(
-      emptyRes({ answer: "I don't have grounded evidence for that." }),
-    );
+    const synthesize = jest
+      .fn()
+      .mockResolvedValue(emptyRes({ answer: "I don't have grounded evidence for that." }));
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.refused).toBe(true);
     expect(out.passed).toBe(true);
   });
 
   it('a confident answer is a confabulation → fail', async () => {
-    const synthesize = jest.fn().mockResolvedValue(
-      emptyRes({ answer: 'Her brother said the intercom was fine.', citations: [] }),
-    );
+    const synthesize = jest
+      .fn()
+      .mockResolvedValue(
+        emptyRes({ answer: 'Her brother said the intercom was fine.', citations: [] }),
+      );
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.refused).toBe(false);
     expect(out.passed).toBe(false);
     expect(out.expectedRefusal).toBe(true);
@@ -86,7 +87,7 @@ describe('FaithfulnessChecker — false-premise branch', () => {
   it('an exception fails closed (not a false pass)', async () => {
     const synthesize = jest.fn().mockRejectedValue(new Error('boom'));
     const { checker } = makeChecker(synthesize);
-    const [out] = await checker.check(fpScenario());
+    const out = (await checker.check(fpScenario()))[0]!;
     expect(out.passed).toBe(false);
   });
 });

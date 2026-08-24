@@ -102,7 +102,7 @@ export function isValidIso(s: string): boolean {
 export function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
   const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const inner = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  const inner = fenceMatch?.[1]?.trim() ?? trimmed;
   const start = inner.indexOf('{');
   if (start < 0) throw new Error('no JSON object found in router response');
   let depth = 0;
@@ -219,9 +219,7 @@ export function validateAndAssemble({
   return {
     intent: parsed.intent,
     normalizedMessage,
-    ...(cleanedQuery !== undefined && cleanedQuery !== message
-      ? { cleanedQuery }
-      : {}),
+    ...(cleanedQuery !== undefined && cleanedQuery !== message ? { cleanedQuery } : {}),
     mentions,
     predicateHints,
     ...(asOf ? { asOf } : {}),
@@ -317,7 +315,7 @@ function collectTemporalAnchors({
   message: string;
   normalizedInput: string;
   report: ValidationReport;
-}): { asOf?: TemporalAnchor; validFrom?: TemporalAnchor } {
+}): { asOf?: TemporalAnchor | undefined; validFrom?: TemporalAnchor | undefined } {
   let asOf: TemporalAnchor | undefined;
   if (parsed.intent === 'ask' && parsed.asOf) {
     const span = validateSpan(message, normalizedInput, parsed.asOf.anchorSpan);
@@ -330,11 +328,7 @@ function collectTemporalAnchors({
   }
   let validFrom: TemporalAnchor | undefined;
   if (parsed.intent === 'tell' && parsed.validFrom) {
-    const span = validateSpan(
-      message,
-      normalizedInput,
-      parsed.validFrom.anchorSpan,
-    );
+    const span = validateSpan(message, normalizedInput, parsed.validFrom.anchorSpan);
     if (span && isValidIso(parsed.validFrom.iso)) {
       validFrom = { iso: parsed.validFrom.iso, anchorSpan: span };
       report.validFromStatus = 'grounded';
@@ -425,9 +419,7 @@ function deriveStripTemporalEdits(
   const out: EditOp[] = [];
   for (const anchor of [asOf?.anchorSpan, validFrom?.anchorSpan]) {
     if (!anchor) continue;
-    const overlaps = acceptedSpans.some(
-      (s) => !(s.end <= anchor.start || s.start >= anchor.end),
-    );
+    const overlaps = acceptedSpans.some((s) => !(s.end <= anchor.start || s.start >= anchor.end));
     if (overlaps) continue;
     out.push({ op: 'strip_temporal', sourceSpan: anchor });
   }

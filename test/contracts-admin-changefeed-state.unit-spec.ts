@@ -36,9 +36,7 @@ function makeChangefeed(): ChangefeedConsumerService {
   } as unknown as ChangefeedConsumerService;
 }
 
-function makeController(
-  changefeed: ChangefeedConsumerService,
-): AdminJobsController {
+function makeController(changefeed: ChangefeedConsumerService): AdminJobsController {
   const undef = undefined as unknown as never;
   return new AdminJobsController(
     undef,
@@ -92,9 +90,7 @@ describe('AdminJobsController.changefeedState() — wire contract', () => {
       cursorState: async () => [],
     } as unknown as ChangefeedConsumerService;
     const controller = makeController(cold);
-    const parsed = ChangefeedStateResponseSchema.safeParse(
-      await controller.changefeedState(),
-    );
+    const parsed = ChangefeedStateResponseSchema.safeParse(await controller.changefeedState());
     expect(parsed.success).toBe(true);
   });
 });

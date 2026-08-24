@@ -37,9 +37,7 @@ describe('AdminInfraController.now() — wire contract', () => {
   it('matches NowResponseSchema', () => {
     const parsed = NowResponseSchema.safeParse(makeController().now());
     if (!parsed.success) {
-      throw new Error(
-        `now drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`now drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

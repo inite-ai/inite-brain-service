@@ -57,8 +57,7 @@ describe('buildLexMatchLeg — or_terms', () => {
       mode: 'or_terms',
     });
     expect(leg.where).toBe(
-      '(searchHaystack @1@ $t0 OR object @2@ $t0 OR ' +
-        'searchHaystack @3@ $t1 OR object @4@ $t1)',
+      '(searchHaystack @1@ $t0 OR object @2@ $t0 OR ' + 'searchHaystack @3@ $t1 OR object @4@ $t1)',
     );
     expect(leg.score).toBe(
       'math::sum([math::max([search::score(1), search::score(2)]), ' +
@@ -79,9 +78,7 @@ describe('buildLexMatchLeg — or_terms', () => {
   });
 
   it('bounds the term count (8 terms → ≤16 refs on the two-field leg)', () => {
-    const topic = Array.from({ length: 20 }, (_, i) => `term${i}word`).join(
-      ' ',
-    );
+    const topic = Array.from({ length: 20 }, (_, i) => `term${i}word`).join(' ');
     const leg = buildLexMatchLeg({ fields: ['text'], topic, mode: 'or_terms' });
     expect(Object.keys(leg.params)).toHaveLength(8);
   });
@@ -99,9 +96,7 @@ describe('buildLexMatchLeg — or_terms', () => {
 
 describe('coverageLexMode profile point', () => {
   it('defaults to the legacy phrase shape', () => {
-    expect(
-      resolveRetrievalProfile({} as NodeJS.ProcessEnv).coverageLexMode,
-    ).toBe('phrase');
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).coverageLexMode).toBe('phrase');
   });
 
   it('round-trips through the env', () => {
@@ -118,11 +113,7 @@ describe('coverageLexMode profile point', () => {
         bigco: { coverageLexMode: 'or_terms' },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('bigco', env).coverageLexMode).toBe(
-      'or_terms',
-    );
-    expect(resolveRetrievalProfileFor('other', env).coverageLexMode).toBe(
-      'phrase',
-    );
+    expect(resolveRetrievalProfileFor('bigco', env).coverageLexMode).toBe('or_terms');
+    expect(resolveRetrievalProfileFor('other', env).coverageLexMode).toBe('phrase');
   });
 });

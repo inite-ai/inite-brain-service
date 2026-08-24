@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Surreal } from 'surrealdb';
 import {
   SurrealService,
   retryOnUniqueViolation,
   isUniqueViolation,
+  queryRows,
+  queryFirst,
 } from '../db/surreal.service';
 import { BrainScope } from '../auth/api-key.types';
 import { CODE_MEMORY_PACK } from '../ai/domain-packs';
@@ -11,6 +14,18 @@ export interface AnchorRow {
   anchor: string;
   entityId: string;
   factIds: string[];
+}
+
+/** A code-memory knowledge_fact row as read by listAnchors. */
+interface AnchorFactRow {
+  id: unknown;
+  entityId: unknown;
+  refs?: Record<string, string> | null;
+}
+
+/** The entity row read to mirror externalRefs during reanchor. */
+interface EntityRefsRow {
+  externalRefs?: Record<string, string> | null;
 }
 
 /**
@@ -32,15 +47,13 @@ export class CodeMemoryAnchorService {
   constructor(private readonly surreal: SurrealService) {}
 
   /** All code anchors currently carrying active code-memory facts. */
-  async listAnchors(
-    companyId: string,
-    scopes: BrainScope[],
-  ): Promise<AnchorRow[]> {
+  async listAnchors(companyId: string, scopes: BrainScope[]): Promise<AnchorRow[]> {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // Half-open predicate range rides fact_predicate_idx; the previous
       // string::starts_with defeated the index (full scan + per-row
       // entityId deref). LIMIT bounds the admin listing.
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<AnchorFactRow>(
+        db,
         `SELECT id, entityId, entityId.externalRefs AS refs
            FROM knowledge_fact
            WHERE predicate >= $prefix AND predicate < $prefixEnd
@@ -49,7 +62,7 @@ export class CodeMemoryAnchorService {
         { prefix: this.prefix, prefixEnd: `${this.prefix}￿` },
       );
       const byAnchor = new Map<string, AnchorRow>();
-      for (const r of (rows as any[]) ?? []) {
+      for (const r of rows) {
         const anchor = anchorOf(r.refs);
         if (!anchor) continue;
         const existing = byAnchor.get(anchor);
@@ -68,11 +81,7 @@ export class CodeMemoryAnchorService {
   }
 
   /** Retract the active code-memory facts on an anchor (drift: symbol/file gone). */
-  async invalidateAnchor(
-    companyId: string,
-    anchor: string,
-    reason: string,
-  ): Promise<number> {
+  async invalidateAnchor(companyId: string, anchor: string, reason: string): Promise<number> {
     return this.surreal.withCompany(companyId, async (db) => {
       const entityId = await this.resolveEntity(db, anchor);
       if (!entityId) return 0;
@@ -83,7 +92,8 @@ export class CodeMemoryAnchorService {
       // retractedAt IS NONE) keeps superseded rows untouched: they carry
       // the retractionReason = 'superseded' sentinel that revive +
       // calibration depend on, and they are already out of every read.
-      const [updated] = await db.query<[any[]]>(
+      const updated = await queryRows<{ id: unknown }>(
+        db,
         `UPDATE knowledge_fact
            SET status = 'retracted',
                retractedAt = time::now(),
@@ -96,7 +106,7 @@ export class CodeMemoryAnchorService {
            RETURN AFTER`,
         { eid: idTail(entityId), prefix: this.prefix, reason },
       );
-      const n = ((updated as any[]) ?? []).length;
+      const n = updated.length;
       this.logger.log(
         `Invalidated ${n} code-memory fact(s) at anchor ${anchor} (${companyId}): ${reason}`,
       );
@@ -129,30 +139,29 @@ export class CodeMemoryAnchorService {
         throw e;
       }
       // Mirror into the entity's externalRefs map (read-merge-write).
-      const [ent] = await db.query<[any[]]>(
+      const ent = await queryFirst<EntityRefsRow>(
+        db,
         `SELECT externalRefs FROM type::record('knowledge_entity', $eid) LIMIT 1`,
         { eid: idTail(entityId) },
       );
-      const refs = ((ent as any[]) ?? [])[0]?.externalRefs ?? {};
-      await db.query(
-        `UPDATE type::record('knowledge_entity', $eid) SET externalRefs = $refs`,
-        { eid: idTail(entityId), refs: { ...refs, [newKey]: newAnchor } },
-      );
-      this.logger.log(
-        `Re-anchored ${oldAnchor} → ${newAnchor} (${companyId})`,
-      );
+      const refs = ent?.externalRefs ?? {};
+      await db.query(`UPDATE type::record('knowledge_entity', $eid) SET externalRefs = $refs`, {
+        eid: idTail(entityId),
+        refs: { ...refs, [newKey]: newAnchor },
+      });
+      this.logger.log(`Re-anchored ${oldAnchor} → ${newAnchor} (${companyId})`);
       return { reanchored: true };
     });
   }
 
-  private async resolveEntity(db: any, anchor: string): Promise<string | null> {
+  private async resolveEntity(db: Surreal, anchor: string): Promise<string | null> {
     const key = externalRefKey('code', anchor);
-    const [rows] = await db.query(
+    const first = await queryFirst<unknown>(
+      db,
       `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
       { key },
     );
-    const arr = (rows as any[]) ?? [];
-    return arr[0] ? String(arr[0]) : null;
+    return first ? String(first) : null;
   }
 }
 

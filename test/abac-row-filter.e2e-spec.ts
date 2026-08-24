@@ -63,8 +63,16 @@ const ENTITY_REF = { vertical: 'rent', id: 'subj_abac_rows' };
 
 async function seedFacts(f: AppFixture): Promise<void> {
   const facts = [
-    { predicate: 'preference', object: 'ground floor apartments', source: { vertical: 'support', recorder: 'crm' } },
-    { predicate: 'complaint', object: 'noisy ground floor neighbours', source: { vertical: 'hr', recorder: 'hr-sync' } },
+    {
+      predicate: 'preference',
+      object: 'ground floor apartments',
+      source: { vertical: 'support', recorder: 'crm' },
+    },
+    {
+      predicate: 'complaint',
+      object: 'noisy ground floor neighbours',
+      source: { vertical: 'hr', recorder: 'hr-sync' },
+    },
   ];
   for (const fact of facts) {
     const r = await f.http
@@ -91,9 +99,7 @@ function normalizeNumbers(value: any): any {
   if (typeof value === 'number') return Math.round(value * 1e6) / 1e6;
   if (Array.isArray(value)) return value.map(normalizeNumbers);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, normalizeNumbers(v)]),
-    );
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalizeNumbers(v)]));
   }
   return value;
 }
@@ -136,7 +142,9 @@ describe('ABAC row filter across read surfaces', () => {
           { scopes: ['brain:read', 'brain:write'], policies: ['shadow-no-hr'] },
         ],
       });
-      [noHrKey, supportOnlyKey, shadowKey] = f.extraApiKeys;
+      noHrKey = f.extraApiKeys[0]!;
+      supportOnlyKey = f.extraApiKeys[1]!;
+      shadowKey = f.extraApiKeys[2]!;
       for (const doc of [NO_HR_DOC, SUPPORT_ONLY_DOC, SHADOW_DOC]) {
         const r = await f.http
           .post('/v1/admin/policy-sets')

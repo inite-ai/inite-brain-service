@@ -19,9 +19,7 @@ function makeController(): AdminInfraController {
           throttledRate: 0.05,
         },
       ],
-      topActors: [
-        { actor: 'tenant-a', total: 50, throttled: 1, throttledRate: 0.02 },
-      ],
+      topActors: [{ actor: 'tenant-a', total: 50, throttled: 1, throttledRate: 0.02 }],
       recentThrottled: [
         {
           ts: new Date().toISOString(),
@@ -42,13 +40,9 @@ function makeController(): AdminInfraController {
 
 describe('AdminInfraController.throttlerView() — wire contract', () => {
   it('matches ThrottlerResponseSchema', () => {
-    const parsed = ThrottlerResponseSchema.safeParse(
-      makeController().throttlerView(),
-    );
+    const parsed = ThrottlerResponseSchema.safeParse(makeController().throttlerView());
     if (!parsed.success) {
-      throw new Error(
-        `throttler drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`,
-      );
+      throw new Error(`throttler drifted: ${JSON.stringify(parsed.error.issues, null, 2)}`);
     }
   });
 });

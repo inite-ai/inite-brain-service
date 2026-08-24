@@ -8,6 +8,8 @@ import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { createEdgeBetween } from './edge-writer';
 import { MentionSource } from './mention-extraction.service';
+import type { ExtractionResult } from '../ai/extractor.service';
+import type { ResolveOutcome } from './conflict-resolver';
 import {
   isFirstPersonSelfReference,
   isSecondPersonReference,
@@ -43,7 +45,7 @@ export class MentionPersistService {
   async persistAll(p: {
     companyId: string;
     dto: IngestMentionDto;
-    extraction: any;
+    extraction: ExtractionResult;
     source: MentionSource;
     factEmbeddings: number[][];
   }): Promise<MentionPersistResult> {
@@ -88,15 +90,13 @@ export class MentionPersistService {
   ): KnownEntity | undefined {
     if (
       speaker &&
-      (isFirstPersonSelfReference(e.name) ||
-        matchesParticipantName(e.name, speaker.name))
+      (isFirstPersonSelfReference(e.name) || matchesParticipantName(e.name, speaker.name))
     ) {
       return speaker;
     }
     if (
       addressee &&
-      (isSecondPersonReference(e.name) ||
-        matchesParticipantName(e.name, addressee.name))
+      (isSecondPersonReference(e.name) || matchesParticipantName(e.name, addressee.name))
     ) {
       return addressee;
     }
@@ -105,7 +105,7 @@ export class MentionPersistService {
 
   private async persistEntities(
     db: Surreal,
-    p: { extraction: any; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, dto } = p;
     // Speaker/addressee anchors for coreference. The OLD code paired
@@ -119,7 +119,7 @@ export class MentionPersistService {
     const addresseeHint = dto.knownEntities?.find((k) => k.role === 'addressee');
     const entityIds: string[] = [];
     for (let i = 0; i < extraction.entities.length; i++) {
-      const e = extraction.entities[i];
+      const e = extraction.entities[i]!;
       const knownHint = this.hintFor(e, speakerHint, addresseeHint);
       // The entity's freshly-extracted facts feed the inline-resolution judge
       // (the "new" side — these aren't written yet).
@@ -148,7 +148,7 @@ export class MentionPersistService {
     p: {
       companyId: string;
       dto: IngestMentionDto;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       factEmbeddings: number[][];
       entityIds: string[];
@@ -156,14 +156,12 @@ export class MentionPersistService {
   ): Promise<string[]> {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
-    const eventTimeOn = envFlagEnabled(
-      process.env.INGEST_EVENT_TIME_EXTRACTION,
-    );
+    const eventTimeOn = envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION);
     if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
       return this.persistFactsBatched(db, p, eventTimeOn);
     }
     for (let i = 0; i < extraction.facts.length; i++) {
-      const f = extraction.facts[i];
+      const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       const validFrom = this.factValidFrom(f, dto, eventTimeOn);
@@ -199,7 +197,7 @@ export class MentionPersistService {
    * guarded (INSERTED_HISTORICAL); bitemporal is not.
    */
   private factValidFrom(
-    f: { predicate: string; clause?: string },
+    f: { predicate: string; clause?: string | undefined },
     dto: IngestMentionDto,
     eventTimeOn: boolean,
   ): Date {
@@ -226,7 +224,7 @@ export class MentionPersistService {
     p: {
       companyId: string;
       dto: IngestMentionDto;
-      extraction: any;
+      extraction: ExtractionResult;
       source: MentionSource;
       factEmbeddings: number[][];
       entityIds: string[];
@@ -239,7 +237,7 @@ export class MentionPersistService {
       input: Parameters<FactResolverService['resolve']>[1];
     }> = [];
     for (let i = 0; i < extraction.facts.length; i++) {
-      const f = extraction.facts[i];
+      const f = extraction.facts[i]!;
       const eid = entityIds[f.entityIndex];
       if (!eid) continue;
       specs.push({
@@ -253,10 +251,7 @@ export class MentionPersistService {
           confidence: f.confidence,
           validFrom: this.factValidFrom(f, dto, eventTimeOn),
           source,
-          entropy:
-            typeof f.extractionEntropy === 'number'
-              ? f.extractionEntropy
-              : undefined,
+          entropy: typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined,
           precomputedEmbedding: factEmbeddings[i],
           // Audit 2026-08-21 P0: the per-user scope stamps every
           // extracted fact on the batched path too.
@@ -268,12 +263,17 @@ export class MentionPersistService {
 
     const resolved = await traceSpan(
       'ingest.facts.batch',
-      () => this.factResolver.resolveMany(db, specs.map((s) => s.input)),
+      () =>
+        this.factResolver.resolveMany(
+          db,
+          specs.map((s) => s.input),
+        ),
       { facts: specs.length },
     );
     const factIds: string[] = [];
     resolved.forEach((r, k) => {
-      const factId = this.emitFactOutcome(specs[k].f, r.result, r.semantics);
+      // resolved is 1:1 with specs (resolveMany preserves order) ⇒ in-bounds.
+      const factId = this.emitFactOutcome(specs[k]!.f, r.result, r.semantics);
       if (factId) factIds.push(factId);
     });
     return factIds;
@@ -294,21 +294,20 @@ export class MentionPersistService {
       entityId: string;
       f: {
         predicate: string;
-        predicateAlias?: string;
+        predicateAlias?: string | undefined;
         object: string;
         confidence: number;
-        extractionEntropy?: number;
+        extractionEntropy?: number | undefined;
       };
       source: MentionSource;
       validFrom: Date;
       precomputedEmbedding: number[] | undefined;
       /** Per-user scope (audit 2026-08-21 P0) — stamps the fact row. */
-      userId?: string;
+      userId?: string | undefined;
     },
   ): Promise<string | null> {
     const { f } = p;
-    const entropy =
-      typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined;
+    const entropy = typeof f.extractionEntropy === 'number' ? f.extractionEntropy : undefined;
     const { result, semantics } = await this.factResolver.resolve(db, {
       companyId: p.companyId,
       entityId: p.entityId,
@@ -333,7 +332,7 @@ export class MentionPersistService {
    */
   private emitFactOutcome(
     f: { predicate: string; object: string },
-    result: any,
+    result: ResolveOutcome,
     semantics: string,
   ): string | null {
     const factId = result?.factId ? String(result.factId) : null;
@@ -362,7 +361,7 @@ export class MentionPersistService {
    */
   private async persistEdges(
     db: Surreal,
-    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
     if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
@@ -418,15 +417,14 @@ export class MentionPersistService {
    */
   private async persistEdgesBatched(
     db: Surreal,
-    p: { extraction: any; entityIds: string[]; dto: IngestMentionDto },
+    p: { extraction: ExtractionResult; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
     // Deduplicate candidates within the batch: the extraction can emit the
     // same (from,to,kind) twice, which the per-edge loop would resolve to
     // the same id twice. One entry keeps the RELATE batch collision-free.
     const seen = new Set<string>();
-    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> =
-      [];
+    const cands: Array<{ from: string; to: string; kind: string; confidence: number }> = [];
     for (const e of extraction.edges) {
       const from = entityIds[e.fromEntityIndex];
       const to = entityIds[e.toEntityIndex];

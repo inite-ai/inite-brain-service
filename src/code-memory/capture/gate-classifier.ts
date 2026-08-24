@@ -1,24 +1,10 @@
-import type {
-  CommitInput,
-  DecisionClassifier,
-  DecisionKind,
-  Layer1Verdict,
-} from './types';
+import type { CommitInput, DecisionClassifier, DecisionKind, Layer1Verdict } from './types';
 import { parseCommitSignals } from './commit-signals';
 import { commitText } from './silver-dataset';
-import {
-  DEFAULT_FEATURE_CONFIG,
-  featurize,
-  type FeatureConfig,
-} from './gate-features';
+import { DEFAULT_FEATURE_CONFIG, featurize, type FeatureConfig } from './gate-features';
 
 /** The decision kinds the multi-label heads predict, in a stable order. */
-export const GATE_KINDS: DecisionKind[] = [
-  'decided',
-  'because',
-  'invariant',
-  'gotcha',
-];
+export const GATE_KINDS: DecisionKind[] = ['decided', 'because', 'invariant', 'gotcha'];
 
 /**
  * Code-memory track C — the trained Layer-1 gate model + serving classifier.
@@ -70,10 +56,7 @@ function scoreHead(head: LinearHead, feats: Map<number, number>): number {
 }
 
 /** P(decision-bearing) for a feature map under a model (the binary gate head). */
-export function predictProba(
-  model: GateModel,
-  feats: Map<number, number>,
-): number {
+export function predictProba(model: GateModel, feats: Map<number, number>): number {
   return scoreHead({ bias: model.bias, weights: model.weights }, feats);
 }
 
@@ -116,10 +99,7 @@ export function evaluateGate(
   }
   const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
   const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
-  const f1 =
-    precision + recall > 0
-      ? (2 * precision * recall) / (precision + recall)
-      : 0;
+  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
   return {
     n: examples.length,
     accuracy: examples.length > 0 ? correct / examples.length : 0,

@@ -45,19 +45,22 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
         { scopes: READ, userId: 'user_b' },
       ],
     });
-    aToken = f.extraApiKeys[0];
-    bToken = f.extraApiKeys[1];
+    aToken = f.extraApiKeys[0]!;
+    bToken = f.extraApiKeys[1]!;
 
     // Seed via M2M asserting the scope in the body. The write path stamps
     // both userId (0055) AND scope (0093) regardless of the read flag, so
     // the facts carry real scope tags for the flag-on fence to act on.
     const ingest = async (body: Record<string, unknown>): Promise<string> => {
-      const r = await f.http.post('/v1/ingest/fact').set(m2m()).send({
-        validFrom: '2026-01-01',
-        confidence: 0.9,
-        source: { vertical: 'rent', recorder: 'bot' },
-        ...body,
-      });
+      const r = await f.http
+        .post('/v1/ingest/fact')
+        .set(m2m())
+        .send({
+          validFrom: '2026-01-01',
+          confidence: 0.9,
+          source: { vertical: 'rent', recorder: 'bot' },
+          ...body,
+        });
       expect([200, 201]).toContain(r.status);
       return r.body.factId as string;
     };
@@ -94,22 +97,15 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
     headers: Record<string, string>,
     factId: string,
   ): Promise<boolean> => {
-    const r = await f.http
-      .get(`/v1/facts/${encodeURIComponent(factId)}`)
-      .set(headers);
+    const r = await f.http.get(`/v1/facts/${encodeURIComponent(factId)}`).set(headers);
     if (r.status === 200) return true;
     expect(r.status).toBe(404);
     return false;
   };
 
   /** GET /v1/facts/:id/provenance → true when visible (200), false (404). */
-  const provVisible = async (
-    headers: Record<string, string>,
-    factId: string,
-  ): Promise<boolean> => {
-    const r = await f.http
-      .get(`/v1/facts/${encodeURIComponent(factId)}/provenance`)
-      .set(headers);
+  const provVisible = async (headers: Record<string, string>, factId: string): Promise<boolean> => {
+    const r = await f.http.get(`/v1/facts/${encodeURIComponent(factId)}/provenance`).set(headers);
     if (r.status === 200) return true;
     expect(r.status).toBe(404);
     return false;

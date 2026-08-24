@@ -19,10 +19,7 @@ import {
   type ScoredStrategyItem,
   type StrategyItem,
 } from '../src/strategy/strategy-memory.service';
-import {
-  parseMergeDecision,
-  mergeEvidence,
-} from '../src/strategy/strategy-distill.service';
+import { parseMergeDecision, mergeEvidence } from '../src/strategy/strategy-distill.service';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { EmbedderService } from '../src/ai/embedder.service';
 
@@ -37,7 +34,7 @@ function stubEmbedder(vectors: Record<string, number[]>): EmbedderService {
 
 interface QueryCall {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 /** Surreal stub: withCompany hands out a db whose query is scripted. */
@@ -52,8 +49,7 @@ function stubSurreal(
     },
   };
   return {
-    withCompany: async (_companyId: string, fn: (d: unknown) => unknown) =>
-      fn(db),
+    withCompany: async (_companyId: string, fn: (d: unknown) => unknown) => fn(db),
   } as unknown as SurrealService;
 }
 
@@ -120,9 +116,7 @@ describe('strategy retrieval k-cap (ReasoningBank k-sensitivity)', () => {
   it('retrieve without k serves exactly 1 item', async () => {
     const svc = new StrategyMemoryService(
       stubSurreal((sql) =>
-        sql.includes('FROM strategy_memory')
-          ? [[row({ id: 'a1' }), row({ id: 'a2' })]]
-          : [[]],
+        sql.includes('FROM strategy_memory') ? [[row({ id: 'a1' }), row({ id: 'a2' })]] : [[]],
       ),
       stubEmbedder({ q: [1, 0] }),
       stubConfig(BOTH_ON),
@@ -149,15 +143,13 @@ describe('strategy retrieval similarity floor', () => {
     );
     const out = await svc.retrieve('c1', 'q', 2);
     expect(out.map((i) => i.strategyId)).toEqual(['strategy_memory:a1']);
-    expect(out[0].similarity).toBeCloseTo(1.0);
+    expect(out[0]!.similarity).toBeCloseTo(1.0);
   });
 
   it('an irrelevant best-match serves nothing (floor wins over k)', async () => {
     const svc = new StrategyMemoryService(
       stubSurreal((sql) =>
-        sql.includes('FROM strategy_memory')
-          ? [[row({ id: 'a1', embedding: [0, 1] })]]
-          : [[]],
+        sql.includes('FROM strategy_memory') ? [[row({ id: 'a1', embedding: [0, 1] })]] : [[]],
       ),
       stubEmbedder({ q: [1, 0] }),
       stubConfig(BOTH_ON),
@@ -170,19 +162,14 @@ describe('strategy retrieval similarity floor', () => {
     const make = (env: Record<string, string>) =>
       new StrategyMemoryService(
         stubSurreal((sql) =>
-          sql.includes('FROM strategy_memory')
-            ? [[row({ id: 'a1', embedding: [1, 1] })]]
-            : [[]],
+          sql.includes('FROM strategy_memory') ? [[row({ id: 'a1', embedding: [1, 1] })]] : [[]],
         ),
         stubEmbedder({ q: [1, 0] }),
         stubConfig(env),
       );
     expect(await make(BOTH_ON).retrieve('c1', 'q')).toHaveLength(1);
     expect(
-      await make({ ...BOTH_ON, STRATEGY_SIMILARITY_FLOOR: '0.9' }).retrieve(
-        'c1',
-        'q',
-      ),
+      await make({ ...BOTH_ON, STRATEGY_SIMILARITY_FLOOR: '0.9' }).retrieve('c1', 'q'),
     ).toEqual([]);
   });
 });
@@ -275,10 +262,7 @@ describe('dedup-merge decision handling (Mem0 ADD/UPDATE/NOOP)', () => {
 
   it('UPDATE with an unknown/hallucinated targetId degrades to NOOP', () => {
     expect(
-      parseMergeDecision(
-        '{"action":"UPDATE","targetId":"strategy_memory:nope"}',
-        ids,
-      ).action,
+      parseMergeDecision('{"action":"UPDATE","targetId":"strategy_memory:nope"}', ids).action,
     ).toBe('NOOP');
     expect(parseMergeDecision('{"action":"UPDATE"}', ids).action).toBe('NOOP');
   });
@@ -292,7 +276,12 @@ describe('dedup-merge decision handling (Mem0 ADD/UPDATE/NOOP)', () => {
         nContradict: 1,
         lastValidatedAt: '2026-08-01T00:00:00.000Z',
       },
-      { runIds: ['r1', 'r2'], nSupport: 1, nContradict: 0, lastValidatedAt: '2026-08-20T00:00:00.000Z' },
+      {
+        runIds: ['r1', 'r2'],
+        nSupport: 1,
+        nContradict: 0,
+        lastValidatedAt: '2026-08-20T00:00:00.000Z',
+      },
     );
     expect(merged.nSupport).toBe(3);
     expect(merged.nContradict).toBe(1);
@@ -313,29 +302,35 @@ describe('strategy lifecycle sweep (auto-deprecation)', () => {
 
   it('deprecates on nContradict >= 2', () => {
     expect(shouldDeprecate(base, now)).toBe(false);
-    expect(
-      shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 1 } }, now),
-    ).toBe(false);
-    expect(
-      shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 2 } }, now),
-    ).toBe(true);
-    expect(
-      shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 5 } }, now),
-    ).toBe(true);
+    expect(shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 1 } }, now)).toBe(
+      false,
+    );
+    expect(shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 2 } }, now)).toBe(
+      true,
+    );
+    expect(shouldDeprecate({ ...base, evidence: { ...base.evidence, nContradict: 5 } }, now)).toBe(
+      true,
+    );
   });
 
   it('deprecates past 90 days unvalidated; createdAt anchors the never-validated', () => {
-    const recent = { evidence: { lastValidatedAt: '2026-06-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' };
-    const stale = { evidence: { lastValidatedAt: '2026-05-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' };
+    const recent = {
+      evidence: { lastValidatedAt: '2026-06-01T00:00:00.000Z' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const stale = {
+      evidence: { lastValidatedAt: '2026-05-01T00:00:00.000Z' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
     expect(shouldDeprecate(recent, now)).toBe(false);
     expect(shouldDeprecate(stale, now)).toBe(true);
     // Never validated → createdAt is the staleness anchor.
-    expect(
-      shouldDeprecate({ evidence: {}, createdAt: '2026-08-01T00:00:00.000Z' }, now),
-    ).toBe(false);
-    expect(
-      shouldDeprecate({ evidence: {}, createdAt: '2026-01-01T00:00:00.000Z' }, now),
-    ).toBe(true);
+    expect(shouldDeprecate({ evidence: {}, createdAt: '2026-08-01T00:00:00.000Z' }, now)).toBe(
+      false,
+    );
+    expect(shouldDeprecate({ evidence: {}, createdAt: '2026-01-01T00:00:00.000Z' }, now)).toBe(
+      true,
+    );
   });
 
   it('deprecateSweep flips exactly the qualifying rows', async () => {
@@ -346,7 +341,10 @@ describe('strategy lifecycle sweep (auto-deprecation)', () => {
           sql.includes('FROM strategy_memory')
             ? [
                 [
-                  row({ id: 'keep', evidence: { nContradict: 0, lastValidatedAt: '2026-08-20T00:00:00.000Z' } }),
+                  row({
+                    id: 'keep',
+                    evidence: { nContradict: 0, lastValidatedAt: '2026-08-20T00:00:00.000Z' },
+                  }),
                   row({ id: 'contradicted', evidence: { nContradict: 2 } }),
                   row({ id: 'stale', evidence: { lastValidatedAt: '2026-01-01T00:00:00.000Z' } }),
                 ],
@@ -360,10 +358,7 @@ describe('strategy lifecycle sweep (auto-deprecation)', () => {
     const stats = await svc.deprecateSweep('c1', new Date('2026-08-23T00:00:00.000Z'));
     expect(stats).toEqual({ companyId: 'c1', scanned: 3, deprecated: 2 });
     const updates = calls.filter((c) => c.sql.includes("status = 'deprecated'"));
-    expect(updates.map((c) => c.params?.tail).sort()).toEqual([
-      'contradicted',
-      'stale',
-    ]);
+    expect(updates.map((c) => c.params?.tail).sort()).toEqual(['contradicted', 'stale']);
   });
 });
 
@@ -411,7 +406,7 @@ describe('structural leakage pin — fact lanes never touch strategy_memory', ()
     for (const dir of FACT_STACK_DIRS) {
       for (const file of walk(join(SRC, dir))) {
         const text = readFileSync(file, 'utf8');
-        if (text.includes('strategy_memory') || text.includes("/strategy/")) {
+        if (text.includes('strategy_memory') || text.includes('/strategy/')) {
           offenders.push(file);
         }
       }
@@ -422,10 +417,7 @@ describe('structural leakage pin — fact lanes never touch strategy_memory', ()
   it('the synthesize side reaches strategy ONLY through the advisory collector', () => {
     // Module wiring (DI) is not data flow — the collector is the one
     // place strategy content enters a prompt.
-    const allowed = new Set([
-      'evidence-collector.service.ts',
-      'synthesize.module.ts',
-    ]);
+    const allowed = new Set(['evidence-collector.service.ts', 'synthesize.module.ts']);
     const offenders: string[] = [];
     for (const file of walk(join(SRC, 'synthesize'))) {
       const text = readFileSync(file, 'utf8');

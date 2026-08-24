@@ -24,10 +24,7 @@ import {
   type PackPredicate,
   type PackToolSpec,
 } from '../src/ai/domain-packs';
-import {
-  assertPublicHttpUrl,
-  EgressDeniedError,
-} from '../src/common/egress-guard';
+import { assertPublicHttpUrl, EgressDeniedError } from '../src/common/egress-guard';
 import { z } from 'zod';
 import {
   renderPackToolDescription,
@@ -86,8 +83,7 @@ function externalTool(over: Record<string, unknown> = {}): PackToolSpec {
 }
 
 describe('validateMcpTools', () => {
-  const ok = (tools: PackToolSpec[]) =>
-    expect(() => validateMcpTools(pack(), tools)).not.toThrow();
+  const ok = (tools: PackToolSpec[]) => expect(() => validateMcpTools(pack(), tools)).not.toThrow();
   const bad = (tools: unknown, re: RegExp) =>
     expect(() => validateMcpTools(pack(), tools)).toThrow(re);
 
@@ -109,16 +105,14 @@ describe('validateMcpTools', () => {
   });
 
   it('is wired into validatePack', () => {
-    expect(() =>
-      validatePack(pack({ mcpTools: [queryTool({ name: 'BAD' })] })),
-    ).toThrow(DomainPackError);
+    expect(() => validatePack(pack({ mcpTools: [queryTool({ name: 'BAD' })] }))).toThrow(
+      DomainPackError,
+    );
   });
 
   it('rejects an empty array', () => bad([], /non-empty array/));
   it('rejects more than 8 tools', () => {
-    const tools = Array.from({ length: 9 }, (_, i) =>
-      queryTool({ name: `tool_${i}` }),
-    );
+    const tools = Array.from({ length: 9 }, (_, i) => queryTool({ name: `tool_${i}` }));
     bad(tools, /max is 8/);
   });
 
@@ -133,8 +127,7 @@ describe('validateMcpTools', () => {
   it('rejects duplicate tool names', () =>
     bad([queryTool(), queryTool()], /duplicate mcpTool name/));
 
-  it('rejects an unknown kind', () =>
-    bad([{ ...queryTool(), kind: 'wasm' }], /kind/));
+  it('rejects an unknown kind', () => bad([{ ...queryTool(), kind: 'wasm' }], /kind/));
 
   it('rejects a missing / oversized description and oversized title', () => {
     bad([queryTool({ description: undefined })], /description/);
@@ -146,10 +139,7 @@ describe('validateMcpTools', () => {
     bad([queryTool({ query: { surface: 'raw_surql' } })], /surface/));
 
   it('rejects facts_by_predicate without predicates', () =>
-    bad(
-      [queryTool({ query: { surface: 'facts_by_predicate' } })],
-      /requires query.predicates/,
-    ));
+    bad([queryTool({ query: { surface: 'facts_by_predicate' } })], /requires query.predicates/));
 
   it('rejects predicates that are not the pack own localIds', () =>
     bad(
@@ -232,14 +222,8 @@ describe('validateMcpTools', () => {
       [externalTool({ params: [{ name: 'p', type: 'string', enum: ['x'.repeat(61)] }] })],
       /enum/,
     );
-    bad(
-      [externalTool({ params: [{ name: 'p', type: 'string', maxLength: 0 }] })],
-      /maxLength/,
-    );
-    bad(
-      [externalTool({ params: [{ name: 'p', type: 'string', maxLength: 2_001 }] })],
-      /maxLength/,
-    );
+    bad([externalTool({ params: [{ name: 'p', type: 'string', maxLength: 0 }] })], /maxLength/);
+    bad([externalTool({ params: [{ name: 'p', type: 'string', maxLength: 2_001 }] })], /maxLength/);
     bad(
       [externalTool({ params: [{ name: 'p', type: 'number', maxLength: 10 }] })],
       /string params only/,
@@ -366,12 +350,9 @@ describe('egress guard (assertPublicHttpUrl)', () => {
   });
 });
 
-
 describe('pack tool renderer', () => {
   it('prepends the kind-specific server preamble', () => {
-    expect(
-      renderPackToolDescription({ packId: 'demo', version: '0.1.0', tool: queryTool() }),
-    ).toBe(
+    expect(renderPackToolDescription({ packId: 'demo', version: '0.1.0', tool: queryTool() })).toBe(
       '[third-party tool from domain pack "demo" v0.1.0; reads this ' +
         "tenant's knowledge graph] Find things recorded by this pack.",
     );
@@ -507,7 +488,9 @@ describe('registerPackTools', () => {
     const { tools } = register([binding()]);
     expect([...tools.keys()].sort()).toEqual(['demo__find_things', 'demo__things_by_status']);
     const search = tools.get('demo__find_things')!;
-    expect(search.config.description).toMatch(/^\[third-party tool from domain pack "demo" v0\.1\.0;/);
+    expect(search.config.description).toMatch(
+      /^\[third-party tool from domain pack "demo" v0\.1\.0;/,
+    );
     // Fixed input surface: a pack cannot add parameters to a query tool.
     expect(Object.keys(search.config.inputSchema ?? {}).sort()).toEqual(['limit', 'query']);
     const schema = z.object(search.config.inputSchema!);
@@ -603,9 +586,7 @@ describe('packIds fence (McpService.buildServer)', () => {
   }
 
   function toolNames(server: unknown): string[] {
-    return Object.keys(
-      (server as { _registeredTools: Record<string, unknown> })._registeredTools,
-    );
+    return Object.keys((server as { _registeredTools: Record<string, unknown> })._registeredTools);
   }
 
   it('a packIds-bound key sees only its packs declared tools', async () => {
@@ -632,7 +613,6 @@ describe('packIds fence (McpService.buildServer)', () => {
   });
 });
 
-
 // ---- external tools: registration + proxy ------------------------------
 
 describe('registerPackTools — external tools', () => {
@@ -650,10 +630,12 @@ describe('registerPackTools — external tools', () => {
     }
   });
 
-  function registerExternal(opts: {
-    tools?: PackToolSpec[];
-    proxy?: unknown;
-  } = {}) {
+  function registerExternal(
+    opts: {
+      tools?: PackToolSpec[];
+      proxy?: unknown;
+    } = {},
+  ) {
     const { server, tools } = stubServer();
     const proxyCalls: unknown[] = [];
     const proxy =
@@ -777,12 +759,11 @@ describe('PackToolProxyService — against a real local http server', () => {
 
   it('signs the raw body with the install secret; installId (not companyId) on the wire', async () => {
     const out = await callOnce(proxy());
-    expect(out.content[0].text).toBe('ok');
-    const { headers, body } = received[0];
+    expect(out.content[0]!.text).toBe('ok');
+    const { headers, body } = received[0]!;
     expect(headers['x-brain-event']).toBe('mcp_tool_call');
     expect(headers['content-type']).toBe('application/json');
-    const expected =
-      'sha256=' + createHmac('sha256', 'sec-1').update(body).digest('hex');
+    const expected = 'sha256=' + createHmac('sha256', 'sec-1').update(body).digest('hex');
     expect(headers['x-brain-signature']).toBe(expected);
     const parsed = JSON.parse(body);
     expect(parsed).toMatchObject({
@@ -804,7 +785,7 @@ describe('PackToolProxyService — against a real local http server', () => {
     };
     const out = await callOnce(proxy());
     expect(out.structuredContent).toEqual({ verdict: 'clean', score: 0.9 });
-    expect(JSON.parse(out.content[0].text)).toEqual({ verdict: 'clean', score: 0.9 });
+    expect(JSON.parse(out.content[0]!.text)).toEqual({ verdict: 'clean', score: 0.9 });
   });
 
   it('timeout yields a clean 424 error, never a raw stack', async () => {
@@ -864,9 +845,7 @@ describe('PackToolProxyService — against a real local http server', () => {
   });
 
   it('a pre-0068 install (no installId/secret) gets a clean reinstall hint', async () => {
-    await expect(callOnce(proxy(), {}, { installId: null })).rejects.toThrow(
-      /reinstall the pack/,
-    );
+    await expect(callOnce(proxy(), {}, { installId: null })).rejects.toThrow(/reinstall the pack/);
     await expect(callOnce(proxy(), {}, { webhookSecret: null })).rejects.toThrow(
       /reinstall the pack/,
     );

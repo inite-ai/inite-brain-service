@@ -103,10 +103,7 @@ export class AdminController {
       op: op?.trim() || undefined,
       since: since?.trim() || undefined,
       before: before?.trim() || undefined,
-      limit:
-        parsedLimit !== undefined && Number.isFinite(parsedLimit)
-          ? parsedLimit
-          : undefined,
+      limit: parsedLimit !== undefined && Number.isFinite(parsedLimit) ? parsedLimit : undefined,
     });
     return page satisfies AuditPageResponse;
   }
@@ -124,9 +121,7 @@ export class AdminController {
    */
   @Get('router/stats')
   @RequireScopes('brain:admin')
-  async routerStats(
-    @Query('companyId') companyId?: string,
-  ): Promise<RouterStatsResponse> {
+  async routerStats(@Query('companyId') companyId?: string): Promise<RouterStatsResponse> {
     const tenant = companyId?.trim() || DEMO_LIVE_COMPANY;
     return {
       tenant,
@@ -175,13 +170,13 @@ export class AdminController {
     @Query('maxFacts') maxFacts?: string,
   ): Promise<ReindexRunResponse> {
     const parsedMaxFacts = maxFacts ? parseInt(maxFacts, 10) : undefined;
+    const reindexTenant = tenant?.trim() || undefined;
+    const reindexMaxFacts =
+      parsedMaxFacts !== undefined && Number.isFinite(parsedMaxFacts) ? parsedMaxFacts : undefined;
     return (await this.reindex.run({
-      tenant: tenant?.trim() || undefined,
+      ...(reindexTenant !== undefined ? { tenant: reindexTenant } : {}),
       dryRun: dryRun === 'true',
-      maxFacts:
-        parsedMaxFacts !== undefined && Number.isFinite(parsedMaxFacts)
-          ? parsedMaxFacts
-          : undefined,
+      ...(reindexMaxFacts !== undefined ? { maxFacts: reindexMaxFacts } : {}),
     })) satisfies ReindexRunResponse;
   }
 
@@ -244,11 +239,8 @@ export class AdminController {
     }));
     let brier = 0;
     for (const p of BOOTSTRAP_GOLD_SET) {
-      const idx = Math.min(
-        binCount - 1,
-        Math.floor(p.rawConfidence * binCount),
-      );
-      const bin = bins[idx];
+      const idx = Math.min(binCount - 1, Math.floor(p.rawConfidence * binCount));
+      const bin = bins[idx]!; // idx ∈ [0, binCount-1] = bins index range
       bin.n += 1;
       bin.meanRaw += p.rawConfidence;
       bin.meanCorrect += p.correctness;
@@ -266,9 +258,7 @@ export class AdminController {
       b.meanRaw /= b.n;
       b.meanCorrect /= b.n;
       b.meanCalibrated /= b.n;
-      ece +=
-        (b.n / BOOTSTRAP_GOLD_SET.length) *
-        Math.abs(b.meanCalibrated - b.meanCorrect);
+      ece += (b.n / BOOTSTRAP_GOLD_SET.length) * Math.abs(b.meanCalibrated - b.meanCorrect);
     }
     brier /= Math.max(1, BOOTSTRAP_GOLD_SET.length);
     const curve = Array.from({ length: 21 }, (_, i) => {
@@ -290,13 +280,9 @@ export class AdminController {
 
   @Delete('tenants/:companyId')
   @RequireScopes('brain:admin')
-  async dropTenant(
-    @Param('companyId') companyId: string,
-  ): Promise<DropTenantResponse> {
+  async dropTenant(@Param('companyId') companyId: string): Promise<DropTenantResponse> {
     if (!companyId.startsWith('eval_')) {
-      throw new ForbiddenException(
-        `Only ephemeral eval_* tenants can be dropped via admin API`,
-      );
+      throw new ForbiddenException(`Only ephemeral eval_* tenants can be dropped via admin API`);
     }
     await this.admin.dropTenantDatabase(companyId);
     return { dropped: companyId } satisfies DropTenantResponse;

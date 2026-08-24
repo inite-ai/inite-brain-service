@@ -1,9 +1,6 @@
 import { buildEdgeFence } from '../src/search/internals/edge-fence';
 import { expandViaEdges } from '../src/search/internals/edge-expansion';
-import {
-  fetchNeighbours,
-  expandEntityIdsViaEdges,
-} from '../src/search/internals/neighbours';
+import { fetchNeighbours, expandEntityIdsViaEdges } from '../src/search/internals/neighbours';
 import { applyPprPrior } from '../src/search/internals/ppr';
 import { fetchOneHopNeighbourIds } from '../src/search/internals/graph-retrieve-db';
 import type { Surreal } from 'surrealdb';
@@ -31,9 +28,7 @@ describe('buildEdgeFence', () => {
 
   it('scoped caller: global + own, never someone else', () => {
     const f = buildEdgeFence('alice');
-    expect(f.cond).toBe(
-      'invalidatedAt IS NONE AND (userId IS NONE OR userId = $edgeScopeUserId)',
-    );
+    expect(f.cond).toBe('invalidatedAt IS NONE AND (userId IS NONE OR userId = $edgeScopeUserId)');
     expect(f.params).toEqual({ edgeScopeUserId: 'alice' });
     expect(f.allowsPeer(null)).toBe(true);
     expect(f.allowsPeer('alice')).toBe(true);
@@ -105,13 +100,11 @@ describe('edge expansion under the fence', () => {
       passesPolicy: () => true,
       config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
     });
-    expect(sql[0]).toContain(
-      '->(knowledge_edge WHERE invalidatedAt IS NONE AND userId IS NONE)',
-    );
+    expect(sql[0]).toContain('->(knowledge_edge WHERE invalidatedAt IS NONE AND userId IS NONE)');
     expect(sql[0]).toContain('peer: out.{id, userId}');
     // The scoped peer never reaches the neighbour-fact fetch.
-    expect(String(params[1].entityIds)).toContain('global');
-    expect(String(params[1].entityIds)).not.toContain('alices');
+    expect(String(params[1]!.entityIds)).toContain('global');
+    expect(String(params[1]!.entityIds)).not.toContain('alices');
   });
 
   it('a scoped caller binds their id into the edge filter', async () => {
@@ -127,7 +120,7 @@ describe('edge expansion under the fence', () => {
       config: { topSeeds: 3, maxNeighboursPerSeed: 5, alpha: 0.4 },
     });
     expect(sql[0]).toContain('userId = $edgeScopeUserId');
-    expect(params[0].edgeScopeUserId).toBe('alice');
+    expect(params[0]!.edgeScopeUserId).toBe('alice');
   });
 
   it('fences prefetched neighbourhoods too (combined-leg path)', async () => {
@@ -201,12 +194,8 @@ describe('rerank neighbours under the fence', () => {
       logger: warnless,
       entityIds: ['knowledge_entity:a'],
     });
-    expect(sql[0]).toContain(
-      '->(knowledge_edge WHERE invalidatedAt IS NONE AND userId IS NONE)',
-    );
-    const names = (map.get('knowledge_entity:a') ?? []).map(
-      (n) => n.canonicalName,
-    );
+    expect(sql[0]).toContain('->(knowledge_edge WHERE invalidatedAt IS NONE AND userId IS NONE)');
+    const names = (map.get('knowledge_entity:a') ?? []).map((n) => n.canonicalName);
     expect(names).toEqual(['Acme']);
   });
 });
@@ -242,14 +231,20 @@ describe('PPR under the fence', () => {
   it('the in-subgraph edge query carries the fence condition', async () => {
     const { db, sql, params } = captureDb([[[]]]);
     const byEntity = new Map([
-      ['knowledge_entity:a', { entityId: 'knowledge_entity:a', rankScore: 1, bestScore: 1, facts: [] }],
-      ['knowledge_entity:b', { entityId: 'knowledge_entity:b', rankScore: 1, bestScore: 1, facts: [] }],
+      [
+        'knowledge_entity:a',
+        { entityId: 'knowledge_entity:a', rankScore: 1, bestScore: 1, facts: [] },
+      ],
+      [
+        'knowledge_entity:b',
+        { entityId: 'knowledge_entity:b', rankScore: 1, bestScore: 1, facts: [] },
+      ],
     ]);
     await applyPprPrior(db, byEntity as never, 'alice');
     expect(sql[0]).toContain(
       'invalidatedAt IS NONE AND (userId IS NONE OR userId = $edgeScopeUserId)',
     );
-    expect(params[0].edgeScopeUserId).toBe('alice');
+    expect(params[0]!.edgeScopeUserId).toBe('alice');
   });
 });
 
@@ -277,9 +272,7 @@ describe('graph-retrieve neighbour walk under the fence', () => {
 
 describe('resolveExpansionConfig — the alpha kill switch', () => {
   // Deferred import keeps this spec's header list stable.
-  const { resolveExpansionConfig } = jest.requireActual(
-    '../src/search/internals/edge-expansion',
-  );
+  const { resolveExpansionConfig } = jest.requireActual('../src/search/internals/edge-expansion');
 
   it('an explicit 0 disables (the pre-fix parser mapped it to 0.4)', () => {
     expect(

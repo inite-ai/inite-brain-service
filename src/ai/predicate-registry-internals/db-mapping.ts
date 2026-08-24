@@ -31,9 +31,7 @@ function stableJson(value: unknown): string {
  * (decayHalfLifeDays, requiresScope, parentPredicateId, subjectClasses,
  * allowedValues, aliasedTo) must be conditionally included.
  */
-export function serializeForInsert(
-  p: PredicateDefinition,
-): Record<string, unknown> {
+export function serializeForInsert(p: PredicateDefinition): Record<string, unknown> {
   return {
     predicateId: p.predicateId,
     displayLabel: p.displayLabel,
@@ -45,9 +43,7 @@ export function serializeForInsert(
       : {}),
     piiClass: p.piiClass,
     ...(p.requiresScope ? { requiresScope: p.requiresScope } : {}),
-    ...(p.parentPredicateId
-      ? { parentPredicateId: p.parentPredicateId }
-      : {}),
+    ...(p.parentPredicateId ? { parentPredicateId: p.parentPredicateId } : {}),
     ...(p.subjectClasses ? { subjectClasses: p.subjectClasses } : {}),
     ...(p.allowedValues ? { allowedValues: p.allowedValues } : {}),
     status: p.status,
@@ -56,36 +52,24 @@ export function serializeForInsert(
   };
 }
 
-export function deserializeFromRow(
-  row: Record<string, unknown>,
-): PredicateDefinition {
+export function deserializeFromRow(row: Record<string, unknown>): PredicateDefinition {
   return {
     predicateId: String(row.predicateId),
     displayLabel: String(row.displayLabel ?? row.predicateId),
     description: String(row.description ?? ''),
     datatype: (row.datatype as PredicateDefinition['datatype']) ?? 'string',
     semantics: row.semantics as Semantics,
-    decayHalfLifeDays:
-      typeof row.decayHalfLifeDays === 'number'
-        ? row.decayHalfLifeDays
-        : null,
+    decayHalfLifeDays: typeof row.decayHalfLifeDays === 'number' ? row.decayHalfLifeDays : null,
     piiClass: row.piiClass as PiiClass,
-    ...(row.requiresScope
-      ? { requiresScope: String(row.requiresScope) }
-      : {}),
-    ...(row.parentPredicateId
-      ? { parentPredicateId: String(row.parentPredicateId) }
-      : {}),
+    ...(row.requiresScope ? { requiresScope: String(row.requiresScope) } : {}),
+    ...(row.parentPredicateId ? { parentPredicateId: String(row.parentPredicateId) } : {}),
     ...(Array.isArray(row.subjectClasses)
       ? { subjectClasses: row.subjectClasses as string[] }
       : {}),
-    ...(Array.isArray(row.allowedValues)
-      ? { allowedValues: row.allowedValues as string[] }
-      : {}),
+    ...(Array.isArray(row.allowedValues) ? { allowedValues: row.allowedValues as string[] } : {}),
     status: (row.status as PredicateStatus) ?? 'active',
     ...(row.aliasedTo ? { aliasedTo: String(row.aliasedTo) } : {}),
-    createdBy:
-      (row.createdBy as PredicateDefinition['createdBy']) ?? 'system',
+    createdBy: (row.createdBy as PredicateDefinition['createdBy']) ?? 'system',
   };
 }
 
@@ -115,9 +99,7 @@ export function computeHash(
   rows: PredicateDefinition[],
   extractionProfiles: PackExtractionProfile[] = [],
 ): string {
-  const sorted = [...rows].sort((a, b) =>
-    a.predicateId.localeCompare(b.predicateId),
-  );
+  const sorted = [...rows].sort((a, b) => a.predicateId.localeCompare(b.predicateId));
   const payload = sorted
     .map(
       (p) =>

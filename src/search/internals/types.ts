@@ -10,13 +10,7 @@
  * to the provenance activity that found it (HippoRAG/PROV-style).
  */
 export type RetrievalStage =
-  | 'vector'
-  | 'lexical'
-  | 'graph_seed'
-  | 'graph_neighbour'
-  | 'edge_expansion'
-  | 'ppr'
-  | 'segment';
+  'vector' | 'lexical' | 'graph_seed' | 'graph_neighbour' | 'edge_expansion' | 'ppr' | 'segment';
 
 /** One graph edge to a neighbour entity, as projected by both the edge-
  *  expansion query and (under SEARCH_COMBINED_VECTOR_GRAPH) the vector leg.
@@ -42,7 +36,13 @@ export interface FactRow {
   recordedAt: string;
   retractedAt?: string;
   status: string;
-  source: any;
+  // The persisted fact `source` is an open, heterogeneous object: a
+  // FactSource core plus fields various write paths stamp on top
+  // (mentionedAt, scene, salience, originKey). Modelled as an open record
+  // (or null, for the insight/synthetic legs that carry no source);
+  // consumers read individual fields defensively (e.g. scoring reads
+  // `source?.evidence` via optional chaining).
+  source: Record<string, unknown> | null;
   // Hydrated via inline projection — entity record inlined.
   entity?: {
     id: unknown;
@@ -63,7 +63,7 @@ export interface FactRow {
   // parser's `ORDER BY` resolver and silently returns rows in
   // record-id order instead of by score.
   simScore?: number;
-  bm25Score?: number;
+  bm25Score?: number | undefined;
   /** BM25 match snippet from search::highlight, set by the lexical leg when
    *  SEARCH_HIGHLIGHT_ENABLED is on. Absent on vector-only rows. */
   highlight?: string;

@@ -90,9 +90,9 @@ describe('token-count.worker-job via a real JobWorkerPool', () => {
     const pool = new JobWorkerPool(makeConfig({ JOB_WORKER_POOL_SIZE: '1' }));
     await pool.onModuleInit();
     try {
-      await expect(
-        pool.run(tokenCountWorkerModulePath(), { texts: [1, 2] }),
-      ).rejects.toThrow(/expects \{ texts: string\[\] \}/);
+      await expect(pool.run(tokenCountWorkerModulePath(), { texts: [1, 2] })).rejects.toThrow(
+        /expects \{ texts: string\[\] \}/,
+      );
     } finally {
       await pool.onApplicationShutdown();
     }
@@ -125,12 +125,10 @@ describe('applyOutputShaping offload vs sync parity', () => {
     pool: TokenCountPool;
     runMock: jest.Mock;
   } {
-    const runMock = jest.fn(
-      async (_module: string, input: unknown): Promise<unknown> => {
-        const texts = (input as { texts: string[] }).texts;
-        return { counts: texts.map((t) => countTokens(t)) };
-      },
-    );
+    const runMock = jest.fn(async (_module: string, input: unknown): Promise<unknown> => {
+      const texts = (input as { texts: string[] }).texts;
+      return { counts: texts.map((t) => countTokens(t)) };
+    });
     const pool: TokenCountPool = {
       enabled: () => true,
       run: runMock as TokenCountPool['run'],

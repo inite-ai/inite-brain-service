@@ -58,8 +58,8 @@ describe('scoreRows — fact_trust factors', () => {
       now: NOW,
       trustBeta: 2,
     });
-    expect(scored.breakdown.factTrust?.sourceReputation).toBe(0.5);
-    expect(scored.breakdown.factTrust?.trustFactor).toBe(1);
+    expect(scored!.breakdown.factTrust?.sourceReputation).toBe(0.5);
+    expect(scored!.breakdown.factTrust?.trustFactor).toBe(1);
   });
 
   it('beta scales the snapshot ladder: learnedTrust ?? declaredTrust ?? 0.5', () => {
@@ -71,23 +71,20 @@ describe('scoreRows — fact_trust factors', () => {
       now: NOW,
       trustBeta: 1,
     });
-    expect(learned.breakdown.factTrust?.trustFactor).toBeCloseTo(1.4);
-    expect(declaredOnly.breakdown.factTrust?.trustFactor).toBeCloseTo(1.2);
+    expect(learned!.breakdown.factTrust?.trustFactor).toBeCloseTo(1.4);
+    expect(declaredOnly!.breakdown.factTrust?.trustFactor).toBeCloseTo(1.2);
     // trusted fact outranks the identical-otherwise less-trusted one
-    expect(learned.score).toBeGreaterThan(declaredOnly.score);
+    expect(learned!.score).toBeGreaterThan(declaredOnly!.score);
   });
 
   it('gamma rewards corroboration, capped at 3', () => {
     const [three, ten] = scoreRows({
-      rows: [
-        row({ corroboration: { count: 3 } }),
-        row({ corroboration: { count: 10 } }),
-      ],
+      rows: [row({ corroboration: { count: 3 } }), row({ corroboration: { count: 10 } })],
       now: NOW,
       corroborationGamma: 0.1,
     });
-    expect(three.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
-    expect(ten.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
+    expect(three!.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
+    expect(ten!.breakdown.factTrust?.corroborationFactor).toBeCloseTo(1.3);
   });
 
   it('delta scales registry authority; no registry entry is unaffected at ANY delta', () => {
@@ -99,9 +96,9 @@ describe('scoreRows — fact_trust factors', () => {
       now: NOW,
       authorityDelta: 0.5,
     });
-    expect(authoritative.breakdown.factTrust?.authorityFactor).toBeCloseTo(1.4);
-    expect(unregistered.breakdown.factTrust?.authorityFactor).toBe(1);
-    expect(authoritative.score).toBeGreaterThan(unregistered.score);
+    expect(authoritative!.breakdown.factTrust?.authorityFactor).toBeCloseTo(1.4);
+    expect(unregistered!.breakdown.factTrust?.authorityFactor).toBe(1);
+    expect(authoritative!.score).toBeGreaterThan(unregistered!.score);
   });
 
   it('surfaces the "because" decomposition (authority + evidence count)', () => {
@@ -120,7 +117,7 @@ describe('scoreRows — fact_trust factors', () => {
       ],
       now: NOW,
     });
-    expect(scored.breakdown.factTrust).toMatchObject({
+    expect(scored!.breakdown.factTrust).toMatchObject({
       sourceReputation: 0.8,
       authority: 0.9,
       evidenceCount: 2,

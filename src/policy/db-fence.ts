@@ -30,9 +30,7 @@ export interface DenyPushdownRule {
   originKey?: string[];
 }
 
-export function compileDenyPushdown(
-  ctx: PolicyContext | undefined,
-): DenyPushdownRule[] {
+export function compileDenyPushdown(ctx: PolicyContext | undefined): DenyPushdownRule[] {
   if (!ctx || ctx.forceReportOnly) return [];
   const out: DenyPushdownRule[] = [];
   for (const set of ctx.sets) {

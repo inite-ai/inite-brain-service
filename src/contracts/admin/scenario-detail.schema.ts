@@ -27,6 +27,4 @@ export const ScenarioDetailResponseSchema = z.object({
   synthesizeQueries: z.array(OpenRecord).optional(),
 });
 
-export type ScenarioDetailResponse = z.infer<
-  typeof ScenarioDetailResponseSchema
->;
+export type ScenarioDetailResponse = z.infer<typeof ScenarioDetailResponseSchema>;

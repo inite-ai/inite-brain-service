@@ -25,7 +25,7 @@ export interface L3TriggerInput {
   l3Escalation: boolean;
   verdict: VerifierOutput['verdict'];
   /** V10 §5 topic-coverage judgment, when the audit produced it. */
-  questionAnswered?: boolean;
+  questionAnswered?: boolean | undefined;
   /** Coverage floor result over the retrieved evidence (below floor →
    *  covered=false, the escalation-eligible state). */
   covered: boolean;
@@ -52,8 +52,7 @@ export interface L3TriggerInput {
 export function l3TriggerDecision(input: L3TriggerInput): L3TriggerReason {
   if (input.escalated) return 'skip_already_escalated';
   if (!input.l3Escalation) return 'skip_flag_off';
-  const verdictFail =
-    input.verdict !== 'supported' || input.questionAnswered === false;
+  const verdictFail = input.verdict !== 'supported' || input.questionAnswered === false;
   if (!verdictFail) return 'skip_verdict_ok';
   // coverage < floor is required: escalation addresses the residual
   // where the extracted facts are thin, not where a well-covered set
@@ -75,10 +74,7 @@ export function l3Covered(
 
 /** Whether an L3 (re-)verification counts as a flip to a servable
  *  answer: supported, and — under topic coverage — actually answering. */
-export function verifierPasses(
-  verdict: VerifierOutput,
-  topicCoverage: boolean,
-): boolean {
+export function verifierPasses(verdict: VerifierOutput, topicCoverage: boolean): boolean {
   if (verdict.verdict !== 'supported') return false;
   if (topicCoverage && verdict.questionAnswered === false) return false;
   return true;
@@ -90,7 +86,7 @@ export function verifierPasses(
 export interface L3SessionAnchor {
   conversationId: string;
   score: number;
-  atMs?: number;
+  atMs?: number | undefined;
 }
 
 /** [from, to) window the query named, for temporal-overlap preference. */

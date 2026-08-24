@@ -7,8 +7,7 @@ import { FactResolverService } from '../src/ingest/fact-resolver.service';
  * Results must come back in the ORIGINAL input order regardless of partitioning.
  */
 describe('FactResolverService.resolveMany', () => {
-  const sem = (p: string) =>
-    p === 'status' || p === 'address' ? 'single_active' : 'append_only';
+  const sem = (p: string) => (p === 'status' || p === 'address' ? 'single_active' : 'append_only');
 
   function make() {
     const queries: Array<{ sql: string; params: any }> = [];
@@ -36,10 +35,7 @@ describe('FactResolverService.resolveMany', () => {
         semantics: sem(predicate),
       })),
     };
-    const svc = new FactResolverService(
-      factEmbedding as never,
-      predicateRegistry as never,
-    );
+    const svc = new FactResolverService(factEmbedding as never, predicateRegistry as never);
     return { svc, db, queries };
   }
 
@@ -59,9 +55,7 @@ describe('FactResolverService.resolveMany', () => {
   const batchQ = (qs: Array<{ sql: string; params: any }>) =>
     qs.filter((q) => q.sql.includes('fn::resolve_facts'));
   const perFactQ = (qs: Array<{ sql: string; params: any }>) =>
-    qs.filter(
-      (q) => q.sql.includes('fn::resolve_fact(') && !q.sql.includes('resolve_facts'),
-    );
+    qs.filter((q) => q.sql.includes('fn::resolve_fact(') && !q.sql.includes('resolve_facts'));
 
   it('all append_only → ONE fn::resolve_facts batch, results in order', async () => {
     const { svc, db, queries } = make();
@@ -71,7 +65,7 @@ describe('FactResolverService.resolveMany', () => {
       input('intent', 'c'),
     ]);
     expect(batchQ(queries)).toHaveLength(1);
-    expect(batchQ(queries)[0].params.facts).toHaveLength(3);
+    expect(batchQ(queries)[0]!.params.facts).toHaveLength(3);
     expect(perFactQ(queries)).toHaveLength(0);
     expect(out.map((o) => o.result.factId)).toEqual([
       'knowledge_fact:batch0_a',
@@ -88,23 +82,16 @@ describe('FactResolverService.resolveMany', () => {
       input('status', 's'),
       input('intent', 'c'),
     ]);
-    expect(batchQ(queries)[0].params.facts.map((f: any) => f.object)).toEqual([
-      'a',
-      'c',
-    ]);
+    expect(batchQ(queries)[0]!.params.facts.map((f: any) => f.object)).toEqual(['a', 'c']);
     expect(perFactQ(queries)).toHaveLength(1);
-    expect(perFactQ(queries)[0].params.object).toBe('s');
+    expect(perFactQ(queries)[0]!.params.object).toBe('s');
     // Result order matches INPUT order: a(batch), s(single), c(batch).
     expect(out.map((o) => o.result.factId)).toEqual([
       'knowledge_fact:batch0_a',
       'knowledge_fact:single_s',
       'knowledge_fact:batch1_c',
     ]);
-    expect(out.map((o) => o.semantics)).toEqual([
-      'append_only',
-      'single_active',
-      'append_only',
-    ]);
+    expect(out.map((o) => o.semantics)).toEqual(['append_only', 'single_active', 'append_only']);
   });
 
   it('batch failure → append_only falls back to per-fact (no fact lost)', async () => {
@@ -120,10 +107,7 @@ describe('FactResolverService.resolveMany', () => {
     ]);
     expect(batchQ(queries)).toHaveLength(1); // attempted
     expect(perFactQ(queries)).toHaveLength(2); // then per-fact fallback for both
-    expect(out.map((o) => o.result.factId)).toEqual([
-      'knowledge_fact:fb_a',
-      'knowledge_fact:fb_c',
-    ]);
+    expect(out.map((o) => o.result.factId)).toEqual(['knowledge_fact:fb_a', 'knowledge_fact:fb_c']);
   });
 
   it('empty input → no query, empty result', async () => {

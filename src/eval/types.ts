@@ -3,13 +3,7 @@
  * from the SDK, no NestJS. Consumed by scenarios/, metrics/, runner/.
  */
 
-export type Vertical =
-  | 'rent'
-  | 'estate'
-  | 'events'
-  | 'health'
-  | 'shop'
-  | 'cross';
+export type Vertical = 'rent' | 'estate' | 'events' | 'health' | 'shop' | 'cross';
 
 // ── Setup steps: how the scenario seeds brain before running queries ──
 
@@ -86,11 +80,7 @@ export interface SetupLinkStep {
 }
 
 export type SetupStep =
-  | SetupFactStep
-  | SetupMentionStep
-  | SetupLinkStep
-  | SetupRetractStep
-  | SetupForgetStep;
+  SetupFactStep | SetupMentionStep | SetupLinkStep | SetupRetractStep | SetupForgetStep;
 
 // ── Query expectations ────────────────────────────────────────────────
 

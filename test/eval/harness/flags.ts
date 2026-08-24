@@ -20,7 +20,7 @@ export function parseFlags<T extends Record<string, unknown>>(
 ): T {
   const args = { ...defaults } as Record<string, unknown>;
   for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
+    const flag = argv[i]!;
     const def = spec[flag];
     if (!def) throw new Error(`unknown flag ${flag}`);
     if (def.type === 'bool') {

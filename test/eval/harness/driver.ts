@@ -48,10 +48,7 @@ export interface DriverOptions {
  * where convSlug is the conversationRef after the last ':' with '-'→'_'
  * (must mirror window-deriver.service.ts exactly).
  */
-export function speakerEntityName(
-  conversationRef: string,
-  role: string,
-): string {
+export function speakerEntityName(conversationRef: string, role: string): string {
   const slug = conversationRef
     .slice(conversationRef.lastIndexOf(':') + 1)
     .toLowerCase()
@@ -67,9 +64,7 @@ export function emittedAtIso(
 ): string {
   const chunk = chunkTurns ? Math.floor(turnIndex / chunkTurns) : 0;
   const step = chunkTurns ? turnIndex % chunkTurns : turnIndex;
-  return new Date(
-    sessionBaseMs + chunk * CHUNK_JUMP_MS + step * TURN_STEP_MS,
-  ).toISOString();
+  return new Date(sessionBaseMs + chunk * CHUNK_JUMP_MS + step * TURN_STEP_MS).toISOString();
 }
 
 async function ingestWorld(
@@ -78,9 +73,7 @@ async function ingestWorld(
   opts: DriverOptions,
   log: (m: string) => void,
 ): Promise<void> {
-  const roles = [
-    ...new Set(world.sessions.flatMap((s) => s.turns.map((t) => t.role))),
-  ];
+  const roles = [...new Set(world.sessions.flatMap((s) => s.turns.map((t) => t.role)))];
   // validFrom is REQUIRED by the ingest DTO (live-run finding: the fake-
   // fetch specs can't see DTO validation) — earliest session date, same
   // convention as the LoCoMo ingest sink.
@@ -188,8 +181,7 @@ async function answerQuestion(
     score.errored = (e as Error).message;
   }
   score.abstained =
-    !score.errored &&
-    (!score.prediction.trim() || ABSTAIN_RE.test(score.prediction));
+    !score.errored && (!score.prediction.trim() || ABSTAIN_RE.test(score.prediction));
   return score;
 }
 
@@ -215,12 +207,8 @@ export async function runWorlds(
   // Default sink strips control chars: parts of the tag come from the
   // dataset (conversationRef), and a newline smuggled through it could
   // forge progress lines the chain scripts grep (js/log-injection).
-  const log =
-    opts.log ?? ((m: string) => console.error(m.replace(/[\r\n]+/g, ' ')));
-  const done = await loadCheckpoint<EvalScore>(
-    opts.resume,
-    (s) => s.questionId,
-  );
+  const log = opts.log ?? ((m: string) => console.error(m.replace(/[\r\n]+/g, ' ')));
+  const done = await loadCheckpoint<EvalScore>(opts.resume, (s) => s.questionId);
   const scores: EvalScore[] = [...done.values()];
 
   await runPool(opts.concurrency, worlds, async (world, i) => {
@@ -232,11 +220,7 @@ export async function runWorlds(
     }
     try {
       if (!opts.skipIngest) {
-        const client = new TenantClient(
-          opts.brainUrl,
-          opts.apiKey,
-          world.tenant,
-        );
+        const client = new TenantClient(opts.brainUrl, opts.apiKey, world.tenant);
         await ingestWorld(world, client, opts, (m) => log(`${tag} ${m}`));
       }
       const client = new TenantClient(opts.brainUrl, opts.apiKey, world.tenant);

@@ -39,9 +39,8 @@ function viewStatsResults(): unknown[] {
 function makeStatsService(query: jest.Mock) {
   const db = { query };
   const surreal = {
-    withScopedCompany: jest.fn(
-      (_c: string, _s: readonly string[], fn: (d: unknown) => unknown) =>
-        fn(db),
+    withScopedCompany: jest.fn((_c: string, _s: readonly string[], fn: (d: unknown) => unknown) =>
+      fn(db),
     ),
   };
   const svc = new StatsService(surreal as never);
@@ -72,7 +71,7 @@ describe('StatsService view gating (STATS_VIEWS_ENABLED)', () => {
       communities: 3,
       factsLast7d: 4,
     });
-    const sql = query.mock.calls[0][0];
+    const sql = query.mock.calls[0]![0];
     expect(sql).toContain("WHERE status = 'active'");
     expect(sql).not.toContain('stats_fact_by_status');
 
@@ -96,7 +95,7 @@ describe('StatsService view gating (STATS_VIEWS_ENABLED)', () => {
       communities: 0, // GROUP ALL view with no row yet → 0
       factsLast7d: 4,
     });
-    const sql = query.mock.calls[0][0];
+    const sql = query.mock.calls[0]![0];
     expect(sql).toContain('stats_entity_total');
     expect(sql).toContain('stats_fact_by_status');
     expect(sql).toContain('stats_community_total');
@@ -203,7 +202,7 @@ describe('AdminService.collectTenant view gating (STATS_VIEWS_ENABLED)', () => {
       factsActive: 5,
       factsRetracted: 1,
     });
-    const sql = query.mock.calls[0][0];
+    const sql = query.mock.calls[0]![0];
     expect(sql).toContain("WHERE status = 'active'");
     expect(sql).not.toContain('stats_fact_by_status');
   });
@@ -220,7 +219,7 @@ describe('AdminService.collectTenant view gating (STATS_VIEWS_ENABLED)', () => {
       factsActive: 5,
       factsRetracted: 1,
     });
-    const sql = query.mock.calls[0][0];
+    const sql = query.mock.calls[0]![0];
     expect(sql).toContain('stats_entity_total');
     expect(sql).toContain('stats_fact_by_status');
     expect(sql).toContain('rejectedAt > type::datetime($dayAgoIso)');

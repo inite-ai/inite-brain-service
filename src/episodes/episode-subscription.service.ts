@@ -105,9 +105,7 @@ export class EpisodeSubscriptionService {
   /** Registered endpoints, secrets never included. */
   async list(companyId: string): Promise<EpisodeSubscriptionRow[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<EpisodeSubscriptionRow & { id: unknown }>]
-      >(
+      const [rows] = await db.query<[Array<EpisodeSubscriptionRow & { id: unknown }>]>(
         `SELECT id, url, active, watermark, failureCount, createdAt
            FROM episode_subscription ORDER BY createdAt ASC`,
       );
@@ -117,10 +115,9 @@ export class EpisodeSubscriptionService {
 
   async remove(companyId: string, id: string): Promise<boolean> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[Array<{ id: unknown }>]>(
-        `DELETE $id RETURN BEFORE`,
-        { id: new StringRecordId(id) },
-      );
+      const [rows] = await db.query<[Array<{ id: unknown }>]>(`DELETE $id RETURN BEFORE`, {
+        id: new StringRecordId(id),
+      });
       return (rows ?? []).length > 0;
     });
   }
@@ -182,7 +179,7 @@ export class EpisodeSubscriptionService {
       });
       if (rows.length === 0) continue;
       const toIso = (v: Date | string): string => new Date(v as string).toISOString();
-      const watermark = toIso(rows[rows.length - 1].recordedAt);
+      const watermark = toIso(rows[rows.length - 1]!.recordedAt); // rows non-empty (checked)
       const event: EpisodesAvailableEvent = {
         event: 'episodes_available',
         delivery: 'at-least-once',

@@ -24,14 +24,17 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
   });
 
   const ingest = async (object: string, recorder: string) => {
-    const res = await f.http.post('/v1/ingest/fact').set(auth()).send({
-      entityRef: { vertical: 'rent', id: 'corrob_subject' },
-      predicate: 'claim_probe',
-      object,
-      validFrom: '2026-01-01',
-      confidence: 0.9,
-      source: { vertical: 'rent', recorder },
-    });
+    const res = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'corrob_subject' },
+        predicate: 'claim_probe',
+        object,
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder },
+      });
     expect([200, 201]).toContain(res.status);
     return res.body.factId as string;
   };
@@ -60,15 +63,11 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
         });
       await apply();
 
-      const [youngerRows] = await db.query<
-        [Array<{ status: string; corroborates: unknown }>]
-      >(
+      const [youngerRows] = await db.query<[Array<{ status: string; corroborates: unknown }>]>(
         `SELECT status, corroborates FROM type::record('knowledge_fact', $tail)`,
         { tail: youngerId.split(':')[1] },
       );
-      const younger = (
-        youngerRows as Array<{ status: string; corroborates: unknown }>
-      )[0];
+      const younger = (youngerRows as Array<{ status: string; corroborates: unknown }>)[0]!;
       expect(younger.status).toBe('corroborating');
       expect(String(younger.corroborates)).toBe(incumbentId);
 
@@ -83,10 +82,9 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
               };
             }>,
           ]
-        >(
-          `SELECT corroboration FROM type::record('knowledge_fact', $tail)`,
-          { tail: incumbentId.split(':')[1] },
-        );
+        >(`SELECT corroboration FROM type::record('knowledge_fact', $tail)`, {
+          tail: incumbentId.split(':')[1],
+        });
         return (
           rows as Array<{
             corroboration: {
@@ -95,7 +93,7 @@ describe('dreams corroborate — apply statement (real SurrealDB)', () => {
               sourceKeys: string[];
             };
           }>
-        )[0].corroboration;
+        )[0]!.corroboration;
       };
 
       const first = await readIncumbent();

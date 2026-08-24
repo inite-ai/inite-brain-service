@@ -22,13 +22,11 @@ export interface MiniCheckRequest {
   /** The claim under check (declarative text). */
   claim: string;
   fetchImpl?: typeof fetch;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 /** True = the claim is consistent with the document (grounded). */
-export async function miniCheckConsistent(
-  req: MiniCheckRequest,
-): Promise<boolean> {
+export async function miniCheckConsistent(req: MiniCheckRequest): Promise<boolean> {
   const doFetch = req.fetchImpl ?? fetch;
   const res = await doFetch(`${req.baseUrl}/api/generate`, {
     method: 'POST',
@@ -43,7 +41,7 @@ export async function miniCheckConsistent(
       // truncates them silently, so size it explicitly.
       options: { temperature: 0, num_ctx: 8192, num_predict: 8 },
     }),
-    signal: req.signal,
+    ...(req.signal !== undefined ? { signal: req.signal } : {}),
   });
   if (!res.ok) {
     throw new Error(`minicheck HTTP ${res.status}`);

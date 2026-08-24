@@ -84,8 +84,7 @@ export function isReadConflict(err: unknown): boolean {
 export function enrichTransactionError(err: unknown): unknown {
   if (err instanceof Error && err.message.includes('failed transaction')) {
     const cause = (err as { cause?: { message?: string } }).cause;
-    const suffix =
-      cause?.message ?? 'read or write conflict; this transaction can be retried';
+    const suffix = cause?.message ?? 'read or write conflict; this transaction can be retried';
     const enriched = new Error(`${err.message}: ${suffix}`);
     (enriched as Error & { cause?: unknown }).cause = err;
     return enriched;
@@ -94,8 +93,7 @@ export function enrichTransactionError(err: unknown): unknown {
 }
 
 /** Real wall-clock backoff used in production. Swappable in tests. */
-const defaultBackoffSleep = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
+const defaultBackoffSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Retry a body on transient concurrency failures: unique-index

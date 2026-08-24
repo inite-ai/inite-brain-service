@@ -29,9 +29,9 @@ function makeSvc(opts: {
   llm: unknown;
 }): {
   svc: ArcComposerService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
@@ -44,12 +44,10 @@ function makeSvc(opts: {
     },
   };
   const surreal = {
-    withCompany: async (_co: string, fn: (d: unknown) => Promise<unknown>) =>
-      fn(db),
+    withCompany: async (_co: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
   } as unknown as SurrealService;
   const config = {
-    get: (key: string, dflt?: string) =>
-      key === 'OPENAI_API_KEY' ? 'sk-test' : dflt,
+    get: (key: string, dflt?: string) => (key === 'OPENAI_API_KEY' ? 'sk-test' : dflt),
     getOrThrow: (key: string) => {
       if (key === 'OPENAI_API_KEY') return 'sk-test';
       throw new Error(`missing ${key}`);
@@ -72,32 +70,47 @@ function makeSvc(opts: {
 }
 
 const FACTS = [
-  { id: 'knowledge_fact:f0', predicate: 'plans', object: 'started planning a move to Austin', validFrom: '2024-03-01' },
-  { id: 'knowledge_fact:f1', predicate: 'plans', object: 'chose Austin over Denver', validFrom: '2024-05-10' },
-  { id: 'knowledge_fact:f2', predicate: 'residence', object: 'signed a lease in Austin', validFrom: '2024-06-12' },
-  { id: 'knowledge_fact:f3', predicate: 'activities', object: 'ran a first 10k', validFrom: '2024-04-01' },
-  { id: 'knowledge_fact:f4', predicate: 'activities', object: 'finished a half-marathon', validFrom: '2024-06-20' },
+  {
+    id: 'knowledge_fact:f0',
+    predicate: 'plans',
+    object: 'started planning a move to Austin',
+    validFrom: '2024-03-01',
+  },
+  {
+    id: 'knowledge_fact:f1',
+    predicate: 'plans',
+    object: 'chose Austin over Denver',
+    validFrom: '2024-05-10',
+  },
+  {
+    id: 'knowledge_fact:f2',
+    predicate: 'residence',
+    object: 'signed a lease in Austin',
+    validFrom: '2024-06-12',
+  },
+  {
+    id: 'knowledge_fact:f3',
+    predicate: 'activities',
+    object: 'ran a first 10k',
+    validFrom: '2024-04-01',
+  },
+  {
+    id: 'knowledge_fact:f4',
+    predicate: 'activities',
+    object: 'finished a half-marathon',
+    validFrom: '2024-06-20',
+  },
 ];
 
 describe('validArc / arcValidFrom (pure gates)', () => {
   it('needs ≥2 members spanning ≥2 distinct dates', () => {
-    expect(
-      validArc({ topic: 't', narrative: 'n', members: [0, 1] }, FACTS),
-    ).toBe(true);
-    expect(validArc({ topic: 't', narrative: 'n', members: [0] }, FACTS)).toBe(
-      false,
-    );
-    expect(
-      validArc({ topic: 't', narrative: 'n', members: [0, 99] }, FACTS),
-    ).toBe(false);
-    expect(
-      validArc({ topic: 't', narrative: '  ', members: [0, 1] }, FACTS),
-    ).toBe(false);
+    expect(validArc({ topic: 't', narrative: 'n', members: [0, 1] }, FACTS)).toBe(true);
+    expect(validArc({ topic: 't', narrative: 'n', members: [0] }, FACTS)).toBe(false);
+    expect(validArc({ topic: 't', narrative: 'n', members: [0, 99] }, FACTS)).toBe(false);
+    expect(validArc({ topic: 't', narrative: '  ', members: [0, 1] }, FACTS)).toBe(false);
     // Same-day beats are an aggregate, not an arc.
     const sameDay = FACTS.map((f) => ({ ...f, validFrom: '2024-03-01' }));
-    expect(
-      validArc({ topic: 't', narrative: 'n', members: [0, 1] }, sameDay),
-    ).toBe(false);
+    expect(validArc({ topic: 't', narrative: 'n', members: [0, 1] }, sameDay)).toBe(false);
   });
 
   it('arc validFrom = latest member beat', () => {
@@ -135,14 +148,12 @@ describe('ArcComposerService (V9 §3)', () => {
     expect(swap?.sql).toContain('INSERT INTO knowledge_fact');
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
-    expect(rows[0].predicate).toBe('summary_arc_apartment_move_');
-    expect(rows[1].predicate).toBe('summary_arc_running');
-    expect((rows[0].derivedFrom as unknown[]).length).toBe(3);
-    expect(rows[0].embedding).toEqual([1, 0]);
-    expect((rows[0].validFrom as Date).toISOString().slice(0, 10)).toBe(
-      '2024-06-12',
-    );
-    expect(rows[0].source).toMatchObject({ recorder: ARC_RECORDER });
+    expect(rows[0]!.predicate).toBe('summary_arc_apartment_move_');
+    expect(rows[1]!.predicate).toBe('summary_arc_running');
+    expect((rows[0]!.derivedFrom as unknown[]).length).toBe(3);
+    expect(rows[0]!.embedding).toEqual([1, 0]);
+    expect((rows[0]!.validFrom as Date).toISOString().slice(0, 10)).toBe('2024-06-12');
+    expect(rows[0]!.source).toMatchObject({ recorder: ARC_RECORDER });
   });
 
   it('sources exclude both composers and the summary_ prefix', async () => {
@@ -171,9 +182,7 @@ describe('ArcComposerService (V9 §3)', () => {
     });
     const res = await svc.run('co_x');
     expect(res.arcsWritten).toBe(0);
-    expect(
-      queries.some((q) => q.sql.includes('INSERT INTO knowledge_fact')),
-    ).toBe(false);
+    expect(queries.some((q) => q.sql.includes('INSERT INTO knowledge_fact'))).toBe(false);
   });
 
   it('version mode scopes sources and stamps derivedVersion', async () => {
@@ -194,11 +203,9 @@ describe('ArcComposerService (V9 §3)', () => {
     expect(res.arcsWritten).toBe(1);
     const tops = queries.find((q) => q.sql.includes('GROUP BY entityId'));
     expect(tops?.sql).toContain('derivedVersion = $version');
-    const swap = queries.find((q) =>
-      q.sql.includes('INSERT INTO knowledge_fact'),
-    );
+    const swap = queries.find((q) => q.sql.includes('INSERT INTO knowledge_fact'));
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
-    expect(rows[0].derivedVersion).toBe('wd-v9');
+    expect(rows[0]!.derivedVersion).toBe('wd-v9');
   });
 
   it('records per-entity failures without failing the run', async () => {
@@ -218,8 +225,6 @@ describe('ArcComposerService (V9 §3)', () => {
     };
     const res = await svc.run('co_x');
     expect(res.entities).toBe(0);
-    expect(res.skipped).toEqual([
-      { entityId: 'knowledge_entity:mel', reason: 'llm down' },
-    ]);
+    expect(res.skipped).toEqual([{ entityId: 'knowledge_entity:mel', reason: 'llm down' }]);
   });
 });

@@ -21,10 +21,7 @@ export const TEMPORAL_PATTERNS: RegExp[] = [
   // "how long ago / how long since / how long has it been"
   /how long (?:ago|since|until|has it been|had it been|did it take)/i,
   // "weeks ago", "months have passed", "days elapsed", "years apart"
-  new RegExp(
-    `${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`,
-    'i',
-  ),
+  new RegExp(`${UNIT} (?:ago|since|apart|passed|have passed|had passed|elapsed)`, 'i'),
   /how long (?:have|had|has) (?:i|we|you|she|he|they) been/i,
 ];
 

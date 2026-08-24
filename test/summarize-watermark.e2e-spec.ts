@@ -21,11 +21,7 @@ describe('SummarizeEntityService — watermark freshness', () => {
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
   let entityId = '';
 
-  const ingest = async (
-    predicate: string,
-    object: string,
-    validFrom: string,
-  ) => {
+  const ingest = async (predicate: string, object: string, validFrom: string) => {
     const res = await f.http
       .post('/v1/ingest/fact')
       .set(auth())

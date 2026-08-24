@@ -30,21 +30,14 @@ export interface SpawnOptions {
   env?: Record<string, string>;
 }
 
-const DEFAULT_SCOPES = [
-  'brain:read',
-  'brain:write',
-  'brain:admin',
-  'brain:read_pii',
-];
+const DEFAULT_SCOPES = ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'];
 
 export async function spawnService(opts: SpawnOptions = {}): Promise<SpawnedService> {
   const port = opts.port ?? 40_000 + Math.floor(Math.random() * 20_000);
   const companyId = newCompanyId();
 
   const primary = newBrainKey(companyId, opts.scopes ?? DEFAULT_SCOPES);
-  const extras = (opts.extraKeyScopes ?? []).map((scopes) =>
-    newBrainKey(companyId, scopes),
-  );
+  const extras = (opts.extraKeyScopes ?? []).map((scopes) => newBrainKey(companyId, scopes));
 
   const allKeys = [primary, ...extras].map((k) => ({
     keyHash: k.keyHash,

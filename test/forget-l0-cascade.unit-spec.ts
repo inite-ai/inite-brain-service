@@ -11,7 +11,7 @@ import type { ConfigService } from '@nestjs/config';
  */
 interface Recorded {
   sql: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, unknown> | undefined;
 }
 
 function makeDb(rowsFor: (sql: string) => unknown[]): {
@@ -39,8 +39,7 @@ describe('entity forget → L0 cascade', () => {
           { eps: ['episode:a', 'episode:b'] },
           { eps: ['episode:b'] }, // duplicate — must dedupe
         ];
-      if (sql.includes('SELECT id FROM knowledge_fact'))
-        return [{ id: 'knowledge_fact:f1' }];
+      if (sql.includes('SELECT id FROM knowledge_fact')) return [{ id: 'knowledge_fact:f1' }];
       if (sql.includes('DELETE episode_segment')) return [{ id: 'seg:1' }];
       if (sql.includes('DELETE episode ')) return [{ id: 'episode:a' }, { id: 'episode:b' }];
       // dbCreate asserts a returned row (tombstone must be observable);
@@ -49,8 +48,7 @@ describe('entity forget → L0 cascade', () => {
       return [];
     });
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     const config = {
       get: (_k: string, d?: string) => d,
@@ -73,32 +71,24 @@ describe('entity forget → L0 cascade', () => {
     expect((epDelete?.params?.eps as unknown[]).length).toBe(2);
 
     // Segments must go BEFORE the episodes they reference (dangling links).
-    const segIdx = queries.findIndex((q) =>
-      q.sql.includes('DELETE episode_segment'),
-    );
+    const segIdx = queries.findIndex((q) => q.sql.includes('DELETE episode_segment'));
     const epIdx = queries.findIndex((q) => q.sql.includes('DELETE episode '));
     expect(segIdx).toBeLessThan(epIdx);
 
     // Grounding episodes must be resolved BEFORE the facts that name them.
-    const groundIdx = queries.findIndex((q) =>
-      q.sql.includes('SELECT source.episodeIds AS eps'),
-    );
-    const factDelIdx = queries.findIndex((q) =>
-      q.sql.includes('DELETE knowledge_fact'),
-    );
+    const groundIdx = queries.findIndex((q) => q.sql.includes('SELECT source.episodeIds AS eps'));
+    const factDelIdx = queries.findIndex((q) => q.sql.includes('DELETE knowledge_fact'));
     expect(groundIdx).toBeLessThan(factDelIdx);
   });
 
   it('no grounding episodes → no episode/segment deletes at all', async () => {
     const { db, queries } = makeDb((sql) => {
       if (sql.includes('FROM type::record')) return [{ id: 'knowledge_entity:e' }];
-      if (sql.includes('CREATE type::table'))
-        return [{ id: 'forgotten_entity:t1' }];
+      if (sql.includes('CREATE type::table')) return [{ id: 'forgotten_entity:t1' }];
       return [];
     });
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     const config = {
       get: (_k: string, d?: string) => d,
@@ -118,24 +108,19 @@ describe('entity forget → L0 cascade', () => {
 describe('user forget → segments follow the deleted episodes', () => {
   it('deletes segments by episode reference AND by userId', async () => {
     const { db, queries } = makeDb((sql) => {
-      if (sql.includes('DELETE episode WHERE userId'))
-        return [{ id: 'episode:u1a' }];
+      if (sql.includes('DELETE episode WHERE userId')) return [{ id: 'episode:u1a' }];
       return [];
     });
     const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn(db),
+      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
     } as unknown as SurrealService;
     await new UserForgetService(surreal).forgetUser('co_x', 'u1');
 
     const byRef = queries.find(
-      (q) =>
-        q.sql.includes('DELETE episode_segment') &&
-        q.sql.includes('CONTAINSANY'),
+      (q) => q.sql.includes('DELETE episode_segment') && q.sql.includes('CONTAINSANY'),
     );
     const byUser = queries.find(
-      (q) =>
-        q.sql.includes('DELETE episode_segment') && q.sql.includes('userId'),
+      (q) => q.sql.includes('DELETE episode_segment') && q.sql.includes('userId'),
     );
     expect(byRef).toBeDefined();
     expect((byRef?.params?.eps as unknown[]).length).toBe(1);

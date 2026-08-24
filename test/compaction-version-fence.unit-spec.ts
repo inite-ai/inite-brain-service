@@ -12,9 +12,9 @@ import type { ReadPinService } from '../src/episodes/read-pin.service';
  */
 function makeRunner(pin: string | null): {
   svc: CompactionRunnerService;
-  queries: Array<{ sql: string; params?: Record<string, unknown> }>;
+  queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
 } {
-  const queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
+  const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
       queries.push({ sql, params });
@@ -41,18 +41,15 @@ function makeRunner(pin: string | null): {
             },
           ],
         ];
-      if (sql.includes('CREATE type::table'))
-        return [[{ id: 'knowledge_fact:sum1' }]];
+      if (sql.includes('CREATE type::table')) return [[{ id: 'knowledge_fact:sum1' }]];
       return [[]];
     },
   };
   const surreal = {
-    withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-      fn(db),
+    withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) => fn(db),
   } as unknown as SurrealService;
   const config = {
-    get: (k: string, d?: string) =>
-      k === 'COMPACTION_HOT_RETENTION_DAYS' ? '90' : d,
+    get: (k: string, d?: string) => (k === 'COMPACTION_HOT_RETENTION_DAYS' ? '90' : d),
   } as unknown as ConfigService;
   const readPin = {
     resolve: async () => pin,
@@ -73,17 +70,14 @@ describe('compaction stays inside the tenant live world (W2)', () => {
   afterEach(() => {
     if (savedEnv === undefined) delete process.env.RETRIEVAL_DERIVED_VERSION;
     else process.env.RETRIEVAL_DERIVED_VERSION = savedEnv;
-    if (savedSummaries === undefined)
-      delete process.env.COMPACTION_SUMMARIES_ENABLED;
+    if (savedSummaries === undefined) delete process.env.COMPACTION_SUMMARIES_ENABLED;
     else process.env.COMPACTION_SUMMARIES_ENABLED = savedSummaries;
   });
 
   it('pinned tenant: candidates are fenced to the pin', async () => {
     const { svc, queries } = makeRunner('wd-v3');
     await svc.compactCompany('co_x');
-    const select = queries.find((q) =>
-      q.sql.includes('SELECT id, entityId, predicate'),
-    );
+    const select = queries.find((q) => q.sql.includes('SELECT id, entityId, predicate'));
     expect(select?.sql).toContain('AND derivedVersion = $derivedVersion');
     expect(select?.params?.derivedVersion).toBe('wd-v3');
   });
@@ -92,9 +86,7 @@ describe('compaction stays inside the tenant live world (W2)', () => {
     delete process.env.RETRIEVAL_DERIVED_VERSION;
     const { svc, queries } = makeRunner(null);
     await svc.compactCompany('co_x');
-    const select = queries.find((q) =>
-      q.sql.includes('SELECT id, entityId, predicate'),
-    );
+    const select = queries.find((q) => q.sql.includes('SELECT id, entityId, predicate'));
     expect(select?.sql).toContain('AND derivedVersion IS NONE');
     expect(select?.params?.derivedVersion).toBeUndefined();
   });

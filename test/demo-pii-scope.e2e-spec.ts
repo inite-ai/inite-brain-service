@@ -23,12 +23,7 @@ describe('/v1/admin/demo — PII scope + per-caller tenant', () => {
       });
       fAdminPlusPii = await createApp({
         companyId: 'co_admin_pii',
-        scopes: [
-          'brain:read',
-          'brain:write',
-          'brain:admin',
-          'brain:read_pii',
-        ],
+        scopes: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'],
       });
     });
 

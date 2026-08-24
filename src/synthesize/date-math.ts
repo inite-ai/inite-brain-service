@@ -68,8 +68,10 @@ export function buildDateMathLines(hits: SearchHit[]): string[] {
     const iso = d.toISOString().slice(0, 10);
     const weekday = WEEKDAYS[d.getUTCDay()];
     if (i === 0) return `${iso} = ${weekday}`;
-    const prev = new Date(days[i - 1]);
-    const gap = Math.round((ms - days[i - 1]) / DAY_MS);
+    // i ≥ 1 here → days[i-1] is an in-bounds element of the mapped array.
+    const prevMs = days[i - 1]!;
+    const prev = new Date(prevMs);
+    const gap = Math.round((ms - prevMs) / DAY_MS);
     return `${iso} = ${weekday}, ${gap} day${gap === 1 ? '' : 's'} after ${prev.toISOString().slice(0, 10)}`;
   });
 }

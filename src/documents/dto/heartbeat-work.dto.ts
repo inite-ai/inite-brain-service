@@ -8,5 +8,5 @@ import { IsString, MaxLength } from 'class-validator';
 export class HeartbeatWorkDto {
   @IsString()
   @MaxLength(64)
-  claimToken: string;
+  claimToken!: string;
 }

@@ -44,9 +44,7 @@ export function resolveTokenIdentity(
 
 export function extractScopes(payload: Claims): string[] {
   if (Array.isArray(payload.scopes)) {
-    return payload.scopes
-      .filter((s): s is string => typeof s === 'string')
-      .slice(0, MAX_SCOPES);
+    return payload.scopes.filter((s): s is string => typeof s === 'string').slice(0, MAX_SCOPES);
   }
   if (typeof payload.scope === 'string') {
     return payload.scope.split(/\s+/).filter(Boolean).slice(0, MAX_SCOPES);
@@ -162,8 +160,7 @@ export function extractMcpGrantedActions(
       ? entry.locations.filter((l): l is string => typeof l === 'string')
       : [];
     const applies =
-      locations.length === 0 ||
-      (here !== undefined && locations.map(normalizeUrl).includes(here));
+      locations.length === 0 || (here !== undefined && locations.map(normalizeUrl).includes(here));
     if (!applies) continue;
     for (const action of stringList(entry.actions)) {
       if (VALID_MCP_ACTION.test(action) && granted.size < MAX_MCP_ACTIONS) {

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationShutdown,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
@@ -69,8 +64,7 @@ export interface IntentResult {
 }
 
 const CACHE_SIZE = 2000;
-const DEFAULT_MODEL =
-  'Xenova/distilbert-base-multilingual-cased-finetuned-mnli';
+const DEFAULT_MODEL = 'Xenova/distilbert-base-multilingual-cased-finetuned-mnli';
 const NLI_LABELS = ['question', 'statement'];
 const HYPOTHESIS_TEMPLATE = 'This text is a {}.';
 const WORKER_WARMUP_TIMEOUT_MS = 120_000;
@@ -78,9 +72,7 @@ const DEFAULT_CLASSIFY_TIMEOUT_MS = 3_000;
 const FAIL_RETRY_MS = 5 * 60_000;
 
 @Injectable()
-export class IntentClassifierService
-  implements OnModuleInit, OnApplicationShutdown
-{
+export class IntentClassifierService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(IntentClassifierService.name);
   private readonly modelId: string;
   private readonly enabled: boolean;
@@ -88,10 +80,9 @@ export class IntentClassifierService
   private readonly useWorker: boolean;
   private readonly classifyTimeoutMs: number;
   private classifier: ZeroShotPipeline | null = null;
-  private readonly cache = new LRUCache<
-    string,
-    { intent: 'ask' | 'tell'; confidence: number }
-  >(CACHE_SIZE);
+  private readonly cache = new LRUCache<string, { intent: 'ask' | 'tell'; confidence: number }>(
+    CACHE_SIZE,
+  );
 
   // Worker runtime (mirrors LocalCrossEncoderProvider)
   private worker: Worker | null = null;
@@ -105,24 +96,13 @@ export class IntentClassifierService
   private failedUntil = 0;
 
   constructor(private readonly config: ConfigService) {
-    this.enabled =
-      envFlagNotDisabled(this.config.get<string>('CHAT_ROUTE_NLI_ENABLED'));
-    this.modelId = this.config.get<string>(
-      'CHAT_ROUTE_NLI_MODEL',
-      DEFAULT_MODEL,
-    );
-    this.askThreshold = parseFloat(
-      this.config.get<string>('CHAT_ROUTE_NLI_ASK_THRESHOLD', '0.6'),
-    );
-    this.useWorker = envFlagEnabled(
-      this.config.get<string>('CHAT_ROUTE_NLI_WORKER', '1'),
-    );
+    this.enabled = envFlagNotDisabled(this.config.get<string>('CHAT_ROUTE_NLI_ENABLED'));
+    this.modelId = this.config.get<string>('CHAT_ROUTE_NLI_MODEL', DEFAULT_MODEL);
+    this.askThreshold = parseFloat(this.config.get<string>('CHAT_ROUTE_NLI_ASK_THRESHOLD', '0.6'));
+    this.useWorker = envFlagEnabled(this.config.get<string>('CHAT_ROUTE_NLI_WORKER', '1'));
     this.classifyTimeoutMs =
       parseInt(
-        this.config.get<string>(
-          'CHAT_ROUTE_NLI_TIMEOUT_MS',
-          String(DEFAULT_CLASSIFY_TIMEOUT_MS),
-        ),
+        this.config.get<string>('CHAT_ROUTE_NLI_TIMEOUT_MS', String(DEFAULT_CLASSIFY_TIMEOUT_MS)),
         10,
       ) || DEFAULT_CLASSIFY_TIMEOUT_MS;
   }
@@ -237,7 +217,7 @@ export class IntentClassifierService
     confidence: number;
   } {
     const qIdx = result.labels.indexOf('question');
-    const qScore = qIdx >= 0 ? result.scores[qIdx] : 0;
+    const qScore = qIdx >= 0 ? (result.scores[qIdx] ?? 0) : 0;
     if (qScore >= this.askThreshold) {
       return { intent: 'ask', confidence: qScore };
     }
@@ -252,10 +232,7 @@ export class IntentClassifierService
     if (this.warmupPromise) return this.warmupPromise;
     if (Date.now() < this.failedUntil) return;
     const start = Date.now();
-    this.warmupPromise = (this.useWorker
-      ? this.warmupWorker()
-      : this.warmupInThread()
-    )
+    this.warmupPromise = (this.useWorker ? this.warmupWorker() : this.warmupInThread())
       .then(() => {
         this.logger.log(
           `NLI classifier ready (${this.modelId}${this.useWorker ? ', worker' : ''}) — warmup ${Date.now() - start}ms`,
@@ -350,16 +327,13 @@ export class IntentClassifierService
 
   private rpc<R>(kind: 'warmup' | 'classify', payload: unknown): Promise<R> {
     if (!this.worker) {
-      return Promise.reject(
-        new Error('intent-classifier worker not initialised'),
-      );
+      return Promise.reject(new Error('intent-classifier worker not initialised'));
     }
     const id = this.nextReqId++;
     // Warmup downloads/loads a ~135MB model; a classify call is a single
     // inference bounded by CHAT_ROUTE_NLI_TIMEOUT_MS so a wedged worker
     // can't pend forever.
-    const timeoutMs =
-      kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : this.classifyTimeoutMs;
+    const timeoutMs = kind === 'warmup' ? WORKER_WARMUP_TIMEOUT_MS : this.classifyTimeoutMs;
     return new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) {
@@ -373,11 +347,7 @@ export class IntentClassifierService
           if (kind === 'classify') {
             this.failedUntil = Date.now() + FAIL_RETRY_MS;
           }
-          reject(
-            new Error(
-              `intent-classifier '${kind}' RPC timed out after ${timeoutMs}ms`,
-            ),
-          );
+          reject(new Error(`intent-classifier '${kind}' RPC timed out after ${timeoutMs}ms`));
         }
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();

@@ -1,7 +1,4 @@
-import {
-  buildNeighbourMap,
-  expandViaEdges,
-} from '../src/search/internals/edge-expansion';
+import { buildNeighbourMap, expandViaEdges } from '../src/search/internals/edge-expansion';
 import type { FactRow } from '../src/search/internals/types';
 
 /**
@@ -28,8 +25,7 @@ function row(partial: Partial<FactRow>): FactRow {
 
 describe('buildNeighbourMap', () => {
   it('returns undefined when no row carries neighbours (flag off)', () => {
-    expect(buildNeighbourMap([row({}), row({ entityId: 'knowledge_entity:e2' })]))
-      .toBeUndefined();
+    expect(buildNeighbourMap([row({}), row({ entityId: 'knowledge_entity:e2' })])).toBeUndefined();
   });
 
   it('harvests neighbours keyed by entity, first non-null per entity wins', () => {
@@ -48,8 +44,10 @@ describe('buildNeighbourMap', () => {
     ];
     const map = buildNeighbourMap(rows)!;
     expect(map.size).toBe(2);
-    expect(map.get('knowledge_entity:e1')?.outNeighbours?.[0].peer?.id).toBe('knowledge_entity:n1');
-    expect(map.get('knowledge_entity:e2')?.inNeighbours?.[0].peer?.id).toBe('knowledge_entity:n2');
+    expect(map.get('knowledge_entity:e1')?.outNeighbours?.[0]?.peer?.id).toBe(
+      'knowledge_entity:n1',
+    );
+    expect(map.get('knowledge_entity:e2')?.inNeighbours?.[0]?.peer?.id).toBe('knowledge_entity:n2');
   });
 });
 
@@ -76,9 +74,7 @@ describe('expandViaEdges prefetch', () => {
       ['knowledge_entity:e1', bucket('knowledge_entity:e1')],
       ['knowledge_entity:e2', bucket('knowledge_entity:e2')],
     ]);
-    const prefetched = new Map([
-      ['knowledge_entity:e1', { outNeighbours: [], inNeighbours: [] }],
-    ]);
+    const prefetched = new Map([['knowledge_entity:e1', { outNeighbours: [], inNeighbours: [] }]]);
     await expandViaEdges({
       db,
       logger: { warn: () => {} },

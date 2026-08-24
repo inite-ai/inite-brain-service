@@ -13,12 +13,7 @@ import { ActionKind, CompiledActionRule } from './policy.types';
  * family is UI grouping only — the engine reads kind (readonly macro).
  */
 export type ActionFamily =
-  | 'mcp_read'
-  | 'mcp_write'
-  | 'mcp_community'
-  | 'mcp_procedural'
-  | 'mcp_source'
-  | 'rest';
+  'mcp_read' | 'mcp_write' | 'mcp_community' | 'mcp_procedural' | 'mcp_source' | 'rest';
 
 export interface ActionSpec {
   kind: ActionKind;
@@ -86,8 +81,16 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.documents.get': { kind: 'read', family: 'rest', title: 'Get document' },
   'rest.documents.candidates': { kind: 'read', family: 'rest', title: 'List candidates' },
   'rest.documents.commit': { kind: 'write', family: 'rest', title: 'Commit candidates' },
-  'rest.documents.stage_candidates': { kind: 'write', family: 'rest', title: 'Stage external candidates' },
-  'rest.documents.purge_content': { kind: 'write', family: 'rest', title: 'Purge document content' },
+  'rest.documents.stage_candidates': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Stage external candidates',
+  },
+  'rest.documents.purge_content': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Purge document content',
+  },
   'rest.indexer.work': { kind: 'read', family: 'rest', title: 'List indexer work' },
   'rest.indexer.claim': { kind: 'write', family: 'rest', title: 'Claim indexer work' },
   'rest.indexer.heartbeat': { kind: 'write', family: 'rest', title: 'Heartbeat indexer claim' },
@@ -104,17 +107,37 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.registry.pricing.clear': { kind: 'write', family: 'rest', title: 'Clear pack pricing' },
   'rest.registry.feature': { kind: 'write', family: 'rest', title: 'Feature pack' },
   'rest.registry.unfeature': { kind: 'write', family: 'rest', title: 'Unfeature pack' },
-  'rest.registry.publisher.upsert': { kind: 'write', family: 'rest', title: 'Upsert publisher profile' },
+  'rest.registry.publisher.upsert': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Upsert publisher profile',
+  },
   'rest.registry.publisher.get': { kind: 'read', family: 'rest', title: 'Get publisher page' },
   // Raw-substrate driver v1: the L0 episode substrate as a contract.
   'rest.episodes.list': { kind: 'read', family: 'rest', title: 'List episodes' },
   'rest.episodes.export': { kind: 'read', family: 'rest', title: 'Export episodes (NDJSON)' },
   'rest.projections.list': { kind: 'read', family: 'rest', title: 'List derived projections' },
-  'rest.projections.rebuild': { kind: 'admin', family: 'rest', title: 'Rebuild a derived projection' },
-  'rest.episodes.subscribe': { kind: 'admin', family: 'rest', title: 'Register an episode webhook' },
+  'rest.projections.rebuild': {
+    kind: 'admin',
+    family: 'rest',
+    title: 'Rebuild a derived projection',
+  },
+  'rest.episodes.subscribe': {
+    kind: 'admin',
+    family: 'rest',
+    title: 'Register an episode webhook',
+  },
   'rest.episodes.subscriptions': { kind: 'read', family: 'rest', title: 'List episode webhooks' },
-  'rest.episodes.unsubscribe': { kind: 'admin', family: 'rest', title: 'Delete an episode webhook' },
-  'rest.registry.checkout': { kind: 'write', family: 'rest', title: 'Create pack checkout session' },
+  'rest.episodes.unsubscribe': {
+    kind: 'admin',
+    family: 'rest',
+    title: 'Delete an episode webhook',
+  },
+  'rest.registry.checkout': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Create pack checkout session',
+  },
   // Rolling user profile v1 (USER_PROFILE_API_ENABLED). MCP-tool-style
   // name (the get_entity_profile precedent) so a future MCP surface
   // shares the action; REST-only today.
@@ -153,5 +176,4 @@ export const POLICY_ACTION_KEY = 'policyAction';
  * Names a controller handler in the ABAC action namespace. Mirrors
  * RequireScopes (SetMetadata + reflector read in ApiKeyGuard).
  */
-export const PolicyAction = (action: string) =>
-  SetMetadata(POLICY_ACTION_KEY, action);
+export const PolicyAction = (action: string) => SetMetadata(POLICY_ACTION_KEY, action);

@@ -1,7 +1,6 @@
 import type { StartedTestContainer } from 'testcontainers';
 
 declare global {
-   
   var __SURREAL_CONTAINER__: StartedTestContainer | undefined;
 }
 

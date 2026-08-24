@@ -19,9 +19,7 @@ describe('isUniqueViolation', () => {
   });
 
   it('does not match an unrelated error', () => {
-    expect(isUniqueViolation(new Error('parse error: unexpected token'))).toBe(
-      false,
-    );
+    expect(isUniqueViolation(new Error('parse error: unexpected token'))).toBe(false);
   });
 
   it('returns false for non-Error values', () => {
@@ -44,9 +42,7 @@ describe('isReadConflict', () => {
   });
 
   it('does not match a permission denial or parse error', () => {
-    expect(isReadConflict(new Error('IAM error: permission denied'))).toBe(
-      false,
-    );
+    expect(isReadConflict(new Error('IAM error: permission denied'))).toBe(false);
     expect(isReadConflict(new Error('parse error near COMMIT'))).toBe(false);
   });
 
@@ -57,9 +53,7 @@ describe('isReadConflict', () => {
 
 describe('enrichTransactionError', () => {
   it('appends the cause message to a "failed transaction" wrapper so it becomes retriable', () => {
-    const wrapper = new Error(
-      'The query was not executed due to a failed transaction',
-    );
+    const wrapper = new Error('The query was not executed due to a failed transaction');
     (wrapper as Error & { cause?: unknown }).cause = new Error(
       'Failed to commit transaction due to a read or write conflict',
     );
@@ -74,9 +68,7 @@ describe('enrichTransactionError', () => {
   it('falls back to the canonical suffix when no cause is attached', () => {
     const wrapper = new Error('failed transaction envelope');
     const enriched = enrichTransactionError(wrapper) as Error;
-    expect(enriched.message).toContain(
-      'read or write conflict; this transaction can be retried',
-    );
+    expect(enriched.message).toContain('read or write conflict; this transaction can be retried');
     expect(isReadConflict(enriched)).toBe(true);
   });
 

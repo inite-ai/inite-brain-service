@@ -7,13 +7,16 @@ import {
   Optional,
 } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
-import { SurrealService } from '../db/surreal.service';
+import { SurrealService, queryRows } from '../db/surreal.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { envFlagEnabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
-import { embeddingTextFor, serializeForInsert } from '../ai/predicate-registry-internals/db-mapping';
+import {
+  embeddingTextFor,
+  serializeForInsert,
+} from '../ai/predicate-registry-internals/db-mapping';
 import type { PredicateDefinition } from '../ai/predicate-registry-internals/types';
 import {
   assertPackTrust,
@@ -47,6 +50,26 @@ export interface AvailablePack {
   description: string;
   predicateCount: number;
   builtin: boolean;
+}
+
+/** Columns read back from `domain_pack` on install / upgrade / uninstall. */
+interface DomainPackRow {
+  id?: unknown;
+  version?: unknown;
+  manifest?: DomainPackManifest;
+  webhookSecret?: unknown;
+  installId?: unknown;
+  acceptedMcpTools?: unknown;
+  acceptedMcpToolsChecksum?: unknown;
+}
+
+/** `listInstalled` projection of `domain_pack`. */
+interface InstalledPackRow {
+  packId?: unknown;
+  version?: unknown;
+  installedAt: string | Date;
+  manifest?: { predicates?: unknown };
+  checksum?: unknown;
 }
 
 /** Outcome of the seed-documents install hook. Contract mirror:
@@ -114,25 +137,30 @@ export class DomainPackInstallService {
 
   async listInstalled(companyId: string): Promise<InstalledPack[]> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<InstalledPackRow>(
+        db,
         `SELECT packId, version, installedAt, manifest, checksum FROM domain_pack WHERE status = 'active'`,
       );
-      return ((rows as any[]) ?? []).map((r) => ({
-        packId: String(r.packId),
-        version: String(r.version),
-        installedAt: new Date(r.installedAt).toISOString(),
-        predicateCount: Array.isArray(r.manifest?.predicates)
-          ? r.manifest.predicates.length
-          : 0,
-        checksum: r.checksum ? String(r.checksum) : null,
-      }));
+      return rows.map((r) => {
+        const preds = r.manifest?.predicates;
+        return {
+          packId: String(r.packId),
+          version: String(r.version),
+          installedAt: new Date(r.installedAt).toISOString(),
+          predicateCount: Array.isArray(preds) ? preds.length : 0,
+          checksum: r.checksum ? String(r.checksum) : null,
+        };
+      });
     });
   }
 
   async install(
     companyId: string,
     manifest: DomainPackManifest,
-    opts: { expectedChecksum?: string; acceptMcpTools?: boolean } = {},
+    opts: {
+      expectedChecksum?: string | undefined;
+      acceptMcpTools?: boolean | undefined;
+    } = {},
   ): Promise<{
     packId: string;
     version: string;
@@ -167,9 +195,7 @@ export class DomainPackInstallService {
       assertPackTrust({
         manifest,
         trustedKeys: this.trustedKeys(),
-        requireSignature: envFlagEnabled(
-          process.env.DOMAIN_PACK_REQUIRE_SIGNATURE,
-        ),
+        requireSignature: envFlagEnabled(process.env.DOMAIN_PACK_REQUIRE_SIGNATURE),
       });
     } catch (e) {
       if (e instanceof DomainPackError) throw new BadRequestException(e.message);
@@ -203,8 +229,7 @@ export class DomainPackInstallService {
     // first install; upgrades preserve the existing secret so the
     // integration doesn't have to rotate on every bump.
     const wantsWebhook =
-      Boolean(manifest.indexer?.external?.callbackUrl) ||
-      externalTools.length > 0;
+      Boolean(manifest.indexer?.external?.callbackUrl) || externalTools.length > 0;
     let mintedSecret: string | undefined;
     // Consent/upgrade SET fragment for the 0068 fields: stamped when the
     // manifest declares tools (the consent gate has passed by then),
@@ -214,18 +239,17 @@ export class DomainPackInstallService {
       : `, acceptedMcpTools = NONE, acceptedMcpToolsChecksum = NONE`;
     let mintedInstallId: string | undefined;
     const seeded = await this.surreal.withCompany(companyId, async (db) => {
-      const [existing] = await db.query<[any[]]>(
+      const existing = await queryRows<DomainPackRow>(
+        db,
         `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
         { packId: manifest.id },
       );
-      const row = ((existing as any[]) ?? [])[0];
+      const row = existing[0];
       const consentMessage = mcpConsentRequired({
         manifest,
         acceptMcpTools: opts.acceptMcpTools,
         priorAccepted: row?.acceptedMcpTools === true,
-        priorChecksum: row?.acceptedMcpToolsChecksum
-          ? String(row.acceptedMcpToolsChecksum)
-          : null,
+        priorChecksum: row?.acceptedMcpToolsChecksum ? String(row.acceptedMcpToolsChecksum) : null,
       });
       if (consentMessage) throw new BadRequestException(consentMessage);
       // installId (0068) — the opaque per-install identity external tool
@@ -299,13 +323,13 @@ export class DomainPackInstallService {
    */
   private async applyPackUpgrade(opts: {
     db: Surreal;
-    row: any;
+    row: DomainPackRow;
     manifest: DomainPackManifest;
     checksum: string;
     newIds: string[];
     mint: {
       wantsWebhook: boolean;
-      mintedInstallId?: string;
+      mintedInstallId?: string | undefined;
       mcpChecksum: string | null;
       mcpSet: string;
     };
@@ -384,18 +408,14 @@ export class DomainPackInstallService {
    * The same guard re-runs on EVERY proxied call — this early check just
    * turns a misdeclared pack into a clean 400 at review time.
    */
-  private async assertToolEndpoints(
-    tools: PackExternalToolSpec[],
-  ): Promise<void> {
+  private async assertToolEndpoints(tools: PackExternalToolSpec[]): Promise<void> {
     const allowHttp = envFlagEnabled(process.env.MCP_PACK_TOOLS_ALLOW_HTTP);
     for (const tool of tools) {
       try {
         await assertPublicHttpUrl(tool.endpoint, { allowHttp });
       } catch (e) {
         if (e instanceof EgressDeniedError) {
-          throw new BadRequestException(
-            `mcpTool "${tool.name}": ${e.message}`,
-          );
+          throw new BadRequestException(`mcpTool "${tool.name}": ${e.message}`);
         }
         throw e;
       }
@@ -483,28 +503,24 @@ export class DomainPackInstallService {
     if (changed.length === 0) return;
     let embeddings: Array<number[] | null>;
     try {
-      embeddings = await this.embedder.embedMany(
-        changed.map((p) => embeddingTextFor(p)),
-      );
+      embeddings = await this.embedder.embedMany(changed.map((p) => embeddingTextFor(p)));
     } catch {
       embeddings = changed.map(() => null);
     }
-    for (let i = 0; i < changed.length; i++) {
+    for (const [i, def] of changed.entries()) {
       await db.query(
         `UPDATE knowledge_predicate MERGE $content
            WHERE predicateId = $pid AND createdBy = 'admin'`,
         {
-          pid: changed[i].predicateId,
+          pid: def.predicateId,
           content: {
-            ...serializeForInsert(changed[i]),
+            ...serializeForInsert(def),
             ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
           },
         },
       );
     }
-    this.logger.log(
-      `[pack ${packId}] applied ${changed.length} redefined predicate(s)`,
-    );
+    this.logger.log(`[pack ${packId}] applied ${changed.length} redefined predicate(s)`);
   }
 
   async uninstall(
@@ -512,32 +528,29 @@ export class DomainPackInstallService {
     packId: string,
   ): Promise<{ packId: string; predicatesDeprecated: number }> {
     if (this.builtinIds.has(packId)) {
-      throw new BadRequestException(
-        `pack "${packId}" is a builtin pack and cannot be uninstalled`,
-      );
+      throw new BadRequestException(`pack "${packId}" is a builtin pack and cannot be uninstalled`);
     }
     const deprecated = await this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<[any[]]>(
+      const rows = await queryRows<DomainPackRow>(
+        db,
         `SELECT id FROM domain_pack WHERE packId = $packId AND status = 'active' LIMIT 1`,
         { packId },
       );
-      const row = ((rows as any[]) ?? [])[0];
+      const row = rows[0];
       if (!row) {
         throw new NotFoundException(`pack "${packId}" is not installed`);
       }
       // Deprecate the pack's predicates (status only — facts on them survive).
       const prefix = `${packId}__`;
-      const [updated] = await db.query<[any[]]>(
+      const updated = await queryRows<unknown>(
+        db,
         `UPDATE knowledge_predicate SET status = 'deprecated'
            WHERE string::starts_with(predicateId, $prefix) AND status != 'deprecated'
            RETURN AFTER`,
         { prefix },
       );
-      await db.query(
-        `UPDATE $id SET status = 'removed', updatedAt = time::now()`,
-        { id: row.id },
-      );
-      return ((updated as any[]) ?? []).length;
+      await db.query(`UPDATE $id SET status = 'removed', updatedAt = time::now()`, { id: row.id });
+      return updated.length;
     });
 
     this.registry.invalidate(companyId);

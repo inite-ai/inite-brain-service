@@ -77,7 +77,10 @@ export function splitClauses(text: string): ClauseSplit[] {
     // offsets back into the original.
     const subClauses = splitOnInternalBoundaries(raw, start);
     for (const c of subClauses) {
-      const text = c.text.trim().replace(/[\s.,;:!?…—–-]+$/u, '').trim();
+      const text = c.text
+        .trim()
+        .replace(/[\s.,;:!?…—–-]+$/u, '')
+        .trim();
       if (text.length === 0) continue;
       clauses.push({
         text,
@@ -100,12 +103,8 @@ function splitOnInternalBoundaries(
   while (cursor < sentence.length) {
     const conjMatch = CONJUNCTION_RE.exec(sentence.slice(cursor));
     const semiMatch = SEMICOLON_SPLIT_RE.exec(sentence.slice(cursor));
-    const conjStart = conjMatch
-      ? cursor + conjMatch.index
-      : Number.POSITIVE_INFINITY;
-    const semiStart = semiMatch
-      ? cursor + semiMatch.index
-      : Number.POSITIVE_INFINITY;
+    const conjStart = conjMatch ? cursor + conjMatch.index : Number.POSITIVE_INFINITY;
+    const semiStart = semiMatch ? cursor + semiMatch.index : Number.POSITIVE_INFINITY;
     const next = Math.min(conjStart, semiStart);
     if (next === Number.POSITIVE_INFINITY) {
       parts.push({
@@ -114,8 +113,7 @@ function splitOnInternalBoundaries(
       });
       break;
     }
-    const matchLen =
-      conjStart < semiStart ? conjMatch![0].length : semiMatch![0].length;
+    const matchLen = conjStart < semiStart ? conjMatch![0].length : semiMatch![0].length;
     parts.push({
       text: sentence.slice(cursor, next),
       start: baseOffset + cursor,

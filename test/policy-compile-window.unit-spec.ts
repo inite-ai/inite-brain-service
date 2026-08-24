@@ -27,24 +27,14 @@ describe('compilePolicySet temporal windows', () => {
   });
 
   it('returns null before activeFrom and at/after activeUntil', () => {
-    expect(
-      compilePolicySet(doc({ activeFrom: '2026-07-10T00:00:00Z' }), now),
-    ).toBeNull();
-    expect(
-      compilePolicySet(doc({ activeUntil: '2026-07-09T12:00:00Z' }), now),
-    ).toBeNull();
-    expect(
-      compilePolicySet(doc({ activeUntil: '2026-07-01T00:00:00Z' }), now),
-    ).toBeNull();
+    expect(compilePolicySet(doc({ activeFrom: '2026-07-10T00:00:00Z' }), now)).toBeNull();
+    expect(compilePolicySet(doc({ activeUntil: '2026-07-09T12:00:00Z' }), now)).toBeNull();
+    expect(compilePolicySet(doc({ activeUntil: '2026-07-01T00:00:00Z' }), now)).toBeNull();
   });
 
   it('open-ended bounds behave as half-infinite windows', () => {
-    expect(
-      compilePolicySet(doc({ activeFrom: '2026-01-01T00:00:00Z' }), now),
-    ).not.toBeNull();
-    expect(
-      compilePolicySet(doc({ activeUntil: '2027-01-01T00:00:00Z' }), now),
-    ).not.toBeNull();
+    expect(compilePolicySet(doc({ activeFrom: '2026-01-01T00:00:00Z' }), now)).not.toBeNull();
+    expect(compilePolicySet(doc({ activeUntil: '2027-01-01T00:00:00Z' }), now)).not.toBeNull();
   });
 });
 
