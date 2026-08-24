@@ -889,18 +889,26 @@ export class SynthesizeService {
     lane: LaneId | null,
     args: Parameters<typeof coverageAbstention>[1],
   ): Promise<SynthesizeResult | null> {
-    const { profile, results } = args;
-    if (this.focusSignal && FocusSignalService.captureEnabled()) {
+    const { profile, guardrails, results } = args;
+    // The pre-answer focus capture + the adaptive gate BOTH apply only in the
+    // regime where coverage-abstention actually runs (coverage mode, strict/
+    // lenient). Capturing outside it would seed the pre-answer calibrator with
+    // off-distribution samples ('answer'-mode / abstention-off queries never
+    // face the abstain decision the calibrator predicts) — the same fit-shape
+    // = apply-shape discipline the stage discriminator enforces (§4.2).
+    const coverageRegime =
+      profile.abstentionCalibration === 'coverage' &&
+      (guardrails === 'strict' || guardrails === 'lenient');
+    if (coverageRegime && this.focusSignal && FocusSignalService.captureEnabled()) {
       await this.focusSignal.maybeCapture(
         companyId,
         { results, verdict: 'none', lane },
         'preanswer',
       );
     }
-    const adaptive =
-      profile.abstentionCalibration === 'coverage'
-        ? await this.resolveAdaptiveAbstain(companyId, { results, lane })
-        : undefined;
+    const adaptive = coverageRegime
+      ? await this.resolveAdaptiveAbstain(companyId, { results, lane })
+      : undefined;
     return this.coverageAbstention({ ...args, ...(adaptive ? { adaptive } : {}) });
   }
 

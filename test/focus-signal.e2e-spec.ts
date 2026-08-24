@@ -20,10 +20,22 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
   let surreal: SurrealService;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
-  const sampleCount = async (): Promise<number> =>
+  // Count captured samples. Optionally filter by stage — §4.2 added a
+  // 'preanswer'-stage capture at the coverage-abstention gate, so a query that
+  // reaches the verdict point in coverage mode now writes two samples (one per
+  // stage). These verdict-point-capture tests count the 'verdict' stage
+  // explicitly to stay pinned to the Optics-1 behaviour they assert;
+  // stage='NONE' rows (pre-0095) read as verdict.
+  const sampleCount = async (stage?: 'verdict' | 'preanswer'): Promise<number> =>
     surreal.withCompany(f.companyId, async (db) => {
+      const where =
+        stage === 'verdict'
+          ? " WHERE stage = 'verdict' OR stage IS NONE"
+          : stage
+            ? ` WHERE stage = '${stage}'`
+            : '';
       const [rows] = await db.query<[Array<{ sampleId: string }>]>(
-        'SELECT sampleId FROM focus_signal_sample',
+        `SELECT sampleId FROM focus_signal_sample${where}`,
       );
       return Array.isArray(rows) ? rows.length : 0;
     });
@@ -78,11 +90,11 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
     expect(fit.status).toBe(404);
   });
 
-  it('records exactly one companyId-scoped sample when the flag is on', async () => {
+  it('records exactly one companyId-scoped verdict-stage sample when the flag is on', async () => {
     process.env.FOVEA_FOCUS_CAPTURE = '1';
-    const before = await sampleCount();
+    const before = await sampleCount('verdict');
     await runSynthesize('engineer');
-    const after = await sampleCount();
+    const after = await sampleCount('verdict');
     expect(after).toBe(before + 1);
 
     const row = await surreal.withCompany(f.companyId, async (db) => {
