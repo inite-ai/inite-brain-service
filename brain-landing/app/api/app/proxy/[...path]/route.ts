@@ -110,14 +110,40 @@ async function forward(
 
   // Ride the user's identity downstream via token exchange: brain then
   // scopes memory to org (tenant) + sub (this user) instead of the
-  // anonymous service identity. Dev-bypass sessions have no token and
-  // keep the M2M path.
+  // anonymous service identity. A real session carries a token; dev-bypass
+  // sessions have none and keep the M2M operator path (local dev only —
+  // dev-bypass is disabled in production).
+  const userToken = await extractAccessToken(request)
+  const hasUserIdentity = Boolean(userToken)
+
+  // Pin the backend userId to the SESSION user on the authenticated
+  // end-user path. `userId` on brain read/write DTOs is caller-asserted,
+  // so a client must not be able to reach another user's slice by passing
+  // ?userId= or a userId in the body. Override any client-supplied value
+  // with the session's own id (both surfaces). We only rewrite a userId
+  // the client actually sent — never inject one — so endpoints whose DTO
+  // has no userId field (e.g. ingest/link) aren't tripped by the backend's
+  // forbidNonWhitelisted validation. Omitted userIds are scoped to the
+  // session user by the backend's pinUserScope on the exchanged token; the
+  // fail-closed exchange below guarantees that token is always present.
+  if (hasUserIdentity) {
+    if ('userId' in query) query.userId = session.userId
+    if (body && typeof body === 'object' && !Array.isArray(body) && 'userId' in body) {
+      ;(body as Record<string, unknown>).userId = session.userId
+    }
+  }
+
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
     body,
     query,
     scope: USER_SCOPE,
-    userToken: await extractAccessToken(request),
+    userToken,
+    // Fail closed: if the identity-preserving exchange fails for a real
+    // end-user session, deny (403) instead of falling back to the
+    // tenant-wide M2M credential (which the backend would let assert ANY
+    // userId). Only the user-less dev-bypass/system path may ride M2M.
+    requireUserIdentity: hasUserIdentity,
     headers: forwardDebug ? { 'X-Brain-Debug': '1' } : undefined,
   })
 
