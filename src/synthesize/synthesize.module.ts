@@ -9,6 +9,7 @@ import { LensAdminController } from './lens-admin.controller';
 import { SynthesizeService } from './synthesize.service';
 import { FocusSignalService } from './focus-signal.service';
 import { LensSuppressionService } from './lens-suppression.service';
+import { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
 import { EpisodeLaneService } from './episode-lane.service';
 import { SegmentLaneService } from './segment-lane.service';
 import { InsightLaneService } from './insight-lane.service';
@@ -26,6 +27,7 @@ import { L3EscalationService } from './l3-escalation.service';
     SynthesizeService,
     FocusSignalService,
     LensSuppressionService,
+    MultilingualLaneClassifierService,
     EvidenceCollectorService,
     EpisodeLaneService,
     SegmentLaneService,

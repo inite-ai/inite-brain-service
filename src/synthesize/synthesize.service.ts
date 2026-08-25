@@ -17,17 +17,18 @@ import type { AbstainAdaptiveGate } from './verdict';
 import {
   attachDecisionLog,
   buildSecondaryDto,
+  evidenceConflicts,
   resolveAnswerFrames,
   resolveAnswerLang,
   resolveCitations,
   resolveLaneDateContext,
+  resolveRoutedLane,
   serveCacheHit,
   verifierErrorResult,
 } from './synthesize.helpers';
 import { resolvePromptFrames, wantsTimelineEvidence } from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
-import { routeLane, laneProbeDto, detectEvidenceConflicts, type LaneId } from './answer-router';
-export { detectEvidenceConflicts } from './answer-router';
+import { laneProbeDto, type LaneId } from './answer-router';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
 import { buildFactIndex } from './fact-index';
 import { resolveAnswerIntegrity, type FinalizeContext } from './answer-integrity';
@@ -49,6 +50,7 @@ import {
 } from './focus-signal';
 import type { FocusVerdict, PerClassCalibration } from './focus-signal';
 import { LensSuppressionService } from './lens-suppression.service';
+import { MultilingualLaneClassifierService } from './multilingual-lane-classifier.service';
 import {
   AnswerCacheService,
   type AnswerCacheBeginResult,
@@ -128,6 +130,7 @@ export class SynthesizeService {
     @Optional() private readonly l3?: L3EscalationService,
     @Optional() private readonly focusSignal?: FocusSignalService,
     @Optional() private readonly lensSuppression?: LensSuppressionService,
+    @Optional() private readonly laneClassifier?: MultilingualLaneClassifierService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -210,8 +213,11 @@ export class SynthesizeService {
 
     // Typed dispatch: lane detection is lexical and free, so it runs
     // before retrieval — the preference lane adds a deterministic
-    // second probe that similarity search would never surface.
-    const lane: LaneId | null = routeLane(profile, dto.query);
+    // second probe that similarity search would never surface. Multilingual
+    // Tier 4: a null regex route is augmented by the language-agnostic
+    // classifier when MULTILINGUAL_LANE_ROUTING is on (abstain-safe, off =
+    // byte-identical). See resolveRoutedLane.
+    const lane: LaneId | null = await resolveRoutedLane(profile, dto.query, this.laneClassifier);
 
     onProgress({ stage: 'search', message: 'hybrid retrieval' });
     const searchResult = await withSpan(
@@ -754,7 +760,7 @@ export class SynthesizeService {
               instructions: collected.instructions,
               // T3: evidence-conditional — fires on write-side COMPETING
               // facts regardless of what the question looks like.
-              conflicts: detectEvidenceConflicts(args.results, profile.lanes),
+              conflicts: evidenceConflicts(args.results, profile),
               dateMathLines: args.dateMathLines,
               shapeInstruction: args.shapeInstruction,
               // G4 strategy lane: advisory notes, GENERATOR-ONLY — the
@@ -838,9 +844,7 @@ export class SynthesizeService {
   } | null> {
     const { profile, dto, collected } = args;
     const refineQuery = args.generated.refineQuery?.trim();
-    if (!profile.searchLoop || !refineQuery || refineQuery === dto.query) {
-      return null;
-    }
+    if (!profile.searchLoop || !refineQuery || refineQuery === dto.query) return null;
     try {
       // Audit 2026-08-19 P1: the refined retrieval inherits the FULL
       // caller filter contract (anchors, floors, mode, user scope) —
@@ -876,7 +880,7 @@ export class SynthesizeService {
             lane: args.lane,
             enumStrict: profile.enumStrict,
             instructions: collected.instructions,
-            conflicts: detectEvidenceConflicts(prepared.results, profile.lanes),
+            conflicts: evidenceConflicts(prepared.results, profile),
             dateMathLines,
             shapeInstruction: args.shapeInstruction,
             strategyNotes: collected.strategyNotes,
@@ -981,8 +985,7 @@ export class SynthesizeService {
     baseHits: SearchHit[];
   }): Promise<SearchHit[]> {
     const probeDto = laneProbeDto(profile, lane, { query: dto.query, baseHits });
-    if (!probeDto) return [];
-    if (getAbortSignal()?.aborted) return [];
+    if (!probeDto || getAbortSignal()?.aborted) return [];
     try {
       // Audit 2026-08-19 P1: the probe inherits the caller's full
       // filter contract; the lane supplies only its query and limit.

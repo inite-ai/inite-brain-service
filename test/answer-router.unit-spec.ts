@@ -18,6 +18,7 @@ import {
   TEMPORAL_LANE_INSTRUCTION,
   ENUMERATION_LANE_INSTRUCTION,
   LANE_REGISTRY,
+  detectEvidenceConflicts,
 } from '../src/synthesize/answer-router';
 import {
   resolveRetrievalProfile,
@@ -33,11 +34,7 @@ function profileWith(over: Partial<RetrievalProfile> = {}): RetrievalProfile {
     ...over,
   };
 }
-import {
-  buildGeneratorUserMessage,
-  buildFactIndex,
-  detectEvidenceConflicts,
-} from '../src/synthesize/synthesize.service';
+import { buildGeneratorUserMessage, buildFactIndex } from '../src/synthesize/synthesize.service';
 import { CONTRADICTION_NOTE_INSTRUCTION } from '../src/synthesize/answer-router';
 import type { SearchHit } from '../src/search/search.types';
 

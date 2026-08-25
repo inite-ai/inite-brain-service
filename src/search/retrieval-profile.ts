@@ -268,6 +268,25 @@ export interface RetrievalProfile {
    * boundary) and threaded to the mention-scan lane.
    */
   cjkSegmentation: boolean;
+  /**
+   * Multilingual Tier 4 (MULTILINGUAL_LANE_ROUTING). When ON, a language-
+   * agnostic nearest-centroid classifier augments the English-regex answer
+   * router for queries it returns null/generic for — a non-English temporal /
+   * enumeration / preference / summary question can still reach its typed
+   * lane. Abstain-safe (low confidence ⇒ the generic path). Off (default) ⇒
+   * the regex router is byte-identical. Resolved here (the one env-reading
+   * module below the boundary) and threaded to the synthesize boundary.
+   */
+  multilingualLaneRouting: boolean;
+  /**
+   * Multilingual Tier 4 (MULTILINGUAL_CONFLICT). When ON, detectEvidenceConflicts
+   * compares NORMALIZED TYPED VALUES (numbers/booleans, digit-script- and
+   * case-folded) instead of surface strings, so cross-lingual VALUE conflicts
+   * on typed slots are caught and cosmetic differences don't false-flag.
+   * Presentation of already-COMPETING facts only — never the write-side
+   * adjudicator. Off (default) ⇒ byte-identical string-equality behavior.
+   */
+  multilingualConflict: boolean;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -636,9 +655,11 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       enumEnv(env, 'RETRIEVAL_COVERAGE_SCAN_MODE', ['brute', 'hnsw'] as const) ?? 'brute',
     coverageLexMode:
       enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms'] as const) ?? 'phrase',
-    // Cross-cutting locale flag (MULTILINGUAL_ family, off the RETRIEVAL_
+    // Cross-cutting locale flags (MULTILINGUAL_ family, off the RETRIEVAL_
     // budget); resolved directly from env here, no genre preset.
     cjkSegmentation: envFlagEnabled(env.MULTILINGUAL_CJK_SEGMENTATION),
+    multilingualLaneRouting: envFlagEnabled(env.MULTILINGUAL_LANE_ROUTING),
+    multilingualConflict: envFlagEnabled(env.MULTILINGUAL_CONFLICT),
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -837,6 +858,8 @@ export function resolveRetrievalProfileFor(
     'assistantLane',
     'factsAsKeys',
     'cjkSegmentation',
+    'multilingualLaneRouting',
+    'multilingualConflict',
   ] as const) {
     if (typeof o[key] === 'boolean') merged[key] = o[key] as boolean;
   }
