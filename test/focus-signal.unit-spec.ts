@@ -10,10 +10,12 @@ import { applyMap } from '../src/ai/calibration/isotonic';
 import {
   buildFocusSignal,
   calibratedConfidence,
+  calibrationKey,
   computeReliability,
   DEFAULT_CLASS,
   fitPerClass,
   MIN_CLASS_SAMPLES,
+  parseCalibrationKey,
   queryClassOf,
   rawFocusConfidence,
   type FocusOutcomeSample,
@@ -186,6 +188,160 @@ describe('fitPerClass + calibratedConfidence', () => {
     const c = calibratedConfidence(cal, temporalSig);
     expect(c).toBeGreaterThanOrEqual(0);
     expect(c).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('hierarchical per-language calibration (Tier 5)', () => {
+  /** Labeled samples for a (class, language, script) cell whose raw→correct
+   *  shape is deliberately DIFFERENT per language so a per-language map is
+   *  distinguishable from the pooled one. `flip` inverts the correctness so
+   *  the ru cell calibrates to the OPPOSITE of the en cell. */
+  function langSamples(
+    queryClass: string,
+    language: string,
+    script: string,
+    n: number,
+    flip = false,
+  ): FocusOutcomeSample[] {
+    const out: FocusOutcomeSample[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = (i + 0.5) / n;
+      const correct = (flip ? p < 0.5 : p > 0.5) ? 1 : 0;
+      out.push({ ...signalWithRaw(p, queryClass), language, script, correct });
+    }
+    return out;
+  }
+
+  it('round-trips a calibration key through encode/decode', () => {
+    expect(parseCalibrationKey(calibrationKey({ queryClass: 'temporal' }))).toEqual({
+      queryClass: 'temporal',
+    });
+    expect(parseCalibrationKey(calibrationKey({ queryClass: 'temporal', language: 'ru' }))).toEqual(
+      { queryClass: 'temporal', language: 'ru' },
+    );
+    expect(parseCalibrationKey(calibrationKey({ queryClass: 'temporal', script: 'Cyrl' }))).toEqual(
+      { queryClass: 'temporal', script: 'Cyrl' },
+    );
+    // A bare key is byte-identical to the plain queryClass string.
+    expect(calibrationKey({ queryClass: 'temporal' })).toBe('temporal');
+  });
+
+  it('OFF (default): language-bearing samples produce NO language keys — byte-identical', () => {
+    const samples = [
+      ...langSamples('temporal', 'ru', 'Cyrl', MIN_CLASS_SAMPLES + 5),
+      ...langSamples('temporal', 'en', 'Latn', MIN_CLASS_SAMPLES + 5),
+    ];
+    const cal = fitPerClass(samples); // no opts ⇒ per-class only
+    // Only bare keys exist — no KEY_SEP-suffixed language/script entries.
+    expect(Object.keys(cal).sort()).toEqual([DEFAULT_CLASS, 'temporal']);
+    // And calibratedConfidence (no opts) ignores language entirely.
+    const ruSig: FocusSignal = {
+      ...signalWithRaw(0.8, 'temporal'),
+      language: 'ru',
+      script: 'Cyrl',
+    };
+    expect(calibratedConfidence(cal, ruSig)).toBeCloseTo(
+      applyMap(cal['temporal']!, rawFocusConfidence(ruSig)),
+      10,
+    );
+  });
+
+  it('ON: fits (class × language) and (class × script) maps above the floor', () => {
+    const samples = [
+      ...langSamples('temporal', 'ru', 'Cyrl', MIN_CLASS_SAMPLES + 5),
+      ...langSamples('temporal', 'en', 'Latn', MIN_CLASS_SAMPLES + 5),
+    ];
+    const cal = fitPerClass(samples, { byLanguage: true });
+    expect(cal[calibrationKey({ queryClass: 'temporal', language: 'ru' })]).toBeDefined();
+    expect(cal[calibrationKey({ queryClass: 'temporal', language: 'en' })]).toBeDefined();
+    expect(cal[calibrationKey({ queryClass: 'temporal', script: 'Cyrl' })]).toBeDefined();
+    expect(cal[calibrationKey({ queryClass: 'temporal', script: 'Latn' })]).toBeDefined();
+    // The bare per-class + global maps still exist.
+    expect(cal['temporal']).toBeDefined();
+    expect(cal[DEFAULT_CLASS]).toBeDefined();
+  });
+
+  it('ON: a sparse language earns NO own map and falls back up the hierarchy', () => {
+    const samples = [
+      ...langSamples('temporal', 'ru', 'Cyrl', MIN_CLASS_SAMPLES + 5),
+      ...langSamples('temporal', 'fr', 'Latn', 5), // below floor
+    ];
+    const cal = fitPerClass(samples, { byLanguage: true });
+    // fr got too few → no (class × fr) map.
+    expect(cal[calibrationKey({ queryClass: 'temporal', language: 'fr' })]).toBeUndefined();
+    // A fr signal resolves down the ladder to (class × Latn) — fr is Latin,
+    // and the Latin script bucket (ru is Cyrl) is exactly the fr samples, so
+    // it may or may not clear the floor; either way it never throws and
+    // returns a value in [0,1].
+    const frSig: FocusSignal = {
+      ...signalWithRaw(0.8, 'temporal'),
+      language: 'fr',
+      script: 'Latn',
+    };
+    const c = calibratedConfidence(cal, frSig, { byLanguage: true });
+    expect(c).toBeGreaterThanOrEqual(0);
+    expect(c).toBeLessThanOrEqual(1);
+  });
+
+  it('ON: calibratedConfidence prefers language → script → class → default', () => {
+    // ru calibrates OPPOSITE to en so the per-language map is observably chosen.
+    const samples = [
+      ...langSamples('temporal', 'ru', 'Cyrl', MIN_CLASS_SAMPLES + 20, true),
+      ...langSamples('temporal', 'en', 'Latn', MIN_CLASS_SAMPLES + 20, false),
+    ];
+    const cal = fitPerClass(samples, { byLanguage: true });
+
+    const ruSig: FocusSignal = {
+      ...signalWithRaw(0.8, 'temporal'),
+      language: 'ru',
+      script: 'Cyrl',
+    };
+    // The (class × ru) map is the FIRST tier and must be the one applied.
+    expect(calibratedConfidence(cal, ruSig, { byLanguage: true })).toBeCloseTo(
+      applyMap(
+        cal[calibrationKey({ queryClass: 'temporal', language: 'ru' })]!,
+        rawFocusConfidence(ruSig),
+      ),
+      10,
+    );
+
+    // A language with no own map but a known script → the (class × script) tier.
+    const cyrlOnly: FocusSignal = {
+      ...signalWithRaw(0.8, 'temporal'),
+      language: 'uk', // no (temporal × uk) map fitted
+      script: 'Cyrl',
+    };
+    expect(calibratedConfidence(cal, cyrlOnly, { byLanguage: true })).toBeCloseTo(
+      applyMap(
+        cal[calibrationKey({ queryClass: 'temporal', script: 'Cyrl' })]!,
+        rawFocusConfidence(cyrlOnly),
+      ),
+      10,
+    );
+
+    // No language/script on the signal → the plain per-class map (tier 3).
+    const bare: FocusSignal = signalWithRaw(0.8, 'temporal');
+    expect(calibratedConfidence(cal, bare, { byLanguage: true })).toBeCloseTo(
+      applyMap(cal['temporal']!, rawFocusConfidence(bare)),
+      10,
+    );
+  });
+
+  it('ON without any fitted language maps is byte-identical to the per-class path', () => {
+    // Samples carry NO language ⇒ byLanguage produces no language keys, so the
+    // hierarchical lookup falls straight through to the per-class map.
+    const samples: FocusOutcomeSample[] = [];
+    for (let i = 0; i < MIN_CLASS_SAMPLES + 5; i++) {
+      const p = (i + 0.5) / (MIN_CLASS_SAMPLES + 5);
+      samples.push({ ...signalWithRaw(p, 'temporal'), correct: p > 0.5 ? 1 : 0 });
+    }
+    const calOn = fitPerClass(samples, { byLanguage: true });
+    const calOff = fitPerClass(samples);
+    expect(Object.keys(calOn).sort()).toEqual(Object.keys(calOff).sort());
+    const sig = signalWithRaw(0.7, 'temporal');
+    expect(calibratedConfidence(calOn, sig, { byLanguage: true })).toBe(
+      calibratedConfidence(calOff, sig),
+    );
   });
 });
 

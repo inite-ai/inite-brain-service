@@ -79,6 +79,18 @@ export interface FocusSignal {
    *  gap means the top hit stands out (a distinctive, confident retrieval);
    *  a flat distribution (small gap) means ambiguous evidence. In [0,1]. */
   retrievalGap: number;
+  /**
+   * Multilingual Tier 5 (MULTILINGUAL_CALIBRATION, migration 0103). The
+   * detected QUERY language (ISO 639-1) and script (ISO 15924) the sample
+   * was captured under — the language key of the hierarchical calibrator
+   * (see `calibrationKey` / `fitPerClass` / `calibratedConfidence`).
+   * UNDEFINED ⇒ the sample belongs to the global per-class pool (the
+   * pre-Tier-5 population); the whole language dimension is consulted only
+   * when the caller opts in via the `byLanguage` option, so an undefined
+   * pair is byte-identical to the per-class-only behaviour.
+   */
+  language?: string | undefined;
+  script?: string | undefined;
 }
 
 /** A captured signal paired with its observed outcome (1 = the answer was
@@ -105,6 +117,56 @@ export const MIN_CLASS_SAMPLES = 30;
 
 /** The shared/fallback calibration-class key. */
 export const DEFAULT_CLASS = 'default';
+
+// ── Hierarchical calibration key (multilingual Tier 5) ─────────────
+//
+// The per-class calibration Record is keyed by a single string so it can
+// keep reusing ONE flat `Record<string, CalibrationMap>` and the ONE PAV
+// primitive — no parallel calibrator. A bare `queryClass` is the global
+// per-class key (byte-identical to pre-Tier-5). The language and script
+// dimensions are encoded as suffixes on that same key, so the whole
+// exact→family→global hierarchy lives in the same Record and persists
+// through the same versioned-row path (the migration 0103 language/script
+// columns are just the decoded parts of the key). The separator is the
+// ASCII unit separator (control U+001F) — never present in a LaneId (the
+// only queryClass source) nor in an ISO 639-1 / 15924 code.
+const KEY_SEP = String.fromCharCode(0x1f);
+const LANG_TAG = 'lang=';
+const SCRIPT_TAG = 'script=';
+
+/** The decoded parts of a calibration key. */
+export interface CalibrationKeyParts {
+  queryClass: string;
+  /** ISO 639-1 language — the (class × language) tier. */
+  language?: string | undefined;
+  /** ISO 15924 script — the (class × script/family) tier. */
+  script?: string | undefined;
+}
+
+/**
+ * Encode a calibration key. `language` takes precedence over `script` (a
+ * key names exactly ONE tier); a bare queryClass (both absent) is the
+ * global per-class key, encoded exactly as the queryClass string so it is
+ * byte-identical to the pre-Tier-5 key.
+ */
+export function calibrationKey(parts: CalibrationKeyParts): string {
+  if (parts.language) return `${parts.queryClass}${KEY_SEP}${LANG_TAG}${parts.language}`;
+  if (parts.script) return `${parts.queryClass}${KEY_SEP}${SCRIPT_TAG}${parts.script}`;
+  return parts.queryClass;
+}
+
+/** Inverse of `calibrationKey` — split a stored key back into its parts so
+ *  the persistence layer can write the (queryClass, language, script)
+ *  columns (migration 0103). A bare key → { queryClass }. */
+export function parseCalibrationKey(key: string): CalibrationKeyParts {
+  const sep = key.indexOf(KEY_SEP);
+  if (sep === -1) return { queryClass: key };
+  const queryClass = key.slice(0, sep);
+  const tail = key.slice(sep + KEY_SEP.length);
+  if (tail.startsWith(LANG_TAG)) return { queryClass, language: tail.slice(LANG_TAG.length) };
+  if (tail.startsWith(SCRIPT_TAG)) return { queryClass, script: tail.slice(SCRIPT_TAG.length) };
+  return { queryClass };
+}
 
 // ── Raw signal ─────────────────────────────────────────────────────
 
@@ -195,6 +257,22 @@ export function queryClassOf(laneId: LaneId | null | undefined): string {
 // ── Per-class calibration (reuses isotonic.ts) ─────────────────────
 
 /**
+ * Fit options. `byLanguage` (multilingual Tier 5, MULTILINGUAL_CALIBRATION)
+ * additionally fits the hierarchical (class × language) and (class × script)
+ * tiers; OFF (default) ⇒ the per-class-only fit, byte-identical to pre-Tier-5.
+ */
+export interface FitOptions {
+  byLanguage?: boolean | undefined;
+}
+
+/** Accumulate a labeled sample into a keyed bucket map. */
+function pushPair(buckets: Map<string, CalibrationPair[]>, key: string, pair: CalibrationPair) {
+  const bucket = buckets.get(key);
+  if (bucket) bucket.push(pair);
+  else buckets.set(key, [pair]);
+}
+
+/**
  * Fit one isotonic calibration map per query-class from labeled samples,
  * mapping rawFocusConfidence → P(correct). Grouping is by `queryClass`.
  *
@@ -207,10 +285,23 @@ export function queryClassOf(laneId: LaneId | null | undefined): string {
  *     to 'default'. A missed per-class fit therefore degrades to the pooled
  *     prior, never to nothing.
  *
+ * Multilingual Tier 5 (`opts.byLanguage`): ALSO fit a (class × language) and
+ * a (class × script) map for every populated (class, language) / (class,
+ * script) bucket that clears the SAME MIN_CLASS_SAMPLES floor — so a sparse
+ * language never earns a noisy per-language calibrator and falls back up the
+ * hierarchy (`calibratedConfidence`). These extra maps are keyed with
+ * `calibrationKey`; the per-class and global maps keep their bare keys, so
+ * with the option OFF the output is byte-identical.
+ *
  * Reuses `fitIsotonic` (the PAV primitive) throughout — no new regression.
  */
-export function fitPerClass(samples: readonly FocusOutcomeSample[]): PerClassCalibration {
+export function fitPerClass(
+  samples: readonly FocusOutcomeSample[],
+  opts: FitOptions = {},
+): PerClassCalibration {
   const byClass = new Map<string, CalibrationPair[]>();
+  const byLang = new Map<string, CalibrationPair[]>();
+  const byScript = new Map<string, CalibrationPair[]>();
   const all: CalibrationPair[] = [];
   for (const s of samples) {
     const pair: CalibrationPair = {
@@ -218,27 +309,70 @@ export function fitPerClass(samples: readonly FocusOutcomeSample[]): PerClassCal
       correctness: s.correct,
     };
     all.push(pair);
-    const bucket = byClass.get(s.queryClass);
-    if (bucket) bucket.push(pair);
-    else byClass.set(s.queryClass, [pair]);
+    pushPair(byClass, s.queryClass, pair);
+    if (opts.byLanguage) {
+      if (s.language)
+        pushPair(byLang, calibrationKey({ queryClass: s.queryClass, language: s.language }), pair);
+      if (s.script)
+        pushPair(byScript, calibrationKey({ queryClass: s.queryClass, script: s.script }), pair);
+    }
   }
   const out: PerClassCalibration = { [DEFAULT_CLASS]: fitIsotonic(all) };
   for (const [cls, pairs] of byClass) {
     if (cls === DEFAULT_CLASS) continue; // the shared map already covers it
     if (pairs.length >= MIN_CLASS_SAMPLES) out[cls] = fitIsotonic(pairs);
   }
+  // Tier 5 hierarchical tiers — same min-sample floor; keys never collide
+  // with the bare per-class keys above (they carry the KEY_SEP suffix).
+  for (const [key, pairs] of byLang) {
+    if (pairs.length >= MIN_CLASS_SAMPLES) out[key] = fitIsotonic(pairs);
+  }
+  for (const [key, pairs] of byScript) {
+    if (pairs.length >= MIN_CLASS_SAMPLES) out[key] = fitIsotonic(pairs);
+  }
   return out;
 }
 
 /**
- * Apply the calibrated map for a signal's class to its raw confidence.
- * Uses the class's own map when present, else the shared 'default' map,
- * else (empty calibration) the raw value unchanged.
+ * Apply the calibrated map for a signal to its raw confidence.
+ *
+ * Per-class only (default): the class's own map when present, else the shared
+ * 'default' map, else (empty calibration) the raw value unchanged.
+ *
+ * Multilingual Tier 5 (`opts.byLanguage`): a HIERARCHICAL fallback — exact
+ * (class × language) → (class × script/family) → (class) → 'default' → raw.
+ * The first tier that has a fitted map wins, so a well-sampled language uses
+ * its own calibrator and a sparse one degrades up the ladder to the pooled
+ * prior. With the option OFF the language/script tiers are never consulted,
+ * so the lookup is byte-identical to the per-class-only path.
  */
-export function calibratedConfidence(cal: PerClassCalibration, sig: FocusSignal): number {
+export function calibratedConfidence(
+  cal: PerClassCalibration,
+  sig: FocusSignal,
+  opts: FitOptions = {},
+): number {
   const raw = rawFocusConfidence(sig);
-  const map = cal[sig.queryClass] ?? cal[DEFAULT_CLASS];
+  const map = resolveCalibrationMap(cal, sig, opts);
   return map ? applyMap(map, raw) : raw;
+}
+
+/** The map a signal resolves to under the hierarchy (or undefined). */
+function resolveCalibrationMap(
+  cal: PerClassCalibration,
+  sig: FocusSignal,
+  opts: FitOptions,
+): CalibrationMap | undefined {
+  if (opts.byLanguage) {
+    if (sig.language) {
+      const m = cal[calibrationKey({ queryClass: sig.queryClass, language: sig.language })];
+      if (m) return m;
+    }
+    if (sig.script) {
+      const m = cal[calibrationKey({ queryClass: sig.queryClass, script: sig.script })];
+      if (m) return m;
+    }
+  }
+  return cal[sig.queryClass] ?? cal[DEFAULT_CLASS];
 }
 
 /**

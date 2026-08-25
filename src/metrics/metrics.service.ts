@@ -630,6 +630,12 @@ export class MetricsService implements OnModuleInit {
       // V13 constrained search loop: the one refine round ran (the
       // final outcome is still counted separately by the exits above).
       | 'search_loop_refined'
+      // Multilingual Tier 5 (answer-language guard): an output-language
+      // mismatch triggered the ONE corrective regeneration.
+      | 'answer_lang_retry'
+      // Tier 5: the answer was STILL not in the target language after that
+      // retry (the bounded "then flag" — served best-effort).
+      | 'answer_lang_unresolved'
       | 'verifier_error',
   ): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);

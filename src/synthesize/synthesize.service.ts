@@ -16,17 +16,17 @@ import { coverageAbstention, finalizeVerdict, unverifiedReturn } from './verdict
 import type { AbstainAdaptiveGate } from './verdict';
 import {
   attachDecisionLog,
+  buildGeneratorArgs,
   buildSecondaryDto,
-  evidenceConflicts,
+  enforceAnswerLanguage,
   resolveAnswerFrames,
   resolveAnswerLang,
   resolveCitations,
-  resolveLaneDateContext,
   resolveRoutedLane,
   serveCacheHit,
   verifierErrorResult,
 } from './synthesize.helpers';
-import { resolvePromptFrames, wantsTimelineEvidence } from './evidence-gates';
+import { wantsTimelineEvidence } from './evidence-gates';
 import { applyEvidenceUnion } from './evidence-union';
 import { laneProbeDto, type LaneId } from './answer-router';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
@@ -267,12 +267,11 @@ export class SynthesizeService {
     let { results, factIndex } = prepared;
 
     // V9 §4 coverage abstention + Optics §4.2 pre-answer capture/gate (seam).
-    const abstained = await this.maybeCoverageAbstain(companyId, lane, {
-      profile,
-      guardrails,
-      results,
-      explain,
-    });
+    const abstained = await this.maybeCoverageAbstain(
+      companyId,
+      { lane, query: dto.query },
+      { profile, guardrails, results, explain },
+    );
     if (abstained) return abstained;
 
     // Every non-fact prompt section — transcript quotes, insights,
@@ -318,15 +317,11 @@ export class SynthesizeService {
     const shapeInstruction = frames.shapeInstruction;
     let dateMathLines = frames.dateMathLines;
 
-    // Phase 4.C — resolve the answer language. Explicit DTO wins;
-    // otherwise we detect from the query (so a Russian question gets
-    // a Russian answer by default without the caller having to opt in).
-    const answerLang = resolveAnswerLang(dto);
+    // Phase 4.C answer language; Tier 5 (profile.answerLangGuard) applies the
+    // strict fallback order so the facts never decide it (off ⇒ byte-identical).
+    const answerLang = resolveAnswerLang(dto, profile);
 
-    onProgress({
-      stage: 'generate',
-      message: `LLM grounding answer over ${factIndex.size} facts`,
-    });
+    onProgress({ stage: 'generate', message: `LLM grounding answer over ${factIndex.size} facts` });
     // Generation + the V13 constrained refine round, one seam: a
     // 'failed' result is the generator_error early-return; otherwise
     // the tuple is whichever round answered last.
@@ -446,7 +441,12 @@ export class SynthesizeService {
     }
 
     // Optics-1 focus capture — SERVING-NEUTRAL guarded no-op (see method).
-    await this.maybeCaptureFocusSignal(companyId, { results, verdict: verdict.verdict, lane });
+    // `dto.query` carries the Tier 5 language key onto the verdict sample.
+    await this.maybeCaptureFocusSignal(
+      companyId,
+      { results, verdict: verdict.verdict, lane },
+      dto.query,
+    );
 
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
     // an anchoring session it escalates ONCE to full-raw-session context
@@ -496,9 +496,10 @@ export class SynthesizeService {
   private async maybeCaptureFocusSignal(
     companyId: string,
     signal: { results: SearchHit[]; verdict: FocusVerdict; lane: LaneId | null },
+    query: string,
   ): Promise<void> {
     if (!this.focusSignal || !FocusSignalService.captureEnabled()) return;
-    await this.focusSignal.maybeCapture(companyId, signal);
+    await this.focusSignal.maybeCapture(companyId, { ...signal, query });
   }
 
   /**
@@ -727,49 +728,22 @@ export class SynthesizeService {
         refined: boolean;
       }
   > {
-    const { profile, dto, collected } = args;
+    const { profile } = args;
     let generated: GeneratorOutput;
     try {
       generated = await withSpan(
         'synthesize.generate',
         () =>
           this.limiter.run(() =>
-            this.callGenerator({
-              query: dto.query,
-              factLines: args.promptFactLines,
-              transcriptLines: collected.transcriptLines,
-              insightLines: collected.insightLines,
-              timelineEvidence: collected.timelineEvidence,
-              // V10 frame switches — resolved once by the kernel
-              // (evidence-gates.resolvePromptFrames), not inline.
-              ...resolvePromptFrames(profile, collected.timelineEvidence),
-              model: args.model,
-              answerLang: args.answerLang,
-              neverAbstain: args.guardrails === 'answer',
-              // Date context (SYNTHESIZE_DATE_CONTEXT): anchor "today"
-              // for the generator so relative/when questions resolve
-              // against the facts' date stamps instead of guessing.
-              // The temporal lane FORCES the anchor from asOf even when
-              // the profile disables anchoring — elapsed annotations are
-              // meaningless without a stated "today".
-              dateContext: resolveLaneDateContext(profile, args.lane, dto.asOf),
-              lane: args.lane,
-              // §8 item 3: enumeration scope discipline.
-              enumStrict: profile.enumStrict,
-              // T7: standing instructions in their own section.
-              instructions: collected.instructions,
-              // T3: evidence-conditional — fires on write-side COMPETING
-              // facts regardless of what the question looks like.
-              conflicts: evidenceConflicts(args.results, profile),
-              dateMathLines: args.dateMathLines,
-              shapeInstruction: args.shapeInstruction,
-              // G4 strategy lane: advisory notes, GENERATOR-ONLY — the
-              // documented exception to the W5 #22 evidence-parity
-              // invariant (advice, not evidence; see verifier.ts).
-              strategyNotes: collected.strategyNotes,
-              // V13 search loop: round 1 exposes the refine affordance.
-              allowRefine: profile.searchLoop,
-            }),
+            this.callGenerator(
+              // Round 1 exposes the V13 refine affordance (allowRefine).
+              buildGeneratorArgs(args, {
+                results: args.results,
+                promptFactLines: args.promptFactLines,
+                dateMathLines: args.dateMathLines,
+                allowRefine: profile.searchLoop,
+              }),
+            ),
           ),
         { 'synthesize.facts': args.factIndex.size },
       );
@@ -789,7 +763,7 @@ export class SynthesizeService {
       };
     }
     const second = await this.refineRound({ ...args, generated });
-    return second
+    const round = second
       ? { ...second, refined: true }
       : {
           results: args.results,
@@ -799,6 +773,26 @@ export class SynthesizeService {
           generated,
           refined: false,
         };
+    // Tier 5 answer-language guard — no-op unless on AND the final answer's
+    // language mismatches; then the corrected regeneration replaces `generated`.
+    const corrected = await enforceAnswerLanguage(
+      { metrics: this.metrics, logger: this.logger },
+      { guard: profile.answerLangGuard, target: args.answerLang, answer: round.generated.answer },
+      () =>
+        withSpan('synthesize.generate_lang_retry', () =>
+          this.limiter.run(() =>
+            this.callGenerator(
+              buildGeneratorArgs(args, {
+                results: round.results,
+                promptFactLines: round.promptFactLines,
+                dateMathLines: round.dateMathLines,
+                answerLangStrict: true,
+              }),
+            ),
+          ),
+        ),
+    );
+    return corrected ? { ...round, generated: corrected } : round;
   }
 
   /**
@@ -842,7 +836,7 @@ export class SynthesizeService {
     dateMathLines?: string[] | undefined;
     generated: GeneratorOutput;
   } | null> {
-    const { profile, dto, collected } = args;
+    const { profile, dto } = args;
     const refineQuery = args.generated.refineQuery?.trim();
     if (!profile.searchLoop || !refineQuery || refineQuery === dto.query) return null;
     try {
@@ -866,25 +860,10 @@ export class SynthesizeService {
       const dateMathLines = profile.dateMath ? buildDateMathLines(prepared.results) : undefined;
       const generated = await withSpan('synthesize.generate_refined', () =>
         this.limiter.run(() =>
-          this.callGenerator({
-            query: dto.query,
-            factLines: promptFactLines,
-            transcriptLines: collected.transcriptLines,
-            insightLines: collected.insightLines,
-            timelineEvidence: collected.timelineEvidence,
-            ...resolvePromptFrames(profile, collected.timelineEvidence),
-            model: args.model,
-            answerLang: args.answerLang,
-            neverAbstain: args.guardrails === 'answer',
-            dateContext: resolveLaneDateContext(profile, args.lane, dto.asOf),
-            lane: args.lane,
-            enumStrict: profile.enumStrict,
-            instructions: collected.instructions,
-            conflicts: evidenceConflicts(prepared.results, profile),
-            dateMathLines,
-            shapeInstruction: args.shapeInstruction,
-            strategyNotes: collected.strategyNotes,
-          }),
+          // The round-2 call omits allowRefine — the one-round cap is structural.
+          this.callGenerator(
+            buildGeneratorArgs(args, { results: prepared.results, promptFactLines, dateMathLines }),
+          ),
         ),
       );
       this.metrics?.countSynthesize('search_loop_refined');
@@ -931,9 +910,10 @@ export class SynthesizeService {
    */
   private async maybeCoverageAbstain(
     companyId: string,
-    lane: LaneId | null,
+    ctx: { lane: LaneId | null; query: string },
     args: Parameters<typeof coverageAbstention>[1],
   ): Promise<SynthesizeResult | null> {
+    const { lane, query } = ctx;
     const { profile, guardrails, results } = args;
     // The pre-answer focus capture + the adaptive gate BOTH apply only in the
     // regime where coverage-abstention actually runs (coverage mode, strict/
@@ -945,9 +925,10 @@ export class SynthesizeService {
       profile.abstentionCalibration === 'coverage' &&
       (guardrails === 'strict' || guardrails === 'lenient');
     if (coverageRegime && this.focusSignal && FocusSignalService.captureEnabled()) {
+      // `query` threads the Tier 5 language key into the pre-answer sample.
       await this.focusSignal.maybeCapture(
         companyId,
-        { results, verdict: 'none', lane },
+        { results, verdict: 'none', lane, query },
         'preanswer',
       );
     }

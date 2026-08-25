@@ -153,3 +153,21 @@ export function plausibilityCheckEnabled(): boolean {
 export function requireCitationsEnabled(): boolean {
   return envFlagEnabled(process.env.FOVEA_REQUIRE_CITATIONS);
 }
+
+/**
+ * Multilingual Tier 5 master flag — MULTILINGUAL_CALIBRATION.
+ *
+ * When on, the §4.2 per-class focus calibrator (focus-signal.ts) gains a
+ * hierarchical LANGUAGE key: it fits + applies (class × language) →
+ * (class × script/family) → (class) → 'default' maps, and the focus-signal
+ * capture path records the detected query language/script on each sample
+ * (migration 0103 columns). The env read lives here in the common layer,
+ * NOT inside the engine dirs (engine-gates S5.2), and is read at fit / load
+ * time so a flip is runtime-mutable. Default off ⇒ the language dimension is
+ * never written or consulted and the global per-class calibration is
+ * BYTE-IDENTICAL to pre-Tier-5. Serving-neutral like the rest of the focus
+ * surface (nothing on the answer path reads the calibration yet).
+ */
+export function multilingualCalibrationEnabled(): boolean {
+  return envFlagEnabled(process.env.MULTILINGUAL_CALIBRATION);
+}

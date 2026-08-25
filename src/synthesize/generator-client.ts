@@ -65,6 +65,9 @@ export interface GenerateRequest {
   arcInsights?: boolean | undefined;
   model: string;
   answerLang: string | null;
+  /** Tier 5: reinforce the language directive on the corrective regeneration
+   *  after an output-language mismatch (answer-language guard). */
+  answerLangStrict?: boolean | undefined;
   neverAbstain?: boolean | undefined;
   /** ISO date the answer should treat as "today" (SYNTHESIZE_DATE_CONTEXT). */
   dateContext?: string | undefined;
