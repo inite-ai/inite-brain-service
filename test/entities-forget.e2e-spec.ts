@@ -326,8 +326,7 @@ describe('POST /v1/entities/:id/forget — GDPR cascade', () => {
     // The transaction's final `CREATE forgotten_entity` hits the UNIQUE
     // index on entityIdHash and aborts the transaction — the DELETEs that
     // ran earlier in the same transaction must roll back.
-    const key =
-      f.app.get(ConfigService).get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
+    const key = f.app.get(ConfigService).get<string>('FORGET_HMAC_KEY') ?? 'inite-brain-default';
     const hash =
       'hmac:' + createHmac('sha256', key).update(`${f.companyId}/${entityId}`).digest('hex');
     await surreal.withCompany(f.companyId, async (db) => {
