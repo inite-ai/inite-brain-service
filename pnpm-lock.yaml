@@ -93,8 +93,8 @@ importers:
         specifier: ^8.3.0
         version: 8.3.0
       jose:
-        specifier: ^5.10.0
-        version: 5.10.0
+        specifier: ^6.2.10
+        version: 6.2.10
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
@@ -2789,6 +2789,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -3514,11 +3515,8 @@ packages:
       node-notifier:
         optional: true
 
-  jose@5.10.0:
-    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
-
-  jose@6.2.3:
-    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
+  jose@6.2.10:
+    resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
 
   js-tiktoken@1.0.21:
     resolution: {integrity: sha512-biOj/6M5qdgx5TKjDnFT1ymSpM5tbd3ylwDtrQvFQSu0Z7bBYko2dF+W/aUkXUPuk6IVpRxk/3Q2sHOzGlS36g==}
@@ -5742,7 +5740,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.5.0(express@5.2.1)
       hono: 4.13.1
-      jose: 6.2.3
+      jose: 6.2.10
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -8939,9 +8937,7 @@ snapshots:
       - supports-color
       - ts-node
 
-  jose@5.10.0: {}
-
-  jose@6.2.3: {}
+  jose@6.2.10: {}
 
   js-tiktoken@1.0.21:
     dependencies:
